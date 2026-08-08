@@ -8,15 +8,16 @@ const SRC = {
 
 const DUE = {
     none: { color: 'transparent', text: 'color-mix(in srgb, var(--color-text) 52%, transparent)', edge: 'transparent', tint: 0 },
-    soon: { color: '#b5abfc', text: 'color-mix(in srgb, var(--color-text) 60%, transparent)', edge: 'transparent', tint: 0 },
+    soon: { color: 'var(--color-accent-700)', text: 'color-mix(in srgb, var(--color-text) 60%, transparent)', edge: 'transparent', tint: 0 },
     due: { color: '#c98a4b', text: '#8f5b23', edge: 'color-mix(in srgb, #c98a4b 45%, transparent)', tint: 16, hue: '#e0a462' },
     over: { color: '#bf5d55', text: '#94322b', edge: 'color-mix(in srgb, #bf5d55 50%, transparent)', tint: 18, hue: '#d97a72' },
 };
 
+// slug picks the page-wide color theme (body[data-ws] in styles.css); tint matches that theme's accent.
 const WS = [
-    { name: 'Work', tint: '#6f62b5', sources: 'work Gmail, company Slack, work Notion' },
-    { name: 'Atlas Copco', tint: '#4c5397', sources: 'Slack Connect, project Notion, WhatsApp' },
-    { name: 'Personal', tint: '#75798c', sources: 'personal Gmail, WhatsApp' },
+    { name: 'Work', slug: 'work', tint: '#6f62b5', sources: 'work Gmail, company Slack, work Notion' },
+    { name: 'Atlas Copco', slug: 'atlas', tint: '#3a72c8', sources: 'Slack Connect, project Notion, WhatsApp' },
+    { name: 'Personal', slug: 'personal', tint: '#c06a45', sources: 'personal Gmail, WhatsApp' },
 ];
 
 const PAGES = ['Today', 'Dormant projects', 'Reading'];
@@ -73,7 +74,7 @@ const ITEMS = [
 ];
 
 const NOTES = [
-    { tag: 'Assumption · §3.1', text: 'Workspace → Page → Panel is the whole hierarchy — no separate "views". A workspace scopes which sources are connected; its color is a line at the top edge, not a wash.' },
+    { tag: 'Assumption · §3.1', text: 'Workspace → Page → Panel is the whole hierarchy, no separate "views". A workspace scopes which sources are connected, and its color themes the whole page (background, surfaces, accent) so you always know where you are.' },
     { tag: 'Assumption · §5.1', text: 'Every panel is one thing: a list of actions on a topic — a project, the board, technical debt, a person. Each row is a next action with the source it came from, never a message preview.' },
     { tag: 'Sources', text: 'Actions arrive from Mail, Slack, Notion, WhatsApp, or are created here. The icon and its tint carry the source; the row carries the action.' },
     { tag: 'Assumption · §4.1', text: 'Hybrid routing: the inbox is the default, channel rules route obvious items straight into a panel with an unseen dot (see the auto-routed Atlas Copco row).' },
@@ -618,6 +619,7 @@ function toastHtml() {
 }
 
 function render() {
+    document.documentElement.dataset.ws = WS[state.ws].slug;
     const mobile = isMobile();
     const isDash = state.screen === 'dash';
     let body;
