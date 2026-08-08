@@ -211,6 +211,25 @@ function fileSheet(id) {
     });
 }
 
+function moveSheet(id) {
+    const it = state.items.find((i) => i.id === id) || {};
+    const panels = PANELS.concat(state.extra).filter((p) => !state.removed[p.key] && p.key !== it.panel);
+
+    sheetActions = panels.map((p) => () => {
+        state.sheet = null;
+        state.items = state.items.map((i) => (i.id === id ? { ...i, status: i.status === 'inbox' ? 'task' : i.status, panel: p.key } : i));
+        setState({ sel: state.sel === id ? null : state.sel });
+        flash(`Moved into “${p.title}”`);
+    });
+    setState({
+        sheet: {
+            title: 'Move to a panel',
+            body: `Where should “${it.action || 'this action'}” live?`,
+            options: panels.map((p) => ({ name: p.title, note: p.rule })),
+        },
+    });
+}
+
 function returnSheet() {
     const id = state.sel;
     const options = [
@@ -288,7 +307,7 @@ function mkPanel(p) {
     const cards = (p.key === 'inbox'
         ? inboxItems()
         : state.items.filter((i) => i.panel === p.key && i.status !== 'done' && i.status !== 'dismissed' && i.status !== 'inbox')
-    ).map(cardData);
+    ).map((i) => ({ ...cardData(i), swipe: true }));
 
     return {
         ...p,
@@ -346,7 +365,7 @@ function headerHtml() {
 
 function triageRowHtml(c) {
     return `
-    <div data-act="item:open" data-id="${c.id}" style="display:flex;gap:11px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-md);cursor:pointer;background:${c.rowBg};box-shadow:inset 0 0 0 1px ${c.rowEdge};border-left:4px solid ${c.dueColor}">
+    <div data-act="item:open" data-swipe-row data-id="${c.id}" style="display:flex;gap:11px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-md);cursor:pointer;background:${c.rowBg};box-shadow:inset 0 0 0 1px ${c.rowEdge};border-left:4px solid ${c.dueColor};touch-action:pan-y;user-select:none;-webkit-user-select:none">
         ${srcPillHtml(c, '10px')}
         <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
             <div style="display:flex;align-items:baseline;gap:7px;min-width:0">
@@ -404,7 +423,7 @@ function swipeHtml() {
             <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:${muted(45)}">
                 <span data-swipe-hint-left style="color:${muted(45)}">◀ dismiss</span>
                 <button class="btn btn-ghost" data-act="item:open" data-id="${c.id}" style="font-size:11.5px">Open</button>
-                <span data-swipe-hint-right style="color:${muted(45)}">file ▶</span>
+                <span data-swipe-hint-right style="color:${muted(45)}">move ▶</span>
             </div>
             ${active ? `<div data-swipe-layer data-id="${c.id}" style="position:absolute;inset:0;border-radius:var(--radius-lg);cursor:grab;touch-action:pan-y"></div>` : ''}
         </div>`;
@@ -430,7 +449,7 @@ function swipeHtml() {
 
 function panelCardHtml(c) {
     return `
-    <div data-act="item:open" data-id="${c.id}" style="display:flex;gap:9px;align-items:flex-start;padding:8px 9px;border-radius:var(--radius-sm);cursor:pointer;background:${c.bg};box-shadow:inset 0 0 0 1px ${c.edge};border-left:4px solid ${c.dueColor}">
+    <div data-act="item:open" ${c.swipe ? 'data-swipe-row' : ''} data-id="${c.id}" style="display:flex;gap:9px;align-items:flex-start;padding:8px 9px;border-radius:var(--radius-sm);cursor:pointer;background:${c.bg};box-shadow:inset 0 0 0 1px ${c.edge};border-left:4px solid ${c.dueColor}${c.swipe ? ';touch-action:pan-y;user-select:none;-webkit-user-select:none' : ''}">
         ${srcPillHtml(c, '9px')}
         <span style="flex:1;min-width:0;font-size:12.5px;line-height:1.35;text-wrap:pretty">${esc(c.action)}</span>
         ${c.waiting ? '<span class="tag tag-accent" style="flex:none;font-size:9.5px;padding:1px 6px">Waiting</span>' : ''}
@@ -640,6 +659,7 @@ function render() {
 
     bindDraftInput();
     bindSwipe();
+    bindRowSwipes();
 }
 
 function bindDraftInput() {
@@ -690,7 +710,7 @@ function bindSwipe() {
             process('dismissed', id);
         } else if (drag > 70) {
             cardEl.style.transform = '';
-            fileSheet(id);
+            moveSheet(id);
         } else if (Math.abs(drag) < 6) {
             // The drag layer sits above the whole card, so a plain tap opens the item.
             openItem(id);
@@ -704,7 +724,93 @@ function bindSwipe() {
     });
 }
 
+let rowSwipedAt = 0;
+
+function bindRowSwipes() {
+    document.querySelectorAll('[data-swipe-row]').forEach((row) => {
+        const id = row.dataset.id;
+        let x0 = 0;
+        let y0 = 0;
+        let drag = 0;
+        let active = false;
+        let horizontal = false;
+
+        const reset = () => {
+            row.style.transform = '';
+            row.style.opacity = '';
+            row.style.transition = '';
+        };
+
+        row.addEventListener('dragstart', (e) => e.preventDefault());
+
+        row.addEventListener('pointerdown', (e) => {
+            x0 = e.clientX;
+            y0 = e.clientY;
+            drag = 0;
+            active = true;
+            horizontal = false;
+        });
+
+        row.addEventListener('pointermove', (e) => {
+            if (!active) {
+                return;
+            }
+
+            const dx = e.clientX - x0;
+            const dy = e.clientY - y0;
+            if (!horizontal) {
+                if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy)) {
+                    horizontal = true;
+                    row.setPointerCapture(e.pointerId);
+                    row.style.transition = 'none';
+                } else {
+                    if (Math.abs(dy) > 16 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+                        active = false;
+                    }
+                    return;
+                }
+            }
+
+            drag = dx;
+            row.style.transform = `translateX(${drag}px)`;
+            row.style.opacity = drag < 0 ? String(Math.max(0.35, 1 + drag / 280)) : '1';
+        });
+
+        const finish = () => {
+            if (!active) {
+                return;
+            }
+
+            active = false;
+            if (horizontal && Math.abs(drag) > 6) {
+                rowSwipedAt = Date.now();
+            }
+
+            if (drag < -60) {
+                row.style.transition = 'transform .15s ease-out, opacity .15s ease-out';
+                row.style.transform = 'translateX(-110%)';
+                row.style.opacity = '0';
+                setTimeout(() => process('dismissed', id), 150);
+            } else if (drag > 60) {
+                reset();
+                moveSheet(id);
+            } else {
+                reset();
+            }
+
+            drag = 0;
+        };
+
+        row.addEventListener('pointerup', finish);
+        row.addEventListener('pointercancel', finish);
+    });
+}
+
 app.addEventListener('click', (e) => {
+    if (Date.now() - rowSwipedAt < 350) {
+        return;
+    }
+
     const el = e.target.closest('[data-act]');
     if (!el) {
         return;
