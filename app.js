@@ -79,6 +79,7 @@ const NOTES = [
     { tag: 'Assumption · §4.1', text: 'Hybrid routing: the inbox is the default, channel rules route obvious items straight into a panel with an unseen dot (see the auto-routed Atlas Copco row).' },
     { tag: 'Open · §11.3', text: 'Swipe-right is modelled as "file into a panel" with the attach-and-monitor scope prompt (thread / conversation / channel). Try it on a narrow window or your phone.' },
     { tag: 'Open · §11.10', text: 'Round-trip is prompt-on-return: opening the source raises "Handled?" → Done / Waiting / Still to do, and Waiting rewrites the next-action line.' },
+    { tag: 'Interaction', text: 'Single click on a row opens the edit page here. Double click jumps straight to the source — the Slack thread, Gmail email, Notion page or WhatsApp chat (simulated in this prototype). Own actions have no external source, so both open the edit page.' },
     { tag: 'Open · §11.1', text: 'Read-only sync assumed — nothing here mutates Gmail, Slack or WhatsApp.' },
 ];
 
@@ -146,6 +147,30 @@ function selected() {
 function openItem(id) {
     const it = state.items.find((i) => i.id === id);
     setState({ sel: id, draft: it ? it.action : '' });
+}
+
+let pendingOpen = null;
+
+function openItemSoon(id) {
+    clearTimeout(pendingOpen);
+    pendingOpen = setTimeout(() => openItem(id), 260);
+}
+
+function openSource(id) {
+    clearTimeout(pendingOpen);
+    const it = state.items.find((i) => i.id === id);
+    if (!it) {
+        return;
+    }
+
+    if (it.src === 'internal') {
+        openItem(id);
+        return;
+    }
+
+    const src = SRC[it.src];
+    flash(`${src.link.replace(' ↗', '')} — ${it.subject}…`);
+    setTimeout(() => returnSheet(id), 1100);
 }
 
 function step(d) {
@@ -230,8 +255,8 @@ function moveSheet(id) {
     });
 }
 
-function returnSheet() {
-    const id = state.sel;
+function returnSheet(forId) {
+    const id = forId || state.sel;
     const options = [
         { name: 'Done', note: 'Row leaves the panel', k: 'done' },
         { name: 'Waiting on them', note: 'Stays, next action rewrites to a follow-up', k: 'waiting' },
@@ -288,6 +313,7 @@ function cardData(i) {
         ...i,
         srcLabel: src.label,
         deepLink: src.link,
+        clickHint: i.src === 'internal' ? 'Click: edit here' : `Click: edit here · Double-click: open in ${src.label}`,
         srcBg: src.bg,
         srcFg: src.fg,
         srcRing: src.ring,
@@ -365,7 +391,7 @@ function headerHtml() {
 
 function triageRowHtml(c) {
     return `
-    <div data-act="item:open" data-swipe-row data-id="${c.id}" style="display:flex;gap:11px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-md);cursor:pointer;background:${c.rowBg};box-shadow:inset 0 0 0 1px ${c.rowEdge};border-left:4px solid ${c.dueColor};touch-action:pan-y;user-select:none;-webkit-user-select:none">
+    <div data-act="item:open" data-swipe-row data-id="${c.id}" title="${esc(c.clickHint)}" style="user-select:none;-webkit-user-select:none;touch-action:pan-y;display:flex;gap:11px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-md);cursor:pointer;background:${c.rowBg};box-shadow:inset 0 0 0 1px ${c.rowEdge};border-left:4px solid ${c.dueColor}">
         ${srcPillHtml(c, '10px')}
         <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
             <div style="display:flex;align-items:baseline;gap:7px;min-width:0">
@@ -396,7 +422,7 @@ function triageHtml() {
             <h4>To Process</h4>
             <span class="tag tag-neutral">${inbox.length} items</span>
             <div style="flex:1"></div>
-            <span style="font-size:11px;color:${muted(55)}">j/k move · e done · w waiting · s snooze</span>
+            <span style="font-size:11px;color:${muted(55)}">click edit · double-click source · j/k move · e done · w waiting · s snooze</span>
         </div>
         ${inbox.map(triageRowHtml).join('')}
         ${inbox.length === 0 ? `<div style="padding:34px;text-align:center;border-radius:var(--radius-md);background:var(--color-surface);color:${muted(58)};font-size:13px">Queue clear. Processed items stay in the panels they were filed into.</div>` : ''}
@@ -449,7 +475,7 @@ function swipeHtml() {
 
 function panelCardHtml(c) {
     return `
-    <div data-act="item:open" ${c.swipe ? 'data-swipe-row' : ''} data-id="${c.id}" style="display:flex;gap:9px;align-items:flex-start;padding:8px 9px;border-radius:var(--radius-sm);cursor:pointer;background:${c.bg};box-shadow:inset 0 0 0 1px ${c.edge};border-left:4px solid ${c.dueColor}${c.swipe ? ';touch-action:pan-y;user-select:none;-webkit-user-select:none' : ''}">
+    <div data-act="item:open" ${c.swipe ? 'data-swipe-row' : ''} data-id="${c.id}" title="${esc(c.clickHint)}" style="user-select:none;-webkit-user-select:none;display:flex;gap:9px;align-items:flex-start;padding:8px 9px;border-radius:var(--radius-sm);cursor:pointer;background:${c.bg};box-shadow:inset 0 0 0 1px ${c.edge};border-left:4px solid ${c.dueColor}${c.swipe ? ';touch-action:pan-y' : ''}">
         ${srcPillHtml(c, '9px')}
         <span style="flex:1;min-width:0;font-size:12.5px;line-height:1.35;text-wrap:pretty">${esc(c.action)}</span>
         ${c.waiting ? '<span class="tag tag-accent" style="flex:none;font-size:9.5px;padding:1px 6px">Waiting</span>' : ''}
@@ -844,7 +870,8 @@ app.addEventListener('click', (e) => {
             setState({ screen: el.dataset.k, sel: null });
             break;
         case 'item:open':
-            openItem(id);
+            // Delay slightly so a double click can win and jump to the source instead.
+            openItemSoon(id);
             break;
         case 'item:accept': {
             const it = state.items.find((i) => i.id === id) || {};
@@ -931,6 +958,15 @@ app.addEventListener('click', (e) => {
             break;
         }
     }
+});
+
+app.addEventListener('dblclick', (e) => {
+    const el = e.target.closest('[data-act]');
+    if (!el || el.dataset.act !== 'item:open') {
+        return;
+    }
+
+    openSource(el.dataset.id);
 });
 
 window.addEventListener('keydown', (e) => {
