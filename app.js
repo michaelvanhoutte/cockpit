@@ -152,12 +152,18 @@ function inboxItems() {
     return state.items.filter((i) => i.status === 'inbox');
 }
 
+function markSeen(id) {
+    state.items = state.items.map((i) => (i.id === id ? { ...i, unseen: false } : i));
+}
+
 function openEdit(id) {
     const it = state.items.find((i) => i.id === id);
+    markSeen(id);
     setState({ sel: id, edit: id, ctx: null, draft: it ? it.action : '' });
 }
 
 function toggleSelect(id) {
+    markSeen(id);
     setState({ sel: state.sel === id ? null : id });
 }
 
@@ -369,7 +375,6 @@ function mkPanel(p) {
 
     return {
         ...p,
-        count: cards.length,
         cards,
         flex: p.key === 'inbox' ? '1 1 auto' : '0 0 auto',
         minH: p.key === 'inbox' ? '0' : 'auto',
@@ -531,9 +536,7 @@ function panelHtml(pn) {
     <div data-panel-key="${pn.key}" style="grid-column:span ${pn.span};flex:${pn.flex};min-height:${pn.minH};overflow:${pn.overflow};display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:inset 0 0 0 1px ${pn.edge},var(--shadow-sm)">
         <div style="display:flex;align-items:center;gap:8px">
             <span style="font-family:var(--font-heading);font-weight:500;font-size:13.5px">${esc(pn.title)}</span>
-            <span style="font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--color-neutral-800);color:var(--color-neutral-200)">${pn.count}</span>
             <div style="flex:1"></div>
-            <span style="font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:${muted(45)}">${esc(pn.rule)}</span>
             <button class="btn btn-ghost" data-act="panel:menu" data-key="${pn.key}" style="font-size:14px;padding:0 4px">···</button>
         </div>
         ${pn.menuOpen ? `
