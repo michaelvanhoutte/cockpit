@@ -30,6 +30,33 @@ const HORIZONS = [
     { key: 'This Quarter', label: 'This Q', badge: 'Q', menuLabel: 'Goal for this Q' },
 ];
 
+// Per-source actions shown at the top of the right-click menu. The 'flag' label is
+// swapped for 'Remove flag' at render time when the item is already flagged.
+const CTX_APP = {
+    mail: [
+        { op: 'open', label: 'Open in Gmail ↗' },
+        { op: 'reply', label: 'Reply in Gmail' },
+        { op: 'delete', label: 'Delete mail' },
+    ],
+    slack: [
+        { op: 'open', label: 'Open in Slack ↗' },
+        { op: 'reply', label: 'Reply in thread' },
+        { op: 'flag', label: 'Mark as flagged' },
+    ],
+    notion: [
+        { op: 'open', label: 'Open in Notion ↗' },
+        { op: 'complete', label: 'Mark as completed' },
+    ],
+    whatsapp: [
+        { op: 'open', label: 'Open in WhatsApp ↗' },
+        { op: 'reply', label: 'Reply in WhatsApp' },
+    ],
+    internal: [
+        { op: 'edit', label: 'Edit here' },
+        { op: 'complete', label: 'Mark as done' },
+    ],
+};
+
 const PANELS = [
     { key: 'atlas', title: 'Atlas Copco rollout', rule: 'live · #cust-atlascopco', span: 1, sources: 'Slack channel rule + mail thread' },
     { key: 'debt', title: 'Technical debt', rule: 'topic · manual', span: 1, sources: 'Own actions + Slack #eng' },
@@ -86,14 +113,13 @@ const NOTES = [
     { tag: 'Assumption · §5.1', text: 'Every panel is one thing: a list of actions on a topic — a project, the board, technical debt, a person. Each row is a next action with the source it came from, never a message preview.' },
     { tag: 'Sources', text: 'Actions arrive from Mail, Slack, Notion, WhatsApp, or are created here. The icon and its tint carry the source; the row carries the action.' },
     { tag: 'Assumption · §4.1', text: 'Hybrid routing: the inbox is the default, channel rules route obvious items straight into a panel with an unseen dot (see the auto-routed Atlas Copco row).' },
-    { tag: 'Open · §11.3', text: 'Swipe-right is modelled as "file into a panel" with the attach-and-monitor scope prompt (thread / conversation / channel). Try it on a narrow window or your phone.' },
+    { tag: 'Open · §11.3', text: 'Filing is drag-and-drop: dragging a row right lifts it so you can drop it into any panel at an exact position. Swipe-left dismisses. The right-click menu also offers "Move to panel…".' },
     { tag: 'Open · §11.10', text: 'Round-trip is prompt-on-return: opening the source raises "Handled?" → Done / Waiting / Still to do, and Waiting rewrites the next-action line.' },
-    { tag: 'Interaction', text: 'Single click selects a row. With a row selected, press T, W, M or Q to mark it as a goal for today, this week, this month or this quarter; Enter opens the edit page. Right-click opens the goal menu. Double click jumps straight to the source (own actions open the edit page instead). The collapsible Goals panel at the top of a page shows everything highlighted per horizon.' },
+    { tag: 'Interaction', text: 'Single click selects a row. With a row selected, press T, W, M or Q to mark it as a goal for today, this week, this month or this quarter; Enter opens the edit page. Right-click opens the item menu: actions for the source app first (open, reply, delete, flag, complete), then the goal horizons. Double click jumps straight to the source (own actions open the edit page instead). The collapsible Goals panel at the top of a page shows everything highlighted per horizon.' },
     { tag: 'Open · §11.1', text: 'Read-only sync assumed — nothing here mutates Gmail, Slack or WhatsApp.' },
 ];
 
 const state = {
-    screen: 'dash',
     ws: 0,
     page: 0,
     sel: null,
@@ -110,6 +136,7 @@ const state = {
     draft: '',
     focus: { i1: 'Today', a2: 'Today', s1: 'This Week', h2: 'This Week', b1: 'This Month', i6: 'This Quarter' },
     assoc: {},
+    flagged: {},
 };
 
 let toastTimer = null;
@@ -206,6 +233,40 @@ function openSource(id) {
     setTimeout(() => returnSheet(id), 1100);
 }
 
+function ctxAppAction(id, op) {
+    const it = state.items.find((i) => i.id === id);
+    if (!it) {
+        return;
+    }
+
+    const src = SRC[it.src];
+    switch (op) {
+        case 'open':
+            openSource(id);
+            break;
+        case 'edit':
+            openEdit(id);
+            break;
+        case 'reply':
+            flash(`Reply in ${src.label} — ${it.subject}…`);
+            setTimeout(() => returnSheet(id), 1100);
+            break;
+        case 'delete':
+            process('dismissed', id);
+            flash('Mail deleted — removed here (read-only sync leaves the source untouched)');
+            break;
+        case 'complete':
+            process('done', id);
+            break;
+        case 'flag': {
+            const on = !!state.flagged[id];
+            setState({ flagged: { ...state.flagged, [id]: !on } });
+            flash(on ? 'Flag removed' : `Flagged — “${it.action}”`);
+            break;
+        }
+    }
+}
+
 function step(d) {
     const list = inboxItems();
     if (!list.length) {
@@ -245,28 +306,6 @@ function process(status, id) {
     });
     setState({ sel: null, edit: null });
     flash(labels[status] || 'Processed');
-}
-
-function fileSheet(id) {
-    const it = state.items.find((i) => i.id === id) || {};
-    const options = [
-        { name: 'This thread only', note: 'Just this message and its replies' },
-        { name: 'This conversation / DM', note: 'The whole 1:1 or group chat' },
-        { name: 'This channel — #cust-atlascopco', note: 'Becomes the panel’s live rule; future messages appear automatically' },
-    ];
-
-    sheetActions = options.map((o) => () => {
-        state.sheet = null;
-        process('task', id);
-        flash(`Filed into “${it.suggest || 'panel'}” · scope: ${o.name}`);
-    });
-    setState({
-        sheet: {
-            title: 'File into a panel',
-            body: `Attach-and-monitor scope — how much should keep flowing into ${it.suggest || 'this panel'}?`,
-            options,
-        },
-    });
 }
 
 function moveSheet(id) {
@@ -349,9 +388,10 @@ function cardData(i) {
         srcLabel: src.label,
         deepLink: src.link,
         goal,
+        flagged: !!state.flagged[i.id],
         clickHint: i.src === 'internal'
-            ? 'Click: select · Double-click: edit here · Right-click: goal menu'
-            : `Click: select · Double-click: open in ${src.label} · Right-click: goal menu`,
+            ? 'Click: select · Double-click: edit here · Right-click: actions'
+            : `Click: select · Double-click: open in ${src.label} · Right-click: actions`,
         srcBg: src.bg,
         srcFg: src.fg,
         srcRing: src.ring,
@@ -362,8 +402,6 @@ function cardData(i) {
         bg: selectedRow ? 'color-mix(in srgb, var(--color-accent) 10%, var(--color-bg))' : tintBg('var(--color-bg)'),
         rowBg: selectedRow ? 'color-mix(in srgb, var(--color-accent) 10%, var(--color-surface))' : tintBg('var(--color-surface)'),
         rowEdge: selectedRow ? 'var(--color-accent)' : due.edge,
-        suggestPanel: i.suggest || '',
-        showSuggest: !!i.suggest && !isMobile() && !isTablet(),
     };
 }
 
@@ -439,97 +477,11 @@ function headerHtml() {
             ${wsArea}
             <div style="flex:1"></div>
             <span style="font-size:11.5px;color:${muted(62)}">Synced 2 min ago · 3 queued offline</span>
-            <button class="btn btn-secondary" data-act="triage:go" style="font-size:12px">Triage<span style="margin-left:6px;color:var(--color-accent)">${inboxItems().length}</span></button>
             ${isMobile() ? '' : '<button class="btn btn-secondary" data-act="notes:toggle" style="font-size:12px">Design notes</button>'}
         </div>
         <div style="display:flex;align-items:center;gap:5px;margin-top:10px;flex-wrap:wrap">
             ${pageButtons}
             <button class="btn btn-ghost" data-act="noop" style="font-size:12px">+ Page</button>
-        </div>
-    </div>`;
-}
-
-function triageRowHtml(c) {
-    return `
-    <div data-act="item:open" data-swipe-row data-id="${c.id}" title="${esc(c.clickHint)}" style="user-select:none;-webkit-user-select:none;touch-action:pan-y;display:flex;gap:11px;align-items:flex-start;padding:10px 12px;border-radius:var(--radius-md);cursor:pointer;background:${c.rowBg};box-shadow:inset 0 0 0 1px ${c.rowEdge};border-left:4px solid ${c.dueColor}">
-        ${srcPillHtml(c, '10px')}
-        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
-            <div style="display:flex;align-items:baseline;gap:7px;min-width:0">
-                <span style="font-family:var(--font-heading);font-weight:500;font-size:14px;line-height:1.35;text-wrap:pretty">${esc(c.action)}</span>
-                ${goalBadgeHtml(c)}
-                ${c.unseen ? '<span style="width:6px;height:6px;border-radius:50%;flex:none;background:var(--color-accent)"></span>' : ''}
-            </div>
-            <span style="font-size:11.5px;color:${muted(58)};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.from)} · ${esc(c.subject)}</span>
-        </div>
-        ${c.showSuggest ? `
-        <div style="display:flex;align-items:center;gap:6px;flex:none">
-            <span class="tag tag-outline">${esc(c.suggestPanel)}</span>
-            <button class="btn btn-ghost" data-act="item:accept" data-id="${c.id}" style="font-size:11.5px">Accept</button>
-        </div>` : ''}
-        <span style="flex:none;font-size:11px;min-width:62px;padding-top:2px;text-align:right;color:${c.dueText}">${esc(c.dueLabel)}</span>
-        <div style="display:flex;align-items:center;gap:6px;flex:none">
-            <button class="btn btn-secondary" data-act="item:file" data-id="${c.id}" style="font-size:11.5px;padding:4px 9px">File…</button>
-            <button class="btn btn-secondary" data-act="item:done" data-id="${c.id}" style="font-size:11.5px;padding:4px 9px">Done</button>
-            <button class="btn btn-secondary" data-act="item:dismiss" data-id="${c.id}" style="font-size:11.5px;padding:4px 9px">✕</button>
-        </div>
-    </div>`;
-}
-
-function triageHtml() {
-    const inbox = inboxItems().map(cardData);
-    return `
-    <div style="flex:1;min-height:0;overflow:auto;padding:${isMobile() ? '12px' : '16px'};display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;align-items:baseline;gap:12px">
-            <h4>To Process</h4>
-            <span class="tag tag-neutral">${inbox.length} items</span>
-            <div style="flex:1"></div>
-            <span style="font-size:11px;color:${muted(55)}">click select · double-click source · right-click goal · t/w/m/q goal · enter edit · j/k move · e done · s snooze</span>
-        </div>
-        ${inbox.map(triageRowHtml).join('')}
-        ${inbox.length === 0 ? `<div style="padding:34px;text-align:center;border-radius:var(--radius-md);background:var(--color-surface);color:${muted(58)};font-size:13px">Queue clear. Processed items stay in the panels they were filed into.</div>` : ''}
-    </div>`;
-}
-
-function swipeHtml() {
-    const inbox = inboxItems();
-    const stack = inbox.slice(0, 3).map(cardData);
-    const cards = stack.map((c, n) => {
-        const active = n === 0;
-        return `
-        <div ${active ? 'data-swipe-card' : ''} style="position:absolute;left:${n * 7}px;right:${n * 7}px;top:${n * 10}px;bottom:${12 - n * 10}px;overflow:hidden;padding:15px;border-radius:var(--radius-lg);background:var(--color-surface);box-shadow:var(--shadow-md),inset 0 0 0 1px ${c.edge};z-index:${10 - n};display:flex;flex-direction:column;gap:9px;border-left:4px solid ${c.dueColor}">
-            <div style="display:flex;align-items:center;gap:8px">
-                ${srcPillHtml(c, '10px')}
-                <span style="flex:1;min-width:0;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${muted(62)}">${esc(c.from)}</span>
-                <span style="flex:none;font-size:11px;color:${c.dueText}">${esc(c.dueLabel)}</span>
-            </div>
-            <span style="font-family:var(--font-heading);font-weight:500;font-size:18px;line-height:1.25">${esc(c.action)}</span>
-            <span style="flex:1;min-height:0;overflow:hidden;font-size:12.5px;line-height:1.5;color:${muted(62)}">${esc(c.summary || '')}</span>
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                ${c.suggestPanel ? `<span class="tag tag-outline">${esc(c.suggestPanel)}</span>` : ''}
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:${muted(45)}">
-                <span data-swipe-hint-left style="color:${muted(45)}">◀ dismiss</span>
-                <button class="btn btn-ghost" data-act="item:edit" data-id="${c.id}" style="font-size:11.5px">Open</button>
-                <span data-swipe-hint-right style="color:${muted(45)}">move ▶</span>
-            </div>
-            ${active ? `<div data-swipe-layer data-id="${c.id}" style="position:absolute;inset:0;border-radius:var(--radius-lg);cursor:grab;touch-action:pan-y"></div>` : ''}
-        </div>`;
-    }).join('');
-
-    return `
-    <div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:14px;gap:12px;overflow:auto">
-        <div style="display:flex;align-items:center;gap:10px;flex:none">
-            <h5>To Process</h5>
-            <span class="tag tag-neutral">${inbox.length}</span>
-        </div>
-        <div style="flex:1;min-height:300px;position:relative;z-index:0">
-            ${cards}
-            ${inbox.length === 0 ? `<div style="padding:34px;text-align:center;border-radius:var(--radius-md);background:var(--color-surface);color:${muted(58)};font-size:13px">Queue clear. Processed items stay in the panels they were filed into.</div>` : ''}
-        </div>
-        <div style="display:flex;gap:8px;position:relative;z-index:2;flex:none">
-            <button class="btn btn-secondary" data-act="swipe:dismiss" style="flex:1">Dismiss</button>
-            <button class="btn btn-secondary" data-act="swipe:snooze" style="flex:1">Snooze</button>
-            <button class="btn btn-primary" data-act="swipe:file" style="flex:1">File…</button>
         </div>
     </div>`;
 }
@@ -540,6 +492,7 @@ function panelCardHtml(c) {
         ${srcPillHtml(c, '9px')}
         <span style="flex:1;min-width:0;font-size:12.5px;line-height:1.35;text-wrap:pretty">${esc(c.action)}</span>
         ${goalBadgeHtml(c)}
+        ${c.flagged ? '<span title="Flagged" style="flex:none;font-size:11px;line-height:1.4;color:#c98a4b">⚑</span>' : ''}
         ${c.waiting ? '<span class="tag tag-accent" style="flex:none;font-size:9.5px;padding:1px 6px">Waiting</span>' : ''}
         ${c.unseen ? '<span style="width:6px;height:6px;flex:none;border-radius:50%;background:var(--color-accent)"></span>' : ''}
         <span style="flex:none;font-size:10.5px;padding-top:1px;color:${c.dueText}">${esc(c.dueLabel)}</span>
@@ -551,6 +504,7 @@ function panelHtml(pn) {
     <div data-panel-key="${pn.key}" style="grid-column:span ${pn.span};flex:${pn.flex};min-height:${pn.minH};overflow:${pn.overflow};display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:inset 0 0 0 1px ${pn.edge},var(--shadow-sm)">
         <div style="display:flex;align-items:center;gap:8px">
             <span style="font-family:var(--font-heading);font-weight:500;font-size:13.5px">${esc(pn.title)}</span>
+            ${pn.key === 'inbox' ? `<span class="tag tag-neutral" style="font-size:10.5px">${pn.cards.length}</span>` : ''}
             <div style="flex:1"></div>
             <button class="btn btn-ghost" data-act="panel:menu" data-key="${pn.key}" style="font-size:14px;padding:0 4px">···</button>
         </div>
@@ -640,19 +594,6 @@ function dashHtml() {
                 ${panels.map(panelHtml).join('')}
             </div>
         </div>
-    </div>`;
-}
-
-function bottomTabsHtml() {
-    const isDash = state.screen === 'dash';
-    return `
-    <div style="flex:none;display:flex;border-top:1px solid var(--color-divider);background:var(--color-surface)">
-        ${[['inbox', 'Triage'], ['dash', 'Pages']].map(([k, n]) => {
-            const a = (k === 'dash') === isDash;
-            return `<button data-act="tab:pick" data-k="${k}" style="flex:1;padding:11px 0 13px;border:0;cursor:pointer;background:transparent;color:${a ? 'var(--color-accent)' : muted(55)};font:500 11.5px var(--font-heading);display:flex;flex-direction:column;align-items:center;gap:4px">
-                <span style="width:16px;height:2px;border-radius:2px;background:${a ? 'var(--color-accent)' : 'transparent'}"></span>${n}
-            </button>`;
-        }).join('')}
     </div>`;
 }
 
@@ -774,12 +715,18 @@ function ctxHtml() {
 
     const cur = state.focus[it.id];
     const x = Math.max(8, Math.min(state.ctx.x, window.innerWidth - 240));
-    const y = Math.max(8, Math.min(state.ctx.y, window.innerHeight - 320));
+    const y = Math.max(8, Math.min(state.ctx.y, window.innerHeight - 420));
+    const divider = '<div style="height:1px;margin:4px 2px;background:var(--color-divider)"></div>';
     const row = (act, label, extra, right) => `
         <button data-act="${act}" ${extra || ''} style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;cursor:pointer;padding:7px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--color-text);font:400 12.5px var(--font-body)">
             ${label}
             <span style="margin-left:auto;font-size:10.5px;color:${muted(45)}">${right || ''}</span>
         </button>`;
+
+    const appRows = (CTX_APP[it.src] || []).map((a) => {
+        const label = a.op === 'flag' && state.flagged[it.id] ? 'Remove flag' : a.label;
+        return row('ctx:app', `<span>${esc(label)}</span>`, `data-op="${esc(a.op)}"`);
+    }).join('');
 
     const goalRows = HORIZONS.map((h) => {
         const on = cur === h.key;
@@ -789,12 +736,15 @@ function ctxHtml() {
     }).join('');
 
     return `
-    <div data-ctx-menu style="position:fixed;left:${x}px;top:${y}px;z-index:11;width:228px;display:flex;flex-direction:column;gap:1px;padding:6px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-lg),inset 0 0 0 1px var(--color-divider);animation:riseIn .12s ease-out">
+    <div data-ctx-menu style="position:fixed;left:${x}px;top:${y}px;z-index:11;width:228px;max-height:calc(100vh - 16px);overflow:auto;display:flex;flex-direction:column;gap:1px;padding:6px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-lg),inset 0 0 0 1px var(--color-divider);animation:riseIn .12s ease-out">
+        <span style="padding:3px 10px 5px;font-size:10px;letter-spacing:0.09em;text-transform:uppercase;color:${muted(48)}">${esc(SRC[it.src].label)}</span>
+        ${appRows}
+        ${divider}
         ${goalRows}
         ${cur ? row('ctx:clear', `<span>Remove goal</span>`) : ''}
-        <div style="height:1px;margin:4px 2px;background:var(--color-divider)"></div>
-        ${row('ctx:edit', '<span>Edit here</span>', '', '⏎')}
-        ${it.src === 'internal' ? '' : row('ctx:source', `<span>${esc(SRC[it.src].link)}</span>`)}
+        ${divider}
+        ${it.src === 'internal' ? '' : row('ctx:edit', '<span>Edit here</span>', '', '⏎')}
+        ${row('ctx:move', '<span>Move to panel…</span>')}
     </div>`;
 }
 
@@ -803,25 +753,21 @@ function toastHtml() {
         return '';
     }
 
-    return `<div style="position:fixed;left:50%;bottom:${isMobile() ? '64px' : '18px'};transform:translateX(-50%);z-index:12;padding:8px 14px;border-radius:99px;background:var(--color-surface);box-shadow:var(--shadow-md);font-size:12.5px;animation:riseIn .16s ease-out">${esc(state.toast)}</div>`;
+    return `<div style="position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:12;padding:8px 14px;border-radius:99px;background:var(--color-surface);box-shadow:var(--shadow-md);font-size:12.5px;animation:riseIn .16s ease-out">${esc(state.toast)}</div>`;
 }
 
 function render() {
-    document.documentElement.dataset.ws = WS[state.ws].slug;
-    const mobile = isMobile();
-    const isDash = state.screen === 'dash';
-    let body;
-    if (isDash) {
-        body = dashHtml();
-    } else {
-        body = mobile ? swipeHtml() : triageHtml();
+    // Never rebuild the DOM mid-gesture — it would orphan the drag ghost and kill the swipe.
+    if (gestureActive) {
+        renderPending = true;
+        return;
     }
 
+    document.documentElement.dataset.ws = WS[state.ws].slug;
     app.innerHTML = `
     <div style="height:100%;display:flex;flex-direction:column;background:var(--color-page-bg)">
         ${headerHtml()}
-        <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">${body}</div>
-        ${mobile ? bottomTabsHtml() : ''}
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">${dashHtml()}</div>
     </div>
     ${detailHtml()}
     ${sheetHtml()}
@@ -830,7 +776,6 @@ function render() {
     ${toastHtml()}`;
 
     bindDraftInput();
-    bindSwipe();
     bindRowSwipes();
 }
 
@@ -845,58 +790,17 @@ function bindDraftInput() {
     });
 }
 
-function bindSwipe() {
-    const layer = document.querySelector('[data-swipe-layer]');
-    if (!layer) {
-        return;
-    }
-
-    const cardEl = document.querySelector('[data-swipe-card]');
-    const hintLeft = cardEl.querySelector('[data-swipe-hint-left]');
-    const hintRight = cardEl.querySelector('[data-swipe-hint-right]');
-    const id = layer.dataset.id;
-    let x0 = 0;
-    let drag = 0;
-    let dragging = false;
-
-    layer.addEventListener('pointerdown', (e) => {
-        x0 = e.clientX;
-        dragging = true;
-        layer.setPointerCapture(e.pointerId);
-    });
-
-    layer.addEventListener('pointermove', (e) => {
-        if (!dragging) {
-            return;
-        }
-
-        drag = e.clientX - x0;
-        cardEl.style.transform = `translateX(${drag}px) rotate(${drag / 26}deg)`;
-        hintLeft.style.color = drag < -40 ? '#94322b' : muted(45);
-        hintRight.style.color = drag > 40 ? 'var(--color-accent)' : muted(45);
-    });
-
-    layer.addEventListener('pointerup', () => {
-        dragging = false;
-        if (drag < -70) {
-            process('dismissed', id);
-        } else if (drag > 70) {
-            cardEl.style.transform = '';
-            moveSheet(id);
-        } else if (Math.abs(drag) < 6) {
-            // The drag layer sits above the whole card, so a plain tap opens the item.
-            openEdit(id);
-        } else {
-            cardEl.style.transform = '';
-            hintLeft.style.color = muted(45);
-            hintRight.style.color = muted(45);
-        }
-
-        drag = 0;
-    });
-}
-
 let rowSwipedAt = 0;
+let gestureActive = false;
+let renderPending = false;
+
+function finishGesture() {
+    gestureActive = false;
+    if (renderPending) {
+        renderPending = false;
+        render();
+    }
+}
 
 function commitDrop(id, panelKey, beforeId) {
     const from = state.items.findIndex((i) => i.id === id);
@@ -939,8 +843,7 @@ function bindRowSwipes() {
         let y0 = 0;
         let drag = 0;
         let active = false;
-        // null until the gesture direction is known; then 'dismiss' (left),
-        // 'drag' (right on the dashboard) or 'sheet' (right on the triage list).
+        // null until the gesture direction is known; then 'dismiss' (left) or 'drag' (right).
         let mode = null;
         let ghost = null;
         let placeholder = null;
@@ -981,10 +884,22 @@ function bindRowSwipes() {
         };
 
         const trackDrop = (x, y) => {
-            const under = document.elementFromPoint(x, y);
-            const panelEl = under && under.closest('[data-panel-key]');
+            // Hit-test panel rectangles directly instead of elementFromPoint, so the
+            // grid gaps and padding between cards still count as the panel under them.
+            let panelEl = null;
+            document.querySelectorAll('[data-panel-key]').forEach((p) => {
+                const r = p.getBoundingClientRect();
+                if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+                    panelEl = p;
+                }
+            });
+
             if (!panelEl) {
+                // No target: park the placeholder back at the origin so what you see
+                // (row returns home) matches what a release would do (cancel).
                 dropKey = null;
+                dropBefore = null;
+                row.parentElement.insertBefore(placeholder, row);
                 return;
             }
 
@@ -1010,12 +925,33 @@ function bindRowSwipes() {
 
         row.addEventListener('dragstart', (e) => e.preventDefault());
 
+        const abort = () => {
+            active = false;
+            mode = null;
+            drag = 0;
+            clearDrag();
+            reset();
+            finishGesture();
+        };
+
         row.addEventListener('pointerdown', (e) => {
+            // Only the primary button starts a gesture — a right-click used to set this
+            // machine in motion and then lose its pointerup to the context-menu re-render,
+            // leaving a ghost row stuck on screen.
+            if (e.button !== 0 || gestureActive) {
+                return;
+            }
+
             x0 = e.clientX;
             y0 = e.clientY;
             drag = 0;
             active = true;
             mode = null;
+            // Capture immediately so a fast flick keeps reporting to this row even
+            // when the pointer leaves it before the direction threshold is met.
+            try {
+                row.setPointerCapture(e.pointerId);
+            } catch (err) { /* pointer already gone */ }
         });
 
         row.addEventListener('pointermove', (e) => {
@@ -1027,8 +963,8 @@ function bindRowSwipes() {
             const dy = e.clientY - y0;
             if (!mode) {
                 if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy)) {
-                    mode = dx < 0 ? 'dismiss' : (state.screen === 'dash' ? 'drag' : 'sheet');
-                    row.setPointerCapture(e.pointerId);
+                    mode = dx < 0 ? 'dismiss' : 'drag';
+                    gestureActive = true;
                     row.style.transition = 'none';
                     if (mode === 'drag') {
                         startDrag();
@@ -1036,6 +972,9 @@ function bindRowSwipes() {
                 } else {
                     if (Math.abs(dy) > 16 && Math.abs(dy) > Math.abs(dx) * 1.5) {
                         active = false;
+                        try {
+                            row.releasePointerCapture(e.pointerId);
+                        } catch (err) { /* already released */ }
                     }
                     return;
                 }
@@ -1065,6 +1004,7 @@ function bindRowSwipes() {
                 const key = dropKey;
                 const before = dropBefore;
                 clearDrag();
+                finishGesture();
                 if (key) {
                     commitDrop(id, key, before);
                 }
@@ -1072,24 +1012,25 @@ function bindRowSwipes() {
                 row.style.transition = 'transform .15s ease-out, opacity .15s ease-out';
                 row.style.transform = 'translateX(-110%)';
                 row.style.opacity = '0';
-                setTimeout(() => process('dismissed', id), 150);
-            } else if (mode === 'sheet' && drag > 60) {
-                reset();
-                moveSheet(id);
+                // Keep renders deferred until the slide-out lands, then process.
+                setTimeout(() => {
+                    finishGesture();
+                    process('dismissed', id);
+                }, 150);
             } else {
                 reset();
+                finishGesture();
             }
 
             mode = null;
             drag = 0;
         });
 
-        row.addEventListener('pointercancel', () => {
-            active = false;
-            mode = null;
-            drag = 0;
-            clearDrag();
-            reset();
+        row.addEventListener('pointercancel', abort);
+        row.addEventListener('lostpointercapture', () => {
+            if (active) {
+                abort();
+            }
         });
     });
 }
@@ -1127,19 +1068,10 @@ app.addEventListener('click', (e) => {
             setState({ ws: (state.ws + 1) % WS.length, sel: null });
             break;
         case 'page:pick':
-            setState({ page: Number(el.dataset.i), screen: 'dash', menu: null });
-            break;
-        case 'triage:go':
-            setState({ screen: 'inbox', sel: null });
-            break;
-        case 'tab:pick':
-            setState({ screen: el.dataset.k, sel: null });
+            setState({ page: Number(el.dataset.i), menu: null });
             break;
         case 'item:open':
             selectSoon(id);
-            break;
-        case 'item:edit':
-            openEdit(id);
             break;
         case 'goals:toggle':
             setState({ goalsOpen: !state.goalsOpen });
@@ -1165,27 +1097,22 @@ app.addEventListener('click', (e) => {
                 openEdit(state.ctx.id);
             }
             break;
-        case 'ctx:source':
-            if (state.ctx) {
-                openSource(state.ctx.id);
-                setState({ ctx: null });
+        case 'ctx:app': {
+            const ctxId = state.ctx ? state.ctx.id : null;
+            if (ctxId) {
+                state.ctx = null;
+                ctxAppAction(ctxId, el.dataset.op);
             }
             break;
-        case 'item:accept': {
-            const it = state.items.find((i) => i.id === id) || {};
-            process('task', id);
-            flash(`Filed into “${it.suggest}”`);
+        }
+        case 'ctx:move': {
+            const ctxId = state.ctx ? state.ctx.id : null;
+            if (ctxId) {
+                state.ctx = null;
+                moveSheet(ctxId);
+            }
             break;
         }
-        case 'item:file':
-            fileSheet(id);
-            break;
-        case 'item:done':
-            process('done', id);
-            break;
-        case 'item:dismiss':
-            process('dismissed', id);
-            break;
         case 'panel:menu':
             setState({ menu: state.menu === key ? null : key });
             break;
@@ -1242,19 +1169,6 @@ app.addEventListener('click', (e) => {
         case 'sheet:close':
             setState({ sheet: null });
             break;
-        case 'swipe:dismiss':
-            process('dismissed', (inboxItems()[0] || {}).id);
-            break;
-        case 'swipe:snooze':
-            process('snoozed', (inboxItems()[0] || {}).id);
-            break;
-        case 'swipe:file': {
-            const first = inboxItems()[0];
-            if (first) {
-                fileSheet(first.id);
-            }
-            break;
-        }
     }
 });
 
