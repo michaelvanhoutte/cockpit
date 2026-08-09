@@ -58,12 +58,12 @@ const CTX_APP = {
 };
 
 const PANELS = [
-    { key: 'atlas', title: 'Atlas Copco rollout', rule: 'live · #cust-atlascopco', span: 1, sources: 'Slack channel rule + mail thread' },
-    { key: 'debt', title: 'Technical debt', rule: 'topic · manual', span: 1, sources: 'Own actions + Slack #eng' },
-    { key: 'spec', title: 'Inbox spec v0.3', rule: 'notion page + mentions', span: 1, sources: 'Notion + own actions' },
-    { key: 'hiring', title: 'Hiring — ops engineer', rule: 'label: recruitment', span: 1, sources: 'Mail label + WhatsApp' },
-    { key: 'team', title: 'Team & 1:1s', rule: 'assoc: person', span: 1, sources: 'Own actions + Slack DMs' },
-    { key: 'board', title: 'Board & investors', rule: 'label: board', span: 1, sources: 'Mail + Notion' },
+    { key: 'atlas', title: 'Atlas Copco rollout', rule: 'live · #cust-atlascopco', sources: 'Slack channel rule + mail thread' },
+    { key: 'debt', title: 'Technical debt', rule: 'topic · manual', sources: 'Own actions + Slack #eng' },
+    { key: 'spec', title: 'Inbox spec v0.3', rule: 'notion page + mentions', sources: 'Notion + own actions' },
+    { key: 'hiring', title: 'Hiring — ops engineer', rule: 'label: recruitment', sources: 'Mail label + WhatsApp' },
+    { key: 'team', title: 'Team & 1:1s', rule: 'assoc: person', sources: 'Own actions + Slack DMs' },
+    { key: 'board', title: 'Board & investors', rule: 'label: board', sources: 'Mail + Notion' },
 ];
 
 const ITEMS = [
@@ -115,6 +115,7 @@ const NOTES = [
     { tag: 'Assumption · §4.1', text: 'Hybrid routing: the inbox is the default, channel rules route obvious items straight into a panel with an unseen dot (see the auto-routed Atlas Copco row).' },
     { tag: 'Open · §11.3', text: 'Filing is drag-and-drop: dragging a row right lifts it so you can drop it into any panel at an exact position. Swipe-left dismisses. The right-click menu also offers "Move to panel…".' },
     { tag: 'Open · §11.10', text: 'Round-trip is prompt-on-return: opening the source raises "Handled?" → Done / Waiting / Still to do, and Waiting rewrites the next-action line.' },
+    { tag: 'Layout', text: 'Panels pack into balanced columns (masonry) so a short panel never forces whitespace under its neighbours. Drag a panel by its title bar to move it to any position in any column; the arrangement is remembered per page and rebalances when the window changes column count.' },
     { tag: 'Interaction', text: 'Single click selects a row. With a row selected, press T, W, M or Q to mark it as a goal for today, this week, this month or this quarter; Enter opens the edit page. Right-click opens the item menu: actions for the source app first (open, reply, delete, flag, complete), then the goal horizons. Double click jumps straight to the source (own actions open the edit page instead). The collapsible Goals panel at the top of a page shows everything highlighted per horizon.' },
     { tag: 'Open · §11.1', text: 'Read-only sync assumed — nothing here mutates Gmail, Slack or WhatsApp.' },
 ];
@@ -137,6 +138,8 @@ const state = {
     focus: { i1: 'Today', a2: 'Today', s1: 'This Week', h2: 'This Week', b1: 'This Month', i6: 'This Quarter' },
     assoc: {},
     flagged: {},
+    // Per-page masonry arrangement: { cols: n, columns: [[panelKey]] }, built lazily.
+    layouts: {},
 };
 
 let toastTimer = null;
@@ -359,20 +362,76 @@ function seg(active, tint) {
 }
 
 function inboxDef() {
-    return { key: 'inbox', title: 'Inbox', rule: 'status: to process', span: 1, sources: 'Mail · Slack · Notion · WhatsApp · own' };
+    return { key: 'inbox', title: 'Inbox', rule: 'status: to process', sources: 'Mail · Slack · Notion · WhatsApp · own' };
 }
 
 function panelDefs() {
     const page = PAGES[state.page];
     if (page === 'Reading') {
-        return [{ key: 'reading', title: 'Reading list', rule: 'topic · saved links', span: 2, sources: 'Notion · Slack · WhatsApp' }];
+        return [{ key: 'reading', title: 'Reading list', rule: 'topic · saved links', sources: 'Notion · Slack · WhatsApp' }];
     }
 
     if (page === 'Dormant projects') {
-        return [{ key: 'onhold', title: 'On hold', rule: 'status: snoozed', span: 2, sources: 'Mail · own actions' }];
+        return [{ key: 'onhold', title: 'On hold', rule: 'status: snoozed', sources: 'Mail · own actions' }];
     }
 
     return PANELS.concat(state.extra);
+}
+
+function columnCount(panelCount) {
+    if (isMobile()) {
+        return 1;
+    }
+
+    const inboxW = isTablet() ? 300 : 350;
+    const minPanelW = isTablet() ? 260 : 290;
+    const avail = window.innerWidth - 32 - inboxW - 12;
+    return Math.max(1, Math.min(Math.floor((avail + 12) / (minPanelW + 12)), Math.max(1, panelCount)));
+}
+
+// Rough pixel height per panel, only used to balance the initial column packing —
+// once the user drags a panel, their arrangement wins.
+function estPanelH(p) {
+    return 88 + p.cards.length * 56 + (p.isEmpty ? 56 : 0) + (p.menuOpen ? 48 : 0);
+}
+
+function panelColumns(panels) {
+    const page = PAGES[state.page];
+    const nCols = columnCount(panels.length);
+    const keys = panels.map((p) => p.key);
+    const byKey = (k) => panels.find((p) => p.key === k);
+    let saved = state.layouts[page];
+
+    if (!saved || saved.cols !== nCols) {
+        // (Re)build shortest-column-first, keeping the existing flattened order
+        // so a drag-made arrangement survives a column-count change roughly intact.
+        const ordered = (saved ? saved.columns.flat() : []).filter((k) => keys.includes(k));
+        keys.forEach((k) => {
+            if (!ordered.includes(k)) {
+                ordered.push(k);
+            }
+        });
+
+        const columns = Array.from({ length: nCols }, () => []);
+        const heights = new Array(nCols).fill(0);
+        ordered.forEach((k) => {
+            const ci = heights.indexOf(Math.min(...heights));
+            columns[ci].push(k);
+            heights[ci] += estPanelH(byKey(k)) + 12;
+        });
+        saved = { cols: nCols, columns };
+        state.layouts[page] = saved;
+    } else {
+        // Reconcile: drop removed panels, slot new ones into the shortest column.
+        saved.columns = saved.columns.map((col) => col.filter((k) => keys.includes(k)));
+        const present = new Set(saved.columns.flat());
+        keys.filter((k) => !present.has(k)).forEach((k) => {
+            const heights = saved.columns.map((col) => col.reduce((s, kk) => s + estPanelH(byKey(kk)) + 12, 0));
+            saved.columns[heights.indexOf(Math.min(...heights))].push(k);
+        });
+    }
+
+    return saved.columns.map((col) => col.map(byKey));
 }
 
 function cardData(i) {
@@ -418,7 +477,6 @@ function mkPanel(p) {
         minH: p.key === 'inbox' ? '0' : 'auto',
         overflow: p.key === 'inbox' ? 'auto' : 'visible',
         isEmpty: cards.length === 0,
-        span: isMobile() ? 1 : Math.min(p.span, isTablet() ? 2 : 3),
         edge: p.key === 'inbox' ? 'color-mix(in srgb, var(--color-accent) 45%, transparent)' : 'transparent',
         menuOpen: state.menu === p.key,
     };
@@ -500,9 +558,12 @@ function panelCardHtml(c) {
 }
 
 function panelHtml(pn) {
+    const grab = pn.key === 'inbox'
+        ? '<div style="display:flex;align-items:center;gap:8px">'
+        : '<div data-panel-grab title="Drag to move this panel" style="display:flex;align-items:center;gap:8px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none">';
     return `
-    <div data-panel-key="${pn.key}" style="grid-column:span ${pn.span};flex:${pn.flex};min-height:${pn.minH};overflow:${pn.overflow};display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:inset 0 0 0 1px ${pn.edge},var(--shadow-sm)">
-        <div style="display:flex;align-items:center;gap:8px">
+    <div data-panel-key="${pn.key}" style="flex:${pn.flex};min-height:${pn.minH};overflow:${pn.overflow};display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:inset 0 0 0 1px ${pn.edge},var(--shadow-sm)">
+        ${grab}
             <span style="font-family:var(--font-heading);font-weight:500;font-size:13.5px">${esc(pn.title)}</span>
             ${pn.key === 'inbox' ? `<span class="tag tag-neutral" style="font-size:10.5px">${pn.cards.length}</span>` : ''}
             <div style="flex:1"></div>
@@ -573,7 +634,12 @@ function dashHtml() {
     const mobile = isMobile();
     const panels = panelDefs().filter((p) => !state.removed[p.key]).map(mkPanel);
     const inboxPanel = mkPanel(inboxDef());
-    const gridCols = mobile ? '1fr' : (isTablet() ? 'repeat(auto-fill, minmax(260px,1fr))' : 'repeat(auto-fill, minmax(290px,1fr))');
+    const cols = panelColumns(panels);
+    const single = cols.length === 1 && !mobile;
+
+    const colHtml = cols.map((col, n) =>
+        `<div data-col="${n}" style="flex:1;min-width:0;${single ? 'max-width:640px;' : ''}display:flex;flex-direction:column;gap:12px">${col.map(panelHtml).join('')}</div>`
+    ).join('');
 
     return `
     <div style="flex:1;min-height:0;padding:${mobile ? '12px' : '16px'};display:flex;flex-direction:column;gap:12px;overflow:hidden">
@@ -581,7 +647,7 @@ function dashHtml() {
             <div style="display:flex;align-items:center;gap:10px">
                 ${goalsBarHtml()}
                 <div style="flex:1"></div>
-                <button class="btn btn-secondary" data-act="noop" style="font-size:12px">Arrange</button>
+                <button class="btn btn-secondary" data-act="arrange" style="font-size:12px">Arrange</button>
                 <button class="btn btn-primary" data-act="dash:addpanel" style="font-size:12px">+ Panel</button>
             </div>
             ${state.goalsOpen ? goalsGridHtml() : ''}
@@ -590,8 +656,8 @@ function dashHtml() {
             <div style="flex:none;width:${mobile ? '100%' : (isTablet() ? '300px' : '350px')};min-height:0;display:flex;flex-direction:column;overflow:${mobile ? 'visible' : 'auto'}">
                 ${panelHtml(inboxPanel)}
             </div>
-            <div style="flex:1;min-width:0;min-height:0;overflow:${mobile ? 'visible' : 'auto'};display:grid;grid-template-columns:${gridCols};gap:12px;align-content:start;align-items:start">
-                ${panels.map(panelHtml).join('')}
+            <div style="flex:1;min-width:0;min-height:0;overflow:${mobile ? 'visible' : 'auto'}">
+                <div style="display:flex;gap:12px;align-items:flex-start">${colHtml}</div>
             </div>
         </div>
     </div>`;
@@ -777,6 +843,7 @@ function render() {
 
     bindDraftInput();
     bindRowSwipes();
+    bindPanelDrags();
 }
 
 function bindDraftInput() {
@@ -834,6 +901,168 @@ function commitDrop(id, panelKey, beforeId) {
     setState({ sel: state.sel === id ? null : state.sel });
     const def = [inboxDef()].concat(panelDefs(), state.extra).find((p) => p.key === panelKey);
     flash(panelKey === 'inbox' ? 'Moved back into the Inbox' : `Moved into “${def ? def.title : 'panel'}”`);
+}
+
+function commitPanelDrop(key, colIndex, beforeKey) {
+    const saved = state.layouts[PAGES[state.page]];
+    if (!saved || !saved.columns[colIndex]) {
+        return;
+    }
+
+    saved.columns = saved.columns.map((col) => col.filter((k) => k !== key));
+    const col = saved.columns[colIndex];
+    const at = beforeKey ? col.indexOf(beforeKey) : -1;
+    if (at >= 0) {
+        col.splice(at, 0, key);
+    } else {
+        col.push(key);
+    }
+
+    setState({});
+    flash('Panel moved');
+}
+
+function bindPanelDrags() {
+    document.querySelectorAll('[data-panel-grab]').forEach((grab) => {
+        const panel = grab.closest('[data-panel-key]');
+        const key = panel.dataset.panelKey;
+        let x0 = 0;
+        let y0 = 0;
+        let active = false;
+        let dragging = false;
+        let ghost = null;
+        let placeholder = null;
+        let dropCol = null;
+        let dropBefore = null;
+
+        const clear = () => {
+            if (ghost) {
+                ghost.remove();
+            }
+
+            if (placeholder) {
+                placeholder.remove();
+            }
+
+            ghost = null;
+            placeholder = null;
+            panel.style.display = '';
+            dropCol = null;
+            dropBefore = null;
+        };
+
+        const abort = () => {
+            active = false;
+            dragging = false;
+            clear();
+            finishGesture();
+        };
+
+        grab.addEventListener('dragstart', (e) => e.preventDefault());
+
+        grab.addEventListener('pointerdown', (e) => {
+            // The ··· menu button lives inside the grab bar — leave it clickable.
+            if (e.button !== 0 || gestureActive || e.target.closest('button')) {
+                return;
+            }
+
+            x0 = e.clientX;
+            y0 = e.clientY;
+            active = true;
+            dragging = false;
+            try {
+                grab.setPointerCapture(e.pointerId);
+            } catch (err) { /* pointer already gone */ }
+        });
+
+        grab.addEventListener('pointermove', (e) => {
+            if (!active) {
+                return;
+            }
+
+            const dx = e.clientX - x0;
+            const dy = e.clientY - y0;
+            if (!dragging) {
+                if (Math.abs(dx) < 6 && Math.abs(dy) < 6) {
+                    return;
+                }
+
+                dragging = true;
+                gestureActive = true;
+                const rect = panel.getBoundingClientRect();
+                ghost = panel.cloneNode(true);
+                ghost.style.cssText += `;position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;margin:0;z-index:50;pointer-events:none;box-shadow:var(--shadow-lg);opacity:.95;cursor:grabbing`;
+                document.body.appendChild(ghost);
+                placeholder = document.createElement('div');
+                placeholder.style.cssText = `flex:none;height:${Math.min(rect.height, 180)}px;border-radius:var(--radius-md);border:1.5px dashed var(--color-accent);background:color-mix(in srgb, var(--color-accent) 8%, transparent)`;
+                panel.parentElement.insertBefore(placeholder, panel);
+                panel.style.display = 'none';
+            }
+
+            ghost.style.transform = `translate(${dx}px, ${dy}px)`;
+
+            // Nearest column by horizontal distance — no dead zones, every release lands somewhere.
+            let best = null;
+            let bestD = Infinity;
+            document.querySelectorAll('[data-col]').forEach((c) => {
+                const r = c.getBoundingClientRect();
+                const d = Math.abs(e.clientX - (r.left + r.width / 2));
+                if (d < bestD) {
+                    bestD = d;
+                    best = c;
+                }
+            });
+            if (!best) {
+                return;
+            }
+
+            dropCol = Number(best.dataset.col);
+            dropBefore = null;
+            let anchor = null;
+            for (const child of best.children) {
+                if (!child.dataset.panelKey || child === panel) {
+                    continue;
+                }
+
+                const r = child.getBoundingClientRect();
+                if (e.clientY < r.top + r.height / 2) {
+                    anchor = child;
+                    dropBefore = child.dataset.panelKey;
+                    break;
+                }
+            }
+
+            best.insertBefore(placeholder, anchor);
+        });
+
+        grab.addEventListener('pointerup', () => {
+            if (!active) {
+                return;
+            }
+
+            active = false;
+            if (!dragging) {
+                return;
+            }
+
+            dragging = false;
+            rowSwipedAt = Date.now();
+            const col = dropCol;
+            const before = dropBefore;
+            clear();
+            finishGesture();
+            if (col != null) {
+                commitPanelDrop(key, col, before);
+            }
+        });
+
+        grab.addEventListener('pointercancel', abort);
+        grab.addEventListener('lostpointercapture', () => {
+            if (active) {
+                abort();
+            }
+        });
+    });
 }
 
 function bindRowSwipes() {
@@ -1061,6 +1290,9 @@ app.addEventListener('click', (e) => {
         case 'noop':
             flash('Not wired in this prototype');
             break;
+        case 'arrange':
+            flash('Drag a panel by its title bar to move it — columns pack upward to fill the space');
+            break;
         case 'ws:pick':
             setState({ ws: Number(el.dataset.i), sel: null });
             break;
@@ -1241,18 +1473,26 @@ window.addEventListener('keydown', (e) => {
 });
 
 let lastBucket = null;
+let lastCols = null;
 
 function bucket() {
     return isMobile() ? 'mobile' : (isTablet() ? 'tablet' : 'desktop');
 }
 
+function liveCols() {
+    return columnCount(panelDefs().filter((p) => !state.removed[p.key]).length);
+}
+
 window.addEventListener('resize', () => {
     const b = bucket();
-    if (b !== lastBucket) {
+    const c = liveCols();
+    if (b !== lastBucket || c !== lastCols) {
         lastBucket = b;
+        lastCols = c;
         render();
     }
 });
 
 lastBucket = bucket();
+lastCols = liveCols();
 render();
