@@ -1,0 +1,3 @@
+# Claude Code session files (local preview config, worktree checkouts)
+.claude/launch.json
+.claude/worktrees/
