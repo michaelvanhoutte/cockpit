@@ -218,6 +218,8 @@ Where the AI runs (cloud vs on-device) interacts with the offline requirement â€
 - **Phase 2:** Linear, Google Calendar.
 - **Phase 3 / ideas:** Chrome bookmarks & downloads, YouTube saved videos.
 
+**Feasibility reference.** [integration-options.html](integration-options.html) (assessment as of Aug 2026) rates 15 candidate sources on whether they can be pulled into one app: nine integrate cleanly through official APIs or open protocols (Gmail, Telenet IMAP, the three Slack flavors, Microsoft Teams, Google Tasks, Google Calendar, Billit), three are partial (Signal via signal-cli, Notion mentions via polling, Notion action items being the clean exception), and three have no official read path at all (personal WhatsApp, LinkedIn InMail, LinkedIn connection requests, where the only workarounds violate the platforms' terms). Consult it when picking sources for later phases, and reverify the restricted platforms before committing to a build.
+
 Each connector is responsible for: authenticating (OAuth), pulling new items on a schedule/push, normalizing them into the Item model, and (if two-way sync is enabled) pushing status changes back.
 
 ## 10. Offline / local-first behavior
