@@ -13,7 +13,7 @@ const DUE = {
     over: { color: '#bf5d55', text: '#94322b', edge: 'color-mix(in srgb, #bf5d55 50%, transparent)', tint: 18, hue: '#d97a72' },
 };
 
-// slug picks the page-wide color theme (body[data-ws] in styles.css); tint matches that theme's accent.
+// slug picks the workspace background tint (:root[data-ws] in styles.css); tint colors the tab dot and header stripe.
 const WS = [
     { name: 'Work', slug: 'work', tint: '#6f62b5', sources: 'work Gmail, company Slack, work Notion' },
     { name: 'Atlas Copco', slug: 'atlas', tint: '#3a72c8', sources: 'Slack Connect, project Notion, WhatsApp' },
@@ -398,6 +398,20 @@ function srcPillHtml(c, fontSize) {
     return `<span style="flex:none;font:600 ${fontSize} var(--font-heading);letter-spacing:0.05em;text-transform:uppercase;padding:3px 7px;border-radius:5px;background:${c.srcBg};color:${c.srcFg};box-shadow:inset 0 0 0 1px ${c.srcRing}">${esc(c.srcLabel)}</span>`;
 }
 
+function logoHtml(withName) {
+    // Gauge glyph — a nod to an actual cockpit instrument.
+    const mark = `<span style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:var(--color-accent);box-shadow:var(--shadow-sm)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round">
+            <path d="M2.5 11.5a5.5 5.5 0 0 1 11 0"></path>
+            <line x1="8" y1="11.5" x2="11" y2="7.5"></line>
+        </svg>
+    </span>`;
+    return `<div style="display:flex;align-items:center;gap:8px;margin-right:4px">
+        ${mark}
+        ${withName ? '<span style="font-family:var(--font-heading);font-weight:600;font-size:15px;letter-spacing:-0.01em">Cockpit</span>' : ''}
+    </div>`;
+}
+
 function headerHtml() {
     const ws = WS[state.ws];
     const panels = panelDefs().filter((p) => !state.removed[p.key]);
@@ -419,8 +433,9 @@ function headerHtml() {
     }).join('');
 
     return `
-    <div style="flex:none;padding:${isMobile() ? '12px 14px' : '12px 16px'};background:var(--color-surface);box-shadow:inset 0 2px 0 ${ws.tint};border-bottom:1px solid var(--color-divider)">
+    <div style="flex:none;padding:${isMobile() ? '12px 14px' : '12px 16px'};background:var(--color-header-bg);box-shadow:inset 0 2px 0 ${ws.tint};border-bottom:1px solid var(--color-divider)">
         <div style="display:flex;align-items:center;gap:10px">
+            ${logoHtml(!isMobile())}
             ${wsArea}
             <div style="flex:1"></div>
             <span style="font-size:11.5px;color:${muted(62)}">Synced 2 min ago · 3 queued offline</span>
@@ -803,7 +818,7 @@ function render() {
     }
 
     app.innerHTML = `
-    <div style="height:100%;display:flex;flex-direction:column;background:var(--color-bg)">
+    <div style="height:100%;display:flex;flex-direction:column;background:var(--color-page-bg)">
         ${headerHtml()}
         <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">${body}</div>
         ${mobile ? bottomTabsHtml() : ''}
