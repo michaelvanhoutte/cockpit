@@ -487,7 +487,7 @@ function panelCardHtml(c) {
 
 function panelHtml(pn) {
     return `
-    <div style="grid-column:span ${pn.span};flex:${pn.flex};min-height:${pn.minH};overflow:${pn.overflow};display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:inset 0 0 0 1px ${pn.edge},var(--shadow-sm)">
+    <div data-panel-key="${pn.key}" style="grid-column:span ${pn.span};flex:${pn.flex};min-height:${pn.minH};overflow:${pn.overflow};display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:inset 0 0 0 1px ${pn.edge},var(--shadow-sm)">
         <div style="display:flex;align-items:center;gap:8px">
             <span style="font-family:var(--font-heading);font-weight:500;font-size:13.5px">${esc(pn.title)}</span>
             <span style="font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--color-neutral-800);color:var(--color-neutral-200)">${pn.count}</span>
@@ -754,6 +754,40 @@ function bindSwipe() {
 
 let rowSwipedAt = 0;
 
+function commitDrop(id, panelKey, beforeId) {
+    const from = state.items.findIndex((i) => i.id === id);
+    if (from < 0) {
+        return;
+    }
+
+    const items = state.items.slice();
+    const [it] = items.splice(from, 1);
+    const moved = panelKey === 'inbox'
+        ? { ...it, status: 'inbox' }
+        : { ...it, panel: panelKey, status: it.status === 'inbox' ? 'task' : it.status };
+
+    const inPanel = (i) => (panelKey === 'inbox'
+        ? i.status === 'inbox'
+        : i.panel === panelKey && i.status !== 'done' && i.status !== 'dismissed' && i.status !== 'inbox');
+
+    let at = beforeId ? items.findIndex((i) => i.id === beforeId) : -1;
+    if (at < 0) {
+        let last = -1;
+        items.forEach((i, n) => {
+            if (inPanel(i)) {
+                last = n;
+            }
+        });
+        at = last >= 0 ? last + 1 : items.length;
+    }
+
+    items.splice(at, 0, moved);
+    state.items = items;
+    setState({ sel: state.sel === id ? null : state.sel });
+    const def = [inboxDef()].concat(panelDefs(), state.extra).find((p) => p.key === panelKey);
+    flash(panelKey === 'inbox' ? 'Moved back into the Inbox' : `Moved into “${def ? def.title : 'panel'}”`);
+}
+
 function bindRowSwipes() {
     document.querySelectorAll('[data-swipe-row]').forEach((row) => {
         const id = row.dataset.id;
@@ -761,12 +795,73 @@ function bindRowSwipes() {
         let y0 = 0;
         let drag = 0;
         let active = false;
-        let horizontal = false;
+        // null until the gesture direction is known; then 'dismiss' (left),
+        // 'drag' (right on the dashboard) or 'sheet' (right on the triage list).
+        let mode = null;
+        let ghost = null;
+        let placeholder = null;
+        let dropKey = null;
+        let dropBefore = null;
 
         const reset = () => {
             row.style.transform = '';
             row.style.opacity = '';
             row.style.transition = '';
+        };
+
+        const clearDrag = () => {
+            if (ghost) {
+                ghost.remove();
+            }
+
+            if (placeholder) {
+                placeholder.remove();
+            }
+
+            ghost = null;
+            placeholder = null;
+            row.style.display = '';
+            dropKey = null;
+            dropBefore = null;
+        };
+
+        const startDrag = () => {
+            const rect = row.getBoundingClientRect();
+            ghost = row.cloneNode(true);
+            ghost.style.cssText += `;position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;margin:0;z-index:50;pointer-events:none;box-shadow:var(--shadow-lg);opacity:.95;cursor:grabbing`;
+            document.body.appendChild(ghost);
+            placeholder = document.createElement('div');
+            placeholder.style.cssText = `flex:none;height:${rect.height}px;border-radius:var(--radius-sm);border:1.5px dashed var(--color-accent);background:color-mix(in srgb, var(--color-accent) 8%, transparent)`;
+            row.parentElement.insertBefore(placeholder, row);
+            row.style.display = 'none';
+        };
+
+        const trackDrop = (x, y) => {
+            const under = document.elementFromPoint(x, y);
+            const panelEl = under && under.closest('[data-panel-key]');
+            if (!panelEl) {
+                dropKey = null;
+                return;
+            }
+
+            dropKey = panelEl.dataset.panelKey;
+            dropBefore = null;
+            let anchor = null;
+            for (const card of panelEl.children) {
+                if (!card.dataset.id || card === row) {
+                    continue;
+                }
+
+                const r = card.getBoundingClientRect();
+                if (y < r.top + r.height / 2) {
+                    anchor = card;
+                    dropBefore = card.dataset.id;
+                    break;
+                }
+            }
+
+            const addAction = panelEl.querySelector('[data-act="panel:addaction"]');
+            panelEl.insertBefore(placeholder, anchor || (addAction ? addAction.parentElement : null));
         };
 
         row.addEventListener('dragstart', (e) => e.preventDefault());
@@ -776,7 +871,7 @@ function bindRowSwipes() {
             y0 = e.clientY;
             drag = 0;
             active = true;
-            horizontal = false;
+            mode = null;
         });
 
         row.addEventListener('pointermove', (e) => {
@@ -786,11 +881,14 @@ function bindRowSwipes() {
 
             const dx = e.clientX - x0;
             const dy = e.clientY - y0;
-            if (!horizontal) {
+            if (!mode) {
                 if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy)) {
-                    horizontal = true;
+                    mode = dx < 0 ? 'dismiss' : (state.screen === 'dash' ? 'drag' : 'sheet');
                     row.setPointerCapture(e.pointerId);
                     row.style.transition = 'none';
+                    if (mode === 'drag') {
+                        startDrag();
+                    }
                 } else {
                     if (Math.abs(dy) > 16 && Math.abs(dy) > Math.abs(dx) * 1.5) {
                         active = false;
@@ -800,37 +898,55 @@ function bindRowSwipes() {
             }
 
             drag = dx;
-            row.style.transform = `translateX(${drag}px)`;
-            row.style.opacity = drag < 0 ? String(Math.max(0.35, 1 + drag / 280)) : '1';
+            if (mode === 'drag') {
+                ghost.style.transform = `translate(${dx}px, ${dy}px) rotate(1.5deg)`;
+                trackDrop(e.clientX, e.clientY);
+            } else {
+                row.style.transform = `translateX(${drag}px)`;
+                row.style.opacity = drag < 0 ? String(Math.max(0.35, 1 + drag / 280)) : '1';
+            }
         });
 
-        const finish = () => {
+        row.addEventListener('pointerup', () => {
             if (!active) {
                 return;
             }
 
             active = false;
-            if (horizontal && Math.abs(drag) > 6) {
+            if (mode && Math.abs(drag) > 6) {
                 rowSwipedAt = Date.now();
             }
 
-            if (drag < -60) {
+            if (mode === 'drag') {
+                const key = dropKey;
+                const before = dropBefore;
+                clearDrag();
+                if (key) {
+                    commitDrop(id, key, before);
+                }
+            } else if (mode === 'dismiss' && drag < -60) {
                 row.style.transition = 'transform .15s ease-out, opacity .15s ease-out';
                 row.style.transform = 'translateX(-110%)';
                 row.style.opacity = '0';
                 setTimeout(() => process('dismissed', id), 150);
-            } else if (drag > 60) {
+            } else if (mode === 'sheet' && drag > 60) {
                 reset();
                 moveSheet(id);
             } else {
                 reset();
             }
 
+            mode = null;
             drag = 0;
-        };
+        });
 
-        row.addEventListener('pointerup', finish);
-        row.addEventListener('pointercancel', finish);
+        row.addEventListener('pointercancel', () => {
+            active = false;
+            mode = null;
+            drag = 0;
+            clearDrag();
+            reset();
+        });
     });
 }
 
