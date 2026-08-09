@@ -180,6 +180,8 @@ A Panel's contents come from two mechanisms that combine:
 - **Manual promotion.** You can promote any Item from the Inbox (or anywhere) into a specific Panel — the explicit "file into a box" action (§5.2).
 - **Live rules (saved queries).** A Panel can be *configured* with a rule for what belongs in it, e.g. "all messages from the **cust-AtlasCopco** Slack channel," "emails labelled *Pricing*," or "Items associated with Project Falcon." When set, the Panel **remembers** the rule (optionally) and any future item matching it **appears automatically** — so the next message posted in that channel shows up without you touching the Inbox. This is the panel-level expression of the direct-routing idea in §5.1.
 
+**Configuring a rule happens in plain English, not through a rule wizard.** When setting up (or editing) a Panel, you describe what it should show in a free-text sentence (*"all emails from customers,"* *"everything about Project Falcon that is still open,"* *"Slack messages where I'm mentioned in the customer channels"*), and the AI translates that description into the underlying saved query (§8). The app plays the interpretation back in understandable terms ("this will show: emails, from senders matching your customer list, status not done") so you can confirm or refine it by editing the sentence, not by assembling filter dropdowns. A complicated multi-step rule wizard is explicitly *not* wanted; the plain-English description is the primary interface, with the structured query as its stored, inspectable result.
+
 **Attach-and-monitor scope prompt.** When you add a Slack item to a Panel, the app should ask *how much* to monitor, because "this message" and "this whole channel" are very different intentions:
 
 - **This thread** — just this message and its replies.
@@ -212,6 +214,7 @@ Three levels of AI assistance:
 - **Action extraction (the next-action label).** Read the full thread/context — not just the last message or the subject — and distill the single, concrete thing you actually need to do into one short line (§6.1). This is real LLM work: the required action is often not literally stated in the latest message. The result is always editable by you.
 - **Suggested associations.** When an Item arrives, AI proposes the likely Project/Person/Topic tags and a suggested status, which you confirm or override. This makes triage much faster and is where most of the day-to-day value is.
 - **Dashboard highlights digest.** A Highlights panel (and optionally a daily push) that says "here is what needs follow-up today" across all connected sources — the modern version of your Notion overview.
+- **Plain-English panel rules.** Turn a free-text description of what a Panel should show ("all emails from customers") into the structured saved query behind that Panel (§6.2), and render the interpretation back in plain terms for confirmation. This replaces a traditional filter/rule wizard as the way Panels are configured.
 - **Reading-digest topic extraction.** For newsletter/research-class email (§6, Reading digest panel): detect that an email is content rather than correspondence, split it into its individual stories or topics, and rank those against your topics of interest to build the daily "worth reading" selection. This works at a finer grain than per-item summaries, since one newsletter can contain ten unrelated stories of which only one matters to you.
 
 Where the AI runs (cloud vs on-device) interacts with the offline requirement — noted in §12.
@@ -285,7 +288,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 ## 13. MVP scope (proposed)
 
-**In:** Workspaces + Pages + Panels (move/resize/title); Item model with associations; Gmail/Slack/Notion connectors (read-only); triage inbox with swipe-left delete and assign/status; Project, Person, Topic, Focus, Highlights, Payments, and Reading digest panels; the four Focus horizons with overdue escalation; per-item AI summaries + suggested tags; local-first offline viewing and queued triage; source reconciliation so items completed or removed at the source update here without double bookkeeping (§10.1).
+**In:** Workspaces + Pages + Panels (move/resize/title) with plain-English rule configuration (§6.2); Item model with associations; Gmail/Slack/Notion connectors (read-only); triage inbox with swipe-left delete and assign/status; Project, Person, Topic, Focus, Highlights, Payments, and Reading digest panels; the four Focus horizons with overdue escalation; per-item AI summaries + suggested tags; local-first offline viewing and queued triage; source reconciliation so items completed or removed at the source update here without double bookkeeping (§10.1).
 
 **Later:** two-way sync; Linear + Calendar; Chrome + YouTube; Kanban and calendar panels; end-of-period roll-up reminders; multi-user/tenant billing and onboarding.
 
