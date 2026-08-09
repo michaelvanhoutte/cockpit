@@ -11,7 +11,8 @@ Open `index.html` in a browser. That's it. (If your browser blocks the Google Fo
 - **Workspaces** — Work / Atlas Copco / Personal tabs; the workspace color is the line at the top edge of the header.
 - **Pages** — Today, Dormant projects, Reading, each with its own panels.
 - **Dashboard** — the pinned Inbox panel on the left plus a responsive grid of action panels. Panel "···" menu (configure rule, group, remove), "+ Panel", "+ Action".
-- **Triage** — the To Process list with per-row Accept-suggestion, File…, Done, Dismiss, and keyboard shortcuts (j/k move, e done, w waiting, s snooze).
+- **Triage** — the To Process list with per-row Accept-suggestion, File…, Done, Dismiss, and keyboard shortcuts (j/k move, e done, s snooze; w marks waiting when nothing is selected).
+- **Goals** — single click selects a row (double click still jumps to the source; Enter opens the edit page). With a row selected, press T, W, M or Q to mark it as a goal for today, this week, this month or this quarter, or right-click it for the goal menu. Highlighted rows get a small T/W/M/Q badge, and the collapsible read-only Goals panel at the top of a page (collapsed by default) shows everything per horizon.
 - **Row swipe & drag** — on any item row, swipe left to remove the item. On the dashboard, dragging a row to the right lifts it so you can drop it into any panel at the exact position you want; a dashed placeholder shows where it will land and the other rows shift around it. Dropping outside a panel cancels. On the To Process list and the mobile swipe deck (where no panels are visible) swipe right opens a panel picker instead. Works with mouse drag or touch.
 - **Item detail** — executive summary, editable AI-drafted next action, panel associations, focus horizons, status buttons, and the deep-link button that triggers the "Handled?" prompt-on-return sheet.
 - **File into a panel** — the attach-and-monitor scope sheet (thread / conversation / channel).
