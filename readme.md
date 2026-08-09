@@ -12,7 +12,7 @@ Open `index.html` in a browser. That's it. (If your browser blocks the Google Fo
 - **Pages** — Today, Dormant projects, Reading, each with its own panels.
 - **Dashboard** — the pinned Inbox panel on the left plus a responsive grid of action panels. Panel "···" menu (configure rule, group, remove), "+ Panel", "+ Action".
 - **Triage** — the To Process list with per-row Accept-suggestion, File…, Done, Dismiss, and keyboard shortcuts (j/k move, e done, w waiting, s snooze).
-- **Row swipe** — on any item row (the pinned Inbox panel, the To Process list, and every dashboard panel), swipe left to remove the item, swipe right to pick a panel to move it into. Works with mouse drag or touch; the mobile swipe deck uses the same panel picker on swipe right.
+- **Row swipe & drag** — on any item row, swipe left to remove the item. On the dashboard, dragging a row to the right lifts it so you can drop it into any panel at the exact position you want; a dashed placeholder shows where it will land and the other rows shift around it. Dropping outside a panel cancels. On the To Process list and the mobile swipe deck (where no panels are visible) swipe right opens a panel picker instead. Works with mouse drag or touch.
 - **Item detail** — executive summary, editable AI-drafted next action, panel associations, focus horizons, status buttons, and the deep-link button that triggers the "Handled?" prompt-on-return sheet.
 - **File into a panel** — the attach-and-monitor scope sheet (thread / conversation / channel).
 - **Mobile** — below 720px the app reflows: swipe deck for triage (swipe left = dismiss, swipe right = file, tap = open), bottom Triage/Pages tabs, bottom-sheet detail.
