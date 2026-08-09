@@ -1,6 +1,6 @@
 # Cockpit — Unified Inbox & Dashboards prototype
 
-A pure HTML/CSS/JS implementation of the Claude Design clickable mockup for the Unified Inbox & Dashboards concept (functional definition v0.2). No build step, no dependencies.
+A pure HTML/CSS/JS implementation of the Claude Design clickable mockup for the Unified Inbox & Dashboards concept (see [docs/functional-definition.md](docs/functional-definition.md), v0.3). No build step, no dependencies.
 
 ## Run it
 
