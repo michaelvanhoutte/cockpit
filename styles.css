@@ -2,17 +2,21 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-    /* Per-workspace bases — everything below derives from these six.
-       Defaults = "Work" (purple); other workspaces override via body[data-ws]. */
+    /* Only --ws-bg (the page ground behind the panels) and --ws-header (the same
+       hue, one step deeper, for the header bar) change per workspace, via
+       :root[data-ws]. Everything else is workspace-independent: cards, rows,
+       and controls keep the fixed neutral/accent palette below. */
     --ws-accent: #6f62b5;
     --ws-accent-deep: #5d5294;
     --ws-accent-soft: #b5abfc;
     --ws-accent-tint: #e7e5fe;
-    --ws-bg: #e7e9f2;
-    --ws-surface: #f4f5fb;
+    --ws-bg: #e3e1f2;
+    --ws-header: #d2cdea;
 
-    --color-bg: var(--ws-bg);
-    --color-surface: var(--ws-surface);
+    --color-page-bg: var(--ws-bg);
+    --color-header-bg: var(--ws-header);
+    --color-bg: #e7e9f2;
+    --color-surface: #f4f5fb;
     --color-text: #292b31;
     --color-divider: color-mix(in srgb, #292b31 14%, transparent);
     --color-accent: var(--ws-accent);
@@ -49,25 +53,18 @@
     --shadow-lg: 0 0 0 1px var(--ring-strong), 0 16px 40px rgba(41, 43, 49, 0.16);
 }
 
-/* — workspace themes — the whole page recolors when the workspace switches.
-   Overrides live on :root (html) because the derived --color-* tokens are computed there;
-   overriding the --ws-* bases any lower in the tree would be ignored. — */
+/* — workspace themes — only the page ground behind the panels and the header bar
+   recolor when the workspace switches; cards, rows, accents, text, and controls
+   are untouched. Overrides live on :root (html) because the --color-* tokens are
+   computed there; overriding the --ws-* bases any lower in the tree would be ignored. — */
 :root[data-ws='atlas'] {
-    --ws-accent: #3a72c8;
-    --ws-accent-deep: #2e5aa4;
-    --ws-accent-soft: #9cc0f2;
-    --ws-accent-tint: #e1edfe;
-    --ws-bg: #e0e9f6;
-    --ws-surface: #f1f6fd;
+    --ws-bg: #d8e5f7;
+    --ws-header: #bed6f2;
 }
 
 :root[data-ws='personal'] {
-    --ws-accent: #c06a45;
-    --ws-accent-deep: #9c5233;
-    --ws-accent-soft: #eaa987;
-    --ws-accent-tint: #fbe8dc;
-    --ws-bg: #f3ebe2;
-    --ws-surface: #fbf6ef;
+    --ws-bg: #f2e5d4;
+    --ws-header: #ead2b3;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -77,7 +74,7 @@ html, body { height: 100%; }
 body {
     margin: 0;
     overflow: hidden;
-    background: var(--color-bg);
+    background: var(--color-page-bg);
     color: var(--color-text);
     font-family: var(--font-body);
     font-size: 15px;
