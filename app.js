@@ -22,6 +22,14 @@ const WS = [
 
 const PAGES = ['Today', 'Dormant projects', 'Reading'];
 
+// Focus horizons — the values stored in state.focus, shared with the detail modal's chips.
+const HORIZONS = [
+    { key: 'Today', label: 'Today', badge: 'T', menuLabel: 'Goal for today' },
+    { key: 'This Week', label: 'This Week', badge: 'W', menuLabel: 'Goal for this week' },
+    { key: 'This Month', label: 'This Month', badge: 'M', menuLabel: 'Goal for this month' },
+    { key: 'This Quarter', label: 'This Q', badge: 'Q', menuLabel: 'Goal for this Q' },
+];
+
 const PANELS = [
     { key: 'atlas', title: 'Atlas Copco rollout', rule: 'live · #cust-atlascopco', span: 1, sources: 'Slack channel rule + mail thread' },
     { key: 'debt', title: 'Technical debt', rule: 'topic · manual', span: 1, sources: 'Own actions + Slack #eng' },
@@ -80,7 +88,7 @@ const NOTES = [
     { tag: 'Assumption · §4.1', text: 'Hybrid routing: the inbox is the default, channel rules route obvious items straight into a panel with an unseen dot (see the auto-routed Atlas Copco row).' },
     { tag: 'Open · §11.3', text: 'Swipe-right is modelled as "file into a panel" with the attach-and-monitor scope prompt (thread / conversation / channel). Try it on a narrow window or your phone.' },
     { tag: 'Open · §11.10', text: 'Round-trip is prompt-on-return: opening the source raises "Handled?" → Done / Waiting / Still to do, and Waiting rewrites the next-action line.' },
-    { tag: 'Interaction', text: 'Single click on a row opens the edit page here. Double click jumps straight to the source — the Slack thread, Gmail email, Notion page or WhatsApp chat (simulated in this prototype). Own actions have no external source, so both open the edit page.' },
+    { tag: 'Interaction', text: 'Single click selects a row. With a row selected, press T, W, M or Q to mark it as a goal for today, this week, this month or this quarter; Enter opens the edit page. Right-click opens the goal menu. Double click jumps straight to the source (own actions open the edit page instead). The collapsible Goals panel at the top of a page shows everything highlighted per horizon.' },
     { tag: 'Open · §11.1', text: 'Read-only sync assumed — nothing here mutates Gmail, Slack or WhatsApp.' },
 ];
 
@@ -89,6 +97,9 @@ const state = {
     ws: 0,
     page: 0,
     sel: null,
+    edit: null,
+    ctx: null,
+    goalsOpen: false,
     items: ITEMS.map((i) => ({ ...i })),
     toast: null,
     sheet: null,
@@ -97,7 +108,7 @@ const state = {
     removed: {},
     extra: [],
     draft: '',
-    focus: {},
+    focus: { i1: 'Today', a2: 'Today', s1: 'This Week', h2: 'This Week', b1: 'This Month', i6: 'This Quarter' },
     assoc: {},
 };
 
@@ -141,20 +152,35 @@ function inboxItems() {
     return state.items.filter((i) => i.status === 'inbox');
 }
 
-function selected() {
-    return state.items.find((i) => i.id === state.sel) || null;
+function openEdit(id) {
+    const it = state.items.find((i) => i.id === id);
+    setState({ sel: id, edit: id, ctx: null, draft: it ? it.action : '' });
 }
 
-function openItem(id) {
-    const it = state.items.find((i) => i.id === id);
-    setState({ sel: id, draft: it ? it.action : '' });
+function toggleSelect(id) {
+    setState({ sel: state.sel === id ? null : id });
 }
 
 let pendingOpen = null;
 
-function openItemSoon(id) {
+function selectSoon(id) {
+    // Delay so a double click can win and jump to the source instead.
     clearTimeout(pendingOpen);
-    pendingOpen = setTimeout(() => openItem(id), 260);
+    pendingOpen = setTimeout(() => toggleSelect(id), 260);
+}
+
+function toggleGoal(id, h) {
+    const it = state.items.find((i) => i.id === id);
+    const on = state.focus[id] === h;
+    const focus = { ...state.focus };
+    if (on) {
+        delete focus[id];
+    } else {
+        focus[id] = h;
+    }
+
+    setState({ focus });
+    flash(on ? 'Goal removed' : `Goal for ${h === 'Today' ? 'today' : h.toLowerCase()} — “${it ? it.action : ''}”`);
 }
 
 function openSource(id) {
@@ -165,7 +191,7 @@ function openSource(id) {
     }
 
     if (it.src === 'internal') {
-        openItem(id);
+        openEdit(id);
         return;
     }
 
@@ -181,7 +207,7 @@ function step(d) {
     }
 
     const i = list.findIndex((x) => x.id === state.sel);
-    openItem(list[Math.max(0, Math.min(list.length - 1, i < 0 ? 0 : i + d))].id);
+    setState({ sel: list[Math.max(0, Math.min(list.length - 1, i < 0 ? 0 : i + d))].id });
 }
 
 function process(status, id) {
@@ -203,7 +229,7 @@ function process(status, id) {
             return i;
         }
 
-        const base = i.id === state.sel && state.draft ? state.draft : i.action;
+        const base = i.id === state.edit && state.draft ? state.draft : i.action;
         return {
             ...i,
             status,
@@ -211,7 +237,7 @@ function process(status, id) {
             action: status === 'waiting' ? `Follow up: ${base}` : base,
         };
     });
-    setState({ sel: null });
+    setState({ sel: null, edit: null });
     flash(labels[status] || 'Processed');
 }
 
@@ -310,11 +336,16 @@ function cardData(i) {
     const selectedRow = state.sel === i.id;
     const tintBg = (ground) => (due.tint ? `color-mix(in srgb, ${due.hue} ${due.tint}%, ${ground})` : ground);
 
+    const goal = HORIZONS.find((h) => h.key === state.focus[i.id]) || null;
+
     return {
         ...i,
         srcLabel: src.label,
         deepLink: src.link,
-        clickHint: i.src === 'internal' ? 'Click: edit here' : `Click: edit here · Double-click: open in ${src.label}`,
+        goal,
+        clickHint: i.src === 'internal'
+            ? 'Click: select · Double-click: edit here · Right-click: goal menu'
+            : `Click: select · Double-click: open in ${src.label} · Right-click: goal menu`,
         srcBg: src.bg,
         srcFg: src.fg,
         srcRing: src.ring,
@@ -348,6 +379,14 @@ function mkPanel(p) {
         edge: p.key === 'inbox' ? 'color-mix(in srgb, var(--color-accent) 45%, transparent)' : 'transparent',
         menuOpen: state.menu === p.key,
     };
+}
+
+function goalBadgeHtml(c) {
+    if (!c.goal) {
+        return '';
+    }
+
+    return `<span title="Goal: ${esc(c.goal.label)}" style="flex:none;width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font:600 9.5px var(--font-heading);background:color-mix(in srgb, var(--color-accent) 16%, transparent);color:var(--color-accent-300);box-shadow:inset 0 0 0 1px var(--color-accent)">${esc(c.goal.badge)}</span>`;
 }
 
 function srcPillHtml(c, fontSize) {
@@ -397,6 +436,7 @@ function triageRowHtml(c) {
         <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
             <div style="display:flex;align-items:baseline;gap:7px;min-width:0">
                 <span style="font-family:var(--font-heading);font-weight:500;font-size:14px;line-height:1.35;text-wrap:pretty">${esc(c.action)}</span>
+                ${goalBadgeHtml(c)}
                 ${c.unseen ? '<span style="width:6px;height:6px;border-radius:50%;flex:none;background:var(--color-accent)"></span>' : ''}
             </div>
             <span style="font-size:11.5px;color:${muted(58)};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.from)} · ${esc(c.subject)}</span>
@@ -423,7 +463,7 @@ function triageHtml() {
             <h4>To Process</h4>
             <span class="tag tag-neutral">${inbox.length} items</span>
             <div style="flex:1"></div>
-            <span style="font-size:11px;color:${muted(55)}">click edit · double-click source · j/k move · e done · w waiting · s snooze</span>
+            <span style="font-size:11px;color:${muted(55)}">click select · double-click source · right-click goal · t/w/m/q goal · enter edit · j/k move · e done · s snooze</span>
         </div>
         ${inbox.map(triageRowHtml).join('')}
         ${inbox.length === 0 ? `<div style="padding:34px;text-align:center;border-radius:var(--radius-md);background:var(--color-surface);color:${muted(58)};font-size:13px">Queue clear. Processed items stay in the panels they were filed into.</div>` : ''}
@@ -449,7 +489,7 @@ function swipeHtml() {
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:${muted(45)}">
                 <span data-swipe-hint-left style="color:${muted(45)}">◀ dismiss</span>
-                <button class="btn btn-ghost" data-act="item:open" data-id="${c.id}" style="font-size:11.5px">Open</button>
+                <button class="btn btn-ghost" data-act="item:edit" data-id="${c.id}" style="font-size:11.5px">Open</button>
                 <span data-swipe-hint-right style="color:${muted(45)}">move ▶</span>
             </div>
             ${active ? `<div data-swipe-layer data-id="${c.id}" style="position:absolute;inset:0;border-radius:var(--radius-lg);cursor:grab;touch-action:pan-y"></div>` : ''}
@@ -479,6 +519,7 @@ function panelCardHtml(c) {
     <div data-act="item:open" ${c.swipe ? 'data-swipe-row' : ''} data-id="${c.id}" title="${esc(c.clickHint)}" style="user-select:none;-webkit-user-select:none;display:flex;gap:9px;align-items:flex-start;padding:8px 9px;border-radius:var(--radius-sm);cursor:pointer;background:${c.bg};box-shadow:inset 0 0 0 1px ${c.edge};border-left:4px solid ${c.dueColor}${c.swipe ? ';touch-action:pan-y' : ''}">
         ${srcPillHtml(c, '9px')}
         <span style="flex:1;min-width:0;font-size:12.5px;line-height:1.35;text-wrap:pretty">${esc(c.action)}</span>
+        ${goalBadgeHtml(c)}
         ${c.waiting ? '<span class="tag tag-accent" style="flex:none;font-size:9.5px;padding:1px 6px">Waiting</span>' : ''}
         ${c.unseen ? '<span style="width:6px;height:6px;flex:none;border-radius:50%;background:var(--color-accent)"></span>' : ''}
         <span style="flex:none;font-size:10.5px;padding-top:1px;color:${c.dueText}">${esc(c.dueLabel)}</span>
@@ -510,6 +551,52 @@ function panelHtml(pn) {
     </div>`;
 }
 
+function goalItems() {
+    return state.items.filter((i) => state.focus[i.id] && i.status !== 'done' && i.status !== 'dismissed');
+}
+
+function goalsRowHtml(c) {
+    return `
+    <div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0">
+        <span style="flex:none;width:14px;height:14px;margin-top:1px;border-radius:50%;border:1.5px solid ${muted(35)}"></span>
+        ${srcPillHtml(c, '8.5px')}
+        <span style="min-width:0;font-size:12px;line-height:1.4;text-wrap:pretty">${esc(c.action)}</span>
+    </div>`;
+}
+
+function goalsBarHtml() {
+    return `
+        <button data-act="goals:toggle" style="display:flex;align-items:center;gap:8px;border:0;background:transparent;cursor:pointer;padding:2px 0;color:var(--color-text)">
+            <span style="display:inline-block;font-size:10px;color:${muted(55)};transform:rotate(${state.goalsOpen ? 90 : 0}deg);transition:transform .15s ease-out">▶</span>
+            <span style="font-family:var(--font-heading);font-weight:500;font-size:15px">Goals</span>
+            <span class="tag tag-neutral" style="font-size:10.5px">${goalItems().length}</span>
+        </button>`;
+}
+
+function goalsGridHtml() {
+    const mobile = isMobile();
+    const highlighted = goalItems();
+
+    const cols = HORIZONS.map((h, n) => {
+        const rows = highlighted.filter((i) => state.focus[i.id] === h.key).map(cardData);
+        const first = n === 0;
+        return `
+        <div style="min-width:0;display:flex;flex-direction:column;gap:6px;${mobile ? '' : `padding:0 14px;${first ? 'padding-left:0' : 'border-left:1px solid var(--color-divider)'}`}">
+            <div style="display:flex;align-items:center;gap:7px">
+                <span style="flex:none;width:17px;height:17px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font:600 10px var(--font-heading);${first ? 'background:var(--color-accent);color:var(--color-bg)' : `background:transparent;color:${muted(60)};box-shadow:inset 0 0 0 1px var(--color-divider)`}">${esc(h.badge)}</span>
+                <span style="font-family:var(--font-heading);font-weight:500;font-size:13px;color:${first ? 'var(--color-accent-300)' : 'var(--color-text)'}">${esc(h.label)}</span>
+            </div>
+            ${rows.map(goalsRowHtml).join('')}
+            ${rows.length === 0 ? `<span style="font-size:11px;padding:5px 0;color:${muted(42)}">Nothing yet — select an item and press ${esc(h.badge)}</span>` : ''}
+        </div>`;
+    }).join('');
+
+    return `
+    <div style="display:grid;grid-template-columns:${mobile ? '1fr' : 'repeat(4, minmax(0,1fr))'};gap:${mobile ? '14px' : '0'};padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm)">
+        ${cols}
+    </div>`;
+}
+
 function dashHtml() {
     const mobile = isMobile();
     const panels = panelDefs().filter((p) => !state.removed[p.key]).map(mkPanel);
@@ -518,12 +605,14 @@ function dashHtml() {
 
     return `
     <div style="flex:1;min-height:0;padding:${mobile ? '12px' : '16px'};display:flex;flex-direction:column;gap:12px;overflow:hidden">
-        <div style="display:flex;align-items:center;gap:10px;flex:none">
-            <h4>${esc(PAGES[state.page])}</h4>
-            <span style="font-size:11.5px;color:${muted(58)}">${panels.length + 1} panels · drag to move, corner to resize</span>
-            <div style="flex:1"></div>
-            <button class="btn btn-secondary" data-act="noop" style="font-size:12px">Arrange</button>
-            <button class="btn btn-primary" data-act="dash:addpanel" style="font-size:12px">+ Panel</button>
+        <div style="flex:none;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+                ${goalsBarHtml()}
+                <div style="flex:1"></div>
+                <button class="btn btn-secondary" data-act="noop" style="font-size:12px">Arrange</button>
+                <button class="btn btn-primary" data-act="dash:addpanel" style="font-size:12px">+ Panel</button>
+            </div>
+            ${state.goalsOpen ? goalsGridHtml() : ''}
         </div>
         <div style="flex:1;min-height:0;display:flex;flex-direction:${mobile ? 'column' : 'row'};gap:12px;align-items:stretch;overflow:${mobile ? 'auto' : 'hidden'}">
             <div style="flex:none;width:${mobile ? '100%' : (isTablet() ? '300px' : '350px')};min-height:0;display:flex;flex-direction:column;overflow:${mobile ? 'visible' : 'auto'}">
@@ -550,7 +639,7 @@ function bottomTabsHtml() {
 }
 
 function detailHtml() {
-    const sel = selected();
+    const sel = state.items.find((i) => i.id === state.edit) || null;
     if (!sel) {
         return '';
     }
@@ -655,6 +744,42 @@ function notesHtml() {
     </div>`;
 }
 
+function ctxHtml() {
+    if (!state.ctx) {
+        return '';
+    }
+
+    const it = state.items.find((i) => i.id === state.ctx.id);
+    if (!it) {
+        return '';
+    }
+
+    const cur = state.focus[it.id];
+    const x = Math.max(8, Math.min(state.ctx.x, window.innerWidth - 240));
+    const y = Math.max(8, Math.min(state.ctx.y, window.innerHeight - 320));
+    const row = (act, label, extra, right) => `
+        <button data-act="${act}" ${extra || ''} style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;cursor:pointer;padding:7px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--color-text);font:400 12.5px var(--font-body)">
+            ${label}
+            <span style="margin-left:auto;font-size:10.5px;color:${muted(45)}">${right || ''}</span>
+        </button>`;
+
+    const goalRows = HORIZONS.map((h) => {
+        const on = cur === h.key;
+        return row('ctx:goal', `
+            <span style="flex:none;width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font:600 9.5px var(--font-heading);${on ? 'background:var(--color-accent);color:var(--color-bg)' : `color:${muted(55)};box-shadow:inset 0 0 0 1px var(--color-divider)`}">${esc(h.badge)}</span>
+            <span>${esc(h.menuLabel)}</span>`, `data-h="${esc(h.key)}"`, on ? '✓' : h.badge);
+    }).join('');
+
+    return `
+    <div data-ctx-menu style="position:fixed;left:${x}px;top:${y}px;z-index:11;width:228px;display:flex;flex-direction:column;gap:1px;padding:6px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-lg),inset 0 0 0 1px var(--color-divider);animation:riseIn .12s ease-out">
+        ${goalRows}
+        ${cur ? row('ctx:clear', `<span>Remove goal</span>`) : ''}
+        <div style="height:1px;margin:4px 2px;background:var(--color-divider)"></div>
+        ${row('ctx:edit', '<span>Edit here</span>', '', '⏎')}
+        ${it.src === 'internal' ? '' : row('ctx:source', `<span>${esc(SRC[it.src].link)}</span>`)}
+    </div>`;
+}
+
 function toastHtml() {
     if (!state.toast) {
         return '';
@@ -683,6 +808,7 @@ function render() {
     ${detailHtml()}
     ${sheetHtml()}
     ${notesHtml()}
+    ${ctxHtml()}
     ${toastHtml()}`;
 
     bindDraftInput();
@@ -741,7 +867,7 @@ function bindSwipe() {
             moveSheet(id);
         } else if (Math.abs(drag) < 6) {
             // The drag layer sits above the whole card, so a plain tap opens the item.
-            openItem(id);
+            openEdit(id);
         } else {
             cardEl.style.transform = '';
             hintLeft.style.color = muted(45);
@@ -840,6 +966,10 @@ app.addEventListener('click', (e) => {
     }
 
     const el = e.target.closest('[data-act]');
+    if (state.ctx && !e.target.closest('[data-ctx-menu]')) {
+        setState({ ctx: null });
+    }
+
     if (!el) {
         return;
     }
@@ -872,8 +1002,40 @@ app.addEventListener('click', (e) => {
             setState({ screen: el.dataset.k, sel: null });
             break;
         case 'item:open':
-            // Delay slightly so a double click can win and jump to the source instead.
-            openItemSoon(id);
+            selectSoon(id);
+            break;
+        case 'item:edit':
+            openEdit(id);
+            break;
+        case 'goals:toggle':
+            setState({ goalsOpen: !state.goalsOpen });
+            break;
+        case 'ctx:goal': {
+            const ctxId = state.ctx ? state.ctx.id : null;
+            if (ctxId) {
+                state.ctx = null;
+                toggleGoal(ctxId, el.dataset.h);
+            }
+            break;
+        }
+        case 'ctx:clear': {
+            const ctxId = state.ctx ? state.ctx.id : null;
+            if (ctxId && state.focus[ctxId]) {
+                state.ctx = null;
+                toggleGoal(ctxId, state.focus[ctxId]);
+            }
+            break;
+        }
+        case 'ctx:edit':
+            if (state.ctx) {
+                openEdit(state.ctx.id);
+            }
+            break;
+        case 'ctx:source':
+            if (state.ctx) {
+                openSource(state.ctx.id);
+                setState({ ctx: null });
+            }
             break;
         case 'item:accept': {
             const it = state.items.find((i) => i.id === id) || {};
@@ -912,13 +1074,13 @@ app.addEventListener('click', (e) => {
             setState({ notesOpen: !state.notesOpen });
             break;
         case 'detail:close':
-            setState({ sel: null });
+            setState({ edit: null });
             break;
         case 'detail:opensource':
             returnSheet();
             break;
         case 'assoc:toggle': {
-            const sel = selected();
+            const sel = state.items.find((i) => i.id === state.edit);
             if (sel) {
                 const p = PANELS.concat([{ key: 'new', title: '+ New panel' }]).find((x) => x.key === key);
                 const on = !!state.assoc[sel.id + key] || sel.suggest === (p && p.title) || sel.panel === key;
@@ -927,9 +1089,9 @@ app.addEventListener('click', (e) => {
             break;
         }
         case 'focus:pick': {
-            const sel = selected();
+            const sel = state.items.find((i) => i.id === state.edit);
             if (sel) {
-                setState({ focus: { ...state.focus, [sel.id]: el.dataset.h } });
+                toggleGoal(sel.id, el.dataset.h);
             }
             break;
         }
@@ -971,12 +1133,54 @@ app.addEventListener('dblclick', (e) => {
     openSource(el.dataset.id);
 });
 
+app.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('[data-act="item:open"][data-id]');
+    if (!row) {
+        if (state.ctx) {
+            e.preventDefault();
+            setState({ ctx: null });
+        }
+        return;
+    }
+
+    e.preventDefault();
+    clearTimeout(pendingOpen);
+    setState({ sel: row.dataset.id, ctx: { id: row.dataset.id, x: e.clientX, y: e.clientY } });
+});
+
+const GOAL_KEYS = { t: 'Today', w: 'This Week', m: 'This Month', q: 'This Quarter' };
+
 window.addEventListener('keydown', (e) => {
     if (e.target && e.target.tagName === 'INPUT') {
         return;
     }
 
     const k = e.key.toLowerCase();
+    if (k === 'escape') {
+        if (state.ctx) {
+            setState({ ctx: null });
+        } else if (state.sheet) {
+            setState({ sheet: null });
+        } else if (state.edit) {
+            setState({ edit: null });
+        } else if (state.sel) {
+            setState({ sel: null });
+        }
+        return;
+    }
+
+    // With a row selected (and no modal open), t/w/m/q mark it as a goal for that horizon.
+    if (state.sel && !state.edit && !state.sheet) {
+        if (GOAL_KEYS[k]) {
+            toggleGoal(state.sel, GOAL_KEYS[k]);
+            return;
+        }
+        if (k === 'enter') {
+            openEdit(state.sel);
+            return;
+        }
+    }
+
     if (k === 'e') {
         process('done');
     } else if (k === 'w') {
@@ -985,8 +1189,6 @@ window.addEventListener('keydown', (e) => {
         process('snoozed');
     } else if (k === 'j' || k === 'k') {
         step(k === 'j' ? 1 : -1);
-    } else if (k === 'escape' && (state.sel || state.sheet)) {
-        setState(state.sheet ? { sheet: null } : { sel: null });
     }
 });
 
