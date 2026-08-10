@@ -67,12 +67,8 @@ const PANELS = [
 ];
 
 const ITEMS = [
-    { id: 'i1', src: 'mail', from: 'Dave Kerrigan · Atlas Copco', subject: 'Re: Part 11 compatibility of the audit trail', time: '08:12', action: "Reply to Dave's question on Part 11 compatibility", summary: 'Dave asks whether the audit-trail export satisfies 21 CFR Part 11 for their validated line. Five of six questions are answered in the validation pack; the open one is e-signature retention.', suggest: 'Atlas Copco rollout', due: 'due', dueLabel: 'Due today', status: 'inbox', unseen: false },
-    { id: 'i2', src: 'slack', from: '#cust-atlascopco · Lieve Maes', subject: 'seats for the second line', time: '08:40', action: 'Answer the pricing question on 12 extra editor seats', summary: 'Lieve needs a price before their Thursday budget review. The thread already holds the current contract tier.', suggest: 'Atlas Copco rollout', due: 'none', status: 'inbox', unseen: true },
-    { id: 'i3', src: 'notion', from: 'Ilse Vermeulen', subject: 'Inbox spec v0.3 — comments', time: 'Yesterday', action: "Resolve Ilse's three comments on the item model", summary: 'All three sit in §3.2: whether a task is a status or its own object, and two naming nits.', suggest: 'Inbox spec v0.3', due: 'none', status: 'inbox', unseen: false },
-    { id: 'i4', src: 'mail', from: 'Recruitment agency', subject: 'Second interview — ops engineer', time: 'Mon', action: 'Confirm the second interview slots for two candidates', summary: 'The agency needs a yes/no by Friday to hold both slots.', suggest: 'Hiring — ops engineer', due: 'over', dueLabel: '2 days late', status: 'inbox', unseen: false },
-    { id: 'i5', src: 'whatsapp', from: 'Bram Peeters', subject: 'quick one about the Ghent line', time: '07:20', action: 'Send Bram the Ghent line timeline he asked for', summary: 'Voice note, 40 seconds. He wants the pilot dates before he talks to his plant manager.', suggest: 'Atlas Copco rollout', due: 'none', status: 'inbox', unseen: true },
-    { id: 'i6', src: 'internal', from: 'You', subject: 'own action', time: 'Mon', action: 'Write the Q3 goals for the team', summary: 'Created here — opens in the app rather than deep-linking out.', suggest: 'Team & 1:1s', due: 'none', status: 'inbox', unseen: false },
+    // Single real inbox action for UX testing: opening it deep-links to the actual Slack message.
+    { id: 'i1', src: 'slack', from: 'DM · Stan De Bussche', subject: 'appointment with Novy', time: 'Jun 12', action: 'Make appointment with Novy', summary: 'Stan asks to pick a date and send it straight to Benoit Verfallie at Novy (Stan is on leave next week).', due: 'none', status: 'inbox', unseen: true, url: 'https://azumuta.slack.com/archives/C0B8HCYT7HC/p1781275070921579' },
 
     { id: 'a1', src: 'mail', from: 'Dave Kerrigan', subject: 'Part 11 audit trail', time: 'Tue', action: "Follow up: awaiting Dave's answer on e-signature retention", due: 'soon', dueLabel: 'Fri', status: 'waiting', panel: 'atlas' },
     { id: 'a2', src: 'slack', from: '#cust-atlascopco', subject: 'seat pricing', time: 'Tue', action: 'Send the updated seat pricing sheet', due: 'due', dueLabel: 'Today', status: 'task', panel: 'atlas' },
@@ -232,6 +228,9 @@ function openSource(id) {
     }
 
     const src = SRC[it.src];
+    if (it.url) {
+        window.open(it.url, '_blank', 'noopener');
+    }
     flash(`${src.link.replace(' ↗', '')} — ${it.subject}…`);
     setTimeout(() => returnSheet(id), 1100);
 }
