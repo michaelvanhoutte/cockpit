@@ -156,6 +156,32 @@ Best match for the privacy and deployment requirements, provided its usage model
 
 The preferred approach is the **Slack Real-time Search API using user authorization**.
 
+> A proof of concept that tests whether this actually works against a live workspace lives in
+> [poc/slack-realtime](../poc/slack-realtime/README.md). It probes the four assumptions this
+> section makes: that DMs can be retrieved without naming a topic, that `<@USER_ID>` mention
+> search is precise, that `after` supports incremental sync, and that results carry enough
+> fields to build a row without extra API calls.
+
+### Validation status — August 2026
+
+Measured against a live workspace on the **free** plan (no Slack AI Search), so keyword search only.
+
+| Assumption | Result |
+|---|---|
+| Retrieve DMs without naming a topic | **Confirmed.** `query: "*"` with `disable_semantic_search: true` returns recent DMs, so the endpoint can be used feed-style. |
+| `<@USER_ID>` mention search is precise | **Confirmed.** Returned every genuine mention and nothing else. |
+| `after` supports incremental sync | **Confirmed.** No result fell outside the requested window. |
+| Results are complete enough for a row | **Confirmed.** `permalink`, `message_ts`, `content`, `channel_id`, `channel_name`, `author_name`, `author_user_id`, `is_author_bot` — no second API call needed. |
+| Works on a free plan | **Partly.** API access is gated by app type, not plan, so a free workspace can call it. Semantic and natural-language queries need Slack AI Search (Business+ and above) and returned nothing here. |
+
+Three handling requirements the POC surfaced, none of them blocking:
+
+- `content` renders mentions as `<@U123|Display Name>`, not `<@U123>`. Matching the bare token finds nothing.
+- Slack markup (mentions, channel links, labelled URLs) arrives unwrapped and must be rendered.
+- Bot messages (`is_author_bot`) and self-authored mentions (`author_user_id`) come through and must be filtered, or Slackbot notices and your own messages land in the inbox.
+
+Still unvalidated: semantic retrieval, and whether §"Synchronization strategy" holds up under Slack's prohibition on background polling.
+
 The main reason is data minimization.
 
 With the Events API, detecting a human user's mentions requires subscribing to general message events. Our infrastructure would therefore receive potentially large amounts of company conversation data that has nothing to do with the follow-up inbox.
