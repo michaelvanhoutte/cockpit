@@ -24,3 +24,7 @@ Open `index.html` in a browser. That's it. (If your browser blocks the Google Fo
 - `--color-accent-100` is flipped to a dark step so the "Waiting" tag stays legible on the light ground (the mockup inherited a near-white value there from the dark-theme design system).
 
 All data is in-memory sample data from the design; a reload resets everything.
+
+## Proofs of concept
+
+- [poc/slack-realtime](poc/slack-realtime/README.md) — tests whether Slack's Real-time Search API (`assistant.search.context`) can actually supply the DMs and @mentions the follow-up inbox needs, which is the approach chosen in [docs/slack-integration-options.md](docs/slack-integration-options.md). Standalone Node, no dependencies, not wired into the prototype.
