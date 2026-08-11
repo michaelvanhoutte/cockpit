@@ -86,7 +86,9 @@
       <tr>
         <td>4</td><td class="src">Slack DMs<span class="live">LIVE</span></td>
         <td><span class="badge g">Yes</span></td>
-        <td class="how">Slack API (conversations.history on IMs)</td>
+        <td class="how">Slack API (conversations.history on IMs)<br>Technically we could be using https://docs.slack.dev/apis/events-api, but I wouldn't recommend it because If they write an actual Slack mention like @Michael, Slack stores that as <@YOUR_USER_ID>.
+There is no user_mention equivalent of app_mention. app_mention only fires when somebody mentions the app/bot, not when they mention an ordinary Slack user.
+So to detect @Michael, you'd subscribe to channel message events such as message.channels / message.groups and inspect the text for <@YOUR_USER_ID>.<br><br>https://docs.slack.dev/apis/web-api/real-time-search-api/ which should catch both DMs and mentions in channels, but has a user-level limit of roughly 10 rquests/minute so this means we would have to query live and not poll in the background.</td>
         <td class="hide-sm">OAuth user token</td>
         <td class="lim">Per-workspace app/token.</td>
       </tr>
@@ -135,14 +137,14 @@
       <tr>
         <td>11</td><td class="src">Notion mentions<span class="live">LIVE</span></td>
         <td><span class="badge a">Partial</span></td>
-        <td class="how">No notifications/Inbox API — poll pages &amp; comments for @you</td>
+        <td class="how">No notifications/Inbox API — poll pages &amp; comments for @you<br/><a href="https://developers.notion.com/reference/webhooks">webhooks></a></td>
         <td class="hide-sm">OAuth / integration token</td>
         <td class="lim">You reconstruct mentions by scanning content; no native notification feed.</td>
       </tr>
       <tr>
         <td>12</td><td class="src">Notion action items<span class="live">LIVE</span></td>
         <td><span class="badge g">Yes</span></td>
-        <td class="how">Query a tasks database via API (filter assignee = you, status)</td>
+        <td class="how">Query a tasks database via API (filter assignee = you, status)<br/><a href="https://developers.notion.com/reference/webhooks">webhooks></a></td>
         <td class="hide-sm">OAuth / integration token</td>
         <td class="lim">Clean if tasks live in a database; inline checkboxes in page bodies are harder to track.</td>
       </tr>
