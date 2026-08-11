@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cockpit — Slack Real-time Search POC</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+    <div class="topbar-line"></div>
+    <div class="topbar-inner">
+        <div>
+            <h1>Slack Real-time Search — proof of concept</h1>
+            <p class="sub">Does <code>assistant.search.context</code> actually give Cockpit the DMs and @mentions its follow-up inbox needs?</p>
+        </div>
+        <div class="actions">
+            <button id="run" class="btn btn-primary">Run probes</button>
+            <label class="check"><input type="checkbox" id="ratelimit"> include rate-limit burst</label>
+        </div>
+    </div>
+</header>
+
+<main>
+    <section id="setup" class="card hidden">
+        <h2>Not configured yet</h2>
+        <p id="setup-msg"></p>
+        <ol class="steps">
+            <li>Create an <strong>internal</strong> Slack app at <a href="https://api.slack.com/apps" target="_blank" rel="noopener">api.slack.com/apps</a> in the Azumuta workspace.</li>
+            <li>Under <em>OAuth &amp; Permissions → User Token Scopes</em>, add <code>search:read.public</code>, <code>search:read.private</code>, <code>search:read.im</code>, <code>search:read.mpim</code>, <code>search:read.users</code>, <code>search:read.files</code>.</li>
+            <li>Install to the workspace and copy the <strong>User OAuth Token</strong> (<code>xoxp-…</code>).</li>
+            <li>Put it in <code>poc/slack-realtime/.env</code> as <code>SLACK_USER_TOKEN</code>, then restart this server.</li>
+        </ol>
+    </section>
+
+    <section id="verdict" class="card hidden">
+        <div class="verdict-head">
+            <span id="verdict-badge" class="badge"></span>
+            <h2 id="verdict-text"></h2>
+        </div>
+        <p id="verdict-identity" class="muted"></p>
+        <p id="verdict-data-caveat" class="caveat hidden"></p>
+        <p id="verdict-caveat" class="caveat hidden"></p>
+    </section>
+
+    <section id="probes" class="stack"></section>
+
+    <section id="preview" class="card hidden">
+        <h2>What would land in the Cockpit inbox</h2>
+        <p class="muted">Slack results mapped onto the row shape the prototype already renders.</p>
+        <div id="rows" class="rows"></div>
+    </section>
+
+    <section id="calls" class="card hidden">
+        <h2>Every request made</h2>
+        <table class="calls">
+            <thead><tr><th>Method</th><th>Status</th><th>Error</th><th>ms</th><th>Request</th></tr></thead>
+            <tbody id="calls-body"></tbody>
+        </table>
+    </section>
+</main>
+
+<div id="busy" class="busy hidden">
+    <div class="busy-card">
+        <div class="spinner"></div>
+        <p>Running probes…</p>
+        <p class="muted">Paced at roughly one request every 6.5 seconds to stay inside Slack's ~10/min per-user limit, so this takes about a minute.</p>
+    </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
