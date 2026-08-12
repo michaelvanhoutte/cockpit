@@ -174,6 +174,20 @@ Measured against a live workspace on the **free** plan (no Slack AI Search), so 
 | Results are complete enough for a row | **Confirmed.** `permalink`, `message_ts`, `content`, `channel_id`, `channel_name`, `author_name`, `author_user_id`, `is_author_bot` — no second API call needed. |
 | Works on a free plan | **Partly.** API access is gated by app type, not plan, so a free workspace can call it. Semantic and natural-language queries need Slack AI Search (Business+ and above) and returned nothing here. |
 
+### Three signals, not two
+
+The POC established that Cockpit can build its inbox from three signals, and that the third changes the design.
+
+| Signal | Query | Sync model | Confidence |
+|---|---|---|---|
+| Direct messages | `channel_types: ["im","mpim"]`, `query: "*"` | `after` = high-water mark | Inferred |
+| Mentions | `query: "<@USER_ID>"` | `after` = high-water mark | Inferred |
+| **Saved messages** | `query: "is:saved"` | Full list + local diff | **Explicit** |
+
+DMs and mentions are inferences about what the user might care about. A saved message is the user saying so directly, which makes it the highest-confidence input available — and it costs no extra scopes and no Slack AI Search. It also sidesteps the `@channel`/`@here` gap entirely, since anything can be saved regardless of how it arrived.
+
+Two constraints shape how it is used. `is:saved` works only as a *query term*; the documented `modifiers` argument is silently ignored, returning the unfiltered window rather than erroring. And `after` filters on message time, not save time, with no `saved_at` field returned — so saving an old message is a new intention on an old timestamp. Saved items must therefore be synced by pulling the full list and diffing locally, not by advancing a high-water mark.
+
 Three handling requirements the POC surfaced, none of them blocking:
 
 - `content` renders mentions as `<@U123|Display Name>`, not `<@U123>`. Matching the bare token finds nothing.
