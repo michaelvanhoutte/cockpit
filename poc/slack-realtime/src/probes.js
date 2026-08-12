@@ -305,10 +305,87 @@ async function probeMentions(ctx, log) {
 }
 
 // ---------------------------------------------------------------------------
-// P3 — does `after` actually bound results? Incremental sync depends on it.
+// P3 — the third signal, and the only explicit one: messages the user saved.
+// DMs and mentions are inferred ("someone typed your name, you probably care").
+// A save is the user stating the intention outright, so it is the highest-confidence
+// input an inbox can get.
+//
+// Two findings shape this probe. The documented `modifiers` argument is silently
+// ignored — it returns the unfiltered window, which looks like success. Only
+// `is:saved` inside the query string actually filters. And `after` bounds on message
+// time, not save time, so this probe deliberately does NOT pass `after`.
+// ---------------------------------------------------------------------------
+async function probeSaved(ctx, log) {
+    log('P3 saved messages');
+    const shared = {
+        channel_types: ['im', 'mpim', 'public_channel', 'private_channel'],
+        sort: 'timestamp',
+        sort_dir: 'desc',
+        limit: 20,
+        disable_semantic_search: true,
+    };
+
+    // The control is what makes this readable: `modifiers` returns the full window
+    // rather than erroring, so without a baseline "it returned results" means nothing.
+    const runs = await runVariants([
+        { label: 'control: no filter', args: { ...shared, query: '*', after: ctx.afterTs } },
+        { label: 'modifiers argument (documented)', args: { ...shared, query: '*', modifiers: 'is:saved', after: ctx.afterTs } },
+        { label: 'is:saved in the query (full list, no `after`)', args: { ...shared, query: 'is:saved' } },
+    ], log);
+
+    const [control, viaModifiers, viaQuery] = runs;
+
+    if (!viaQuery.ok) {
+        return {
+            id: 'P3',
+            question: 'Can we retrieve messages the user explicitly saved for later?',
+            verdict: 'fail',
+            headline: `is:saved query rejected: ${viaQuery.error}`,
+            detail: 'Saved messages would be the strongest signal available, so this is worth re-checking before ruling it out.',
+            evidence: { runs: runs.map(stripMessages) },
+        };
+    }
+
+    ctx.savedMessages = viaQuery.messages;
+    const modifiersIgnored = viaModifiers.ok && control.ok && viaModifiers.count === control.count && control.count > 0;
+    const filtered = control.ok && viaQuery.count < control.count;
+
+    // Nothing saved yet is not a failure, it is an untested probe. Saying "0 results"
+    // without that distinction is how an empty workspace gets read as a broken API.
+    if (viaQuery.count === 0) {
+        return {
+            id: 'P3',
+            question: 'Can we retrieve messages the user explicitly saved for later?',
+            verdict: 'skipped',
+            headline: 'Inconclusive — nothing is saved in this workspace',
+            detail: 'The query was accepted but there is nothing saved to return, so this proves nothing either way. ' +
+                'Save a message in Slack (message "..." menu -> "Save for later") and re-run.' +
+                (modifiersIgnored ? ' Note: the documented `modifiers` argument returned the unfiltered window, so it appears to be ignored.' : ''),
+            evidence: { runs: runs.map(stripMessages), modifiersIgnored },
+        };
+    }
+
+    return {
+        id: 'P3',
+        question: 'Can we retrieve messages the user explicitly saved for later?',
+        verdict: filtered ? 'pass' : 'partial',
+        headline: `${viaQuery.count} saved message(s) via "is:saved" in the query`,
+        detail: (filtered
+            ? `The filter narrowed ${control.count} message(s) down to ${viaQuery.count}, so it is genuinely filtering rather than being ignored.`
+            : 'The filter returned results but did not narrow the set, so it may be ignored — check the control count.') +
+            (modifiersIgnored
+                ? ' The documented `modifiers` argument is silently ignored (it returned the full window); the filter only works as a query term.'
+                : '') +
+            ' Note that `after` bounds on message time, not save time, so saved items must be synced by pulling the full list and diffing locally.',
+        evidence: { runs: runs.map(stripMessages), modifiersIgnored, controlCount: control.count },
+    };
+}
+
+// ---------------------------------------------------------------------------
+// P4 — does `after` actually bound results? Incremental sync depends on it.
 // ---------------------------------------------------------------------------
 async function probeIncremental(ctx, log) {
-    log('P3 incremental sync window');
+    log('P4 incremental sync window');
     const wide = Math.floor(Date.now() / 1000) - config.lookbackDays * 86400;
     const narrow = Math.floor(Date.now() / 1000) - 3600;
     const shared = { channel_types: ['im', 'mpim', 'public_channel', 'private_channel'], sort: 'timestamp', sort_dir: 'desc', limit: 20, query: '*', disable_semantic_search: true };
@@ -321,7 +398,7 @@ async function probeIncremental(ctx, log) {
     const [wideRun, narrowRun] = runs;
     if (!wideRun.ok || !narrowRun.ok) {
         return {
-            id: 'P3',
+            id: 'P4',
             question: 'Does the `after` timestamp bound results, so we can sync incrementally?',
             verdict: 'fail',
             headline: 'Could not test — the windowed calls were rejected',
@@ -336,7 +413,7 @@ async function probeIncremental(ctx, log) {
     const monotonic = narrowRun.count <= wideRun.count;
 
     return {
-        id: 'P3',
+        id: 'P4',
         question: 'Does the `after` timestamp bound results, so we can sync incrementally?',
         verdict: violations === 0 && monotonic ? 'pass' : 'partial',
         headline: `${wideRun.count} result(s) over ${config.lookbackDays}d vs ${narrowRun.count} over 1h, ${violations} outside the window`,
@@ -351,14 +428,14 @@ async function probeIncremental(ctx, log) {
 // P4 — do results carry what a Cockpit row needs? (deep link, author, channel, ts)
 // ---------------------------------------------------------------------------
 function probeFields(ctx) {
-    const sample = [...(ctx.dmMessages || []), ...(ctx.mentionMessages || [])];
+    const sample = [...(ctx.dmMessages || []), ...(ctx.mentionMessages || []), ...(ctx.savedMessages || [])];
     if (!sample.length) {
         return {
-            id: 'P4',
+            id: 'P5',
             question: 'Do results carry everything a Cockpit row needs (permalink, author, channel, timestamp)?',
             verdict: 'skipped',
             headline: 'No messages available to inspect',
-            detail: 'P1 and P2 returned nothing, so there was nothing to check the shape of.',
+            detail: 'P1, P2 and P3 returned nothing, so there was nothing to check the shape of.',
             evidence: {},
         };
     }
@@ -374,7 +451,7 @@ function probeFields(ctx) {
     const thin = sample.length < 3 || botCount === sample.length;
 
     return {
-        id: 'P4',
+        id: 'P5',
         question: 'Do results carry everything a Cockpit row needs (permalink, author, channel, timestamp)?',
         verdict: complete ? (thin ? 'partial' : 'pass') : 'partial',
         headline: complete
@@ -392,7 +469,7 @@ function probeFields(ctx) {
 // P5 — what does the rate limit actually feel like? Opt-in: it burns quota.
 // ---------------------------------------------------------------------------
 async function probeRateLimit(ctx, log) {
-    log('P5 rate limit (burst of 12, unpaced)');
+    log('P6 rate limit (burst of 12, unpaced)');
     const args = { query: '*', disable_semantic_search: true, channel_types: ['public_channel'], limit: 1, after: ctx.afterTs };
     const results = [];
     for (let i = 0; i < 12; i++) {
@@ -402,7 +479,7 @@ async function probeRateLimit(ctx, log) {
     }
     const limited = results.find((r) => r.status === 429);
     return {
-        id: 'P5',
+        id: 'P6',
         question: 'Where does the per-user rate limit actually bite?',
         verdict: 'info',
         headline: limited ? `429 after ${limited.i} request(s), Retry-After ${limited.retryAfter ?? 'unset'}s` : `12 requests with no 429`,
@@ -437,6 +514,7 @@ export async function runProbes({ includeRateLimit = false, onProgress = () => {
     probes.push(await probeEntitlement(ctx, onProgress));
     probes.push(await probeDms(ctx, onProgress));
     probes.push(await probeMentions(ctx, onProgress));
+    probes.push(await probeSaved(ctx, onProgress));
     probes.push(await probeIncremental(ctx, onProgress));
     probes.push(probeFields(ctx));
     if (includeRateLimit) probes.push(await probeRateLimit(ctx, onProgress));
@@ -445,10 +523,19 @@ export async function runProbes({ includeRateLimit = false, onProgress = () => {
 }
 
 function finish({ startedAt, ctx, probes, aborted }) {
-    const all = [
+    // The three signals, merged the way Cockpit would. A message can be both saved
+    // and a mention; dedupe on ts and let the explicit signal win, since "I saved this"
+    // outranks "someone typed my name".
+    const byTs = new Map();
+    for (const item of [
         ...toCockpitItems(ctx.dmMessages || [], 'dm'),
         ...toCockpitItems(ctx.mentionMessages || [], 'mention'),
-    ].sort((a, b) => String(b.isoTime).localeCompare(String(a.isoTime)));
+        ...toCockpitItems(ctx.savedMessages || [], 'saved'),
+    ]) {
+        const existing = byTs.get(item.id);
+        if (!existing || item.origin === 'saved') byTs.set(item.id, item);
+    }
+    const all = [...byTs.values()].sort((a, b) => String(b.isoTime).localeCompare(String(a.isoTime)));
     // Slackbot notices are not follow-up items; they would be noise in the inbox.
     const items = all.filter((i) => !i.isBot);
     const botsDropped = all.length - items.length;

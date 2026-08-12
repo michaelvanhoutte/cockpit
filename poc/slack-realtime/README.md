@@ -4,6 +4,23 @@
 
 It does not try to build the integration. It answers one question: **would this actually work?**
 
+## The three signals
+
+Cockpit can build a follow-up inbox from three distinct signals. They behave differently enough that the difference drives the design.
+
+| Signal | How Cockpit asks for it | Sync model | Confidence |
+|---|---|---|---|
+| **Direct messages** | `channel_types: ["im","mpim"]`, `query: "*"`, `disable_semantic_search: true` | `after` = last high-water mark | Inferred |
+| **Mentions** | `query: "<@USER_ID>"` | `after` = last high-water mark | Inferred |
+| **Saved messages** | `query: "is:saved"` — **as a query term, never the `modifiers` argument** | Pull the full list, diff locally. **Not** `after`. | **Explicit** |
+
+The first two are inferences: someone sent you something, or typed your name, so you probably care. The third is you stating the intention outright, which makes it the highest-confidence input available — and it costs no extra scopes.
+
+Two traps are load-bearing here, both confirmed by live testing:
+
+- **`is:saved` only works inside the query string.** The documented `modifiers` argument is *silently ignored* — it returns the full unfiltered window, which looks like success until you compare it against a control. That is why `probeSaved` runs an unfiltered control first.
+- **`after` filters on message time, not save time**, and no `saved_at` field is returned. Saving a three-week-old message is a new intention on an old timestamp, so an `after` window would never surface it. Saved items therefore need a full-list-and-diff sync, unlike the other two.
+
 ## What it tests
 
 Each probe isolates one thing the design in the options document silently assumes.
@@ -14,11 +31,12 @@ Each probe isolates one thing the design in the options document silently assume
 | **P0b** | Does this workspace have Slack AI Search enabled? | Semantic and natural-language queries only work on plans that include it. Without this check, a plan limitation reads as an API limitation. |
 | **P1** | Can we retrieve recent **DMs** without naming what we are looking for? | The biggest risk. Cockpit wants "everything new"; the endpoint is a *search*, and always wants a query. |
 | **P2** | Can we find channel messages containing `<@USER_ID>`? | Measures **precision** too: a semantic search for a name returns messages that merely talk about you. |
-| **P3** | Does the `after` timestamp bound results? | Incremental "since last sync" is the whole synchronisation strategy. |
-| **P4** | Do results carry permalink, author, channel and ts? | If not, every row needs extra `conversations.info`/`users.info` calls, which weakens the privacy argument. |
-| **P5** | Where does the rate limit actually bite? | Opt-in, because it burns quota. Documented at ~10 requests/min per user. |
+| **P3** | Can we retrieve messages the user explicitly **saved**? | The only explicit signal. Runs an unfiltered control alongside, because the `modifiers` form fails by returning everything rather than by erroring. |
+| **P4** | Does the `after` timestamp bound results? | Incremental "since last sync" is the synchronisation strategy for DMs and mentions. |
+| **P5** | Do results carry permalink, author, channel and ts? | If not, every row needs extra `conversations.info`/`users.info` calls, which weakens the privacy argument. |
+| **P6** | Where does the rate limit actually bite? | Opt-in, because it burns quota. Documented at ~10 requests/min per user. |
 
-It finishes by mapping whatever came back onto the row shape the prototype already renders, so you can look at a real Cockpit inbox built from real Slack data.
+It finishes by merging all three signals onto the row shape the prototype already renders, deduped on timestamp with the explicit signal winning, so you can look at a real Cockpit inbox built from real Slack data.
 
 ## Findings so far
 
@@ -88,6 +106,33 @@ That is the whole "new messages" mechanism: persist the newest `message_ts` you 
 
 **Still unproven:** whether `query: "*"` matches a message with nothing to index — emoji-only, link-only, or file-only. A keyword index may have no token to match, which would put silent holes in DM enumeration. Set `EXPECT_ALL_DM_PERMALINKS` / `EXPECT_ALL_MENTION_PERMALINKS` to a comma-separated list of permalinks and re-run C2 to settle it.
 
+### Saved messages ("Save for later") — works, with one trap
+
+An explicit save is a much stronger signal than any heuristic: it is the user saying *"I want to process this later"*. `npm run saved` establishes that it is usable.
+
+**It works — but only as a query term, not as the documented argument.** Verified by a clean before/after: with nothing saved the filter returned the full 6-message window; after saving exactly one message it returned exactly that message.
+
+| Spelling | Result |
+|---|---|
+| `modifiers: "is:saved"` (string, array, or object) | silently ignored — returns the full window |
+| **`query: "is:saved"`** | **works — returns exactly the saved message** |
+| `term_clauses` | rejected, `invalid_arguments` |
+| `stars.list` (legacy) | needs `stars:read`, and Slack says it no longer reflects new saves |
+
+So ignore the `modifiers` argument; put the filter in the query string.
+
+Characterised further:
+
+- **No extra scopes.** It rides on the existing search scopes, unlike unread state.
+- **No Slack AI Search needed.** Works with `disable_semantic_search: true`, so it is fine on a free plan.
+- **`channel_types` still applies**, so saved DMs and saved channel messages can be queried separately.
+
+**The trap: `after` filters on message time, not save time.** Confirmed — querying `is:saved` with `after` set past the saved message's timestamp returns nothing, even though the message is still saved. Results carry `message_ts` only; there is no `saved_at` field, so the API cannot say *when* something was saved.
+
+The consequence is concrete: saving a three-week-old message is a brand-new intention attached to an old timestamp, and an incremental `after` window would never surface it. **Cockpit must pull the entire saved list on each sync and diff it locally** rather than using `after`. That is cheap — one call, and the list is bounded by how much the user actually saves — but it is a different sync model from DMs and mentions, which do use `after`.
+
+Untested: whether un-saving removes an item from the results (it should, and would give Cockpit a natural "handled" signal).
+
 ### Unread state is not available, and probably not wanted
 
 Real-time Search cannot answer "which DMs are unread" or "which channels have unread mentions". It has no unread request parameter and its results carry no read state — unread lives on the *conversation*, not the message. Verified with `npm run unread`:
@@ -100,7 +145,7 @@ Real-time Search cannot answer "which DMs are unread" or "which channels have un
 
 So mirroring Slack's unread badges would mean adding four conversation-scopes on top of the search scopes. Those grant conversation *metadata* (which channels and DMs exist, their unread counts), not message content, so it is a smaller widening than the Events API — but it is a widening, and it makes Slack the source of truth for Cockpit's inbox.
 
-The better answer is that Cockpit does not need Slack's unread flag. It needs *"new since Cockpit last synced"*, which is `after` plus its own high-water mark, already confirmed by P3. The two are not the same thing, and the difference favours Cockpit: a DM you read on your phone while walking is unread=false but still owes a reply, and that is exactly the item a follow-up inbox exists to catch. Conversely, something you have handled in Cockpit should not reappear because it is still bold in Slack.
+The better answer is that Cockpit does not need Slack's unread flag. It needs *"new since Cockpit last synced"*, which is `after` plus its own high-water mark, already confirmed by P4. The two are not the same thing, and the difference favours Cockpit: a DM you read on your phone while walking is unread=false but still owes a reply, and that is exactly the item a follow-up inbox exists to catch. Conversely, something you have handled in Cockpit should not reappear because it is still bold in Slack.
 
 ### Still open
 
@@ -118,7 +163,7 @@ That matters here because half of what this POC tests is whether Cockpit can ask
 
 So:
 
-- **Free workspace** — useful for the mechanical questions (P2 mention precision with keyword search, P3 windowing, P4 result shape, P5 rate limits) and for building ground truth, since you control every message in it. Not useful for judging semantic retrieval.
+- **Free workspace** — useful for the mechanical questions (P2 mention precision with keyword search, P3 saved messages, P4 windowing, P5 result shape, P6 rate limits) and for building ground truth, since you control every message in it. Not useful for judging semantic retrieval.
 - **Business+ workspace** — needed before any *"yes, this works"* is trustworthy.
 
 P0b calls `assistant.search.info` and reports `is_ai_search_enabled` before anything else runs, so every report says which of these two situations it was produced in. A run without AI Search is marked with a plan caveat and should be read as a lower bound.
