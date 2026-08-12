@@ -13,6 +13,7 @@
     "unread": "node src/unread.js",
     "completeness": "node src/completeness.js",
     "incremental": "node src/incremental.js",
+    "saved": "node src/saved.js",
     "serve": "node src/server.js"
   }
 }

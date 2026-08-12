@@ -87,7 +87,8 @@ function renderPreview(report) {
     }
     for (const item of report.inboxPreview) {
         const row = el('div', 'row');
-        row.append(el('span', 'tag', item.origin === 'dm' ? 'DM' : 'Mention'));
+        const label = { dm: 'DM', mention: 'Mention', saved: 'Saved' }[item.origin] || item.origin;
+        row.append(el('span', `tag tag-${item.origin}`, label));
 
         const middle = el('div');
         const action = el('div', null, item.action);
