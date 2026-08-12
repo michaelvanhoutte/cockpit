@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cockpit — Notion follow-up inbox POC</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+    <div class="topbar-line"></div>
+    <div class="topbar-inner">
+        <div>
+            <h1>Notion follow-up inbox — proof of concept</h1>
+            <p class="sub">Can the public Notion API give Cockpit the four things that belong in a follow-up inbox — assignments, document mentions, comment mentions and replies to my comments — and can it tell us when one of them has been handled?</p>
+        </div>
+        <div class="actions">
+            <button id="run" class="btn btn-primary">Run probes</button>
+            <label class="check"><input type="checkbox" id="ratelimit"> include rate-limit burst</label>
+        </div>
+    </div>
+</header>
+
+<main>
+    <section id="setup" class="card hidden">
+        <h2>Not configured yet</h2>
+        <p id="setup-msg"></p>
+        <ol class="steps">
+            <li>Create an <strong>internal</strong> integration at <a href="https://www.notion.so/profile/integrations" target="_blank" rel="noopener">notion.so/profile/integrations</a> in your own workspace.</li>
+            <li>Under <em>Capabilities</em>, enable <strong>Read content</strong>, <strong>Read comments</strong> and <strong>Read user information including email addresses</strong>. The last one is how the harness works out which user id is you.</li>
+            <li>Copy the <strong>Internal Integration Secret</strong> (<code>ntn_…</code>) into <code>poc/notion-inbox/.env</code> as <code>NOTION_TOKEN</code>, and set <code>NOTION_PERSON_EMAIL</code> to your Notion account email.</li>
+            <li>Share content with it: open a page, <code>···</code> → <em>Connections</em> → add the integration. Subpages inherit access, so connecting near the top of a teamspace usually covers everything. <strong>An integration starts with access to nothing</strong>, which is the single most common reason a run comes back empty.</li>
+            <li>Restart this server.</li>
+        </ol>
+    </section>
+
+    <section id="verdict" class="card hidden">
+        <div class="verdict-head">
+            <span id="verdict-badge" class="badge"></span>
+            <h2 id="verdict-text"></h2>
+        </div>
+        <p id="verdict-identity" class="muted"></p>
+        <p id="verdict-data-caveat" class="caveat hidden"></p>
+    </section>
+
+    <section id="signals" class="card hidden">
+        <h2>The five questions</h2>
+        <p class="muted">What was actually asked, answered one line each.</p>
+        <div id="signal-rows" class="signals"></div>
+    </section>
+
+    <section id="probes" class="stack"></section>
+
+    <section id="preview" class="card hidden">
+        <h2>What would land in the Cockpit inbox</h2>
+        <p class="muted">The four signals merged onto the row shape the prototype already renders. A dotted underline marks a link that only reaches the right page, not the right thread — Notion gives comments no permalink.</p>
+        <div id="rows" class="rows"></div>
+    </section>
+
+    <section id="calls" class="card hidden">
+        <h2>Every request made</h2>
+        <p class="muted">The count matters here, not just the outcome: three of the four signals have no query behind them and can only be crawled.</p>
+        <table class="calls">
+            <thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Error</th><th>ms</th></tr></thead>
+            <tbody id="calls-body"></tbody>
+        </table>
+    </section>
+</main>
+
+<div id="busy" class="busy hidden">
+    <div class="busy-card">
+        <div class="spinner"></div>
+        <p>Running probes…</p>
+        <p class="muted">Notion has no content search, so mentions and comments are found by crawling every reachable page. Paced at ~3 requests/second, this takes a while and the wall-clock time is itself one of the measurements.</p>
+        <p id="busy-progress" class="muted"></p>
+    </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
