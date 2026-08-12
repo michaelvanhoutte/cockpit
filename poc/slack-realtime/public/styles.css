@@ -87,6 +87,8 @@ main { max-width: 980px; margin: 0 auto; padding: 24px; display: flex; flex-dire
 .row { display: grid; grid-template-columns: 74px 1fr auto; gap: 12px; align-items: baseline; padding: 9px 4px; border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent); }
 .row:first-child { border-top: none; }
 .row .tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 4px; background: #e2e0fb; color: #5d5294; text-align: center; }
+/* Saved is the explicit signal, so it reads stronger than the two inferred ones. */
+.row .tag-saved { background: var(--pass-bg); color: var(--pass); }
 .row .who { color: var(--muted); font-size: 12px; display: block; }
 .row .time { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .empty { color: var(--muted); padding: 12px 4px; }
