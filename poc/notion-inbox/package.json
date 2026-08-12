@@ -1,0 +1,18 @@
+{
+  "name": "cockpit-notion-inbox-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Proof of concept: can the public Notion API give Cockpit assignments, document mentions, comment mentions and comment replies — and tell us when they are handled?",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "probe": "node src/cli.js",
+    "probe:ratelimit": "node src/cli.js --ratelimit",
+    "handled": "node src/handled.js",
+    "handled:reset": "node src/handled.js --reset",
+    "webhook": "node src/webhook.js",
+    "serve": "node src/server.js"
+  }
+}

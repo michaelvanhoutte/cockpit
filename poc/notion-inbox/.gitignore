@@ -1,0 +1,4 @@
+.env
+report.json
+report-*.json
+.state/
