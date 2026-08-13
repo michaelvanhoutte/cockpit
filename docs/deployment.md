@@ -291,15 +291,60 @@ gated independently of each other.
 
 ### `/health` must stay outside the gate
 
-**Add an Access Bypass policy scoped to the `/health` path on every environment.**
-Two things depend on reaching it unauthenticated, and both break silently without
-this: the post-deploy assertion in the deploy workflows, and §9.2's external
+Two things depend on reaching `/health` unauthenticated, and both break silently
+without it: the post-deploy assertion in the deploy workflows, and §9.2's external
 uptime check, which is deliberately the only observability layer not running on the
 app's own code. `/health` returns `{"ok":true,"db":true}` and nothing else, so it
 discloses only whether the database answered.
 
-`scripts/health-check.sh` detects the gated case and names it, rather than failing
-with an unexplained parse error on an HTML login page.
+The recipe, which is fiddly enough to be worth writing down exactly:
+
+**One** Access application (Zero Trust → Access → Applications → self-hosted)
+holding **two destinations**, one policy, covering both environments (an app takes
+up to five destinations):
+
+| Subdomain | Domain | Path |
+|---|---|---|
+| `cockpit` | `vanhoutte-michael.workers.dev` | `health` |
+| `cockpit-staging` | `vanhoutte-michael.workers.dev` | `health` |
+
+with a single policy: Action **Bypass**, Include **Everyone**.
+
+Three traps, each of which cost a wrong turn:
+
+- **Use the "public hostname" destination, not the "Workers" one.** The Workers
+  destination type is whole-Worker only (`A Worker's production and preview URLs`)
+  and offers no path field, so a Bypass on it would unprotect the entire Worker.
+  The public-hostname row is `<subdomain>.<domain>/<path>`, and
+  `vanhoutte-michael.workers.dev` appears in the domain dropdown, so "switch to
+  custom input" is not needed.
+- **An application with a destination and no policy denies everything.** Policies
+  are default-deny, so a half-finished bypass app makes `/health` *less*
+  reachable, not more. Create the policy before wondering why the deploy broke.
+- **Name it distinctly.** The one-click Worker toggles create their own
+  applications named after the Workers, so an app called `cockpit` that is
+  actually the hole in the perimeter is a trap for later. `Cockpit /health
+  (public)` or similar.
+
+Previews need none of this: `deploy-preview.yml` runs no health check.
+
+`scripts/health-check.sh` detects the gated case and names this fix, rather than
+failing with an unexplained parse error on an HTML login page.
+
+**Verified 2026-08-13**, from outside, unauthenticated:
+
+| | `/` | `/v1/workspaces` | `/health` |
+|---|---|---|---|
+| production | 302 → Access | 302 → Access | 200 `{"ok":true,"db":true}` |
+| staging | 302 → Access | 302 → Access | 200 `{"ok":true,"db":true}` |
+| preview alias | 302 → Access | — | 302 → Access |
+
+All challenges redirect to `conselit.cloudflareaccess.com`. Two things this
+settles that the documentation does not state: **a path-scoped public-hostname
+destination does take precedence over a whole-Worker Access app on a
+`workers.dev` hostname**, and **the `*-cockpit-preview` wildcard covers aliases
+created after Access was enabled** (tested by uploading a fresh alias and
+confirming it was challenged).
 
 ### The cost of gating production, stated plainly
 
