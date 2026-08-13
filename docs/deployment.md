@@ -98,9 +98,12 @@ wrong.
 
 | | Deployed by | Worker | Database | Cron/Queues | URL | Access |
 |---|---|---|---|---|---|---|
-| **production** | manual promotion | `cockpit` | `cockpit` | yes | [cockpit.vanhoutte-michael.workers.dev](https://cockpit.vanhoutte-michael.workers.dev) | open |
+| **production** | manual promotion | `cockpit` | `cockpit` | yes | `cockpit.vanhoutte-michael.workers.dev` | gated |
 | **staging** | every commit on `main` | `cockpit-staging` | `cockpit-staging` | yes | `cockpit-staging.vanhoutte-michael.workers.dev` | gated |
 | **preview** | every push to any other branch | `cockpit-preview`, one version per branch | `cockpit-preview`, shared | no | `<alias>-cockpit-preview.vanhoutte-michael.workers.dev` | gated |
+
+**Every environment is gated, `/health` excepted.** There is no public instance;
+the showcase is this repository, not a running app holding real mail and messages.
 
 Production therefore **lags `main` by design**, by however many commits have been
 merged but not promoted. `git log <promoted-sha>..main` is the answer to "what is
@@ -269,19 +272,56 @@ CI needs, in GitHub:
 | Secret | `CLOUDFLARE_ACCOUNT_ID` | `091e6e85f8268ee838089d6fed968585` |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | `vanhoutte-michael` |
 
-**Staging and previews are gated with Cloudflare Access**, production is open.
-Architecture §8.1 rejected Cloudflare Access as the *application's* authentication
-for reasons that all still hold (it can never become customer auth, and its
-redirects break silent `fetch`/`EventSource` refresh). Using it purely as a
-perimeter on non-production environments contradicts none of that reasoning: it
-is not the app's auth, it is a fence around environments that should not be
-world-readable in a public repository.
+**All three environments are gated with Cloudflare Access, production included.**
 
-Cloudflare makes this a toggle rather than per-branch work. Enabling Access on
-any preview URL creates one account-level policy (`Cloudflare Workers Preview
-URLs`) that covers every preview, including branches that do not exist yet;
-`workers.dev` production URLs get their own per-Worker policy, so staging is
-gated independently.
+**This is a recorded reversal.** An earlier draft of this document gated staging
+and previews but left production open, reasoning that production is the showcase.
+That was backwards, and the owner corrected it: **the showcase is this repository**
+(the decisions, the architecture, the arguments), not a running instance. The
+production instance is the one holding real Gmail, Slack and Notion content pulled
+in by connectors, which makes it the *most* sensitive environment rather than the
+least, and §8.1's app login does not exist yet, so without Access it has no
+authentication whatsoever. Previews, by contrast, hold `seed.sql` fixtures.
+
+Cloudflare makes this a toggle rather than per-branch work. Enabling Access on any
+preview URL creates one account-level policy (`Cloudflare Workers Preview URLs`)
+that covers every preview, including branches that do not exist yet; each
+`workers.dev` URL gets its own per-Worker policy, so production and staging are
+gated independently of each other.
+
+### `/health` must stay outside the gate
+
+**Add an Access Bypass policy scoped to the `/health` path on every environment.**
+Two things depend on reaching it unauthenticated, and both break silently without
+this: the post-deploy assertion in the deploy workflows, and §9.2's external
+uptime check, which is deliberately the only observability layer not running on the
+app's own code. `/health` returns `{"ok":true,"db":true}` and nothing else, so it
+discloses only whether the database answered.
+
+`scripts/health-check.sh` detects the gated case and names it, rather than failing
+with an unexplained parse error on an HTML login page.
+
+### The cost of gating production, stated plainly
+
+§8.1 rejected Cloudflare Access as the *application's* authentication, and one of
+its reasons now applies to us directly: **Access's expired-session redirects to an
+HTML login page break silent `fetch` and `EventSource` refresh.** Cockpit
+revalidates on focus and holds an SSE stream open (§5.2), so when an Access session
+expires, the client gets HTML where it expects JSON or events. On the installed
+phone PWA that presents as an inbox that quietly stopped updating.
+
+Two mitigations, neither of which is a fix:
+
+- **Set a long Access session duration** (up to one month) so expiry is rare.
+- **Treat this as interim.** It is the perimeter that exists *because* §8.1 has not
+  been built. When the OIDC flow lands, Access on production should be
+  reconsidered rather than left in place by inertia: it would then be a second
+  gate in front of the app's own, and the §8.1 rejection reasons (tenancy left
+  unexercised, cannot become customer auth) start applying for real as soon as a
+  second user exists.
+
+This does **not** reverse §8.1. Access here is a perimeter around a deployment, not
+the application's identity model, and it buys time rather than a design.
 
 ### A constraint to know before auth lands
 
@@ -337,9 +377,11 @@ old data is the entire point of it.
 
 Then, by hand (no API, or deliberately not automated):
 
-1. **Cloudflare Access** on `cockpit-staging` and on the preview URLs. Dashboard
-   only. Enabling it on any one preview URL creates a single account-level policy
-   covering every preview, including branches that do not exist yet.
+1. **Cloudflare Access** on all three Workers, production included, plus a
+   **Bypass policy scoped to `/health`** so the deploy checks and the §9.2 uptime
+   monitor can still reach it. Dashboard only. Enabling it on any one preview URL
+   creates a single account-level policy covering every preview, including
+   branches that do not exist yet. Set a long session duration; see §6 for why.
 2. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
    Settings: Read), stored as the `CLOUDFLARE_API_TOKEN` GitHub secret.
 3. **Branch protection** on `main`: require a pull request, and require the CI

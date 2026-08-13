@@ -80,13 +80,10 @@ jobs:
           command: deploy --env=""
 
       - name: Verify health
-        run: |
-          url="https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev/health"
-          # Production is not Access-gated, so /health must genuinely answer 200
-          # with {"ok":true}: the endpoint checks D1 connectivity (§9.2).
-          body=$(curl -sS --max-time 20 --retry 3 --retry-delay 5 "$url")
-          echo "GET /health -> $body"
-          echo "$body" | grep -q '"ok":true' || { echo "health check failed"; exit 1; }
+        # Production sits behind Cloudflare Access like every other environment,
+        # but /health is Bypass-policied so this assertion is a real one rather
+        # than "the login page loaded" (docs/deployment.md §6).
+        run: bash scripts/health-check.sh "https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
 
       - name: Summarise
         run: |
