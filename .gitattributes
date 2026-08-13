@@ -1,0 +1,21 @@
+# Development happens on Windows; CI and the Cloudflare runtime are Linux. Any
+# file that Linux *executes* must be stored and checked out with LF endings, or
+# bash fails on the CR ("$'\r': command not found") and, more insidiously,
+# command substitution picks up a trailing CR — a preview alias with a stray \r
+# in it produces a corrupt URL rather than an obvious error.
+#
+# Normalise text by default, and pin LF where it is load-bearing.
+* text=auto
+
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.sql   text eol=lf
+*.json  text eol=lf
+*.jsonc text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.md    text eol=lf
+
+# Lockfiles are generated; keep them byte-stable across platforms.
+pnpm-lock.yaml text eol=lf -diff
