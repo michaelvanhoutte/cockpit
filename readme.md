@@ -2,7 +2,7 @@
 
 The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where).
 
-**Live:** [cockpit.vanhoutte-michael.workers.dev](https://cockpit.vanhoutte-michael.workers.dev)
+The showcase is this repository, not a public instance: every deployed environment is behind Cloudflare Access, because production holds real mail and messages.
 
 ## Layout
 
@@ -29,9 +29,11 @@ Not yet in place (deliberately, in build order): auth (§8.1), the connectors th
 
 Trunk-based: `main` is the trunk, every other branch gets its own Access-gated preview URL, merging deploys staging, and **production is a deliberate promotion pinned to one commit** rather than a consequence of merging. The model and its arguments are in [docs/deployment.md](docs/deployment.md).
 
+All three are behind Cloudflare Access, `/health` excepted so the deploy checks and the uptime monitor can reach it.
+
 | | Deployed by | URL |
 |---|---|---|
-| production | the *Promote to production* action | [cockpit.vanhoutte-michael.workers.dev](https://cockpit.vanhoutte-michael.workers.dev) |
+| production | the *Promote to production* action | `cockpit.vanhoutte-michael.workers.dev` |
 | staging | every commit on `main` | `cockpit-staging.vanhoutte-michael.workers.dev` |
 | preview | every push to any other branch | `<branch-alias>-cockpit-preview.vanhoutte-michael.workers.dev` |
 

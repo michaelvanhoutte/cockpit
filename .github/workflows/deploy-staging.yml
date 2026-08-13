@@ -60,16 +60,7 @@ jobs:
           command: deploy --env staging
 
       - name: Verify health
-        run: |
-          url="https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev/health"
-          # Staging sits behind Cloudflare Access, so an unauthenticated probe
-          # gets redirected to the Access login rather than reaching /health.
-          # A 200 means the endpoint answered and D1 is reachable; a 302 to
-          # Access means the Worker is up and the gate is working. Anything
-          # else is a failed deploy.
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url")
-          echo "GET /health -> $code"
-          case "$code" in
-            200|301|302|303) echo "staging is up" ;;
-            *) echo "unexpected status $code"; exit 1 ;;
-          esac
+        # /health is Bypass-policied out of Cloudflare Access on every
+        # environment, so this asserts D1 connectivity for real instead of
+        # settling for "the Access login page loaded" (docs/deployment.md §6).
+        run: bash scripts/health-check.sh "https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
