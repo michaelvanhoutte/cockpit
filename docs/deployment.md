@@ -323,6 +323,39 @@ Two mitigations, neither of which is a fix:
 This does **not** reverse §8.1. Access here is a perimeter around a deployment, not
 the application's identity model, and it buys time rather than a design.
 
+The Zero Trust team domain is `conselit.cloudflareaccess.com`. It is account-wide
+rather than per-project (the same account runs conselit.be and the task-creator
+worker), which is why it is named after the owner and not after this app.
+
+### Two known gaps in the perimeter
+
+Recorded rather than fixed, both deliberately:
+
+1. **The Worker does not validate the Access JWT.** Cloudflare's own guidance is to
+   verify `Cf-Access-Jwt-Assertion` inside the Worker so that a request which
+   somehow reaches it without passing Access is still rejected. Deferred because it
+   means three per-environment `aud` tags, JWKS fetching, RS256 verification, and a
+   local-dev bypass — throwaway code that §8.1's session handling replaces. The
+   practical bypass surface is currently small (the `*-cockpit-preview` wildcard
+   covers versioned preview URLs, and no service bindings or extra routes exist),
+   and production holds `seed.sql` fixtures rather than real mail.
+
+   **The trigger to close this is the first connector landing.** Real Gmail or
+   Slack content in the production database changes the calculation, and that is
+   the same moment §8.1 becomes urgent, so the two should be done together.
+
+   Note the distinction that makes this safe to defer: validating the JWT as a
+   *gate* is defence in depth, whereas reading its email claim to decide *who the
+   user is* is the §8.1 path that was rejected. Only the first is being deferred;
+   the second should not be built at all.
+
+2. **Access on a `workers.dev` URL does not cover a custom domain.** If a custom
+   domain is ever attached to production (§6 contemplates it), the app becomes
+   publicly reachable on the new hostname while the dashboard still reports Access
+   as enabled on the `workers.dev` one. Gating a custom domain is a separate Access
+   application. This is an easy and quiet mistake, which is why it is written down
+   here rather than left to be remembered.
+
 ### A constraint to know before auth lands
 
 **Preview URLs cannot run on a custom domain, only `workers.dev`.** So when a
