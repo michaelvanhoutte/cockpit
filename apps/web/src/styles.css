@@ -1,0 +1,35 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens carried over from the prototype (poc/prototype/styles.css):
+ * the Nocturne palette in its light tint. Panels, rows, and controls keep the
+ * fixed neutral/accent palette; only the page ground recolors per workspace,
+ * driven by the workspace's color at runtime.
+ */
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+
+  --color-ink: #292b31;
+  --color-ink-soft: #595d6c;
+  --color-ink-faint: #75798c;
+  --color-surface: #f4f5fb;
+  --color-ground: #e3e1f2;
+  --color-accent: #6f62b5;
+  --color-accent-deep: #5d5294;
+  --color-accent-soft: #b5abfc;
+  --color-accent-tint: #e7e5fe;
+  --color-due: #c98a4b;
+  --color-over: #bf5d55;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  --shadow-panel: 0 0 0 1px color-mix(in srgb, #6f62b5 14%, #d3d6e2);
+}
+
+body {
+  @apply bg-ground text-ink font-sans antialiased;
+  font-size: 15px;
+  line-height: 1.55;
+}

@@ -1,0 +1,49 @@
+import { useState } from 'react';
+import { uuidv7 } from '@cockpit/shared';
+import { useCommand } from '../api/queries';
+
+/**
+ * Fast capture (§5.4): today this posts capture_item directly; the
+ * create-only outbox (local write first, flush when connectivity allows)
+ * wraps this same command when the PWA capture work lands.
+ */
+export function CaptureForm({ workspaceId }: { workspaceId: string }) {
+  const [title, setTitle] = useState('');
+  const command = useCommand();
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    command.mutate({
+      name: 'capture_item',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        itemId: uuidv7(),
+        title: trimmed,
+      },
+    });
+    setTitle('');
+  };
+
+  return (
+    <form onSubmit={submit} className="flex gap-2">
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Capture a note or to-do…"
+        aria-label="Capture a note or to-do"
+        className="flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+      />
+      <button
+        type="submit"
+        disabled={command.isPending}
+        className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+      >
+        Capture
+      </button>
+    </form>
+  );
+}
