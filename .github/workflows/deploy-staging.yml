@@ -1,12 +1,12 @@
 name: Deploy staging
 
-# `dev` is always deployed to staging. Staging is the only environment besides
-# production where cron triggers and queue consumers actually run, against a
-# database that accumulates state across deploys — which is the reason the
-# branch model has a `dev` at all (docs/deployment.md §1).
+# Every commit on main is deployed to staging automatically. Staging is what
+# production is promoted from, and the only environment besides production where
+# cron triggers and queue consumers run against a database that accumulates state
+# across deploys (docs/deployment.md §1).
 on:
   push:
-    branches: [dev]
+    branches: [main]
   # Re-deployable by hand, for when a deploy failed for an infrastructural
   # reason rather than a code one.
   workflow_dispatch:

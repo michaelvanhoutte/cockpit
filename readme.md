@@ -27,13 +27,13 @@ Not yet in place (deliberately, in build order): auth (§8.1), the connectors th
 
 ## Environments
 
-`main` is production and `dev` is staging; every other branch gets its own Access-gated preview URL. The branch model and its arguments are in [docs/deployment.md](docs/deployment.md).
+Trunk-based: `main` is the trunk, every other branch gets its own Access-gated preview URL, merging deploys staging, and **production is a deliberate promotion pinned to one commit** rather than a consequence of merging. The model and its arguments are in [docs/deployment.md](docs/deployment.md).
 
-| | Branch | URL |
+| | Deployed by | URL |
 |---|---|---|
-| production | `main` | [cockpit.vanhoutte-michael.workers.dev](https://cockpit.vanhoutte-michael.workers.dev) |
-| staging | `dev` | `cockpit-staging.vanhoutte-michael.workers.dev` |
-| preview | any other | `<branch-alias>-cockpit-preview.vanhoutte-michael.workers.dev` |
+| production | the *Promote to production* action | [cockpit.vanhoutte-michael.workers.dev](https://cockpit.vanhoutte-michael.workers.dev) |
+| staging | every commit on `main` | `cockpit-staging.vanhoutte-michael.workers.dev` |
+| preview | every push to any other branch | `<branch-alias>-cockpit-preview.vanhoutte-michael.workers.dev` |
 
 ## Run it
 
