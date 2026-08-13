@@ -1,30 +1,47 @@
-# Cockpit — Unified Inbox & Dashboards prototype
+# Cockpit — Unified Inbox & Dashboards
 
-A pure HTML/CSS/JS implementation of the Claude Design clickable mockup for the Unified Inbox & Dashboards concept (see [docs/functional-definition.md](docs/functional-definition.md), v0.3). No build step, no dependencies.
+The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), and [docs/testing-strategy.md](docs/testing-strategy.md) (the proof).
+
+## Layout
+
+```
+cockpit/
+├── apps/
+│   ├── web/           # React + Vite installed PWA (TanStack Router/Query, Tailwind, Radix)
+│   └── api/           # Cloudflare Worker: Hono HTTP API + SSE, D1 via Drizzle
+├── packages/
+│   ├── shared/        # THE contract: domain types, Zod schemas, commands, API shapes
+│   ├── connector-sdk/ # the connector SPI (connectors land as packages/connectors/*)
+│   └── config/        # shared tsconfig / prettier
+├── docs/              # functional definition, architecture, testing strategy, options docs
+└── poc/               # proofs of concept (kept; they are part of the showcase)
+```
+
+Not yet in place (deliberately, in build order): auth (§8.1), CI/CD (§9.1), the connectors themselves (§6.2), and the task-creator merge (§6.5).
 
 ## Run it
 
-Open `index.html` in a browser. That's it. (If your browser blocks the Google Fonts import when opened from disk, serve the folder instead: `npx serve .`)
+Prerequisites: Node ≥ 22 (pnpm comes via corepack).
 
-## What's implemented
+```bash
+corepack enable pnpm
+pnpm install
 
-- **Workspaces** — Work / Atlas Copco / Personal tabs; the workspace color is the line at the top edge of the header.
-- **Pages** — Today, Dormant projects, Reading, each with its own panels.
-- **Dashboard** — the pinned Inbox panel on the left plus a responsive grid of action panels. Panel "···" menu (configure rule, group, remove), "+ Panel", "+ Action".
-- **Item context menu** — right-click any row for actions. Source-app actions come first (Mail: open, reply, delete; Slack: open, reply in thread, flag/unflag; Notion: open, mark as completed; WhatsApp: open, reply; own actions: edit, mark as done), then the goal horizons, then Edit here and Move to panel. Keyboard shortcuts still work with a row selected (j/k move, e done, s snooze, Enter edit; w marks waiting when nothing is selected).
-- **Goals** — single click selects a row (double click still jumps to the source; Enter opens the edit page). With a row selected, press T, W, M or Q to mark it as a goal for today, this week, this month or this quarter, or use the right-click menu. Highlighted rows get a small T/W/M/Q badge, and the collapsible read-only Goals panel at the top of a page (collapsed by default) shows everything per horizon.
-- **Row swipe & drag** — on any item row, swipe left to remove the item. Dragging a row to the right lifts it so you can drop it into any panel at the exact position you want; a dashed placeholder shows where it will land and the other rows shift around it. Dropping outside a panel cancels (the placeholder snaps back home so you can see the drop will cancel). Works with mouse drag or touch.
-- **Item detail** — executive summary, editable AI-drafted next action, panel associations, focus horizons, status buttons, and the deep-link button that triggers the "Handled?" prompt-on-return sheet.
-- **Mobile** — below 720px the app reflows to a single column with a bottom-sheet detail view.
-- **Design notes** — the mockup's annotation drawer, kept behind the "Design notes" button.
+# one-time local database setup
+pnpm --filter @cockpit/api db:migrate:local
+pnpm --filter @cockpit/api db:seed:local
 
-## Deviations from the mockup
+# terminal 1: the API on http://localhost:8787 (wrangler + local D1)
+pnpm dev:api
 
-- The mockup's Desktop/Tablet/Mobile device switcher is replaced by real responsiveness: the app responds to the actual viewport width (breakpoints at 720px and 1080px).
-- `--color-accent-100` is flipped to a dark step so the "Waiting" tag stays legible on the light ground (the mockup inherited a near-white value there from the dark-theme design system).
+# terminal 2: the web app on http://localhost:5173 (proxies /v1 to the API)
+pnpm dev:web
+```
 
-All data is in-memory sample data from the design; a reload resets everything.
+`pnpm typecheck` and `pnpm test` run across all packages.
 
 ## Proofs of concept
 
-- [poc/slack-realtime](poc/slack-realtime/README.md) — tests whether Slack's Real-time Search API (`assistant.search.context`) can actually supply the DMs and @mentions the follow-up inbox needs, which is the approach chosen in [docs/slack-integration-options.md](docs/slack-integration-options.md). Standalone Node, no dependencies, not wired into the prototype.
+- [poc/prototype](poc/prototype/) — the original clickable HTML/CSS/JS mockup this app is converted from. Open `poc/prototype/index.html` directly in a browser; no build step. Kept until the app covers everything it demonstrates.
+- [poc/slack-realtime](poc/slack-realtime/README.md) — tests whether Slack's Real-time Search API can supply the DMs and @mentions the follow-up inbox needs.
+- [poc/notion-inbox](poc/notion-inbox/README.md) — the Notion follow-up inbox POC behind [docs/notion-integration-options.md](docs/notion-integration-options.md).
