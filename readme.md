@@ -1,6 +1,8 @@
 # Cockpit — Unified Inbox & Dashboards
 
-The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), and [docs/testing-strategy.md](docs/testing-strategy.md) (the proof).
+The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where).
+
+**Live:** [cockpit.vanhoutte-michael.workers.dev](https://cockpit.vanhoutte-michael.workers.dev)
 
 ## Layout
 
@@ -8,16 +10,30 @@ The production application for the Unified Inbox & Dashboards concept, built to 
 cockpit/
 ├── apps/
 │   ├── web/           # React + Vite installed PWA (TanStack Router/Query, Tailwind, Radix)
-│   └── api/           # Cloudflare Worker: Hono HTTP API + SSE, D1 via Drizzle
+│   └── api/           # the Worker: Hono HTTP API + SSE, D1 via Drizzle, and the built SPA
 ├── packages/
 │   ├── shared/        # THE contract: domain types, Zod schemas, commands, API shapes
 │   ├── connector-sdk/ # the connector SPI (connectors land as packages/connectors/*)
 │   └── config/        # shared tsconfig / prettier
-├── docs/              # functional definition, architecture, testing strategy, options docs
+├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
+├── scripts/           # branch-alias derivation for preview URLs (+ its assertions)
+├── .github/           # CI and the three deploy workflows (§9.1)
 └── poc/               # proofs of concept (kept; they are part of the showcase)
 ```
 
-Not yet in place (deliberately, in build order): auth (§8.1), CI/CD (§9.1), the connectors themselves (§6.2), and the task-creator merge (§6.5).
+One Worker per environment serves both the API and the SPA, on one origin (see [docs/deployment.md](docs/deployment.md)). `apps/api` is therefore the deployment, and `apps/web/dist` is its static-asset payload.
+
+Not yet in place (deliberately, in build order): auth (§8.1), the connectors themselves (§6.2), and the task-creator merge (§6.5).
+
+## Environments
+
+`main` is production and `dev` is staging; every other branch gets its own Access-gated preview URL. The branch model and its arguments are in [docs/deployment.md](docs/deployment.md).
+
+| | Branch | URL |
+|---|---|---|
+| production | `main` | [cockpit.vanhoutte-michael.workers.dev](https://cockpit.vanhoutte-michael.workers.dev) |
+| staging | `dev` | `cockpit-staging.vanhoutte-michael.workers.dev` |
+| preview | any other | `<branch-alias>-cockpit-preview.vanhoutte-michael.workers.dev` |
 
 ## Run it
 
@@ -30,6 +46,10 @@ pnpm install
 # one-time local database setup
 pnpm --filter @cockpit/api db:migrate:local
 pnpm --filter @cockpit/api db:seed:local
+
+# one-time: the Worker serves apps/web/dist as static assets, so that
+# directory has to exist before wrangler will start
+pnpm build
 
 # terminal 1: the API on http://localhost:8787 (wrangler + local D1)
 pnpm dev:api

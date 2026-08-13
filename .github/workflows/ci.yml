@@ -1,0 +1,57 @@
+name: CI
+
+# Scoped to the long-lived branches on purpose. Pushes to short-lived branches
+# are gated by deploy-preview.yml, which runs the same checks before it will
+# replace a working preview; triggering CI on every push as well would just run
+# everything twice.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Architecture §9.1 asks for the fast test tiers split one job per tier, so a
+  # misplaced test is visible. Today Cockpit is one service with one test file,
+  # and testing-strategy §2 is explicit that levels are roles rather than
+  # mandatory folders ("do not invent tests or empty folders just to populate
+  # the taxonomy"). So: real jobs only, split along the lines that exist now.
+  # The per-tier split lands with the tiers.
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+
+  scripts:
+    name: Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Every branch's preview URL is derived by branch-alias.sh, and a silent
+      # change in it would collide two branches onto one URL or exceed
+      # Cloudflare's hostname budget. So it is asserted, not trusted.
+      - name: Verify preview alias derivation
+        run: bash scripts/branch-alias.test.sh

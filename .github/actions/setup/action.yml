@@ -1,0 +1,20 @@
+name: Setup
+description: Checkout-adjacent toolchain setup shared by every workflow (pnpm, Node, install).
+
+runs:
+  using: composite
+  steps:
+    - name: Install pnpm
+      # Version comes from the root package.json "packageManager" field, so it
+      # is declared in exactly one place.
+      uses: pnpm/action-setup@v4
+
+    - name: Install Node
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: package.json
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
