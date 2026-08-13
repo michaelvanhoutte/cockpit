@@ -1,0 +1,75 @@
+name: Deploy staging
+
+# `dev` is always deployed to staging. Staging is the only environment besides
+# production where cron triggers and queue consumers actually run, against a
+# database that accumulates state across deploys — which is the reason the
+# branch model has a `dev` at all (docs/deployment.md §1).
+on:
+  push:
+    branches: [dev]
+  # Re-deployable by hand, for when a deploy failed for an infrastructural
+  # reason rather than a code one.
+  workflow_dispatch:
+
+concurrency:
+  # Never cancel a deploy in progress: a half-applied deploy is worse than a
+  # queued one. Subsequent pushes wait.
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: Staging
+    runs-on: ubuntu-latest
+    # Gives deployment history in the GitHub UI, and a place to hang a required
+    # reviewer or a secret scope later without touching this file.
+    environment:
+      name: staging
+      url: https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      # Migrations first, so the new code never meets the old schema. The
+      # inverse window is real though: for the seconds between this step and the
+      # deploy below, the *old* code runs against the *new* schema. That is why
+      # migrations must be expand-then-contract rather than destructive in a
+      # single release (docs/deployment.md §5).
+      - name: Migrate staging database
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: d1 migrations apply cockpit-staging --remote --env staging
+
+      # Deliberately not seeded. Staging's value is that its data is old:
+      # accumulated state is what makes a migration rehearsal and a stale
+      # connector token realistic. Re-seeding it every deploy would throw away
+      # the only thing staging has that previews do not.
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy --env staging
+
+      - name: Verify health
+        run: |
+          url="https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev/health"
+          # Staging sits behind Cloudflare Access, so an unauthenticated probe
+          # gets redirected to the Access login rather than reaching /health.
+          # A 200 means the endpoint answered and D1 is reachable; a 302 to
+          # Access means the Worker is up and the gate is working. Anything
+          # else is a failed deploy.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url")
+          echo "GET /health -> $code"
+          case "$code" in
+            200|301|302|303) echo "staging is up" ;;
+            *) echo "unexpected status $code"; exit 1 ;;
+          esac

@@ -1,26 +1,94 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "cockpit-api",
+  // One Worker serves the whole application: the Hono API, SSE, the queue
+  // consumers, the cron triggers, AND the built SPA as static assets
+  // (architecture §9). Hence "cockpit", not "cockpit-api".
+  "name": "cockpit",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "cockpit",
-      // Placeholder until the production database is created with
-      // `wrangler d1 create cockpit`. Local dev ignores this and uses
-      // a local SQLite file under .wrangler/.
-      "database_id": "00000000-0000-0000-0000-000000000000",
-      "migrations_dir": "migrations"
-    }
-  ],
+
+  // Static assets (apps/web/dist) are served *before* the Worker runs, so a
+  // cold page load bills no Worker invocation. Only the three API prefixes
+  // reach the Worker; everything else falls back to index.html for the SPA
+  // router. These prefixes are the same three the service worker refuses to
+  // intercept (see navigateFallbackDenylist in apps/web/vite.config.ts) —
+  // keep the two lists in sync.
+  //
+  // `assets` and `observability` are *inheritable* config keys, so the staging
+  // and preview environments below get them for free. `d1_databases` (and
+  // `vars`, `queues`, `secrets`) are NOT inheritable and must be repeated per
+  // environment — that is deliberate on Cloudflare's part and it is also the
+  // mechanism that keeps previews off the production database (see docs/deployment.md).
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/v1/*", "/health", "/ingress/*"]
+  },
+
   "observability": {
     "logs": {
       "enabled": true
     }
+  },
+
+  // Production exposes no per-version preview URLs; only the preview
+  // environment does. Inheritable, so staging re-disables it explicitly below
+  // for the avoidance of doubt.
+  "preview_urls": false,
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cockpit",
+      "database_id": "753ea386-68c0-422e-a237-da7a0c66c40c",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "env": {
+    // Staging: the only environment besides production where cron triggers and
+    // queue consumers actually run, against a database that accumulates state.
+    // That is the whole reason it exists (docs/deployment.md §1).
+    "staging": {
+      "name": "cockpit-staging",
+      "preview_urls": false,
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "cockpit-staging",
+          "database_id": "ce8bccd3-1e7f-4de0-9005-02e07b3c9ee9",
+          "migrations_dir": "migrations"
+        }
+      ]
+    },
+
+    // Preview: one Worker, one version per branch, addressed by preview alias.
+    // All branches share this single database; it is re-migrated and re-seeded
+    // on every preview deploy. Isolated-per-branch databases were considered
+    // and rejected for now (docs/deployment.md §4).
+    //
+    // No cron triggers are declared here, and none would fire anyway: triggers
+    // attach to a Worker's active deployment, not to uploaded versions.
+    "preview": {
+      "name": "cockpit-preview",
+      "preview_urls": true,
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "cockpit-preview",
+          "database_id": "fdd3ac00-312b-4914-872e-71972c100088",
+          "migrations_dir": "migrations"
+        }
+      ]
+    }
   }
+
   // Queues and Cron Triggers (§6.3) are wired when the first connector and
-  // enrichment job land:
-  // "triggers": { "crons": ["*/5 * * * *"] },
-  // "queues": { "producers": [...], "consumers": [...] }
+  // enrichment job land. Note when they are: `triggers` is inheritable (so a
+  // cron schedule set at the top level would silently also apply to staging,
+  // which is what we want) but `queues` is NOT, so each environment needs its
+  // own queue names to avoid staging consuming production messages:
+  //   "triggers": { "crons": ["*/5 * * * *"] },
+  //   "queues": { "producers": [...], "consumers": [...] }
 }

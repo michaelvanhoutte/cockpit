@@ -258,9 +258,15 @@ Note the reach this decision had: it re-derived the backend framework (Fastify �
 
 GitHub Actions, structured to make the testing strategy and the budgets mechanical:
 
-- **Per PR:** lint + typecheck + the connector-boundary import rules (§6.2); fast test tiers (L1, L2, F1, F2) in full, split as one job per tier so a misplaced test is visible (testing strategy §10); bundle-size gate; build; a **preview deployment** (Workers preview version + an isolated preview D1 database), so every PR is clickable before merge.
-- **On merge to main:** full suite including L3/F3 against a wrangler-run stack (workerd + local D1); performance timing checks; deploy via `wrangler deploy` (API) and static-asset upload (web).
+- **Per branch** (not per PR: the trigger is `push`, so draft PRs and branches without a PR are deployed too): lint + typecheck + the connector-boundary import rules (§6.2); fast test tiers (L1, L2, F1, F2) in full, split as one job per tier so a misplaced test is visible (testing strategy §10); bundle-size gate; build; a **preview deployment** (a Workers preview version, addressed by a per-branch alias), so every branch is clickable before merge.
+- **On merge to `dev`:** the same gate, then deploy to **staging**, the only environment besides production where cron triggers and queue consumers run continuously against a database that accumulates state.
+- **On merge to `main`:** full suite including L3/F3 against a wrangler-run stack (workerd + local D1); performance timing checks; migrate, then deploy via `wrangler deploy` (which uploads the Worker and the static assets in one operation, per §9's single-Worker shape).
 - **Scheduled (nightly):** `test:contract` against real third parties (Slack, Gmail, Notion, AI provider); failures create priority work to re-record fixtures.
+
+**Two recorded corrections, both from building it** (see [deployment.md](deployment.md), which holds the full topology, the branch model, and the runbook):
+
+- **Previews share one D1 database; they are not isolated per branch.** An earlier draft of this section specified "an isolated preview D1 database" per preview. Per-branch isolation needs a database created on first push, its id injected into a generated Wrangler config, and a reaper for deleted branches, and the free plan's ten-database ceiling does not fit the branch count this repository already carries. What is given up is recorded rather than waved away: two branches with incompatible migrations will collide. The escalation, if it bites, is per-branch databases on the paid plan.
+- **The branch model gained a second long-lived branch.** `main` is production and `dev` is staging. This is not the usual integration argument (there is one developer, and every branch is already clickable); it is that triggers attach to a Worker's *active deployment*, so a preview version never fires a §6.3 sync cadence, never ages a token into a refresh, and never trips the §9.2 dead-man's switch. Without staging, production would be the first place any of that runs.
 
 ### 9.2 Observability
 
