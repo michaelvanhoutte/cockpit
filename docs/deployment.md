@@ -343,9 +343,20 @@ Then, by hand (no API, or deliberately not automated):
 2. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
    Settings: Read), stored as the `CLOUDFLARE_API_TOKEN` GitHub secret.
 3. **Branch protection** on `main`: require a pull request, and require the CI
-   checks to pass. **Zero required approvals** — GitHub will not let an author
-   approve their own PR, so requiring even one review locks a single-developer
-   repository out of its own trunk.
+   checks (`Typecheck`, `Test`, `Build`, `Scripts`) to pass. Plus **zero required
+   approvals** — GitHub will not let an author approve their own PR, so requiring
+   even one review locks a single-developer repository out of its own trunk.
+
+   Also set: linear history required (so the squash-merge rule of §1 is enforced
+   mechanically rather than remembered), no force pushes, no deletions. Admin
+   bypass is left **on** deliberately, as the escape hatch for an emergency; a
+   direct push to `main` reaches staging only, never production, because
+   production is a separate promotion.
+
+   *Requires the repository **owner** account.* A collaborator with `push` cannot
+   do this, and the branch-protection API answers `404` rather than `403` when the
+   caller lacks admin, which reads as "wrong URL" and sends you looking in the
+   wrong place. Not the same thing as the Cloudflare credentials.
 
 ## 8. Deferred, with reasons
 
