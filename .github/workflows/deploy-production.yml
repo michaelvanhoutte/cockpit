@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: Commit to promote (blank = current main HEAD)
+        description: Commit to promote, abbreviated or full (blank = current main HEAD)
         required: false
         default: ''
 
@@ -26,24 +26,47 @@ jobs:
       name: production
       url: https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
     steps:
-      # fetch-depth: 0 because the ancestry guard below needs real history.
+      # Always check out `main` with full history, then move to the requested
+      # commit ourselves in the next step.
+      #
+      # Passing the input straight to `ref:` looks tidier but is broken:
+      # actions/checkout resolves `ref` as a branch or tag first, so an
+      # abbreviated SHA fails with "A branch or tag with the name '91e5452'
+      # could not be found" — and the abbreviated SHA is exactly what GitHub's
+      # own commit list offers you to copy. It also means the guard below never
+      # gets to run, so a rejected promotion reports the wrong reason.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.sha || 'main' }}
+          ref: main
           fetch-depth: 0
 
-      - name: Refuse to promote a commit that never soaked
+      - name: Resolve the commit and refuse to promote one that never soaked
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
         run: |
-          # Everything reachable from main has passed CI and has run on staging,
-          # because main auto-deploys there. Anything else has done neither, and
-          # `sha` accepts any string — including a commit from a branch that was
-          # never merged. Without this check, one mistyped or stale sha puts
-          # untested code straight into production.
-          git fetch --no-tags --quiet origin main
-          if ! git merge-base --is-ancestor HEAD origin/main; then
-            echo "::error::$(git rev-parse HEAD) is not an ancestor of origin/main. It has not passed CI and has not soaked on staging, so it cannot be promoted."
+          target="$INPUT_SHA"
+          if [ -z "$target" ]; then
+            target='origin/main'
+            echo "No sha supplied; promoting current main HEAD."
+          fi
+
+          # rev-parse accepts abbreviated SHAs; ^{commit} rejects trees and tags.
+          if ! full=$(git rev-parse --verify --quiet "${target}^{commit}"); then
+            echo "::error::'$target' is not a commit in this repository. Pass a commit SHA from main (abbreviated is fine), or leave it blank to promote main HEAD."
             exit 1
           fi
+
+          # Everything reachable from main has passed CI and has run on staging,
+          # because main auto-deploys there. Anything else has done neither, and
+          # this input accepts any commit — including one from a branch that was
+          # never merged. Without this check, a stale or mistyped sha puts
+          # untested code straight into production.
+          if ! git merge-base --is-ancestor "$full" origin/main; then
+            echo "::error::$full is not an ancestor of origin/main. It has not passed CI and has not soaked on staging, so it cannot be promoted."
+            exit 1
+          fi
+
+          git checkout --quiet --detach "$full"
           echo "Promoting $(git rev-parse --short HEAD): $(git log -1 --pretty=%s)"
 
       - uses: ./.github/actions/setup
