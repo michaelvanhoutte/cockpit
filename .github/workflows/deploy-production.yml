@@ -1,0 +1,95 @@
+name: Promote to production
+
+# Production is a deliberate promotion, never automatic. Staging already runs
+# every commit on main; production ships the one you choose.
+#
+# The `sha` input is what makes "promote exactly what soaked" true rather than
+# usually-true: main can move between the soak and the click, so promoting
+# "main" would silently ship whatever landed in between.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit to promote (blank = current main HEAD)
+        required: false
+        default: ''
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  production:
+    name: Production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
+    steps:
+      # fetch-depth: 0 because the ancestry guard below needs real history.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || 'main' }}
+          fetch-depth: 0
+
+      - name: Refuse to promote a commit that never soaked
+        run: |
+          # Everything reachable from main has passed CI and has run on staging,
+          # because main auto-deploys there. Anything else has done neither, and
+          # `sha` accepts any string — including a commit from a branch that was
+          # never merged. Without this check, one mistyped or stale sha puts
+          # untested code straight into production.
+          git fetch --no-tags --quiet origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$(git rev-parse HEAD) is not an ancestor of origin/main. It has not passed CI and has not soaked on staging, so it cannot be promoted."
+            exit 1
+          fi
+          echo "Promoting $(git rev-parse --short HEAD): $(git log -1 --pretty=%s)"
+
+      - uses: ./.github/actions/setup
+
+      # Re-run the gate against the exact tree being promoted. CI ran on this
+      # commit when it landed on main, but the toolchain and dependencies
+      # resolve fresh here, and a promotion may be days later.
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      - name: Migrate production database
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          # --env="" explicitly targets the top-level environment. Wrangler warns
+          # on a bare command once any [env.*] exists, precisely to stop someone
+          # deploying production by accident.
+          #
+          # Promoting a commit several ahead of production applies every pending
+          # migration in order, which is fine. Promoting an *earlier* commit does
+          # NOT un-apply them, which is why migrations must be expand-contract
+          # (docs/deployment.md §5).
+          command: d1 migrations apply cockpit --remote --env=""
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy --env=""
+
+      - name: Verify health
+        # Production sits behind Cloudflare Access like every other environment,
+        # but /health is Bypass-policied so this assertion is a real one rather
+        # than "the login page loaded" (docs/deployment.md §6).
+        run: bash scripts/health-check.sh "https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
+
+      - name: Summarise
+        run: |
+          {
+            echo "### Promoted to production"
+            echo
+            echo "**Commit:** \`$(git rev-parse --short HEAD)\` $(git log -1 --pretty=%s)"
+            echo "**URL:** https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
+          } >> "$GITHUB_STEP_SUMMARY"

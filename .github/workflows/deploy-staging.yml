@@ -1,0 +1,66 @@
+name: Deploy staging
+
+# Every commit on main is deployed to staging automatically. Staging is what
+# production is promoted from, and the only environment besides production where
+# cron triggers and queue consumers run against a database that accumulates state
+# across deploys (docs/deployment.md §1).
+on:
+  push:
+    branches: [main]
+  # Re-deployable by hand, for when a deploy failed for an infrastructural
+  # reason rather than a code one.
+  workflow_dispatch:
+
+concurrency:
+  # Never cancel a deploy in progress: a half-applied deploy is worse than a
+  # queued one. Subsequent pushes wait.
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: Staging
+    runs-on: ubuntu-latest
+    # Gives deployment history in the GitHub UI, and a place to hang a required
+    # reviewer or a secret scope later without touching this file.
+    environment:
+      name: staging
+      url: https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      # Migrations first, so the new code never meets the old schema. The
+      # inverse window is real though: for the seconds between this step and the
+      # deploy below, the *old* code runs against the *new* schema. That is why
+      # migrations must be expand-then-contract rather than destructive in a
+      # single release (docs/deployment.md §5).
+      - name: Migrate staging database
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: d1 migrations apply cockpit-staging --remote --env staging
+
+      # Deliberately not seeded. Staging's value is that its data is old:
+      # accumulated state is what makes a migration rehearsal and a stale
+      # connector token realistic. Re-seeding it every deploy would throw away
+      # the only thing staging has that previews do not.
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy --env staging
+
+      - name: Verify health
+        # /health is Bypass-policied out of Cloudflare Access on every
+        # environment, so this asserts D1 connectivity for real instead of
+        # settling for "the Access login page loaded" (docs/deployment.md §6).
+        run: bash scripts/health-check.sh "https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
