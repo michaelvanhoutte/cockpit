@@ -1,13 +1,12 @@
 name: Deploy preview
 
-# Every branch that is not a long-lived one gets its own clickable environment.
-# Deliberately triggered on `push` rather than `pull_request`, so a branch with
-# no PR, or a draft PR, is deployed too.
+# Every branch except the trunk gets its own clickable environment. Deliberately
+# triggered on `push` rather than `pull_request`, so a branch with no PR, or a
+# draft PR, is deployed too.
 on:
   push:
     branches-ignore:
       - main
-      - dev
 
 concurrency:
   # One preview deploy per branch at a time; superseded pushes are cancelled.

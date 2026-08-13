@@ -6,65 +6,78 @@ Cloudflare and why; this document records *how*, and it is the runbook.
 
 ## 1. The branch model
 
-**Decision: two long-lived branches.** `main` is production, `dev` is staging,
-and everything else is short-lived and gets its own preview environment.
+**Decision: trunk-based, one long-lived branch.** `main` is the trunk.
+Everything else is a short-lived branch with its own preview environment.
+**Merging deploys to staging; production is a separate, deliberate promotion.**
 
 ```
                         ┌─ every branch gets its own Access-gated preview URL
   claude/swipe    ●───● ┤
-  claude/panel  ●───●   │  squash-merge
+  claude/panel  ●───●   │  squash-merge, via PR
                     ┌───┴───┐
-  dev  ──●──────────●───────●────────────►  staging     (cron + queues run here)
-                            │ merge commit, via PR
-  main ──●──────────────────●────────────►  production
+  main ──●──────────●───────●───────●────────►  staging      (automatic; cron + queues run here)
+                            │       │
+                            └───────┴─ click Promote, pinned to one commit
+                                       ↓
+                                       production
 ```
 
-The rules, and each one is load-bearing:
+| Trigger | Result |
+|---|---|
+| push to any branch | preview URL, Access-gated, shared preview database |
+| merge PR into `main` | staging deploys automatically |
+| run **Promote to production** | that commit deploys to production |
 
-- **`dev` receives only squash-merged PRs from short-lived branches.** A branch
-  arrives as one commit, so `dev`'s history reads as one line per unit of work
-  rather than as a wall of "wip" and "fix typo".
-- **`main` receives only a merge commit from `dev`, never a cherry-pick.** This
-  keeps `main` a strict ancestor of `dev`, which is what makes `git log main..dev`
-  a truthful answer to "what is merged but not live". Squashing here would flatten
-  several features into one commit and destroy the per-feature history the
-  previous rule just built.
-- **Promotion is a PR** (`dev` → `main`), so the production diff is reviewable
-  and every deploy has an audit trail.
-- **`hotfix/*` branches from `main`, merges to `main`, then immediately
-  back-merges to `main` → `dev`.** This is the one path that can make the two
-  branches diverge, so the back-merge is a rule and not a courtesy: skip it and
-  the next promotion either conflicts or quietly reverts the hotfix.
+The rules:
 
-### Why staging exists at all
+- **`main` receives only squash-merged PRs.** A branch arrives as one commit, so
+  the trunk's history reads as one line per unit of work rather than as a wall of
+  "wip" and "fix typo".
+- **Production is never deployed by merging.** It is a `workflow_dispatch` run of
+  `.github/workflows/deploy-production.yml`, so shipping is an act rather than a
+  side effect of landing a PR.
+- **The promotion is pinned to a commit.** The workflow takes an optional `sha`
+  input; blank means current `main` HEAD. This matters because `main` moves: if
+  the promotion simply deployed "main", it would ship whatever happened to land
+  between the soak and the click. The workflow also **refuses any sha that is not
+  an ancestor of `main`**, so a commit that never passed CI and never ran on
+  staging cannot reach production even by mistyping.
+- **No hotfix branch, and no back-merge rule.** An urgent fix is an ordinary
+  short-lived branch and an ordinary PR into `main`; promoting it is the same
+  click as always. This is the clearest single win over a two-branch model, which
+  needs a `hotfix/*` path precisely because its long-lived branches can diverge.
 
-This deserves an argument, because the usual one does not apply. Staging
-classically solves multi-team integration, and Cockpit has one developer. Worse,
-every branch already gets a clickable environment, so staging adds nothing to
-"review this change".
+### Why staging exists, and why it is not a branch
 
-It earns its place for a narrower and more specific reason: **staging is the only
-environment besides production where cron triggers and queue consumers run
-continuously against a database that accumulates state.** Triggers attach to a
-Worker's *active deployment*, not to uploaded versions, so a per-branch preview
-serves HTTP and will never fire a §6.3 sync cadence, never age an OAuth token
-into needing a refresh, never trip the §9.2 dead-man's switch, and never meet a
-migration applied to a table that already has rows in it. Those are precisely
-the failure modes architecture §9.2 calls hardest to detect. Staging is where
-they get rehearsed.
+Staging classically solves multi-team integration, and Cockpit has one developer.
+Every branch already gets a clickable environment, so staging adds nothing to
+"review this change". It earns its place for a narrower and more specific reason:
+**staging is the only environment besides production where cron triggers and
+queue consumers run continuously against a database that accumulates state.**
 
-The honest cost: two merges instead of one to reach production. If the
-background-jobs layer were ever removed, this decision should be revisited,
-because then trunk-based development with previews would dominate it.
+Triggers attach to a Worker's *active deployment*, not to uploaded versions, so a
+per-branch preview serves HTTP and will never fire a §6.3 sync cadence, never age
+an OAuth token into needing a refresh, never trip the §9.2 dead-man's switch, and
+never meet a migration applied to a table that already has rows in it. Those are
+precisely the failure modes architecture §9.2 calls hardest to detect.
+
+The insight that shapes this document: **that argument justifies a staging
+*environment*, not a staging *branch*.** An earlier draft gave staging its own
+long-lived `dev` branch, which bought the soak at the price of two branches to
+keep in sync, a promotion merge, and a `hotfix/*` path with a mandatory
+back-merge. Pointing staging at the trunk and making production a promotion buys
+the same soak for one branch: every commit on `main` soaks automatically, and the
+gate moved from "which branch is it on" to "has someone chosen to ship it".
 
 **Rejected: Git Flow** (`develop` + `release/*` + version tags). Release branches
 exist to coordinate a versioned artifact shipped to people who install it.
 Cockpit is one continuously-deployed Worker, so the whole apparatus would be
 ceremony with no user for it.
 
-**Rejected: staging tracking `main`, with production promoted by tag.** Three
-steps instead of two, production lagging `main`, and no safety the model above
-does not already provide.
+**Rejected: `main` auto-deploying straight to production.** The simplest possible
+model, and the one to fall back to if promotion ever becomes a rubber stamp. It
+is rejected while the background-jobs layer is young: it would make production
+the first place a cron trigger or queue consumer ever runs.
 
 ### Naming and commits
 
@@ -76,18 +89,22 @@ prefix returns.
 
 The changelog value people want from branch prefixes actually lives in commit
 messages, so it is taken there instead: **Conventional Commits on the
-squash-merge message into `dev`.** Squashing lets the message be written at merge
+squash-merge message into `main`.** Squashing lets the message be written at merge
 time, which means exactly one well-formed commit per feature, authored
 deliberately, with no commitlint hook to install and nothing for an agent to get
 wrong.
 
 ## 2. The environments
 
-| | Worker | Database | Cron/Queues | URL | Access |
-|---|---|---|---|---|---|
-| **production** | `cockpit` | `cockpit` | yes | [cockpit.vanhoutte-michael.workers.dev](https://cockpit.vanhoutte-michael.workers.dev) | open |
-| **staging** | `cockpit-staging` | `cockpit-staging` | yes | `cockpit-staging.vanhoutte-michael.workers.dev` | gated |
-| **preview** | `cockpit-preview`, one version per branch | `cockpit-preview`, shared | no | `<alias>-cockpit-preview.vanhoutte-michael.workers.dev` | gated |
+| | Deployed by | Worker | Database | Cron/Queues | URL | Access |
+|---|---|---|---|---|---|---|
+| **production** | manual promotion | `cockpit` | `cockpit` | yes | [cockpit.vanhoutte-michael.workers.dev](https://cockpit.vanhoutte-michael.workers.dev) | open |
+| **staging** | every commit on `main` | `cockpit-staging` | `cockpit-staging` | yes | `cockpit-staging.vanhoutte-michael.workers.dev` | gated |
+| **preview** | every push to any other branch | `cockpit-preview`, one version per branch | `cockpit-preview`, shared | no | `<alias>-cockpit-preview.vanhoutte-michael.workers.dev` | gated |
+
+Production therefore **lags `main` by design**, by however many commits have been
+merged but not promoted. `git log <promoted-sha>..main` is the answer to "what is
+merged but not live"; the promotion run's summary records which commit shipped.
 
 Three D1 databases, out of the free plan's ten. The two thresholds that would
 force the $5/month Workers Paid plan, recorded so they are recognised rather than
@@ -127,9 +144,9 @@ before the API is deployed *or* run with `wrangler dev`. `pnpm build` first.
 
 ## 4. Preview environments
 
-Every branch that is not `main` or `dev` gets one, triggered on `push` rather
-than `pull_request` so that a draft PR, or a branch with no PR at all, is
-deployed too.
+Every branch except `main` gets one, triggered on `push` rather than
+`pull_request` so that a draft PR, or a branch with no PR at all, is deployed
+too.
 
 Previews are **versions of a single Worker**, not a Worker per branch.
 `wrangler versions upload --env preview --preview-alias <alias>` uploads a new
@@ -213,17 +230,25 @@ single release.** Add a column, deploy code that writes both, and only remove
 the old one in a later release. A migration that drops or renames a column in
 the same release as the code change will fail requests during that window.
 
+Promotion interacts with this in one direction only, and it is worth being
+explicit about. Promoting a commit several ahead of production applies every
+pending migration in order, which is fine. **Promoting an earlier commit does not
+un-apply anything**, because migrations only roll forward. So a rollback by
+promotion runs old code against a newer schema, which is exactly the case
+expand-contract makes safe and destructive migrations make fatal.
+
 Rollback, in order of preference:
 
-1. **Redeploy the previous version.** `wrangler versions list` then
-   `wrangler versions deploy <id>`. Fast, and it does not touch data.
-2. **Revert the commit** on `main` and let the pipeline deploy it.
-3. **D1 Time Travel** for data. D1 retains 30 days of point-in-time recovery, so
+1. **Re-promote the previous commit.** Run *Promote to production* with the
+   previous `sha`. Fast, and it touches no data. Safe because of expand-contract.
+2. **Redeploy the previous Worker version** without going through git:
+   `wrangler versions list` then `wrangler versions deploy <id>`. Use when the
+   commit that shipped is not obvious.
+3. **Revert the commit** on `main`, let staging pick it up, then promote it. The
+   slowest, and the right one when the bad change should also leave the trunk.
+4. **D1 Time Travel** for data. D1 retains 30 days of point-in-time recovery, so
    there is no separate backup to build:
    `wrangler d1 time-travel restore cockpit --timestamp <iso8601>`.
-
-Because of expand-contract, (1) is safe: the previous code still runs against
-the migrated schema.
 
 ## 6. Secrets and access
 
@@ -274,8 +299,10 @@ can exist in production.
 
 ## 7. Bootstrap runbook
 
-Done once, recorded so it can be redone (a new account, or a rebuild from
-scratch). Everything after this is automatic via `.github/workflows/`.
+**Already executed on 2026-08-13**, against Cloudflare account
+`091e6e85f8268ee838089d6fed968585`, subdomain `vanhoutte-michael`. Recorded so it
+can be redone on a new account or rebuilt from scratch, not as pending work.
+Everything after this is automatic via `.github/workflows/`.
 
 ```bash
 # 1. three databases
@@ -308,12 +335,17 @@ exists, this step goes away. The staging and preview seeds are re-run by CI for
 previews only; **staging is deliberately never re-seeded**, because accumulated
 old data is the entire point of it.
 
-Then, by hand in the dashboard (no API for these):
+Then, by hand (no API, or deliberately not automated):
 
-1. **Cloudflare Access** on `cockpit-staging` and on the preview URLs.
+1. **Cloudflare Access** on `cockpit-staging` and on the preview URLs. Dashboard
+   only. Enabling it on any one preview URL creates a single account-level policy
+   covering every preview, including branches that do not exist yet.
 2. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
    Settings: Read), stored as the `CLOUDFLARE_API_TOKEN` GitHub secret.
-3. **Branch protection** on `main` and `dev`: require CI, require a PR.
+3. **Branch protection** on `main`: require a pull request, and require the CI
+   checks to pass. **Zero required approvals** — GitHub will not let an author
+   approve their own PR, so requiring even one review locks a single-developer
+   repository out of its own trunk.
 
 ## 8. Deferred, with reasons
 

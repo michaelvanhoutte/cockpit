@@ -1,14 +1,18 @@
 name: CI
 
-# Scoped to the long-lived branches on purpose. Pushes to short-lived branches
-# are gated by deploy-preview.yml, which runs the same checks before it will
-# replace a working preview; triggering CI on every push as well would just run
-# everything twice.
+# Scoped to the trunk on purpose. Pushes to short-lived branches are gated by
+# deploy-preview.yml, which runs the same checks before it will replace a working
+# preview; triggering CI on every push as well would just run everything twice.
+#
+# The push trigger overlaps slightly with deploy-staging.yml, which gates itself
+# before deploying. That is deliberate: the merge commit on main is a tree that
+# has never been tested as such, and these four split jobs attribute a failure
+# faster than the same checks inlined into a deploy job.
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
-    branches: [main, dev]
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
