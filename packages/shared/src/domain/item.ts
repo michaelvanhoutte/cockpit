@@ -1,0 +1,94 @@
+import { z } from 'zod';
+
+/**
+ * The Item + Association model (functional definition §4.2).
+ * These are the wire shapes shared by the API and the client; the database
+ * schema in apps/api mirrors them with snake_case columns.
+ */
+
+/** Where an Item came from. 'internal' means created inside Cockpit. */
+export const sourceSchema = z.enum(['internal', 'mail', 'slack', 'notion', 'whatsapp']);
+export type Source = z.infer<typeof sourceSchema>;
+
+/** Processing status (functional definition §5). */
+export const itemStatusSchema = z.enum([
+  'to_process',
+  'task',
+  'waiting',
+  'snoozed',
+  'delegated',
+  'reference',
+  'done',
+  'dismissed',
+]);
+export type ItemStatus = z.infer<typeof itemStatusSchema>;
+
+/** Focus horizons (functional definition §7). */
+export const focusHorizonSchema = z.enum(['today', 'week', 'month', 'quarter']);
+export type FocusHorizon = z.infer<typeof focusHorizonSchema>;
+
+export const prioritySchema = z.enum(['low', 'normal', 'high']);
+export type Priority = z.infer<typeof prioritySchema>;
+
+/**
+ * Source-owned vs app-owned fields are kept in separate groups (architecture §4.2):
+ * a connector re-sync overwrites the source-owned group unconditionally and never
+ * touches the app-owned group.
+ */
+export const itemSchema = z.object({
+  id: z.uuid(),
+  tenantId: z.string(),
+  workspaceId: z.string(),
+
+  // -- source-owned --
+  source: sourceSchema,
+  sourceId: z.string().nullable(),
+  sourceLink: z.url().nullable(),
+  sender: z.string().nullable(),
+  sourceTimestamp: z.iso.datetime().nullable(),
+  title: z.string(),
+  preview: z.string().nullable(),
+  /** Tombstone written by reconciliation when the source resolved/removed it. */
+  sourceResolvedAt: z.iso.datetime().nullable(),
+
+  // -- app-owned --
+  status: itemStatusSchema,
+  /** The current, always-editable next-action label (functional definition §6.1). */
+  nextAction: z.string().nullable(),
+  focusHorizon: focusHorizonSchema.nullable(),
+  priority: prioritySchema.nullable(),
+  dueDate: z.iso.date().nullable(),
+  snoozedUntil: z.iso.datetime().nullable(),
+  unseen: z.boolean(),
+  /** Tombstone, never a hard delete (architecture §4.2). */
+  deletedAt: z.iso.datetime().nullable(),
+
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type Item = z.infer<typeof itemSchema>;
+
+/** What an Association can point at (functional definition §4.2). */
+export const associationKindSchema = z.enum(['person', 'project', 'topic']);
+export type AssociationKind = z.infer<typeof associationKindSchema>;
+
+export const associationSchema = z.object({
+  id: z.uuid(),
+  tenantId: z.string(),
+  itemId: z.uuid(),
+  kind: associationKindSchema,
+  /** Human label of the target ("Anna", "Project Falcon", "Research"). */
+  label: z.string(),
+  createdAt: z.iso.datetime(),
+});
+export type Association = z.infer<typeof associationSchema>;
+
+export const workspaceSchema = z.object({
+  id: z.string(),
+  tenantId: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  /** Workspace color identity (functional definition §4.1). */
+  color: z.string(),
+});
+export type Workspace = z.infer<typeof workspaceSchema>;

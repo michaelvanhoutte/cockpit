@@ -1,0 +1,93 @@
+import { z } from 'zod';
+import {
+  associationKindSchema,
+  focusHorizonSchema,
+  itemStatusSchema,
+  prioritySchema,
+} from './domain/item.js';
+
+/**
+ * Mutations are commands, not object PUTs (architecture §4.3).
+ * Every command carries a client-generated command ID (idempotent retries)
+ * and the client timestamp (last-write-wins conflict resolution).
+ */
+export const commandEnvelopeSchema = z.object({
+  commandId: z.uuid(),
+  /** Client wall-clock time when the command was issued. */
+  issuedAt: z.iso.datetime(),
+  workspaceId: z.string(),
+});
+
+/** capture_item — the one command with many front doors (architecture §6.5). */
+export const captureItemSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  title: z.string().min(1),
+  body: z.string().optional(),
+  nextAction: z.string().optional(),
+});
+export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
+
+export const setStatusSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  status: itemStatusSchema,
+});
+export type SetStatusCommand = z.infer<typeof setStatusSchema>;
+
+export const snoozeUntilSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  until: z.iso.datetime(),
+});
+export type SnoozeUntilCommand = z.infer<typeof snoozeUntilSchema>;
+
+export const associateSchema = commandEnvelopeSchema.extend({
+  associationId: z.uuid(),
+  itemId: z.uuid(),
+  kind: associationKindSchema,
+  label: z.string().min(1),
+  /** true removes the association instead of adding it. */
+  remove: z.boolean().optional(),
+});
+export type AssociateCommand = z.infer<typeof associateSchema>;
+
+export const setFocusSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  horizon: focusHorizonSchema.nullable(),
+});
+export type SetFocusCommand = z.infer<typeof setFocusSchema>;
+
+export const setNextActionSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  nextAction: z.string(),
+});
+export type SetNextActionCommand = z.infer<typeof setNextActionSchema>;
+
+export const setPrioritySchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  priority: prioritySchema.nullable(),
+});
+export type SetPriorityCommand = z.infer<typeof setPrioritySchema>;
+
+/**
+ * The command registry: name → payload schema. The API mounts one POST route
+ * per entry; the client gets a typed sender per entry. Adding a command means
+ * adding it here and writing its domain handler; no other wiring.
+ */
+export const commandSchemas = {
+  capture_item: captureItemSchema,
+  set_status: setStatusSchema,
+  snooze_until: snoozeUntilSchema,
+  associate: associateSchema,
+  set_focus: setFocusSchema,
+  set_next_action: setNextActionSchema,
+  set_priority: setPrioritySchema,
+} as const;
+
+export type CommandName = keyof typeof commandSchemas;
+export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchemas)[N]>;
+
+/** What every command endpoint returns. `applied: false` = idempotent replay. */
+export const commandResultSchema = z.object({
+  ok: z.literal(true),
+  applied: z.boolean(),
+});
+export type CommandResult = z.infer<typeof commandResultSchema>;

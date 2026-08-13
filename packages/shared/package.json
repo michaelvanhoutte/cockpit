@@ -1,0 +1,22 @@
+{
+  "name": "@cockpit/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The contract: domain types, Zod schemas, command definitions, API shapes.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cockpit/config": "workspace:*",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.10"
+  }
+}

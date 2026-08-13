@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cockpit-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cockpit",
+      // Placeholder until the production database is created with
+      // `wrangler d1 create cockpit`. Local dev ignores this and uses
+      // a local SQLite file under .wrangler/.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": {
+    "logs": {
+      "enabled": true
+    }
+  }
+  // Queues and Cron Triggers (§6.3) are wired when the first connector and
+  // enrichment job land:
+  // "triggers": { "crons": ["*/5 * * * *"] },
+  // "queues": { "producers": [...], "consumers": [...] }
+}

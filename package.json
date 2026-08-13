@@ -1,0 +1,21 @@
+{
+  "name": "cockpit",
+  "private": true,
+  "packageManager": "pnpm@10.21.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
+  },
+  "scripts": {
+    "dev:api": "pnpm --filter @cockpit/api dev",
+    "dev:web": "pnpm --filter @cockpit/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  }
+}
