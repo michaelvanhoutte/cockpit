@@ -462,21 +462,52 @@ Then, by hand (no API, or deliberately not automated):
    branches that do not exist yet. Set a long session duration; see §6 for why.
 2. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
    Settings: Read), stored as the `CLOUDFLARE_API_TOKEN` GitHub secret.
-3. **Branch protection** on `main`: require a pull request, and require the CI
-   checks (`Typecheck`, `Test`, `Build`, `Scripts`) to pass. Plus **zero required
-   approvals** — GitHub will not let an author approve their own PR, so requiring
-   even one review locks a single-developer repository out of its own trunk.
+3. **Branch protection** on `main`. The payload lives in
+   [.github/branch-protection.json](../.github/branch-protection.json) rather than
+   only in a dashboard, because configuration nobody can review or restore is not
+   really configuration. Apply it with:
 
-   Also set: linear history required (so the squash-merge rule of §1 is enforced
-   mechanically rather than remembered), no force pushes, no deletions. Admin
-   bypass is left **on** deliberately, as the escape hatch for an emergency; a
-   direct push to `main` reaches staging only, never production, because
-   production is a separate promotion.
+   ```
+   gh api -X PUT repos/michaelvanhoutte/cockpit/branches/main/protection --input .github/branch-protection.json
+   ```
+
+   Reading the settings, since the JSON cannot carry comments:
+
+   - **`required_approving_review_count: 0`** — require a PR, but zero approvals.
+     GitHub forbids approving your own PR, so requiring even one review locks a
+     single-developer repository out of its own trunk.
+   - **`strict: false`** — do *not* require branches to be up to date before
+     merging. It would force an "Update branch" click every time `main` moves, and
+     the semantic conflict it guards against (two branches that each passed CI
+     alone) is exactly what staging catches. A bad merge reaches staging, never
+     production, because production is a separate promotion.
+   - **`contexts`** — the four job names in `ci.yml`. They must match exactly.
+   - **`required_linear_history: true`** — makes §1's squash-merge rule mechanical
+     rather than remembered, per the preference for violations that are impossible
+     over violations caught in review.
+   - **`enforce_admins: false`** — keeps an admin escape hatch for emergencies,
+     safe for the same reason `strict: false` is.
 
    *Requires the repository **owner** account.* A collaborator with `push` cannot
    do this, and the branch-protection API answers `404` rather than `403` when the
    caller lacks admin, which reads as "wrong URL" and sends you looking in the
    wrong place. Not the same thing as the Cloudflare credentials.
+
+### Commit attribution
+
+Commits must be authored with an email GitHub can link to the account, or they are
+orphaned: no profile link, no contribution graph, no author. This repository has
+history in exactly that state, from a `user.email` that was a bare username with
+no `@`. The fix, and the right setting for a public repository:
+
+```
+git config --global user.email "43439790+michaelvanhoutte@users.noreply.github.com"
+```
+
+The `users.noreply.github.com` form is preferred over a real address for three
+reasons: it links commits correctly, it keeps a real address out of a public
+repository where it would be scraped, and it is bound to the GitHub account rather
+than to any mail provider, so it survives changing employer or email.
 
 ## 8. Deferred, with reasons
 
