@@ -1,0 +1,33 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Launches a debug Chrome against the running vite dev server.
+      // Breakpoints land in the original .tsx sources via source maps.
+      "name": "Debug web (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/apps/web"
+    },
+    {
+      // Attaches to the V8 inspector that `wrangler dev` exposes on :9229.
+      // Settings per Cloudflare's local-development debugging docs.
+      "name": "Attach to API (wrangler)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "cwd": "${workspaceFolder}/apps/api",
+      "resolveSourceMapLocations": null,
+      "attachExistingChildren": false,
+      "autoAttachChildProcesses": false,
+      "sourceMaps": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug full stack",
+      "configurations": ["Debug web (Chrome)", "Attach to API (wrangler)"]
+    }
+  ]
+}
