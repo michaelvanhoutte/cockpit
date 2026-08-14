@@ -272,7 +272,8 @@ Verdict lattice:
 
 **Cons**
 
-- Branch counting is a proxy for complexity and it is a crude one. A branchless module can still be wrong.
+- Branch counting is a proxy for complexity and it is a crude one. A branchless module can still be wrong: `packages/shared/ids.ts` is straight-line bit manipulation with zero branches and is obviously worth testing. Implementing the rule confirmed this, and the fix was to let measurement outrank the model, so a module with tests is always reported even where the rule obligates nothing.
+- **It cannot express structural obligations at all.** "The Drizzle schema should agree with the migrations" is not a statement about branches, purity or fan-in, so it can only ever be an annotation. Any obligation that is about agreement between two artifacts rather than about behaviour falls outside these three signals.
 - Purity detection by import graph has false negatives: a module can be impure through a parameter rather than an import.
 - The consequence tier is still a human judgment, just a cheaper one. It can be gamed.
 - Three signals is more machinery than a threshold, and it needs the TypeScript compiler API.
@@ -343,9 +344,22 @@ Measured on `a0ad763`, all assets run and passing:
 - 7 capabilities in the command registry, 0 end-to-end tests, which is a standing violation of testing-strategy §5.1.
 - Highest-value gap: `apps/api/src/http/command-service.ts`, the single write path, holding idempotency, batch atomicity and the stale-command branch.
 
-## Prototypes
+## Prototype
 
-Two clickable pages were produced during this discussion. They are Claude artifacts, private to the author unless shared, and are not part of the build:
+[poc/coverage-explorer](../poc/coverage-explorer/README.md) implements the preferred options above: 1.4 (tree by level matrix), 2.3 (derive nodes from existing artifacts) and 3.3 (the three-signal rule). It generates the model from the repository rather than from a hand-written fixture, so it stays current as the code moves.
+
+```bash
+cd poc/coverage-explorer && npm install && npm run build   # writes out/index.html
+```
+
+It sits outside the pnpm workspace, so it never runs in CI and cannot break the build. The analysis and the rendering are separated by a model contract, precisely because decision 1 is the least settled: swapping the matrix for a treemap is a new file under `src/render/`, and `--json` emits the model for any other consumer.
+
+Two findings came out of implementing it that were not visible from the discussion alone, and both are now recorded in the cons above:
+
+- **The branch signal misses branchless-but-worth-testing modules.** `packages/shared/ids.ts` is straight-line bit manipulation with zero branches, and the rule alone obligates nothing there. The tool handles it by always reporting tests that exist, but the rule needed the patch.
+- **The rule cannot express structural obligations at all.** "The Drizzle schema should agree with the migrations" is not a statement about branches, purity or fan-in. It is an annotation, and there will be others.
+
+Two clickable pages were also produced during the discussion, as Claude artifacts. They are private to the author unless shared and are not part of the build:
 
 - Static audit of the current suite: `https://claude.ai/code/artifact/7c68ea2d-81ce-4801-8f42-ec225b17e927`
-- Interactive tree by level explorer, option 1.4 with real data: `https://claude.ai/code/artifact/50d03585-fc91-423f-a9cd-67e24576ed48`
+- The same explorer, hand-loaded: `https://claude.ai/code/artifact/50d03585-fc91-423f-a9cd-67e24576ed48`

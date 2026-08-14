@@ -1,0 +1,173 @@
+/**
+ * The renderer: Model in, a single self-contained HTML file out.
+ *
+ * Imports model.js and nothing else from this POC. It must never import from
+ * ../analyze/ or ../policy/: everything it needs is already in the model. If a
+ * future renderer wants a fact the model does not carry, the fix is to add it
+ * to the model, not to reach across.
+ *
+ * The stylesheet and the browser script are real files on disk, read and
+ * inlined here, so both stay editable rather than becoming one enormous
+ * template literal.
+ */
+
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { LEVELS, rollup, walk } from '../model.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * @param {import('../model.js').Model} model
+ * @returns {string} a complete HTML document
+ */
+export function renderHtml(model) {
+  // Roll up here rather than in the analyzer: what a parent row means is a
+  // question about presentation of the model, and a different renderer might
+  // legitimately want the raw obligations instead.
+  rollup(model.root);
+
+  const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
+  const client = readFileSync(path.join(here, 'client.js'), 'utf8');
+
+  const payload = { levels: LEVELS, root: model.root, capabilities: model.capabilities };
+  const counts = summarise(model.root);
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cockpit Coverage Explorer</title>
+<style>${styles}</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Cockpit · generated coverage model</p>
+    <h1>One pyramid per node, not one per repo</h1>
+    <p class="standfirst">
+      The test levels do not all attach at the same height of the tree. Unit tests belong to leaves, integration
+      tests to whatever owns infrastructure, contract tests to boundaries, and end-to-end tests to capabilities that
+      cut across the whole thing. So this is a tree crossed with the levels, where "does not apply here" is a
+      first-class state. Select a node for its own pyramid and the reasoning behind each cell.
+    </p>
+    <div class="runmeta">
+      <span>commit <b>${esc(model.commit)}</b></span>
+      <span>generated <b>${esc(model.generatedAt.slice(0, 19).replace('T', ' '))}Z</b></span>
+      <span>nodes <b>${counts.nodes}</b></span>
+      <span>obligations <b>${counts.obligations}</b></span>
+      <span>unmet <b>${counts.gaps}</b></span>
+    </div>
+  </header>
+
+  ${model.warnings.length ? warningBlock(model.warnings) : ''}
+
+  <section>
+    <div class="card">
+      <div class="toolbar">
+        <button class="tool" id="btn-expand" type="button">Expand all</button>
+        <button class="tool" id="btn-collapse" type="button">Collapse</button>
+        <button class="tool" id="btn-gaps" type="button" aria-pressed="false">Gaps only</button>
+        <span class="spacer" id="counter"></span>
+      </div>
+
+      <div class="explorer">
+        <div>
+          <div class="treewrap">
+            <div class="tree" id="tree" role="tree" aria-label="Coverage tree"></div>
+          </div>
+          <div class="legend" style="margin-top: 16px;">
+            <span><i class="lsw ok"></i> obligation met</span>
+            <span><i class="lsw thin"></i> partial</span>
+            <span><i class="lsw gap"></i> required, absent</span>
+            <span><i class="lsw later"></i> not yet due</span>
+            <span><i class="lsw na"></i> not applicable</span>
+          </div>
+        </div>
+        <aside class="panel card" id="panel" aria-live="polite"></aside>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>The state that makes this readable is "not applicable".</b> Without it every leaf shows five red cells and
+      the view is noise. A red cell should always mean somebody has work to do. Cells marked
+      <em>human call</em> in the panel were overridden in <code>src/policy/annotations.js</code> because the
+      three-signal rule got them wrong; everything else is derived from the code.
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <p class="eyebrow">The orthogonal axis</p>
+      <h2>Capabilities do not live in the tree</h2>
+      <p>
+        An end-to-end test proves "a user can snooze an item", which touches a component, a hook, a route, a handler
+        and a table. It indexes by capability, not by structure. Generated from the command registry, so it cannot
+        fall behind the code.
+      </p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Capability</th><th>Domain handler</th>
+            <th class="c">L1 handler</th><th class="c">L1 schema</th><th class="c">F2</th><th class="c">F3</th>
+          </tr>
+        </thead>
+        <tbody id="caps"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Generated by poc/coverage-explorer from commit ${esc(model.commit)}. Node derivation, signal extraction and the
+    obligation rules are described in docs/coverage-reporting-options.md. This page is a proof of concept and is not
+    part of the build.
+  </footer>
+
+</div>
+<script>window.__MODEL__ = ${jsonScript(payload)};</script>
+<script>${client}</script>
+</body>
+</html>
+`;
+}
+
+function warningBlock(warnings) {
+  return `<div class="note warn"><b>Analyzer warnings.</b> ${warnings.map(esc).join(' ')}</div>`;
+}
+
+/** Totals for the masthead. Presentation only, so it lives with the renderer. */
+function summarise(root) {
+  let nodes = 0;
+  let obligations = 0;
+  let gaps = 0;
+  for (const node of walk(root)) {
+    nodes++;
+    for (const cell of Object.values(node.own || {})) {
+      if (cell.state === 'na') continue;
+      obligations++;
+      if (cell.state === 'gap') gaps++;
+    }
+  }
+  return { nodes, obligations, gaps };
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+/**
+ * JSON safe to embed in a <script> element: `<` would otherwise let a string in
+ * the data close the tag, and the two Unicode line separators are literal line
+ * breaks to a JavaScript parser even though JSON.stringify leaves them raw.
+ */
+function jsonScript(value) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
