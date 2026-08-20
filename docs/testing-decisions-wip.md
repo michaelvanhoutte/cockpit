@@ -25,10 +25,10 @@ cannot answer that and never will, because `apps/api` and `apps/web` are separat
 applications and an end-to-end test belongs to neither. So the product index is
 carried by the test and tooling does the joining.
 
-### D2. The code stays layered; features subdivide inside the layers
+### D2. The backend stays layered; the frontend goes feature-shaped
 
-No move to feature folders. Roughly half the backend is system-wide plumbing a
-feature split would damage: `db/schema.ts` is one data model with conventions that
+No move to feature folders on the backend. Roughly half of it is system-wide
+plumbing a feature split would damage: `db/schema.ts` is one data model with conventions that
 hold across every table, `command-service.ts` is generic over all commands by
 design, and the same goes for `client.ts`, `events.ts`, `app.ts`'s wiring,
 `tenancy.ts`, `env.ts`, `jobs/`, `ai/` and the connector registry.
@@ -46,10 +46,40 @@ http/command-service.ts  stays whole
 Architecture §6.1 is unchanged, and the one-directional import rule keeps making L1
 purity a structural fact rather than a convention.
 
-**Still open inside D2.** Whether to invert it later: one folder per feature holding
-that feature's queries, logic and route definitions, with the plumbing carved out
-into `core/`. Both shapes are pure file moves and reversible, so this is a trigger
-to revisit rather than a decision to take now. See P9.
+**The frontend is the opposite case.** `apps/web` is where the file count actually
+grows: panel rendering, drag and drop, the assign modal, the triage inbox, capture,
+focus and deadline badges, per-screen-size layouts, the offline queue's UI. Those are
+genuine product concepts with their own local state, so they group by concept:
+
+```
+apps/web/src/
+  panel/      rendering, drag and drop, the assign modal
+  inbox/      the triage flow
+  action/     the row, the editor, capture
+  shared/     api client, query hooks, SSE, the offline queue
+  app/        router, layout, shell
+```
+
+Two different problems, two different answers, not a compromise.
+
+**Why the backend answer is the destination and not a stopgap.** Not because the
+code is small today. Because of what the finished domain looks like:
+functional-definition §4.1 and §4.2 fix seven concepts (Workspace, Page, Panel, Item,
+Association, Focus, Deadline) and make them one shared model, where "a Panel is
+simply a query over Items", Focus is a flag on an Item and Deadline is a column on
+one. Feature folders pay off when a feature owns its data; here `panel/`, `focus/`
+and `inbox/` would all query the same table and constantly import each other.
+
+The remaining work reinforces it. Per §13 and sections 5 and 8 to 10, most of what is
+left is mechanism rather than features: offline and local-first with queued actions,
+reconciliation and staleness, AI enrichment, the triage flow, panel rule
+configuration, notification routing, auth and multi-tenancy. Connectors are already
+separate packages. So the plumbing grows faster than any feature folder would, which
+is the opposite of the condition that justifies inverting.
+
+**What would reopen it.** If Panels, Focus or the triage inbox stop being views over
+Items and start owning their own tables and logic. #35's plain-English panel rules
+are the most likely candidate. See P9.
 
 ### D3. Validation statements are drafted per issue and stored in the source
 
@@ -151,10 +181,11 @@ Every bug found by using the application becomes a new statement plus a note of
 which statement was missing. Without it the explorer is a self-graded exam, because
 "is my list complete" is as unanswerable as "is my coverage sufficient".
 
-### P9. Whether to invert D2 into feature folders
+### P9. Whether to invert the backend into feature folders
 
 One folder per feature holding its queries, logic and routes, plus a `core/` for the
-plumbing that belongs to no feature.
+plumbing that belongs to no feature. D2 says no for now; this records the argument
+both ways so reopening it is cheap.
 
 What actually differs, once the plumbing is carved out either way:
 
@@ -177,9 +208,13 @@ subdirectories: `action/domain/`, `action/db/`, `action/http/`. The rule stays a
 path rule and stays glob-checkable. The cost is three directories per feature, which
 is ceremony while `domain/items.ts` is 96 lines for all seven commands.
 
-Suggested trigger to revisit: when doing one feature's work means opening three
-layer folders whose files are too big to hold at once. Today the whole API is 1,574
-lines. The one thing to avoid is churning the layout twice.
+**Trigger to revisit, backend only.** Not size. Invert when a feature stops being a
+view over Items and starts owning its own tables and logic. Size was the first
+trigger proposed and it was the wrong one: 1,574 lines is maybe a tenth of the
+finished application, so deciding from it is deciding on the wrong evidence. The
+argument that survives is about the shape of the domain, and it is recorded in D2.
+
+The one thing to avoid either way is churning the layout twice.
 
 ## Parked, to discuss further
 
