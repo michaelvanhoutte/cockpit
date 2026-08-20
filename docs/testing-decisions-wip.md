@@ -1,9 +1,12 @@
 # Testing direction: decisions in progress
 
-**Status:** temporary working note, not authoritative. This is the log of an ongoing
-discussion about how testing is driven in this repository. When the discussion ends,
-these become issues and the settled parts move into `docs/testing-strategy.md` and
-`docs/coverage-reporting-options.md`. Delete this file at that point.
+**Status:** temporary working note, not authoritative. The log of an ongoing
+discussion about how testing is driven in this repository. Settled parts move into
+`docs/testing-strategy.md` and `docs/coverage-reporting-options.md` when the
+discussion ends, the rest become issues, and this file is deleted.
+
+Everything under **Decided** was called by Michael. Everything under **Proposed** is
+Claude's suggestion, still open.
 
 ## The problem being solved
 
@@ -13,24 +16,18 @@ Three positions the discussion starts from:
 2. Reading the generated code is not a way to know whether coverage is sufficient.
 3. The agent cannot be trusted to pick the right cases or the right level on its own.
 
-Two things follow. There has to be a way to see how good the coverage is without
-reading code, and a way to steer the agent on what must be tested without writing
-individual test cases. A fourth problem surfaced during the discussion and is
-arguably the sharpest: most agent-written tests cannot be related back to a
-business case, because they are named after the mechanism rather than the behaviour.
-
 ## Decided
 
-### D1. Tests are indexed by the product tree, not the code tree
+### D1. Tests are indexed by the product tree
 
-The question "what tests do I have for actions" has to be answerable. The code tree
-cannot answer it, and never will: `apps/api` and `apps/web` are separate
-applications and an end-to-end test belongs to neither. So the product index is a
-label carried by the test, and tooling does the joining.
+"I want to be able to see which tests I have for actions, dashboards." The code tree
+cannot answer that and never will, because `apps/api` and `apps/web` are separate
+applications and an end-to-end test belongs to neither. So the product index is
+carried by the test and tooling does the joining.
 
 ### D2. The code stays layered; features subdivide inside the layers
 
-No move to feature folders. Roughly half the backend is system-wide plumbing that a
+No move to feature folders. Roughly half the backend is system-wide plumbing a
 feature split would damage: `db/schema.ts` is one data model with conventions that
 hold across every table, `command-service.ts` is generic over all commands by
 design, and the same goes for `client.ts`, `events.ts`, `app.ts`'s wiring,
@@ -39,77 +36,96 @@ design, and the same goes for `client.ts`, `events.ts`, `app.ts`'s wiring,
 The half that does split by feature splits inside its layer, as issues arrive:
 
 ```
-db/schema.ts          stays whole
-db/repo/action.ts     action queries
-domain/action.ts      pure action logic
-http/routes/action.ts action route definitions
+db/schema.ts             stays whole
+db/repo/action.ts        action queries
+domain/action.ts         pure action logic
+http/routes/action.ts    action route definitions
 http/command-service.ts  stays whole
 ```
 
-Architecture §6.1 is unchanged, and the one-directional import rule keeps making
-L1 purity a structural fact rather than a convention.
+Architecture §6.1 is unchanged, and the one-directional import rule keeps making L1
+purity a structural fact rather than a convention.
 
-### D3. Validation statements are drafted per issue and stored in the repo
+### D3. Validation statements are drafted per issue and stored in the source
 
 Plain-English statements of what must be true. Drafted while an issue is being
 written, because that is where the scope is small enough to reason about. They do
-not stay in the issue: a statement in an issue is a change-spec, and #37 and #38
-will both change action behaviour with nothing marking #36's statements as
-outdated. They move into the repository, attached to the capability, and change in
-the same pull request that changes the behaviour.
+not stay in the issue: they end up in the source, tied to a feature or component.
 
-### D4. A statement is stored as `it.todo`, with no separate format
+The reason they cannot stay: a statement in an issue is a change-spec, and #37 and
+#38 will both change action behaviour with nothing marking #36's statements as
+outdated.
 
-The approved list for an issue is a file of `it.todo('...')` lines. No new artifact,
-no schema, no ids. Vitest reports todo as its own state, so the model comes straight
-out of the test runner's JSON with nothing to parse.
+### D4. Enforced test names first, rather than a separate statement store
 
-The alternative, deriving the model only from tests that exist, is rejected for the
-reason `coverage-reporting-options.md` already gives against option 2.4: it cannot
-show a gap, and the gap is the point.
+Try the cheap version before building anything new: the statement is the test name,
+with a check that enforces the link. No new artifact, no new format.
 
 ### D5. Red-first evidence per statement
 
-A statement that went from todo to passing without a failing run in between is not
-believable. The failing run is recorded. Mutation testing is the later, stronger
-version of the same check; this is the cheap version that works from day one.
+A statement that went from nothing to passing without a failing run in between is
+not believable, so the failing run is recorded.
 
-### D6. Every test is either a business claim or supporting
+### D6. Michael owns the intent axis, a checklist owns the failure axis
+
+Michael's advantage is knowing what the product means, for instance that "remove
+from panel" and "delete" must not be the same thing. His disadvantage is
+exhaustiveness on failure modes: concurrent edits, idempotent retries, ordering,
+tenant isolation, empty and huge inputs, partial writes. Those come from a
+checked-in checklist. The agent crosses the two axes and shows the result.
+
+### D7. Run the experiment on #36 before building anything
+
+Generate the statement list for issue #36, then count how many statements are added,
+deleted or materially changed on review. If it is under a fifth, the human review
+step is not paying for itself and the design changes.
+
+## Michael's requirements, mechanism not yet chosen
+
+### R1. The explorer shows levels under each product section
+
+Under Actions or Dashboards, something like backend tests, API tests, frontend
+tests, so which level is tested is visible at a glance.
+
+### R2. Not writing or reviewing every test case, while the tests still track business cases
+
+The current pain: most tests an agent writes cannot be related back to a business
+case. Both halves of this have to hold at once, and no mechanism is chosen yet.
+
+## Proposed, not decided
+
+### P1. `it.todo` as the statement store
+
+An approved statement lands as `it.todo('...')`. Vitest reports todo as its own
+state, so an agreed-but-unproven statement is visible with no new format and no ids.
+Without something like this, D4 can only show statements that already have a test,
+which is the failure `coverage-reporting-options.md` already identifies in its
+option 2.4: a report that cannot show a gap.
+
+### P2. Every test is either a business claim or supporting
 
 A business claim discharges a statement and is written in product vocabulary. A
-supporting test proves something mechanical and carries no statement. Both run,
-both matter, only business claims appear in the explorer's business view.
+supporting test proves something mechanical and carries no statement. Both run, only
+business claims appear in the business view. Aimed at R2: the tests of
+`command-service.ts` are about idempotency, atomicity and staleness and will never
+be about actions or panels.
 
-This is what makes the fourth problem tractable: the tests of
-`command-service.ts` are about idempotency, atomicity and staleness, they will never
-be about actions or panels, and they are supporting tests by nature rather than by
-failure.
-
-### D7. One statement, one proving test; one capability, at least one frontend test
+### P3. One statement, one proving test
 
 A statement is discharged by exactly one test, at the lowest level that can prove
-it. Supporting tests underneath carry no statement, so a user-level statement does
-not inflate into five. Separately, testing-strategy §5.1 is unchanged: every
-capability needs at least one frontend test proving it works for a user.
+it, so a user-level statement does not inflate into five. Supporting tests underneath
+carry no statement. Testing-strategy §5.1 is unchanged either way.
 
-### D8. Capability ids are dotted, entity first
+### P4. Dotted capability ids
 
-`action.assign`, `panel.deadline`, `dashboard.deadline`. Grouping by the first
-segment gives the entity view, grouping by the last gives the cross-cutting view.
-Two trees out of one flat list, which matters because #37 and #38 add attributes
-that cut across actions, panels and dashboards. No tree gives everything one home.
+`action.assign`, `panel.deadline`, `dashboard.deadline`. First segment gives the
+entity view, last segment gives the cross-cutting view. Matters because #37 and #38
+add attributes cutting across actions, panels and dashboards, so no single tree
+gives everything one home.
 
-### D9. The explorer's rows are capabilities
+### P5. Columns named by what they prove
 
-This flips the primary axis in `coverage-reporting-options.md`, where rows come from
-workspace globs and layer folders and capability is only a secondary axis for F3.
-Both axes still exist. That document needs amending with the reasoning.
-
-## Open
-
-### O1. What the columns are
-
-Proposed: name each column by what it proves rather than where the code lives.
+An alternative to R1's tech grouping:
 
 | Column | Levels | Answers |
 |---|---|---|
@@ -118,73 +134,60 @@ Proposed: name each column by what it proves rather than where the code lives.
 | Works for a user | L3, F3 | Does it work when everything is connected |
 | Still true externally | contract | Do the fakes still match the real third party |
 
-The alternative is the tech grouping (backend, API, frontend). The argument against
-it is that it lumps F1 and F3 together, and F3 is the one §5.1 makes mandatory, so
-an empty "works for a user" cell is the single strongest red signal available.
+The argument: the tech grouping lumps F1 and F3 together, and F3 is the one §5.1
+makes mandatory, so an empty "works for a user" cell is the strongest red signal
+available. Michael has not weighed in yet.
 
-### O2. Where the capability list comes from
+### P6. Where the capability list comes from
 
-A flat registry in `packages/shared` next to `commandSchemas`, with two lint checks:
-an unknown tag on a test fails CI, and a capability with no tests and no todos shows
-red. It is hand-maintained, which `coverage-reporting-options.md` argues against for
-node trees, but it is a short flat list rather than a tree of obligations, and both
-directions are checked so it cannot quietly lie.
+Michael's answer to this was "not sure, let's discuss". Options on the table: a flat
+registry in `packages/shared` next to `commandSchemas`, with an unknown tag failing
+CI and a capability with no tests showing red; the file path as the anchor; a tag in
+the describe block. Deriving it from feature folder names is off the table now that
+D2 keeps the layers.
 
-Deriving it from feature folder names is off the table now that D2 keeps the layers.
+Roughly half the statements have no command to anchor to. "Dragging an action over a
+dashboard name switches dashboards" is not a mutation and never will be.
 
-### O3. Test file placement
-
-`testing-strategy.md` §9 mandates `tests/unit`, `tests/integration` and so on. The
-two tests that exist are co-located (`apps/api/src/domain/items.test.ts`,
-`packages/shared/src/shared.test.ts`). That contradiction has to be resolved before
-#41 builds the frontend tier, because #41 sets the pattern for everything after it.
-
-Two coherent answers: level folders per §9 as written, or co-location with a level
-in the filename (`action.unit.test.ts`) and per-level runner globs. The second means
-amending §9.
-
-Related: where pending todos live before a level is chosen. Proposed a pending file
-per capability, with the todo moving into a level file when it is implemented, so
-the move is one visible diff line.
-
-### O4. Where the red-first record is stored
-
-An append-only map of test name to the commit where it was first seen failing,
-written by CI. About thirty lines. The alternative is reading CI history, which
-works but is slower and breaks when history is pruned.
-
-### O5. A budget on statements per capability
+### P7. A budget on statements per capability
 
 An agent asked for a validation list will produce eighty for an issue like #36, and
-skimming eighty is how the review becomes theatre. Proposed: the agent ranks by
-consequence, the top twenty go to review as must-have, the rest land unreviewed as
-eligible. Same logic as the §7 run-time budget. A capability needing more than
-twenty is a sign the issue is too big.
+skimming eighty is how review becomes theatre. Proposal: rank by consequence, the
+top twenty go to review, the rest land unreviewed. Same logic as the §7 run-time
+budget.
 
-### O6. How much review is actually needed
+### P8. The escape loop
 
-Deliberately unresolved. The floor is reading the statement diff on each pull
-request, which is around ten lines. Below that the system is only as good as a
-judging agent that has never used the product. Options on the table: an agent that
-flags statements which restate the implementation rather than the product, sampling
-one capability a week instead of every pull request, and the escape loop below.
+Every bug found by using the application becomes a new statement plus a note of
+which statement was missing. Without it the explorer is a self-graded exam, because
+"is my list complete" is as unanswerable as "is my coverage sufficient".
 
-### O7. The escape loop
+## Consequences to handle
 
-Every bug found by using the application becomes a new statement, plus a note of
-which statement was missing. The count of statements added after an escape, per
-capability, is the only honest answer to "is the coverage sufficient". Without it
-the explorer is a self-graded exam.
+### C1. `coverage-reporting-options.md` needs amending
 
-### O8. Statement ids
+Its rows come from workspace globs and layer folders, with capability only a
+secondary axis for F3. D1 and R1 make capability the primary axis. Both axes still
+exist, but the document's stated preference is now the wrong way round.
 
-Deferred. The test name is the key for now, which means rewording looks like a
-delete plus an add. Acceptable while the pull request diff shows both lines. Revisit
-if it hurts.
+### C2. Test file placement contradicts itself today
 
-## Next step agreed
+`testing-strategy.md` §9 mandates `tests/unit`, `tests/integration` and so on. The
+two tests that exist are co-located: `apps/api/src/domain/items.test.ts` and
+`packages/shared/src/shared.test.ts`. This has to be resolved before #41 builds the
+frontend tier, because #41 sets the pattern for everything after it. Two coherent
+answers: level folders per §9 as written, or co-location with the level in the
+filename (`action.unit.test.ts`) plus per-level runner globs, which means amending
+§9.
 
-Run the skill on issue #36 before building anything: generate the statement list,
-then count how many statements are added, deleted or materially changed on review.
-If under a fifth, the human review step is not paying for itself and the design
-changes.
+### C3. Statement ids
+
+D4 makes the test name the key, so rewording a statement looks like a delete plus an
+add and the D5 record breaks on a reword. Acceptable while the pull request diff
+shows both lines. Revisit if it hurts.
+
+### C4. Where the red-first record lives
+
+D5 needs somewhere to keep it: an append-only map of test name to the commit where
+it was first seen failing, written by CI, or reading CI history, which is slower and
+breaks when history is pruned.
