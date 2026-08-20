@@ -46,6 +46,11 @@ http/command-service.ts  stays whole
 Architecture §6.1 is unchanged, and the one-directional import rule keeps making L1
 purity a structural fact rather than a convention.
 
+**Still open inside D2.** Whether to invert it later: one folder per feature holding
+that feature's queries, logic and route definitions, with the plumbing carved out
+into `core/`. Both shapes are pure file moves and reversible, so this is a trigger
+to revisit rather than a decision to take now. See P9.
+
 ### D3. Validation statements are drafted per issue and stored in the source
 
 Plain-English statements of what must be true. Drafted while an issue is being
@@ -56,16 +61,6 @@ The reason they cannot stay: a statement in an issue is a change-spec, and #37 a
 #38 will both change action behaviour with nothing marking #36's statements as
 outdated.
 
-### D4. Enforced test names first, rather than a separate statement store
-
-Try the cheap version before building anything new: the statement is the test name,
-with a check that enforces the link. No new artifact, no new format.
-
-### D5. Red-first evidence per statement
-
-A statement that went from nothing to passing without a failing run in between is
-not believable, so the failing run is recorded.
-
 ### D6. Michael owns the intent axis, a checklist owns the failure axis
 
 Michael's advantage is knowing what the product means, for instance that "remove
@@ -73,12 +68,6 @@ from panel" and "delete" must not be the same thing. His disadvantage is
 exhaustiveness on failure modes: concurrent edits, idempotent retries, ordering,
 tenant isolation, empty and huge inputs, partial writes. Those come from a
 checked-in checklist. The agent crosses the two axes and shows the result.
-
-### D7. Run the experiment on #36 before building anything
-
-Generate the statement list for issue #36, then count how many statements are added,
-deleted or materially changed on review. If it is under a fifth, the human review
-step is not paying for itself and the design changes.
 
 ## Michael's requirements, mechanism not yet chosen
 
@@ -161,6 +150,56 @@ budget.
 Every bug found by using the application becomes a new statement plus a note of
 which statement was missing. Without it the explorer is a self-graded exam, because
 "is my list complete" is as unanswerable as "is my coverage sufficient".
+
+### P9. Whether to invert D2 into feature folders
+
+One folder per feature holding its queries, logic and routes, plus a `core/` for the
+plumbing that belongs to no feature.
+
+What actually differs, once the plumbing is carved out either way:
+
+- **Adjacency.** Layers on top put every query side by side, which is how you check
+  a cross-cutting property like "every query filters on tenant_id". Features on top
+  put all of one feature's code side by side, which is what an agent working a
+  single issue needs.
+- **Enforcement.** Today the import rule is a directory rule: nothing under
+  `domain/` may import from `db/` or `http/`, and breaking it means moving a file.
+  With features on top and layers as filenames (`action/logic.ts`,
+  `action/queries.ts`) the same rule becomes a naming convention, which is weaker.
+  Testing-strategy §10 prefers making violations impossible over catching them.
+- **Deleting a feature** is one folder under features on top, and several edits
+  under layers on top.
+- **Cross-feature imports.** Panels will reference actions. Under layers that is
+  unremarkable; under features it needs a rule about what a feature exposes.
+
+The version that keeps the enforcement is features on top with layers as
+subdirectories: `action/domain/`, `action/db/`, `action/http/`. The rule stays a
+path rule and stays glob-checkable. The cost is three directories per feature, which
+is ceremony while `domain/items.ts` is 96 lines for all seven commands.
+
+Suggested trigger to revisit: when doing one feature's work means opening three
+layer folders whose files are too big to hold at once. Today the whole API is 1,574
+lines. The one thing to avoid is churning the layout twice.
+
+## Parked, to discuss further
+
+Pulled back out of Decided. Recorded so the reasoning is not lost.
+
+### D4. Enforced test names first, rather than a separate statement store
+
+Try the cheap version before building anything new: the statement is the test name,
+with a check that enforces the link. No new artifact, no new format.
+
+### D5. Red-first evidence per statement
+
+A statement that went from nothing to passing without a failing run in between is
+not believable, so the failing run is recorded.
+
+### D7. Run the experiment on #36 before building anything
+
+Generate the statement list for issue #36, then count how many statements are added,
+deleted or materially changed on review. If it is under a fifth, the human review
+step is not paying for itself and the design changes.
 
 ## Consequences to handle
 
