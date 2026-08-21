@@ -1,168 +1,220 @@
 # Statement list for issue #36 (experiment)
 
-**Status:** experiment, not a decision. Generated from issue #36 to test whether
-reviewing a generated statement list is worth the step. Delete when the experiment
-is done.
+**Status:** experiment, not a decision. Delete when the experiment is done.
 
 ## How to review
 
-Mark each statement **keep**, **cut** or **change**. The measurement is what fraction
-you touch. Under a fifth means the review step is not paying for itself.
+Each item is a **rule** in product language, with the **cases** that exercise it. One
+rule is one test body; the cases are a table inside it, one line each. What the
+runner prints for each case is a plain-English statement, and those printed lines are
+the statement list. Nothing separate is stored.
 
-Also check the **level** and its reason. Reasons are given where the level is a
-judgment; where it is obvious the statement stands alone. Levels are
-`docs/testing-strategy.md`'s: L1 unit, L2 integration, L3 system, F1 frontend unit,
-F2 frontend plus its own backend, F3 end to end.
+Mark each rule and each case **keep**, **cut** or **change**. The measurement is what
+fraction you touch.
 
-*(inferred)* means the statement is not in the issue text, it follows from it. Those
-deserve the hardest look, because a wrong inference becomes a test enforcing
-something you never said.
+Levels are `docs/testing-strategy.md`'s: L2 integration (the API in process against a
+real local database), F1 frontend unit, F2 frontend plus its own backend, F3 end to
+end.
 
-Part C is what the issue does not answer. Those need your call before it is built,
-not before it is tested.
+*(inferred)* marks a case that is not in the issue text but follows from it. Those
+deserve the hardest look.
 
 ---
 
-## action.create
+## Backend rules
 
-1. `L2` An action created with a panel assignment comes back in that panel's contents. *(a panel's contents are a query, so this only holds against a real database)*
-2. `L2` An action created with no panel assignment comes back in the Inbox and on no panel.
-3. `L2` An action cannot be created without a title. *(the rule lives at the write boundary)*
-4. `F1` A panel's add button creates an action for that panel.
-5. `F1` The dashboard's add button creates an action with no panel.
-6. `F1` A create form shows the error the backend returns. *(one statement covering every validation rule, now and later)*
+### R1 `L2` A panel shows exactly the actions assigned to it, and the Inbox exactly the ones assigned to no panel
 
-## action.edit
+Checked against five places every time: panel A, panel B on the same dashboard,
+panel C on another dashboard, the Inbox, and the action list page.
 
-7. `L2` An edited action's new values come back everywhere it appears.
-8. `F1` Double clicking an action in a panel opens it for editing.
-9. `F1` A panel shows an action's short title, not its description.
-10. `F1` A panel re-renders an action when new contents arrive.
-11. `F2` When the server signals a change, open panels reload their contents. *(needs the real event stream to mean anything)*
+- created on panel A → on A only
+- created with the dashboard's add button → in the Inbox only
+- assigned to A from the Inbox → on A only
+- assigned to B as well → on A and B
+- assigned to C on another dashboard → on A and C *(inferred)*
+- assigned to A a second time → on A once, not twice
+- moved from A to B → on B only
+- added to B while kept on A → on A and B
+- removed from B while also on A → on A only
+- removed from A, its only panel → in the Inbox *(inferred)*
+- deleted → nowhere, including the action list *(inferred)*
+- created in another workspace → nowhere in this one
 
-## action.complete
+### R2 `L2` A change to an action is visible everywhere the action appears
 
-12. `L2` A completed action comes back as completed in every panel that holds it.
-13. `F3` Completing an action on one panel shows it completed on another panel without a reload. *(only true when the stream, the client cache and two panels are all real)*
+Checked on panel A, panel B (both holding the action) and the action list.
 
-## action.delete
+- completed → shown as completed in all three
+- title changed → the new title in all three
+- description changed → the new description where the description is shown
 
-14. `L2` Deleting an action removes it from every panel at once.
-15. `L2` Deleting an action removes it from the workspace's action list. *(inferred)*
-16. `L2` Deleting an action that is already deleted does not error.
-17. `F1` A delete that fails leaves the action visible rather than half removed. *(the optimistic update has to roll back)*
+### R3 `L2` The Inbox is fixed and cannot be renamed or deleted
 
-## action.remove-from-panel
+- a rename of the Inbox → rejected, the Inbox is unchanged
+- a delete of the Inbox → rejected, the Inbox is still there
 
-18. `L2` Removing an action from a panel leaves it on the other panels it is on.
-19. `L2` Removing an action from a panel does not delete it.
-20. `L2` Removing an action from its only panel returns it to the Inbox. *(inferred)*
+### R4 `L2` Showing the Inbox is a per-dashboard setting, off by default
 
-## action.assign
+- a newly created dashboard → the Inbox is hidden
+- turned on for dashboard 1 → shown on 1, still hidden on 2 *(inferred)*
+- turned off again → hidden on 1
 
-21. `L2` Assigning an action to a panel takes it out of the Inbox.
-22. `L2` An action assigned to two panels comes back in both.
-23. `L2` An action can be assigned to panels on different dashboards at the same time. *(inferred)*
-24. `L2` Assigning an action to a panel it is already on does not duplicate it.
-25. `F1` Right clicking an action offers Assign to, showing a tree of the dashboards and their panels.
-26. `F1` The Assign to modal shows the three most recently used target panels above the tree.
-27. `F1` Assigning to a panel makes it the most recent target. *(inferred; the level depends on question 7)*
-28. `F1` Right clicking an action in the Inbox offers the same Assign to as on any panel.
-29. `F1` The Assign to tree renders when the workspace has no other dashboards or panels.
-30. `F1` An assignment that fails leaves the action on its original panel, not on neither.
+### R5 `L2` Assignments belong to the panel, not to its name
 
-## action.move
+- panel A renamed → the same actions are still on it
+- two panels with the same name on different dashboards → separate contents *(inferred)*
+- panel A deleted → **open question 1**, the issue does not say
 
-31. `L2` Moving an action between panels leaves it on the target only.
-32. `L2` Dropping an action back on the panel it came from changes nothing.
-33. `F1` Dropping an action on a different panel asks whether to move it or to add it.
-34. `F1` Choosing move sends a move, choosing add sends an add.
-35. `F1` Dragging an action over another dashboard's name switches to that dashboard.
-36. `F3` An action dragged to another panel and moved shows on the target and not the source. *(the drag only exists in a browser)*
+### R6 `L2` Sending the same command twice changes nothing the second time
 
-## panel.inbox
+- the same create sent twice → one action
+- the same assign sent twice → assigned once
+- the same delete sent twice → deleted, no error
+- an action dropped back on the panel it came from → unchanged
 
-37. `L2` The Inbox contains every action in the workspace that is on no panel.
-38. `L2` A request to rename the Inbox is rejected.
-39. `L2` A request to delete the Inbox is rejected.
-40. `L2` The Inbox is hidden by default on every dashboard.
-41. `L2` Showing the Inbox on one dashboard does not show it on another. *(inferred)*
-42. `F1` The Inbox panel offers no rename or delete.
-43. `F1` A dashboard has a control that toggles the Inbox.
-44. `F1` The Inbox with no actions renders as empty rather than disappearing.
+### R7 `L2` When two changes race, the later one wins
 
-## panel.assignment
+- two edits sent in order → the second one stands
+- an edit that arrives after a newer one → ignored, the newer value stands
 
-45. `L2` Renaming a panel keeps the actions assigned to it.
-46. `L2` Panels with the same name on different dashboards keep separate assignments. *(inferred)*
-47. `F1` A panel with no actions renders as an empty panel.
-48. `F1` A panel holding several hundred actions renders and scrolls.
-49. `F1` A title too long for the panel is truncated rather than breaking the layout.
+### R8 `L2` An invalid command is rejected and changes nothing
 
-## action.list
+This table grows with every rule added later, and no test is added when it does.
 
-50. `L2` The action list contains every action in the workspace, on a panel or in the Inbox. *(inferred)*
-51. `F1` The workspace has a page showing all its actions as a plain table, with no panels.
+- create with no title → rejected
+- create with a whitespace-only title → rejected
+- assign to a panel that does not exist → rejected
+- any rejected command → nothing changed in the database
 
-## isolation and convergence
+### R9 `L2` A workspace never sees another workspace's data
 
-52. `L2` An action never comes back in another workspace's panel contents.
-53. `L2` One workspace's Inbox never contains another workspace's actions.
-54. `L2` Two edits to the same action land on the later one, not a mix of both.
+Checked on every read: panel contents, the Inbox, the action list, a single action
+fetched by id.
 
-## the capability walk
+- an action in another workspace → absent from all four
+- a panel in another workspace → absent
 
-55. `F3` An action created in the Inbox, then assigned to a panel, shows on that panel and leaves the Inbox.
+---
+
+## Frontend rules
+
+### F1 `F1` Every place that creates an action sends the right create
+
+- a panel's add button → a create for that panel
+- the dashboard's add button → a create with no panel
+
+### F2 `F1` The action editor opens where the issue says it does
+
+- double click on an action in a panel → the editor opens
+- double click on an action in the Inbox → the editor opens *(inferred)*
+
+### F3 `F1` A panel renders an action as its short title
+
+- a normal action → the title, and not the description
+- a title too long for the panel → truncated, the layout holds
+
+### F4 `F1` A panel renders sensibly when empty or very full
+
+Checked for a normal panel and for the Inbox.
+
+- no actions → an empty panel, still visible
+- several hundred actions → renders and scrolls
+
+### F5 `F1` Assign to offers every panel, with the recent ones first
+
+- right click on a panel → the modal opens with a tree of dashboards and panels
+- right click in the Inbox → the same modal
+- the workspace has no other dashboards or panels → the tree still renders
+- after assigning → that panel is first in the recent list *(inferred; see question 7)*
+- after four assignments → three recent targets shown, the oldest dropped *(inferred)*
+
+### F6 `F1` Dropping an action on another panel asks, then sends what was chosen
+
+- choose move → a move is sent
+- choose add → an add is sent
+- cancel → nothing is sent
+- dropped on the panel it came from → nothing is sent, no prompt *(inferred)*
+
+### F7 `F1` Dragging over another dashboard's name switches to it
+
+- dragging over another dashboard's name → that dashboard opens
+- dragging over the current dashboard's name → nothing happens *(inferred)*
+
+### F8 `F1` A command that fails leaves the screen as it was
+
+This table grows with every command, and no test is added when it does.
+
+- an assign that fails → the action is still on its original panel
+- a delete that fails → the action is still visible
+- an edit that fails → the old values are back
+
+### F9 `F1` A rejected command shows the error the backend returned
+
+One case covers every validation rule, now and later.
+
+- a create rejected for a missing title → the form shows that error
+
+### F10 `F1` The action list page shows all actions as a plain table
+
+- actions on panels and in the Inbox → all listed, no panels rendered
+- no actions → an empty table, not a broken page
+
+### F11 `F2` Open panels refresh when the server signals a change
+
+- a change to an action shown on an open panel → the panel reloads
+- a change to an action not shown → no visible change
+
+---
+
+## End to end
+
+### E1 `F3` The core loop works in a real browser
+
+Create an action from the dashboard button, assign it to a panel with Assign to,
+watch it leave the Inbox, complete it, and see it completed on a second panel that
+also holds it.
+
+### E2 `F3` Drag and drop works in a real browser
+
+Drag an action from one panel to another, choose move, and see it on the target and
+gone from the source.
 
 ---
 
 ## Part C. What the issue does not answer
 
 1. **What happens to an action when its panel is deleted?** #33 allows deleting a
-   panel and #36 does not say. Returning it to the Inbox unless it is on another
-   panel is the obvious answer, but it is written nowhere.
-2. **Does a completed action stay on the panel?** #36 says completion propagates,
-   not whether the action disappears, greys out, or moves.
+   panel and #36 does not say. This is a missing case in R5.
+2. **Does a completed action stay on the panel?** R2 proves the change propagates,
+   not what it looks like.
 3. **In what order do actions appear inside a panel?** Nothing says. Manual ordering
-   versus creation order changes both the model and the UI.
+   versus creation order changes both the model and the UI, and it would add a rule.
 4. **Is deleting confirmed, and can a delete or a move be undone?**
-5. **Can an action be created from the Inbox or from the action list page**, or only
-   from a panel and the dashboard button?
-6. **Can the Assign to modal assign to several panels at once?**
+5. **Can an action be created from the Inbox or the action list page?** That would
+   add cases to F1.
+6. **Can Assign to target several panels at once?** That would add a case to F5.
 7. **Are the three recent targets remembered per workspace, per dashboard, or across
-   everything?** This decides whether statement 27 is F1 or L2.
-8. **Can an action be dragged onto the Inbox to unassign it?**
-9. **Is archiving a third thing** next to delete and remove-from-panel? The issue has
-   only the latter two.
+   everything?** This decides whether F5's recent-target cases are F1 or L2.
+8. **Can an action be dragged onto the Inbox to unassign it?** That would add a case
+   to R1 and F6.
+9. **Is archiving a third thing** next to delete and remove-from-panel?
 
 ---
 
-## Counts and what changed
+## Counts
 
-55 statements, up from 47.
+22 rules: 9 backend, 11 frontend, 2 end to end. Around 70 cases, and the cases produce
+roughly 120 printed statements once the multi-surface rules are expanded.
 
-| Level | Count |
-|---|---|
-| L1 | 0 |
-| L2 | 28 |
-| F1 | 23 |
-| F2 | 1 |
-| F3 | 3 |
+Previous version: 55 flat statements, no rules.
 
-Changed from the first version:
+What the rewrite changed:
 
-- Six statements carried both a state claim and a UI claim and became two each.
-- Two merged. "Choosing add leaves it on both" has the same backend half as "assigned
-  to two panels appears on both". "Completed in one tab shows in another" is the
-  completion walk.
-- One added: the create form shows the error the backend returns, which covers every
-  validation rule rather than one per rule.
-
-Two things worth arguing about:
-
-- **No L1 statements at all.** Either that confirms unit tests have little to prove
-  here, since almost everything is state across a real database, or the design has no
-  pure core worth testing and that is itself a finding.
-- **Three F3 walks across eight capabilities.** Testing-strategy §5.1 asks for a
-  frontend test per capability, and F2 counts where F3 cannot reach. Either several
-  F1s become F2s, or the walk count grows, or §5.1 gets read more loosely.
+- Fifteen of the old statements collapsed into R1, which says the actual rule rather
+  than fifteen consequences of it.
+- Idempotency, validation and workspace isolation became rules whose tables grow as
+  the product grows, so adding a validation rule later adds a line, not a test.
+- Two of the three end-to-end tests survived; the third was a restatement of R2.
+- Two questions moved from Part C into the rules as missing cases, which is where
+  they are visible.
