@@ -268,6 +268,53 @@ application finds those, which is what the next section is about.
 already walks the repository and renders a model; this is a new input to it rather
 than a new tool.
 
+## What the explorer shows
+
+Rows are parts of the product. Columns are counts, not states.
+
+That is a change from the coverage options document, which proposed each cell holding
+a state: met, partial, required and absent, not applicable. That assumed a part of the
+product owes tests at every level. It doesn't. A rule lives at exactly one level,
+wherever the lowest level that can prove it turns out to be, so "Actions owes an
+integration test and a unit test" is not a thing. Actions owes coverage of its rules,
+each sitting wherever it belongs.
+
+| | Backend | Frontend | Browser | Contract | Files nothing runs | Branches nothing takes |
+|---|---|---|---|---|---|---|
+| Actions | 7 | 12 | 2 | n/a | 0 | 4 |
+| Dashboards | 1 | 4 | 0 | n/a | 2 | 11 |
+| Gmail connector | 3 | 0 | 1 | 2 | 0 | 0 |
+
+**Browser is its own column, not part of Frontend.** A component test and a browser
+test answer completely different questions, and the browser one is the only test the
+testing strategy makes mandatory per capability. A zero there is the strongest single
+signal the page can carry.
+
+**There is no API column yet.** With one service there is no separate system tier, so
+the API-in-process tests are the backend tests. It becomes a real column the day a
+second service exists.
+
+**Contract shows n/a rather than zero** for anything that is not a connector. A
+permanent zero that means nothing is how a report trains you to ignore it.
+
+**No percentages anywhere on the page**, not even as a secondary number. Once one is
+there it becomes the thing you look at, and it is the one number in this design that
+can be raised without proving anything.
+
+**The counts are the weakest part of the table.** A count rewards writing more rules,
+which cuts against the pruning discipline. Six well-pruned rules can be better than
+twenty padded ones and the table cannot tell them apart. They are useful only
+relatively: Actions has seven backend rules and Dashboards has one, and they are
+similar in size, so look at Dashboards. That is an argument for showing every part of
+the product on one screen rather than drilling into one at a time.
+
+The last two columns are the ones that mean something on their own. The Dashboards row
+above is the one worth looking at, and nothing that makes it bad is in the test counts.
+
+**On expand:** a capability's rules, each with the level it sits at and the one-clause
+reason for that level, plus which branches in its files nothing takes. That is where
+the level choices get spot-checked.
+
 ## Two extra checks when a bug gets through
 
 **Temporary, and Michael is not convinced this is worth the effort yet.** Recorded so
@@ -543,25 +590,6 @@ example from a mechanism-heavy issue once one exists, rather than inventing one 
 
 # Still open
 
-## What the explorer's columns are
-
-Michael's ask: under Actions or Dashboards, show something like backend tests, API
-tests, frontend tests, so which kind is missing is visible at a glance.
-
-The alternative on the table is naming each column by what it proves:
-
-| Column | Answers |
-|---|---|
-| Logic | Is the behaviour correct, including the edges |
-| Wiring | Does it work against its own real infrastructure |
-| Works for a user | Does it work when everything is connected |
-| Still true externally | Do our recorded responses still match the real third party |
-
-The argument for it: the tech grouping puts a component unit test and a browser test in
-the same column, and the browser test is the one the testing strategy makes mandatory
-per capability, so an empty "works for a user" cell is the strongest red signal
-available. Michael has not weighed in.
-
 ## Whether a test has to be seen failing before it counts
 
 A statement that went from nothing to passing without a failing run in between is not
@@ -624,3 +652,7 @@ Recorded so they are not relitigated.
 - **A cap on how many statements go to review per part of the product.** The rules
   shape made it unnecessary: twenty rules for an issue the size of #36 is not a number
   that needs capping.
+- **Naming the explorer's columns by what they prove** rather than by where the code
+  lives. It was protecting one thing, that a browser test not be lumped in with a
+  component test, and splitting Browser into its own column does that inside the
+  simpler grouping.
