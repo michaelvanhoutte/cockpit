@@ -264,63 +264,142 @@ produced is recorded below.
 ## How a statement list is generated (the material for the skill)
 
 Worked out by generating and pruning the list for issue #36. The result is
-`statements-issue-36-experiment.md`; this is the method behind it.
+`statements-issue-36-experiment.md`; this is the method behind it. Every rule below
+carries an example, because the abstract version of this guidance produced a bad list
+twice.
 
 ### The passes, in order
 
 1. **Read the inputs.** The issue, its comments, the issues it depends on, and the
    existing rules for every capability it touches. The third input is what stops each
    issue writing a fresh list with nothing marking older rules as outdated.
-2. **Extract the surface.** Every behaviour the issue literally describes. This pass
-   is mechanical and produces a long list. It is not the output.
+2. **Extract the surface.** Every behaviour the issue literally describes. Mechanical,
+   long, and not the output.
 3. **Collapse the surface into rules.** Find the rule that several surface behaviours
-   are consequences of, and write the rule instead. An agent left to itself will skip
-   this pass, because the issue is written surface-first. It has to be explicit.
+   are consequences of, and write the rule instead.
 4. **Build each rule's case table.** The transitions that exercise it, and the read
    surfaces each transition is checked against.
-5. **Prune.** See the criterion below.
+5. **Prune.**
 6. **Assign a level per rule** with a one-clause reason, per testing-strategy §1.
 7. **Add the failure axes as rules**, not as cases sprinkled through the feature rules.
-8. **List what the issue does not answer.** In practice this is one of the most
-   valuable outputs, and some of it belongs inside the rules as a missing case rather
-   than in a footnote.
+8. **List what the issue does not answer**, moving anything that is really a missing
+   case into the rule where it belongs.
+
+Pass 3 is the one an agent skips, because the issue is written surface-first. It has
+to be done deliberately.
+
+### Pass 3, collapsing: an example
+
+Issue #36 produces this surface, among others:
+
+- an action created from a panel appears on that panel
+- an action created from the dashboard button appears in the Inbox
+- assigning an action to a panel takes it out of the Inbox
+- an action assigned to two panels appears on both
+- removing an action from one of two panels leaves it on the other
+- removing an action from its only panel returns it to the Inbox
+- deleting an action removes it from every panel
+- an action never appears in another workspace
+
+Eight statements, and every one is a consequence of the same thing. Collapsed:
+
+> **A panel shows exactly the actions assigned to it, and the Inbox exactly the ones
+> assigned to no panel.**
+
+with the eight as rows in its table. In the real list that rule absorbed fifteen.
+
+The test for whether a collapse is right: if you changed the rule, would every case
+under it change too? If a case would survive the rule changing, it belongs to a
+different rule.
 
 ### Writing a rule
 
-- Product language. No function names, no HTTP status codes as the subject, no table
-  names.
-- One rule is one test body.
-- The rule says why; the cases say what.
-- Prefer a rule whose table grows as the product grows. "An invalid command is
-  rejected and writes nothing" and "a command that fails rolls the screen back" each
-  absorb every future rule as one more line, with no new test.
+Product language. No function names, no table names, no HTTP status codes as the
+subject.
+
+| Bad | Why |
+|---|---|
+| `commandService` dedupes by `commandId` | Names the implementation. Unreadable as intent. |
+| The panel contents query filters on assignment and excludes tombstoned rows | True, and still a mechanism statement. This is the trap on the other side of collapsing: collapse far enough and you stop describing the product. |
+| Actions work correctly | Not falsifiable. |
+
+| Good | Why |
+|---|---|
+| A panel shows exactly the actions assigned to it | Product language, one rule, falsifiable. |
+| A repeated command changes nothing the second time | Names the rule, not the mechanism that implements it. |
+
+**Prefer a rule whose table grows as the product grows.**
+
+Bad, three rules that become four the moment a rule is added:
+
+- an action cannot be saved without a title
+- an action cannot be saved with a deadline in the past
+- an action cannot be assigned to a panel that does not exist
+
+Good, one rule that absorbs all of them and every future one as a table row:
+
+> **An invalid command is rejected and writes nothing.**
+
+The same shape works on the frontend: "a command that fails rolls the screen back"
+absorbs every command, rather than one rule per command.
 
 ### The pruning criterion
 
-Cut a case when either holds:
+Cut a case when either holds.
 
-- **No distinct path.** The cases read the same data through the same query with the
-  same parameters. There is one action record and one action list, so "the new title
-  shows in the list" is not a second thing that could be wrong.
-- **Already exercised.** Something else runs the same code and would go red if it
-  broke. Last-write-wins is implemented in `isStale` and already has a unit test, so
-  an integration test re-proves it.
+**No distinct path.** The cases read the same data through the same query with the
+same parameters.
+
+> Cut: "an edited title shows in the action list." There is one action record and one
+> list query, so this is not a second thing that could be wrong.
+
+**Already exercised.** Something else runs the same code and would go red if it broke.
+
+> Cut: "when two changes race, the later one wins." Last-write-wins is implemented in
+> `isStale`, which already has a unit test.
 
 "It is obvious" and "it would be hard to get wrong" are not reasons on their own.
 Require one of the two above, because the second is checkable and the feeling is not.
 
-**Read surfaces count as separate only when they are separate queries with different
-filters.** Panel contents, the Inbox and the action list are three filters. The same
-column read back through one query is one surface.
+**Do not over-prune.** The failure mode of a pruning rule is cutting a case that looks
+like a duplicate but runs different code.
 
-**Who prunes what.** Whether a plausible implementation could get it wrong is often a
-design fact only the human has, so those cuts happen at review. Whether two cases
-share a code path is an implementation fact, so those cuts happen during the build,
-by the agent, and are reported in the pull request.
+> Keep: "a deleted action is gone from the action list." The action list is a
+> different query with a different filter, and forgetting the tombstone filter in one
+> read path while getting it right in another is one of the most common ways this
+> breaks.
+
+The signal is always the same question: is there a distinct query, branch or decision
+behind this case? If yes, keep it however obvious it looks.
+
+### Read surfaces
+
+Surfaces count as separate only when they are separate queries with different filters.
+
+> Bad: check all twelve transitions against all five of panel A, panel B, panel C, the
+> Inbox and the action list. Sixty checks, most of them the same query twice.
+>
+> Good: check the assignment transitions against the panels involved and the Inbox,
+> which are complementary filters, and check the action list only on the transitions
+> that change what it returns, which is deletion and workspace.
+
+### Who prunes what
+
+Whether a plausible implementation could get it wrong is often a design fact only the
+human has, so those cuts happen at review. Both of the shape changes in the #36
+experiment came from Michael, not the agent.
+
+Whether two cases share a code path is an implementation fact, so those cuts happen
+during the build, by the agent, and are reported in the pull request. Mark them in the
+list when the list is written:
+
+> moved from A to B → on B only *(cut at build time if a move is a remove plus an add
+> rather than its own command)*
 
 ### The failure axis checklist
 
-Crossed with the intent rules per D6. Each becomes a rule with a growing table:
+Crossed with the intent rules per D6. Each becomes a rule with a growing table, never
+cases sprinkled through the feature rules:
 
 - concurrent use
 - repeat and retry, including idempotent commands
@@ -331,21 +410,81 @@ Crossed with the intent rules per D6. Each becomes a rule with a growing table:
 
 ### Level assignment
 
-- The lowest level that can prove the behaviour, per testing-strategy §1. Escalating
-  because a unit test would prove nothing is that rule working, not an exception.
-- Frontend rules are about the UI's own behaviour and its wiring. They do not restate
-  a backend rule.
-- Expensive tiers are kept thin by a budget, not by a ban on overlap. An end-to-end
-  walk crossing a rule that integration already covers is fine; twelve end-to-end
-  cases for twelve validation rules is not.
+The lowest level that can prove the behaviour, per testing-strategy §1. Escalating
+because a unit test would prove nothing is that rule working, not an exception to it.
+
+The reason has to name what stops a lower level proving it.
+
+| Bad reason | Good reason |
+|---|---|
+| L2 because it is integration-like | L2 because a panel's contents are a query, so this only holds against a real database |
+| F3 because it is user-facing | F3 because the drag only exists in a browser |
+
+**Frontend rules are about the UI's own behaviour and its wiring, never a restatement
+of a backend rule.**
+
+> Bad: an end-to-end test for "removing an action from a panel leaves it on the other
+> panels". That is a backend rule being re-proved in a browser.
+>
+> Good: "the remove control sends a remove for this panel." Plus, separately, one
+> browser walk per capability proving the whole thing works at all.
+
+Expensive tiers are kept thin by a budget, not by a ban on overlap. A walk that
+crosses a rule integration already covers is fine. Twelve browser cases for twelve
+validation rules is not.
+
+### What a rule looks like as code
+
+One body, tables as data. Adding a transition is one line.
+
+```ts
+describe('a panel shows the actions assigned to it, the Inbox shows the rest', () => {
+  const transitions = [
+    { name: 'created on a panel',          act: a => a.createOn('A'),             A: true,  inbox: false },
+    { name: 'created from the add button', act: a => a.create(),                  A: false, inbox: true  },
+    { name: 'assigned to a panel',         act: a => a.create().assign('A'),      A: true,  inbox: false },
+    { name: 'removed from its only panel', act: a => a.createOn('A').remove('A'), A: false, inbox: true  },
+    { name: 'deleted',                     act: a => a.createOn('A').delete(),    A: false, inbox: false },
+  ];
+
+  describe.each(transitions)('an action $name', (t) => {
+    let ws;
+    beforeEach(async () => {
+      ws = await seedWorkspace({ panels: ['A', 'B'] });
+      await t.act(ws.actions);
+    });
+
+    it.each([
+      { where: 'panel A',   read: () => panelContents(ws, 'A'), expected: t.A },
+      { where: 'the Inbox', read: () => inboxContents(ws),      expected: t.inbox },
+    ])('$verb in $where', async ({ read, expected }) => {
+      const contents = await read();
+      expect(contents.some(a => a.id === ws.lastActionId)).toBe(expected);
+    });
+  });
+});
+```
+
+What the runner prints is the statement list:
+
+```
+a panel shows the actions assigned to it, the Inbox shows the rest
+  an action created on a panel
+    ✓ appears in panel A
+    ✓ does not appear in the Inbox
+  an action deleted
+    ✓ does not appear in panel A
+    ✓ does not appear in the Inbox
+```
 
 ### What the output looks like
 
-The rule, its cases with expected outcomes, the read surfaces, the level, and a
-separate list of what was cut with the reason. The cut list is worth keeping: it is
-how the pruning criterion gets checked and improved.
+The rule, its cases with expected outcomes, the read surfaces, the level with its
+reason, and a separate table of what was cut and why. Keep the cut list: it is how the
+pruning criterion gets checked and improved, and it is the part a reviewer can
+disagree with fastest.
 
-Counts at the end, so the review effort is visible.
+Counts at the end, so the review effort is visible before it is spent.
 
 ## Consequences to handle
 
