@@ -173,6 +173,89 @@ outermost describe is a dotted identifier. Add a checked registry in
 explorer. That is the cheapest path to a working explorer and it defers the
 hand-maintained list P6 was worried about until something forces it.
 
+### D12. Seeing what isn't tested
+
+Four separate problems, each with its own answer. Nothing here is a percentage and
+nothing here is a gate on a number.
+
+| Problem | Answer | What has to be built |
+|---|---|---|
+| A statement was approved and nobody wrote the test | Todos, which cannot survive a merge | A CI check that fails on any remaining todo, plus a review check on removals |
+| Code exists that no test executes | Merged coverage, reported as a list of files | Coverage config per level, a merge step |
+| A rule exists but is missing a case | Branch coverage: a branch nothing takes is dead code or a missing case | The same coverage run, reporting branch locations |
+| Rolling any of it up to "Actions" | Capability globs over file paths | A globs file and a check that every source file matches exactly one |
+
+**A statement approved but not written.** A rule that has been agreed but not built is
+`describe.todo('the rule')`; a missing row is `it.todo('the case')`. They live in the
+real test file at the real level, so there is no pending folder. A pull request cannot
+merge with any todo left, so main never has one and a todo is the branch's own
+checklist rather than a backlog: the first commit is the approved list, the last commit
+has none, and the diff is the burn-down.
+
+That rule needs one guard, because deleting a todo is cheaper than implementing it. A
+removed todo must be matched in the same diff by either a test appearing or a cut
+comment appearing. Without the guard the rule quietly inverts into "delete the
+inconvenient statements".
+
+It also forces a case to be handled elsewhere: a rule that cannot be built because a
+product question is unanswered has to become an issue, since it can no longer sit as a
+todo. That is right, an unanswered product question belongs in the tracker, but it
+means the skill's open-questions output routes to issues rather than into the tests.
+
+**Code no test executes.** Coverage, used only in the zero direction. The objections
+in `coverage-reporting-options.md` are objections to coverage as a target: satisfiable
+without asserting anything, rewards testing what is easy to reach. Neither applies to
+"nothing runs this file", which is unambiguous and needs a test written to change.
+
+The setting that matters is `coverage.all`, so that files no test imported still
+appear. Without it the gap is invisible, which is exactly backwards.
+
+```ts
+coverage: {
+  provider: 'v8',
+  all: true,
+  include: ['src/**/*.{ts,tsx}'],
+  exclude: ['src/**/*.d.ts', '**/index.ts'],
+  reporter: ['json', 'text-summary'],
+}
+```
+
+D10 gives a separate run per level, so the reports have to be merged before anyone
+reads them, with `istanbul-lib-coverage` or `nyc merge`. End-to-end stays out of the
+union at first: collecting coverage from a real browser and a Worker at once is
+awkward and the tier is thin by design.
+
+**A rule missing a case.** Branch coverage. If a rule has nine rows and the code has a
+branch nothing takes, that branch is either dead code or a tenth row. It does not
+catch every missing case, since a case can be a different value through the same
+branch, but it is specific and it points at the exact line.
+
+v8 maps back to TypeScript through source maps and its branch precision suffers for
+it. Start with v8, look at whether the reported branch locations make sense, and
+switch to `provider: 'istanbul'` if they do not.
+
+**Rolling up to a capability.** D2's naming gives it almost for free: once the action
+code is `domain/action.ts`, `db/repo/action.ts`, `http/routes/action.ts` and
+`apps/web/src/action/**`, Actions is a glob.
+
+What keeps it honest is the check, not the file: every source file must match exactly
+one capability glob or CI fails. A new file matching nothing forces someone to say
+where it belongs; a file matching two means the globs overlap. That is what makes this
+different from the capability registry considered under P6 and rejected: it maps files
+to groups rather than listing capabilities in the abstract, so it can be verified
+against the filesystem and cannot silently be wrong.
+
+**What the report says per capability:** files nothing executes, branches nothing
+takes with their locations, and file and line counts for scale. Never a percentage.
+
+**What none of this solves,** and it should be said plainly rather than left implied: a
+rule nobody ever thought of leaves no trace anywhere, and a missing case that goes
+through an already-covered branch leaves none either. Only escapes find those, which
+is why P8 matters more now that pruning is deliberate.
+
+**Cost:** roughly a day, and half exists already. The coverage-explorer POC walks the
+repository and renders a model; this is a new input to it rather than a new tool.
+
 ## Michael's requirements, mechanism not yet chosen
 
 ### R1. The explorer shows levels under each product section
@@ -187,7 +270,7 @@ case. Both halves of this have to hold at once, and no mechanism is chosen yet.
 
 ## Proposed, not decided
 
-### P1. `it.todo` as the statement store
+### P1. `it.todo` as the statement store *(decided, see D12)*
 
 An approved statement lands as `it.todo('...')`. Vitest reports todo as its own
 state, so an agreed-but-unproven statement is visible with no new format and no ids.
@@ -232,7 +315,7 @@ The argument: the tech grouping lumps F1 and F3 together, and F3 is the one §5.
 makes mandatory, so an empty "works for a user" cell is the strongest red signal
 available. Michael has not weighed in yet.
 
-### P6. Where the capability list comes from *(largely answered by D11)*
+### P6. Where the capability list comes from *(closed: no registry, see D11 and D12)*
 
 Michael's answer to this was "not sure, let's discuss". Options on the table: a flat
 registry in `packages/shared` next to `commandSchemas`, with an unknown tag failing
