@@ -150,6 +150,29 @@ question is what the explorer is for.
 The two existing tests move: `apps/api/src/domain/items.test.ts` and
 `packages/shared/src/shared.test.ts` go to their packages' `tests/unit/`.
 
+### D11. A test declares its capability as the outermost describe
+
+The capability is the outer block, the rule is the one inside it.
+
+```ts
+describe('action.assign', () => {
+  describe('a panel shows exactly the actions assigned to it', () => {
+    // cases
+  });
+});
+```
+
+The reporter emits `action.assign > a panel shows exactly the actions assigned to
+it > an action deleted > does not appear in panel A`. The explorer splits on the first
+segment. No plugin, no runner-specific feature, greppable, and it survives changing
+test framework.
+
+**The registry is deferred, not rejected.** Start with a lint rule that only checks the
+outermost describe is a dotted identifier. Add a checked registry in
+`packages/shared` the first time a typo splits one capability into two in the
+explorer. That is the cheapest path to a working explorer and it defers the
+hand-maintained list P6 was worried about until something forces it.
+
 ## Michael's requirements, mechanism not yet chosen
 
 ### R1. The explorer shows levels under each product section
@@ -209,7 +232,7 @@ The argument: the tech grouping lumps F1 and F3 together, and F3 is the one §5.
 makes mandatory, so an empty "works for a user" cell is the strongest red signal
 available. Michael has not weighed in yet.
 
-### P6. Where the capability list comes from
+### P6. Where the capability list comes from *(largely answered by D11)*
 
 Michael's answer to this was "not sure, let's discuss". Options on the table: a flat
 registry in `packages/shared` next to `commandSchemas`, with an unknown tag failing
