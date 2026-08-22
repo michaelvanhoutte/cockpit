@@ -115,6 +115,41 @@ Michael's words. A case that no plausible implementation could get wrong is padd
 and padding is what makes a list unreviewable. The operational form of this is the
 pruning pass in "How a statement list is generated".
 
+### D10. Tests live in level folders, owned by their package
+
+`docs/testing-strategy.md` §9 stands as written, no amendment. Unit tests move out of
+the source tree.
+
+```
+apps/api/tests/{unit,integration}/
+apps/web/tests/{unit,service}/
+packages/shared/tests/unit/
+packages/connectors/*/tests/{unit,contract}/     when connectors land
+tests/e2e/                                        at the repo root
+```
+
+The level folders belong to the package that owns the tests, so `pnpm --filter` still
+works and a package stays self-contained. End-to-end tests sit at the repo root
+because they belong to no package. Contract tests sit with their connector, since
+§3.3 makes each one about one third party's fixtures.
+
+Michael's reason, which is stronger than the co-location argument it replaced: a
+folder is a boundary you can police. §10 already asks for network and filesystem
+access disabled in the unit runner and lint rules banning API-client imports under the
+unit-test directories. Those are directory rules; under co-location they degrade into
+filename globs.
+
+What it makes possible: a Vitest project per level with the unit project given no
+database binding, no network and no filesystem; `no-restricted-imports` scoped to
+`tests/unit/**`; a CI job per level so a misplaced test is visible.
+
+The cost: an untested module is no longer obvious from looking at the folder.
+Mirroring `src/` inside `tests/unit/` gives most of that back, and answering that
+question is what the explorer is for.
+
+The two existing tests move: `apps/api/src/domain/items.test.ts` and
+`packages/shared/src/shared.test.ts` go to their packages' `tests/unit/`.
+
 ## Michael's requirements, mechanism not yet chosen
 
 ### R1. The explorer shows levels under each product section
@@ -494,7 +529,7 @@ Its rows come from workspace globs and layer folders, with capability only a
 secondary axis for F3. D1 and R1 make capability the primary axis. Both axes still
 exist, but the document's stated preference is now the wrong way round.
 
-### C2. Test file placement contradicts itself today
+### C2. Test file placement contradicts itself today *(resolved by D10)*
 
 `testing-strategy.md` §9 mandates `tests/unit`, `tests/integration` and so on. The
 two tests that exist are co-located: `apps/api/src/domain/items.test.ts` and
