@@ -315,6 +315,52 @@ above is the one worth looking at, and nothing that makes it bad is in the test 
 reason for that level, plus which branches in its files nothing takes. That is where
 the level choices get spot-checked.
 
+## Making sure a passing test actually checks something
+
+A test can pass without checking anything. Here is the assertion in the panel contents
+rule:
+
+```ts
+expect(contents.some(a => a.id === ws.lastActionId)).toBe(expected)
+```
+
+If the agent had written `expect(contents).toBeDefined()` instead, every row in the
+table passes, the runner prints twenty green lines, the explorer says the rule is
+covered, and nothing is being checked. One bad line, twenty false statements.
+
+Two things now, one later.
+
+**A test with no assertion fails.** Configure the runner to fail a test that ran zero
+expectations, and add a lint rule for a test body with no `expect`. Catches the
+laziest version, costs nothing, and it is mechanical rather than something review has
+to notice.
+
+**Make the rule fail on purpose, once.** When a rule is written, break the code and
+check the whole table goes red. If it stays green the assertion is useless. Once per
+rule, not once per row.
+
+For new work this costs nothing, because the test is written before the code and fails
+on its own the first time it runs. The agent states in the pull request that it saw
+the rule fail before the implementation landed.
+
+**Mutation testing, postponed.** A tool that changes the code on purpose, runs the
+tests and reports which ones did not notice. Same idea as breaking it by hand, done
+mechanically and repeatedly. The rules shape makes it more affordable than usual,
+because it can be scoped: mutate one file, run only that part of the product's rules,
+and the number of mutants is proportional to that file rather than the codebase.
+Deliberately not built yet.
+
+**What was considered and dropped:** a file recording that each test had been seen
+failing, with the date. It tells you the test was good the day it was written and
+nothing about today. If someone weakens an assertion six months later the file still
+says the test was fine in March. Mutation testing answers the same question every
+night, so the file is a weaker signal that also costs more to maintain.
+
+**The gap until mutation testing exists:** nothing catches an assertion weakened after
+it was written, on code that already works. Review is meant to, which is exactly the
+kind of enforcement the testing strategy says to replace with something mechanical.
+Known, accepted for now.
+
 ## Two extra checks when a bug gets through
 
 **Temporary, and Michael is not convinced this is worth the effort yet.** Recorded so
@@ -589,15 +635,6 @@ example from a mechanism-heavy issue once one exists, rather than inventing one 
 ---
 
 # Still open
-
-## Whether a test has to be seen failing before it counts
-
-A statement that went from nothing to passing without a failing run in between is not
-believable. Michael said this is in, then parked it pending further discussion.
-
-If it is in, it needs somewhere to live: an append-only map of test name to the commit
-where it was first seen failing, written by CI, or reading CI history, which is slower
-and breaks when history is pruned.
 
 ## How much Michael actually reviews
 
