@@ -99,6 +99,22 @@ exhaustiveness on failure modes: concurrent edits, idempotent retries, ordering,
 tenant isolation, empty and huge inputs, partial writes. Those come from a
 checked-in checklist. The agent crosses the two axes and shows the result.
 
+### D8. A statement list is rules with case tables, not a flat list
+
+A rule is one behaviour in product language and one test body. Its cases are a table
+inside that test, one line each, and what the runner prints per case is the statement.
+Nothing is stored separately.
+
+The reason: a flat list enumerates the product surface, and many surface behaviours
+are consequences of one rule. Fifteen statements about what appears on a panel are one
+rule about what a panel contains.
+
+### D9. Tests exist to give sufficient confidence, not to cover every scenario
+
+Michael's words. A case that no plausible implementation could get wrong is padding,
+and padding is what makes a list unreviewable. The operational form of this is the
+pruning pass in "How a statement list is generated".
+
 ## Michael's requirements, mechanism not yet chosen
 
 ### R1. The explorer shows levels under each product section
@@ -129,11 +145,12 @@ business claims appear in the business view. Aimed at R2: the tests of
 `command-service.ts` are about idempotency, atomicity and staleness and will never
 be about actions or panels.
 
-### P3. One statement, one proving test
+### P3. One statement, one proving test *(superseded by D8)*
 
-A statement is discharged by exactly one test, at the lowest level that can prove
-it, so a user-level statement does not inflate into five. Supporting tests underneath
-carry no statement. Testing-strategy §5.1 is unchanged either way.
+Written before the rules-and-tables shape. D8 replaces it: one rule is one test body
+and many cases, so the mapping is many statements to one test. What survives is the
+intent, that a statement is discharged in one place rather than re-proved upward.
+
 
 ### P4. Dotted capability ids
 
@@ -230,11 +247,105 @@ with a check that enforces the link. No new artifact, no new format.
 A statement that went from nothing to passing without a failing run in between is
 not believable, so the failing run is recorded.
 
-### D7. Run the experiment on #36 before building anything
+### D7. Run the experiment on #36 before building anything *(run, though the decision is still parked)*
 
 Generate the statement list for issue #36, then count how many statements are added,
 deleted or materially changed on review. If it is under a fifth, the human review
 step is not paying for itself and the design changes.
+
+It was run. The original metric turned out to be the wrong one: the review did not
+tweak statements, it changed the shape of the list twice, first from flat statements
+to rules with tables, then by pruning cases that nothing could plausibly get wrong.
+Both changes came from Michael and neither would have come from the agent. That is a
+stronger result than the fraction-changed number would have been, and the method it
+produced is recorded below.
+
+
+## How a statement list is generated (the material for the skill)
+
+Worked out by generating and pruning the list for issue #36. The result is
+`statements-issue-36-experiment.md`; this is the method behind it.
+
+### The passes, in order
+
+1. **Read the inputs.** The issue, its comments, the issues it depends on, and the
+   existing rules for every capability it touches. The third input is what stops each
+   issue writing a fresh list with nothing marking older rules as outdated.
+2. **Extract the surface.** Every behaviour the issue literally describes. This pass
+   is mechanical and produces a long list. It is not the output.
+3. **Collapse the surface into rules.** Find the rule that several surface behaviours
+   are consequences of, and write the rule instead. An agent left to itself will skip
+   this pass, because the issue is written surface-first. It has to be explicit.
+4. **Build each rule's case table.** The transitions that exercise it, and the read
+   surfaces each transition is checked against.
+5. **Prune.** See the criterion below.
+6. **Assign a level per rule** with a one-clause reason, per testing-strategy §1.
+7. **Add the failure axes as rules**, not as cases sprinkled through the feature rules.
+8. **List what the issue does not answer.** In practice this is one of the most
+   valuable outputs, and some of it belongs inside the rules as a missing case rather
+   than in a footnote.
+
+### Writing a rule
+
+- Product language. No function names, no HTTP status codes as the subject, no table
+  names.
+- One rule is one test body.
+- The rule says why; the cases say what.
+- Prefer a rule whose table grows as the product grows. "An invalid command is
+  rejected and writes nothing" and "a command that fails rolls the screen back" each
+  absorb every future rule as one more line, with no new test.
+
+### The pruning criterion
+
+Cut a case when either holds:
+
+- **No distinct path.** The cases read the same data through the same query with the
+  same parameters. There is one action record and one action list, so "the new title
+  shows in the list" is not a second thing that could be wrong.
+- **Already exercised.** Something else runs the same code and would go red if it
+  broke. Last-write-wins is implemented in `isStale` and already has a unit test, so
+  an integration test re-proves it.
+
+"It is obvious" and "it would be hard to get wrong" are not reasons on their own.
+Require one of the two above, because the second is checkable and the feeling is not.
+
+**Read surfaces count as separate only when they are separate queries with different
+filters.** Panel contents, the Inbox and the action list are three filters. The same
+column read back through one query is one surface.
+
+**Who prunes what.** Whether a plausible implementation could get it wrong is often a
+design fact only the human has, so those cuts happen at review. Whether two cases
+share a code path is an implementation fact, so those cuts happen during the build,
+by the agent, and are reported in the pull request.
+
+### The failure axis checklist
+
+Crossed with the intent rules per D6. Each becomes a rule with a growing table:
+
+- concurrent use
+- repeat and retry, including idempotent commands
+- isolation between workspaces and tenants
+- empty and large collections
+- partial failure and rollback
+- invalid input
+
+### Level assignment
+
+- The lowest level that can prove the behaviour, per testing-strategy §1. Escalating
+  because a unit test would prove nothing is that rule working, not an exception.
+- Frontend rules are about the UI's own behaviour and its wiring. They do not restate
+  a backend rule.
+- Expensive tiers are kept thin by a budget, not by a ban on overlap. An end-to-end
+  walk crossing a rule that integration already covers is fine; twelve end-to-end
+  cases for twelve validation rules is not.
+
+### What the output looks like
+
+The rule, its cases with expected outcomes, the read surfaces, the level, and a
+separate list of what was cut with the reason. The cut list is worth keeping: it is
+how the pruning criterion gets checked and improved.
+
+Counts at the end, so the review effort is visible.
 
 ## Consequences to handle
 
