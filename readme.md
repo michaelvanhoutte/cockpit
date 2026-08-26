@@ -1,6 +1,6 @@
 # Cockpit — Unified Inbox & Dashboards
 
-The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where).
+The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where). Unscheduled feature ideas are collected in [docs/ideas.md](docs/ideas.md) (the maybe).
 
 The showcase is this repository, not a public instance: every deployed environment is behind Cloudflare Access, because production holds real mail and messages.
 
