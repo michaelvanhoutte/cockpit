@@ -659,9 +659,10 @@ twice.
 
 ## Rewording a statement
 
-Because the test name is the statement, rewording looks like a delete plus an add, and
-the failing-run record breaks on a reword. Acceptable while the pull request diff shows
-both lines. Revisit if it hurts.
+Because the test name is the statement, rewording one looks like deleting a statement
+and adding a different one. Acceptable while the pull request diff shows both lines
+next to each other, so a reword is readable as a reword. Revisit if it starts to
+hurt.
 
 ## The coverage options document needs amending
 
