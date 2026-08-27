@@ -41,6 +41,8 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 - **Age colouring.** Commands that have not been used recently are coloured differently.
 - **Command history UI.**
 - **Authentication skill.** Add a skill for commands that states which method is used to authenticate with each target system (Linear, Jira, Notion, ...) when authentication is needed.
+- **Commands run as durable background jobs.** The idea for making these commands work efficiently: configure a Command button that appends text to the `ideas.md` file of the Cockpit project, then simply drag an action or a note onto it and have it asynchronously start an operation that appends the information to that file. I can carry on immediately as a user and be confident my information is not lost, so it has to be designed in a durable way (the job survives a crash or a restart, not just an in-memory queue).
+- **Async task UI.** A UI that shows all asynchronous tasks that were launched and what their status is, with enough detail to troubleshoot a failed one and to retry it. (Related to the command history UI above and to the operations items in §7.)
 
 ## 4. Chat
 
@@ -60,6 +62,8 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 ## 7. Platform, users and operations
 
 - **Multiple users, staged.** Start without authentication: the logon page simply shows a list of users to choose from and you log on by clicking a name, no password at all. Add OAuth and password support afterwards.
+- **Admin section for user management.** As soon as there are multiple users, an admin section (its own pages) to manage every user on the system: delete a user, reset a password, and the rest of the day-to-day user administration.
+- **Roles from the start.** Introduce a role concept (e.g. *User* vs *Admin*) together with multiple-user support, so the role logic is part of the code from the beginning instead of being retrofitted later.
 - **Multi-tenancy.**
 - **Audit trail.**
 - **Backup.**
