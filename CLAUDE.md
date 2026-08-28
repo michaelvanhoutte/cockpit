@@ -13,6 +13,10 @@ pnpm dev
 
 `pnpm build`, `pnpm typecheck` and `pnpm test` run across every package.
 
+## Scoping new work
+
+**Before writing code for any new feature or fix, run the `scoping` skill in `.claude/skills/scoping/`** — sharpening fuzzy requirements, sizing the work as a vertical slice, and generating its statement list. This applies whether the work is going straight into this session or being filed as a GitHub issue first; filing is not what triggers it.
+
 ## Tests
 
 **Follow the `testing` skill in `.claude/skills/testing/` before writing, moving or reviewing any test.** It triggers on its own and restates every binding rule, so there is no need to open the strategy document to write a test. `docs/testing-strategy.md` holds the reasoning and is the authoritative version of record; open it to change a rule or to settle something the skill does not decide.

@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Cockpit's binding rules for tests - which level a test goes at, where it lives, how it is named and shaped, and what must be run before claiming something works. Use whenever writing, moving, reviewing or deleting a test; when adding logic, fixing a bug or finishing a capability (tests ship in the same change); when drafting a statement list for an issue; and before reporting that a change works.
+description: Cockpit's binding rules for tests - which level a test goes at, where it lives, how it is named and shaped, and what must be run before claiming something works. Use whenever writing, moving, reviewing or deleting a test; when adding logic, fixing a bug or finishing a capability (tests ship in the same change); when generating a statement list (see the `scoping` skill, which drafts one for every new piece of work); and before reporting that a change works.
 ---
 
 # Testing in Cockpit
@@ -147,6 +147,8 @@ Reject: tests at the wrong level; coverage duplicated upward; L1/F1 tests with r
 
 Prefer making a violation impossible over catching it in review: no network or filesystem in the unit runner, lint rules banning API-client imports under unit folders, a CI job per level, and the time budget checked in CI.
 
-## When drafting a statement list for an issue
+## When generating a statement list
 
 Read [references/statement-lists.md](references/statement-lists.md) - the passes in order, the collapsing step agents skip, the pruning criterion, and the output shape. Worked example: [docs/statements-issue-36-experiment.md](../../../docs/statements-issue-36-experiment.md).
+
+This is invoked by the [scoping](../scoping/SKILL.md) skill for every new piece of work, not only work being filed as a GitHub issue - a statement list is drafted before building starts either way.
