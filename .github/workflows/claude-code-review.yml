@@ -38,8 +38,11 @@ jobs:
           prompt: '/code-review:code-review --comment https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           # The slash command declares its own allowed-tools, but the subagents
           # it launches do not inherit them, so every gh/git call was denied.
+          # Skill is in the list because the plugin command is itself invoked
+          # through the Skill tool: run 33201638348 denied "Execute skill:
+          # code-review:code-review" and the review never started.
           claude_args: >-
-            --allowedTools "Task,Read,Grep,Glob,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git log:*),Bash(git blame:*),Bash(git diff:*),Bash(git show:*),mcp__github_inline_comment__create_inline_comment"
+            --allowedTools "Skill,Task,Read,Grep,Glob,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git log:*),Bash(git blame:*),Bash(git diff:*),Bash(git show:*),mcp__github_inline_comment__create_inline_comment"
           # Without this the action hides tool output, so a blocked review is
           # indistinguishable from a clean one.
           show_full_output: true
@@ -54,6 +57,8 @@ jobs:
           # A real multi-agent review is well above this. The 3-turn and 7-turn
           # runs that used to pass green were both blocked sessions.
           MIN_TURNS: '10'
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           FAILED=0
           fail() {
@@ -85,7 +90,17 @@ jobs:
           IS_ERROR=$(printf '%s' "$RESULT" | jq -r '.is_error // false')
           SUBTYPE=$(printf '%s' "$RESULT" | jq -r '.subtype // "unknown"')
           TURNS=$(printf '%s' "$RESULT" | jq -r '.num_turns // 0')
-          DENIALS=$(printf '%s' "$RESULT" | jq -r '.permission_denials_count // 0')
+          FINAL=$(printf '%s' "$RESULT" | jq -r '.result // ""')
+
+          # The result record does not always carry permission_denials_count -
+          # run 33201638348 omitted it entirely while the message stream held a
+          # real denial, so the gate read "no denials" off a missing field and
+          # went green. Count the stream and trust whichever number is higher.
+          DENIED_TOOLS=$(jq -r '[.[]? | select(.type == "system" and .subtype == "permission_denied")] | map(.tool_name // "?") | join(", ")' "$EXECUTION_FILE")
+          STREAM_DENIALS=$(jq -r '[.[]? | select(.type == "system" and .subtype == "permission_denied")] | length' "$EXECUTION_FILE")
+          SUMMARY_DENIALS=$(printf '%s' "$RESULT" | jq -r '.permission_denials_count // 0')
+          DENIALS=$SUMMARY_DENIALS
+          [ "$STREAM_DENIALS" -gt "$DENIALS" ] && DENIALS=$STREAM_DENIALS
 
           {
             echo ""
@@ -94,7 +109,9 @@ jobs:
             echo "| subtype | $SUBTYPE |"
             echo "| is_error | $IS_ERROR |"
             echo "| num_turns | $TURNS |"
-            echo "| permission_denials_count | $DENIALS |"
+            echo "| permission denials | $DENIALS |"
+            echo ""
+            echo "The session's closing words: $FINAL"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -107,12 +124,35 @@ jobs:
           fi
 
           if [ "$DENIALS" -gt 0 ]; then
-            fail "The review was blocked by $DENIALS permission denial(s), so it could not gather what it needed. Its silence is not evidence the code is clean."
-            printf '%s' "$RESULT" | jq -r '.permission_denials // [] | .[] | "denied: \(.tool_name // "?")"'
+            fail "The review was blocked by $DENIALS permission denial(s) (${DENIED_TOOLS:-see log}), so it could not gather what it needed. Its silence is not evidence the code is clean."
           fi
 
           if [ "$TURNS" -lt "$MIN_TURNS" ]; then
             fail "The review finished in $TURNS turns (minimum $MIN_TURNS). A real review of a pull request does not finish that fast."
+          fi
+
+          # The turn count is a weak signal on its own: run 33201638348 spent 11
+          # turns and then stopped with "Waiting on the eligibility check for PR
+          # #56 before proceeding", having reviewed nothing. What actually
+          # separates a review from a non-review is whether Claude said anything
+          # on the pull request. With --comment every path that reaches a verdict
+          # posts something - inline comments when there are findings, a summary
+          # comment when there are none - and the one skip that posts nothing,
+          # "Claude already reviewed this", leaves an earlier comment standing.
+          PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state,isDraft -q '"\(.state) \(.isDraft)"')
+          if [ "$PR_STATE" = "OPEN false" ]; then
+            SAID=$( {
+              gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate --jq '.[].user.login'
+              gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments" --paginate --jq '.[].user.login'
+              gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" --paginate --jq '.[].user.login'
+            } | grep -ci '^claude' || true )
+            if [ "$SAID" -eq 0 ]; then
+              fail "The review posted nothing on this pull request. A review that reaches a verdict always says so, so this one did not reach one."
+            else
+              echo "- Claude has $SAID comment(s) on this pull request." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "- Skipping the posted-comment check: the pull request is $PR_STATE (state isDraft), which the review is entitled to skip." >> "$GITHUB_STEP_SUMMARY"
           fi
 
           if [ "$FAILED" -ne 0 ]; then
