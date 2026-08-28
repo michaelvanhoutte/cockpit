@@ -36,11 +36,17 @@ Two directions. **Vertical** = infrastructure this service owns (its DB, queue, 
 | Level | Vertical | Horizontal | Proves |
 |---|---|---|---|
 | L1 unit | none real | none real | logic: calculations, branching, validation, error paths, edge cases |
-| L2 integration | real | forbidden, fakes only | the logic works against this service's own real infrastructure |
+| L2 integration | real | forbidden, fakes only | the service works against its own real infrastructure, entered the way a real caller enters it |
 | L3 system | real | real | services wired together work at the API level; backend only, no browser |
 | F1 frontend unit | none real (replace API client, stores, router, timers) | none real | component / view-model logic |
 | F2 frontend + own backend | its own service's backend, or a faithful local fake | nothing else | frontend and its backend agree: contracts, payloads, errors, loading states |
 | F3 end-to-end | everything real | everything real | a user-facing capability works with the whole thing tied together |
+
+**Enter through the real interface, not around it.** For a Worker with one HTTP entry point, that entry point *is* the service's own infrastructure, exactly like its database is - not a layer to route around for convenience. An L2/L3 test calls the service the way a real caller would (`SELF.fetch('/v1/...')` against the running Worker) and lets that exercise routing, request validation, and error-to-status mapping on the way to the real database. A test that instead imports a route handler's internal function and calls it directly skips all of that silently: it still touches real infrastructure, still looks like a passing integration test, and leaves the entire HTTP layer with zero coverage anywhere in the pyramid - nothing marks the gap until a routing or validation bug ships. The same applies to F2: call the frontend's real HTTP path, not the backend's internal function imported into a frontend test.
+
+| Wrong | Right |
+|---|---|
+| An L2 test `import`s `runCommand()` from the domain/service layer and calls it directly | An L2 test calls `SELF.fetch('/v1/commands/...')`, which runs the real route (validation, `runCommand()`, serialization) for you |
 
 **L1/F1 may not touch:** filesystem, network, database, the clock (inject time), environment variables, global state, or another process. If a test needs one, it is not a unit test - move it up a level or refactor so the logic is testable in isolation.
 
@@ -68,29 +74,54 @@ Mirror the source layout inside `unit/` so an untested module stays visible. Lev
 
 ## Name it after the product, not the mechanism
 
-The **outer describe is the product concept as a dotted name**; the block inside it is the rule in product language.
+The **outer describe is the feature area of the product**; the block inside it is the rule in product language.
 
 ```ts
-describe('action.assign', () => {
-  describe('a panel shows exactly the actions assigned to it', () => {
+describe('Triage', () => {
+  describe('a dismissed item leaves the lists but is never erased', () => {
     // cases
   });
 });
 ```
 
-The runner then prints the statement list itself: `action.assign > a panel shows exactly the actions assigned to it > an action deleted > does not appear in panel A`. Nothing is stored separately, so nothing goes stale.
+The runner then prints the statement list itself: `Triage > a dismissed item leaves the lists but is never erased > records when it was dismissed`. Nothing is stored separately, so nothing goes stale.
+
+**A feature area, not an entity and not a function.** The areas are the parts of the product a person would name if asked what the app does: `Capture`, `Triage`, `Dashboards`, `Panels`, `Focus`, `Associations`, `Offline`, `Connector management`, `User management`. They are capitalised and undotted. `item.setStatus`, `command.idempotency` and `item.change` are all wrong for the same reason - they name an object or an operation rather than an area of the product.
+
+**The area is not the file.** One test file often spans two or three areas, and the same area appears in several files at several levels. Group by what the rule is about, never by where the code lives.
+
+**Everything the runner prints is the statement list** - outer describe, rule, *and* the `it.each` case labels. A table whose labels interpolate an internal name (`$name` printing `set_status`, `snooze_until`) leaks the mechanism into the statement list just as badly as a mechanism-named describe. Give the table a `situation`-style field written in product language and interpolate that.
+
+### Where the product's words come from
+
+**The Glossary at the end of [docs/functional-definition.md](../../../docs/functional-definition.md) is the binding vocabulary** - Item, Action, Thought, Workspace, Page, Panel, Association, Capture, Status, Snooze, Priority, Next action, Focus horizon, Triage. Use its nouns exactly as it defines them. Where a rule needs a word the Glossary does not have, prefer one the functional definition already uses in prose; if the word is genuinely missing and the product really does the thing, **add it to the Glossary in the same change** rather than inventing a private synonym for it.
+
+[docs/architecture.md](../../../docs/architecture.md) is the mechanism, and its words are exactly the ones that must never surface in anything the runner prints. The check is mechanical, so use it whenever a name feels borderline:
+
+```bash
+# a word in the architecture but not the functional definition is a mechanism word
+grep -ci "command" docs/functional-definition.md   # 0  -> never appears in a test name
+grep -ci "command" docs/architecture.md            # 19 -> it is the write path, an implementation
+```
+
+"Command", "envelope", "tombstone", "snapshot", "idempotency", "last-write-wins" are all in this class: real, correct, architectural. What the product calls the same things: capturing a thought, triaging an item, dismissing it, what a panel shows, a change replayed after reconnecting, a change made against an older version.
 
 A rule is **one behaviour in product language and one test body**; its cases are a table inside that body. Never one test per statement.
 
-| Bad rule | Why |
+| Bad | Why |
 |---|---|
 | `commandService` dedupes by `commandId` | names the implementation, unreadable as intent |
+| `command.idempotency` / `item.commands` | "command" is architecture vocabulary; it is not in the Glossary |
+| `item.setStatus` | a method name wearing a dot |
+| `item.change`, `item.identity` | invented words dressed up as product concepts; neither is in the Glossary |
+| `item.process` | both halves are real words, and it still names an object-and-operation rather than a feature area; the area is `Triage` |
+| every choice on an item asks for the change it names, for that item | circular - it restates the label instead of stating what must hold |
 | The panel contents query filters on assignment and excludes deleted rows | true, and still a mechanism statement |
 | Actions work correctly | not falsifiable |
 
-Good: *A panel shows exactly the actions assigned to it.* *A repeated command changes nothing the second time.* *An invalid command is rejected and writes nothing.*
+Good: *A panel shows exactly the actions assigned to it.* *A change replayed after reconnecting is applied only once.* *A change to an item that no longer exists is refused and nothing is stored.* *A dismissed item leaves the lists but is never erased.*
 
-Prefer a rule whose **table grows as the product grows**: one "an invalid command is rejected and writes nothing" with rows, not one rule per validation. On the frontend, "a command that fails puts the screen back" absorbs every command.
+Prefer a rule whose **table grows as the product grows**: one "a change to an item that no longer exists is refused and nothing is stored" with a row per change, not one rule per endpoint. On the frontend, "a change that fails puts the screen back" absorbs every one of them.
 
 **Frontend rules are about the UI's own behaviour and its wiring, never a restatement of a backend rule.** Bad: a browser test for "removing an action from a panel leaves it on the other panels". Good: "the remove control sends a remove for this panel" - plus, separately, one browser walk per capability.
 
@@ -135,15 +166,15 @@ If step 3 reveals a failure the tests missed, add the missing test before finish
 
 Verify against `package.json` before relying on any of this - the section goes stale.
 
-- **One service**, so there is no horizontal boundary except third parties: L2 and L3 collapse, and the API-in-process tests against a real local D1 are the backend tests. L3 becomes a real tier the day a second service exists.
-- **Runner:** Vitest (`apps/api`, `packages/shared`). No browser runner yet, so F3 is done manually through the browser tooling until one lands.
-- **`pnpm test`** runs `-r test` across packages. Per-level scripts (`test:unit`, `test:integration`, `test:f-unit`, `test:f-service`, `test:e2e`, `test:contract`, plus `test:fast` and `test:all`) are the target shape; add the one you need rather than folding a new level into an existing command.
-- **The per-level folders under "Where the test goes" do not all exist yet**, and two tests still sit in the source tree ([apps/api/src/domain/items.test.ts](../../../apps/api/src/domain/items.test.ts), [packages/shared/src/shared.test.ts](../../../packages/shared/src/shared.test.ts)). Create the folder when adding the first test of that level; move the strays when touching them.
+- **One service**, so there is no horizontal boundary except third parties: L2 and L3 collapse, and the API-in-process tests against a real local D1 (`@cloudflare/vitest-pool-workers`, `apps/api/vitest.config.ts`) are the backend tests. L3 becomes a real tier the day a second service exists. "API-in-process" means through `SELF.fetch(...)` (bound to the Worker's own default export, see `apps/api/tests/integration/http/item-changes.test.ts`), never by importing and calling a handler function directly - see "Enter through the real interface, not around it" above.
+- **Runner:** Vitest everywhere (`apps/api`, `packages/shared`, `apps/web`). No browser runner yet, so F3 is done manually through the browser tooling until one lands.
+- **`pnpm test`** runs `-r test` across packages. Populated per-level scripts today: `apps/api` has `test:unit` and `test:integration`; `packages/shared` and `apps/web` have `test:unit`/`test:f-unit` only, since neither has a real vertical dependency to integration-test against. Every package also has `test:fast` and `test:all`, and the root has `pnpm test:fast` / `pnpm test:all` to run them across the workspace. `test:f-service`, `test:e2e` and `test:contract` stay unadded until something needs that level - add the one you need rather than folding a new level into an existing command.
+- **The per-level folders under "Where the test goes" are populated**: `apps/api/tests/{unit,integration}`, `packages/shared/tests/unit`, `apps/web/tests/unit`. No stray tests remain in any `src/` tree.
 - **Starting the app** (needed by the definition of done): `pnpm dev:api` on :8787 and `pnpm dev:web` on :5173, after `pnpm build` and the one-time `db:migrate:local` / `db:seed:local`. Full sequence in [readme.md](../../../readme.md).
 
 ## Reviewing tests
 
-Reject: tests at the wrong level; coverage duplicated upward; L1/F1 tests with real dependencies or interaction-choreography assertions; L2/F2 tests with horizontal dependencies; a capability with no frontend test; a test named after a mechanism rather than the product; a surviving todo; a "done" claim not backed by the definition of done.
+Reject: tests at the wrong level; coverage duplicated upward; L1/F1 tests with real dependencies or interaction-choreography assertions; L2/F2 tests with horizontal dependencies; an L2/L3/F2 test that calls an internal function instead of entering through the service's real interface; a capability with no frontend test; an outer describe that is not a feature area; a rule **or table label** carrying a word the Glossary does not have (run the grep above), or a rule so circular it restates its own label; a surviving todo; a "done" claim not backed by the definition of done.
 
 Prefer making a violation impossible over catching it in review: no network or filesystem in the unit runner, lint rules banning API-client imports under unit folders, a CI job per level, and the time budget checked in CI.
 

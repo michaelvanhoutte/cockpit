@@ -1,4 +1,4 @@
 {
   "extends": "@cockpit/config/tsconfig.base.json",
-  "include": ["src"]
+  "include": ["src", "tests"]
 }
