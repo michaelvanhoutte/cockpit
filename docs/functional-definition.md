@@ -322,7 +322,16 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Workspace** — top-level context and privacy boundary (Work, Personal, Customer 1…); defines which sources are connected.
 - **Page** — a switchable named view inside a Workspace; holds a layout of Panels.
 - **Panel** — a movable, resizable, titled box that displays a filtered set of Items.
-- **Item** — any normalized piece of content from a source (email, message, page, event…).
+- **Item** — the single object everything is stored as: any normalized piece of content, whether it arrived from a source (email, message, page, event…) or was created in the app. **Action** and **Thought** are *types* of Item, not separate objects.
+- **Action** — an Item representing something to do: a follow-up, a to-do, a task assigned to you. One source Item can produce several Actions.
+- **Thought** — an Item created in the app itself as a note or idea, with no source behind it.
 - **Association** — a link from an Item to a Person, Project, Topic, or Focus flag; many-to-many, which is why an Item can appear in several Panels.
+- **Capture** — creating an Item directly in the app instead of receiving it from a source.
+- **Status** — where an Item stands: To Process, Task, Waiting, Snoozed, Delegated, Reference, Done, Dismissed.
+- **Snooze** — hiding an Item until a chosen date, after which it returns to view.
+- **Priority** — low / normal / high importance flag on an Item, independent of its Focus horizon.
+- **Next action** — the short, always-editable label describing what to actually do about an Item.
 - **Focus horizon** — Today / This Week / This Month / This Quarter priority flag on an Item, date-anchored so it escalates to overdue.
 - **Triage / process** — the act of assigning associations and a status to an Item so it leaves the To-Process inbox.
+
+This glossary is the product's vocabulary, and it is binding on anything written to be read as a description of the product — test names included (see `docs/testing-strategy.md`, "Tests are named in the product's language"). Words that live only in `docs/architecture.md` (command, envelope, tombstone, idempotency, last-write-wins) are implementation, and stay there.

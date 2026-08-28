@@ -65,6 +65,35 @@ Deletes the local branches left behind by merged PRs, prunes worktree metadata f
 
 It keys on the upstream being gone rather than on `git branch --merged`, because the squash-merge rule above makes `--merged` permanently answer "no": a branch's commits never reach the trunk, only a new commit carrying their content. GitHub deletes the remote branch when a PR merges, so an orphaned local branch is a merged one — and that is the signal. Branches that were never pushed have no such signal, so the script reports them for you to judge rather than guessing.
 
+## Tests
+
+Read [docs/testing-strategy.md](docs/testing-strategy.md) (the reasoning) or `.claude/skills/testing/` (the binding rules, restated so an agent never has to open the strategy doc to write a test) before adding, moving, or reviewing a test. The short version: pick the lowest level that can prove a behaviour, and never claim something works from green tests alone — the application has to actually be started and the change exercised in it.
+
+```bash
+# everything, as CI would
+pnpm test:all
+
+# just the fast tiers — unit + frontend component tests, no database spin-up;
+# run this constantly while you work
+pnpm test:fast
+
+# same as test:all right now, kept for muscle memory
+pnpm test
+```
+
+One package at a time, when you only want the tests near what you're touching:
+
+```bash
+pnpm --filter @cockpit/shared test:unit       # domain types, schemas, ids — no real dependencies
+pnpm --filter @cockpit/api test:unit          # domain logic — no real dependencies
+pnpm --filter @cockpit/api test:integration   # command handling against a real local D1 (~15s, not in test:fast)
+pnpm --filter @cockpit/web test:f-unit        # component logic, API client mocked at the boundary
+```
+
+For a live-reloading loop while writing a test, run vitest directly instead of the `run`-only package script, e.g. `pnpm --filter @cockpit/web exec vitest`.
+
+Tests never require `pnpm dev` to be running — `apps/api`'s integration tests spin up their own ephemeral, real D1 instance for the duration of the run (`@cloudflare/vitest-pool-workers`), separate from whatever `pnpm dev` would start. `pnpm dev` is for the other required step: manually exercising the changed behaviour in the browser, which the testing strategy treats as non-negotiable proof that green tests alone can't provide.
+
 ## Proofs of concept
 
 - [poc/prototype](poc/prototype/) — the original clickable HTML/CSS/JS mockup this app is converted from. Open `poc/prototype/index.html` directly in a browser; no build step. Kept until the app covers everything it demonstrates.

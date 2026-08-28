@@ -165,23 +165,37 @@ The two tests that exist today move out of `apps/api/src/domain/` and
 
 ## A test says which part of the product it belongs to by its outer describe
 
-The product concept is the outer block, the rule is the one inside it.
+The feature area is the outer block, the rule is the one inside it.
 
 ```ts
-describe('action.assign', () => {
-  describe('a panel shows exactly the actions assigned to it', () => {
+describe('Triage', () => {
+  describe('a dismissed item leaves the lists but is never erased', () => {
     // cases
   });
 });
 ```
 
-The reporter prints `action.assign > a panel shows exactly the actions assigned to
-it > an action deleted > does not appear in panel A`. The explorer splits on the first
-part. No plugin, no runner-specific feature, greppable, and it survives changing test
-framework.
+The reporter prints `Triage > a dismissed item leaves the lists but is never erased >
+records when it was dismissed`, and the explorer groups on that outer block. No plugin,
+no runner-specific feature, greppable, and it survives changing test framework.
 
-There is no separate list of product concepts to maintain. A lint rule checks only
-that the outer describe looks like a dotted name.
+The area is a part of the product someone would name if asked what the app does -
+`Capture`, `Triage`, `Dashboards`, `Panels`, `Focus`, `Associations`, `Offline`,
+`Connector management` - not an entity and not an operation. A dotted `concept.verb`
+form was tried first and dropped: `item.process`, `item.change` and `item.identity`
+all look like well-formed concept names while actually naming objects and functions,
+and a statement list built from them cannot be read as a description of the product.
+
+The vocabulary is not a separate list to maintain either - it is the Glossary at the
+end of `docs/functional-definition.md`, so the words tests use and the words the
+product is defined in cannot drift apart. That also gives the lint rule something
+real to check (an outer describe whose words are in the Glossary) rather than a
+shape check like "looks dotted", which is what let the rejected names through.
+
+**Consequence for the coverage explorer.** `poc/coverage-explorer` currently splits
+concepts on the first dotted segment of a describe name, which assumed a shape like
+`action.assign`. An undotted feature area breaks that assumption; the POC is untouched
+and its splitting logic needs updating before it is relied on again.
 
 ## Seeing what isn't tested
 
