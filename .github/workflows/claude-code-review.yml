@@ -69,7 +69,10 @@ jobs:
           fi
 
           if [ -z "$EXECUTION_FILE" ] || [ ! -f "$EXECUTION_FILE" ]; then
-            fail "No execution output file was produced, so the review cannot be verified."
+            fail "The review produced no execution output, so it did not run."
+            if [ -z "$CONCLUSION" ]; then
+              echo "::notice::The action sets no outputs when it skips itself. The usual cause is its workflow validation: it refuses to run when this workflow file differs from the copy on the default branch, which is the case on any pull request that edits it. That is expected here, but it still means this pull request was not reviewed, so the check is red rather than a green tick that would imply it was."
+            fi
             exit 1
           fi
 
