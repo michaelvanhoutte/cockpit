@@ -29,13 +29,14 @@ Two directions of dependency are distinguished:
 | Level | Vertical deps | Horizontal deps | Purpose |
 |---|---|---|---|
 | **L1: Unit** | **No real ones.** | **No real ones.** | Prove logic: calculations, branching, validation, error paths, edge cases. This is where correctness is exhaustively tested. |
-| **L2: Integration** | Allowed (real DB, real queue, real storage of *this* service) | **Forbidden. Use fakes for all cross-service calls.** | Prove that the service's logic works against its own real infrastructure: queries return what the code assumes, migrations match the models, transactions behave. |
+| **L2: Integration** | Allowed (real DB, real queue, real storage of *this* service) | **Forbidden. Use fakes for all cross-service calls.** | Prove that the service works against its own real infrastructure, entered the way a real caller enters it: queries return what the code assumes, migrations match the models, transactions behave, and requests are actually routed, validated and answered correctly. |
 | **L3: System** | Allowed, full | Allowed, full (real services; third parties per §3) | Backend-only. Prove that services wired together actually work end to end at the API level. No browser. |
 
 Hard rules per level:
 
 - **L1 unit tests may not touch:** the filesystem, the network, a database, a clock (inject time), environment variables, global state, or any other process. If a test needs any of those, it is not a unit test; move it up a level or refactor the code so the logic is testable in isolation.
 - **L2 integration tests** exercise one service plus its own infrastructure, nothing else. A test that spins up two services is a system test, no matter what folder it sits in.
+- **L2/L3 tests must enter through the service's own real interface** (its HTTP app, a queue consumer, etc.), not by importing and calling an internal function directly. The interface - routing, request validation, response and error serialization - is as much a part of "the service's own real infrastructure" as its database is. Calling an internal function skips it silently: the test still touches real infrastructure and still passes, but the entire interface layer ends up with no coverage anywhere in the pyramid, and nothing marks the gap until a routing or validation bug reaches production. The same logic applies to F2: exercise the frontend's real HTTP call, not the backend's handler function imported into a frontend test.
 - **L3 system tests** are the only backend tests allowed to cross service boundaries.
 
 ### Mocking discipline (applies to L1 and F1)
@@ -129,8 +130,20 @@ frontend/tests/
 
 Each level gets its own runner command (e.g. `test:unit`, `test:integration`, `test:system`, `test:f-unit`, `test:f-service`, `test:e2e`, `test:contract`), plus `test:fast` (all fast tiers) and `test:all`. CI runs `test:all` on merge and `test:contract` on schedule; agents follow §6.
 
+### 9.1 Tests are named in the product's language, not the implementation's
+
+The outer `describe` is a **feature area of the product** — the parts a person would name if asked what the app does (Capture, Triage, Dashboards, Panels, Focus, Associations, Offline, Connector management, User management). The block inside it states the rule in product language; the cases are a table inside that body. The runner then prints the statement list itself, so nothing is stored separately and nothing goes stale.
+
+The area is deliberately not the entity and not the operation: `item.setStatus`, `command.idempotency` and `item.change` all name an object or a function rather than a part of the product, and a statement list built from those cannot be read as a description of what the app does. The area is also not the file — one file commonly spans several areas, and an area commonly spans several files and levels.
+
+**The Glossary at the end of `docs/functional-definition.md` is the binding vocabulary**, and the architecture document is the mechanism whose words must not appear in anything the runner prints. This is checkable rather than a matter of taste: a word that appears in `docs/architecture.md` but not in the functional definition is an implementation word. "Command", "envelope", "tombstone", "idempotency" and "last-write-wins" are all real and correct, and all belong inside the test body. Where the product genuinely does something the Glossary has no word for, the Glossary gains the word in the same change — a private synonym invented in a test file is how the two vocabularies drift apart.
+
+This applies to **everything the runner prints**, which includes the case labels of a table. A label interpolating an internal identifier (an `it.each` printing `set_status`, `snooze_until`) puts the mechanism into the statement list exactly as a mechanism-named `describe` would; the table carries a product-language field instead.
+
+The failure this prevents is a statement list that cannot be read as a description of the product — at which point it stops being reviewable by anyone deciding whether the right things are being proven, which is the only reason to state rules this way at all.
+
 ## 10. Enforcement
 
-- A code review (human or agent) must reject: tests at the wrong level, upward duplication of coverage, L1/F1 tests with real dependencies or interaction-choreography assertions (§2, Mocking discipline), L2/F2 tests with horizontal dependencies, capabilities without an F-level test, and any "done" claim not backed by the runs required in §6.
+- A code review (human or agent) must reject: tests at the wrong level, upward duplication of coverage, L1/F1 tests with real dependencies or interaction-choreography assertions (§2, Mocking discipline), L2/F2 tests with horizontal dependencies, an L2/L3/F2 test that bypasses the service's real interface by calling an internal function directly (§2, hard rules), capabilities without an F-level test, and any "done" claim not backed by the runs required in §6.
 - Where tooling allows, restrictions must be enforced mechanically rather than by review: network and filesystem access disabled in the unit-test runner, lint rules banning API-client imports under the unit-test directories, CI jobs split per level so misplaced tests are visible, and the fast-tier time budget (§7) checked in CI. Prefer making violations impossible over catching them in review.
 - The project's `CLAUDE.md` must require reading this document before writing or modifying tests, and must document the one-command way to start the application, because §6.2 is only enforceable if starting the app is trivial.

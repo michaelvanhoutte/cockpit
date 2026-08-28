@@ -9,7 +9,10 @@
   },
   "scripts": {
     "typecheck": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:fast": "pnpm test:unit",
+    "test:all": "pnpm test:unit"
   },
   "dependencies": {
     "zod": "^4.4.3"

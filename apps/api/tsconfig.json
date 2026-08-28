@@ -1,7 +1,7 @@
 {
   "extends": "@cockpit/config/tsconfig.base.json",
   "compilerOptions": {
-    "types": ["@cloudflare/workers-types"]
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
   },
-  "include": ["src", "drizzle.config.ts"]
+  "include": ["src", "tests", "drizzle.config.ts", "vitest.config.ts"]
 }

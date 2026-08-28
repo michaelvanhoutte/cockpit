@@ -12,6 +12,10 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc",
     "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:fast": "pnpm test:unit",
+    "test:all": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cockpit --local",
     "db:seed:local": "wrangler d1 execute cockpit --local --file=./seed.sql"
@@ -25,7 +29,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260812.1",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260828.1",
     "@cockpit/config": "workspace:*",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5.9.0",
