@@ -16,7 +16,7 @@ cockpit/
 │   ├── connector-sdk/ # the connector SPI (connectors land as packages/connectors/*)
 │   └── config/        # shared tsconfig / prettier
 ├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
-├── scripts/           # branch-alias derivation for preview URLs (+ its assertions)
+├── scripts/           # local dev startup, branch-alias derivation (+ its assertions), branch tidying
 ├── .github/           # CI and the three deploy workflows (§9.1)
 └── poc/               # proofs of concept (kept; they are part of the showcase)
 ```
@@ -61,6 +61,16 @@ pnpm dev:web
 ```
 
 `pnpm typecheck` and `pnpm test` run across all packages.
+
+### Tidying up branches
+
+```bash
+pnpm branches:tidy        # --dry-run to see the plan without deleting
+```
+
+Deletes the local branches left behind by merged PRs, prunes worktree metadata for directories that no longer exist, and lists (without deleting) the branches that were never pushed.
+
+It keys on the upstream being gone rather than on `git branch --merged`, because the squash-merge rule above makes `--merged` permanently answer "no": a branch's commits never reach the trunk, only a new commit carrying their content. GitHub deletes the remote branch when a PR merges, so an orphaned local branch is a merged one — and that is the signal. Branches that were never pushed have no such signal, so the script reports them for you to judge rather than guessing.
 
 ## Proofs of concept
 
