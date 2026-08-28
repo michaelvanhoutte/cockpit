@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { uuidv7 } from '../../src/ids.js';
+import { uuidv7, uuidv7Timestamp } from '../../src/ids.js';
 
 /**
  * Why this exists at all: the app is local-first, so an item captured with no
@@ -20,6 +20,30 @@ describe('Offline', () => {
       const earlier = uuidv7(1_000_000_000_000);
       const later = uuidv7(1_000_000_000_001);
       expect(earlier < later).toBe(true);
+    });
+  });
+
+  describe('the time an item was captured can be read back off its identifier', () => {
+    const moments = [
+      { name: 'the epoch', now: 0 },
+      { name: 'a recent capture', now: 1_756_000_000_000 },
+      { name: 'a capture at the furthest moment an identifier can record', now: 2 ** 48 - 1 },
+    ];
+
+    it.each(moments)('$name survives the round trip', ({ now }) => {
+      expect(uuidv7Timestamp(uuidv7(now))).toBe(now);
+    });
+
+    const notOurs = [
+      { name: 'an empty string', id: '' },
+      { name: 'an identifier issued by something other than Cockpit', id: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d' },
+      { name: 'an identifier that is the right shape but not one we issue', id: '018f0000-0000-7000-0000-000000000000' },
+      { name: 'one of our identifiers with a character too many', id: `${uuidv7()}0` },
+      { name: 'prose', id: 'not an id' },
+    ];
+
+    it.each(notOurs)('$name carries no capture time', ({ id }) => {
+      expect(uuidv7Timestamp(id)).toBeNull();
     });
   });
 });

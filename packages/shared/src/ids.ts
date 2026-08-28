@@ -24,3 +24,17 @@ export function uuidv7(now: number = Date.now()): string {
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+
+/**
+ * The creation time a UUIDv7 carries in its first 48 bits, in epoch milliseconds.
+ * Returns null for anything that is not a UUIDv7, so a caller that reads an ID
+ * from storage or a wire payload does not have to trust it is well-formed.
+ */
+export function uuidv7Timestamp(id: string): number | null {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    return null;
+  }
+
+  const hex = id.slice(0, 13).replace('-', '');
+  return Number.parseInt(hex, 16);
+}
