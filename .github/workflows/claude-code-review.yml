@@ -129,18 +129,20 @@ jobs:
             fail "The review session ended with subtype='$SUBTYPE'."
           fi
 
-          if [ "$TURNS" -lt "$MIN_TURNS" ]; then
-            fail "The review finished in $TURNS turns (minimum $MIN_TURNS). A real review of a pull request does not finish that fast."
-          fi
-
-          # The turn count is a weak signal on its own: run 33201638348 spent 11
-          # turns and then stopped with "Waiting on the eligibility check for PR
-          # #56 before proceeding", having reviewed nothing. What actually
-          # separates a review from a non-review is whether Claude said anything
-          # on the pull request. With --comment every path that reaches a verdict
+          # The turn count is the wrong instrument. It is too weak to catch a
+          # non-review - run 33201638348 spent 11 turns and stopped with
+          # "Waiting on the eligibility check for PR #56 before proceeding" -
+          # and strict enough to fail a correct one: run 33203441279 stopped
+          # after 5 clean turns because the review had already run on this pull
+          # request and the command says to stop when it has. It is a warning
+          # below, never a failure.
+          #
+          # What actually separates a review from a non-review is whether Claude
+          # said anything on the pull request. With --comment every path that reaches a verdict
           # posts something - inline comments when there are findings, a summary
           # comment when there are none - and the one skip that posts nothing,
           # "Claude already reviewed this", leaves an earlier comment standing.
+          VERDICT_SEEN=0
           PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state,isDraft -q '"\(.state) \(.isDraft)"')
           if [ "$PR_STATE" = "OPEN false" ]; then
             SAID=$( {
@@ -154,6 +156,7 @@ jobs:
                 fail "It was blocked by $DENIALS permission denial(s) (${DENIED_TOOLS:-see log}), which is the likely reason."
               fi
             else
+              VERDICT_SEEN=1
               echo "- Claude has $SAID comment(s) on this pull request." >> "$GITHUB_STEP_SUMMARY"
               # Every tool the review needs is allowlisted, so a denial here is
               # a tool we deliberately withheld - run 33202686222 was a
@@ -176,4 +179,10 @@ jobs:
             exit 1
           fi
 
-          echo "- OK: reviewed in $TURNS turns, and Claude posted its verdict on the pull request." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$TURNS" -lt "$MIN_TURNS" ] && [ "$VERDICT_SEEN" -eq 1 ]; then
+            echo "::warning::The session ran only $TURNS turns, and Claude has already posted on this pull request - most likely the review declining because it had reviewed this pull request before, in which case the commits pushed since then have not been looked at. Its closing words: $FINAL"
+          elif [ "$TURNS" -lt "$MIN_TURNS" ]; then
+            echo "::warning::The session ran only $TURNS turns. Its closing words: $FINAL"
+          fi
+
+          echo "- OK: $TURNS turns, no unexplained denials, and Claude has posted its verdict on the pull request." >> "$GITHUB_STEP_SUMMARY"
