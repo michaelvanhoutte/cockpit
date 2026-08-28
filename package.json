@@ -12,6 +12,7 @@
     ]
   },
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "dev:api": "pnpm --filter @cockpit/api dev",
     "dev:web": "pnpm --filter @cockpit/web dev",
     "build": "pnpm -r build",
