@@ -93,6 +93,7 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 
 ## 10. Development process
 
-- **A skill to create issues.**
-- **Issues must be small enough** that you can control what is tested.
-- **Issues cannot be the long-term link.** The durable link has to be to *features*, because features change while issues are closed and left behind.
+- **A skill to create issues.** *(Implemented: [.claude/skills/github-issue/SKILL.md](../.claude/skills/github-issue/SKILL.md).)*
+- **Issues must be small enough** that you can control what is tested. *(Enforced there as a vertical-slice size gate.)*
+- **Issues cannot be the long-term link.** The durable link has to be to *features*, because features change while issues are closed and left behind. *(The skill's statement list says explicitly that it stops being the reference once the issue is built; the source becomes the truth from then on, per testing-strategy.md.)*
+- **Migrate the glossary/ADR layout?** mattpocock-skills' `domain-modeling` (`CONTEXT.md` + `docs/adr/`) came up while building the issue-creation skill. `functional-definition.md`'s glossary (§4, §14) maps closely onto `CONTEXT.md`'s format - close to a rename. `architecture.md`'s decisions are a different matter: they live as prose sections inside one narrative document (e.g. "5.3 The local-first decision, recorded"), and splitting those into individual `docs/adr/NNNN-slug.md` files is a real decomposition, not a mechanical move. Deferred - not part of the issue-creation skill, and worth deciding on its own footing.
