@@ -9,13 +9,13 @@ description: Cockpit's binding rules for tests - which level a test goes at, whe
 
 The premise: writing tests is nearly free, running them is not. Every test is a permanent tax on every future change. Cheap to write does not mean cheap to own.
 
-## 1. Pick the level: lowest that can prove the behaviour
+## Pick the level: lowest that can prove the behaviour
 
 Ask in order, stop at the first yes:
 
 1. Can a **unit test** prove it? Write a unit test.
 2. Does it need a real vertical dependency (real DB query, real schema, real serialization)? Write an **integration test** covering *only* the part the unit test could not.
-3. Does it only exist when services talk to each other? Write a **system test** covering *only* the cross-service wiring. (Cockpit has one service today, so this tier does not exist yet - see §7.)
+3. Does it only exist when services talk to each other? Write a **system test** covering *only* the cross-service wiring. (Cockpit has one service today, so this tier does not exist yet - see "This repo, today".)
 4. User-visible? Same ladder on the frontend: frontend unit → frontend + its own backend → end-to-end browser.
 
 **Duplicating coverage upward is a violation.** If a unit test proves the calculation, the integration test proves only that the calculation is reachable and wired correctly, never that it is correct.
@@ -29,7 +29,7 @@ The reason for escalating must name what stops a lower level proving it:
 
 Escalating because a unit test would prove nothing is the rule working, not an exception to it.
 
-## 2. Dependency restrictions per level
+## Dependency restrictions per level
 
 Two directions. **Vertical** = infrastructure this service owns (its DB, queue, storage). **Horizontal** = anything crossing a service boundary (other services, Slack/Notion/Teams/WhatsApp/Mail, the network).
 
@@ -52,7 +52,7 @@ Two directions. **Vertical** = infrastructure this service owns (its DB, queue, 
 
 **Third parties.** Never at L1/F1. At L2/F2 and per-change L3/F3, use local fakes or fixtures recorded from real responses (not hand-invented shapes), checked into the repo. Live contract tests run on a schedule only, against the real APIs, purely to verify the fixtures still match reality. A failing contract test makes updating the fixture priority work.
 
-## 3. Where the test goes
+## Where the test goes
 
 Folders per level, inside the package that owns them. A folder is a boundary that can be policed; filenames are not.
 
@@ -66,7 +66,7 @@ tests/e2e/                                       repo root - belongs to no packa
 
 Mirror the source layout inside `unit/` so an untested module stays visible. Levels with no reason to exist yet stay absent - never create an empty folder to populate the taxonomy.
 
-## 4. Name it after the product, not the mechanism
+## Name it after the product, not the mechanism
 
 The **outer describe is the product concept as a dotted name**; the block inside it is the rule in product language.
 
@@ -105,7 +105,7 @@ describe.each(situations)('an action $name', (s) => {
 });
 ```
 
-## 5. Mandatory coverage
+## Mandatory coverage
 
 1. **Every capability has at least one frontend test** (F3, or F2 where F3 genuinely cannot reach it) proving it works for a user. Unit and integration tests never count as proof that a capability works.
 2. **Every bug fix gets a regression test at the lowest level that reproduces the bug.**
@@ -115,15 +115,15 @@ describe.each(situations)('an action $name', (s) => {
 
 Tests are for confidence, not for covering everything. A case no plausible implementation could get wrong is padding, and padding makes a list unreviewable. Cut a case only when it has **no distinct path** (same data, same query, same parameters) or is **already exercised** (something else runs that code and would go red if it broke). "It is obvious" and "it would be hard to get wrong" are not reasons on their own. Do not over-prune: if there is a distinct query, branch or decision behind a case, keep it however obvious it looks.
 
-## 6. Definition of done - non-negotiable
+## Definition of done - non-negotiable
 
 Do not claim something works until all of these hold:
 
 1. **Fast tiers (L1, L2, F1, F2) run in full and pass.** No selection, no "only the tests near my change".
 2. **Slow tiers (L3, F3): every test covering the capabilities touched by the change.** Select by capability, include when in doubt. "I selected too narrowly" is never a valid explanation for a broken merge.
-3. **The application was actually started and the changed behaviour exercised.** Green unit and integration tests are never evidence that the app runs - the failure mode this exists to prevent is an all-green suite over an app that crashes on startup. Use the F3 suite where one covers it, otherwise start the app (§7) and drive it in the browser.
+3. **The application was actually started and the changed behaviour exercised.** Green unit and integration tests are never evidence that the app runs - the failure mode this exists to prevent is an all-green suite over an app that crashes on startup. Use the F3 suite where one covers it, otherwise start the app (commands under "This repo, today") and drive it in the browser.
 4. **Results reported faithfully.** Failures quoted with their output. Any tier skipped or narrowed stated, with why. Never a success claim over a partial run without saying what was left out.
-5. **New tests sit at the right level and respect §2.** A misplaced test gets moved, not grandfathered in.
+5. **New tests sit at the right level and respect the dependency restrictions above.** A misplaced test gets moved, not grandfathered in.
 
 If step 3 reveals a failure the tests missed, add the missing test before finishing - the gap in the pyramid is itself a bug.
 
@@ -131,19 +131,19 @@ If step 3 reveals a failure the tests missed, add the missing test before finish
 
 **Flakiness.** Never retry-to-green; never weaken assertions, widen tolerances or add sleeps. Fix immediately or quarantine with an owner and an open bug; a test that stays quarantined is deleted.
 
-## 7. This repo, today
+## This repo, today
 
 Verify against `package.json` before relying on any of this - the section goes stale.
 
 - **One service**, so there is no horizontal boundary except third parties: L2 and L3 collapse, and the API-in-process tests against a real local D1 are the backend tests. L3 becomes a real tier the day a second service exists.
 - **Runner:** Vitest (`apps/api`, `packages/shared`). No browser runner yet, so F3 is done manually through the browser tooling until one lands.
 - **`pnpm test`** runs `-r test` across packages. Per-level scripts (`test:unit`, `test:integration`, `test:f-unit`, `test:f-service`, `test:e2e`, `test:contract`, plus `test:fast` and `test:all`) are the target shape; add the one you need rather than folding a new level into an existing command.
-- **The per-level folders in §3 do not all exist yet**, and two tests still sit in the source tree ([apps/api/src/domain/items.test.ts](../../../apps/api/src/domain/items.test.ts), [packages/shared/src/shared.test.ts](../../../packages/shared/src/shared.test.ts)). Create the folder when adding the first test of that level; move the strays when touching them.
-- **Starting the app** (needed for §6.3): `pnpm dev:api` on :8787 and `pnpm dev:web` on :5173, after `pnpm build` and the one-time `db:migrate:local` / `db:seed:local`. Full sequence in [readme.md](../../../readme.md).
+- **The per-level folders under "Where the test goes" do not all exist yet**, and two tests still sit in the source tree ([apps/api/src/domain/items.test.ts](../../../apps/api/src/domain/items.test.ts), [packages/shared/src/shared.test.ts](../../../packages/shared/src/shared.test.ts)). Create the folder when adding the first test of that level; move the strays when touching them.
+- **Starting the app** (needed by the definition of done): `pnpm dev:api` on :8787 and `pnpm dev:web` on :5173, after `pnpm build` and the one-time `db:migrate:local` / `db:seed:local`. Full sequence in [readme.md](../../../readme.md).
 
-## 8. Reviewing tests
+## Reviewing tests
 
-Reject: tests at the wrong level; coverage duplicated upward; L1/F1 tests with real dependencies or interaction-choreography assertions; L2/F2 tests with horizontal dependencies; a capability with no frontend test; a test named after a mechanism rather than the product; a surviving todo; a "done" claim not backed by §6.
+Reject: tests at the wrong level; coverage duplicated upward; L1/F1 tests with real dependencies or interaction-choreography assertions; L2/F2 tests with horizontal dependencies; a capability with no frontend test; a test named after a mechanism rather than the product; a surviving todo; a "done" claim not backed by the definition of done.
 
 Prefer making a violation impossible over catching it in review: no network or filesystem in the unit runner, lint rules banning API-client imports under unit folders, a CI job per level, and the time budget checked in CI.
 

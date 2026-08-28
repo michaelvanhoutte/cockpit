@@ -1,6 +1,6 @@
 # Generating a statement list for an issue
 
-A statement list is what gets reviewed before any test is written: the rules an issue must make true, in product language, with the cases that exercise each one. It is drafted while the issue is being written, because that is where the scope is small enough to reason about. It does not stay in the issue - it ends up in the source as test names (SKILL.md §4), because a statement written against a change goes stale silently and nothing would mark it as outdated.
+A statement list is what gets reviewed before any test is written: the rules an issue must make true, in product language, with the cases that exercise each one. It is drafted while the issue is being written, because that is where the scope is small enough to reason about. It does not stay in the issue - it ends up in the source as test names, per "Name it after the product" in SKILL.md, because a statement written against a change goes stale silently and nothing would mark it as outdated.
 
 The method below was worked out by generating and pruning the list for issue #36; the result is [docs/statements-issue-36-experiment.md](../../../../docs/statements-issue-36-experiment.md). The abstract version of this guidance produced a bad list twice, so every rule here carries its example.
 
@@ -11,7 +11,7 @@ The method below was worked out by generating and pruning the list for issue #36
 3. **Collapse the surface into rules.** Find the rule that several surface behaviours are consequences of, and write the rule instead.
 4. **Build each rule's table.** The situations that exercise it, and the places each situation is checked against.
 5. **Prune.**
-6. **Choose a level per rule**, with a one-clause reason, per SKILL.md §1.
+6. **Choose a level per rule**, with a one-clause reason, per "Pick the level" in SKILL.md.
 7. **Add the ways-things-break checklist as rules**, not as cases sprinkled through the feature rules.
 8. **List what the issue does not answer**, moving anything that is really a missing case into the rule where it belongs.
 
