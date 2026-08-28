@@ -129,10 +129,6 @@ jobs:
             fail "The review session ended with subtype='$SUBTYPE'."
           fi
 
-          if [ "$DENIALS" -gt 0 ]; then
-            fail "The review was blocked by $DENIALS permission denial(s) (${DENIED_TOOLS:-see log}), so it could not gather what it needed. Its silence is not evidence the code is clean."
-          fi
-
           if [ "$TURNS" -lt "$MIN_TURNS" ]; then
             fail "The review finished in $TURNS turns (minimum $MIN_TURNS). A real review of a pull request does not finish that fast."
           fi
@@ -154,8 +150,22 @@ jobs:
             } | grep -ci '^claude' || true )
             if [ "$SAID" -eq 0 ]; then
               fail "The review posted nothing on this pull request. A review that reaches a verdict always says so, so this one did not reach one."
+              if [ "$DENIALS" -gt 0 ]; then
+                fail "It was blocked by $DENIALS permission denial(s) (${DENIED_TOOLS:-see log}), which is the likely reason."
+              fi
             else
               echo "- Claude has $SAID comment(s) on this pull request." >> "$GITHUB_STEP_SUMMARY"
+              # Every tool the review needs is allowlisted, so a denial here is
+              # a tool we deliberately withheld - run 33202686222 was a
+              # validation agent reaching for node -e to execute the pull
+              # request's own logic, which is not something to grant a review of
+              # untrusted code on a public repository. It adapted and posted its
+              # findings anyway. Failing that run would train everyone to ignore
+              # this check, so a denial is only fatal when no verdict landed.
+              if [ "$DENIALS" -gt 0 ]; then
+                echo "::warning::The review reached a verdict but $DENIALS tool call(s) were denied (${DENIED_TOOLS:-see log}). Worth a look if its findings seem thin."
+                echo "- Note: $DENIALS denied tool call(s): ${DENIED_TOOLS:-see log}." >> "$GITHUB_STEP_SUMMARY"
+              fi
             fi
           else
             echo "- Skipping the posted-comment check: the pull request is $PR_STATE (state isDraft), which the review is entitled to skip." >> "$GITHUB_STEP_SUMMARY"
@@ -166,4 +176,4 @@ jobs:
             exit 1
           fi
 
-          echo "- OK: reviewed in $TURNS turns with no permission denials." >> "$GITHUB_STEP_SUMMARY"
+          echo "- OK: reviewed in $TURNS turns, and Claude posted its verdict on the pull request." >> "$GITHUB_STEP_SUMMARY"
