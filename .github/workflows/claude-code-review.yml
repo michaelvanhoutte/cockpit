@@ -3,25 +3,14 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      # write, not read: the review posts inline comments and a summary comment.
+      pull-requests: write
       issues: read
       id-token: write
 
@@ -29,16 +18,106 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          # The review's fourth agent reads git blame/history for context.
+          # fetch-depth: 1 leaves it with no history to read.
+          fetch-depth: 0
 
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Review commits pushed by the @claude workflow too. An explicit name
+          # rather than '*': this repo is public, and '*' would let any GitHub
+          # App trigger this workflow with a prompt it controls.
+          allowed_bots: 'claude[bot]'
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
+          # --comment is what makes the review post. Without it the command
+          # stops after printing to a terminal nobody reads.
+          prompt: '/code-review:code-review --comment https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          # The slash command declares its own allowed-tools, but the subagents
+          # it launches do not inherit them, so every gh/git call was denied.
+          claude_args: >-
+            --allowedTools "Task,Read,Grep,Glob,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git log:*),Bash(git blame:*),Bash(git diff:*),Bash(git show:*),mcp__github_inline_comment__create_inline_comment"
+          # Without this the action hides tool output, so a blocked review is
+          # indistinguishable from a clean one.
+          show_full_output: true
 
+      - name: Assert the review actually ran
+        if: always()
+        # bash without -e: this step decides for itself what is fatal.
+        shell: bash -uo pipefail {0}
+        env:
+          CONCLUSION: ${{ steps.claude-review.outputs.conclusion }}
+          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+          # A real multi-agent review is well above this. The 3-turn and 7-turn
+          # runs that used to pass green were both blocked sessions.
+          MIN_TURNS: '10'
+        run: |
+          FAILED=0
+          fail() {
+            echo "::error::$1"
+            echo "- FAIL: $1" >> "$GITHUB_STEP_SUMMARY"
+            FAILED=1
+          }
+
+          echo "## Claude review gate" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$CONCLUSION" != "success" ]; then
+            fail "The review step reported conclusion='$CONCLUSION'."
+          fi
+
+          if [ -z "$EXECUTION_FILE" ] || [ ! -f "$EXECUTION_FILE" ]; then
+            fail "The review produced no execution output, so it did not run."
+            if [ -z "$CONCLUSION" ]; then
+              echo "::notice::The action sets no outputs when it skips itself. The usual cause is its workflow validation: it refuses to run when this workflow file differs from the copy on the default branch, which is the case on any pull request that edits it. That is expected here, but it still means this pull request was not reviewed, so the check is red rather than a green tick that would imply it was."
+            fi
+            exit 1
+          fi
+
+          RESULT=$(jq -c 'if type == "array" then ([.[] | select(.type == "result")] | last) else . end' "$EXECUTION_FILE")
+          if [ -z "$RESULT" ] || [ "$RESULT" = "null" ]; then
+            fail "The execution output contains no result record."
+            exit 1
+          fi
+
+          IS_ERROR=$(printf '%s' "$RESULT" | jq -r '.is_error // false')
+          SUBTYPE=$(printf '%s' "$RESULT" | jq -r '.subtype // "unknown"')
+          TURNS=$(printf '%s' "$RESULT" | jq -r '.num_turns // 0')
+          DENIALS=$(printf '%s' "$RESULT" | jq -r '.permission_denials_count // 0')
+
+          {
+            echo ""
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| subtype | $SUBTYPE |"
+            echo "| is_error | $IS_ERROR |"
+            echo "| num_turns | $TURNS |"
+            echo "| permission_denials_count | $DENIALS |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$IS_ERROR" = "true" ]; then
+            fail "The review session ended with is_error=true."
+          fi
+
+          if [ "$SUBTYPE" != "success" ]; then
+            fail "The review session ended with subtype='$SUBTYPE'."
+          fi
+
+          if [ "$DENIALS" -gt 0 ]; then
+            fail "The review was blocked by $DENIALS permission denial(s), so it could not gather what it needed. Its silence is not evidence the code is clean."
+            printf '%s' "$RESULT" | jq -r '.permission_denials // [] | .[] | "denied: \(.tool_name // "?")"'
+          fi
+
+          if [ "$TURNS" -lt "$MIN_TURNS" ]; then
+            fail "The review finished in $TURNS turns (minimum $MIN_TURNS). A real review of a pull request does not finish that fast."
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::Marking this check red. A green claude-review must mean the pull request was actually reviewed."
+            exit 1
+          fi
+
+          echo "- OK: reviewed in $TURNS turns with no permission denials." >> "$GITHUB_STEP_SUMMARY"
