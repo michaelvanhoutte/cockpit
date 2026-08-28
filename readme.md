@@ -44,23 +44,16 @@ Prerequisites: Node ≥ 22 (pnpm comes via corepack).
 ```bash
 corepack enable pnpm
 pnpm install
-
-# one-time local database setup
-pnpm --filter @cockpit/api db:migrate:local
-pnpm --filter @cockpit/api db:seed:local
-
-# one-time: the Worker serves apps/web/dist as static assets, so that
-# directory has to exist before wrangler will start
-pnpm build
-
-# terminal 1: the API on http://localhost:8787 (wrangler + local D1)
-pnpm dev:api
-
-# terminal 2: the web app on http://localhost:5173 (proxies /v1 to the API)
-pnpm dev:web
+pnpm dev
 ```
 
-`pnpm typecheck` and `pnpm test` run across all packages.
+That is the whole thing. `pnpm dev` applies the local D1 migrations, seeds the database, builds `apps/web/dist` if it has never been built (Wrangler refuses to start without it), then runs the API on <http://localhost:8787> and the web app on <http://localhost:5173> together, output prefixed per process. Ctrl+C stops both, and either one exiting takes the other down rather than leaving half an app looking healthy.
+
+Every setup step is idempotent, so it is safe to re-run and there is no one-time setup to remember or skip. `pnpm dev:api` and `pnpm dev:web` run one half alone; `pnpm build` when a real production build is wanted rather than the placeholder `dist`.
+
+**It stays one command deliberately.** The testing strategy's definition of done requires that the application be started and the changed behaviour actually exercised before anything is claimed to work — green unit tests are never evidence that the app runs. Four commands across two terminals is the friction that quietly turns "start the app" into "the tests passed", so the friction is removed rather than documented.
+
+`pnpm typecheck` and `pnpm test` run across all packages. A freshly created worktree has no `node_modules`, so run `pnpm install` in it before either, or the first run fails for that reason rather than for anything you changed.
 
 ### Tidying up branches
 
