@@ -41,8 +41,14 @@ jobs:
           # Skill is in the list because the plugin command is itself invoked
           # through the Skill tool: run 33201638348 denied "Execute skill:
           # code-review:code-review" and the review never started.
+          # The appended system prompt is there because subagents default to
+          # running in the background: run 33202122273 launched the review's
+          # first agent, said "I will wait for the background agent completion
+          # notification rather than polling", and ended. In a one-shot run
+          # nothing ever sends that notification.
           claude_args: >-
             --allowedTools "Skill,Task,Read,Grep,Glob,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git log:*),Bash(git blame:*),Bash(git diff:*),Bash(git show:*),mcp__github_inline_comment__create_inline_comment"
+            --append-system-prompt "This is a single non-interactive run. Nothing will wake you once you stop, so a background task you are waiting on will never report back and the review will end having done nothing. Launch every subagent in the foreground and wait for its result before continuing. Never launch a background task, and never end your turn to wait for a completion notification."
           # Without this the action hides tool output, so a blocked review is
           # indistinguishable from a clean one.
           show_full_output: true
