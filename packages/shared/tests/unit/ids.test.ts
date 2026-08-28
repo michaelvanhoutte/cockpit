@@ -27,7 +27,7 @@ describe('Offline', () => {
     const moments = [
       { name: 'the epoch', now: 0 },
       { name: 'a recent capture', now: 1_756_000_000_000 },
-      { name: 'the largest 48-bit millisecond', now: 2 ** 48 - 1 },
+      { name: 'a capture at the furthest moment an identifier can record', now: 2 ** 48 - 1 },
     ];
 
     it.each(moments)('$name survives the round trip', ({ now }) => {
@@ -36,9 +36,9 @@ describe('Offline', () => {
 
     const notOurs = [
       { name: 'an empty string', id: '' },
-      { name: 'a UUIDv4', id: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d' },
-      { name: 'a v7 layout with the wrong variant', id: '018f0000-0000-7000-0000-000000000000' },
-      { name: 'a UUID with a character too many', id: `${uuidv7()}0` },
+      { name: 'an identifier issued by something other than Cockpit', id: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d' },
+      { name: 'an identifier that is the right shape but not one we issue', id: '018f0000-0000-7000-0000-000000000000' },
+      { name: 'one of our identifiers with a character too many', id: `${uuidv7()}0` },
       { name: 'prose', id: 'not an id' },
     ];
 
