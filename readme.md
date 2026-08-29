@@ -100,9 +100,14 @@ pnpm test:e2e tests/e2e/capture.test.ts       # one browser walk
 
 For a live-reloading loop while writing a test, run vitest directly instead of the `run`-only package script, e.g. `pnpm --filter @cockpit/web exec vitest`. The browser tier's equivalent is `pnpm test:e2e --ui`.
 
-**Nothing has to be running first, including for the browser tier.** `apps/api`'s integration tests spin up their own ephemeral, real D1 instance for the duration of the run (`@cloudflare/vitest-pool-workers`), separate from whatever `pnpm dev` would start. The browser tier starts `pnpm dev` itself — migrations, seed, Wrangler and Vite — and stops it again when the run ends. If you already have `pnpm dev` open it attaches to that instead of fighting it for the port, which is also faster: measured at 5 seconds against a running server against 14 from cold, the difference being migrating, seeding and booting Wrangler and Vite. Add the SPA build to that on a clone where `apps/web/dist` has never been built. The one thing that will bite is *something else* on :5173 or :8787, since the tier then talks to whatever that is.
+**Nothing has to be running first, and nothing you have running will be disturbed.** Every tier brings its own world:
 
-Two consequences of the browser tier writing to your local database, both deliberate. It leaves its items behind — every test invents a unique title and asserts only on its own, because the same suite is meant to run against the shared preview database where nothing can assume a clean slate. And it needs no fixtures: it captures what it needs through the app itself.
+- `apps/api`'s integration tests get a fresh, real D1 instance per test file from the Workers pool (`@cloudflare/vitest-pool-workers`), gone when the run ends.
+- The browser tier starts a **second copy of the whole application** — its own Wrangler on :8887, its own Vite on :5273, its own D1 directory — and throws the database away afterwards. Your `pnpm dev` on :5173/:8787 keeps running throughout, untouched: run the suite while you are clicking around and neither notices the other.
+
+That database is rebuilt before every run, so a run always starts from exactly the seed and can never be made to pass or fail by something you did in the browser yesterday. It is rebuilt by copying a template (about 220KB, 5 milliseconds) rather than by running migrations and the seed, which costs about seven seconds and is nearly all process startup. The template itself is rebuilt only when a migration or `seed.sql` changes, keyed by their contents, so there is no stale-template failure to remember. A whole run costs about 7 seconds warm, about 18 the first time, when the template and possibly `apps/web/dist` have to be built.
+
+What that does *not* buy is isolation between tests inside one run: all the specs share the one stack, so each still creates what it needs and asserts only on its own rows rather than on counts. Real per-test isolation arrives with workspace creation, when a test can make its own.
 
 `pnpm dev` is still the other required step: manually exercising a change the browser tier does not cover, which the testing strategy treats as non-negotiable proof that green tests alone can't provide.
 

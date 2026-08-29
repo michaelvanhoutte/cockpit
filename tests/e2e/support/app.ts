@@ -5,14 +5,23 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * deliberately thin (docs/testing-strategy.md §4) and an abstraction over four
  * locators would hide the thing the tests exist to prove.
  *
- * The one rule worth stating loudly, because breaking it fails only sometimes
- * and only later: THESE TESTS NEVER ASSUME AN EMPTY DATABASE. The same suite
- * runs against the shared `cockpit-preview` database, which every open branch
- * writes to and which is re-seeded rather than reset (docs/deployment.md §4),
- * and against a local D1 that persists between runs. So every test creates
- * what it needs, identifies it uniquely, and asserts only on that. A count
- * ("the inbox has three items") or a first-row assertion is a test that passes
- * alone and fails the moment anything else is running.
+ * Every run starts from exactly the seed: scripts/e2e-stack.mjs stamps out a
+ * fresh database before the stack comes up, and it is not the database
+ * `pnpm dev` uses. So a run cannot be affected by what was clicked yesterday,
+ * and cannot leave anything in the database being developed against.
+ *
+ * What that does NOT give is isolation *within* a run. All the specs, under
+ * both projects, share one stack and one database, so an item captured by the
+ * first spec is still there when the second runs. There is no per-test reset
+ * to be had cheaply: the only reliable one is restarting the stack, at about
+ * nine seconds each. So the rule stands, for a smaller reason than before —
+ * EVERY TEST CREATES WHAT IT NEEDS, NAMES IT UNIQUELY, AND ASSERTS ONLY ON
+ * THAT. A count ("the inbox has three items") depends on which specs ran
+ * first, and would break the day one is added.
+ *
+ * The way out, when it arrives: creating a workspace is a capability the
+ * product is going to grow, and a test that makes its own workspace gets real
+ * per-test isolation for free. Until then, unique titles.
  */
 
 /** A title no other run — or branch — will have produced. */

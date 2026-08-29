@@ -12,16 +12,23 @@ import { defineConfig, devices } from '@playwright/test';
  * Two things this configuration decides, both recorded because both were
  * argued:
  *
- * 1. WHAT IT RUNS AGAINST. By default the `pnpm dev` pair: Vite on :5173,
- *    wrangler on :8787, with Vite proxying /v1, /health and /ingress to the
- *    Worker (apps/web/vite.config.ts), so the browser only ever sees one
- *    origin — the same shape as production. Not identical to production: no
- *    service worker (vite-plugin-pwa stays off in dev), unbundled modules, and
- *    Vite's own SPA fallback rather than the Worker's `run_worker_first`
- *    routing. Those three are all-or-nothing failures rather than per-feature
- *    ones, and they are covered by running this same suite against the branch
- *    preview before promoting to main: set E2E_BASE_URL and no server is
- *    started. The preview is Access-gated, hence the header pair below.
+ * 1. WHAT IT RUNS AGAINST. Its own stack, on its own ports, against a database
+ *    rebuilt from a template before every run (scripts/e2e-stack.mjs) — never
+ *    the one `pnpm dev` uses. So a run starts from exactly the seed and cannot
+ *    disturb, or be disturbed by, the app you are clicking through on :5173.
+ *    Same one-origin shape as production either way: Vite proxies /v1, /health
+ *    and /ingress to the Worker, so the browser sees a single origin.
+ *
+ *    Not identical to production: no service worker (vite-plugin-pwa stays off
+ *    in dev), unbundled modules, and Vite's own SPA fallback rather than the
+ *    Worker's `run_worker_first` routing. Those three are all-or-nothing
+ *    failures rather than per-feature ones, and until the suite can run against
+ *    a deployment they are covered by looking at the preview before promoting.
+ *    Running it against a deployment needs an Access service token *and* a way
+ *    to keep test data out of real data; the second arrives with user accounts,
+ *    when the suite can sign in as its own account. Until then E2E_BASE_URL
+ *    starts no server and points the specs at a URL, which is enough to try it
+ *    by hand but is deliberately not wired into CI.
  * 2. WHICH SCREENS. Every spec runs under both projects, because "the actions
  *    work on that device" is a claim about each device, not about the code.
  *    Both are Chromium — this is a viewport and input matrix, not a browser
@@ -30,7 +37,8 @@ import { defineConfig, devices } from '@playwright/test';
  *    not in a third project.
  */
 
-const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
+// Must agree with scripts/e2e-stack.mjs's WEB_PORT.
+const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:5273';
 const drivingLocalStack = !process.env.E2E_BASE_URL;
 
 /**
@@ -54,10 +62,18 @@ export default defineConfig({
   // column reading zero however many tests were written.
   testMatch: '**/*.test.ts',
 
-  // §8's flakiness policy is "never retry-to-green", and a retry count is
+  // The flakiness policy is "never retry-to-green", and a retry count is
   // exactly that mechanised. A failure here means something is broken or the
   // test is; both need diagnosing, not re-running.
   retries: 0,
+
+  // One worker, so the tier's whole point survives: every spec shares one
+  // database, and two specs capturing at once would make "the inbox holds
+  // exactly what I put in it" a race rather than an assertion. Affordable
+  // precisely because F3 is kept few and thin — the run is seconds, against a
+  // stack that takes about nine to boot. If it ever stops being affordable,
+  // the fix is a stack per worker, not parallelism over shared state.
+  workers: 1,
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
 
@@ -86,21 +102,19 @@ export default defineConfig({
     { name: 'phone', use: { ...phone } },
   ],
 
-  // `pnpm dev` already applies migrations, seeds, builds the SPA if it has
-  // never been built, and runs both halves — the one command CLAUDE.md
-  // promises. Reusing it here is what keeps "no manual setup steps" true, and
-  // means the suite can never drift from the way the app actually starts.
   ...(drivingLocalStack
     ? {
         webServer: {
-          command: 'pnpm dev',
+          command: 'node scripts/e2e-stack.mjs',
           url: baseURL,
-          // Attaches to a dev server you already have open rather than
-          // fighting it for :5173 — but never in CI, where a stray listener
-          // would mean testing something other than this commit.
-          reuseExistingServer: !process.env.CI,
-          // Generous because a cold start migrates, seeds and may build the
-          // SPA before Vite listens.
+          // Never reuse. The point of the stack is the database it rebuilds on
+          // the way up, and attaching to one already running would silently
+          // inherit whatever the last run left behind — the exact
+          // order-dependence this tier is arranged to avoid. A stray listener
+          // on the port fails the run instead, which is the honest outcome.
+          reuseExistingServer: false,
+          // Generous because a first run may build the database template and
+          // the SPA before Vite listens.
           timeout: 180_000,
           stdout: 'pipe',
           stderr: 'pipe',
