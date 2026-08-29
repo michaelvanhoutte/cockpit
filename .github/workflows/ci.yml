@@ -71,6 +71,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - run: pnpm test:explorer:check
+      # Runs the suite a second time, instrumented (apps/api uses the
+      # istanbul provider, not v8 — the Workers runtime has no
+      # node:inspector Session API for v8 to attach to; see
+      # apps/api/vitest.config.ts), so "branches nothing takes" reports real
+      # data instead of "unknown". A second full run rather than reusing the
+      # `test` job's is the cost of that: coverage instrumentation is not
+      # free, and Actions jobs don't share a filesystem without an explicit
+      # artifact hop, which running it again here avoids needing.
+      - run: pnpm test:coverage
       - run: pnpm test:explorer
       - uses: actions/upload-artifact@v4
         with:

@@ -356,18 +356,42 @@ POC's actuals pass, so the report keeps working when the suite is red.
 already how the POC's `analyze/tests.js` works: read each test file's
 imports, mark what it reaches.
 
-"Branches nothing takes" does need real coverage. Each level's Vitest config
-needs `coverage: { provider: 'v8', all: true, reporter: ['json'] }` (per
-[testing-decisions-wip.md](testing-decisions-wip.md)'s worked example) — not
-added yet anywhere, since it belongs in the same per-package `vitest.config.ts`
-files the alignment branch (§3) is introducing, and this spec does not modify
-that branch. `analyze/coverage.js` is written and does the right thing the
-moment `coverage/coverage-final.json` exists under a package (merged with
-`istanbul-lib-coverage`, already a dependency): until then it reports
-`coverageAvailable: false` and every concept's branches-nothing-takes column
-renders as **unknown**, never a false zero — verified against the real merged
-repo in §9. Adding the coverage config to `apps/api` and `apps/web`'s Vitest
-configs is listed as follow-up work in §9.
+"Branches nothing takes" does need real coverage. **Done** (§9 step 10): every
+package's `vitest.config.ts` now has a `coverage: {...}` block, close to
+[testing-decisions-wip.md](testing-decisions-wip.md)'s worked example but not
+identical to it — that example's `all: true` doesn't exist on Vitest 4.1's
+`CoverageOptions` type at all (a TypeScript build error, not a runtime no-op:
+`tsc` rejects it, confirmed locally), because reporting every `include`-matched
+file, touched by a test or not, is just the default behavior now rather than
+an opt-in flag. Confirmed empirically that dropping the field changes
+nothing: an untouched file (`packages/shared/src/api/events.ts`, imported by
+no test) still appears in `coverage-final.json` with zero hits. The block
+sits behind a new `test:coverage` script (`vitest run --coverage`) per
+package, separate from the fast `test`/`test:unit` scripts so the
+testing-strategy §7 time budget is unaffected — coverage is opt-in, not part
+of the default run.
+
+One provider split, found empirically rather than assumed: `packages/shared`
+and `apps/web` use `provider: 'v8'`, but `apps/api` must use
+`provider: 'istanbul'` instead. Trying `v8` against `apps/api` fails outright
+(`ERR_METHOD_NOT_IMPLEMENTED`, `new StubSession`) — the Workers runtime
+`@cloudflare/vitest-pool-workers` runs tests inside has no `node:inspector`
+Session API for V8's native coverage to attach to, which is also Cloudflare's
+own documented position (workers/testing/vitest-integration/known-issues,
+"Code Coverage Support": *"Native code coverage via V8 is not supported. You
+must use instrumented code coverage via Istanbul instead."*). Both providers
+emit the same istanbul-shaped `coverage-final.json`, so `analyze/coverage.js`
+(merged with `istanbul-lib-coverage`, already a dependency) needs no
+provider-awareness of its own — it reads whatever's on disk uniformly.
+
+`analyze/coverage.js` does the right thing whether or not `coverage/coverage-final.json`
+exists under a package: absent, it reports `coverageAvailable: false` and
+every concept's branches-nothing-takes column renders as **unknown**, never a
+false zero. Verified end to end against the real repo (§9): `Triage` came
+back with 4 real untaken branches in `apps/web/src/components/ItemRow.tsx`
+(conditional JSX for sender/snooze/focus-horizon display that
+`ItemRow.test.tsx` doesn't exercise) — the first real finding this column has
+produced.
 
 End-to-end coverage stays out of the merge at first, per the same source —
 collecting v8 coverage from a real browser hitting a deployed Worker is
@@ -402,9 +426,10 @@ tools/test-explorer/package.json
 in this package would have made "generate the report" a silent side effect of
 every ordinary build.)
 
-Root `package.json` gets two new scripts:
-`"test:explorer": "pnpm --filter @cockpit/test-explorer generate"` and
-`"test:explorer:check": "pnpm --filter @cockpit/test-explorer check-concepts"`.
+Root `package.json` gets three new scripts:
+`"test:explorer": "pnpm --filter @cockpit/test-explorer generate"`,
+`"test:explorer:check": "pnpm --filter @cockpit/test-explorer check-concepts"`,
+and `"test:coverage": "pnpm -r test:coverage"` (§6.3).
 
 CI (`.github/workflows/ci.yml`): one new job, independent of `test`/`typecheck`/`build`
 (it needs neither their success nor their output — see the note below):
@@ -417,6 +442,7 @@ CI (`.github/workflows/ci.yml`): one new job, independent of `test`/`typecheck`/
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - run: pnpm test:explorer:check   # fails the job on concepts.json drift
+      - run: pnpm test:coverage         # instrumented — a second full run, see the note below
       - run: pnpm test:explorer
       - uses: actions/upload-artifact@v4
         with:
@@ -427,10 +453,14 @@ CI (`.github/workflows/ci.yml`): one new job, independent of `test`/`typecheck`/
 The original draft of this section had the job depend on `test` "needing the
 per-level coverage output to exist" — that was wrong: GitHub Actions jobs run
 in separate VMs, so a `needs:` dependency alone does not share a `coverage/`
-directory another job wrote; only an uploaded/downloaded artifact would, and
-nothing here does that. Since no coverage config exists yet either (§6.3),
-the job simply runs standalone and reports `coverageAvailable: false` for
-now, correctly.
+directory another job wrote; only an uploaded/downloaded artifact would. Now
+that coverage config exists (§6.3), the job runs the suite a second time,
+instrumented (`pnpm test:coverage`), inside its own VM rather than trying to
+reuse the plain `test` job's — a real cost (roughly doubling this job's
+runtime; `apps/api`'s Workers-pool startup dominates either way, so
+instrumentation itself is not the expensive part), accepted because it keeps
+this job self-contained and avoids the artifact-hop complexity that sharing
+across jobs would need.
 
 **This publishes as a downloadable build artifact per run, not a gate.** No
 job fails on a red cell in the report; the `check-concepts` step only fails on
@@ -472,15 +502,9 @@ re-validated against the real merge (`0897f91`) once it landed, which is when
    undotted convention per §2a.
 4. **`analyze/concepts.js`.** Done, including `--check-concepts`, redesigned
    per §2a/§7 around describe-name registration rather than file overlap.
-5. **Per-level v8 coverage config in `vitest.config.ts`, plus `analyze/coverage.js`'s merge step.**
-   `analyze/coverage.js` is done and degrades correctly (§6.3), confirmed
-   against the real merged repo: `apps/api`/`apps/web`/`packages/shared` all
-   now have `vitest.config.ts`, but none configure `coverage: {...}` yet, so
-   every run today correctly reports `coverageAvailable: false`. **Adding
-   that config remains the one concrete follow-up this spec doesn't do**,
-   since it means editing those packages' own Vitest configs, which belongs
-   with whoever owns the testing-strategy work next rather than being folded
-   into this tool's build silently.
+5. **Per-package coverage config in `vitest.config.ts`, plus `analyze/coverage.js`'s merge step.**
+   `analyze/coverage.js` is done and degrades correctly when coverage data is
+   absent (§6.3). The config itself is done too, as of step 10 below.
 6. **`render/html.js` and `render/client.js`.** Done — counts table + expand
    panel (§4.2, §4.3), no obligation-state matrix, updated copy for "feature
    area" per §2a.
@@ -500,6 +524,20 @@ re-validated against the real merge (`0897f91`) once it landed, which is when
    branch-coverage merge (`coverage.js`), and one fixture-repo test exercising
    `analyze()` end to end (`index.js`) — 31 tests total, wired into
    `pnpm test`/`pnpm -r test` the same as every other package.
+10. **Wire up real branch coverage.** Done. `coverage: {...}` added to all
+    three packages' `vitest.config.ts`, behind a new `test:coverage` script
+    per package (§6.3) — opt-in, so it doesn't touch the fast-tier time
+    budget. `apps/api` needed `provider: 'istanbul'` rather than `'v8'`,
+    discovered by trying `'v8'` first and getting
+    `ERR_METHOD_NOT_IMPLEMENTED` — the Workers runtime has no
+    `node:inspector` Session API, confirmed as Cloudflare's own documented
+    position. `.gitignore` gained a `coverage/` entry (the output dirs were
+    showing up as untracked). CI's `test-explorer` job now runs
+    `pnpm test:coverage` before generating the report. Running it for real:
+    `Triage` came back with 4 genuine untaken branches in
+    `apps/web/src/components/ItemRow.tsx` (conditional JSX for the
+    sender/snooze/focus-horizon display, none of which `ItemRow.test.tsx`
+    currently exercises) — the column's first real finding.
 
 **One honest limitation surfaced by the real run, not "fixed" because it
 can't be**: `apps/api/tests/integration/http/item-changes.test.ts` drives the
