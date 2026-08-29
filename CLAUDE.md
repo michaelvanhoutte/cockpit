@@ -37,3 +37,5 @@ The two rules that get skipped most, repeated here because they are the ones tha
 | `docs/ideas.md` | unscheduled ideas, deliberately not scheduled |
 
 Options documents (`docs/*-options.md`) record integration research. `poc/` holds proofs of concept and is outside the workspace, so it never runs in CI.
+
+**Cite a section by its name, never by its number alone.** "The bootstrap runbook (deployment §7)" tells the reader what is being pointed at; "deployment §7" makes them go and look it up before they can even judge whether it is relevant, and in conversation it says nothing at all. The numbers are useful as locators inside the documents, which cross-reference each other constantly — they are not a shorthand anyone can read. The same applies to issue numbers: name the issue, then give the number.
