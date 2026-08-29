@@ -120,14 +120,14 @@ apps/api/tests/
   integration/     # L2: own vertical deps only
   system/          # L3: backend, full deps, no browser
 packages/shared/tests/unit/                      # L1
-packages/connectors/*/tests/contract/            # §3.3: live third-party checks, scheduled runs only
+packages/connectors/*/tests/contract/            # the live contract tests (§3.3): scheduled runs only
 apps/web/tests/
   unit/            # F1: no real dependencies
   service/         # F2: this service's frontend + backend only
 tests/e2e/         # F3: full stack, real browser — repo root, because it belongs to no package
 ```
 
-(These are the paths this repository actually uses, adapted from the illustrative layout this section carried before the tiers existed; the level separation and one-command-per-level runnability are what is mandatory. Per §2, levels that have no reason to exist yet stay absent — `system/`, `service/` and the connector `contract/` folders are unbuilt today.)
+(These are the paths this repository actually uses, adapted from the illustrative layout this section carried before the tiers existed; the level separation and one-command-per-level runnability are what is mandatory. Per the levels-are-roles rule (§2), levels that have no reason to exist yet stay absent — `system/`, `service/` and the connector `contract/` folders are unbuilt today.)
 
 **F3 gets its own stack and a database rebuilt per run.** The browser tier does not share the database the application is developed against. It starts a second copy of the application on its own ports, against its own store, restored from a migrated-and-seeded template before every run — the same guarantee the backend's integration tests already get from the Workers pool, arrived at differently. Two things follow. Test data never accumulates in the database being used to develop, and development never decides whether a test passes. The restore is a file copy rather than a re-run of the migrations because that is three orders of magnitude cheaper (5ms against 7s, nearly all of which is process startup), which is what makes "fresh every run" affordable enough to be unconditional. Note the limit: the specs within one run still share that database, so a test asserts on rows it created rather than on totals, until creating a workspace per test becomes possible.
 
