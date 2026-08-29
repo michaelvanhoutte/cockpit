@@ -17,7 +17,8 @@ cockpit/
 │   └── config/        # shared tsconfig / prettier
 ├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
 ├── scripts/           # local dev startup, branch-alias derivation (+ its assertions), branch tidying
-├── .github/           # CI and the three deploy workflows (§9.1)
+├── .github/           # CI, the two Claude workflows, the three deploy workflows, branch protection
+├── .claude/           # project skills and Claude Code settings every session picks up
 └── poc/               # proofs of concept (kept; they are part of the showcase)
 ```
 
@@ -93,6 +94,93 @@ pnpm --filter @cockpit/web test:f-unit        # component logic, API client mock
 For a live-reloading loop while writing a test, run vitest directly instead of the `run`-only package script, e.g. `pnpm --filter @cockpit/web exec vitest`.
 
 Tests never require `pnpm dev` to be running — `apps/api`'s integration tests spin up their own ephemeral, real D1 instance for the duration of the run (`@cloudflare/vitest-pool-workers`), separate from whatever `pnpm dev` would start. `pnpm dev` is for the other required step: manually exercising the changed behaviour in the browser, which the testing strategy treats as non-negotiable proof that green tests alone can't provide.
+
+## Development automation
+
+Two different things get called "our automation", and keeping them apart saves a lot of confusion: what is **checked into this repository**, which every clone and every agent gets with no setup at all, and what has to be **configured once** — on the GitHub repository or on your own machine — which no amount of `pnpm install` will hand you. A missing piece of the second kind usually shows up as a workflow that is green while nothing actually happened.
+
+### Checked in — GitHub Actions
+
+| Workflow | Fires on | What it does |
+|---|---|---|
+| [CI](.github/workflows/ci.yml) | pushes and pull requests to `main` | Four parallel jobs — `Typecheck`, `Test`, `Build`, `Scripts` — which are exactly the four contexts branch protection requires, so a failure names itself. `Scripts` runs `scripts/branch-alias.test.sh`, because a silent change in the preview-alias derivation would collide two branches onto one URL. Deliberately *not* triggered on every branch push: the preview deploy already runs the same checks there, and doing both would run everything twice. |
+| [Claude Code Review](.github/workflows/claude-code-review.yml) | every pull request opened, pushed to, reopened or marked ready for review | Runs the `code-review` plugin command against the pull request and posts its findings as inline comments (a summary comment when it finds nothing). A second step then asserts that the review *actually ran* — see below. |
+| [Claude Code](.github/workflows/claude.yml) | `@claude` in an issue, an issue or PR comment, or a review | Hands that comment to Claude with read access to the repository and to CI results, so an explanation or a fix can be asked for from the pull request itself. |
+| [Deploy preview](.github/workflows/deploy-preview.yml) | pushes to any branch except `main` | Typechecks and tests first (a broken build must not replace a working preview), derives the branch alias, migrates and seeds the shared preview database, uploads a new Worker version behind `<alias>-cockpit-preview…`, and comments the URL on the pull request if there is one. Triggered on `push`, not `pull_request`, so a branch with no PR — or a draft one — still gets an environment. |
+| [Deploy staging](.github/workflows/deploy-staging.yml) | every commit on `main`, plus manual re-runs | The same gate, then migrate and deploy, then assert `/health`. Never re-seeded: accumulated old data is the whole point of staging. |
+| [Promote to production](.github/workflows/deploy-production.yml) | manual only, with an optional commit SHA | Refuses any commit that is not an ancestor of `origin/main`, since it has neither passed CI nor soaked on staging; then re-runs the full gate against that exact tree, migrates, deploys, and verifies `/health`. |
+
+All six share [`.github/actions/setup`](.github/actions/setup/action.yml), so the pnpm version, the Node version and the frozen-lockfile install are declared once.
+
+**Why the review has a gate step.** `claude-code-action` reports success when the *session* ended cleanly, which is not the same as a review having happened: earlier runs here were blocked by a denied tool, or launched their subagents in the background and ended waiting for a completion notification that a one-shot run never sends — and every one of those was a green tick. The `Assert the review actually ran` step therefore reads the execution output and turns the check red unless Claude reached a verdict, the signal being that it *posted* something on the pull request, which with `--comment` every path to a verdict does. Denied tool calls are fatal only when no verdict landed and are otherwise a warning, and the turn count is never more than a warning, because a legitimately short run (the review declining to repeat itself) and a blocked one look alike. That history is written into the workflow file's comments, which is the honest place for it.
+
+One consequence worth knowing: the action refuses to run when the workflow file differs from the copy on `main`, so **a pull request that edits `claude-code-review.yml` is not reviewed by it**. The gate makes that red rather than green, on purpose.
+
+### Checked in — agent configuration
+
+| What | Where | Effect |
+|---|---|---|
+| Project instructions | [CLAUDE.md](CLAUDE.md) | Loaded into every session in this repository: how to run it, when to scope, and the two testing rules that get skipped most. |
+| `scoping` skill | [.claude/skills/scoping/](.claude/skills/scoping/SKILL.md) | Sharpen fuzzy requirements, size the work as a vertical slice, produce its statement list — before any code. Triggers on work starting, not on the decision to file an issue. |
+| `testing` skill | [.claude/skills/testing/](.claude/skills/testing/SKILL.md) | The binding test rules, restated in full so no agent has to open the strategy document to write a test. |
+| `github-issue` skill | [.claude/skills/github-issue/](.claude/skills/github-issue/SKILL.md) | The issue body template and the `gh` publishing step, once scoping has run. |
+| Enabled plugin | [.claude/settings.json](.claude/settings.json) | Records that `mattpocock-skills` should be on for this project. The plugin itself is installed per machine (below); the repository only records the intent. |
+
+Skills trigger themselves from their descriptions, so nobody has to remember to invoke them — which is the point of them living in the repository rather than in one person's setup.
+
+### Checked in — local commands
+
+| Command | What it does |
+|---|---|
+| `pnpm dev` | Migrates, seeds, builds `dist` if it has never been built, then runs both halves. One command, deliberately: see [Run it](#run-it). |
+| `pnpm branches:tidy` | Reaps the local branches and worktree metadata that squash-merging leaves behind: see [Tidying up branches](#tidying-up-branches). |
+| `pnpm typecheck`, `pnpm test`, `pnpm build` | The same three gates CI runs, so a red pipeline is reproducible locally. |
+| `scripts/branch-alias.sh` | Derives a branch's preview hostname. Used by the preview deploy, and asserted by its own test script in CI. |
+| `scripts/health-check.sh` | The post-deploy assertion against `/health`, which is Bypass-policied out of Cloudflare Access so it tests the app rather than a login page. |
+| [.vscode/launch.json](.vscode/launch.json) | Debug the SPA in Chrome, attach to the Worker's inspector on `:9229`, or both at once. |
+
+**There are no git hooks in this repository, on purpose.** Nothing installs a `pre-commit` or `pre-push` hook and there is no husky/lefthook dependency. The gate is CI and the preview deploy: they cannot be skipped with `--no-verify`, and they run on the machine that decides. When you want to be interrupted locally is a personal preference, so it belongs in the machine-local list below.
+
+### Set up once on the GitHub repository (not in the code)
+
+This lives in repository settings, so a fresh fork gets none of it. The deployment-side reasoning is in [docs/deployment.md](docs/deployment.md) under *Secrets and access* and *First-time setup*; the short list:
+
+| Kind | Name | Needed by |
+|---|---|---|
+| Secret | `CLOUDFLARE_API_TOKEN` | all three deploy workflows |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | all three deploy workflows |
+| Secret | `CLAUDE_CODE_OAUTH_TOKEN` | both Claude workflows |
+| Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | the deploy URLs and the health checks |
+
+- **Branch protection on `main`**, whose payload *is* checked in — [.github/branch-protection.json](.github/branch-protection.json) — but which still has to be applied, by the repository owner, because configuration nobody can review or restore is not really configuration:
+
+  ```bash
+  gh api -X PUT repos/michaelvanhoutte/cockpit/branches/main/protection --input .github/branch-protection.json
+  ```
+
+- **Automatically delete head branches**, in the repository settings. `pnpm branches:tidy` keys on a local branch's upstream being `[gone]`, so it is only trustworthy while that setting is on.
+- **The Claude GitHub App**, installed on the repository, plus the OAuth token above. The usual path is `/install-github-app` from an interactive Claude Code session, which installs the app and stores the secret for you.
+- **Cloudflare Access on all three environments**, with a Bypass policy scoped to `/health`. Dashboard only; the reasoning is in the deployment doc.
+- The `staging` and `production` **GitHub environments**, which give deployment history in the UI and somewhere to hang a required reviewer later without touching a workflow file.
+
+### Set up on your own machine (recommended, none of it in the code)
+
+None of this arrives with `pnpm install`, and all of it is per-developer:
+
+- **Node ≥ 22 with corepack** (`corepack enable pnpm`), so the pnpm version comes from `package.json` rather than from whatever is on your PATH.
+- **`gh`, authenticated** (`gh auth login`). The `github-issue` skill files issues with it, the branch-protection command above needs it, and it is how pull requests get opened and merged.
+- **Commit attribution.** Commits authored with an address GitHub cannot link are orphaned — no profile, no contribution graph. This repository has history in exactly that state:
+
+  ```bash
+  git config --global user.email "43439790+michaelvanhoutte@users.noreply.github.com"
+  ```
+
+- **The Claude Code plugin this project enables.** `.claude/settings.json` records that `mattpocock-skills` should be on, but the marketplace and the plugin are installed per machine, from `/plugin` in an interactive session.
+- **Your own permission allowlist**, in `.claude/settings.local.json` (already gitignored by `*.local`) — how many prompts you want to see is not a project decision. `/fewer-permission-prompts` drafts one from your own transcripts.
+- **Reviewing before you push.** `/code-review` and `/simplify` run locally what the workflow runs on the pull request, and `/code-review ultra` is the deep multi-agent variant. Cheaper than reading it in a comment ten minutes later.
+- **Worktrees.** Claude Code sessions work in `.claude/worktrees/<name>`, which is gitignored. A fresh worktree has no `node_modules`, so `pnpm install` there before running anything, and `pnpm branches:tidy` afterwards to prune the ones whose directories are gone.
+- **`wrangler` authentication**, only for owner-level work: the one-time bootstrap, `wrangler secret put`, `wrangler versions list`/`deploy` for a rollback, or D1 Time Travel. Day-to-day development never needs it, because `pnpm dev` runs against a local D1.
+- **A pre-push hook, if you want one.** Not in the repository, for the reason above, but nothing stops you: point `core.hooksPath` at a directory of your own and run `pnpm test:fast` from it. Keep it to the fast tiers — a hook slow enough to be worth skipping gets skipped.
 
 ## Proofs of concept
 
