@@ -92,13 +92,10 @@ export function start(args, name, colorCode, cwd, env) {
  */
 export function stop(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
-  // Windows is where this matters and where a plain signal is not enough:
-  // command() runs children under cmd.exe, so signalling the child kills the
-  // shell and orphans the real Wrangler, still holding its port — and the e2e
-  // stack refuses to start against a port it does not own, so one orphan breaks
-  // every later run on that machine. On POSIX the child shares this process's
-  // group, so whatever stops us (Ctrl+C, Playwright's teardown) reaches the
-  // whole tree anyway, and SIGTERM here is the polite half of that.
+  // Asymmetric on purpose, so don't collapse the branches: Windows needs the
+  // tree because the shell hides the real process, while on POSIX the child
+  // shares this process's group, so whatever stops us — Ctrl+C, Playwright's
+  // teardown — already reaches the whole tree and this is the polite half.
   if (isWindows) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
   else child.kill('SIGTERM');
 }
