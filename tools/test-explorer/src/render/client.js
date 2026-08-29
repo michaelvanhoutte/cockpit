@@ -197,33 +197,42 @@
       body.appendChild(el('div', 'p-empty', ruleLevelFilter ? 'No ' + ruleLevelFilter + ' rules on this area.' : 'No rules found directly on this area.'));
       return;
     }
-    var list = el('div', 'rulelist');
-    rules.forEach(function (r) {
-      var card = el('div', 'rule');
-      var top = el('div', 'r-top');
-      top.appendChild(el('span', 'r-level', r.level));
-      top.appendChild(codeToggle(r, r.file + ':' + r.line));
-      card.appendChild(top);
-      card.appendChild(el('div', 'r-text', r.statement));
 
-      if (r.cases.length) {
-        var cases = el('div', 'caselist');
-        r.cases.forEach(function (c) {
-          cases.appendChild(caseRow(c, false));
-        });
-        card.appendChild(cases);
-      }
-      if (r.todoCases.length) {
-        var todos = el('div', 'caselist');
-        r.todoCases.forEach(function (c) {
-          todos.appendChild(caseRow(c, true));
-        });
-        card.appendChild(todos);
-      }
+    // Grouped and ordered by LEVELS (L1, L2, L3, F1, F2, F3, Contract), not by
+    // whichever order test files happened to be walked in — a level heading per
+    // group is the "which is which" distinction a small badge per card wasn't.
+    LEVELS.forEach(function (l) {
+      var group = rules.filter(function (r) { return r.level === l.id; });
+      if (!group.length) return;
 
-      list.appendChild(card);
+      body.appendChild(el('div', 'levelhead', l.label + ' · ' + l.name + ' (' + group.length + ')'));
+      var list = el('div', 'rulelist');
+      group.forEach(function (r) {
+        var card = el('div', 'rule');
+        var top = el('div', 'r-top');
+        top.appendChild(codeToggle(r, r.file + ':' + r.line));
+        card.appendChild(top);
+        card.appendChild(el('div', 'r-text', r.statement));
+
+        if (r.cases.length) {
+          var cases = el('div', 'caselist');
+          r.cases.forEach(function (c) {
+            cases.appendChild(caseRow(c, false));
+          });
+          card.appendChild(cases);
+        }
+        if (r.todoCases.length) {
+          var todos = el('div', 'caselist');
+          r.todoCases.forEach(function (c) {
+            todos.appendChild(caseRow(c, true));
+          });
+          card.appendChild(todos);
+        }
+
+        list.appendChild(card);
+      });
+      body.appendChild(list);
     });
-    body.appendChild(list);
   }
 
   function caseRow(c, isTodo) {
