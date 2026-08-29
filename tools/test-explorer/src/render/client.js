@@ -7,106 +7,161 @@
   'use strict';
 
   var MODEL = window.__MODEL__;
-  var COLUMNS = ['backend', 'frontend', 'browser', 'contract'];
+  var LEVELS = MODEL.levels;
+  var REPO_REL = MODEL.repoRelPrefix.replace(/\/$/, '');
+
+  // ---- index every node by key, remember parent/depth for the tree walk ----
   var BY_KEY = {};
-  MODEL.concepts.forEach(function (c) { BY_KEY[c.key] = c; });
+  var PARENT_OF = {};
+  (function index(nodes, depth) {
+    nodes.forEach(function (n) {
+      BY_KEY[n.key] = n;
+      n.__depth = depth;
+      index(n.children, depth + 1);
+      n.children.forEach(function (c) { PARENT_OF[c.key] = n.key; });
+    });
+  })(MODEL.tree, 0);
 
   var rowsEl = document.getElementById('rows');
   var panelEl = document.getElementById('panel');
-  var selected = MODEL.concepts.length ? MODEL.concepts[0].key : null;
+  var open = {}; // key -> expanded, default expanded
+  var selected = MODEL.tree.length ? MODEL.tree[0].key : null;
+
+  function fileHref(relFile) {
+    return REPO_REL + '/' + relFile;
+  }
 
   function render() {
     rowsEl.textContent = '';
-    MODEL.concepts.forEach(function (concept) {
-      var tr = document.createElement('tr');
-      tr.className = 'row' + (concept.key === selected ? ' selected' : '');
 
-      var nameTd = document.createElement('td');
-      nameTd.appendChild(el('span', 'name', concept.label));
-      tr.appendChild(nameTd);
+    (function walk(nodes, depth) {
+      nodes.forEach(function (node) {
+        var tr = document.createElement('tr');
+        tr.className = 'row' + (node.key === selected ? ' selected' : '');
 
-      COLUMNS.forEach(function (col) {
-        var td = el('td', 'c');
-        var n = concept.counts[col];
-        td.appendChild(el('span', n === null ? 'pill na' : n === 0 ? 'pill zero' : 'pill', n === null ? 'n/a' : String(n)));
-        tr.appendChild(td);
+        var nameTd = document.createElement('td');
+        var nameWrap = el('span', 'namewrap');
+        nameWrap.style.paddingLeft = depth * 18 + 'px';
+
+        var hasKids = node.children.length > 0;
+        var twisty = el('span', 'twisty' + (hasKids ? (open[node.key] !== false ? ' open' : '') : ' leaf'), hasKids ? '▶' : '');
+        nameWrap.appendChild(twisty);
+        nameWrap.appendChild(el('span', 'name', node.label));
+        nameTd.appendChild(nameWrap);
+        tr.appendChild(nameTd);
+
+        LEVELS.forEach(function (l) {
+          var td = el('td', 'c');
+          var n = node.counts[l.id];
+          td.appendChild(countPill(n, false));
+          tr.appendChild(td);
+        });
+
+        var filesTd = el('td', 'c');
+        filesTd.appendChild(countPill(node.filesNothingRuns.length, true));
+        tr.appendChild(filesTd);
+
+        var branchesTd = el('td', 'c');
+        if (node.branchesNothingTakes === null) {
+          branchesTd.appendChild(el('span', 'pill na', 'unknown'));
+        } else {
+          branchesTd.appendChild(countPill(node.branchesNothingTakes.length, true));
+        }
+        tr.appendChild(branchesTd);
+
+        tr.addEventListener('click', function (e) {
+          if (hasKids && (e.target === twisty || twisty.contains(e.target))) {
+            open[node.key] = !(open[node.key] !== false);
+            render();
+            return;
+          }
+          selected = node.key;
+          render();
+          renderPanel();
+        });
+
+        rowsEl.appendChild(tr);
+
+        if (hasKids && open[node.key] !== false) walk(node.children, depth + 1);
       });
-
-      var filesTd = el('td', 'c');
-      filesTd.appendChild(countPill(concept.filesNothingRuns.length, true));
-      tr.appendChild(filesTd);
-
-      var branchesTd = el('td', 'c');
-      if (concept.branchesNothingTakes === null) {
-        branchesTd.appendChild(el('span', 'pill na', 'unknown'));
-      } else {
-        branchesTd.appendChild(countPill(concept.branchesNothingTakes.length, true));
-      }
-      tr.appendChild(branchesTd);
-
-      tr.addEventListener('click', function () {
-        selected = concept.key;
-        render();
-        renderPanel();
-      });
-
-      rowsEl.appendChild(tr);
-    });
+    })(MODEL.tree, 0);
   }
 
   function countPill(n, badWhenNonzero) {
+    if (n === null) return el('span', 'pill na', 'n/a');
     var cls = n === 0 ? 'pill zero' : badWhenNonzero ? 'pill bad' : 'pill';
     return el('span', cls, String(n));
   }
 
   function renderPanel() {
-    var concept = BY_KEY[selected];
+    var node = BY_KEY[selected];
     panelEl.textContent = '';
-    if (!concept) {
+    if (!node) {
       panelEl.appendChild(el('div', 'p-empty', 'Select a row.'));
       return;
     }
 
     var head = el('div', 'panelhead');
-    head.appendChild(el('div', 'p-name', concept.label));
+    head.appendChild(el('div', 'p-name', node.label));
     panelEl.appendChild(head);
 
-    var rulesHead = el('div', 'p-section', 'Rules (' + concept.rules.length + ')');
+    var rulesHead = el('div', 'p-section', 'Rules (' + node.rules.length + ')');
     panelEl.appendChild(rulesHead);
-    if (!concept.rules.length) {
-      panelEl.appendChild(el('div', 'p-empty', 'No rules found for this concept.'));
+    if (!node.rules.length) {
+      panelEl.appendChild(el('div', 'p-empty', 'No rules found directly on this area.'));
     } else {
       var list = el('div', 'rulelist');
-      concept.rules.forEach(function (r) {
+      node.rules.forEach(function (r) {
         var row = el('div', 'rule');
-        row.appendChild(el('span', 'r-level', r.column + ' / ' + r.level));
-        row.appendChild(el('span', 'r-text', r.statement));
-        row.appendChild(el('span', 'r-loc', r.file + ':' + r.line));
+        var top = el('div', 'r-top');
+        top.appendChild(el('span', 'r-level', r.level));
+        top.appendChild(fileLink(r.file, r.line));
+        row.appendChild(top);
+        row.appendChild(el('div', 'r-text', r.statement));
         if (r.todoCases) row.appendChild(el('span', 'r-todo', r.todoCases + ' todo'));
         list.appendChild(row);
       });
       panelEl.appendChild(list);
     }
 
-    panelEl.appendChild(el('div', 'p-section', 'Files nothing runs (' + concept.filesNothingRuns.length + ')'));
-    if (!concept.filesNothingRuns.length) {
+    panelEl.appendChild(el('div', 'p-section', 'Files nothing runs (' + node.filesNothingRuns.length + ')'));
+    if (!node.filesNothingRuns.length) {
       panelEl.appendChild(el('div', 'p-empty', 'None.'));
     } else {
       var files = el('div', 'filelist');
-      concept.filesNothingRuns.forEach(function (f) { files.appendChild(el('div', 'f-item', f)); });
+      node.filesNothingRuns.forEach(function (f) {
+        var row = el('div', 'f-item');
+        row.appendChild(fileLink(f));
+        files.appendChild(row);
+      });
       panelEl.appendChild(files);
     }
 
     panelEl.appendChild(el('div', 'p-section', 'Branches nothing takes'));
-    if (concept.branchesNothingTakes === null) {
-      panelEl.appendChild(el('div', 'p-empty', 'No coverage data for this run.'));
-    } else if (!concept.branchesNothingTakes.length) {
+    if (node.branchesNothingTakes === null) {
+      panelEl.appendChild(el('div', 'p-empty', 'No coverage data for this run — run pnpm test:coverage first.'));
+    } else if (!node.branchesNothingTakes.length) {
       panelEl.appendChild(el('div', 'p-empty', 'None.'));
     } else {
       var branches = el('div', 'filelist');
-      concept.branchesNothingTakes.forEach(function (b) { branches.appendChild(el('div', 'f-item', b.file + ':' + b.line)); });
+      node.branchesNothingTakes.forEach(function (b) {
+        var row = el('div', 'f-item branch-item');
+        row.appendChild(fileLink(b.file, b.line));
+        if (b.snippet) row.appendChild(el('code', 'snippet', b.snippet));
+        branches.appendChild(row);
+      });
       panelEl.appendChild(branches);
     }
+  }
+
+  function fileLink(relFile, line) {
+    var a = document.createElement('a');
+    a.href = fileHref(relFile);
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.className = 'filelink';
+    a.textContent = relFile + (line ? ':' + line : '');
+    return a;
   }
 
   function el(tag, cls, text) {

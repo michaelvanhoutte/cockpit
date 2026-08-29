@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import { analyze } from './analyze/index.js';
 import { renderHtml } from './render/html.js';
+import { walkTree } from './model.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO = path.resolve(here, '../../..');
@@ -40,7 +41,12 @@ function main(argv) {
   }
 
   const out = args.out ?? path.join(here, '../out/index.html');
-  write(out, renderHtml(model));
+  // File links in the report (rule/gap file:line) need to know where the
+  // report itself will be opened from, to compute a relative href — a render
+  // concern (docs/test-explorer-spec.md §6.1's split keeps analyze/ ignorant
+  // of it), so it's built here rather than inside renderHtml or the Model.
+  const repoRelPrefix = path.relative(path.dirname(out), repo).split(path.sep).join('/');
+  write(out, renderHtml(model, { repoRelPrefix }));
   process.stderr.write(`wrote ${path.relative(repo, out)}\n`);
   return 0;
 }
@@ -60,8 +66,9 @@ function main(argv) {
 function checkConcepts(repo) {
   const model = analyze(repo);
   if (!model.unregisteredAreas.length) {
-    const total = model.concepts.reduce((sum, c) => sum + c.rules.length, 0);
-    process.stdout.write(`concepts.json OK: ${total} rule(s) across ${model.concepts.length} area(s), nothing unregistered.\n`);
+    const nodes = [...walkTree(model.tree)];
+    const total = nodes.reduce((sum, n) => sum + n.rules.length, 0);
+    process.stdout.write(`concepts.json OK: ${total} rule(s) across ${nodes.length} area(s), nothing unregistered.\n`);
     return 0;
   }
 

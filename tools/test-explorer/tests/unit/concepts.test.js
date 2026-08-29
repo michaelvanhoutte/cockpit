@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchingConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from '../../src/analyze/concepts.js';
+import { buildTree, matchingConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from '../../src/analyze/concepts.js';
 import { INFRASTRUCTURE_KEY, INFRASTRUCTURE_LABEL } from '../../src/model.js';
 
 const CONCEPTS = [
@@ -55,6 +55,57 @@ describe('withInfrastructure', () => {
     expect(infra.key).toBe(INFRASTRUCTURE_KEY);
     expect(infra.label).toBe(INFRASTRUCTURE_LABEL);
     expect(infra.sourcePatterns).toEqual([]);
+  });
+});
+
+describe('buildTree', () => {
+  const makeNode = (c) => ({ key: c.key, label: c.label });
+
+  it('puts every concept with no parent at the root, in registry order', () => {
+    const { tree } = buildTree(CONCEPTS, makeNode);
+    expect(tree.map((n) => n.key)).toEqual(['Capture', 'Triage', 'Offline']);
+    expect(tree.every((n) => n.children.length === 0)).toBe(true);
+  });
+
+  it('nests a concept under its parent', () => {
+    const concepts = [
+      { key: 'Dashboards', label: 'Dashboards', sourcePatterns: [] },
+      { key: 'Drag-drop', label: 'Drag-drop', sourcePatterns: [], parent: 'Dashboards' },
+      { key: 'Resizing', label: 'Resizing', sourcePatterns: [], parent: 'Dashboards' },
+    ];
+    const { tree, warnings } = buildTree(concepts, makeNode);
+    expect(warnings).toEqual([]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0].key).toBe('Dashboards');
+    expect(tree[0].children.map((c) => c.key)).toEqual(['Drag-drop', 'Resizing']);
+  });
+
+  it('supports more than one level of nesting', () => {
+    const concepts = [
+      { key: 'Dashboards', label: 'Dashboards', sourcePatterns: [] },
+      { key: 'Drag-drop', label: 'Drag-drop', sourcePatterns: [], parent: 'Dashboards' },
+      { key: 'Multi-select drag', label: 'Multi-select drag', sourcePatterns: [], parent: 'Drag-drop' },
+    ];
+    const { tree } = buildTree(concepts, makeNode);
+    expect(tree[0].children[0].children.map((c) => c.key)).toEqual(['Multi-select drag']);
+  });
+
+  it('treats a parent pointing at an unregistered key as a root, with a warning', () => {
+    const concepts = [{ key: 'Drag-drop', label: 'Drag-drop', sourcePatterns: [], parent: 'Nope' }];
+    const { tree, warnings } = buildTree(concepts, makeNode);
+    expect(tree.map((n) => n.key)).toEqual(['Drag-drop']);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/Nope/);
+  });
+
+  it('treats a parent cycle as roots, with a warning, instead of dropping both nodes silently', () => {
+    const concepts = [
+      { key: 'A', label: 'A', sourcePatterns: [], parent: 'B' },
+      { key: 'B', label: 'B', sourcePatterns: [], parent: 'A' },
+    ];
+    const { tree, warnings } = buildTree(concepts, makeNode);
+    expect(tree.map((n) => n.key).sort()).toEqual(['A', 'B']);
+    expect(warnings.length).toBeGreaterThan(0);
   });
 });
 

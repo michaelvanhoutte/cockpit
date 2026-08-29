@@ -179,6 +179,76 @@ A tenth finding — **the package shipped with zero tests**, a real violation
 of [testing-strategy.md §5](testing-strategy.md)'s "new logic ships with L1
 tests in the same change" — is the reason §9 step 9 exists.
 
+## 2c. First real use: rows became a tree, columns became the real six levels
+
+Michael's first pass using the built page raised seven things, all addressed
+in the same round:
+
+1. **Rows needed to be a tree, not a flat list.** A big area like Dashboards
+   is going to have real sub-areas (drag-drop, resizing, ...) once it has
+   tests, and a flat list can't show that without either cramming everything
+   into one row or renaming every test's `describe` every time the shape
+   gets reorganized. Fixed with the smallest change that doesn't touch the
+   describe convention at all: an entry in `concepts.json` can carry an
+   optional `"parent": "<key>"` (§5), and `analyze/concepts.js`'s `buildTree`
+   turns the flat registry into a real tree from those pointers, with cycle
+   detection (a parent chain that loops back on itself becomes roots with a
+   warning, rather than both nodes silently vanishing from the render — a
+   real bug caught before it shipped: two nodes pointing at each other left
+   neither in `roots`). Nothing needs adding today — nothing has grown a real
+   sub-area in tests yet — but the mechanism is there and covered by five
+   tests in `concepts.test.js`.
+2. **Not every node needs every column populated, and that's fine as
+   presented.** A leaf will typically carry only L1/L2 (or F1/F2); F3 will
+   typically sit on whichever ancestor's test exercises the whole subtree.
+   Considered and rejected: guessing per-node "applicability" (e.g. "leaves
+   never get F3") and rendering those cells as n/a. That would be a real
+   regression to the state-inference model §2 already dropped once, and
+   Michael's own words — "I don't know if these are the right child
+   levels" — argue directly against baking in a structural guess. What ships
+   instead: real per-node counts, honestly zero where nothing is authored
+   there, with the tree itself supplying the context (a 0 at a leaf next to
+   a populated ancestor row reads correctly once both are visible together).
+3. **Six-plus-one columns, not three.** The table was quietly collapsing two
+   testing-strategy levels into each of "Backend" and "Frontend" (L1+L2,
+   F1+F2) and dropping L3 entirely. `analyze/rules.js`'s `levelForTestFile`
+   now maps a test file straight to one of the seven real columns
+   (L1/L2/L3/F1/F2/F3/Contract — `model.js`'s `LEVELS`), and `Rule.level`
+   carries that instead of the old coarser `column`/`level` pair. **L3 is
+   n/a everywhere today**, not zero: it only means anything once a second
+   backend service exists to wire together (testing-strategy.md §2), derived
+   from real workspace data (`Model.availableLevels.L3`, true once more than
+   one package has a `wrangler.jsonc`/`.toml`/`.json`) rather than hardcoded
+   — the same pattern Contract's per-node n/a already used for "no connector
+   package yet."
+4. **Rule rows were too small to scan, and file references weren't links.**
+   Both are render-only fixes (`render/client.js`, `render/styles.css`):
+   bigger type and padding on each rule card, and every `file:line` a real
+   `<a href>`. The relative path is computed in `cli.js` — `path.relative`
+   from the report's own output directory back to the repo root — and passed
+   into `renderHtml` as `repoRelPrefix`, kept out of the Model itself since
+   "where will this be opened from" is a render concern, not something
+   `analyze/` can know (§6.1's split).
+5. **"Branches nothing takes" was a bare number with a location, and that
+   wasn't enough to act on.** `analyze/index.js` now reads the actual source
+   line at each untaken branch's location and carries it as `snippet` on the
+   `BranchRef`, so the panel shows `ItemRow.tsx:47` next to
+   `{item.snoozedUntil ? ... : ''}` directly — no need to open the file to
+   know what the gap even is. A persistent "How to read this" legend was
+   added to the page itself (not just column-header tooltips) explaining
+   both coverage columns and all seven level columns in one sentence each,
+   since a number with no explanation anywhere on the page was the
+   complaint, and a hover-only tooltip doesn't fully answer "I don't
+   understand this column."
+6. **The commit should link to GitHub.** `analyze/index.js` now derives a
+   `commitUrl` from the `origin` remote (handles both the `https://` and
+   `git@` remote URL forms) plus the full SHA, null when the remote isn't
+   GitHub or can't be read (e.g. the fixture-repo tests, which aren't inside
+   a `.git` checkout at all — covered explicitly in `index.test.js`).
+7. **Same root cause as (5) for "files nothing runs".** Now covered by the
+   same legend entry, and every path in the list is a link for the same
+   reason rules got them.
+
 ## 3. The test-folder migration (done)
 
 The row/column model in §4 depends on two conventions:
@@ -198,46 +268,63 @@ worktree needed once this landed.
 
 ## 4. Data model
 
-### 4.1 Rows: feature areas
+### 4.1 Rows: a tree of feature areas
 
 A checked-in **area registry** (§5) lists every feature area: a key (equal
 to its display label — see §2a, there is no dotted entity name to display
-separately anymore), and the source-file glob patterns it owns. `Capture`,
-`Triage`, `Offline`, `Associations`, `Dashboards`, `Panels`, `Focus`,
-`Connector management`, `User management` are the nine areas seeded from
-[testing-strategy.md §9.1](testing-strategy.md)'s own example list — nothing
-restricts the registry to exactly those nine; it grows as new areas appear in
-tests. Backend plumbing that no area owns (the event stream, tenancy, app
-wiring — code testing-decisions-wip says stays whole rather than splitting by
-feature) lives under an implicit `infrastructure` bucket, not left unmatched.
-Rows are one feature area each, plus one `Infrastructure` row for everything
-matching no area's patterns.
+separately anymore), the source-file glob patterns it owns, and an optional
+`parent` (§2c) that nests it under another entry. `Capture`, `Triage`,
+`Offline`, `Associations`, `Dashboards`, `Panels`, `Focus`,
+`Connector management`, `User management` are the nine root areas seeded
+from [testing-strategy.md §9.1](testing-strategy.md)'s own example list —
+nothing restricts the registry to exactly those nine, or to being flat; it
+grows children as real sub-areas show up in tests. Backend plumbing that no
+area owns (the event stream, tenancy, app wiring — code testing-decisions-wip
+says stays whole rather than splitting by feature) lives under an implicit
+`infrastructure` bucket, always a root, not left unmatched. Rows are the
+resulting tree, one node per registry entry, `Infrastructure` always last
+among the roots.
+
+A node's counts and rules are **its own only** — a parent with children does
+not sum their totals into its own row. The tree structure itself is what
+shows the relationship; see §2c point 2 for why a rolled-up "subtree total"
+was considered and rejected.
 
 ### 4.2 Columns
 
+The seven columns are `model.js`'s `LEVELS`, in testing-strategy's own order
+— the actual six levels (§2, §3.3) plus Contract, not a coarser grouping:
+
 | Column | Source | Meaning |
 |---|---|---|
-| Backend | test files under `apps/api/tests/{unit,integration}/` and `packages/*/tests/unit/`, count of rules (inner `describe`s) whose outer describe text matches this area's key | count, not a state |
-| Frontend | same, under `apps/web/tests/{unit,service}/` | count |
-| Browser | same, under `tests/e2e/` (F3) | count |
-| Contract | same, under `packages/connectors/*/tests/contract/`, `n/a` for any area that owns no connector | count or `n/a` |
-| Files nothing runs | source files matching this area's patterns that no test file (at any level) imports directly — a real limitation for HTTP-driven integration tests; see §2a | count, list on expand |
-| Branches nothing takes | merged branch coverage (§6.3) restricted to this area's files | count, locations on expand |
+| L1 | `apps/api/tests/unit/`, `packages/*/tests/unit/` (excluding connectors) | count of rules whose outer describe matches this area's key |
+| L2 | `apps/api/tests/integration/`, `packages/*/tests/integration/` | count |
+| L3 | `apps/*/tests/system/` (no folder exists yet) | count, or `n/a` for every row when the workspace has only one backend service — see §2c point 3 |
+| F1 | `apps/web/tests/unit/` | count |
+| F2 | `apps/web/tests/service/` | count |
+| F3 | `tests/e2e/` at the repo root | count |
+| Contract | `packages/connectors/*/tests/contract/` | count, or `n/a` for any area with no connector package |
+| Files nothing runs | — | source files matching this area's patterns that no test file (at any level) imports directly — a real limitation for HTTP-driven integration tests; see §2a |
+| Branches nothing takes | — | merged branch coverage (§6.3) restricted to this area's files |
 
 No percentage anywhere, including as a secondary number, per the settled
 design's explicit reasoning: once one exists it becomes the thing people look
-at, and it is the one number here that can rise without proving anything.
+at, and it is the one number here that can rise without proving anything. A
+persistent legend on the page itself explains every column in one sentence
+(§2c point 5) — not left to a hover tooltip alone.
 
 ### 4.3 Expand-on-click
 
-Selecting a row shows:
+Selecting a row shows, each file reference a real link (§2c point 4, relative
+path computed by `cli.js`, not stored in the Model — see §6.1):
 
-- every rule counted in that row's Backend/Frontend/Browser/Contract cells,
-  as its inner-describe statement, with which column/level it sits at and its
-  file:line;
-- the file and line location of every branch nothing takes, restricted to
-  this area's files;
-- the path of every file nothing runs, restricted to this area's files.
+- every rule counted in that row's own L1–Contract cells, as its
+  inner-describe statement, with which level it sits at and a linked
+  `file:line`;
+- every branch nothing takes, restricted to this area's files, as a linked
+  `file:line` **plus the untaken line's own source text** (§2c point 5) —
+  enough to see what the gap actually is without opening the file;
+- every file nothing runs, restricted to this area's files, linked.
 
 No "reason for the level" field is computed or asked for at this stage — the
 level is read mechanically from which `tests/<level>/` folder the file sits
@@ -268,6 +355,13 @@ entry:
 }
 ```
 
+...plus an optional `"parent": "<key>"` (§2c point 1) naming another entry,
+which is the only thing that turns the flat list into a tree — nesting is a
+registry decision, never something a `describe` name has to encode. No entry
+uses it yet: nothing in the repo has grown a real sub-area in tests, so
+there's nothing real to nest. The day `Dashboards` gets a `drag-drop` test,
+the fix is one line here, not a rename anywhere in test code.
+
 A describe's outer text resolves to an area by exact match on `key`
 (`describe('Capture', ...)` → `Capture`). A source file resolves to **every**
 area whose `sourcePatterns` it matches — as §2a covers, one file can back
@@ -288,7 +382,10 @@ is legal and just means the row stays at zero everywhere until then.
 
 A describe naming an area absent from the registry is a build error at
 `--check-concepts` time (§7) — a typo'd or forgotten area name, not a silent
-zero.
+zero. A `parent` naming an absent or cyclical key is not a build error — it's
+reported as a warning and that entry renders as a root instead, so a typo in
+the registry degrades the tree shape rather than silently deleting rows
+(§2c point 1).
 
 ## 6. Architecture
 
@@ -522,8 +619,8 @@ re-validated against the real merge (`0897f91`) once it landed, which is when
    multi-membership file resolution (`concepts.js`), rule extraction including
    the `describe.skip`/`.only` and empty-describe edge cases (`rules.js`), the
    branch-coverage merge (`coverage.js`), and one fixture-repo test exercising
-   `analyze()` end to end (`index.js`) — 31 tests total, wired into
-   `pnpm test`/`pnpm -r test` the same as every other package.
+   `analyze()` end to end (`index.js`), wired into `pnpm test`/`pnpm -r test`
+   the same as every other package. Grew to 41 tests as of step 11.
 10. **Wire up real branch coverage.** Done. `coverage: {...}` added to all
     three packages' `vitest.config.ts`, behind a new `test:coverage` script
     per package (§6.3) — opt-in, so it doesn't touch the fast-tier time
@@ -545,6 +642,15 @@ Worker over real HTTP rather than importing `command-service.ts`/`db/repo.ts`
 directly, so "files nothing runs" reports false positives on exactly those
 two files. §2a covers this in full; the mitigation is a warning naming the
 limitation, not a heuristic that guesses which files an HTTP call reached.
+11. **First-use feedback: tree rows, real levels, hyperlinks, GitHub commit
+    link, readable gaps.** Done — §2c is the full record. `model.js`'s
+    `TreeNode`/`LEVELS` replaced the flat `ConceptRow`/`Column` shape;
+    `concepts.js` gained `buildTree` (5 new tests, including the cycle case);
+    `rules.js`'s `levelForTestFile` replaced `columnAndLevelForTestFile`;
+    `render/client.js` and `styles.css` got the tree UI, bigger rule cards,
+    file links and the on-page legend; `analyze/index.js` gained
+    `commitUrl`, `availableLevels`, and per-branch source snippets. 10 new
+    tests, 41 total.
 
 ## 10. Explicitly out of scope for this spec
 

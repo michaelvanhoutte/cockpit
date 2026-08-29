@@ -26,26 +26,37 @@
 import ts from 'typescript';
 
 /**
+ * Maps a test file's path to one of model.js's LEVEL_IDS. The six testing-strategy
+ * levels attach to real, distinct folders (testing-strategy.md §9); Contract is
+ * the seventh, scheduled-only tier (§3.3).
+ *
  * @param {string} relPath repo-relative test file path
- * @returns {{ column: import('../model.js').Column, level: string } | null}
- *   null when the path doesn't match any known test-folder shape (reported by the caller as a warning)
+ * @returns {string | null} one of LEVEL_IDS, or null when the path doesn't match any
+ *   known test-folder shape (reported by the caller as a warning)
  */
-export function columnAndLevelForTestFile(relPath) {
+export function levelForTestFile(relPath) {
   let m = relPath.match(/^apps\/web\/tests\/([^/]+)\//);
-  if (m) return { column: 'frontend', level: m[1] };
+  if (m) {
+    if (m[1] === 'unit') return 'F1';
+    if (m[1] === 'service') return 'F2';
+    return null;
+  }
 
-  if (relPath.startsWith('tests/e2e/')) return { column: 'browser', level: 'e2e' };
+  if (relPath.startsWith('tests/e2e/')) return 'F3';
 
-  m = relPath.match(/^packages\/connectors\/[^/]+\/tests\/contract\//);
-  if (m) return { column: 'contract', level: 'contract' };
+  if (/^packages\/connectors\/[^/]+\/tests\/contract\//.test(relPath)) return 'Contract';
 
-  // Everything else under apps/api/tests/** or packages/*/tests/** (excluding
-  // the contract case above) counts as backend: apps/api is the one backend
-  // service today, and packages/shared + packages/connectors/* unit tests are
-  // backend-shaped code with no frontend equivalent. Revisit if a package
-  // ever needs its own column.
+  // apps/api/tests/** and packages/*/tests/** (excluding the connector-contract
+  // case above): apps/api is the one backend service today, and
+  // packages/shared/packages/connectors/* unit/integration tests are
+  // backend-shaped code with no frontend equivalent.
   m = relPath.match(/^(?:apps\/api|packages\/[^/]+)\/tests\/([^/]+)\//);
-  if (m) return { column: 'backend', level: m[1] };
+  if (m) {
+    if (m[1] === 'unit') return 'L1';
+    if (m[1] === 'integration') return 'L2';
+    if (m[1] === 'system') return 'L3';
+    return null;
+  }
 
   return null;
 }
@@ -54,14 +65,13 @@ export function columnAndLevelForTestFile(relPath) {
  * @param {ts.SourceFile} source already parsed (parseFile is called once per test file by the
  *   caller and shared across extractRules/importsSelfFetch/markReached — see analyze/index.js)
  * @param {string} relFile repo-relative, for reporting
- * @param {import('../model.js').Column} column
+ * @param {string} level one of LEVEL_IDS, from levelForTestFile(relFile)
  * @returns {{ rules: import('../model.js').Rule[], areasSeen: string[], warnings: string[] }}
  *   areasSeen is every top-level describe's text found, regardless of whether it produced a rule —
  *   an empty/not-yet-written describe still names a feature area that concepts.json must know about,
  *   which is what --check-concepts (§7) needs; using only `rules` here would miss exactly that case.
  */
-export function extractRules(source, relFile, column) {
-  const level = columnAndLevelForTestFile(relFile)?.level ?? 'unknown';
+export function extractRules(source, relFile, level) {
   /** @type {import('../model.js').Rule[]} */
   const rules = [];
   const areasSeen = [];
@@ -78,23 +88,23 @@ export function extractRules(source, relFile, column) {
     if (innerDescribes.length === 0) {
       const { cases, todoCases } = countCases(outer.body);
       if (cases === 0 && todoCases === 0) continue; // an empty/structural describe, nothing to report
-      rules.push(rule(concept, concept, column, level, cases, todoCases, relFile, source, outer.node));
+      rules.push(rule(concept, concept, level, cases, todoCases, relFile, source, outer.node));
       continue;
     }
 
     for (const inner of innerDescribes) {
       const { cases, todoCases } = countCases(inner.body);
       if (cases === 0 && todoCases === 0) continue;
-      rules.push(rule(concept, inner.text, column, level, cases, todoCases, relFile, source, inner.node));
+      rules.push(rule(concept, inner.text, level, cases, todoCases, relFile, source, inner.node));
     }
   }
 
   return { rules, areasSeen, warnings };
 }
 
-function rule(concept, statement, column, level, cases, todoCases, file, source, node) {
+function rule(concept, statement, level, cases, todoCases, file, source, node) {
   const { line } = source.getLineAndCharacterOfPosition(node.getStart());
-  return { concept, statement, column, level, cases, todoCases, file, line: line + 1 };
+  return { concept, statement, level, cases, todoCases, file, line: line + 1 };
 }
 
 /**

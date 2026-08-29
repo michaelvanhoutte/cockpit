@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { analyze } from '../../src/analyze/index.js';
+import { walkTree } from '../../src/model.js';
 
 /**
  * Builds a minimal synthetic repo under a temp directory and runs the real
@@ -45,6 +46,13 @@ function writeFixtureRepo() {
   return repo;
 }
 
+function findNode(tree, key) {
+  for (const node of walkTree(tree)) {
+    if (node.key === key) return node;
+  }
+  return undefined;
+}
+
 describe('analyze (end to end against a fixture repo)', () => {
   let repo;
 
@@ -52,21 +60,24 @@ describe('analyze (end to end against a fixture repo)', () => {
     if (repo) rmSync(repo, { recursive: true, force: true });
   });
 
-  it('extracts the rule, resolves the real import as reached, and leaves the type-only import unreached', () => {
+  it('extracts the rule at the right level, resolves the real import as reached, and leaves the type-only import unreached', () => {
     repo = writeFixtureRepo();
     const model = analyze(repo);
 
     expect(model.warnings.some((w) => w.includes('Capture'))).toBe(false); // 'Capture' is a registered area, no warning
     expect(model.unregisteredAreas).toEqual([]);
 
-    const capture = model.concepts.find((c) => c.key === 'Capture');
+    const capture = findNode(model.tree, 'Capture');
     expect(capture.rules).toHaveLength(1);
     expect(capture.rules[0].statement).toBe('captures something');
+    expect(capture.rules[0].level).toBe('L1');
+    expect(capture.counts.L1).toBe(1);
+    expect(capture.counts.F1).toBe(0);
 
     // Neither fixture source file matches a real concept's sourcePatterns (those are the actual
     // repo's paths), so both fall into 'infrastructure' by the same file-resolution rules.js §5
     // uses for the real repo — that's what lets this fixture test the reach logic in isolation.
-    const infra = model.concepts.find((c) => c.key === 'infrastructure');
+    const infra = findNode(model.tree, 'infrastructure');
     // thing.ts is imported for real (a value import) -> reached, not in filesNothingRuns.
     expect(infra.filesNothingRuns).not.toContain('packages/demo/src/thing.ts');
     // untouched.ts is imported ONLY via `import { type Foo }` -> not reached, IS in filesNothingRuns.
@@ -87,8 +98,24 @@ describe('analyze (end to end against a fixture repo)', () => {
   it('leaves every Contract count null when no connector package exists in the workspace', () => {
     repo = writeFixtureRepo();
     const model = analyze(repo);
-    for (const concept of model.concepts) {
-      expect(concept.counts.contract).toBeNull();
+    for (const node of walkTree(model.tree)) {
+      expect(node.counts.Contract).toBeNull();
     }
+  });
+
+  it('leaves every L3 count null when the workspace has no second backend service', () => {
+    repo = writeFixtureRepo();
+    const model = analyze(repo);
+    expect(model.availableLevels.L3).toBe(false);
+    for (const node of walkTree(model.tree)) {
+      expect(node.counts.L3).toBeNull();
+    }
+  });
+
+  it('reports no commit URL and an "unknown" commit for a repo with no .git directory', () => {
+    repo = writeFixtureRepo();
+    const model = analyze(repo);
+    expect(model.commit).toBe('unknown');
+    expect(model.commitUrl).toBeNull();
   });
 });

@@ -4,13 +4,13 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 
-import { COLUMNS } from '../model.js';
-import { loadConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from './concepts.js';
-import { extractRules, columnAndLevelForTestFile } from './rules.js';
+import { LEVEL_IDS } from '../model.js';
+import { buildTree, loadConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from './concepts.js';
+import { extractRules, levelForTestFile } from './rules.js';
 import { parseFile, resolveImport } from './ast.js';
 import { workspacePackages, packageName, packageEntry, sourceFiles, testFiles } from './workspace.js';
 import { loadMergedCoverage, branchesNotTaken } from './coverage.js';
@@ -23,6 +23,14 @@ export function analyze(repo) {
   const warnings = [];
   const packages = workspacePackages(repo);
   const registry = loadConcepts();
+
+  // L3 (system) only means anything once a second backend service exists to
+  // wire together at the API level (testing-strategy.md §2: "L2 and L3
+  // largely collapse into each other" with one service) — derived from real
+  // workspace data (a wrangler config marks a deployable Worker/service),
+  // not hardcoded, so it flips on its own the day a second one lands.
+  const backendServiceCount = packages.filter((rel) => isBackendService(repo, rel)).length;
+  const availableLevels = Object.fromEntries(LEVEL_IDS.map((id) => [id, id !== 'L3' || backendServiceCount > 1]));
 
   // ---- source files, for the two coverage columns -----------------------
   /** @type {Set<string>} absolute paths */
@@ -48,22 +56,22 @@ export function analyze(repo) {
   const fileConcepts = resolveFiles(registry, relSourceFiles);
 
   // ---- test files: rules + import reach ----------------------------------
-  /** @type {{ absFile: string, relFile: string, column: string }[]} */
+  /** @type {{ absFile: string, relFile: string, level: string }[]} */
   const allTestFiles = [];
   for (const rel of packages) {
     for (const t of testFiles(repo, rel)) {
-      const resolved = columnAndLevelForTestFile(t.file);
-      if (!resolved) {
+      const level = levelForTestFile(t.file);
+      if (!level) {
         warnings.push(`${t.file}: does not match a known tests/<level>/ shape; skipped.`);
         continue;
       }
-      allTestFiles.push({ absFile: path.join(repo, t.file), relFile: t.file, column: resolved.column });
+      allTestFiles.push({ absFile: path.join(repo, t.file), relFile: t.file, level });
     }
   }
   const e2eDir = path.join(repo, 'tests/e2e');
   if (existsSync(e2eDir)) {
     for (const relFile of walkTestFiles(repo, 'tests/e2e')) {
-      allTestFiles.push({ absFile: path.join(repo, relFile), relFile, column: 'browser' });
+      allTestFiles.push({ absFile: path.join(repo, relFile), relFile, level: 'F3' });
     }
   }
 
@@ -86,7 +94,7 @@ export function analyze(repo) {
     // cost of the tool's dominant expense for no benefit.
     const { source } = parseFile(t.absFile);
 
-    const { rules, areasSeen, warnings: fileWarnings } = extractRules(source, t.relFile, t.column);
+    const { rules, areasSeen, warnings: fileWarnings } = extractRules(source, t.relFile, t.level);
     warnings.push(...fileWarnings);
     allAreasSeen.push(...areasSeen);
     for (const r of rules) {
@@ -133,8 +141,9 @@ export function analyze(repo) {
   // ---- merged branch coverage --------------------------------------------
   const coverage = loadMergedCoverage(repo, packages);
   warnings.push(...coverage.warnings);
+  const snippetCache = new Map();
 
-  // ---- assemble rows -------------------------------------------------------
+  // ---- assemble the tree ---------------------------------------------------
   const filesByConcept = new Map();
   for (const [file, keys] of fileConcepts) {
     for (const key of keys) {
@@ -143,38 +152,55 @@ export function analyze(repo) {
     }
   }
 
-  const rows = withInfrastructure(registry).map((concept) => {
+  const withInfra = withInfrastructure(registry);
+
+  function makeNode(concept) {
     const rules = rulesByConcept.get(concept.key) ?? [];
     const counts = {};
-    for (const column of COLUMNS) {
-      counts[column] = column === 'contract' && !hasConnector(concept, packages) ? null : rules.filter((r) => r.column === column).length;
+    for (const id of LEVEL_IDS) {
+      if (!availableLevels[id]) {
+        counts[id] = null;
+      } else if (id === 'Contract' && !hasConnector(concept, packages)) {
+        counts[id] = null;
+      } else {
+        counts[id] = rules.filter((r) => r.level === id).length;
+      }
     }
 
     const files = filesByConcept.get(concept.key) ?? [];
     const filesNothingRuns = files.filter((relFile) => !reached.has(path.join(repo, relFile))).sort();
 
     const branchesNothingTakes = coverage.available
-      ? files.flatMap((relFile) => branchesNotTaken(coverage.map, path.join(repo, relFile)).map((b) => ({ file: relFile, line: b.line })))
+      ? files.flatMap((relFile) =>
+          branchesNotTaken(coverage.map, path.join(repo, relFile)).map((b) => ({
+            file: relFile,
+            line: b.line,
+            snippet: snippetAt(repo, relFile, b.line, snippetCache),
+          })),
+        )
       : null;
 
-    return {
-      key: concept.key,
-      label: concept.label,
-      counts,
-      rules,
-      filesNothingRuns,
-      branchesNothingTakes,
-    };
-  });
+    return { key: concept.key, label: concept.label, counts, rules, filesNothingRuns, branchesNothingTakes };
+  }
+
+  const { tree, warnings: treeWarnings } = buildTree(withInfra, makeNode);
+  warnings.push(...treeWarnings);
 
   return {
     commit: commitSha(repo),
+    commitUrl: commitUrl(repo),
     generatedAt: new Date().toISOString(),
-    concepts: rows,
+    tree,
     coverageAvailable: coverage.available,
+    availableLevels,
     unregisteredAreas: unregistered,
     warnings,
   };
+}
+
+/** A wrangler config marks a package as a deployable Worker/service, the discriminator used for L3 availability. */
+function isBackendService(repo, rel) {
+  return ['wrangler.jsonc', 'wrangler.toml', 'wrangler.json'].some((f) => existsSync(path.join(repo, rel, f)));
 }
 
 /**
@@ -236,6 +262,22 @@ function markReached(source, testFileAbs, sourceFileSet, packageEntries, reached
   ts.forEachChild(source, visit);
 }
 
+/** The untaken branch's own source line, trimmed — makes a gap readable without opening the file. */
+function snippetAt(repo, relFile, line, cache) {
+  const abs = path.join(repo, relFile);
+  if (!cache.has(abs)) {
+    try {
+      cache.set(abs, readFileSync(abs, 'utf8').split('\n'));
+    } catch {
+      cache.set(abs, null);
+    }
+  }
+  const lines = cache.get(abs);
+  const text = lines?.[line - 1]?.trim();
+  if (!text) return '';
+  return text.length > 160 ? `${text.slice(0, 160)}…` : text;
+}
+
 function walkTestFiles(repo, relDir) {
   const out = [];
   const walk = (dir) => {
@@ -254,8 +296,25 @@ function walkTestFiles(repo, relDir) {
 
 function commitSha(repo) {
   try {
-    return execFileSync('git', ['-C', repo, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+    return execFileSync('git', ['-C', repo, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     return 'unknown';
+  }
+}
+
+/** Link to the commit on GitHub, derived from the `origin` remote — null when it isn't GitHub or can't be read. */
+function commitUrl(repo) {
+  try {
+    const remote = execFileSync('git', ['-C', repo, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    // Handles both https://github.com/owner/repo.git and git@github.com:owner/repo.git.
+    const m = remote.match(/github\.com[:/]([^/]+)\/(.+?)(?:\.git)?$/);
+    if (!m) return null;
+    const sha = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return `https://github.com/${m[1]}/${m[2]}/commit/${sha}`;
+  } catch {
+    return null;
   }
 }

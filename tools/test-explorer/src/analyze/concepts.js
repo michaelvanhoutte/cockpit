@@ -96,6 +96,63 @@ export function withInfrastructure(concepts) {
 }
 
 /**
+ * Turns the flat registry into a tree via each entry's optional `parent` key
+ * (docs/test-explorer-spec.md §2c) — a real feature area too big for one row
+ * (Dashboards: drag-drop, resizing, ...) gets children this way instead of
+ * the describe convention itself needing to encode nesting.
+ *
+ * `makeNode(concept)` builds the per-node payload (counts, rules, etc.) —
+ * kept as a callback so this function stays pure tree-shaping and the caller
+ * (analyze/index.js) owns what data actually lands on each node.
+ *
+ * @param {{ key: string, parent?: string }[]} concepts
+ * @param {(concept: object) => object} makeNode
+ * @returns {{ tree: object[], warnings: string[] }}
+ *   tree is the root nodes (no parent, or a parent that doesn't resolve — reported as a warning
+ *   rather than dropped, since a typo'd parent must never silently swallow a whole area's rows).
+ */
+export function buildTree(concepts, makeNode) {
+  const warnings = [];
+  const byConceptKey = new Map(concepts.map((c) => [c.key, c]));
+  const byKey = new Map(concepts.map((c) => [c.key, { ...makeNode(c), children: [] }]));
+
+  /** True when walking `parent` pointers from `key` returns to `key` itself. */
+  function inCycle(key) {
+    let current = byConceptKey.get(key);
+    const seen = new Set();
+    while (current?.parent) {
+      if (seen.has(current.key)) return true;
+      seen.add(current.key);
+      current = byConceptKey.get(current.parent);
+    }
+    return false;
+  }
+
+  const roots = [];
+  for (const concept of concepts) {
+    const node = byKey.get(concept.key);
+    if (!concept.parent) {
+      roots.push(node);
+      continue;
+    }
+    const parent = byKey.get(concept.parent);
+    if (!parent) {
+      warnings.push(`"${concept.key}" names "${concept.parent}" as its parent, which is not a registered area; rendered as a root.`);
+      roots.push(node);
+      continue;
+    }
+    if (inCycle(concept.key)) {
+      warnings.push(`"${concept.key}"'s parent chain cycles back to itself through "${concept.parent}"; rendered as a root.`);
+      roots.push(node);
+      continue;
+    }
+    parent.children.push(node);
+  }
+
+  return { tree: roots, warnings };
+}
+
+/**
  * The mechanical check CI runs (§7, amended by §2a): every feature area a
  * test file actually declares (its outer describe) must be a registered
  * area. This replaced the original "every source file matches exactly one
