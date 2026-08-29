@@ -13,3 +13,7 @@ coverage/
 !.env.example
 *.tsbuildinfo
 .DS_Store
+
+# Playwright (F3): failure artefacts, regenerated on every run
+test-results/
+playwright-report/

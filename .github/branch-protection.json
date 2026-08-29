@@ -1,7 +1,7 @@
 {
   "required_status_checks": {
     "strict": false,
-    "contexts": ["Typecheck", "Test", "Build", "Scripts"]
+    "contexts": ["Typecheck", "Test", "E2E (F3)", "Build", "Scripts"]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": {
