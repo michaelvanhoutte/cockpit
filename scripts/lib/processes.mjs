@@ -97,6 +97,16 @@ export function supervise(children) {
   process.on('SIGTERM', () => shutdown(0));
 
   for (const child of children) {
+    // A child that died before this ran has already emitted 'exit', and Node
+    // does not replay it for a listener attached afterwards — so without this
+    // check the caller would supervise a corpse and keep the rest running. That
+    // is reachable: callers start their children one at a time, and anything
+    // between the first spawn and this call is a window one of them can die in.
+    if (child.exitCode !== null || child.signalCode !== null) {
+      console.error(paint('31', `\na server exited (${child.exitCode ?? child.signalCode}) before it could be supervised; stopping the rest`));
+      shutdown(child.exitCode ?? 1);
+      break;
+    }
     child.on('exit', (code) => {
       if (!shuttingDown) console.error(paint('31', `\na server exited (${code}); stopping the rest`));
       shutdown(code ?? 1);

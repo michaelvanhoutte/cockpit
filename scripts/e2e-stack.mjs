@@ -29,6 +29,7 @@
 // Workers pool; this is the browser tier being consistent with that.
 //
 
+import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -110,6 +111,36 @@ try {
 }
 
 /**
+ * Fails the run if something is already listening, before anything is started.
+ * Vite gets this from `--strictPort`; Wrangler needs it spelled out, and needs
+ * it for a sharper reason than "the port is taken". A leftover Worker from an
+ * aborted run answers /health perfectly well — it is a Worker — so the wait
+ * below would accept it and the suite would then run against whatever database
+ * that process was started with, silently, which is the one guarantee this
+ * whole tier is built on. Binding is the test rather than connecting, because
+ * only a bind distinguishes "free" from "listening but not answering yet".
+ */
+function assertPortFree(port, what) {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once('error', (error) =>
+      reject(
+        error.code === 'EADDRINUSE'
+          ? new Error(
+              `port ${port} is already in use, so the ${what} cannot start there. ` +
+                `Something — most likely a stack left behind by an interrupted run — is holding it. ` +
+                `Stop that first: this suite will not run against a server it did not start, because ` +
+                `its database would not be the fresh one.`,
+            )
+          : error,
+      ),
+    );
+    probe.once('listening', () => probe.close(() => resolve()));
+    probe.listen(port, '127.0.0.1');
+  });
+}
+
+/**
  * Waits until the Worker actually answers, and this is load-bearing rather
  * than tidy. Playwright's `webServer` polls exactly one URL — Vite's — and
  * treats the whole stack as ready the moment that answers. Vite answers in
@@ -131,13 +162,26 @@ async function waitForApi(child) {
     }
     try {
       const res = await fetch(`http://127.0.0.1:${API_PORT}/health`);
-      if (res.ok) return;
+      // The status is not the answer: /health is 200 whether or not D1 responds,
+      // and reports the database in its body (apps/api/src/http/app.ts). Since
+      // bringing D1 up is the slow part this wait exists for, `res.ok` alone
+      // would let the suite start against a Worker whose database is not there.
+      if (res.ok && (await res.json())?.db === true) return;
     } catch {
-      // Not listening yet. Connection refused is the expected state here.
+      // Not listening yet, or answering with something that is not JSON.
+      // Connection refused is the expected state for most of this loop.
     }
     await delay(200);
   }
   throw new Error(`the test API never answered on :${API_PORT}`);
+}
+
+try {
+  await assertPortFree(API_PORT, 'test API');
+  await assertPortFree(WEB_PORT, 'test web server');
+} catch (error) {
+  console.error(paint('31', `\n${error.message}`));
+  process.exit(1);
 }
 
 const api = start(
