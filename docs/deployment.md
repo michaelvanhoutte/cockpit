@@ -529,7 +529,8 @@ than to any mail provider, so it survives changing employer or email.
 - **F3 against a deployed preview.** The suite already takes `E2E_BASE_URL` and
   the `CF-Access-Client-*` header pair, so pointing it at a branch's preview is
   configuration rather than code. What is missing is the credential: Access
-  fronts every deployment (§6) and no **service token** exists yet, so an
+  fronts every deployment (secrets and access, §6) and no **service token**
+  exists yet, so an
   unauthenticated run would test the login page. Creating one (Zero Trust →
   Access → Service Auth, then a policy on the preview application that accepts
   it) is owner work, and the preview-deploy job that uses it lands with it.

@@ -641,7 +641,7 @@ The seven columns are `model.js`'s `LEVELS`, in testing-strategy's own order
 | L3 | `apps/*/tests/system/` (no folder exists yet) | count, or `n/a` for every row when the workspace has only one backend service — see §2c point 3 |
 | F1 | `apps/web/tests/unit/` | count |
 | F2 | `apps/web/tests/service/` | count |
-| F3 | `tests/e2e/` at the repo root | count (Playwright spells the same two-level structure `test.describe`; §6.2) |
+| F3 | `tests/e2e/` at the repo root | count (Playwright spells the same two-level structure `test.describe`; see rule extraction, §6.2) |
 | Contract | `packages/connectors/*/tests/contract/` | count, or `n/a` for any area with no connector package |
 | Files nothing runs | — | source files matching this area's patterns that no test file (at any level) imports directly — a real limitation for HTTP-driven integration tests; see §2a |
 | Branches nothing takes | — | merged branch coverage (§6.3) restricted to this area's files |

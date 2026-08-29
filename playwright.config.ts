@@ -1,10 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * F3, the end-to-end tier (docs/testing-strategy.md §2, §9). Lives at the repo
- * root because it belongs to no package: it drives `apps/web` and `apps/api`
+ * F3, the end-to-end tier — the level definitions and the directory
+ * conventions of docs/testing-strategy.md (§2, §9). Lives at the repo root
+ * because it belongs to no package: it drives `apps/web` and `apps/api`
  * together, and `tools/test-explorer` reads `tests/e2e/` at the root as the F3
- * column (docs/test-explorer-spec.md §4.2). Issue #41 proposed
+ * column (its columns table, docs/test-explorer-spec.md §4.2). Issue #41 proposed
  * `apps/web/tests/e2e/`; the explorer, which landed later, maps
  * `apps/web/tests/<x>/` to F1/F2 and nothing else, so a suite there would be
  * silently uncounted. Root wins.
@@ -84,9 +85,9 @@ export default defineConfig({
     // this tier deliberately does not do.
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    // Cloudflare Access fronts every deployed environment (docs/deployment.md
-    // §6), so a preview run needs a service token or it gets the login page
-    // instead of the app. Absent locally, where there is no Access in front.
+    // Cloudflare Access fronts every deployed environment (secrets and access,
+    // docs/deployment.md §6), so a preview run needs a service token or it gets
+    // the login page instead of the app. Absent locally, where there is no Access in front.
     ...(process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET
       ? {
           extraHTTPHeaders: {

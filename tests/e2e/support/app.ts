@@ -2,8 +2,9 @@ import { expect, type Locator, type Page } from '@playwright/test';
 
 /**
  * Shared arrangement for the F3 walks. Not a page-object layer — F3 is
- * deliberately thin (docs/testing-strategy.md §4) and an abstraction over four
- * locators would hide the thing the tests exist to prove.
+ * deliberately thin (what each level is for, docs/testing-strategy.md §4) and
+ * an abstraction over four locators would hide the thing the tests exist to
+ * prove.
  *
  * Every run starts from exactly the seed: scripts/e2e-stack.mjs stamps out a
  * fresh database before the stack comes up, and it is not the database
