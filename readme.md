@@ -71,16 +71,21 @@ It keys on the upstream being gone rather than on `git branch --merged`, because
 Read [docs/testing-strategy.md](docs/testing-strategy.md) (the reasoning) or `.claude/skills/testing/` (the binding rules, restated so an agent never has to open the strategy doc to write a test) before adding, moving, or reviewing a test. The short version: pick the lowest level that can prove a behaviour, and never claim something works from green tests alone — the application has to actually be started and the change exercised in it.
 
 ```bash
-# everything, as CI would
+# everything, as CI would: every fast tier, then the browser tier
 pnpm test:all
 
-# just the fast tiers — unit + frontend component tests, no database spin-up;
+# just the fast tiers — unit + frontend component tests, no browser, no servers;
 # run this constantly while you work
 pnpm test:fast
 
-# same as test:all right now, kept for muscle memory
+# every package's own tests — unit, integration and frontend — but no browser
 pnpm test
+
+# the browser tier alone
+pnpm test:e2e
 ```
+
+One-time, on a machine that has never run the browser tier: `pnpm exec playwright install chromium`. It is the only setup step `pnpm install` does not cover, it downloads about 150MB, and without it `pnpm test:e2e` fails immediately telling you to run exactly that.
 
 One package at a time, when you only want the tests near what you're touching:
 
@@ -89,11 +94,17 @@ pnpm --filter @cockpit/shared test:unit       # domain types, schemas, ids — n
 pnpm --filter @cockpit/api test:unit          # domain logic — no real dependencies
 pnpm --filter @cockpit/api test:integration   # command handling against a real local D1 (~15s, not in test:fast)
 pnpm --filter @cockpit/web test:f-unit        # component logic, API client mocked at the boundary
+pnpm test:e2e --project=phone                 # the browser walks on one device instead of both
+pnpm test:e2e tests/e2e/capture.test.ts       # one browser walk
 ```
 
-For a live-reloading loop while writing a test, run vitest directly instead of the `run`-only package script, e.g. `pnpm --filter @cockpit/web exec vitest`.
+For a live-reloading loop while writing a test, run vitest directly instead of the `run`-only package script, e.g. `pnpm --filter @cockpit/web exec vitest`. The browser tier's equivalent is `pnpm test:e2e --ui`.
 
-Tests never require `pnpm dev` to be running — `apps/api`'s integration tests spin up their own ephemeral, real D1 instance for the duration of the run (`@cloudflare/vitest-pool-workers`), separate from whatever `pnpm dev` would start. `pnpm dev` is for the other required step: manually exercising the changed behaviour in the browser, which the testing strategy treats as non-negotiable proof that green tests alone can't provide.
+**Nothing has to be running first, including for the browser tier.** `apps/api`'s integration tests spin up their own ephemeral, real D1 instance for the duration of the run (`@cloudflare/vitest-pool-workers`), separate from whatever `pnpm dev` would start. The browser tier starts `pnpm dev` itself — migrations, seed, Wrangler and Vite — and stops it again when the run ends. If you already have `pnpm dev` open it attaches to that instead of fighting it for the port, which is also faster: measured at 5 seconds against a running server against 14 from cold, the difference being migrating, seeding and booting Wrangler and Vite. Add the SPA build to that on a clone where `apps/web/dist` has never been built. The one thing that will bite is *something else* on :5173 or :8787, since the tier then talks to whatever that is.
+
+Two consequences of the browser tier writing to your local database, both deliberate. It leaves its items behind — every test invents a unique title and asserts only on its own, because the same suite is meant to run against the shared preview database where nothing can assume a clean slate. And it needs no fixtures: it captures what it needs through the app itself.
+
+`pnpm dev` is still the other required step: manually exercising a change the browser tier does not cover, which the testing strategy treats as non-negotiable proof that green tests alone can't provide.
 
 ## Development automation
 
@@ -103,7 +114,7 @@ Two different things get called "our automation", and keeping them apart saves a
 
 | Workflow | Fires on | What it does |
 |---|---|---|
-| [CI](.github/workflows/ci.yml) | pushes and pull requests to `main` | Four parallel jobs — `Typecheck`, `Test`, `Build`, `Scripts` — which are exactly the four contexts branch protection requires, so a failure names itself. `Scripts` runs `scripts/branch-alias.test.sh`, because a silent change in the preview-alias derivation would collide two branches onto one URL. Deliberately *not* triggered on every branch push: the preview deploy already runs the same checks there, and doing both would run everything twice. |
+| [CI](.github/workflows/ci.yml) | pushes and pull requests to `main` | Five parallel jobs — `Typecheck`, `Test`, `E2E (F3)`, `Build`, `Scripts` — which are exactly the five contexts branch protection requires, so a failure names itself. `E2E (F3)` installs Chromium and runs the browser tier against the same `pnpm dev` pair you would run locally, keeping its failure traces as an artifact. `Scripts` runs `scripts/branch-alias.test.sh`, because a silent change in the preview-alias derivation would collide two branches onto one URL. Deliberately *not* triggered on every branch push: the preview deploy already runs the same checks there, and doing both would run everything twice. |
 | [Claude Code Review](.github/workflows/claude-code-review.yml) | every pull request opened, pushed to, reopened or marked ready for review | Runs the `code-review` plugin command against the pull request and posts its findings as inline comments (a summary comment when it finds nothing). A second step then asserts that the review *actually ran* — see below. |
 | [Claude Code](.github/workflows/claude.yml) | `@claude` in an issue, an issue or PR comment, or a review | Hands that comment to Claude with read access to the repository and to CI results, so an explanation or a fix can be asked for from the pull request itself. |
 | [Deploy preview](.github/workflows/deploy-preview.yml) | pushes to any branch except `main` | Typechecks and tests first (a broken build must not replace a working preview), derives the branch alias, migrates and seeds the shared preview database, uploads a new Worker version behind `<alias>-cockpit-preview…`, and comments the URL on the pull request if there is one. Triggered on `push`, not `pull_request`, so a branch with no PR — or a draft one — still gets an environment. |
