@@ -1,0 +1,79 @@
+{
+  "$comment": "The area registry (docs/test-explorer-spec.md §5, amended by §2a). Rows are feature areas in product language, matching the outer `describe` convention in testing-strategy.md §9.1 - undotted, not an entity ('Triage', not 'item.setStatus'). A source file can legitimately match more than one area's sourcePatterns (e.g. apps/api/src/domain/items.ts backs Capture, Triage and Offline as different functions in one file) - that is expected, not an overlap error. `pnpm --filter @cockpit/test-explorer check-concepts` instead fails when a test declares an area missing from this file. A file matching zero areas falls into 'infrastructure' automatically. Concepts with an empty sourcePatterns list are declared ahead of the code that will eventually own them and stay at zero everywhere until then. Glob syntax: '*' within a path segment, '**' across segments. The nine areas below are testing-strategy.md §9.1's own example list verbatim.",
+  "concepts": [
+    {
+      "key": "Capture",
+      "label": "Capture",
+      "sourcePatterns": [
+        "apps/api/src/domain/items.ts",
+        "apps/api/src/http/command-service.ts",
+        "apps/api/src/db/repo.ts",
+        "packages/shared/src/commands.ts",
+        "packages/shared/src/domain/item.ts",
+        "apps/web/src/components/CaptureForm.tsx"
+      ]
+    },
+    {
+      "key": "Triage",
+      "label": "Triage",
+      "sourcePatterns": [
+        "apps/api/src/domain/items.ts",
+        "apps/api/src/http/command-service.ts",
+        "apps/api/src/db/repo.ts",
+        "packages/shared/src/commands.ts",
+        "packages/shared/src/domain/item.ts",
+        "apps/web/src/components/ItemRow.tsx"
+      ]
+    },
+    {
+      "key": "Dashboards",
+      "label": "Dashboards",
+      "sourcePatterns": []
+    },
+    {
+      "key": "Panels",
+      "label": "Panels",
+      "sourcePatterns": []
+    },
+    {
+      "key": "Focus",
+      "label": "Focus",
+      "sourcePatterns": []
+    },
+    {
+      "key": "Associations",
+      "label": "Associations",
+      "sourcePatterns": [
+        "apps/api/src/domain/items.ts",
+        "apps/api/src/http/command-service.ts",
+        "apps/api/src/db/repo.ts",
+        "apps/api/src/db/schema.ts",
+        "packages/shared/src/commands.ts",
+        "packages/shared/src/domain/item.ts"
+      ]
+    },
+    {
+      "key": "Offline",
+      "label": "Offline",
+      "sourcePatterns": [
+        "apps/api/src/domain/items.ts",
+        "apps/api/src/http/command-service.ts",
+        "apps/api/src/db/repo.ts",
+        "apps/api/src/db/client.ts",
+        "apps/api/src/db/schema.ts",
+        "packages/shared/src/ids.ts",
+        "packages/shared/src/commands.ts"
+      ]
+    },
+    {
+      "key": "Connector management",
+      "label": "Connector management",
+      "sourcePatterns": []
+    },
+    {
+      "key": "User management",
+      "label": "User management",
+      "sourcePatterns": []
+    }
+  ]
+}

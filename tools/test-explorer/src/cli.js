@@ -1,0 +1,105 @@
+#!/usr/bin/env node
+/**
+ * The wiring, and the only place analyze/ and render/ meet.
+ *
+ *   analyze(repo) -> Model -> renderHtml(Model) -> a file
+ *
+ * `--json` stops after the first arrow, so anything else can consume the
+ * model: a different renderer, a CI check, a diff against the previous run.
+ */
+
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { analyze } from './analyze/index.js';
+import { renderHtml } from './render/html.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_REPO = path.resolve(here, '../../..');
+
+function main(argv) {
+  const args = parseArgs(argv);
+  if (args.help) {
+    process.stdout.write(USAGE);
+    return 0;
+  }
+
+  const repo = path.resolve(args.repo ?? DEFAULT_REPO);
+
+  if (args.checkConcepts) return checkConcepts(repo);
+
+  const model = analyze(repo);
+  for (const warning of model.warnings) process.stderr.write(`warning: ${warning}\n`);
+
+  if (args.json) {
+    const out = args.out ?? path.join(here, '../out/model.json');
+    write(out, JSON.stringify(model, null, 2));
+    process.stderr.write(`wrote ${path.relative(repo, out)}\n`);
+    return 0;
+  }
+
+  const out = args.out ?? path.join(here, '../out/index.html');
+  write(out, renderHtml(model));
+  process.stderr.write(`wrote ${path.relative(repo, out)}\n`);
+  return 0;
+}
+
+/**
+ * docs/test-explorer-spec.md §7 (amended by §2a): every feature area a test
+ * file actually declares (its outer describe) must be registered in
+ * concepts.json. Exits nonzero listing every unregistered name — this is the
+ * check CI runs, and it is a build-hygiene failure (a typo, or a new area
+ * nobody added yet), not a judgment about test coverage.
+ *
+ * This replaced the original "every source file matches exactly one area"
+ * check: once a file could legitimately back more than one feature area
+ * (testing-strategy.md §9.1's undotted-area convention), there was nothing
+ * left for a file-overlap check to reject.
+ */
+function checkConcepts(repo) {
+  const model = analyze(repo);
+  if (!model.unregisteredAreas.length) {
+    const total = model.concepts.reduce((sum, c) => sum + c.rules.length, 0);
+    process.stdout.write(`concepts.json OK: ${total} rule(s) across ${model.concepts.length} area(s), nothing unregistered.\n`);
+    return 0;
+  }
+
+  process.stdout.write(`${model.unregisteredAreas.length} feature area(s) used in tests but missing from concepts.json:\n\n`);
+  for (const name of model.unregisteredAreas) process.stdout.write(`  ${name}\n`);
+  process.stdout.write('\nAdd the area to tools/test-explorer/concepts.json, or fix the typo in the describe.\n');
+  return 1;
+}
+
+function write(file, contents) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, contents);
+}
+
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--help' || a === '-h') args.help = true;
+    else if (a === '--json') args.json = true;
+    else if (a === '--check-concepts') args.checkConcepts = true;
+    else if (a === '--out') args.out = argv[++i];
+    else if (a === '--repo') args.repo = argv[++i];
+    else {
+      process.stderr.write(`unknown argument: ${a}\n\n${USAGE}`);
+      process.exit(2);
+    }
+  }
+  return args;
+}
+
+const USAGE = `Usage: node src/cli.js [options]
+
+  --out <file>       Where to write. Defaults to out/index.html, or out/model.json with --json.
+  --repo <dir>        Repository to analyze. Defaults to the repo this tool sits in.
+  --json               Emit the model instead of a page, for another consumer.
+  --check-concepts   Fail if any test declares a feature area missing from concepts.json.
+  --help                This.
+`;
+
+process.exitCode = main(process.argv.slice(2));

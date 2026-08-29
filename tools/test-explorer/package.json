@@ -1,0 +1,26 @@
+{
+  "name": "@cockpit/test-explorer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Derives which product concepts own which tests, and renders it as a table. See docs/test-explorer-spec.md.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "generate": "node src/cli.js",
+    "model": "node src/cli.js --json",
+    "check-concepts": "node src/cli.js --check-concepts",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:fast": "pnpm test:unit",
+    "test:all": "pnpm test:unit"
+  },
+  "dependencies": {
+    "istanbul-lib-coverage": "^3.2.2",
+    "typescript": "^5.9.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}
