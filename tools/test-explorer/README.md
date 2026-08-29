@@ -76,7 +76,16 @@ has no pass/fail fact to show; only "not written yet" (a `.todo`) gets a
 mark, since that's a fact the AST does know. A `.each(table)(name, fn)` case
 shows its template with the row's real values substituted in where they're
 statically known (`'$situation'` → `'without a request id'`), not the raw
-`$situation` placeholder.
+`$situation` placeholder. The Rules tab groups cases under their level
+(L1, L2, ...) rather than one flat list.
+
+A concept's file/branch gap counts are always visible at the top of its
+panel, not just inside their own tab, and clicking either jumps straight to
+it. Each entry in the Files/Branches tabs has a "Copy prompt to write a
+test" button — it assembles a ready-to-paste prompt from real data (the
+file, line, source snippet, and feature-area name) pointing at this repo's
+testing skill/strategy; it never invents what the test should assert, since
+this report stays fact-only (see the spec's §2g for why).
 
 ## How a report gets built
 

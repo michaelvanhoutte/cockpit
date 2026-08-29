@@ -408,6 +408,74 @@ Four more things from a third look at the rendered page:
    something different — there is no longer one "select this row" action,
    only cell-specific ones.
 
+## 2g. Fourth-look feedback: sorting rules by level, a title/location swap, and "how do I act on this"
+
+Four more rounds folded into one, from continued real use:
+
+1. **"Sort the listed tests under Capture as L1, L2, L3, F1... and make the
+   distinction clearer."** The Rules tab now groups its cards under a
+   `.levelhead` heading per level ("L1 · UNIT (3)"), in the fixed level
+   order from `model.js`'s `LEVELS`, instead of one flat list with a small
+   per-card badge that was easy to miss. This replaced the per-card badge
+   entirely rather than keeping both — one place to see the level, not two.
+   A genuine table (one row per case, columns for level/statement/location)
+   was considered and rejected: a rule's statement is prose that doesn't
+   compress into a cell, and the real relationship is one rule to *many*
+   cases, which a flat table row-per-case either loses (collapsing cases) or
+   multiplies awkwardly (repeating the rule text per case row). Grouped
+   cards keep that one-to-many shape visible without either problem.
+2. **"I wonder if it makes sense to swap the title and the first file
+   path."** The rule card led with the file:line location, statement below
+   it — but the location is metadata, not the point; the statement is what
+   the row is actually about. Swapped: `.r-text` (the statement) now leads,
+   `.r-loc` (file:line) follows at reduced opacity as a secondary line.
+3. **A "list missing tests" column, considered and rejected.** The idea —
+   an LLM-suggested list of tests that don't exist yet, shown as a column
+   next to the real counts — was floated, then self-questioned in the same
+   message: a dismissed suggestion has nowhere to go, so it would just
+   reappear every regeneration with no way to mark "I looked at this and
+   decided not to." Recommendation was to keep it out of the report
+   entirely, for a reason that predates this specific idea: every number
+   and word on this page is a measured fact about the repository as it
+   exists right now (§2's founding constraint), and an LLM's opinion about
+   what's *missing* is neither measured nor a fact — it doesn't reproduce,
+   two runs could disagree, and mixing invented content into a page whose
+   whole value is "you can trust every cell" would quietly undermine that
+   trust for the real cells too. The repo already has a purpose-built place
+   for turning fuzzy scope into a reviewable statement list — the `scoping`
+   skill (root `CLAUDE.md`) — and duplicating a worse version of it inside
+   a static report was judged worse than not having the feature.
+4. **"I have a list of branches and files not tested, but I don't have a
+   good way to act on this."** Rejected as a solution: triggering an LLM
+   call *from the report itself* to suggest tests — that's the same
+   invented-content problem as point 3, just moved one level down (per-gap
+   instead of per-area), and a static HTML file has no business making API
+   calls on its own. What shipped instead is two things, both built from
+   data the Model already has, nothing new invented:
+   - **An always-visible gap summary.** `renderPanel()` now shows a
+     `.p-gapline` — two small pills ("3 files nothing runs", "0 branches
+     nothing takes") right under the concept name, above the tab bar, so
+     the gap counts are visible regardless of which tab is open, and
+     clicking either jumps straight to that tab. Deliberately *not*
+     attempted: tying a specific file or branch gap to the specific rule
+     it's "missing from." The analyzer has no per-rule import-tracing
+     today (only per-area), so any such link would be a guess dressed up
+     as a fact — exactly the thing point 3 ruled out.
+   - **"Copy prompt to write a test."** Every entry in the Files/Branches
+     tabs now has a button that assembles a ready-to-paste prompt —
+     `fileGapPrompt()` / `branchGapPrompt()` in `client.js` — from real
+     Model data only: the file path and line, the actual source snippet
+     already shown inline (`contextText()`), the feature-area label, and a
+     pointer to follow this repo's testing skill/strategy (lowest level
+     that proves the behavior, product-language naming). No suggestion of
+     *what* the test should assert is generated — that reasoning stays
+     with whoever pastes the prompt into a real agent session, which is
+     where "act on this" actually happens. `copyToClipboard()` tries
+     `navigator.clipboard.writeText` and falls back to a visible,
+     auto-selected `<textarea readonly>` when clipboard access isn't
+     available (confirmed via the browser tool, which runs without
+     clipboard permission) — never a silent failure.
+
 ## 3. The test-folder migration (done)
 
 The row/column model in §4 depends on two conventions:
