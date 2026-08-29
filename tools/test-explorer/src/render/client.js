@@ -208,11 +208,14 @@
       body.appendChild(el('div', 'levelhead', l.label + ' · ' + l.name + ' (' + group.length + ')'));
       var list = el('div', 'rulelist');
       group.forEach(function (r) {
+        // The statement leads — it's the actual content and the visually bold
+        // element, so it reads as the "title." The file:line is secondary
+        // metadata below it, not the other way around.
         var card = el('div', 'rule');
-        var top = el('div', 'r-top');
-        top.appendChild(codeToggle(r, r.file + ':' + r.line));
-        card.appendChild(top);
         card.appendChild(el('div', 'r-text', r.statement));
+        var loc = el('div', 'r-loc');
+        loc.appendChild(codeToggle(r, r.file + ':' + r.line));
+        card.appendChild(loc);
 
         if (r.cases.length) {
           var cases = el('div', 'caselist');

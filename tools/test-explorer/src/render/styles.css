@@ -123,9 +123,10 @@ td.c.clickable:hover { background: rgba(110, 168, 254, 0.1); }
 .levelhead:first-child { margin-top: 4px; }
 
 .rulelist { display: flex; flex-direction: column; gap: 14px; }
-.rule { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 8px; background: #10131a; border: 1px solid var(--line); }
-.r-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.rule { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 8px; background: #10131a; border: 1px solid var(--line); }
 .r-text { font-size: 15px; line-height: 1.5; color: var(--ink-1); font-weight: 600; }
+/* Secondary metadata below the statement, not a header above it. */
+.r-loc { opacity: 0.75; }
 
 .caselist { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .case { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
