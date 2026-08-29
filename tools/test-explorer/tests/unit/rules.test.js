@@ -291,3 +291,58 @@ describe('extractRules, on Playwright-style files', () => {
     expect(rules[0].todoCases.map((c) => c.text)).toEqual(['a case not written yet']);
   });
 });
+
+// `test.skip` is a case in one overload and a runtime modifier in another, so only the
+// arguments can tell them apart. The conditional form is how Playwright's own docs — and
+// playwright.config.ts's comment — say to write a device-specific test, so the first spec
+// that follows that advice would otherwise have reported a phantom case named after its
+// condition.
+describe('extractRules, on conditional skips', () => {
+  it('does not count a conditional skip inside a test body as a case', () => {
+    const source = sourceOf(`
+      test.describe('Triage', () => {
+        test.describe('a rule', () => {
+          test('swiping an item away removes it', async ({ isMobile }) => {
+            test.skip(!isMobile, 'the swipe only exists on a phone');
+            await doSomething();
+          });
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'tests/e2e/triage.test.ts', 'F3');
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['swiping an item away removes it']);
+  });
+
+  it('still counts the declaration overload, which has a title and a body', () => {
+    const source = sourceOf(`
+      test.describe('Triage', () => {
+        test.describe('a rule', () => {
+          test.skip('a case skipped while it is being written', async () => {});
+          test.fixme('a case parked as broken', async () => {});
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'tests/e2e/triage.test.ts', 'F3');
+    expect(rules[0].cases.map((c) => c.text)).toEqual([
+      'a case skipped while it is being written',
+      'a case parked as broken',
+    ]);
+  });
+
+  it.each([
+    { situation: 'a condition and a reason', code: "test.fixme(isMobile, 'not on a phone');" },
+    { situation: 'a callback condition', code: "test.skip(({ isMobile }) => isMobile, 'desktop only');" },
+    { situation: 'no arguments at all', code: 'test.skip();' },
+    { situation: 'an expected failure with no title', code: 'test.fail();' },
+  ])('reads $situation as a modifier rather than a case', ({ code }) => {
+    const source = sourceOf(`
+      test.describe('Triage', () => {
+        test.describe('a rule', () => {
+          test('the only case here', async () => { ${code} });
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'tests/e2e/triage.test.ts', 'F3');
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['the only case here']);
+  });
+});

@@ -29,6 +29,7 @@
 // Workers pool; this is the browser tier being consistent with that.
 //
 
+import { setTimeout as delay } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -37,7 +38,7 @@ import { fileURLToPath } from 'node:url';
 import { paint, run, start, supervise } from './lib/processes.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const api = join(root, 'apps/api');
+const apiDir = join(root, 'apps/api');
 
 /** Kept in one place because playwright.config.ts has to agree with them. */
 export const WEB_PORT = 5273;
@@ -56,40 +57,40 @@ const STAMP = 'cockpit-e2e-template.sha256';
  */
 function schemaDigest() {
   const hash = createHash('sha256');
-  const migrations = join(api, 'migrations');
+  const migrations = join(apiDir, 'migrations');
   for (const name of readdirSync(migrations).sort()) {
     if (!name.endsWith('.sql')) continue;
     hash.update(name);
     hash.update(readFileSync(join(migrations, name)));
   }
-  hash.update(readFileSync(join(api, 'seed.sql')));
+  hash.update(readFileSync(join(apiDir, 'seed.sql')));
   return hash.digest('hex');
 }
 
 async function ensureTemplate(digest) {
-  const stamp = join(api, TEMPLATE_DIR, STAMP);
+  const stamp = join(apiDir, TEMPLATE_DIR, STAMP);
   if (existsSync(stamp) && readFileSync(stamp, 'utf8').trim() === digest) return;
 
-  rmSync(join(api, TEMPLATE_DIR), { recursive: true, force: true });
+  rmSync(join(apiDir, TEMPLATE_DIR), { recursive: true, force: true });
   await run(
     ['exec', 'wrangler', 'd1', 'migrations', 'apply', 'cockpit', '--local', '--persist-to', TEMPLATE_DIR],
     'building the test database template: migrations',
-    api,
+    apiDir,
   );
   await run(
     ['exec', 'wrangler', 'd1', 'execute', 'cockpit', '--local', '--persist-to', TEMPLATE_DIR, '--file=./seed.sql'],
     'building the test database template: seed',
-    api,
+    apiDir,
   );
-  mkdirSync(join(api, TEMPLATE_DIR), { recursive: true });
+  mkdirSync(join(apiDir, TEMPLATE_DIR), { recursive: true });
   writeFileSync(stamp, `${digest}\n`);
 }
 
 /** Stamp the template out as this run's database. The 5ms half of the trade. */
 function freshDatabase() {
-  rmSync(join(api, RUN_DIR), { recursive: true, force: true });
-  cpSync(join(api, TEMPLATE_DIR), join(api, RUN_DIR), { recursive: true });
-  rmSync(join(api, RUN_DIR, STAMP), { force: true });
+  rmSync(join(apiDir, RUN_DIR), { recursive: true, force: true });
+  cpSync(join(apiDir, TEMPLATE_DIR), join(apiDir, RUN_DIR), { recursive: true });
+  rmSync(join(apiDir, RUN_DIR, STAMP), { force: true });
 }
 
 try {
@@ -108,26 +109,66 @@ try {
   process.exit(1);
 }
 
+/**
+ * Waits until the Worker actually answers, and this is load-bearing rather
+ * than tidy. Playwright's `webServer` polls exactly one URL — Vite's — and
+ * treats the whole stack as ready the moment that answers. Vite answers in
+ * about 1.2 seconds; Wrangler needs about 3, because it has workerd, miniflare
+ * and D1 to bring up. Measured here, that leaves a 1.75-second window in which
+ * the app is served and every `/v1` call it makes is refused, and the very
+ * first thing the first spec does is `page.goto('/')`, whose route resolves
+ * workspaces before it renders anything. React Query's couple of retries cover
+ * part of the gap, and the rest of the cover is luck — Chromium's own launch
+ * time. So Vite is started only once the Worker is up, which makes "Vite is
+ * responding" mean "the stack is up" and keeps Playwright's single-URL probe
+ * honest.
+ */
+async function waitForApi(child) {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`the test API exited before it was ready (${child.exitCode ?? child.signalCode})`);
+    }
+    try {
+      const res = await fetch(`http://127.0.0.1:${API_PORT}/health`);
+      if (res.ok) return;
+    } catch {
+      // Not listening yet. Connection refused is the expected state here.
+    }
+    await delay(200);
+  }
+  throw new Error(`the test API never answered on :${API_PORT}`);
+}
+
+const api = start(
+  ['--filter', '@cockpit/api', 'exec', 'wrangler', 'dev', '--port', String(API_PORT), '--persist-to', RUN_DIR],
+  'test api',
+  '36',
+  root,
+);
+
+try {
+  await waitForApi(api);
+} catch (error) {
+  console.error(paint('31', `\n${error.message}`));
+  api.kill('SIGTERM');
+  process.exit(1);
+}
+
+// --strictPort so a busy port fails the run instead of quietly moving to
+// another one, which would leave Playwright waiting on a URL nothing serves.
+// COCKPIT_API_ORIGIN is what points this Vite at this Wrangler rather than at
+// the one `pnpm dev` may also be running (apps/web/vite.config.ts).
+const web = start(
+  ['--filter', '@cockpit/web', 'exec', 'vite', '--port', String(WEB_PORT), '--strictPort'],
+  'test web',
+  '35',
+  root,
+  { COCKPIT_API_ORIGIN: `http://127.0.0.1:${API_PORT}` },
+);
+
 console.log(
   `\n${paint('36', 'test api')} http://localhost:${API_PORT}   ${paint('35', 'test web')} http://localhost:${WEB_PORT}   (a fresh database, thrown away next run)\n`,
 );
 
-supervise([
-  start(
-    ['--filter', '@cockpit/api', 'exec', 'wrangler', 'dev', '--port', String(API_PORT), '--persist-to', RUN_DIR],
-    'test api',
-    '36',
-    root,
-  ),
-  // --strictPort so a busy port fails the run instead of quietly moving to
-  // another one, which would leave Playwright waiting on a URL nothing serves.
-  // COCKPIT_API_ORIGIN is what points this Vite at this Wrangler rather than at
-  // the one `pnpm dev` may also be running (apps/web/vite.config.ts).
-  start(
-    ['--filter', '@cockpit/web', 'exec', 'vite', '--port', String(WEB_PORT), '--strictPort'],
-    'test web',
-    '35',
-    root,
-    { COCKPIT_API_ORIGIN: `http://127.0.0.1:${API_PORT}` },
-  ),
-]);
+supervise([api, web]);

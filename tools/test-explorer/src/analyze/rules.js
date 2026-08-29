@@ -213,6 +213,28 @@ const NOT_A_CASE = new Set([
   'info',
   'expect',
 ]);
+
+/**
+ * Members that are a case in one overload and a runtime modifier in another, so no list of names
+ * can classify them — only the arguments can. `test.skip('a title', fn)` declares a case that is
+ * skipped; `test.skip(isMobile, 'desktop only')`, called inside a test body, skips the surrounding
+ * case conditionally and declares nothing. Playwright's documented way to write a device-specific
+ * test is the second form (playwright.config.ts recommends exactly that), and read as a case it
+ * produces a phantom labelled with the source text of its condition — `"isMobile"`.
+ */
+const CASE_OR_MODIFIER = new Set(['skip', 'fixme', 'fail', 'only']);
+
+/**
+ * Whether a `test.skip(...)`-shaped call is the declaration overload: a title, then the body. The
+ * conditional overload takes a condition first (an identifier, a call, an arrow function), and the
+ * no-argument form (`test.skip()`) declares nothing at all.
+ */
+function declaresACase(call) {
+  const [nameArg, ...rest] = call.arguments;
+  if (!nameArg || !ts.isStringLiteralLike(nameArg)) return false;
+  return rest.some((arg) => ts.isArrowFunction(arg) || ts.isFunctionExpression(arg));
+}
+
 function collectCases(node, relFile, source) {
   const cases = [];
   const todoCases = [];
@@ -230,8 +252,12 @@ function collectCases(node, relFile, source) {
         (callee.expression.text === 'it' || callee.expression.text === 'test') &&
         !NOT_A_CASE.has(callee.name.text)
       ) {
-        if (callee.name.text === 'todo') todoCases.push(caseRef());
-        else cases.push(caseRef()); // .skip, .only, .concurrent, ... all still real written cases
+        const member = callee.name.text;
+        if (member === 'todo') todoCases.push(caseRef());
+        else if (CASE_OR_MODIFIER.has(member) && !declaresACase(n)) {
+          // A conditional skip/fixme/fail inside a test body: it modifies the case around it
+          // rather than declaring one.
+        } else cases.push(caseRef()); // .skip, .concurrent, ... all still real written cases
       } else if (
         ts.isCallExpression(callee) &&
         ts.isPropertyAccessExpression(callee.expression) &&
