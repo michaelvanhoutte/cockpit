@@ -5,6 +5,7 @@ import {
   itemRow,
   openFirstWorkspace,
   panel,
+  press,
   uniqueTitle,
 } from './support/app';
 
@@ -18,7 +19,10 @@ import {
  */
 test.describe('Capture', () => {
   test.describe('a captured thought appears in the inbox, on a phone screen as on a desktop', () => {
-    test('lists the thought to process, reachable without scrolling sideways', async ({ page }) => {
+    test('lists the thought to process, reachable without scrolling sideways', async ({
+      page,
+      isMobile,
+    }) => {
       await openFirstWorkspace(page);
       await expectNoSidewaysScroll(page);
 
@@ -28,7 +32,7 @@ test.describe('Capture', () => {
 
       const thought = uniqueTitle('Buy milk');
       await captureBox(page).fill(thought);
-      await page.getByRole('button', { name: 'Capture' }).click();
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
 
       await expect(itemRow(page, thought)).toBeVisible();
       await expect(panel(page, 'Inbox').getByText(thought)).toBeVisible();

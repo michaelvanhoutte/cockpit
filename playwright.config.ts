@@ -42,6 +42,7 @@ import { defineConfig, devices } from '@playwright/test';
 // Must agree with scripts/e2e-stack.mjs's WEB_PORT.
 const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:5273';
 const drivingLocalStack = !process.env.E2E_BASE_URL;
+const usingAccessToken = !!(process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET);
 
 /**
  * The phone profile is a real handset's, not a round number: Michael's is a
@@ -84,16 +85,24 @@ export default defineConfig({
     // Kept on failure only: enough to diagnose "it looked wrong" without the
     // cost — or the cross-machine baseline problem — of pixel snapshots, which
     // this tier deliberately does not do.
-    trace: 'retain-on-failure',
+    //
+    // Except when this run carries an Access service token, where the trace is
+    // turned off entirely. A trace records every request's headers verbatim,
+    // the credentialed run is the one whose failures get uploaded as a CI
+    // artifact, and the two together would publish CF-Access-Client-Secret as a
+    // downloadable file for anyone who can read the run. Losing the trace makes
+    // a failed credentialed run harder to diagnose; that is the right way round,
+    // and screenshots (which carry no headers) still survive.
+    trace: usingAccessToken ? 'off' : 'retain-on-failure',
     screenshot: 'only-on-failure',
     // Cloudflare Access fronts every deployed environment (secrets and access,
     // docs/deployment.md §6), so a preview run needs a service token or it gets
     // the login page instead of the app. Absent locally, where there is no Access in front.
-    ...(process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET
+    ...(usingAccessToken
       ? {
           extraHTTPHeaders: {
-            'CF-Access-Client-Id': process.env.CF_ACCESS_CLIENT_ID,
-            'CF-Access-Client-Secret': process.env.CF_ACCESS_CLIENT_SECRET,
+            'CF-Access-Client-Id': process.env.CF_ACCESS_CLIENT_ID!,
+            'CF-Access-Client-Secret': process.env.CF_ACCESS_CLIENT_SECRET!,
           },
         }
       : {}),

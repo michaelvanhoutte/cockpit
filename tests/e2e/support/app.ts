@@ -25,6 +25,20 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * per-test isolation for free. Until then, unique titles.
  */
 
+/**
+ * Presses a control the way the device under test would. This is not a
+ * nicety: Playwright's `click()` dispatches mouse events even on a project
+ * with `hasTouch`, so a suite that only clicks proves nothing about touch
+ * however many phone projects it runs under, and a control reachable only by
+ * mouse would pass everywhere. `tap()` dispatches the real touchstart and
+ * touchend, and refuses to run without `hasTouch` — hence the gate rather
+ * than using it everywhere.
+ */
+export async function press(locator: Locator, isMobile: boolean): Promise<void> {
+  if (isMobile) await locator.tap();
+  else await locator.click();
+}
+
 /** A title no other run — or branch — will have produced. */
 export function uniqueTitle(label: string): string {
   return `${label} ${crypto.randomUUID().slice(0, 8)}`;
@@ -59,9 +73,9 @@ export function itemRow(page: Page, title: string): Locator {
  * the same steps rather than calling this, because a helper that both arranges
  * and asserts is a helper that can make its own test vacuous.
  */
-export async function capture(page: Page, title: string): Promise<void> {
+export async function capture(page: Page, title: string, isMobile: boolean): Promise<void> {
   await captureBox(page).fill(title);
-  await page.getByRole('button', { name: 'Capture' }).click();
+  await press(page.getByRole('button', { name: 'Capture' }), isMobile);
   await expect(itemRow(page, title)).toBeVisible();
 }
 

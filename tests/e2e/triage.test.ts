@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { capture, itemRow, openFirstWorkspace, uniqueTitle } from './support/app';
+import { capture, itemRow, openFirstWorkspace, press, uniqueTitle } from './support/app';
 
 /**
  * F3, and specifically on both projects, because the way this action is
@@ -15,13 +15,13 @@ import { capture, itemRow, openFirstWorkspace, uniqueTitle } from './support/app
  */
 test.describe('Triage', () => {
   test.describe('dismissing an item takes it out of the inbox, by touch as by mouse', () => {
-    test('leaves the inbox once dismissed', async ({ page }) => {
+    test('leaves the inbox once dismissed', async ({ page, isMobile }) => {
       await openFirstWorkspace(page);
       const thought = uniqueTitle('Ignore me');
-      await capture(page, thought);
+      await capture(page, thought, isMobile);
 
-      await itemRow(page, thought).getByRole('button', { name: 'Item actions' }).click();
-      await page.getByRole('menuitem', { name: 'Dismiss' }).click();
+      await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Dismiss' }), isMobile);
 
       await expect(itemRow(page, thought)).toHaveCount(0);
     });
