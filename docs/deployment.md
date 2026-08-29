@@ -270,7 +270,14 @@ CI needs, in GitHub:
 |---|---|---|
 | Secret | `CLOUDFLARE_API_TOKEN` | scoped token, created in the Cloudflare dashboard |
 | Secret | `CLOUDFLARE_ACCOUNT_ID` | `091e6e85f8268ee838089d6fed968585` |
+| Secret | `CLAUDE_CODE_OAUTH_TOKEN` | stored by `/install-github-app`, run once from an interactive Claude Code session |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | `vanhoutte-michael` |
+
+`CLAUDE_CODE_OAUTH_TOKEN` deploys nothing: it is what the review and `@claude` workflows
+authenticate with, and it is listed here because this is the table someone reads
+when standing up the repository, and a missing secret there presents as a workflow
+that goes green having done nothing. The readme's *Development automation* section
+has the rest of what those two workflows need.
 
 **All three environments are gated with Cloudflare Access, production included.**
 
