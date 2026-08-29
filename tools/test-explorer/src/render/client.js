@@ -144,12 +144,15 @@
   }
 
   // ---- detail panel: tabs, each filling the whole panel -------------------
+  // Short labels: the full "files nothing runs" / "branches nothing takes"
+  // wording already appears once, right above, in the always-visible gapline
+  // chips — repeating it here per tab was the same fact stated twice.
   var TABS = [
     { id: 'rules', label: function (n) { return 'Rules (' + n.rules.length + ')'; } },
-    { id: 'files', label: function (n) { return 'Files nothing runs (' + n.filesNothingRuns.length + ')'; } },
+    { id: 'files', label: function (n) { return 'Files (' + n.filesNothingRuns.length + ')'; } },
     {
       id: 'branches',
-      label: function (n) { return 'Branches nothing takes (' + (n.branchesNothingTakes === null ? 'unknown' : n.branchesNothingTakes.length) + ')'; },
+      label: function (n) { return 'Branches (' + (n.branchesNothingTakes === null ? 'unknown' : n.branchesNothingTakes.length) + ')'; },
     },
   ];
 
