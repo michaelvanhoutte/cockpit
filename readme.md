@@ -176,8 +176,6 @@ None of this arrives with `pnpm install`, and all of it is per-developer:
   ```
 
 - **The Claude Code plugin this project enables.** `.claude/settings.json` records that `mattpocock-skills` should be on, but the marketplace and the plugin are installed per machine, from `/plugin` in an interactive session.
-- **Your own permission allowlist**, in `.claude/settings.local.json` (already gitignored by `*.local`) — how many prompts you want to see is not a project decision. `/fewer-permission-prompts` drafts one from your own transcripts.
-- **Reviewing before you push.** `/code-review` and `/simplify` run locally what the workflow runs on the pull request, and `/code-review ultra` is the deep multi-agent variant. Cheaper than reading it in a comment ten minutes later.
 - **Worktrees.** Claude Code sessions work in `.claude/worktrees/<name>`, which is gitignored. A fresh worktree has no `node_modules`, so `pnpm install` there before running anything, and `pnpm branches:tidy` afterwards to prune the ones whose directories are gone.
 - **`wrangler` authentication**, only for owner-level work: the one-time bootstrap, `wrangler secret put`, `wrangler versions list`/`deploy` for a rollback, or D1 Time Travel. Day-to-day development never needs it, because `pnpm dev` runs against a local D1.
 - **A pre-push hook, if you want one.** Not in the repository, for the reason above, but nothing stops you: point `core.hooksPath` at a directory of your own and run `pnpm test:fast` from it. Keep it to the fast tiers — a hook slow enough to be worth skipping gets skipped.
