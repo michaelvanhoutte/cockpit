@@ -83,6 +83,9 @@ pnpm test
 
 # the browser tier alone
 pnpm test:e2e
+
+# the scripts that start the app and the test stack; no install needed
+pnpm test:scripts
 ```
 
 One-time, on a machine that has never run the browser tier: `pnpm exec playwright install chromium`. It is the only setup step `pnpm install` does not cover, it downloads about 150MB, and without it `pnpm test:e2e` fails immediately telling you to run exactly that.
@@ -119,7 +122,7 @@ Two different things get called "our automation", and keeping them apart saves a
 
 | Workflow | Fires on | What it does |
 |---|---|---|
-| [CI](.github/workflows/ci.yml) | pushes and pull requests to `main` | Five parallel jobs — `Typecheck`, `Test`, `E2E (F3)`, `Build`, `Scripts` — which are exactly the five contexts branch protection requires, so a failure names itself. `E2E (F3)` installs Chromium and runs the browser tier against the same isolated local stack you would get locally, keeping its failure traces as an artifact. `Scripts` runs `scripts/branch-alias.test.sh`, because a silent change in the preview-alias derivation would collide two branches onto one URL. Deliberately *not* triggered on every branch push: the preview deploy already runs the same checks there, and doing both would run everything twice. |
+| [CI](.github/workflows/ci.yml) | pushes and pull requests to `main` | Five parallel jobs — `Typecheck`, `Test`, `E2E (F3)`, `Build`, `Scripts` — which are exactly the five contexts branch protection requires, so a failure names itself. `E2E (F3)` installs Chromium and runs the browser tier against the same isolated local stack you would get locally, keeping its failure traces as an artifact. `Scripts` runs `scripts/branch-alias.test.sh` and the unit tests for `scripts/lib/`, because a silent change in the preview-alias derivation would collide two branches onto one URL, and a silent change in the test stack's guards would let a run start against a database it did not create. Deliberately *not* triggered on every branch push: the preview deploy already runs the same checks there, and doing both would run everything twice. |
 | [Claude Code Review](.github/workflows/claude-code-review.yml) | every pull request opened, pushed to, reopened or marked ready for review | Runs the `code-review` plugin command against the pull request and posts its findings as inline comments (a summary comment when it finds nothing). A second step then asserts that the review *actually ran* — see below. |
 | [Claude Code](.github/workflows/claude.yml) | `@claude` in an issue, an issue or PR comment, or a review | Hands that comment to Claude with read access to the repository and to CI results, so an explanation or a fix can be asked for from the pull request itself. |
 | [Deploy preview](.github/workflows/deploy-preview.yml) | pushes to any branch except `main` | Typechecks and tests first (a broken build must not replace a working preview), derives the branch alias, migrates and seeds the shared preview database, uploads a new Worker version behind `<alias>-cockpit-preview…`, and comments the URL on the pull request if there is one. Triggered on `push`, not `pull_request`, so a branch with no PR — or a draft one — still gets an environment. |

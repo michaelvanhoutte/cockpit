@@ -97,6 +97,13 @@ jobs:
       # Cloudflare's hostname budget. So it is asserted, not trusted.
       - name: Verify preview alias derivation
         run: bash scripts/branch-alias.test.sh
+      # The rest of scripts/ is Node, and carries the logic that decides whether
+      # a test run gets a fresh database and whether it is allowed to start at
+      # all — worth the same treatment as the alias derivation, for the same
+      # reason. No install step: these tests use only node:test and the standard
+      # library, so this job stays checkout-only and finishes in seconds.
+      - name: Verify the dev and test-stack scripts
+        run: node --test scripts/lib/*.test.mjs
 
   # Publishes which product concepts own which tests, as a downloadable
   # artifact on every run. Does not gate: docs/test-explorer-spec.md §8

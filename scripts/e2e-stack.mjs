@@ -28,15 +28,17 @@
 // backend's own integration tests get a fresh database per file from the
 // Workers pool; this is the browser tier being consistent with that.
 //
+// This file is orchestration only. The decisions it makes on the way up — is
+// the template current, is the port free, is the Worker really answering — are
+// in lib/stack.mjs, where they can be tested without starting anything.
+//
 
-import { createServer } from 'node:net';
-import { setTimeout as delay } from 'node:timers/promises';
-import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { paint, run, start, stop, supervise } from './lib/processes.mjs';
+import { assertPortFree, schemaDigest, templateIsCurrent, waitForApi } from './lib/stack.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const apiDir = join(root, 'apps/api');
@@ -50,27 +52,9 @@ const TEMPLATE_DIR = '.wrangler/state-e2e-template';
 const RUN_DIR = '.wrangler/state-e2e';
 const STAMP = 'cockpit-e2e-template.sha256';
 
-/**
- * What the template was built from. Any change to a migration or to the seed
- * produces a different digest and therefore a rebuild — the failure this
- * avoids is a template that predates a migration, where every test fails
- * against a schema that has not existed for weeks.
- */
-function schemaDigest() {
-  const hash = createHash('sha256');
-  const migrations = join(apiDir, 'migrations');
-  for (const name of readdirSync(migrations).sort()) {
-    if (!name.endsWith('.sql')) continue;
-    hash.update(name);
-    hash.update(readFileSync(join(migrations, name)));
-  }
-  hash.update(readFileSync(join(apiDir, 'seed.sql')));
-  return hash.digest('hex');
-}
-
 async function ensureTemplate(digest) {
   const stamp = join(apiDir, TEMPLATE_DIR, STAMP);
-  if (existsSync(stamp) && readFileSync(stamp, 'utf8').trim() === digest) return;
+  if (templateIsCurrent(stamp, digest)) return;
 
   rmSync(join(apiDir, TEMPLATE_DIR), { recursive: true, force: true });
   await run(
@@ -84,6 +68,8 @@ async function ensureTemplate(digest) {
     apiDir,
   );
   mkdirSync(join(apiDir, TEMPLATE_DIR), { recursive: true });
+  // Written last, so a build interrupted between the migrations and the seed
+  // leaves no stamp and is rebuilt next time rather than trusted.
   writeFileSync(stamp, `${digest}\n`);
 }
 
@@ -95,7 +81,16 @@ function freshDatabase() {
 }
 
 try {
-  await ensureTemplate(schemaDigest());
+  // FIRST, before anything destructive or slow. The stack this guard exists to
+  // catch — a Worker left behind by an interrupted run — is persisted to the
+  // very directory freshDatabase() deletes, so checking afterwards would pull
+  // the storage out from under the process we are about to refuse to run
+  // against, and would spend a possibly minutes-long build before noticing the
+  // conflict at all.
+  await assertPortFree(API_PORT, 'test API');
+  await assertPortFree(WEB_PORT, 'test web server');
+
+  await ensureTemplate(schemaDigest(apiDir));
   freshDatabase();
 
   // Wrangler refuses to start when the assets directory does not exist. Only
@@ -110,80 +105,6 @@ try {
   process.exit(1);
 }
 
-/**
- * Fails the run if something is already listening, before anything is started.
- * Vite gets this from `--strictPort`; Wrangler needs it spelled out, and needs
- * it for a sharper reason than "the port is taken". A leftover Worker from an
- * aborted run answers /health perfectly well — it is a Worker — so the wait
- * below would accept it and the suite would then run against whatever database
- * that process was started with, silently, which is the one guarantee this
- * whole tier is built on. Binding is the test rather than connecting, because
- * only a bind distinguishes "free" from "listening but not answering yet".
- */
-function assertPortFree(port, what) {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', (error) =>
-      reject(
-        error.code === 'EADDRINUSE'
-          ? new Error(
-              `port ${port} is already in use, so the ${what} cannot start there. ` +
-                `Something — most likely a stack left behind by an interrupted run — is holding it. ` +
-                `Stop that first: this suite will not run against a server it did not start, because ` +
-                `its database would not be the fresh one.`,
-            )
-          : error,
-      ),
-    );
-    probe.once('listening', () => probe.close(() => resolve()));
-    probe.listen(port, '127.0.0.1');
-  });
-}
-
-/**
- * Waits until the Worker actually answers, and this is load-bearing rather
- * than tidy. Playwright's `webServer` polls exactly one URL — Vite's — and
- * treats the whole stack as ready the moment that answers. Vite answers in
- * about 1.2 seconds; Wrangler needs about 3, because it has workerd, miniflare
- * and D1 to bring up. Measured here, that leaves a 1.75-second window in which
- * the app is served and every `/v1` call it makes is refused, and the very
- * first thing the first spec does is `page.goto('/')`, whose route resolves
- * workspaces before it renders anything. React Query's couple of retries cover
- * part of the gap, and the rest of the cover is luck — Chromium's own launch
- * time. So Vite is started only once the Worker is up, which makes "Vite is
- * responding" mean "the stack is up" and keeps Playwright's single-URL probe
- * honest.
- */
-async function waitForApi(child) {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`the test API exited before it was ready (${child.exitCode ?? child.signalCode})`);
-    }
-    try {
-      const res = await fetch(`http://127.0.0.1:${API_PORT}/health`);
-      // The status is not the answer: /health is 200 whether or not D1 responds,
-      // and reports the database in its body (apps/api/src/http/app.ts). Since
-      // bringing D1 up is the slow part this wait exists for, `res.ok` alone
-      // would let the suite start against a Worker whose database is not there.
-      if (res.ok && (await res.json())?.db === true) return;
-    } catch {
-      // Not listening yet, or answering with something that is not JSON.
-      // Connection refused is the expected state for most of this loop.
-    }
-    await delay(200);
-  }
-  throw new Error(`the test API never answered on :${API_PORT}`);
-}
-
-try {
-  await assertPortFree(API_PORT, 'test API');
-  await assertPortFree(WEB_PORT, 'test web server');
-} catch (error) {
-  console.error(paint('31', `\n${error.message}`));
-  process.exit(1);
-}
-
 const api = start(
   ['--filter', '@cockpit/api', 'exec', 'wrangler', 'dev', '--port', String(API_PORT), '--persist-to', RUN_DIR],
   'test api',
@@ -192,7 +113,7 @@ const api = start(
 );
 
 try {
-  await waitForApi(api);
+  await waitForApi(api, API_PORT);
 } catch (error) {
   console.error(paint('31', `\n${error.message}`));
   // stop(), not api.kill(): on Windows the child here is a shell, and signalling
@@ -202,6 +123,9 @@ try {
   process.exit(1);
 }
 
+// Vite starts only now, so that Playwright's single-URL probe on the web port
+// means the whole stack is up rather than half of it.
+//
 // --strictPort so a busy port fails the run instead of quietly moving to
 // another one, which would leave Playwright waiting on a URL nothing serves.
 // COCKPIT_API_ORIGIN is what points this Vite at this Wrangler rather than at
