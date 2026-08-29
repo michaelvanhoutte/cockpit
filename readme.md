@@ -169,11 +169,13 @@ None of this arrives with `pnpm install`, and all of it is per-developer:
 
 - **Node ≥ 22 with corepack** (`corepack enable pnpm`), so the pnpm version comes from `package.json` rather than from whatever is on your PATH.
 - **`gh`, authenticated** (`gh auth login`). The `github-issue` skill files issues with it, the branch-protection command above needs it, and it is how pull requests get opened and merged.
-- **Commit attribution.** Commits authored with an address GitHub cannot link are orphaned — no profile, no contribution graph. This repository has history in exactly that state:
+- **Commit attribution.** Commits authored with an address GitHub cannot link are orphaned — no profile, no contribution graph. This repository has history in exactly that state. Use **your own** noreply address, which GitHub shows you under Settings → Emails, rather than the one in `docs/deployment.md`, which is the owner's:
 
   ```bash
-  git config --global user.email "43439790+michaelvanhoutte@users.noreply.github.com"
+  git config --global user.email "<id>+<username>@users.noreply.github.com"
   ```
+
+  The `users.noreply.github.com` form is preferred over a real address: it links commits correctly, keeps an address out of a public repository where it would be scraped, and is bound to the GitHub account rather than to a mail provider.
 
 - **The Claude Code plugin this project enables.** `.claude/settings.json` records that `mattpocock-skills` should be on, but the marketplace and the plugin are installed per machine, from `/plugin` in an interactive session.
 - **Worktrees.** Claude Code sessions work in `.claude/worktrees/<name>`, which is gitignored. A fresh worktree has no `node_modules`, so `pnpm install` there before running anything, and `pnpm branches:tidy` afterwards to prune the ones whose directories are gone.
