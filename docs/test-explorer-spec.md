@@ -475,6 +475,51 @@ Four more rounds folded into one, from continued real use:
      auto-selected `<textarea readonly>` when clipboard access isn't
      available (confirmed via the browser tool, which runs without
      clipboard permission) — never a silent failure.
+     (Revised the next round — see §2h: the per-gap button and its embedded
+     snippet did not survive real use.)
+
+## 2h. Fifth-look feedback: the gap line was redundant, and the copy-prompt design was wrong
+
+Three corrections, all from the very next look at §2g's own output:
+
+1. **"The gapline pills and the tab labels say the same thing twice."**
+   Right — once §2g's Rules/Files/Branches tabs started carrying their own
+   counts, the always-visible `.p-gapline` chips above them (added in §2f
+   for a different reason: making the counts visible *before* the tabs
+   existed) were pure duplication. Removed `gapChip()` and `.p-gapline`
+   outright rather than trimming one of the two.
+2. **"I still don't see much contrast change"** — after §2f's ink-3 lighten
+   and §2g's opacity removal, the actual complaint was never about text
+   color; it was structural: level groups and individual cards weren't
+   visually *separated*, no matter how bright their text was. Fixed with
+   layout, not color: `.levelhead` gained a 2px bottom border and more
+   surrounding margin so a new level group reads as a section break, not a
+   label; `.rule` cards moved from a background four units darker than the
+   panel (imperceptible) to visibly lighter with a brighter border and a
+   shadow, so consecutive rules read as distinct blocks; and multiple cases
+   under one rule now get a dashed divider between them (`.case + .case`),
+   so a rule with six cases doesn't read as one paragraph.
+3. **The per-gap "Copy prompt to write a test" button, rejected after
+   actually being used.** The concrete objection: "I am simply copy pasting
+   some random code right now that I don't know what it's for and what it
+   does and I am asking to write a test covering I don't know what." That's
+   a real flaw, not a misunderstanding — `fileGapPrompt()`'s embedded
+   snippet was, for almost any file, just its `import` lines; nowhere near
+   enough to judge whether a test is warranted, let alone what it should
+   assert. Showing the *real* file instead was considered and also
+   rejected, by the user directly: an agent opening the file still needs
+   the same judgment call repeated once per gap, which doesn't scale when a
+   concept has a dozen of them. What replaced both: `allGapsPrompt(node)`
+   builds **one prompt per concept**, listing every file and branch gap it
+   has as plain paths (no snippets, no per-item buttons, no `fileGapPrompt`/
+   `branchGapPrompt`/`contextText` — all removed) with one closing
+   instruction: use this repo's test strategy and guidance to figure out
+   which of them actually need a test. The judgment call moves entirely to
+   whoever pastes the prompt into a real session — closer to how the
+   `scoping` skill already works, just scoped to one concept's gaps instead
+   of a whole feature. `copyPromptAction()` gained a `label` parameter so
+   the panel header's single button ("Copy prompt for missing tests") and
+   any future caller can each set their own text.
 
 ## 3. The test-folder migration (done)
 

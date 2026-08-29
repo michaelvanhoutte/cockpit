@@ -79,13 +79,15 @@ statically known (`'$situation'` → `'without a request id'`), not the raw
 `$situation` placeholder. The Rules tab groups cases under their level
 (L1, L2, ...) rather than one flat list.
 
-A concept's file/branch gap counts are always visible at the top of its
-panel, not just inside their own tab, and clicking either jumps straight to
-it. Each entry in the Files/Branches tabs has a "Copy prompt to write a
-test" button — it assembles a ready-to-paste prompt from real data (the
-file, line, source snippet, and feature-area name) pointing at this repo's
-testing skill/strategy; it never invents what the test should assert, since
-this report stays fact-only (see the spec's §2g for why).
+When a concept has any files or branches nothing runs, its panel shows a
+single "Copy prompt for missing tests" button — one prompt covering every
+gap the concept has, as plain file paths, pointing at this repo's test
+strategy and guidance to figure out which of them actually need a test. It
+never embeds a code snippet or suggests what a test should assert: a
+handful of lines (often just a file's `import`s) isn't enough to judge
+that, so the judgment call is left to whoever pastes the prompt into a real
+session, not baked into the report (see the spec's §2h for why the
+per-gap version this replaced didn't work).
 
 ## How a report gets built
 

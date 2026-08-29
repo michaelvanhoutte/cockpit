@@ -110,11 +110,7 @@ td.c.clickable:hover { background: rgba(110, 168, 254, 0.1); }
 .p-name { font-size: 22px; font-weight: 700; }
 
 /* Always visible regardless of which tab is active — see renderPanel's comment. */
-.p-gapline { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.gapchip { appearance: none; border: 1px solid var(--line); background: rgba(255, 139, 139, 0.08); color: var(--bad); font-family: var(--sans); font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; cursor: pointer; }
-.gapchip:hover { border-color: var(--bad); }
-.gapchip.clean { background: transparent; color: var(--ink-3); border-color: var(--line); }
-.gapchip.unknown { background: transparent; color: var(--ink-3); border-style: dashed; font-style: italic; }
+.p-copyline { margin-top: 10px; }
 
 .tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; flex-wrap: wrap; position: sticky; top: -24px; background: var(--card); padding-top: 4px; margin-top: -4px; z-index: 1; }
 .tab { appearance: none; border: none; background: transparent; color: var(--ink-3); font-family: var(--sans); font-size: 12.5px; font-weight: 600; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
@@ -125,19 +121,27 @@ td.c.clickable:hover { background: rgba(110, 168, 254, 0.1); }
 .filterclear { appearance: none; border: none; background: transparent; color: inherit; font-family: var(--sans); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; }
 
 /* One heading per level group in the Rules tab (L1, L2, ... in that order) — the
-   "which level is this" distinction a small per-card badge wasn't clear enough. */
-.levelhead { margin: 22px 0 10px; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
+   "which level is this" distinction a small per-card badge wasn't clear enough.
+   A rule below the border, in bold, is a stronger break between groups than
+   color alone was. */
+.levelhead { margin: 30px 0 14px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
 .levelhead:first-child { margin-top: 4px; }
 
-.rulelist { display: flex; flex-direction: column; gap: 14px; }
-.rule { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 8px; background: #10131a; border: 1px solid var(--line); }
+/* Cards sit visibly lighter than the panel behind them (not a few units
+   darker, which read as no difference at all), so consecutive rules read as
+   distinct blocks rather than one continuous list. */
+.rulelist { display: flex; flex-direction: column; gap: 20px; }
+.rule { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border-radius: 8px; background: #1d2331; border: 1px solid #38415a; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
 .r-text { font-size: 15px; line-height: 1.5; color: var(--ink-1); font-weight: 600; }
 /* Secondary metadata below the statement, not a header above it — the
    hierarchy comes from position and size, not from dimming it further. */
 .r-loc { font-size: 12.5px; }
 
-.caselist { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.caselist { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--line); }
 .case { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+/* Each test after the first in a rule's list gets its own divider, so a rule
+   with several cases doesn't read as one paragraph. */
+.case + .case { padding-top: 8px; border-top: 1px dashed var(--line); }
 /* No pass/fail mark: this tool never runs the suite, so nothing here has been
    verified to pass — only whether it's written at all is a fact the AST knows. */
 .case-badge { flex-shrink: 0; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #f0c674; background: rgba(240, 198, 116, 0.14); padding: 2px 6px; border-radius: 4px; }
@@ -162,7 +166,7 @@ td.c.clickable:hover { background: rgba(110, 168, 254, 0.1); }
 .codeline-text { color: var(--ink-2); }
 .codeline.target .codeline-text { color: var(--ink-1); }
 
-.copywrap { padding: 10px 12px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.copywrap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .copybtn { appearance: none; border: 1px solid var(--accent); background: rgba(110, 168, 254, 0.1); color: var(--accent); font-family: var(--sans); font-size: 11.5px; font-weight: 600; padding: 5px 10px; border-radius: 6px; cursor: pointer; }
 .copybtn:hover { background: rgba(110, 168, 254, 0.2); }
 .copystatus { font-size: 11.5px; color: var(--ok); font-weight: 600; }

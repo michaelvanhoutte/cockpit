@@ -124,19 +124,6 @@
     })(MODEL.tree, 0);
   }
 
-  /** A persistent, always-visible shortcut into the files/branches tabs — see panelhead above. */
-  function gapChip(tabId, n, label) {
-    var chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'gapchip' + (n === 0 ? ' clean' : n === null ? ' unknown' : '');
-    chip.textContent = (n === null ? 'unknown' : n) + ' ' + label;
-    chip.addEventListener('click', function () {
-      activeTab = tabId;
-      renderPanel();
-    });
-    return chip;
-  }
-
   function countPill(n, badWhenNonzero) {
     if (n === null) return el('span', 'pill na', 'n/a');
     var cls = n === 0 ? 'pill zero' : badWhenNonzero ? 'pill bad' : 'pill';
@@ -144,9 +131,6 @@
   }
 
   // ---- detail panel: tabs, each filling the whole panel -------------------
-  // Short labels: the full "files nothing runs" / "branches nothing takes"
-  // wording already appears once, right above, in the always-visible gapline
-  // chips — repeating it here per tab was the same fact stated twice.
   var TABS = [
     { id: 'rules', label: function (n) { return 'Rules (' + n.rules.length + ')'; } },
     { id: 'files', label: function (n) { return 'Files (' + n.filesNothingRuns.length + ')'; } },
@@ -166,15 +150,15 @@
 
     var head = el('div', 'panelhead');
     head.appendChild(el('div', 'p-name', node.label));
-    // Always visible regardless of which tab is active — previously these two
-    // counts were only visible by clicking into their own tab, easy to lose
-    // track of while reading Rules.
-    var gapline = el('div', 'p-gapline');
-    gapline.appendChild(gapChip('files', node.filesNothingRuns.length, 'files nothing runs'));
-    gapline.appendChild(
-      gapChip('branches', node.branchesNothingTakes === null ? null : node.branchesNothingTakes.length, 'branches nothing takes'),
-    );
-    head.appendChild(gapline);
+    // One prompt for everything this node is missing, not one button per gap —
+    // the tab labels below already say how many files/branches there are, so
+    // there's nothing to add here except the action itself.
+    var gapPrompt = allGapsPrompt(node);
+    if (gapPrompt) {
+      var copyline = el('div', 'p-copyline');
+      copyline.appendChild(copyPromptAction(gapPrompt, 'Copy prompt for missing tests'));
+      head.appendChild(copyline);
+    }
     panelEl.appendChild(head);
 
     var tabbar = el('div', 'tabbar');
@@ -283,7 +267,7 @@
     var list = el('div', 'filelist');
     node.filesNothingRuns.forEach(function (f) {
       var row = el('div', 'f-item');
-      row.appendChild(codeToggle(f, f.file, fileGapPrompt(node, f)));
+      row.appendChild(codeToggle(f, f.file));
       list.appendChild(row);
     });
     body.appendChild(list);
@@ -301,57 +285,45 @@
     var list = el('div', 'filelist');
     node.branchesNothingTakes.forEach(function (b) {
       var row = el('div', 'f-item');
-      row.appendChild(codeToggle(b, b.file + ':' + b.line, branchGapPrompt(node, b)));
+      row.appendChild(codeToggle(b, b.file + ':' + b.line));
       list.appendChild(row);
     });
     body.appendChild(list);
   }
 
   /**
-   * These two build the actual text a "Copy prompt" button copies — real file,
-   * line and source (from the Model, never invented) plus the feature area it
-   * belongs to, framed as a ready-to-paste ask for an agent to go act on. This
-   * is deliberately NOT an LLM call from the report itself: the report stays
-   * fact-only and reproducible; the prompt is just real data assembled into a
-   * shape that saves retyping it, for whoever (or whatever) does the writing.
+   * One prompt covering every file/branch gap this node has, not one per gap —
+   * a paste target for a real agent session, not a code review in miniature.
+   * No source snippet: a handful of lines (often just the file's imports)
+   * isn't enough to judge whether a test is warranted, so rather than pretend
+   * otherwise, this hands over the real paths and lets the reader (or the
+   * agent it's pasted to) open the actual files and use judgment — same as
+   * this repo's `scoping` skill already asks a person to do. Deliberately NOT
+   * an LLM call from the report itself: the report stays fact-only and
+   * reproducible; this is just the real gap list assembled into a shape ready
+   * to hand to whoever (or whatever) does the actual reasoning and writing.
    */
-  function branchGapPrompt(node, ref) {
-    return [
-      'Add a test covering an untested branch in the "' + node.label + '" feature area.',
-      '',
-      'File: ' + ref.file + ':' + ref.line,
-      '```',
-      contextText(ref),
-      '```',
-      '',
-      "No existing test exercises this branch. Follow this repo's testing skill/strategy:",
-      '- place the test at the lowest level that can prove the behavior',
-      "- name it in the product's language, not the implementation's",
-      '- add it to the existing "' + node.label + '" area if this rule is a natural fit for it',
-      '',
-      "Verify the test actually fails before any fix and passes after, per this repo's definition of done.",
-    ].join('\n');
-  }
+  function allGapsPrompt(node) {
+    var files = node.filesNothingRuns.map(function (f) { return f.file; });
+    var branches = (node.branchesNothingTakes || []).map(function (b) { return b.file + ':' + b.line; });
+    if (!files.length && !branches.length) return null;
 
-  function fileGapPrompt(node, ref) {
-    return [
-      'Assess whether ' + ref.file + ' needs a test (feature area: "' + node.label + '").',
-      '',
-      'No test in the repository imports this file directly. It may still be exercised indirectly',
-      '(e.g. through an HTTP-driven integration test) — verify before assuming this is a real gap.',
-      '',
-      'Start of the file:',
-      '```',
-      contextText(ref),
-      '```',
-      '',
-      "If it needs a test, follow this repo's testing skill/strategy: lowest level that can prove",
-      'the behavior, named in product language.',
-    ].join('\n');
-  }
-
-  function contextText(ref) {
-    return (ref.context || []).map(function (l) { return l.text; }).join('\n');
+    var lines = [];
+    if (files.length) {
+      lines.push('Tests are missing for these files in the "' + node.label + '" feature area:');
+      files.forEach(function (f) { lines.push('- ' + f); });
+    }
+    if (branches.length) {
+      if (files.length) lines.push('');
+      lines.push('Tests are missing for these branches in the "' + node.label + '" feature area:');
+      branches.forEach(function (b) { lines.push('- ' + b); });
+    }
+    lines.push('');
+    lines.push(
+      "Use this repo's test strategy and guidance when defining tests, to figure out which tests " +
+        'may need to be added to ensure this is covered.',
+    );
+    return lines.join('\n');
   }
 
   /**
@@ -359,10 +331,8 @@
    * ({file, line, context}) open/closed — reading the surrounding source
    * without leaving the page, plus a real link (GitHub when the report knows
    * its commit, otherwise a local relative link) to open the actual file.
-   * `promptText`, when given (gaps only — a rule/case already has a test, so
-   * there's nothing to prompt for), adds a "Copy prompt" action.
    */
-  function codeToggle(ref, label, promptText) {
+  function codeToggle(ref, label) {
     var wrap = el('div', 'coderef');
     var btn = document.createElement('button');
     btn.type = 'button';
@@ -378,7 +348,7 @@
         return;
       }
       btn.classList.add('open');
-      body = renderCodeContext(ref, promptText);
+      body = renderCodeContext(ref);
       wrap.appendChild(body);
     });
 
@@ -386,7 +356,7 @@
     return wrap;
   }
 
-  function renderCodeContext(ref, promptText) {
+  function renderCodeContext(ref) {
     var box = el('div', 'codebox');
 
     var links = el('div', 'codelinks');
@@ -421,24 +391,21 @@
       box.appendChild(pre);
     }
 
-    if (promptText) box.appendChild(copyPromptAction(promptText));
-
     return box;
   }
 
   /**
-   * A "Copy prompt to write a test" action: real file/line/source assembled
-   * into a ready-to-paste ask (see branchGapPrompt/fileGapPrompt above), not
-   * an LLM call from the report itself — the report stays fact-only and
-   * reproducible between runs; this just saves retyping the context for
-   * whoever (or whatever agent) actually goes and writes the test.
+   * A "Copy prompt" action: hands `text` (see allGapsPrompt above) to the
+   * clipboard, not an LLM call from the report itself — the report stays
+   * fact-only and reproducible between runs; this just saves retyping the
+   * gap list for whoever (or whatever agent) actually goes and acts on it.
    */
-  function copyPromptAction(text) {
+  function copyPromptAction(text, label) {
     var wrap = el('div', 'copywrap');
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'copybtn';
-    btn.textContent = 'Copy prompt to write a test';
+    btn.textContent = label || 'Copy prompt';
     var extra = null;
 
     btn.addEventListener('click', function () {
