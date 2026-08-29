@@ -77,25 +77,20 @@ export function renderHtml(model, { repoRelPrefix }) {
   </section>
 
   <section>
-    <div class="explorer">
-      <div class="card">
-        <div class="tablewrap">
-          <table id="matrix">
-            <thead>
-              <tr>
-                <th>Concept</th>
-                ${LEVELS.map((l) => `<th class="c" title="${esc(l.name)} — ${esc(l.description)}">${esc(l.label)}</th>`).join('')}
-                <th class="c" title="Source files this area owns that no test imports">Files nothing runs</th>
-                <th class="c" title="Branches in this area's files that real coverage shows are never taken">Branches nothing takes</th>
-              </tr>
-            </thead>
-            <tbody id="rows"></tbody>
-          </table>
-        </div>
+    <div class="card">
+      <div class="tablewrap">
+        <table id="matrix">
+          <thead>
+            <tr>
+              <th>Concept</th>
+              ${LEVELS.map((l) => `<th class="c" title="Click a count to see just ${esc(l.name)} (${esc(l.label)}) rules — ${esc(l.description)}">${esc(l.label)}</th>`).join('')}
+              <th class="c" title="Click a count to open this tab — source files this area owns that no test imports">Files nothing runs</th>
+              <th class="c" title="Click a count to open this tab — branches in this area's files that real coverage shows are never taken">Branches nothing takes</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
       </div>
-      <aside class="panel card" id="panel" aria-live="polite">
-        <div class="p-empty">Select a row.</div>
-      </aside>
     </div>
 
     <div class="note">
@@ -112,6 +107,9 @@ export function renderHtml(model, { repoRelPrefix }) {
   </footer>
 
 </div>
+<aside class="panel" id="panel" aria-live="polite">
+  <div class="p-empty">Select a row.</div>
+</aside>
 <script>window.__MODEL__ = ${jsonScript(payload)};</script>
 <script>${client}</script>
 </body>

@@ -65,6 +65,19 @@ see a row with real numbers you don't recognize, or a row you don't expect
 to exist, `concepts.json` is always the first place to look — it's a
 plain, readable, human-maintained file precisely so this stays inspectable.
 
+## Reading the page
+
+Every count in the tree is its own click target, not just the row: click a
+level's count (L1, L2, ...) to open that concept's Rules tab filtered to
+just that level; click "files nothing runs" or "branches nothing takes" to
+jump straight to that tab; click the concept's own name to see everything.
+No checkmark appears next to a case — this tool never runs the suite, so it
+has no pass/fail fact to show; only "not written yet" (a `.todo`) gets a
+mark, since that's a fact the AST does know. A `.each(table)(name, fn)` case
+shows its template with the row's real values substituted in where they're
+statically known (`'$situation'` → `'without a request id'`), not the raw
+`$situation` placeholder.
+
 ## How a report gets built
 
 ```

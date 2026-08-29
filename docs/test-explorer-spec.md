@@ -347,6 +347,67 @@ real feature area's tests justify a `parent`.
 distinction explicit for anyone reading the registry cold, rather than
 relying on this spec doc alone.
 
+## 2f. Third-look feedback: a misleading mark, a real overlay panel, drill-down
+
+Four more things from a third look at the rendered page:
+
+1. **The green ✓ next to a case looked like a pass/fail result.** It isn't,
+   and can't be — this tool never runs the suite (§2, from the very start:
+   "a report that needs the suite to run is a report that stops working the
+   moment the suite breaks"), so a checkmark next to a case was claiming a
+   fact the tool has no way to know. Removed. A written case is now shown
+   with no mark at all; only "not written yet" (a `.todo`) gets a visible
+   badge, because *that* is a fact the AST genuinely does know.
+2. **A `.each` case showing its raw template (`$situation`) instead of what
+   was actually tested** was flagged with two real examples. Fixed properly
+   rather than papered over: `rules.js` now statically evaluates the
+   `.each(table)` array when it's a literal, and substitutes each row's real
+   value into the template's `$key`/`$a.b` and `%s`/`%d`/`%j`/`%o`/`%#`-style
+   placeholders — `'$situation'` against
+   `{ situation: 'without a request id', capture: {...} }` renders as
+   *"without a request id"*. Resolution is deliberately per-property, not
+   all-or-nothing: the real case that prompted this
+   (`packages/shared/tests/unit/commands.test.ts`) has a `capture` sibling
+   property built from `uuidv7()`/`new Date()` — calls, not literals — and
+   that must not stop the *sibling* `situation` property (a plain string)
+   from resolving. A placeholder nothing can resolve is left exactly as
+   written rather than guessed at, and a table that isn't a literal array at
+   all (built from a variable or a function call) falls back to one case
+   with the raw template, same as before this existed. Five new tests in
+   `rules.test.js` cover the resolution, the partial-property case
+   specifically, `%j`/`%o`/`%#`, an unresolvable placeholder, and the
+   non-literal-table fallback.
+3. **"I lose half the screen above Capture that I could also use to show
+   tests."** The panel was `position: sticky` *inside* the page's own
+   document flow — which meant on load, before any scrolling, it only had
+   whatever viewport space was left below the masthead/legend/warnings. Its
+   own vertical size was never the problem; **its position was.** Fixed by
+   making it a true `position: fixed` overlay pinned to the browser
+   viewport's right edge, `top: 0` to `bottom: 0` — the full screen height,
+   always, regardless of scroll position or how tall the header content is.
+   `body` reserves the panel's width with `margin-right`, so the rest of the
+   page (including the tree) reflows to the left of it rather than running
+   underneath. Below 1000px wide, the overlay would crush the tree
+   unreadably thin, so it falls back to a plain stacked block instead —
+   full-page master-detail only makes sense once there's room for both
+   sides. (One thing worth recording: verifying this needed
+   `getBoundingClientRect()` after a real `scrollTo()`, not a screenshot —
+   the preview tool's screenshot capture during/after a scroll was
+   momentarily stale on more than one occasion this session, and looked like
+   a layout bug that direct DOM measurement showed wasn't one.)
+4. **"I would like the Capture list to show all tests when I click on
+   Capture, but only L1 when I click on L1... and Files/Branches nothing
+   runs/takes should open when I click that number."** Every count cell in
+   the tree is now independently clickable, not just the row: clicking a
+   level's count selects that concept, opens the Rules tab, and filters it
+   to that one level (a dismissible chip — "Showing L2 only" — makes the
+   filter visible and reversible); clicking the concept's own name shows
+   every level; clicking "files nothing runs" or "branches nothing takes"
+   jumps straight to that tab. `client.js`'s single generic row-click
+   handler was replaced with one handler per cell, since each now means
+   something different — there is no longer one "select this row" action,
+   only cell-specific ones.
+
 ## 3. The test-folder migration (done)
 
 The row/column model in §4 depends on two conventions:

@@ -132,7 +132,7 @@ describe('extractRules', () => {
     expect(rules).toHaveLength(1);
   });
 
-  it('recognizes it.each(table)(name, fn) as one case per call, not the whole table as one case', () => {
+  it('recognizes it.each(table)(name, fn) as one case per row, not the whole table as one case', () => {
     // it.each(table)(name, fn) is two chained calls: matching only a bare `it.<x>` callee (as
     // .skip/.only are) would instead match the *inner* call, it.each(table), and read the whole
     // data table as the case's "name" — this is the regression test for that.
@@ -147,11 +147,10 @@ describe('extractRules', () => {
       });
     `);
     const { rules } = extractRules(source, 'x.test.ts', 'L1');
-    expect(rules[0].cases).toHaveLength(1);
-    expect(rules[0].cases[0].text).toBe('$name is handled');
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['a is handled', 'b is handled']);
   });
 
-  it('recognizes test.each the same way as it.each', () => {
+  it('recognizes test.each the same way as it.each, substituting %s positionally', () => {
     const source = sourceOf(`
       describe('Triage', () => {
         describe('a rule', () => {
@@ -160,7 +159,60 @@ describe('extractRules', () => {
       });
     `);
     const { rules } = extractRules(source, 'x.test.ts', 'L1');
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['a is handled', 'b is handled']);
+  });
+
+  it('resolves the row property a template actually names, leaving an unresolvable sibling property out of it', () => {
+    // The real case that prompted this (packages/shared/tests/unit/commands.test.ts): the row's
+    // `situation` is a literal, but a sibling property is built from a runtime call (uuidv7(), new
+    // Date()) — that must not stop `situation` itself from resolving.
+    const source = sourceOf(`
+      describe('Capture', () => {
+        describe('a capture missing what the app needs is refused', () => {
+          it.each([
+            { situation: 'without a request id', capture: { itemId: uuidv7() } },
+          ])('$situation', () => {});
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'x.test.ts', 'L1');
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['without a request id']);
+  });
+
+  it('substitutes %j/%o as JSON and %# as the row index', () => {
+    const source = sourceOf(`
+      describe('Triage', () => {
+        describe('a rule', () => {
+          it.each([{ a: 1 }, { a: 2 }])('row %# is %j', () => {});
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'x.test.ts', 'L1');
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['row 0 is {"a":1}', 'row 1 is {"a":2}']);
+  });
+
+  it('leaves an unresolvable placeholder exactly as written rather than guessing', () => {
+    const source = sourceOf(`
+      describe('Triage', () => {
+        describe('a rule', () => {
+          it.each([{ known: 'x' }])('$known / $unknown', () => {});
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'x.test.ts', 'L1');
+    expect(rules[0].cases[0].text).toBe('x / $unknown');
+  });
+
+  it('falls back to one case with the raw template when the table is not an array literal at all', () => {
+    const source = sourceOf(`
+      describe('Triage', () => {
+        describe('a rule', () => {
+          it.each(situations)('$name is handled', () => {});
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'x.test.ts', 'L1');
     expect(rules[0].cases).toHaveLength(1);
-    expect(rules[0].cases[0].text).toBe('%s is handled');
+    expect(rules[0].cases[0].text).toBe('$name is handled');
   });
 });

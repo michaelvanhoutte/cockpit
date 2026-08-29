@@ -189,11 +189,123 @@ function collectCases(node, relFile, source) {
         (callee.expression.expression.text === 'it' || callee.expression.expression.text === 'test') &&
         callee.expression.name.text === 'each'
       ) {
-        cases.push(caseRef()); // it.each(table)(name, fn) — the tagged-template form, it.each`...`(name, fn), isn't recognized
+        // it.each(table)(name, fn) — the tagged-template form, it.each`...`(name, fn), isn't recognized.
+        // The whole point of .each is a table row per case; resolving it (rather than showing the raw
+        // template once) is what makes a case like '$situation' readable — see resolveEachCases below.
+        cases.push(...resolveEachCases(callee.arguments[0], caseText(nameArg, source), relFile, lineOf(source, n)));
       }
     }
     ts.forEachChild(n, visit);
   };
   visit(node);
   return { cases, todoCases };
+}
+
+/**
+ * Turns `it.each(table)(template, fn)` into one real case per row, `template`'s own `$key`/`%s`-style
+ * placeholders substituted with that row's actual value where it's statically known — this is what
+ * makes a case display as "without a request id" rather than the raw template text "$situation"
+ * (docs/test-explorer-spec.md §2f). Every element of `table` becomes one case regardless of whether
+ * its own values are literal — the row *count* is always known once `table` is a real array literal;
+ * only the substitution degrades (an unresolvable property is left as its literal `$key` token) when a
+ * value can't be. If `table` isn't an array literal at all (built from a variable, a function call, a
+ * spread, ...), nothing about it — not even the count — can be known statically, and this falls back to
+ * one case using the raw template text, same as before this existed.
+ */
+function resolveEachCases(table, template, relFile, line) {
+  if (!table || !ts.isArrayLiteralExpression(table)) {
+    return [{ text: template, file: relFile, line }];
+  }
+  return table.elements.map((rowNode, index) => ({
+    text: substituteTemplate(template, evalRow(rowNode), index),
+    file: relFile,
+    line,
+  }));
+}
+
+/** A table row: a shallow best-effort object (unresolvable properties simply absent) or a plain literal value. */
+function evalRow(node) {
+  return ts.isObjectLiteralExpression(node) ? evalObjectShallow(node) : evalLiteral(node);
+}
+
+/**
+ * Never fails, unlike `evalLiteral`: a property whose value can't be statically resolved (a call, an
+ * identifier, a spread, ...) is simply left out of the result rather than failing the whole object —
+ * this is what lets `{ situation: 'literal', capture: { itemId: uuidv7() } }` still resolve `situation`
+ * even though `capture` can't be resolved at all (the real case that prompted this: commands.test.ts).
+ */
+function evalObjectShallow(node) {
+  const out = {};
+  for (const prop of node.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue; // shorthand, spread, method: silently unresolved
+    const key = ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name) ? prop.name.text : undefined;
+    if (key === undefined) continue;
+    const value = evalLiteral(prop.initializer);
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
+/** A strict literal evaluator: returns `undefined` (bail) the moment anything isn't statically known. */
+function evalLiteral(node) {
+  if (!node) return undefined;
+  if (ts.isStringLiteralLike(node)) return node.text;
+  if (ts.isNumericLiteral(node)) return Number(node.text);
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+  if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+  if (ts.isParenthesizedExpression(node)) return evalLiteral(node.expression);
+  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
+    const inner = evalLiteral(node.operand);
+    return typeof inner === 'number' ? -inner : undefined;
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    const out = [];
+    for (const el of node.elements) {
+      if (ts.isSpreadElement(el)) return undefined;
+      const v = evalLiteral(el);
+      if (v === undefined) return undefined;
+      out.push(v);
+    }
+    return out;
+  }
+  if (ts.isObjectLiteralExpression(node)) return evalObjectShallow(node);
+  return undefined; // an identifier, a call, a template with substitutions, ... — not resolvable
+}
+
+/**
+ * Substitutes a `.each` template's placeholders with a row's actual value: `$key`/`$a.b` (vitest's
+ * property-path form, against an object row) and `%s`/`%d`/`%i`/`%f`/`%j`/`%o`/`%#`/`%%` (printf-style,
+ * positional against an array row, or the row itself for a scalar row). A placeholder with nothing to
+ * resolve it — the row wasn't an object, or that particular key/position wasn't statically known — is
+ * left exactly as written, so a partly-resolved template never looks like a wrong value.
+ */
+function substituteTemplate(template, row, index) {
+  let out = template.replace(/\$([a-zA-Z_][a-zA-Z0-9_.]*)/g, (token, path) => {
+    if (row === null || typeof row !== 'object') return token;
+    let value = row;
+    for (const segment of path.split('.')) {
+      if (value == null || typeof value !== 'object') return token;
+      value = value[segment];
+    }
+    return value === undefined ? token : stringifyRowValue(value);
+  });
+
+  if (/%[sdifjo#%]/.test(out)) {
+    const positional = Array.isArray(row) ? row : [row];
+    let cursor = 0;
+    out = out.replace(/%[sdifjo%#]/g, (token) => {
+      if (token === '%%') return '%';
+      if (token === '%#') return String(index);
+      const value = positional[cursor++];
+      if (value === undefined) return token;
+      return token === '%j' || token === '%o' ? JSON.stringify(value) : stringifyRowValue(value);
+    });
+  }
+
+  return out;
+}
+
+function stringifyRowValue(value) {
+  return typeof value === 'string' ? value : String(value);
 }

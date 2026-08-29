@@ -24,6 +24,7 @@
   var open = {}; // tree node key -> expanded, default expanded
   var selected = MODEL.tree.length ? MODEL.tree[0].key : null;
   var activeTab = 'rules'; // 'rules' | 'files' | 'branches', per selected node
+  var ruleLevelFilter = null; // one of LEVELS' ids, or null for "every level"
 
   // ---- links -----------------------------------------------------------
   function localHref(relFile) {
@@ -34,6 +35,10 @@
   function githubHref(relFile, line) {
     if (!MODEL.commitUrl) return null;
     return MODEL.commitUrl.replace('/commit/', '/blob/') + '/' + relFile + (line ? '#L' + line : '');
+  }
+
+  function selectNode(key) {
+    selected = key;
   }
 
   // ---- tree --------------------------------------------------------------
@@ -51,40 +56,66 @@
 
         var hasKids = node.children.length > 0;
         var twisty = el('span', 'twisty' + (hasKids ? (open[node.key] !== false ? ' open' : '') : ' leaf'), hasKids ? '▶' : '');
+        twisty.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (!hasKids) return;
+          open[node.key] = !(open[node.key] !== false);
+          render();
+        });
         nameWrap.appendChild(twisty);
-        nameWrap.appendChild(el('span', 'name', node.label));
+
+        var nameBtn = el('span', 'name', node.label);
+        nameWrap.appendChild(nameBtn);
+        nameWrap.addEventListener('click', function (e) {
+          if (e.target === twisty) return;
+          selectNode(node.key);
+          activeTab = 'rules';
+          ruleLevelFilter = null; // clicking the concept itself means "show me everything"
+          render();
+          renderPanel();
+        });
         nameTd.appendChild(nameWrap);
         tr.appendChild(nameTd);
 
         LEVELS.forEach(function (l) {
-          var td = el('td', 'c');
+          var td = el('td', 'c clickable');
           td.appendChild(countPill(node.counts[l.id], false));
+          td.title = 'Show ' + l.label + ' rules for ' + node.label;
+          td.addEventListener('click', function () {
+            selectNode(node.key);
+            activeTab = 'rules';
+            ruleLevelFilter = l.id;
+            render();
+            renderPanel();
+          });
           tr.appendChild(td);
         });
 
-        var filesTd = el('td', 'c');
+        var filesTd = el('td', 'c clickable');
         filesTd.appendChild(countPill(node.filesNothingRuns.length, true));
+        filesTd.title = 'Show files nothing runs for ' + node.label;
+        filesTd.addEventListener('click', function () {
+          selectNode(node.key);
+          activeTab = 'files';
+          render();
+          renderPanel();
+        });
         tr.appendChild(filesTd);
 
-        var branchesTd = el('td', 'c');
+        var branchesTd = el('td', 'c clickable');
         if (node.branchesNothingTakes === null) {
           branchesTd.appendChild(el('span', 'pill na', 'unknown'));
         } else {
           branchesTd.appendChild(countPill(node.branchesNothingTakes.length, true));
         }
-        tr.appendChild(branchesTd);
-
-        tr.addEventListener('click', function (e) {
-          if (hasKids && (e.target === twisty || twisty.contains(e.target))) {
-            open[node.key] = !(open[node.key] !== false);
-            render();
-            return;
-          }
-          selected = node.key;
-          activeTab = 'rules';
+        branchesTd.title = 'Show branches nothing takes for ' + node.label;
+        branchesTd.addEventListener('click', function () {
+          selectNode(node.key);
+          activeTab = 'branches';
           render();
           renderPanel();
         });
+        tr.appendChild(branchesTd);
 
         rowsEl.appendChild(tr);
 
@@ -129,6 +160,7 @@
       btn.textContent = t.label(node);
       btn.addEventListener('click', function () {
         activeTab = t.id;
+        if (t.id === 'rules') ruleLevelFilter = null; // the tab itself always means "every level"
         renderPanel();
       });
       tabbar.appendChild(btn);
@@ -144,12 +176,29 @@
   }
 
   function renderRules(body, node) {
-    if (!node.rules.length) {
-      body.appendChild(el('div', 'p-empty', 'No rules found directly on this area.'));
+    if (ruleLevelFilter) {
+      var chip = el('div', 'filterchip');
+      chip.appendChild(document.createTextNode('Showing ' + ruleLevelFilter + ' only'));
+      var clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'filterclear';
+      clear.textContent = 'Show all levels ✕';
+      clear.addEventListener('click', function () {
+        ruleLevelFilter = null;
+        renderPanel();
+      });
+      chip.appendChild(clear);
+      body.appendChild(chip);
+    }
+
+    var rules = ruleLevelFilter ? node.rules.filter(function (r) { return r.level === ruleLevelFilter; }) : node.rules;
+
+    if (!rules.length) {
+      body.appendChild(el('div', 'p-empty', ruleLevelFilter ? 'No ' + ruleLevelFilter + ' rules on this area.' : 'No rules found directly on this area.'));
       return;
     }
     var list = el('div', 'rulelist');
-    node.rules.forEach(function (r) {
+    rules.forEach(function (r) {
       var card = el('div', 'rule');
       var top = el('div', 'r-top');
       top.appendChild(el('span', 'r-level', r.level));
@@ -178,8 +227,11 @@
   }
 
   function caseRow(c, isTodo) {
+    // No checkmark: this tool never runs the suite, so nothing here has "passed" — a ✓ would claim
+    // a fact this report cannot know. A written case is shown plainly; only "not written yet" gets
+    // a visible marker, since that (a describe.todo/it.todo case) is a fact the AST does know.
     var row = el('div', 'case' + (isTodo ? ' case-todo' : ''));
-    row.appendChild(el('span', 'case-mark', isTodo ? '○' : '✓'));
+    if (isTodo) row.appendChild(el('span', 'case-badge', 'not written yet'));
     var text = el('span', 'case-text', c.text);
     row.appendChild(text);
     row.appendChild(codeToggle(c, c.file + ':' + c.line));

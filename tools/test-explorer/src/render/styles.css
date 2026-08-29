@@ -10,12 +10,19 @@
   --ok: #6fce8d;
   --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* The detail panel's width: fixed to the viewport (not the grid), so it always
+     owns the full vertical height of the screen rather than only the space left
+     under the header once the page scrolls there. */
+  --panel-w: min(760px, 48vw);
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
+  /* Reserves the fixed panel's width so the rest of the page's content — including
+     this centered .wrap — never renders underneath it. */
+  margin-right: var(--panel-w);
   background: var(--bg);
   color: var(--ink-1);
   font-family: var(--sans);
@@ -23,7 +30,15 @@ body {
   line-height: 1.5;
 }
 
-.wrap { max-width: 1900px; margin: 0 auto; padding: 32px 24px 80px; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 32px 24px 80px; }
+
+@media (max-width: 1000px) {
+  /* Below this width a side-by-side split would crush the tree unreadably thin.
+     Drop the fixed overlay entirely and fall back to the panel as a normal block
+     stacked below the tree, full page width, in the document's own flow. */
+  body { margin-right: 0; }
+  .panel { position: static; width: auto; height: auto; max-height: none; margin: 16px 24px 0; }
+}
 
 .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; font-weight: 600; margin: 0 0 8px; }
 h1 { font-size: 28px; margin: 0 0 12px; }
@@ -49,43 +64,58 @@ h1 { font-size: 28px; margin: 0 0 12px; }
 .legend-item b { color: var(--ink-1); }
 .legend code { font-size: 11px; }
 
-/* Tree gets a comfortable, bounded width; the panel takes the rest — this is
-   the "large panel" the tests live in, not a narrow sidebar. */
-.explorer { display: grid; grid-template-columns: minmax(560px, 46%) 1fr; gap: 12px; align-items: start; }
-@media (max-width: 1100px) { .explorer { grid-template-columns: 1fr; } }
-
 .tablewrap { overflow-x: auto; padding: 12px; }
 table { border-collapse: collapse; width: 100%; }
 th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { color: var(--ink-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; cursor: help; }
 th.c, td.c { text-align: center; }
-tbody tr.row { cursor: pointer; }
-tbody tr.row:hover { background: rgba(110, 168, 254, 0.06); }
 tbody tr.row.selected { background: rgba(110, 168, 254, 0.14); }
+/* Every cell is independently clickable now (a level count opens Rules filtered to
+   that level; the coverage counts open their own tab) — the row itself carries no
+   single click action of its own, only its cells do. */
+td.c.clickable { cursor: pointer; }
+td.c.clickable:hover { background: rgba(110, 168, 254, 0.1); }
 
-.namewrap { display: inline-flex; align-items: center; gap: 6px; }
+.namewrap { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.namewrap:hover .name { color: var(--accent); }
 .name { font-weight: 600; }
-.twisty { display: inline-block; width: 12px; font-size: 9px; color: var(--ink-3); transition: transform 0.1s; }
+.twisty { display: inline-block; width: 12px; font-size: 9px; color: var(--ink-3); transition: transform 0.1s; cursor: pointer; }
 .twisty.open { transform: rotate(90deg); }
-.twisty.leaf { visibility: hidden; }
+.twisty.leaf { visibility: hidden; cursor: default; }
 
 .pill { display: inline-block; min-width: 22px; padding: 2px 8px; border-radius: 999px; font-family: var(--mono); font-size: 12px; background: #1e2330; color: var(--ink-1); }
 .pill.zero { color: var(--ink-3); background: transparent; }
 .pill.bad { background: rgba(255, 139, 139, 0.15); color: var(--bad); }
 .pill.na { color: var(--ink-3); font-style: italic; background: transparent; }
 
-/* The panel: sticky so it stays in view while the tree (once real trees grow)
-   scrolls independently, and tall — it owns most of the vertical viewport,
-   not a fixed short box. */
-.panel { padding: 18px; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+/* The panel: fixed to the viewport, not part of the document's own scroll — this
+   is what makes it "the entire right side of the page, full vertical space"
+   rather than a column that starts wherever the tree happens to end up on the
+   page and only gets whatever's left of the viewport below that. */
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--panel-w);
+  padding: 24px 28px;
+  overflow-y: auto;
+  background: var(--card);
+  border-left: 1px solid var(--line);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+  z-index: 10;
+}
 .p-empty { color: var(--ink-3); font-size: 13px; padding: 4px 0; }
 .panelhead { margin-bottom: 14px; }
-.p-name { font-size: 20px; font-weight: 700; }
+.p-name { font-size: 22px; font-weight: 700; }
 
-.tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; flex-wrap: wrap; }
+.tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; flex-wrap: wrap; position: sticky; top: -24px; background: var(--card); padding-top: 4px; margin-top: -4px; z-index: 1; }
 .tab { appearance: none; border: none; background: transparent; color: var(--ink-3); font-family: var(--sans); font-size: 12.5px; font-weight: 600; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tab:hover { color: var(--ink-1); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.filterchip { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 8px 12px; border-radius: 8px; background: rgba(110, 168, 254, 0.1); color: var(--accent); font-size: 12.5px; font-weight: 600; }
+.filterclear { appearance: none; border: none; background: transparent; color: inherit; font-family: var(--sans); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; }
 
 .rulelist { display: flex; flex-direction: column; gap: 14px; }
 .rule { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 8px; background: #10131a; border: 1px solid var(--line); }
@@ -93,10 +123,11 @@ tbody tr.row.selected { background: rgba(110, 168, 254, 0.14); }
 .r-level { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--accent); background: rgba(110, 168, 254, 0.12); padding: 1px 6px; border-radius: 4px; }
 .r-text { font-size: 15px; line-height: 1.5; color: var(--ink-1); font-weight: 600; }
 
-.caselist { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.caselist { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .case { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
-.case-mark { color: var(--ok); font-size: 12px; flex-shrink: 0; }
-.case-todo .case-mark { color: #f0c674; }
+/* No pass/fail mark: this tool never runs the suite, so nothing here has been
+   verified to pass — only whether it's written at all is a fact the AST knows. */
+.case-badge { flex-shrink: 0; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #f0c674; background: rgba(240, 198, 116, 0.14); padding: 2px 6px; border-radius: 4px; }
 .case-text { color: var(--ink-2); flex: 1; min-width: 160px; }
 .case-todo .case-text { color: #f0c674; font-style: italic; }
 
