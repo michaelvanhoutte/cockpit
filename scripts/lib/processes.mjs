@@ -43,7 +43,17 @@ export function run(args, label, cwd) {
   });
 }
 
-/** Start a long-running process, prefixing every line it prints. */
+/**
+ * Start a long-running process, prefixing every line it prints.
+ *
+ * Deliberately NOT detached on POSIX, though that was tried: giving each child
+ * its own process group lets stop() reach its grandchildren by group, but it
+ * also takes them out of the group Playwright kills when it tears the stack
+ * down, so every ordinary run then left Wrangler and Vite holding their ports.
+ * Sharing the group is what makes the common path clean, and it is why stop()
+ * below can rely on the caller's group being killed on POSIX. Measured both
+ * ways: detached leaked on every run, shared leaks on neither.
+ */
 export function start(args, name, colorCode, cwd, env) {
   const tag = paint(colorCode, `[${name}]`);
   const { file, args: argv, options } = command(args);
@@ -73,6 +83,27 @@ export function start(args, name, colorCode, cwd, env) {
 }
 
 /**
+ * Stops one child and everything it spawned. Always this, never `child.kill()`
+ * directly: `command()` runs children under cmd.exe on Windows, where a signal
+ * to the shell leaves the real Wrangler or Vite running and still holding its
+ * port. That orphan is not a tidiness problem — the e2e stack refuses to start
+ * against a port it does not own, so one orphan breaks every later run on that
+ * machine until someone finds and kills it by hand.
+ */
+export function stop(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  // Windows is where this matters and where a plain signal is not enough:
+  // command() runs children under cmd.exe, so signalling the child kills the
+  // shell and orphans the real Wrangler, still holding its port — and the e2e
+  // stack refuses to start against a port it does not own, so one orphan breaks
+  // every later run on that machine. On POSIX the child shares this process's
+  // group, so whatever stops us (Ctrl+C, Playwright's teardown) reaches the
+  // whole tree anyway, and SIGTERM here is the polite half of that.
+  if (isWindows) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+  else child.kill('SIGTERM');
+}
+
+/**
  * Ties a set of long-running children together: Ctrl+C stops all of them, and
  * one of them exiting stops the rest rather than leaving half an application
  * listening and looking healthy.
@@ -83,13 +114,7 @@ export function supervise(children) {
   function shutdown(code) {
     if (shuttingDown) return;
     shuttingDown = true;
-    for (const child of children) {
-      if (child.exitCode !== null || child.signalCode !== null) continue;
-      // Wrangler and Vite each spawn their own children. On Windows killing the
-      // parent orphans them and leaves the ports held, so kill the tree.
-      if (isWindows) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-      else child.kill('SIGTERM');
-    }
+    for (const child of children) stop(child);
     process.exitCode = code;
   }
 

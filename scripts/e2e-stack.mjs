@@ -36,7 +36,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { paint, run, start, supervise } from './lib/processes.mjs';
+import { paint, run, start, stop, supervise } from './lib/processes.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const apiDir = join(root, 'apps/api');
@@ -195,7 +195,10 @@ try {
   await waitForApi(api);
 } catch (error) {
   console.error(paint('31', `\n${error.message}`));
-  api.kill('SIGTERM');
+  // stop(), not api.kill(): on Windows the child here is a shell, and signalling
+  // it would leave Wrangler holding :8887 — which the port check above would
+  // then refuse to start against on every later run.
+  stop(api);
   process.exit(1);
 }
 
