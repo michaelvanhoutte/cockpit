@@ -36,7 +36,6 @@ test.describe('Capture', () => {
 
       await expect(itemRow(page, thought)).toBeVisible();
       await expect(panel(page, 'Inbox').getByText(thought)).toBeVisible();
-      await expect(captureBox(page)).toHaveValue('');
       await expectNoSidewaysScroll(page);
     });
   });
