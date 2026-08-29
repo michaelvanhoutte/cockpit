@@ -143,7 +143,7 @@ Skills trigger themselves from their descriptions, so nobody has to remember to 
 
 ### Set up once on the GitHub repository (not in the code)
 
-This lives in repository settings, so a fresh fork gets none of it. The deployment-side reasoning is in [docs/deployment.md](docs/deployment.md) under *Secrets and access* and *First-time setup*; the short list:
+This lives in repository settings, so a fresh fork gets none of it. The deployment-side reasoning is in [docs/deployment.md](docs/deployment.md) under *Secrets and access* and *Bootstrap runbook*; the short list:
 
 | Kind | Name | Needed by |
 |---|---|---|
