@@ -5,7 +5,8 @@ import { defineConfig, devices } from '@playwright/test';
  * conventions of docs/testing-strategy.md (§2, §9). Lives at the repo root
  * because it belongs to no package: it drives `apps/web` and `apps/api`
  * together, and `tools/test-explorer` reads `tests/e2e/` at the root as the F3
- * column (its columns table, docs/test-explorer-spec.md §4.2). Issue #41 proposed
+ * column (its columns table, docs/test-explorer-spec.md §4.2). The frontend
+ * test framework issue (#41, "build the F1 and F3 tiers for apps/web") proposed
  * `apps/web/tests/e2e/`; the explorer, which landed later, maps
  * `apps/web/tests/<x>/` to F1/F2 and nothing else, so a suite there would be
  * silently uncounted. Root wins.
