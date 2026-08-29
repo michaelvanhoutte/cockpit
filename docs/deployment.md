@@ -522,8 +522,20 @@ than to any mail provider, so it survives changing employer or email.
   tier so a misplaced test is visible. Cockpit is one service with one test
   file today, and testing-strategy §2 is explicit that the levels are roles
   rather than mandatory folders. The split lands with the tiers.
-- **L3/F3 on merge, and the nightly contract runs** (§9.1): they land with the
-  suites they would run.
+- **L3 on merge, and the nightly contract runs** (§9.1): they land with the
+  suites they would run. F3 no longer waits — the browser tier runs as its own
+  `E2E (F3)` job on every pull request and on `main`, against the `pnpm dev`
+  pair.
+- **F3 against a deployed preview.** The suite already takes `E2E_BASE_URL` and
+  the `CF-Access-Client-*` header pair, so pointing it at a branch's preview is
+  configuration rather than code. What is missing is the credential: Access
+  fronts every deployment (§6) and no **service token** exists yet, so an
+  unauthenticated run would test the login page. Creating one (Zero Trust →
+  Access → Service Auth, then a policy on the preview application that accepts
+  it) is owner work, and the preview-deploy job that uses it lands with it.
+  Until then the local pair is the only thing F3 drives, which leaves the
+  service worker, the built bundle and the Worker's own asset routing proven by
+  nothing but a manual look.
 - **Bundle-size gate** (§7): the budget needs recording as a number before it
   can be enforced as one.
 - **Sentry, the connector watchdog, and the external uptime check** (§9.2): they

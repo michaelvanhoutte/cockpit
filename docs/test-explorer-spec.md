@@ -641,7 +641,7 @@ The seven columns are `model.js`'s `LEVELS`, in testing-strategy's own order
 | L3 | `apps/*/tests/system/` (no folder exists yet) | count, or `n/a` for every row when the workspace has only one backend service — see §2c point 3 |
 | F1 | `apps/web/tests/unit/` | count |
 | F2 | `apps/web/tests/service/` | count |
-| F3 | `tests/e2e/` at the repo root | count |
+| F3 | `tests/e2e/` at the repo root | count (Playwright spells the same two-level structure `test.describe`; §6.2) |
 | Contract | `packages/connectors/*/tests/contract/` | count, or `n/a` for any area with no connector package |
 | Files nothing runs | — | source files matching this area's patterns that no test file (at any level) imports directly — a real limitation for HTTP-driven integration tests; see §2a |
 | Branches nothing takes | — | merged branch coverage (§6.3) restricted to this area's files |
@@ -794,6 +794,17 @@ file has no nested describe, per top-level `describe`, so simple files aren't
 forced into unnecessary nesting). `it`/`it.each`/`it.todo` bodies are read
 too, so a rule with only `.todo` cases can be flagged distinctly if wanted
 later, but §4 counts a rule once it has at least one real (non-todo) case.
+
+Two dialects, one structure. Vitest writes `describe(...)`; Playwright, the
+F3 runner, hangs it off the test object as `test.describe(...)` (with
+`.serial`/`.parallel`/`.skip` modifiers). Both are recognized, because the
+alternative was worse than not counting: `test.describe` matched no describe
+form *and* matched the case form, so an F3 file would have reported its feature
+areas as absent and each of its rule statements as a case label — a wrong
+answer that looks like an answer. The same fix excludes Playwright's hooks and
+configuration members (`test.beforeEach`, `test.use`, `test.step`, …), which
+have no title at all and would otherwise have been counted as cases labelled
+with the source text of their own callbacks.
 
 This never runs the suite. A rule is counted from source, exactly like the
 POC's actuals pass, so the report keeps working when the suite is red.

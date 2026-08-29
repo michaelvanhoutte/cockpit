@@ -10,13 +10,20 @@
     "dev:api": "pnpm --filter @cockpit/api dev",
     "dev:web": "pnpm --filter @cockpit/web dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
     "test": "pnpm -r test",
     "test:fast": "pnpm -r test:fast",
-    "test:all": "pnpm -r test:all",
+    "test:all": "pnpm -r test:all && pnpm test:e2e",
+    "test:e2e": "playwright test",
     "test:coverage": "pnpm -r test:coverage",
     "test:explorer": "pnpm --filter @cockpit/test-explorer generate",
     "test:explorer:check": "pnpm --filter @cockpit/test-explorer check-concepts",
     "branches:tidy": "node scripts/tidy-branches.mjs"
+  },
+  "devDependencies": {
+    "@cockpit/config": "workspace:*",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.4.0",
+    "typescript": "^5.9.3"
   }
 }

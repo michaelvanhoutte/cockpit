@@ -41,6 +41,42 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm test
 
+  # F3, the browser tier. Its own job rather than part of `Test`, because it is
+  # the one tier that boots the whole application (wrangler + local D1 + Vite)
+  # and downloads a browser: folded into `Test` it would put minutes and a
+  # browser install in front of every unit-test failure, and architecture §9.1
+  # wants a misplaced test visible as a job in any case.
+  #
+  # This runs against the `pnpm dev` pair, which is not quite the deployed
+  # shape — no service worker, unbundled modules, Vite's SPA fallback rather
+  # than the Worker's asset routing. Those three break everything at once
+  # rather than one feature at a time, and the intended cover for them is the
+  # same suite pointed at the branch preview (E2E_BASE_URL plus an Access
+  # service token, per playwright.config.ts). That run lands when the token
+  # does; see docs/deployment.md §8.
+  e2e:
+    name: E2E (F3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # Only Chromium: both Playwright projects (desktop and phone) are
+      # Chromium, because this is a viewport and input matrix, not a browser
+      # matrix. --with-deps because the runner lacks the shared libraries a
+      # browser needs.
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      # Traces and screenshots are kept on failure only (playwright.config.ts),
+      # so this uploads nothing on a green run.
+      - name: Upload failure artefacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failures
+          path: test-results/
+          retention-days: 7
+
   build:
     name: Build
     runs-on: ubuntu-latest

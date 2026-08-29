@@ -1,0 +1,11 @@
+{
+  // The F3 suite and its config sit at the repo root, outside every workspace
+  // package, so `pnpm -r typecheck` never reaches them. This is the project
+  // that does; the root `typecheck` script runs it after the recursive one.
+  "extends": "@cockpit/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["tests/e2e", "playwright.config.ts"]
+}

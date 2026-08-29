@@ -121,10 +121,34 @@ function caseText(nameArg, source) {
 }
 
 /**
+ * The dotted callee of a call, when it is a plain identifier chain:
+ * `describe` -> ['describe'], `test.describe.serial` -> ['test', 'describe', 'serial'].
+ * Returns null for anything else — a computed access, or a chain with a call in the
+ * middle such as `it.each(table)(...)`, which has its own handling in collectCases.
+ */
+function calleeChain(callee) {
+  const parts = [];
+  let node = callee;
+  while (ts.isPropertyAccessExpression(node)) {
+    parts.unshift(node.name.text);
+    node = node.expression;
+  }
+  if (!ts.isIdentifier(node)) return null;
+  parts.unshift(node.text);
+  return parts;
+}
+
+/**
  * Recognizes `describe(...)` and the modifier forms `describe.skip/.only/.concurrent/.sequential(...)`
  * — mirroring countCases below, which already treats `it.skip`/`.only` as real, counted cases. Without
  * this, a temporarily-skipped top-level describe silently drops its whole feature area's rules with no
  * warning, inconsistent with how a skipped case is handled.
+ *
+ * Also `test.describe(...)` and `test.describe.serial/.parallel/.skip/.only(...)`: Playwright, the F3
+ * runner, exposes describe as a member of `test` rather than as a free function, so an e2e file writes
+ * the same two-level structure through a different spelling. Before this it matched nothing here and,
+ * worse, `collectCases` counted each `test.describe` as a *case* — an F3 file would have reported its
+ * feature areas as absent and its rule statements as case labels.
  *
  * @returns {{ text: string, body: ts.Node, node: ts.CallExpression } | null}
  */
@@ -132,11 +156,12 @@ function describeCall(stmt) {
   if (!ts.isExpressionStatement(stmt)) return null;
   const expr = stmt.expression;
   if (!ts.isCallExpression(expr)) return null;
-  const callee = expr.expression;
-  const isBareDescribe = ts.isIdentifier(callee) && callee.text === 'describe';
-  const isModifiedDescribe =
-    ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'describe';
-  if (!isBareDescribe && !isModifiedDescribe) return null;
+  const chain = calleeChain(expr.expression);
+  if (!chain) return null;
+  const [root, second] = chain;
+  const isDescribe =
+    root === 'describe' || ((root === 'test' || root === 'it') && second === 'describe');
+  if (!isDescribe) return null;
   const [nameArg, bodyArg] = expr.arguments;
   if (!nameArg || !ts.isStringLiteralLike(nameArg)) return null;
   if (!bodyArg || !(ts.isArrowFunction(bodyArg) || ts.isFunctionExpression(bodyArg))) return null;
@@ -165,6 +190,29 @@ function directChildDescribes(body) {
  * match the *inner* call — `it.each(table)` — treating the whole data table as the case name and
  * miscounting one case where there may be many. Handled as its own case below.
  */
+/**
+ * Members of `test`/`it` that are not cases, however much they look like one. `describe` is the
+ * consequential one — Playwright spells a rule `test.describe(...)`, and counting that as a case
+ * would put every rule statement in the case column and leave the rule column empty. The hooks and
+ * configuration members are the same mistake in a quieter form: `test.beforeEach(async () => ...)`
+ * has no title at all, so it would have been reported as a case whose label is the source text of
+ * its own callback.
+ */
+const NOT_A_CASE = new Set([
+  'each', // it.each(table) alone is the inner half of a chained call — see below
+  'describe',
+  'beforeEach',
+  'afterEach',
+  'beforeAll',
+  'afterAll',
+  'step',
+  'use',
+  'slow',
+  'setTimeout',
+  'extend',
+  'info',
+  'expect',
+]);
 function collectCases(node, relFile, source) {
   const cases = [];
   const todoCases = [];
@@ -180,7 +228,7 @@ function collectCases(node, relFile, source) {
         ts.isPropertyAccessExpression(callee) &&
         ts.isIdentifier(callee.expression) &&
         (callee.expression.text === 'it' || callee.expression.text === 'test') &&
-        callee.name.text !== 'each' // it.each(table) alone is the inner half of a chained call, not a case itself — see below
+        !NOT_A_CASE.has(callee.name.text)
       ) {
         if (callee.name.text === 'todo') todoCases.push(caseRef());
         else cases.push(caseRef()); // .skip, .only, .concurrent, ... all still real written cases

@@ -115,18 +115,21 @@ A test that passes and fails intermittently without code changes is a **flaky te
 Tests must be physically separated by level so each level can be run (and gated) independently:
 
 ```
-tests/
+apps/api/tests/
   unit/            # L1: no real dependencies
   integration/     # L2: own vertical deps only
   system/          # L3: backend, full deps, no browser
-  contract/        # §3.3: live third-party contract tests, scheduled runs only
-frontend/tests/
+packages/shared/tests/unit/                      # L1
+packages/connectors/*/tests/contract/            # §3.3: live third-party checks, scheduled runs only
+apps/web/tests/
   unit/            # F1: no real dependencies
   service/         # F2: this service's frontend + backend only
-  e2e/             # F3: full stack, real browser
+tests/e2e/         # F3: full stack, real browser — repo root, because it belongs to no package
 ```
 
-(Exact paths may be adapted to the final project layout, but the level separation and one-command-per-level runnability are mandatory. Per §2, levels that have no reason to exist yet stay absent.)
+(These are the paths this repository actually uses, adapted from the illustrative layout this section carried before the tiers existed; the level separation and one-command-per-level runnability are what is mandatory. Per §2, levels that have no reason to exist yet stay absent — `system/`, `service/` and the connector `contract/` folders are unbuilt today.)
+
+**F3 runs every spec on more than one screen.** A capability is claimed to work *for a user*, and the user is on a phone as often as a desktop, so the browser tier runs each spec under two configurations — a desktop viewport with a mouse, and a phone viewport with touch — rather than picking one and asserting about the other. This is not a browser matrix: both are Chromium, and adding a second engine is a separate decision with its own cost. Where an interaction exists on only one form factor (a swipe, a hover-revealed control), it is a different capability and gets its own spec rather than a conditional inside a shared one. The reason this cannot be pushed down the pyramid is worth stating plainly, because it looks like a §1 violation and is not: the F1 runner is jsdom, which has no layout engine and reports every element as zero-sized, so viewport-dependent rendering and the touch event path are physically unprovable below a real browser.
 
 Each level gets its own runner command (e.g. `test:unit`, `test:integration`, `test:system`, `test:f-unit`, `test:f-service`, `test:e2e`, `test:contract`), plus `test:fast` (all fast tiers) and `test:all`. CI runs `test:all` on merge and `test:contract` on schedule; agents follow §6.
 

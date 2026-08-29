@@ -224,3 +224,70 @@ describe('extractRules', () => {
     expect(rules[0].cases[0].text).toBe('$name is handled');
   });
 });
+
+// Playwright, the F3 runner, hangs describe off `test` instead of exposing it as a
+// free function. These cover that dialect, because an F3 file that parsed as "no
+// rules, several oddly-named cases" would have been reported as a populated column
+// with nothing in it rather than as an error anyone would notice.
+describe('extractRules, on Playwright-style files', () => {
+  it('reads test.describe as the feature area and its child as the rule', () => {
+    const source = sourceOf(`
+      test.describe('Capture', () => {
+        test.describe('a captured thought appears in the inbox', () => {
+          test('lists the thought to process', async () => {});
+        });
+      });
+    `);
+    const { rules, areasSeen } = extractRules(source, 'tests/e2e/capture.test.ts', 'F3');
+    expect(areasSeen).toEqual(['Capture']);
+    expect(rules).toHaveLength(1);
+    expect(rules[0].concept).toBe('Capture');
+    expect(rules[0].statement).toBe('a captured thought appears in the inbox');
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['lists the thought to process']);
+  });
+
+  it('reads the modifier forms, so a temporarily skipped suite keeps its rules', () => {
+    const source = sourceOf(`
+      test.describe.serial('Triage', () => {
+        test.describe.skip('dismissing an item takes it out of the inbox', () => {
+          test('leaves the inbox once dismissed', async () => {});
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'tests/e2e/triage.test.ts', 'F3');
+    expect(rules).toHaveLength(1);
+    expect(rules[0].concept).toBe('Triage');
+    expect(rules[0].statement).toBe('dismissing an item takes it out of the inbox');
+  });
+
+  it('counts neither a nested test.describe nor a hook as a case', () => {
+    const source = sourceOf(`
+      test.describe('Capture', () => {
+        test.describe('a rule', () => {
+          test.beforeEach(async () => {});
+          test.afterAll(async () => {});
+          test.use({ viewport: null });
+          test('the only case here', async () => {});
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'tests/e2e/capture.test.ts', 'F3');
+    expect(rules).toHaveLength(1);
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['the only case here']);
+  });
+
+  it('still counts the case modifiers that are real written cases', () => {
+    const source = sourceOf(`
+      test.describe('Capture', () => {
+        test.describe('a rule', () => {
+          test.skip('a skipped case', async () => {});
+          test.fixme('a case parked as broken', async () => {});
+          test.todo('a case not written yet');
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'tests/e2e/capture.test.ts', 'F3');
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['a skipped case', 'a case parked as broken']);
+    expect(rules[0].todoCases.map((c) => c.text)).toEqual(['a case not written yet']);
+  });
+});
