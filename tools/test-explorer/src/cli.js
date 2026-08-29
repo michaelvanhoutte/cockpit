@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * The wiring, and the only place analyze/ and render/ meet.
  *
@@ -10,7 +9,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { analyze } from './analyze/index.js';
 import { renderHtml } from './render/html.js';
@@ -21,6 +20,10 @@ const DEFAULT_REPO = path.resolve(here, '../../..');
 
 function main(argv) {
   const args = parseArgs(argv);
+  if (args.unknown) {
+    process.stderr.write(`unknown argument: ${args.unknown}\n\n${USAGE}`);
+    return 2;
+  }
   if (args.help) {
     process.stdout.write(USAGE);
     return 0;
@@ -83,7 +86,15 @@ function write(file, contents) {
   writeFileSync(file, contents);
 }
 
-function parseArgs(argv) {
+/**
+ * Pure: no process.exit, no I/O — an unrecognized flag comes back as
+ * `{ unknown: a }` for main() to act on, rather than parseArgs deciding how
+ * the process ends. That's what makes this testable as plain logic.
+ *
+ * @param {string[]} argv
+ * @returns {{ help?: boolean, json?: boolean, checkConcepts?: boolean, out?: string, repo?: string, unknown?: string }}
+ */
+export function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -92,10 +103,7 @@ function parseArgs(argv) {
     else if (a === '--check-concepts') args.checkConcepts = true;
     else if (a === '--out') args.out = argv[++i];
     else if (a === '--repo') args.repo = argv[++i];
-    else {
-      process.stderr.write(`unknown argument: ${a}\n\n${USAGE}`);
-      process.exit(2);
-    }
+    else return { unknown: a };
   }
   return args;
 }
@@ -109,4 +117,11 @@ const USAGE = `Usage: node src/cli.js [options]
   --help                This.
 `;
 
-process.exitCode = main(process.argv.slice(2));
+// Guarded so that importing this module (tests/unit/cli.test.js imports parseArgs) never runs the
+// real CLI against the test runner's own process.argv — only running `node src/cli.js` does.
+// pathToFileURL (not a raw `file://` template) so this compares correctly on Windows, where
+// process.argv[1] is backslash-separated and needs proper drive-letter/URL encoding to match
+// import.meta.url's file:///C:/... form.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exitCode = main(process.argv.slice(2));
+}

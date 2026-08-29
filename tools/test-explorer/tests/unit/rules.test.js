@@ -35,6 +35,14 @@ describe('levelForTestFile', () => {
     expect(levelForTestFile('packages/connectors/gmail/tests/contract/x.test.ts')).toBe('Contract');
   });
 
+  it('maps a connector package unit test to L1, not null — packages/connectors/<name>/ nests one level deeper than packages/<name>/', () => {
+    expect(levelForTestFile('packages/connectors/gmail/tests/unit/client.test.ts')).toBe('L1');
+  });
+
+  it('maps a connector package integration test to L2', () => {
+    expect(levelForTestFile('packages/connectors/gmail/tests/integration/x.test.ts')).toBe('L2');
+  });
+
   it('returns null for a path with no recognizable tests/<level>/ shape', () => {
     expect(levelForTestFile('apps/api/src/domain/items.test.ts')).toBeNull();
   });

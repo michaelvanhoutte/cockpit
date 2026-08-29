@@ -129,7 +129,7 @@ function coverageNote() {
   </div>`;
 }
 
-function esc(s) {
+export function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
@@ -143,7 +143,7 @@ const PARA_SEP = String.fromCharCode(0x2029);
  * the data close the tag, and the two Unicode line separators are literal line
  * breaks to a JavaScript parser even though JSON.stringify leaves them raw.
  */
-function jsonScript(value) {
+export function jsonScript(value) {
   return JSON.stringify(value)
     .split('<').join('\\u003c')
     .split(LINE_SEP).join('\\u2028')

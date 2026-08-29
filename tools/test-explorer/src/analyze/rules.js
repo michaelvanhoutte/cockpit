@@ -49,8 +49,10 @@ export function levelForTestFile(relPath) {
   // apps/api/tests/** and packages/*/tests/** (excluding the connector-contract
   // case above): apps/api is the one backend service today, and
   // packages/shared/packages/connectors/* unit/integration tests are
-  // backend-shaped code with no frontend equivalent.
-  m = relPath.match(/^(?:apps\/api|packages\/[^/]+)\/tests\/([^/]+)\//);
+  // backend-shaped code with no frontend equivalent. packages/connectors/<name>/
+  // needs its own alternative here (not just packages/[^/]+) because a connector
+  // package nests one level deeper than packages/shared does.
+  m = relPath.match(/^(?:apps\/api|packages\/(?:connectors\/)?[^/]+)\/tests\/([^/]+)\//);
   if (m) {
     if (m[1] === 'unit') return 'L1';
     if (m[1] === 'integration') return 'L2';
