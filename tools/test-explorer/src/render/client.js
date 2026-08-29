@@ -12,25 +12,31 @@
 
   // ---- index every node by key, remember parent/depth for the tree walk ----
   var BY_KEY = {};
-  var PARENT_OF = {};
   (function index(nodes, depth) {
     nodes.forEach(function (n) {
       BY_KEY[n.key] = n;
-      n.__depth = depth;
       index(n.children, depth + 1);
-      n.children.forEach(function (c) { PARENT_OF[c.key] = n.key; });
     });
   })(MODEL.tree, 0);
 
   var rowsEl = document.getElementById('rows');
   var panelEl = document.getElementById('panel');
-  var open = {}; // key -> expanded, default expanded
+  var open = {}; // tree node key -> expanded, default expanded
   var selected = MODEL.tree.length ? MODEL.tree[0].key : null;
+  var activeTab = 'rules'; // 'rules' | 'files' | 'branches', per selected node
 
-  function fileHref(relFile) {
+  // ---- links -----------------------------------------------------------
+  function localHref(relFile) {
     return REPO_REL + '/' + relFile;
   }
 
+  /** GitHub's #Lnn anchor jumps straight to the line — preferred over the local link when available. */
+  function githubHref(relFile, line) {
+    if (!MODEL.commitUrl) return null;
+    return MODEL.commitUrl.replace('/commit/', '/blob/') + '/' + relFile + (line ? '#L' + line : '');
+  }
+
+  // ---- tree --------------------------------------------------------------
   function render() {
     rowsEl.textContent = '';
 
@@ -52,8 +58,7 @@
 
         LEVELS.forEach(function (l) {
           var td = el('td', 'c');
-          var n = node.counts[l.id];
-          td.appendChild(countPill(n, false));
+          td.appendChild(countPill(node.counts[l.id], false));
           tr.appendChild(td);
         });
 
@@ -76,6 +81,7 @@
             return;
           }
           selected = node.key;
+          activeTab = 'rules';
           render();
           renderPanel();
         });
@@ -93,6 +99,16 @@
     return el('span', cls, String(n));
   }
 
+  // ---- detail panel: tabs, each filling the whole panel -------------------
+  var TABS = [
+    { id: 'rules', label: function (n) { return 'Rules (' + n.rules.length + ')'; } },
+    { id: 'files', label: function (n) { return 'Files nothing runs (' + n.filesNothingRuns.length + ')'; } },
+    {
+      id: 'branches',
+      label: function (n) { return 'Branches nothing takes (' + (n.branchesNothingTakes === null ? 'unknown' : n.branchesNothingTakes.length) + ')'; },
+    },
+  ];
+
   function renderPanel() {
     var node = BY_KEY[selected];
     panelEl.textContent = '';
@@ -105,63 +121,169 @@
     head.appendChild(el('div', 'p-name', node.label));
     panelEl.appendChild(head);
 
-    var rulesHead = el('div', 'p-section', 'Rules (' + node.rules.length + ')');
-    panelEl.appendChild(rulesHead);
-    if (!node.rules.length) {
-      panelEl.appendChild(el('div', 'p-empty', 'No rules found directly on this area.'));
-    } else {
-      var list = el('div', 'rulelist');
-      node.rules.forEach(function (r) {
-        var row = el('div', 'rule');
-        var top = el('div', 'r-top');
-        top.appendChild(el('span', 'r-level', r.level));
-        top.appendChild(fileLink(r.file, r.line));
-        row.appendChild(top);
-        row.appendChild(el('div', 'r-text', r.statement));
-        if (r.todoCases) row.appendChild(el('span', 'r-todo', r.todoCases + ' todo'));
-        list.appendChild(row);
+    var tabbar = el('div', 'tabbar');
+    TABS.forEach(function (t) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tab' + (activeTab === t.id ? ' active' : '');
+      btn.textContent = t.label(node);
+      btn.addEventListener('click', function () {
+        activeTab = t.id;
+        renderPanel();
       });
-      panelEl.appendChild(list);
-    }
+      tabbar.appendChild(btn);
+    });
+    panelEl.appendChild(tabbar);
 
-    panelEl.appendChild(el('div', 'p-section', 'Files nothing runs (' + node.filesNothingRuns.length + ')'));
-    if (!node.filesNothingRuns.length) {
-      panelEl.appendChild(el('div', 'p-empty', 'None.'));
-    } else {
-      var files = el('div', 'filelist');
-      node.filesNothingRuns.forEach(function (f) {
-        var row = el('div', 'f-item');
-        row.appendChild(fileLink(f));
-        files.appendChild(row);
-      });
-      panelEl.appendChild(files);
-    }
+    var body = el('div', 'tabbody');
+    panelEl.appendChild(body);
 
-    panelEl.appendChild(el('div', 'p-section', 'Branches nothing takes'));
-    if (node.branchesNothingTakes === null) {
-      panelEl.appendChild(el('div', 'p-empty', 'No coverage data for this run — run pnpm test:coverage first.'));
-    } else if (!node.branchesNothingTakes.length) {
-      panelEl.appendChild(el('div', 'p-empty', 'None.'));
-    } else {
-      var branches = el('div', 'filelist');
-      node.branchesNothingTakes.forEach(function (b) {
-        var row = el('div', 'f-item branch-item');
-        row.appendChild(fileLink(b.file, b.line));
-        if (b.snippet) row.appendChild(el('code', 'snippet', b.snippet));
-        branches.appendChild(row);
-      });
-      panelEl.appendChild(branches);
-    }
+    if (activeTab === 'rules') renderRules(body, node);
+    else if (activeTab === 'files') renderFiles(body, node);
+    else renderBranches(body, node);
   }
 
-  function fileLink(relFile, line) {
-    var a = document.createElement('a');
-    a.href = fileHref(relFile);
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.className = 'filelink';
-    a.textContent = relFile + (line ? ':' + line : '');
-    return a;
+  function renderRules(body, node) {
+    if (!node.rules.length) {
+      body.appendChild(el('div', 'p-empty', 'No rules found directly on this area.'));
+      return;
+    }
+    var list = el('div', 'rulelist');
+    node.rules.forEach(function (r) {
+      var card = el('div', 'rule');
+      var top = el('div', 'r-top');
+      top.appendChild(el('span', 'r-level', r.level));
+      top.appendChild(codeToggle(r, r.file + ':' + r.line));
+      card.appendChild(top);
+      card.appendChild(el('div', 'r-text', r.statement));
+
+      if (r.cases.length) {
+        var cases = el('div', 'caselist');
+        r.cases.forEach(function (c) {
+          cases.appendChild(caseRow(c, false));
+        });
+        card.appendChild(cases);
+      }
+      if (r.todoCases.length) {
+        var todos = el('div', 'caselist');
+        r.todoCases.forEach(function (c) {
+          todos.appendChild(caseRow(c, true));
+        });
+        card.appendChild(todos);
+      }
+
+      list.appendChild(card);
+    });
+    body.appendChild(list);
+  }
+
+  function caseRow(c, isTodo) {
+    var row = el('div', 'case' + (isTodo ? ' case-todo' : ''));
+    row.appendChild(el('span', 'case-mark', isTodo ? '○' : '✓'));
+    var text = el('span', 'case-text', c.text);
+    row.appendChild(text);
+    row.appendChild(codeToggle(c, c.file + ':' + c.line));
+    return row;
+  }
+
+  function renderFiles(body, node) {
+    if (!node.filesNothingRuns.length) {
+      body.appendChild(el('div', 'p-empty', 'None.'));
+      return;
+    }
+    var list = el('div', 'filelist');
+    node.filesNothingRuns.forEach(function (f) {
+      var row = el('div', 'f-item');
+      row.appendChild(codeToggle(f, f.file));
+      list.appendChild(row);
+    });
+    body.appendChild(list);
+  }
+
+  function renderBranches(body, node) {
+    if (node.branchesNothingTakes === null) {
+      body.appendChild(el('div', 'p-empty', 'No coverage data for this run — run pnpm test:coverage first.'));
+      return;
+    }
+    if (!node.branchesNothingTakes.length) {
+      body.appendChild(el('div', 'p-empty', 'None.'));
+      return;
+    }
+    var list = el('div', 'filelist');
+    node.branchesNothingTakes.forEach(function (b) {
+      var row = el('div', 'f-item');
+      row.appendChild(codeToggle(b, b.file + ':' + b.line));
+      list.appendChild(row);
+    });
+    body.appendChild(list);
+  }
+
+  /**
+   * A clickable `label` that toggles an inline source-context viewer for `ref`
+   * ({file, line, context}) open/closed — reading the surrounding source
+   * without leaving the page, plus a real link (GitHub when the report knows
+   * its commit, otherwise a local relative link) to open the actual file.
+   */
+  function codeToggle(ref, label) {
+    var wrap = el('div', 'coderef');
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'filelink';
+    btn.textContent = label;
+    var body = null;
+
+    btn.addEventListener('click', function () {
+      if (body) {
+        body.remove();
+        body = null;
+        btn.classList.remove('open');
+        return;
+      }
+      btn.classList.add('open');
+      body = renderCodeContext(ref);
+      wrap.appendChild(body);
+    });
+
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  function renderCodeContext(ref) {
+    var box = el('div', 'codebox');
+
+    var links = el('div', 'codelinks');
+    var gh = githubHref(ref.file, ref.line);
+    if (gh) {
+      var ghLink = document.createElement('a');
+      ghLink.href = gh;
+      ghLink.target = '_blank';
+      ghLink.rel = 'noopener';
+      ghLink.textContent = 'Open on GitHub ↗';
+      links.appendChild(ghLink);
+    }
+    var localLink = document.createElement('a');
+    localLink.href = localHref(ref.file);
+    localLink.target = '_blank';
+    localLink.rel = 'noopener';
+    localLink.textContent = 'Open file ↗';
+    links.appendChild(localLink);
+    box.appendChild(links);
+
+    if (!ref.context || !ref.context.length) {
+      box.appendChild(el('div', 'p-empty', 'Source not available.'));
+      return box;
+    }
+
+    var pre = document.createElement('pre');
+    pre.className = 'codepre';
+    ref.context.forEach(function (l) {
+      var lineEl = el('div', 'codeline' + (l.line === ref.line ? ' target' : ''));
+      lineEl.appendChild(el('span', 'codeline-no', String(l.line)));
+      lineEl.appendChild(el('span', 'codeline-text', l.text));
+      pre.appendChild(lineEl);
+    });
+    box.appendChild(pre);
+    return box;
   }
 
   function el(tag, cls, text) {

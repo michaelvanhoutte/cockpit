@@ -26,6 +26,7 @@ export function renderHtml(model, { repoRelPrefix }) {
     tree: model.tree,
     availableLevels: model.availableLevels,
     coverageAvailable: model.coverageAvailable,
+    commitUrl: model.commitUrl,
     repoRelPrefix,
   };
 
@@ -76,8 +77,8 @@ export function renderHtml(model, { repoRelPrefix }) {
   </section>
 
   <section>
-    <div class="card">
-      <div class="explorer">
+    <div class="explorer">
+      <div class="card">
         <div class="tablewrap">
           <table id="matrix">
             <thead>
@@ -91,10 +92,10 @@ export function renderHtml(model, { repoRelPrefix }) {
             <tbody id="rows"></tbody>
           </table>
         </div>
-        <aside class="panel card" id="panel" aria-live="polite">
-          <div class="p-empty">Select a row.</div>
-        </aside>
       </div>
+      <aside class="panel card" id="panel" aria-live="polite">
+        <div class="p-empty">Select a row.</div>
+      </aside>
     </div>
 
     <div class="note">

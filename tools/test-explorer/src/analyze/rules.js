@@ -86,15 +86,15 @@ export function extractRules(source, relFile, level) {
 
     const innerDescribes = directChildDescribes(outer.body);
     if (innerDescribes.length === 0) {
-      const { cases, todoCases } = countCases(outer.body);
-      if (cases === 0 && todoCases === 0) continue; // an empty/structural describe, nothing to report
+      const { cases, todoCases } = collectCases(outer.body, relFile, source);
+      if (cases.length === 0 && todoCases.length === 0) continue; // an empty/structural describe, nothing to report
       rules.push(rule(concept, concept, level, cases, todoCases, relFile, source, outer.node));
       continue;
     }
 
     for (const inner of innerDescribes) {
-      const { cases, todoCases } = countCases(inner.body);
-      if (cases === 0 && todoCases === 0) continue;
+      const { cases, todoCases } = collectCases(inner.body, relFile, source);
+      if (cases.length === 0 && todoCases.length === 0) continue;
       rules.push(rule(concept, inner.text, level, cases, todoCases, relFile, source, inner.node));
     }
   }
@@ -103,8 +103,19 @@ export function extractRules(source, relFile, level) {
 }
 
 function rule(concept, statement, level, cases, todoCases, file, source, node) {
-  const { line } = source.getLineAndCharacterOfPosition(node.getStart());
-  return { concept, statement, level, cases, todoCases, file, line: line + 1 };
+  const line = lineOf(source, node);
+  return { concept, statement, level, cases, todoCases, file, line };
+}
+
+function lineOf(source, node) {
+  return source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+}
+
+/** The case's own description, verbatim: a plain string as written, or the raw source text of a template literal. */
+function caseText(nameArg, source) {
+  if (!nameArg) return '(unnamed case)';
+  if (ts.isStringLiteralLike(nameArg)) return nameArg.text;
+  return nameArg.getText(source);
 }
 
 /**
@@ -141,22 +152,44 @@ function directChildDescribes(body) {
   return out;
 }
 
-/** Counts it/test/it.each/test.each calls (real) and it.todo/test.todo calls (todo), anywhere under a node. */
-function countCases(node) {
-  let cases = 0;
-  let todoCases = 0;
+/**
+ * Collects it/test/it.each/test.each calls (real) and it.todo/test.todo calls (todo), anywhere
+ * under a node, each as a `{ text, file, line }` — the case's own description and location, not
+ * just a count, so the report can show what a case actually says (docs/test-explorer-spec.md §2d).
+ *
+ * `it.each(table)(name, fn)` is two chained calls, not one: the outer call's callee is itself a
+ * CallExpression (`it.each(table)`), whose own callee is the `it.each` property access. Matching
+ * only a bare PropertyAccessExpression callee (as `it.skip(...)`/`it.only(...)` are) would instead
+ * match the *inner* call — `it.each(table)` — treating the whole data table as the case name and
+ * miscounting one case where there may be many. Handled as its own case below.
+ */
+function collectCases(node, relFile, source) {
+  const cases = [];
+  const todoCases = [];
   const visit = (n) => {
     if (ts.isCallExpression(n)) {
       const callee = n.expression;
+      const [nameArg] = n.arguments;
+      const caseRef = () => ({ text: caseText(nameArg, source), file: relFile, line: lineOf(source, n) });
+
       if (ts.isIdentifier(callee) && (callee.text === 'it' || callee.text === 'test')) {
-        cases++;
+        cases.push(caseRef());
       } else if (
         ts.isPropertyAccessExpression(callee) &&
         ts.isIdentifier(callee.expression) &&
-        (callee.expression.text === 'it' || callee.expression.text === 'test')
+        (callee.expression.text === 'it' || callee.expression.text === 'test') &&
+        callee.name.text !== 'each' // it.each(table) alone is the inner half of a chained call, not a case itself — see below
       ) {
-        if (callee.name.text === 'todo') todoCases++;
-        else cases++; // .each, .skip, .only, .concurrent, ... all still real written cases
+        if (callee.name.text === 'todo') todoCases.push(caseRef());
+        else cases.push(caseRef()); // .skip, .only, .concurrent, ... all still real written cases
+      } else if (
+        ts.isCallExpression(callee) &&
+        ts.isPropertyAccessExpression(callee.expression) &&
+        ts.isIdentifier(callee.expression.expression) &&
+        (callee.expression.expression.text === 'it' || callee.expression.expression.text === 'test') &&
+        callee.expression.name.text === 'each'
+      ) {
+        cases.push(caseRef()); // it.each(table)(name, fn) — the tagged-template form, it.each`...`(name, fn), isn't recognized
       }
     }
     ts.forEachChild(n, visit);

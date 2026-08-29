@@ -45,7 +45,7 @@ describe('levelForTestFile', () => {
 });
 
 describe('extractRules', () => {
-  it('extracts one rule per inner describe, with its concept, statement, level and case count', () => {
+  it('extracts one rule per inner describe, with its concept, statement, level, and each case\'s own text and line', () => {
     const source = sourceOf(`
       describe('Capture', () => {
         describe('a thought becomes an item to process', () => {
@@ -61,9 +61,13 @@ describe('extractRules', () => {
       concept: 'Capture',
       statement: 'a thought becomes an item to process',
       level: 'L1',
-      cases: 1,
-      todoCases: 0,
+      file: 'apps/api/tests/unit/domain/items.test.ts',
+      line: 3,
     });
+    expect(rules[0].cases).toEqual([
+      { text: 'stamps it with the time it was made', file: 'apps/api/tests/unit/domain/items.test.ts', line: 4 },
+    ]);
+    expect(rules[0].todoCases).toEqual([]);
   });
 
   it('produces one rule per top-level describe when there is no inner describe', () => {
@@ -77,7 +81,7 @@ describe('extractRules', () => {
     expect(rules[0].statement).toBe('Offline');
   });
 
-  it('counts it.todo separately from real cases and does not count it toward `cases`', () => {
+  it('keeps it.todo separate from real cases and does not count it as one', () => {
     const source = sourceOf(`
       describe('Triage', () => {
         describe('a rule with one real case and one todo', () => {
@@ -87,8 +91,8 @@ describe('extractRules', () => {
       });
     `);
     const { rules } = extractRules(source, 'x.test.ts', 'L1');
-    expect(rules[0].cases).toBe(1);
-    expect(rules[0].todoCases).toBe(1);
+    expect(rules[0].cases.map((c) => c.text)).toEqual(['a real case']);
+    expect(rules[0].todoCases.map((c) => c.text)).toEqual(['a case not written yet']);
   });
 
   it('drops a describe with zero real and zero todo cases from `rules`, but still reports it in areasSeen', () => {
@@ -113,7 +117,7 @@ describe('extractRules', () => {
     const { rules, areasSeen } = extractRules(source, 'x.test.ts', 'L1');
     expect(areasSeen).toEqual(['Capture']);
     expect(rules).toHaveLength(1);
-    expect(rules[0].cases).toBe(1);
+    expect(rules[0].cases).toHaveLength(1);
   });
 
   it('recognizes describe.only at the top level the same way as a bare describe', () => {
@@ -126,5 +130,37 @@ describe('extractRules', () => {
     `);
     const { rules } = extractRules(source, 'x.test.ts', 'L1');
     expect(rules).toHaveLength(1);
+  });
+
+  it('recognizes it.each(table)(name, fn) as one case per call, not the whole table as one case', () => {
+    // it.each(table)(name, fn) is two chained calls: matching only a bare `it.<x>` callee (as
+    // .skip/.only are) would instead match the *inner* call, it.each(table), and read the whole
+    // data table as the case's "name" — this is the regression test for that.
+    const source = sourceOf(`
+      describe('Triage', () => {
+        describe('a rule with a data table', () => {
+          it.each([
+            { name: 'a' },
+            { name: 'b' },
+          ])('$name is handled', () => {});
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'x.test.ts', 'L1');
+    expect(rules[0].cases).toHaveLength(1);
+    expect(rules[0].cases[0].text).toBe('$name is handled');
+  });
+
+  it('recognizes test.each the same way as it.each', () => {
+    const source = sourceOf(`
+      describe('Triage', () => {
+        describe('a rule', () => {
+          test.each(['a', 'b'])('%s is handled', () => {});
+        });
+      });
+    `);
+    const { rules } = extractRules(source, 'x.test.ts', 'L1');
+    expect(rules[0].cases).toHaveLength(1);
+    expect(rules[0].cases[0].text).toBe('%s is handled');
   });
 });

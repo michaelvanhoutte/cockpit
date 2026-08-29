@@ -249,6 +249,68 @@ in the same round:
    same legend entry, and every path in the list is a link for the same
    reason rules got them.
 
+## 2d. Second-look feedback: a real panel, case-level detail, an inline viewer
+
+Michael's second pass, after actually clicking around the §2c version, raised
+five more things:
+
+1. **The tree was still empty in practice** — nothing in the registry
+   actually nests, so the mechanism from §2c point 1 had never been seen
+   rendering. Fixed by adding `Drag-drop` and `Resizing` as children of
+   `Dashboards` in `concepts.json`, both empty-pattern placeholders (same
+   convention as any not-yet-built area) explicitly marked in the registry's
+   own comment as a demonstration, not a real taxonomy call — free to rename
+   or delete the moment a real sub-area is known.
+2. **The panel was a narrow sidebar with three sections stacked vertically**,
+   so reaching "files nothing runs" or "branches nothing takes" meant
+   scrolling past the whole rules list first — exactly backwards from
+   "difficult to find." Fixed with a real restructure, not a CSS tweak: the
+   panel is now three **tabs** (Rules / Files nothing runs / Branches
+   nothing takes), each showing only its own content, so any one is one
+   click away regardless of how long the others are. Along the way, a real
+   layout bug got caught and fixed: the two sides of the explorer shared one
+   outer `.card`, so its background stretched to match whichever side was
+   taller, leaving visible dead space under the shorter one — split into two
+   independently-sized cards.
+3. **The panel was also just narrow** (a 460px fixed sidebar) despite being
+   where all the actual reading happens. The grid now gives the tree a
+   bounded, comfortable width (`minmax(560px, 46%)`) and the panel
+   everything else, sticky positioned so it stays in view — "a large panel
+   on the right," not a sidebar — and the page's own max-width grew from
+   1440px to 1900px, since the previous cap was leaving real horizontal
+   room unused on anything wider than that.
+4. **"I can see 'a complete capture is accepted', but I can't request more
+   details — I still don't really know what exactly is tested."** A `Rule`
+   used to carry only case *counts* (`cases: number`). It now carries each
+   case's own text and location (`cases: CaseRef[]`, `rules.js`'s
+   `collectCases`) — the individual `it(...)` description, printed the same
+   way the runner itself would (per testing-strategy §9.1's "the runner
+   prints the statement list itself"). Building this surfaced a real,
+   separate bug, not just a data-shape change: `it.each(table)(name, fn)` is
+   two chained calls, and the naive AST match (mirroring how `it.skip`/
+   `.only` are matched) was matching the *inner* call — `it.each(table)`
+   alone — reading the entire data table as one case's "name." Fixed with a
+   dedicated check for the chained-call shape; regression tests for both
+   `it.each` and `test.each` are in `rules.test.js`. (The tagged-template
+   form, `` it.each`...`(name, fn) ``, still isn't recognized — not used
+   anywhere in this repo today, and out of scope for this pass.)
+5. **"When I click on a file path, I see the file rendered in this page ...
+   and I can click somewhere there to go to the actual source."** Every
+   file:line reference anywhere in the model — a rule's own describe line, a
+   case's `it(...)` line, a branch gap, now even a whole-file "files nothing
+   runs" entry (its first few lines) — is a `CodeRef` carrying a `context`:
+   a small window of real source lines read at analyze time
+   (`analyze/index.js`'s `contextAt`, cached per file so a file referenced
+   many times is only read once). In the browser, the file:line is a button,
+   not a plain link: clicking it toggles an inline, line-numbered code block
+   open in place, target line highlighted, with two real links inside it —
+   "Open on GitHub" (preferred: a `#L<line>` anchor built from `commitUrl`,
+   jumping straight to the line, viewable without a local checkout at all)
+   and "Open file" (the local relative link, as a fallback when the repo
+   isn't on GitHub or the remote couldn't be read). Caught one real bug
+   while wiring this up: the page's embedded model payload never included
+   `commitUrl` at all — the GitHub link would have silently never appeared.
+
 ## 3. The test-folder migration (done)
 
 The row/column model in §4 depends on two conventions:
@@ -313,18 +375,30 @@ at, and it is the one number here that can rise without proving anything. A
 persistent legend on the page itself explains every column in one sentence
 (§2c point 5) — not left to a hover tooltip alone.
 
-### 4.3 Expand-on-click
+### 4.3 Selecting a row: three tabs, not one stacked panel
 
-Selecting a row shows, each file reference a real link (§2c point 4, relative
-path computed by `cli.js`, not stored in the Model — see §6.1):
+Per §2d point 2, the three things below are tabs — Rules / Files nothing
+runs / Branches nothing takes — not sections stacked in one scroll, so any
+one is reachable in one click regardless of how long the others are:
 
-- every rule counted in that row's own L1–Contract cells, as its
-  inner-describe statement, with which level it sits at and a linked
-  `file:line`;
-- every branch nothing takes, restricted to this area's files, as a linked
-  `file:line` **plus the untaken line's own source text** (§2c point 5) —
-  enough to see what the gap actually is without opening the file;
-- every file nothing runs, restricted to this area's files, linked.
+- **Rules**: every rule counted in that row's own L1–Contract cells, as its
+  inner-describe statement, with which level it sits at; each of its cases
+  (and todo cases) with their own text (§2d point 4) — what the runner would
+  actually print, not just a count.
+- **Files nothing runs**: every source file matching this area's own
+  registry patterns that no test imports, restricted to this node (not its
+  children).
+- **Branches nothing takes**: every branch gap restricted to this area's own
+  files, from merged coverage (§6.3).
+
+Every file:line anywhere in these three tabs — a rule's own line, a case's
+line, a branch gap, a whole-file gap — is a real `CodeRef` (§2d point 5):
+clicking it toggles an inline, line-numbered window of real source open in
+place (read at analyze time, cached per file — `analyze/index.js`'s
+`contextAt`), with a link to open the actual file (GitHub when the report
+knows its commit, a local relative link as fallback — computed by `cli.js`
+knowing the report's own output location, never stored in the Model —
+see §6.1).
 
 No "reason for the level" field is computed or asked for at this stage — the
 level is read mechanically from which `tests/<level>/` folder the file sits
@@ -651,6 +725,19 @@ limitation, not a heuristic that guesses which files an HTTP call reached.
     file links and the on-page legend; `analyze/index.js` gained
     `commitUrl`, `availableLevels`, and per-branch source snippets. 10 new
     tests, 41 total.
+12. **Second-look feedback: tabbed panel, case-level detail, inline source
+    viewer.** Done — §2d is the full record. `concepts.json` gained a real
+    (placeholder) `Dashboards` → `Drag-drop`/`Resizing` nesting so the tree
+    has something to show; the panel became three tabs instead of stacked
+    sections, on a genuinely wide, sticky layout, after fixing a real
+    shared-card layout bug; `Rule.cases`/`todoCases` became `CaseRef[]`
+    (text + location) instead of plain counts, which surfaced and fixed a
+    real `it.each(table)(name, fn)` chained-call parsing bug; every
+    file:line in the model (rule, case, branch gap, whole-file gap) now
+    carries a `context` window of real source, toggled inline in the
+    browser with GitHub-blob and local-file links — which also caught a
+    real bug, `commitUrl` never having been included in the page's embedded
+    model payload. 2 new tests, 43 total.
 
 ## 10. Explicitly out of scope for this spec
 

@@ -69,19 +69,30 @@ describe('analyze (end to end against a fixture repo)', () => {
 
     const capture = findNode(model.tree, 'Capture');
     expect(capture.rules).toHaveLength(1);
-    expect(capture.rules[0].statement).toBe('captures something');
-    expect(capture.rules[0].level).toBe('L1');
+    const rule = capture.rules[0];
+    expect(rule.statement).toBe('captures something');
+    expect(rule.level).toBe('L1');
     expect(capture.counts.L1).toBe(1);
     expect(capture.counts.F1).toBe(0);
+
+    // The rule and its case each carry their own location and a source-context window, not just
+    // a case count — docs/test-explorer-spec.md §2d.
+    expect(rule.cases).toHaveLength(1);
+    expect(rule.cases[0].text).toBe('returns 1');
+    expect(rule.cases[0].context.some((l) => l.line === rule.cases[0].line && l.text.includes("it('returns 1'"))).toBe(true);
+    expect(rule.context.some((l) => l.line === rule.line && l.text.includes("describe('captures something'"))).toBe(true);
 
     // Neither fixture source file matches a real concept's sourcePatterns (those are the actual
     // repo's paths), so both fall into 'infrastructure' by the same file-resolution rules.js §5
     // uses for the real repo — that's what lets this fixture test the reach logic in isolation.
     const infra = findNode(model.tree, 'infrastructure');
+    const infraFiles = infra.filesNothingRuns.map((f) => f.file);
     // thing.ts is imported for real (a value import) -> reached, not in filesNothingRuns.
-    expect(infra.filesNothingRuns).not.toContain('packages/demo/src/thing.ts');
+    expect(infraFiles).not.toContain('packages/demo/src/thing.ts');
     // untouched.ts is imported ONLY via `import { type Foo }` -> not reached, IS in filesNothingRuns.
-    expect(infra.filesNothingRuns).toContain('packages/demo/src/untouched.ts');
+    expect(infraFiles).toContain('packages/demo/src/untouched.ts');
+    const untouchedRef = infra.filesNothingRuns.find((f) => f.file === 'packages/demo/src/untouched.ts');
+    expect(untouchedRef.context[0]).toEqual({ line: 1, text: 'export const untouched = 1;' });
   });
 
   it('reports a describe naming an unregistered feature area, even with no cases written yet', () => {

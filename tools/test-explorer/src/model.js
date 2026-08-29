@@ -21,6 +21,16 @@
  * not meant to look like the whole subtree's. Columns are the actual six
  * testing-strategy levels plus Contract, not the coarser backend/frontend/
  * browser grouping the first version collapsed them into.
+ *
+ * Amended again after second use (docs/test-explorer-spec.md §2d): a rule
+ * used to carry only case *counts*; it now carries each case's own text and
+ * location, because "3 cases" doesn't answer "what exactly is tested" the
+ * way the printed case name does. Every file:line anywhere in the model
+ * (a rule, a case, a branch gap) now carries a few lines of surrounding
+ * source (`context`) so the report can show what a gap or a rule actually
+ * is without leaving the page — reading that from disk at analyze time
+ * (analyze/index.js), never over the network, so the report stays one
+ * self-contained file.
  */
 
 /**
@@ -43,28 +53,42 @@ export const INFRASTRUCTURE_KEY = 'infrastructure';
 export const INFRASTRUCTURE_LABEL = 'Infrastructure';
 
 /**
- * `file` (and `file`/`line` on a branch ref) is always repo-relative, deliberately —
- * turning that into a clickable link needs to know where the generated report
- * will be opened *from*, which is a render concern (render/html.js), not
- * something analyze/ can know or should care about (docs/test-explorer-spec.md §6.1).
+ * `file` is always repo-relative, deliberately — turning that into a clickable
+ * link needs to know where the generated report will be opened *from* (a
+ * local relative link) or the repo's GitHub URL (a `blob` link), both of
+ * which are render concerns (render/client.js), not something analyze/ can
+ * know or should care about (docs/test-explorer-spec.md §6.1).
  *
- * @typedef {Object} Rule
- * @property {string} concept    The outer describe's text verbatim — a feature area in product
- *                                language ("Capture", "Triage", "Offline"), per testing-strategy.md
- *                                §9.1. Not dotted, not an entity name; see docs/test-explorer-spec.md §2a.
- * @property {string} statement  The inner describe (the rule, in product language); falls back to
- *                                the feature-area text itself when a describe has no children.
- * @property {string} level      One of LEVEL_IDS — the actual testing-strategy tier, not a coarser grouping.
- * @property {number} cases      it/it.each bodies with at least one real (non-todo) case.
- * @property {number} todoCases  it.todo bodies.
- * @property {string} file       Repo-relative path of the test file.
- * @property {number} line       1-based line of the outer describe.
+ * @typedef {Object} ContextLine
+ * @property {number} line  1-based.
+ * @property {string} text
  *
- * @typedef {Object} BranchRef
- * @property {string} file     Repo-relative path.
- * @property {number} line     1-based.
- * @property {string} snippet  That line's own source text, trimmed — enough to see what the untaken
- *                               path actually is without leaving the page.
+ * @typedef {Object} CodeRef
+ * @property {string} file            Repo-relative path.
+ * @property {number} line            1-based, the line this ref actually points at.
+ * @property {ContextLine[]} context  A window of source around `line` (including `line` itself),
+ *                                      trimmed to whichever lines the file actually has — enough
+ *                                      to read what's there without leaving the page.
+ *
+ * @typedef {CodeRef & { text: string }} CaseRef
+ *   One `it`/`test` case: `text` is its own description (the string literal given to `it`/
+ *   `test`/`.each`, verbatim — an `.each` template like `'$verb in $where'` is kept as written,
+ *   since the actual per-row value only exists once the suite runs).
+ *
+ * @typedef {CodeRef & {
+ *   concept: string,
+ *   statement: string,
+ *   level: string,
+ *   cases: CaseRef[],
+ *   todoCases: CaseRef[],
+ * }} Rule
+ *   `concept` is the outer describe's text verbatim — a feature area in product language
+ *   ("Capture", "Triage", "Offline"), per testing-strategy.md §9.1. Not dotted, not an entity
+ *   name; see docs/test-explorer-spec.md §2a. `statement` is the inner describe (the rule, in
+ *   product language); falls back to the feature-area text itself when a describe has no
+ *   children. `level` is one of LEVEL_IDS. `line` is the rule's own describe line.
+ *
+ * @typedef {CodeRef} BranchRef  An untaken branch path's location.
  *
  * @typedef {Object} TreeNode
  * @property {string} key
@@ -76,8 +100,11 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  *                                                    Own rules only — a parent's children carry their
  *                                                    own counts, this is not a subtree sum.
  * @property {Rule[]} rules                          Own rules only, same scope as `counts`.
- * @property {string[]} filesNothingRuns              Repo-relative paths, restricted to this node's own
- *                                                      registry patterns.
+ * @property {CodeRef[]} filesNothingRuns             Restricted to this node's own registry patterns.
+ *                                                      `line` is always 1 (a whole-file gap, not a
+ *                                                      specific line) — `context` is the file's own
+ *                                                      first few lines, for the same "see it without
+ *                                                      leaving the page" reason a branch gap gets one.
  * @property {BranchRef[] | null} branchesNothingTakes
  *   null when no coverage data was found for this run (see Model.coverageAvailable), not when the
  *   count is genuinely zero — those are different facts and must not render the same way.

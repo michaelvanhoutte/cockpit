@@ -88,6 +88,8 @@ export function analyze(repo) {
   /** @type {string[]} repo-relative test files that drive the real Worker over HTTP */
   const httpDrivenTestFiles = [];
 
+  const contextCache = new Map();
+
   for (const t of allTestFiles) {
     // Parsed once per test file and shared across the three passes below —
     // each used to call parseFile independently, tripling the read+parse
@@ -103,7 +105,7 @@ export function analyze(repo) {
         continue;
       }
       if (!rulesByConcept.has(r.concept)) rulesByConcept.set(r.concept, []);
-      rulesByConcept.get(r.concept).push(r);
+      rulesByConcept.get(r.concept).push(withRuleContext(r, repo, contextCache));
     }
 
     if (importsSelfFetch(source)) httpDrivenTestFiles.push(t.relFile);
@@ -141,7 +143,6 @@ export function analyze(repo) {
   // ---- merged branch coverage --------------------------------------------
   const coverage = loadMergedCoverage(repo, packages);
   warnings.push(...coverage.warnings);
-  const snippetCache = new Map();
 
   // ---- assemble the tree ---------------------------------------------------
   const filesByConcept = new Map();
@@ -168,15 +169,16 @@ export function analyze(repo) {
     }
 
     const files = filesByConcept.get(concept.key) ?? [];
-    const filesNothingRuns = files.filter((relFile) => !reached.has(path.join(repo, relFile))).sort();
+    const filesNothingRuns = files
+      .filter((relFile) => !reached.has(path.join(repo, relFile)))
+      .sort()
+      .map((relFile) => withContext({ file: relFile, line: 1 }, repo, contextCache));
 
     const branchesNothingTakes = coverage.available
       ? files.flatMap((relFile) =>
-          branchesNotTaken(coverage.map, path.join(repo, relFile)).map((b) => ({
-            file: relFile,
-            line: b.line,
-            snippet: snippetAt(repo, relFile, b.line, snippetCache),
-          })),
+          branchesNotTaken(coverage.map, path.join(repo, relFile)).map((b) =>
+            withContext({ file: relFile, line: b.line }, repo, contextCache),
+          ),
         )
       : null;
 
@@ -262,8 +264,27 @@ function markReached(source, testFileAbs, sourceFileSet, packageEntries, reached
   ts.forEachChild(source, visit);
 }
 
-/** The untaken branch's own source line, trimmed — makes a gap readable without opening the file. */
-function snippetAt(repo, relFile, line, cache) {
+/** Lines of context shown around a referenced line — enough to read a rule/case/gap without opening the file. */
+const CONTEXT_RADIUS = 4;
+/** A pathological single line (e.g. minified output) is truncated rather than dumped whole. */
+const MAX_LINE_LENGTH = 300;
+
+/** @returns {import('../model.js').CodeRef} `ref` (a `{file, line}`) with `context` attached. */
+function withContext(ref, repo, cache) {
+  return { ...ref, context: contextAt(repo, ref.file, ref.line, cache) };
+}
+
+/** A Rule (and each of its cases/todoCases) with `context` attached to all of them. */
+function withRuleContext(rule, repo, cache) {
+  return {
+    ...withContext(rule, repo, cache),
+    cases: rule.cases.map((c) => withContext(c, repo, cache)),
+    todoCases: rule.todoCases.map((c) => withContext(c, repo, cache)),
+  };
+}
+
+/** @returns {import('../model.js').ContextLine[]} */
+function contextAt(repo, relFile, line, cache) {
   const abs = path.join(repo, relFile);
   if (!cache.has(abs)) {
     try {
@@ -273,9 +294,16 @@ function snippetAt(repo, relFile, line, cache) {
     }
   }
   const lines = cache.get(abs);
-  const text = lines?.[line - 1]?.trim();
-  if (!text) return '';
-  return text.length > 160 ? `${text.slice(0, 160)}…` : text;
+  if (!lines) return [];
+
+  const start = Math.max(1, line - CONTEXT_RADIUS);
+  const end = Math.min(lines.length, line + CONTEXT_RADIUS);
+  const out = [];
+  for (let n = start; n <= end; n++) {
+    const text = lines[n - 1] ?? '';
+    out.push({ line: n, text: text.length > MAX_LINE_LENGTH ? `${text.slice(0, MAX_LINE_LENGTH)}…` : text });
+  }
+  return out;
 }
 
 function walkTestFiles(repo, relDir) {
