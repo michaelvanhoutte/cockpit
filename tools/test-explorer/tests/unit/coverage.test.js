@@ -50,8 +50,25 @@ describe('branchesNotTaken', () => {
     expect(branchesNotTaken(map, '/abs/file.ts')).toEqual([{ line: 30 }]);
   });
 
-  it('returns an empty array when the file is not present in the coverage map', () => {
+  it('returns null (not an empty array) when the file is not present in the coverage map — unmeasured is not the same fact as clean', () => {
     const map = mapWithBranch({ hitsPerPath: [0], locations: [{ start: { line: 1 } }] });
-    expect(branchesNotTaken(map, '/abs/other-file.ts')).toEqual([]);
+    expect(branchesNotTaken(map, '/abs/other-file.ts')).toBeNull();
+  });
+
+  it('matches a map key against a query path that uses a different separator', () => {
+    // The istanbul provider (apps/api's Workers-pool tests) writes forward-slash keys regardless
+    // of platform; the v8 provider writes the platform's native separator. On Windows those
+    // disagree with each other and with path.join()'s backslash output — a lookup that requires
+    // an exact string match would find v8's files and silently treat every istanbul-covered file
+    // as unmeasured. Both directions must resolve to the same entry.
+    const map = {
+      data: {
+        'C:/GitHub/Cockpit/apps/api/src/thing.ts': {
+          b: { 0: [0] },
+          branchMap: { 0: { locations: [{ start: { line: 7 } }] } },
+        },
+      },
+    };
+    expect(branchesNotTaken(map, 'C:\\GitHub\\Cockpit\\apps\\api\\src\\thing.ts')).toEqual([{ line: 7 }]);
   });
 });

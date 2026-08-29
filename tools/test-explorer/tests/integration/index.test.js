@@ -10,7 +10,10 @@ import { walkTree } from '../../src/model.js';
  * analyzer against it end to end — the orchestrator in analyze/index.js has
  * no other direct coverage, and this is the level that can actually exercise
  * it: workspace discovery, rule extraction, import-reach and the registry
- * check all only make sense wired together against a real file tree.
+ * check all only make sense wired together against a real file tree. That
+ * real file tree (mkdtempSync/writeFileSync/rmSync below) is genuine
+ * filesystem I/O, which the testing skill's dependency rule puts at L2, not
+ * L1 — this lives in tests/integration/ for that reason, not tests/unit/.
  */
 function writeFixtureRepo() {
   const repo = mkdtempSync(path.join(tmpdir(), 'test-explorer-fixture-'));
@@ -128,5 +131,38 @@ describe('analyze (end to end against a fixture repo)', () => {
     const model = analyze(repo);
     expect(model.commit).toBe('unknown');
     expect(model.commitUrl).toBeNull();
+  });
+
+  it('warns about a file with no coverage data instead of silently rendering it as a clean 0', () => {
+    repo = writeFixtureRepo();
+    const pkg = path.join(repo, 'packages/demo');
+    // Only thing.ts was ever instrumented (a real package's coverage config might exclude a file,
+    // or another package might never run test:coverage at all) — untouched.ts has no entry in the
+    // merged map, which coverage.js's branchesNotTaken reports as null, not [] (docs/test-explorer-spec.md's
+    // "a missing measurement must never look like a clean one" invariant, at the per-file level).
+    mkdirSync(path.join(pkg, 'coverage'), { recursive: true });
+    writeFileSync(
+      path.join(pkg, 'coverage/coverage-final.json'),
+      JSON.stringify({
+        [path.join(pkg, 'src/thing.ts')]: {
+          path: path.join(pkg, 'src/thing.ts'),
+          statementMap: {},
+          s: {},
+          fnMap: {},
+          f: {},
+          branchMap: {},
+          b: {},
+        },
+      }),
+    );
+
+    const model = analyze(repo);
+    expect(model.coverageAvailable).toBe(true);
+    expect(
+      model.warnings.some((w) => w.includes('Branches nothing takes') && w.includes('packages/demo/src/untouched.ts')),
+    ).toBe(true);
+    // thing.ts genuinely was measured (present in the map, zero branches) — it must not be named
+    // alongside untouched.ts as if it, too, were unmeasured.
+    expect(model.warnings.some((w) => w.includes('packages/demo/src/thing.ts'))).toBe(false);
   });
 });

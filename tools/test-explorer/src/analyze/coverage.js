@@ -68,13 +68,32 @@ export function loadMergedCoverage(repo, packageDirs) {
  * at its own location (`branchMap[branchId].locations[idx]`), falling back to the branch's overall
  * location if a per-path one isn't present.
  *
+ * `null` and `[]` are different facts here and callers must not conflate them: `null` means this
+ * *file* has no entry in the merged map at all — excluded by a package's coverage config (every
+ * package's vitest config excludes `**\/index.ts`), or owned by a package that never ran
+ * `test:coverage` in the first place (e.g. packages/connector-sdk has no coverage script) — so
+ * nothing about its branches is known. `[]` means the file *is* in the map and every branch path
+ * it has was genuinely taken. Only the caller can decide what to do with "unmeasured" (surface it,
+ * skip it, warn about it); silently treating it as `[]` would render an unmeasured file exactly
+ * like a clean one, which is the same "missing measurement must never look like a clean one"
+ * invariant model.js documents for the workspace-wide `coverageAvailable` flag, just at the level
+ * of one file instead of the whole run.
+ *
+ * Looks the file up by a path-separator-normalized key, not `map.data[absFile]` directly: the v8
+ * provider (apps/web, packages/shared) writes this platform's native separator, but the istanbul
+ * provider (apps/api, instrumenting inside the Workers pool) writes forward slashes regardless of
+ * platform. On Windows those disagree — a direct lookup would find every v8 file and silently miss
+ * every istanbul one, which is indistinguishable from "genuinely unmeasured" without this fix.
+ *
  * @param {import('istanbul-lib-coverage').CoverageMap} map
  * @param {string} absFile
- * @returns {{ file: string, line: number }[]} branch-path locations never taken, empty if the file isn't in the map
+ * @returns {{ file: string, line: number }[] | null} branch-path locations never taken, or null if
+ *   the file has no coverage data at all
  */
 export function branchesNotTaken(map, absFile) {
-  const fileCoverage = map.data[absFile];
-  if (!fileCoverage) return [];
+  const key = normalizedKeys(map).get(normalizeSeparators(absFile));
+  const fileCoverage = key !== undefined ? map.data[key] : undefined;
+  if (!fileCoverage) return null;
   const out = [];
   for (const [branchId, hitsPerPath] of Object.entries(fileCoverage.b)) {
     const branch = fileCoverage.branchMap[branchId];
@@ -86,4 +105,22 @@ export function branchesNotTaken(map, absFile) {
     });
   }
   return out;
+}
+
+function normalizeSeparators(p) {
+  return p.split('\\').join('/');
+}
+
+/** One normalized-key -> real-key index per map, built once and reused across every file lookup
+ *  (this runs once per source file per concept, and the same map is queried repeatedly). */
+const keyIndexCache = new WeakMap();
+
+function normalizedKeys(map) {
+  let index = keyIndexCache.get(map);
+  if (!index) {
+    index = new Map();
+    for (const key of Object.keys(map.data)) index.set(normalizeSeparators(key), key);
+    keyIndexCache.set(map, index);
+  }
+  return index;
 }

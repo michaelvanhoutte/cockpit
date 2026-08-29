@@ -143,6 +143,12 @@ export function analyze(repo) {
   // ---- merged branch coverage --------------------------------------------
   const coverage = loadMergedCoverage(repo, packages);
   warnings.push(...coverage.warnings);
+  // Files whose own package emitted no coverage-final.json at all (no test:coverage script, e.g.
+  // packages/connector-sdk today) or that every package's coverage config excludes (`**/index.ts`)
+  // — branchesNotTaken(...) returns null for these, not [], so they must not silently count as
+  // "0 branches nothing takes" (a real fact) when what's actually true is "never measured".
+  // Collected while building the tree below, reported once here.
+  const uninstrumentedFiles = new Set();
 
   // ---- assemble the tree ---------------------------------------------------
   const filesByConcept = new Map();
@@ -175,11 +181,14 @@ export function analyze(repo) {
       .map((relFile) => withContext({ file: relFile, line: 1 }, repo, contextCache));
 
     const branchesNothingTakes = coverage.available
-      ? files.flatMap((relFile) =>
-          branchesNotTaken(coverage.map, path.join(repo, relFile)).map((b) =>
-            withContext({ file: relFile, line: b.line }, repo, contextCache),
-          ),
-        )
+      ? files.flatMap((relFile) => {
+          const notTaken = branchesNotTaken(coverage.map, path.join(repo, relFile));
+          if (notTaken === null) {
+            uninstrumentedFiles.add(relFile);
+            return [];
+          }
+          return notTaken.map((b) => withContext({ file: relFile, line: b.line }, repo, contextCache));
+        })
       : null;
 
     return { key: concept.key, label: concept.label, counts, rules, filesNothingRuns, branchesNothingTakes };
@@ -187,6 +196,14 @@ export function analyze(repo) {
 
   const { tree, warnings: treeWarnings } = buildTree(withInfra, makeNode);
   warnings.push(...treeWarnings);
+
+  if (uninstrumentedFiles.size) {
+    warnings.push(
+      '"Branches nothing takes" has no coverage data for the following file(s) — excluded by a package\'s ' +
+        'coverage config, or owned by a package with no test:coverage script — so they read as a clean 0 ' +
+        `rather than unknown; treat a 0 on a concept that owns one of these as unverified: ${[...uninstrumentedFiles].sort().join(', ')}.`,
+    );
+  }
 
   return {
     commit: commitSha(repo),

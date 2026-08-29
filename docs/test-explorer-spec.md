@@ -521,6 +521,63 @@ Three corrections, all from the very next look at §2g's own output:
    the panel header's single button ("Copy prompt for missing tests") and
    any future caller can each set their own text.
 
+## 2i. Code review findings, fixed (three real bugs, one found while fixing another)
+
+`/code-review` (Claude's automated PR review) on the first open PR found three things, all confirmed real and fixed:
+
+1. **`tests/unit/index.test.js` did real filesystem I/O** (`mkdtempSync`/
+   `writeFileSync`/`rmSync` to build a synthetic fixture repo) — a clear
+   violation of the testing skill's L1 dependency rule ("L1/F1 may not
+   touch: filesystem, network, ..."). The orchestrator genuinely needs a
+   real file tree to exercise meaningfully, so the fix wasn't to fake the
+   filesystem; it was to admit this is an L2 test and move the whole file
+   to `tests/integration/index.test.js`, and give `package.json` the same
+   `test:unit` (scoped to `tests/unit`) / `test:integration` (scoped to
+   `tests/integration`) split apps/api already uses.
+2. **`model.js`'s `summarise()` double-counted shared files.** `concepts.json`
+   deliberately lets one source file belong to more than one feature area
+   (§2a/§5 — `apps/api/src/db/repo.ts` backs four areas), so a plain sum of
+   `filesNothingRuns.length`/`branchesNothingTakes.length` across every tree
+   node counted that file's gap once per area it belongs to — the masthead
+   read 29 "files nothing runs" against a true count of 21 unique files.
+   Fixed by deduplicating with a `Set` (by file path for files, by
+   `file:line` for branches) before counting; `tests/unit/model.test.js` is
+   new, since `summarise`/`walkTree` had no direct coverage before this.
+3. **`coverage.js`'s `branchesNotTaken()` returned `[]` for a file with no
+   coverage data at all**, indistinguishable from "measured, genuinely zero
+   untaken branches" — the same "missing measurement must never look like a
+   clean one" invariant `model.js` documents for the workspace-wide
+   `coverageAvailable` flag, just silently violated one file at a time. A
+   file excluded by a package's coverage config (every package excludes
+   `**/index.ts`) or owned by a package with no `test:coverage` script
+   (`packages/connector-sdk` today) would render a false, confident "0."
+   Fixed by returning `null` for "not in the map at all" instead of `[]`,
+   and having `analyze/index.js` collect every such file across the run
+   into one named warning (the same pattern already used for the
+   HTTP-driven-test false-positive on "files nothing runs") rather than
+   silently folding them into a real zero.
+
+   Fixing (3) surfaced a fourth bug it would otherwise have hidden:
+   **`branchesNotTaken` looked files up with `map.data[absFile]` directly,
+   which assumes every provider writes the same path-separator convention
+   Node's `path.join` uses on the current platform.** On Windows that's
+   true for the v8 provider (apps/web, packages/shared) but not for
+   istanbul (apps/api, instrumenting inside the Workers pool), which writes
+   forward-slash paths regardless of platform. Before this PR the mismatch
+   was invisible — a failed lookup returned `[]`, identical to a genuine
+   zero — so apps/api's entire "branches nothing takes" column was silently
+   wrong on Windows from the moment coverage landed, and nothing caught it.
+   Turning the failure mode from `[]` into `null`-plus-a-warning (fix 3)
+   made this visible immediately: a real report on this machine warned
+   about fifteen apps/api files that were, in fact, genuinely instrumented.
+   Fixed by matching on a separator-normalized key instead of the raw path
+   (`coverage.js`'s `normalizedKeys()`, memoized per map since the same map
+   is queried once per file per concept). Confirmed against the real repo:
+   the warning list dropped from those fifteen false positives down to the
+   six files that are actually unmeasured (five `index.ts`-shaped
+   exclusions plus one file, `apps/api/src/env.ts`, genuinely never
+   imported by any test).
+
 ## 3. The test-folder migration (done)
 
 The row/column model in §4 depends on two conventions:

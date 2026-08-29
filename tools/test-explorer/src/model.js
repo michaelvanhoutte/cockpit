@@ -127,17 +127,25 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  * @property {string[]} warnings           Things the analyzer could not determine; never silently dropped.
  */
 
-/** Totals across every node in the tree, for the page header. */
+/**
+ * Totals across every node in the tree, for the page header. Deduplicated by
+ * file (and by file:line for branches): concepts.json deliberately allows one
+ * source file to belong to more than one feature area (docs/test-explorer-spec.md
+ * §2a/§5 — a file backing both Capture and Triage is expected, not an overlap
+ * error), so a plain sum over every node would count that file's gap once per
+ * area it belongs to. The masthead reports how many real files/branches are
+ * untested, not how many (node, gap) pairs exist.
+ */
 export function summarise(model) {
   let rules = 0;
-  let filesNothingRuns = 0;
-  let branchesNothingTakes = 0;
+  const files = new Set();
+  const branches = new Set();
   for (const node of walkTree(model.tree)) {
     rules += node.rules.length;
-    filesNothingRuns += node.filesNothingRuns.length;
-    branchesNothingTakes += node.branchesNothingTakes?.length ?? 0;
+    for (const f of node.filesNothingRuns) files.add(f.file);
+    for (const b of node.branchesNothingTakes ?? []) branches.add(`${b.file}:${b.line}`);
   }
-  return { rules, filesNothingRuns, branchesNothingTakes };
+  return { rules, filesNothingRuns: files.size, branchesNothingTakes: branches.size };
 }
 
 /** Depth-first walk over every node in a tree, parents before children. */
