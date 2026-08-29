@@ -522,9 +522,10 @@ than to any mail provider, so it survives changing employer or email.
   tier so a misplaced test is visible. Cockpit is one service with one test
   file today, and testing-strategy §2 is explicit that the levels are roles
   rather than mandatory folders. The split lands with the tiers.
-- **L3 on merge, and the nightly contract runs** (§9.1): they land with the
-  suites they would run. F3 no longer waits — the browser tier runs as its own
-  `E2E (F3)` job on every pull request and on `main`, against the `pnpm dev`
+- **L3 on merge, and the nightly contract runs** (the CI/CD section of the
+  architecture, §9.1): they land with the suites they would run. F3 no longer
+  waits — the browser tier runs as its own `E2E (F3)` job on every pull request
+  and on `main`, against its own isolated local stack, never the `pnpm dev`
   pair.
 - **F3 against a deployed preview.** The suite already takes `E2E_BASE_URL` and
   the `CF-Access-Client-*` header pair, so pointing it at a branch's preview is
