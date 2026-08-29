@@ -311,6 +311,42 @@ five more things:
    while wiring this up: the page's embedded model payload never included
    `commitUrl` at all — the GitHub link would have silently never appeared.
 
+## 2e. Where a row comes from, vs. where its counts come from
+
+A fair question after §2d point 1: if the tree comes from `describe`
+blocks, how can `Drag-drop`/`Resizing` show up with zero tests behind them?
+It doesn't, and they didn't (§2d's demo nesting is removed as of this
+section — see below) — the confusion is worth resolving precisely, because
+it's easy to conflate two different things this tool does:
+
+- **Which rows exist at all is registry-driven**, not test-driven. Every
+  entry in `concepts.json` becomes a row, `parent` and all, whether or not
+  any test names it — this was already true of `Dashboards`/`Panels`/
+  `Focus`/etc. since §5's very first version (declared "ahead of the code,"
+  staying at zero until real tests land). §2c's `parent` field is the same
+  idea one level deeper: it lets a row nest without needing a test to exist
+  first.
+- **What populates a row is test-derived**, without exception: every count,
+  every rule, every case, every coverage gap comes from real `describe`/`it`
+  blocks, real import graphs, real coverage data. Nothing in that half is
+  ever invented.
+
+§2d's `Dashboards` → `Drag-drop`/`Resizing` nesting was a real instance of
+the first kind — two rows added purely to prove the tree UI renders
+correctly, with nothing in the second kind (no test, real numbers all zero,
+exactly like `Dashboards` itself). Once confirmed working, both were
+removed: leaving an invented row sitting in the real registry — even a
+correctly-zeroed one — cuts against the tool's whole point, which is
+deriving structure from what actually exists rather than hand-authoring it
+(the same reasoning [coverage-reporting-options.md](coverage-reporting-options.md)
+gives for rejecting a hand-maintained tree in the first place). The
+mechanism stays exactly as built; `concepts.json` is flat again until a
+real feature area's tests justify a `parent`.
+
+`tools/test-explorer/README.md` now exists specifically to make this
+distinction explicit for anyone reading the registry cold, rather than
+relying on this spec doc alone.
+
 ## 3. The test-folder migration (done)
 
 The row/column model in §4 depends on two conventions:
