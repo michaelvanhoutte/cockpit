@@ -362,7 +362,21 @@ revalidates on focus and holds an SSE stream open (§5.2), so when an Access ses
 expires, the client gets HTML where it expects JSON or events. On the installed
 phone PWA that presents as an inbox that quietly stopped updating.
 
-Two mitigations, neither of which is a fix:
+**A second, sharper case: requests the browser makes with credentials omitted.**
+The web app manifest is fetched that way by specification unless its `<link>`
+carries `crossorigin="use-credentials"`, so behind Access it went out with no
+session cookie, was redirected to `conselit.cloudflareaccess.com`, and was then
+rejected by the browser as a cross-origin redirect with no
+`Access-Control-Allow-Origin` — surfacing as a CORS error, which is what makes it
+so misleading to diagnose. Fixed by `useCredentials: true` in
+[apps/web/vite.config.ts](../apps/web/vite.config.ts). Two things worth carrying
+forward: **a valid session does not help here**, because the cookie is never
+offered, so the long-session mitigation below does not touch this class; and
+manifest *icon* fetches are a separate path that this attribute does not govern,
+so whether install and splash artwork resolve behind Access is untested.
+
+Two mitigations, neither of which is a fix, and note the first covers only the
+expiry case above:
 
 - **Set a long Access session duration** (up to one month) so expiry is rare.
 - **Treat this as interim.** It is the perimeter that exists *because* §8.1 has not
