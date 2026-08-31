@@ -1,8 +1,15 @@
 import { and, eq } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import { associations, commands, items } from './schema.js';
-import { commandAlreadyApplied, getItem, getWorkspace } from './repo.js';
+import { associations, commands, items, workspaces } from './schema.js';
+import {
+  commandAlreadyApplied,
+  getItem,
+  getWorkspace,
+  listWorkspaces,
+  liveWorkspaceNamed,
+} from './repo.js';
+import { nextColor, workspaceFromCommand } from '../domain/workspaces.js';
 import {
   applySetFocus,
   applySetNextAction,
@@ -24,6 +31,13 @@ export class WorkspaceNotFoundError extends Error {
   constructor(workspaceId: string) {
     super(`workspace ${workspaceId} not found`);
     this.name = 'WorkspaceNotFoundError';
+  }
+}
+
+export class WorkspaceNameTakenError extends Error {
+  constructor(name: string) {
+    super(`a workspace called ${name} already exists`);
+    this.name = 'WorkspaceNameTakenError';
   }
 }
 
@@ -61,6 +75,33 @@ export function runCommand<N extends CommandName>(
   let applied = true;
 
   switch (name) {
+    case 'create_workspace': {
+      const cmd = payload as CommandPayload<'create_workspace'>;
+      const alreadyCalledThat = liveWorkspaceNamed(db, tenantId, cmd.name);
+      if (alreadyCalledThat) throw new WorkspaceNameTakenError(alreadyCalledThat);
+      // The color is a function of the whole set, so it is picked here rather
+      // than by the client, whose copy of that set can be stale.
+      const existing = listWorkspaces(db, tenantId);
+      const workspace = workspaceFromCommand(cmd, tenantId, nextColor(existing.map((w) => w.color)));
+      // A retried create whose command ID was lost still may not make a second
+      // workspace: the id is the client's, so the replay carries the same one.
+      //
+      // `target` is load-bearing, and this is the one table where leaving it
+      // off is dangerous. Bare `onConflictDoNothing()` means *any* conflict,
+      // and workspaces now carry a second unique index - the one on the name.
+      // Two creates of the same name racing past the check above would then
+      // both answer "done" while the second wrote nothing at all: the box
+      // clears, the list is re-read, and the workspace is simply not there.
+      // Named at the primary key, the id replay stays a no-op and a name
+      // collision raises, which is what the index is for. (`items` and
+      // `associations` have no second unique index, so their bare calls below
+      // mean only what they say.)
+      db.transaction((tx) => {
+        tx.insert(workspaces).values(workspace).onConflictDoNothing({ target: workspaces.id }).run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'capture_item': {
       const cmd = payload as CommandPayload<'capture_item'>;
       // The workspace is client-supplied and only shape-validated, so this is

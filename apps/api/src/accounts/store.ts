@@ -6,7 +6,12 @@ import type { AccountStoreRpc } from './rpc.js';
 import { accountChanges } from './changes.js';
 import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations } from './events.js';
-import { ItemNotFoundError, WorkspaceNotFoundError, runCommand } from './command-service.js';
+import {
+  ItemNotFoundError,
+  WorkspaceNameTakenError,
+  WorkspaceNotFoundError,
+  runCommand,
+} from './command-service.js';
 import { getWorkspace, listAssociationsForWorkspace, listOpenItems, listWorkspaces } from './repo.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
 
@@ -84,6 +89,9 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     } catch (error) {
       if (error instanceof ItemNotFoundError || error instanceof WorkspaceNotFoundError) {
         return { status: 'missing', what: error.message };
+      }
+      if (error instanceof WorkspaceNameTakenError) {
+        return { status: 'conflict', what: error.message };
       }
       throw error;
     }

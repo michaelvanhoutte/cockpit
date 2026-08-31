@@ -40,6 +40,8 @@ export async function fetchSnapshot(workspaceId: string): Promise<WorkspaceSnaps
 
 /** One sender per command; adding a command extends this map and nothing else. */
 const commandSenders = {
+  create_workspace: (p: CommandPayload<'create_workspace'>) =>
+    api.v1.commands.create_workspace.$post({ json: p }),
   capture_item: (p: CommandPayload<'capture_item'>) => api.v1.commands.capture_item.$post({ json: p }),
   set_status: (p: CommandPayload<'set_status'>) => api.v1.commands.set_status.$post({ json: p }),
   snooze_until: (p: CommandPayload<'snooze_until'>) => api.v1.commands.snooze_until.$post({ json: p }),
@@ -51,11 +53,41 @@ const commandSenders = {
     api.v1.commands.set_priority.$post({ json: p }),
 } as const;
 
+/**
+ * A change the server refused for a reason worth repeating to the person who
+ * made it - a name already in use, something that is no longer there. Carries
+ * the status so a screen can tell "you cannot do that" apart from "we could not
+ * reach the server", which want different words.
+ */
+export class CommandRefused extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CommandRefused';
+  }
+}
+
 export async function sendCommand<N extends CommandName>(
   name: N,
   payload: CommandPayload<N>,
 ): Promise<CommandResult> {
   const res = await commandSenders[name](payload as never);
-  if (!res.ok) throw new Error(`${name} failed: ${res.status}`);
+  if (!res.ok) {
+    // The server's own words where there are any. A body that is missing or
+    // not JSON (a gateway's error page, a redirect to sign in) must not turn
+    // a refusal into a parse failure, so it falls back to the status.
+    let said: string | undefined;
+    try {
+      const body: unknown = await res.json();
+      if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
+        said = body.error;
+      }
+    } catch {
+      said = undefined;
+    }
+    throw new CommandRefused(res.status, said ?? `${name} failed: ${res.status}`);
+  }
   return (await res.json()) as CommandResult;
 }

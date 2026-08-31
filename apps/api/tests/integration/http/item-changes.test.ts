@@ -71,47 +71,62 @@ describe('Offline', () => {
     it.each<{
       situation: string;
       name: CommandName;
-      change: (itemId: string, requestId: string) => CommandPayload<CommandName>;
+      /** True when the change makes its own subject, so nothing is arranged. */
+      makesIt?: true;
+      change: (targetId: string, requestId: string) => CommandPayload<CommandName>;
     }>([
+      {
+        situation: 'making a workspace',
+        name: 'create_workspace',
+        makesIt: true,
+        change: (targetId, requestId) => ({
+          commandId: requestId,
+          // The new workspace's own id, so a replay carries the same one.
+          workspaceId: targetId,
+          issuedAt: '2026-08-12T10:00:00.000Z',
+          name: `Bookkeeping ${targetId.slice(-4)}`,
+        }),
+      },
       {
         situation: 'capturing a thought',
         name: 'capture_item',
-        change: (itemId, requestId) => ({
+        makesIt: true,
+        change: (targetId, requestId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
-          itemId,
+          itemId: targetId,
           title: 'Make appointment with Novy',
         }),
       },
       {
         situation: 'marking it done',
         name: 'set_status',
-        change: (itemId, requestId) => ({
+        change: (targetId, requestId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T11:00:00.000Z',
           workspaceId: WORKSPACE_ID,
-          itemId,
+          itemId: targetId,
           status: 'done',
         }),
       },
       {
         situation: 'linking it to a person',
         name: 'associate',
-        change: (itemId, requestId) => ({
+        change: (targetId, requestId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T11:00:00.000Z',
           workspaceId: WORKSPACE_ID,
-          itemId,
+          itemId: targetId,
           associationId: nextId(),
           kind: 'person',
           label: 'Anna',
         }),
       },
-    ])('$situation', async ({ name, change }) => {
-      const itemId = name === 'capture_item' ? nextId() : await captureAnItem();
+    ])('$situation', async ({ name, makesIt, change }) => {
+      const targetId = makesIt ? nextId() : await captureAnItem();
       const requestId = nextId();
-      const body = change(itemId, requestId);
+      const body = change(targetId, requestId);
 
       const first = await postChange(name, body);
       const replay = await postChange(name, body);

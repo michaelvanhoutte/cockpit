@@ -13,6 +13,7 @@ import type { Env } from '../env.js';
 import {
   AccountNotInRegisterError,
   AccountNotUpToDateError,
+  ConflictInAccountError,
   CURRENT_ACCOUNT_NAME,
   NotFoundInAccountError,
   openAccount,
@@ -35,6 +36,9 @@ const app = new OpenAPIHono<AppEnv>({
 app.onError((err, c) => {
   if (err instanceof NotFoundInAccountError) {
     return c.json({ error: err.message }, 404);
+  }
+  if (err instanceof ConflictInAccountError) {
+    return c.json({ error: err.message }, 409);
   }
   // An account that cannot be found or cannot be brought up to date is the
   // server's problem, not the caller's - nobody chooses an account yet - so it
@@ -95,7 +99,7 @@ const snapshotRoute = createRoute({
 
 // --- changes ("Mutations are commands"): one POST endpoint per change --------
 
-function commandRoute<N extends CommandName>(name: N) {
+function commandRoute<N extends CommandName>(name: N, extra?: { conflict: string }) {
   return createRoute({
     method: 'post',
     path: `/v1/commands/${name}`,
@@ -114,6 +118,16 @@ function commandRoute<N extends CommandName>(name: N) {
         description: 'Target item does not exist',
         content: { 'application/json': { schema: errorSchema } },
       },
+      // Only the commands that can actually collide declare a 409, so the
+      // published contract does not promise one from every endpoint.
+      ...(extra
+        ? {
+            409: {
+              description: extra.conflict,
+              content: { 'application/json': { schema: errorSchema } },
+            },
+          }
+        : {}),
     },
   });
 }
@@ -194,6 +208,10 @@ const routes = app
     const snapshot = await account.snapshot(workspaceId);
     return c.json({ ...snapshot, generatedAt: new Date().toISOString() }, 200);
   })
+  .openapi(
+    commandRoute('create_workspace', { conflict: 'A workspace already has that name' }),
+    async (c) => c.json(await change(c.env, 'create_workspace', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c.env, 'capture_item', c.req.valid('json')), 200))
   .openapi(commandRoute('set_status'), async (c) => c.json(await change(c.env, 'set_status', c.req.valid('json')), 200))
   .openapi(commandRoute('snooze_until'), async (c) => c.json(await change(c.env, 'snooze_until', c.req.valid('json')), 200))

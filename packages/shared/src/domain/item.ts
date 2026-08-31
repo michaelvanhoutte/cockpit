@@ -83,12 +83,33 @@ export const associationSchema = z.object({
 });
 export type Association = z.infer<typeof associationSchema>;
 
+/**
+ * Names are compared with the surrounding blanks removed and without regard to
+ * case, so `" Personal "` and `personal` are the same name. `.trim()` runs
+ * before the length checks, which is what makes a name of nothing but blanks
+ * fail `min(1)` rather than being stored as an empty string.
+ *
+ * The cap is a product decision, not a storage one: a workspace name is a tab
+ * label, and there is no length at which one stays readable in a tab and
+ * unreadable at 60.
+ */
+export const workspaceNameSchema = z.string().trim().min(1).max(60);
+
 export const workspaceSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
+  /**
+   * Deliberately the permissive `z.string()` and not `workspaceNameSchema`:
+   * this is the shape read back, and a stored name that predates the rules
+   * should still render rather than blanking the screen it appears on. The
+   * rules belong on the way in, where they can be refused with a message.
+   */
   name: z.string(),
-  slug: z.string(),
-  /** Workspace color identity (functional definition §4.1). */
+  /**
+   * Workspace color identity (functional definition, "Container hierarchy").
+   * Assigned from a fixed palette when the workspace is created; choosing it
+   * yourself is "Choose a workspace's colors from a palette" (issue 79).
+   */
   color: z.string(),
 });
 export type Workspace = z.infer<typeof workspaceSchema>;

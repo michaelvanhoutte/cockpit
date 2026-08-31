@@ -19,4 +19,5 @@ export interface AccountSnapshot {
 export type Answer<T> =
   | { status: 'ok'; value: T }
   | { status: 'missing'; what: string }
+  | { status: 'conflict'; what: string }
   | { status: 'not-up-to-date'; failure: string };

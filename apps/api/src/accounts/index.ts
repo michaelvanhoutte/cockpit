@@ -35,6 +35,14 @@ export class AccountNotUpToDateError extends Error {
   }
 }
 
+/** Something the change would create is already in the account under that name. */
+export class ConflictInAccountError extends Error {
+  constructor(what: string) {
+    super(what);
+    this.name = 'ConflictInAccountError';
+  }
+}
+
 /** Something a request named does not exist in the account. */
 export class NotFoundInAccountError extends Error {
   constructor(what: string) {
@@ -89,6 +97,8 @@ function unwrap<T>(answer: Answer<T>): T {
       return answer.value;
     case 'missing':
       throw new NotFoundInAccountError(answer.what);
+    case 'conflict':
+      throw new ConflictInAccountError(answer.what);
     case 'not-up-to-date':
       throw new AccountNotUpToDateError(answer.failure);
   }

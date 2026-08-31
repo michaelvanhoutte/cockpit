@@ -55,6 +55,13 @@ export function useServerEvents() {
         void queryClient.invalidateQueries({
           queryKey: ['snapshot', parsed.data.workspaceId],
         });
+        // The list too, because creating a workspace is announced on the new
+        // workspace and nothing else would ever refetch it - so another tab
+        // would keep showing the tabs it had when it loaded. The event says
+        // only "something changed", which is deliberately all it says
+        // (architecture, "How the client talks to the backend"), so the list is
+        // revalidated rather than reasoned about.
+        void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       });
 
       stream.addEventListener('error', () => {

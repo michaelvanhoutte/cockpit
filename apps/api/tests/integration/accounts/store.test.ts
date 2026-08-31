@@ -32,8 +32,8 @@ describe('Accounts', () => {
       const response = await fetchWorkspaces();
 
       expect(response.status).toBe(200);
-      const { workspaces } = (await response.json()) as { workspaces: { slug: string }[] };
-      expect(workspaces.map((w) => w.slug)).toEqual(['work', 'atlas', 'personal']);
+      const { workspaces } = (await response.json()) as { workspaces: { name: string }[] };
+      expect(workspaces.map((w) => w.name)).toEqual(['Work', 'Atlas Copco', 'Personal']);
     });
 
     it('says which account it is, when that account is in no register', async () => {
@@ -53,18 +53,18 @@ describe('Accounts', () => {
       await inTheStoreAsItIs((sql) => {
         sql.exec(
           `INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at)
-           VALUES ('ws-somebody-else', 'another-account', 'Theirs', 'theirs', '#000000', '2026-08-12T00:00:04.000Z')`,
+           VALUES ('ws-somebody-else', 'another-account', 'Theirs', 'ws-somebody-else', '#000000', '2026-08-12T00:00:04.000Z')`,
         );
       });
 
       const { workspaces } = (await (await fetchWorkspaces()).json()) as {
-        workspaces: { slug: string }[];
+        workspaces: { name: string }[];
       };
 
       // The column is redundant now that the store *is* the account, and this
       // is what it is for: a request that reached the wrong data matches no row
       // instead of answering with somebody else's.
-      expect(workspaces.map((w) => w.slug)).not.toContain('theirs');
+      expect(workspaces.map((w) => w.name)).not.toContain('Theirs');
     });
   });
 

@@ -44,7 +44,9 @@ const ACCOUNT_SCHEMA: Change = {
 	\`slug\` text NOT NULL,
 	\`color\` text NOT NULL,
 	\`created_at\` text NOT NULL,
-	CONSTRAINT "workspaces_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
+	\`deleted_at\` text,
+	CONSTRAINT "workspaces_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))),
+	CONSTRAINT "workspaces_deleted_at_is_timestamp" CHECK(deleted_at IS NULL OR (datetime(deleted_at) IS NOT NULL AND substr(deleted_at, 11, 1) = 'T' AND substr(deleted_at, -1) = 'Z' AND length(deleted_at) >= 20 AND date(deleted_at) = substr(deleted_at, 1, 10)))
 ) STRICT`,
     },
     {
@@ -112,7 +114,9 @@ const ACCOUNT_SCHEMA: Change = {
 	CONSTRAINT "commands_received_at_is_timestamp" CHECK(received_at IS NULL OR (datetime(received_at) IS NOT NULL AND substr(received_at, 11, 1) = 'T' AND substr(received_at, -1) = 'Z' AND length(received_at) >= 20 AND date(received_at) = substr(received_at, 1, 10)))
 ) STRICT`,
     },
-    { sql: 'CREATE UNIQUE INDEX `workspaces_tenant_slug` ON `workspaces` (`tenant_id`,`slug`)' },
+    {
+      sql: 'CREATE UNIQUE INDEX `workspaces_tenant_live_name` ON `workspaces` (`tenant_id`,lower("name")) WHERE "deleted_at" IS NULL',
+    },
     {
       sql: 'CREATE INDEX `items_tenant_workspace_status` ON `items` (`tenant_id`,`workspace_id`,`status`)',
     },
@@ -140,10 +144,10 @@ function startingWorkspaces(accountId: string): Change {
     statements: [
       {
         sql: `INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES
-                (?, ?, 'Work', 'work', '#6f62b5', '2026-08-12T00:00:01.000Z'),
-                (?, ?, 'Atlas Copco', 'atlas', '#3a72c8', '2026-08-12T00:00:02.000Z'),
-                (?, ?, 'Personal', 'personal', '#c06a45', '2026-08-12T00:00:03.000Z')`,
-        params: ['ws-work', accountId, 'ws-atlas', accountId, 'ws-personal', accountId],
+                ('ws-work', ?, 'Work', 'ws-work', '#6f62b5', '2026-08-12T00:00:01.000Z'),
+                ('ws-atlas', ?, 'Atlas Copco', 'ws-atlas', '#3a72c8', '2026-08-12T00:00:02.000Z'),
+                ('ws-personal', ?, 'Personal', 'ws-personal', '#c06a45', '2026-08-12T00:00:03.000Z')`,
+        params: [accountId, accountId, accountId],
       },
     ],
   };

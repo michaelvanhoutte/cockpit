@@ -61,22 +61,22 @@ Three levels, top to bottom:
 
 **Workspace** — the top-level context and the privacy boundary. Examples: *Work*, *Personal*, *Home*, *Customer 1*, *Customer 2*. A Workspace controls **which source accounts are connected and visible**, so when you are in the *Work* workspace you do not see private email, and vice versa. This is the "I don't want to see private emails while processing work stuff" requirement, solved by scoping rather than by filtering after the fact. (Original notes called this level "dashboard" and were unsure; "Workspace" is the recommended name.) Each Workspace also has its own **color identity**: the UI chrome (header, accents, panel borders) tints to that color so it is always obvious at a glance which Workspace you are currently in.
 
-**Page** — a named view *inside* a Workspace. A Workspace has several Pages you switch between, like tabs. Example Pages inside *Work*: a landing Page showing today's to-dos; a *Dormant projects* Page; a *Research* Page. (This is your "multiple pages" idea.)
+**Dashboard** — a named view *inside* a Workspace. A Workspace has several Dashboards you switch between, like tabs. Example Dashboards inside *Work*: a landing Dashboard showing today's to-dos; a *Dormant projects* Dashboard; a *Research* Dashboard. (This is your "multiple pages" idea. Earlier drafts of this document called this level a *Page*; that name was invented here and never used anywhere else, while "dashboard" is what the product is called and what everyone reaches for, so the level is a Dashboard and "page" goes back to meaning an ordinary screen.)
 
-**Panel** — a movable, resizable, titled box on a Page. Each Panel is a **saved, filtered view of items** (see below). Example Panels: a *Project X* box, a *People* box, a *Research* box, a *Focus: This Week* box, a Kanban board. Every Panel has a user-editable title.
+**Panel** — a movable, resizable, titled box on a Dashboard. Each Panel is a **saved, filtered view of items** (see below). Example Panels: a *Project X* box, a *People* box, a *Research* box, a *Focus: This Week* box, a Kanban board. Every Panel has a user-editable title.
 
-So the full path to any box is: `Workspace → Page → Panel`.
+So the full path to any box is: `Workspace → Dashboard → Panel`.
 
 ```
 Workspace: "Work"
-├── Page: "Today"            ← landing page
+├── Dashboard: "Today"       ← landing dashboard
 │   ├── Panel: "To Process"  (the inbox view, scoped to Work)
 │   ├── Panel: "Focus Today"
 │   ├── Panel: "Project Falcon"
 │   └── Panel: "People to talk to"
-├── Page: "Dormant projects"
+├── Dashboard: "Dormant projects"
 │   └── Panel: "On hold"
-└── Page: "Research"
+└── Dashboard: "Research"
     └── Panel: "To read"
 ```
 
@@ -149,9 +149,9 @@ We have swipe-left = delete. Candidate meanings for swipe-right, to be tested ra
 
 These aren't mutually exclusive: a short swipe-right could do the primary action (file into a box) while a long swipe or a second gesture handles snooze/done. Worth prototyping on the phone before locking in.
 
-## 6. Dashboards: Pages and Panels
+## 6. Dashboards and Panels
 
-**Panels** behave like the tiles on Azumuta's Analytics dashboards (the reference model): each sits on a grid, you **drag to move** it and **drag a corner to resize** it, every tile has an editable **title** and a per-tile **"..." menu** (configure, rename, remove), and a **"+"** adds a new Panel to the Page. A responsive grid layout reflows the tiles on smaller screens so the same Page works on phone and desktop. Page-level controls (date range, share, fullscreen) can follow the same pattern where useful.
+**Panels** behave like the tiles on Azumuta's Analytics dashboards (the reference model): each sits on a grid, you **drag to move** it and **drag a corner to resize** it, every tile has an editable **title** and a per-tile **"..." menu** (configure, rename, remove), and a **"+"** adds a new Panel to the Dashboard. A responsive grid layout reflows the tiles on smaller screens so the same Dashboard works on phone and desktop. Dashboard-level controls (date range, share, fullscreen) can follow the same pattern where useful.
 
 Recommended **Panel types** for v1:
 
@@ -166,7 +166,7 @@ Recommended **Panel types** for v1:
 - **Kanban** *(candidate for v1 or fast-follow)* — Items as cards in columns you define (e.g. To do / Doing / Waiting / Done).
 - **Calendar/agenda** *(later, with the Calendar integration)*.
 
-A **Page** is just a saved arrangement of Panels; you can have as many Pages per Workspace as you like and switch between them.
+A **Dashboard** is just a saved arrangement of Panels; you can have as many Dashboards per Workspace as you like and switch between them.
 
 ### 6.1 How Items render in a Panel — action cards
 
@@ -302,7 +302,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 10. **Reply detection / round-trip (§6.1).** How does the app know you replied in the source app — detect the outbound message via two-way sync, or prompt you on return from the click-through? *Recommendation: prompt on return in v1; add sync-detection later. Note this depends on decision #1 (two-way sync).*
 11. **Action-label generation (§6.1).** Are next-action labels AI-drafted-and-editable or purely manual? *Recommendation: AI drafts, you edit; store both the original subject and your action label so nothing is lost.*
 12. **Live panels — de-dup and inbox interaction (§6.2).** When a Panel has a live rule, do matching items also still hit the Inbox, and how do we avoid one item cluttering many panels? *Recommendation: reuse the §5.1 "inbox yes/no per rule" flag; an item can appear in several panels but remains a single object, so acting on it once (done, snooze, follow-up) updates it everywhere at once.*
-13. **Workspace colors.** Auto-assigned from a palette or user-picked per Workspace? *Recommendation: user-picked with sensible defaults; ensure the palette stays accessible/legible in both light and dark mode.*
+13. **Workspace colors.** Auto-assigned from a palette or user-picked per Workspace? *Recommendation: user-picked with sensible defaults; ensure the palette stays accessible/legible in both light and dark mode.* **Half-answered:** a Workspace made in the app is given the first color no other Workspace is using, from a fixed palette, so it never exists without an identity and nobody is asked for one to create it. Picking your own — and the two further colors the page ground and the header bar need, which the prototype hard-codes per Workspace and the database does not hold at all — is "Choose a workspace's colors from a palette" (issue 79). The light/dark half of this decision is settled there, not here.
 14. **Grouped vs individual actions (Issue 5, §2).** Several actions can come out of one source container (e.g. multiple Notion comments assigned to you on one page, all about the same project) and probably deserve to appear as a single grouped entry, while other same-origin actions (e.g. five MT meeting actions that each concern a different project) must stay separate cards. What drives the grouping is undecided: the source container, the shared project association, an AI suggestion, or a manual "merge these" action. *Recommendation: default to individual Items; let AI suggest a group when several open items share both their source container and their project association, and offer manual group/ungroup as the override. A group renders as one card with a count and expands in place. Revisit after real usage.*
 15. **Notification-class email (Issue 6, §2).** How should machine-generated email (Notion updates, GitHub activity, meeting invites, monitoring digests, newsletters) be handled? It must not clutter the To-Process inbox, yet the information must remain reachable and usable as a signal. Candidate treatments: classify on ingest and route to a separate low-priority "Notifications" feed that never hits To Process; roll them up into a periodic digest (possibly the Highlights panel, §8); or consume them purely as signals that update the state of an existing Item or Panel (e.g. a GitHub notification marking a tracked issue as changed) without creating a new triage entry at all. *Recommendation: combine them. Classify on ingest (sender/header heuristics plus AI), keep notification-class items out of the Inbox by default in a collapsible Notifications feed, and where a notification maps onto an existing Item or a Panel's live rule, apply it as a state-change signal instead of a new item. Escalate into the Inbox only when a notification is personally directed and actionable: an assignment, a mention, or an invite that needs a response.*
 16. **Payments — how is "paid" detected (Issue 7, §2)?** Once a payment-classified email is in the Payments panel, something has to take it out again. Candidates: manual "mark as paid" only; detecting a payment-confirmation email from the same sender and linking it to the open item; or a bank/accounting integration (e.g. Billit, already rated feasible in the integration reference, §9) that reconciles outgoing payments against open items. *Recommendation: manual mark-as-paid in v1, with AI-detected confirmation emails as a suggested (not automatic) match; treat bank/accounting reconciliation as a later connector.*
@@ -311,7 +311,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 ## 13. Scope per iteration (proposed)
 
-**Iteration 1 — follow-up tracking:** Workspaces + Pages + Panels (move/resize/title) with plain-English rule configuration (§6.2); Item model with associations; Gmail/Slack/Notion connectors (read-only) limited to flagged/starred emails, saved Slack messages and actionable @mentions, and Notion actions/comments assigned to me; fast capture of internal notes and to-dos (issue 2, §2); Project, Person, Topic, Focus, and Highlights panels; the four Focus horizons with overdue escalation; per-item AI summaries, next-action labels, and suggested tags; local-first offline viewing with queued actions; source reconciliation so items completed or removed at the source update here without double bookkeeping (§10.1).
+**Iteration 1 — follow-up tracking:** Workspaces + Dashboards + Panels (move/resize/title) with plain-English rule configuration (§6.2); Item model with associations; Gmail/Slack/Notion connectors (read-only) limited to flagged/starred emails, saved Slack messages and actionable @mentions, and Notion actions/comments assigned to me; fast capture of internal notes and to-dos (issue 2, §2); Project, Person, Topic, Focus, and Highlights panels; the four Focus horizons with overdue escalation; per-item AI summaries, next-action labels, and suggested tags; local-first offline viewing with queued actions; source reconciliation so items completed or removed at the source update here without double bookkeeping (§10.1).
 
 **Iteration 2 — unified inbox:** the same connectors widened to the full stream (all mail, all Slack messages, Notion activity); the To-Process triage inbox with swipe-left delete and assign/status (§5); reading items in the app and reacting/replying where the source allows it; flag-for-follow-up from the inbox (feeding the iteration 1 dashboards); notification-class email routing (open decision #15); Payments due and Reading digest panels.
 
@@ -321,7 +321,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 - **Account** — the person or organization Cockpit holds work for, and the outermost boundary: everything else here belongs to exactly one of them. There is one today. Not to be confused with the *source accounts* (a Gmail login, a Slack workspace) that a Workspace connects to. The **register** is the list of which accounts exist; it is what says an account is real before any of its data is opened.
 - **Workspace** — top-level context and privacy boundary (Work, Personal, Customer 1…); defines which sources are connected.
-- **Page** — a switchable named view inside a Workspace; holds a layout of Panels.
+- **Dashboard** — a switchable named view inside a Workspace; holds a layout of Panels.
 - **Panel** — a movable, resizable, titled box that displays a filtered set of Items.
 - **Item** — the single object everything is stored as: any normalized piece of content, whether it arrived from a source (email, message, page, event…) or was created in the app. **Action** and **Thought** are *types* of Item, not separate objects.
 - **Action** — an Item representing something to do: a follow-up, a to-do, a task assigned to you. One source Item can produce several Actions.

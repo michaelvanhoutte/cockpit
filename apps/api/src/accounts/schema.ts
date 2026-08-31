@@ -121,13 +121,46 @@ export const workspaces = sqliteTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').notNull(),
     name: text('name').notNull(),
+    /**
+     * Read by nothing - no URL, no CSS selector, no component - and dropped by
+     * "Drop the unused workspace slug column" (issue 78). Until then it is
+     * written, never read, and holds the workspace's own id.
+     */
     slug: text('slug').notNull(),
     color: text('color').notNull(),
     createdAt: text('created_at').notNull(),
+    /**
+     * Tombstone, written by "Rename and delete a workspace" (issue 77) and
+     * unread until then.
+     *
+     * It carries its `is_timestamp` CHECK like every other timestamp column
+     * here, which the D1 copy of this table does not - see the note on
+     * `deletedAt` in the D1 migration that added it. That gap was a measured
+     * limitation of *altering* a live table: SQLite cannot ALTER a CHECK in,
+     * and D1 will not drop a table with children under ON DELETE RESTRICT, so
+     * attaching one meant a whole-schema rebuild for a single constraint. A
+     * store creates this table whole on its first change, so the limitation
+     * does not apply and the convention holds.
+     */
+    deletedAt: text('deleted_at'),
   },
   (t) => [
-    uniqueIndex('workspaces_tenant_slug').on(t.tenantId, t.slug),
+    /**
+     * Uniqueness is on the *name*, because the name is what a person types and
+     * reads; the slug index it replaces guarded a column nothing looks at.
+     *
+     * Partial and case-insensitive, which is two decisions:
+     * - `lower(name)`, so `personal` and `Personal` are the same name. Names
+     *   arrive already trimmed, from the wire schema.
+     * - `WHERE deleted_at IS NULL`, so deleting a workspace gives its name
+     *   back. A tombstoned workspace keeps its name for the record without
+     *   holding it hostage.
+     */
+    uniqueIndex('workspaces_tenant_live_name')
+      .on(t.tenantId, sql`lower(${t.name})`)
+      .where(sql`${t.deletedAt} IS NULL`),
     check('workspaces_created_at_is_timestamp', isTimestamp('created_at')),
+    check('workspaces_deleted_at_is_timestamp', isTimestamp('deleted_at')),
   ],
 );
 

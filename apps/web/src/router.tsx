@@ -9,6 +9,7 @@ import { workspacesQuery } from './api/queries';
 import { LoadFailure } from './components/LoadFailure';
 import { Layout } from './pages/Layout';
 import { WorkspacePage } from './pages/WorkspacePage';
+import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -38,7 +39,14 @@ export const workspaceRoute = createRoute({
   component: WorkspacePage,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, workspaceRoute]);
+/** Reached from the header's "···" menu; the home of everything per-workspace. */
+const workspaceSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/workspaces',
+  component: WorkspaceSettingsPage,
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, workspaceRoute, workspaceSettingsRoute]);
 
 export function createAppRouter(queryClient: QueryClient) {
   return createRouter({

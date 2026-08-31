@@ -15,6 +15,20 @@
       "when": 1788181310349,
       "tag": "0001_daily_barracuda",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788192159586,
+      "tag": "0002_panoramic_zodiak",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788192169419,
+      "tag": "0003_brave_praxagora",
+      "breakpoints": true
     }
   ]
 }

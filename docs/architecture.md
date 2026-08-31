@@ -89,6 +89,8 @@ The conventions above are enforced by the schema, not left to the callers that h
 
 **Drizzle cannot express STRICT** — it is absent from drizzle-orm's `sqlite-core` table API and drizzle-kit never emits the keyword. Every migration therefore adds it by hand, and a regenerated migration will silently drop it. The rule *what the product stores is what comes back* in `apps/api/tests/integration/db/constraints.test.ts` asserts it against the applied schema for exactly that reason; it is the only thing standing between a routine `db:generate` and losing the guarantee.
 
+**A CHECK cannot be added to a table that already has children.** SQLite cannot `ALTER TABLE` a CHECK in at all, so adding one to an existing table means rebuilding that table — and on D1 a table with rows pointing at it under `ON DELETE RESTRICT` cannot be dropped, because `DROP TABLE` performs an implicit delete first and the foreign key refuses it. `PRAGMA foreign_keys = OFF` is not a way out: D1 accepts the statement and ignores it (both measured against a real D1 on 2026-08-31, not inferred). So the true cost of one new CHECK on `workspaces` is rebuilding `workspaces`, `items` and `associations` together, with everything migration 0001's header warns about. That is worth paying for a closed set the product depends on, and not worth paying for a single nullable column only the command handlers ever write; `workspaces.deleted_at` in D1 is the recorded instance of the second, and migration 0002 says so where the next person will be standing when they ask. Note that the limitation is about *altering*: an account's store creates its tables whole on its first change, so the same column carries its CHECK there.
+
 #### One store per account, and `tenant_id` stays
 
 **Status: built.** An account's workspaces, items, associations and change log live in that account's own store; the register — which accounts exist — stays in D1. `apps/api/src/accounts/` is the only place either is read or written.
@@ -258,7 +260,7 @@ Same philosophy as the testing strategy's 5-minute rule: budgets are gates, not 
 |---|---|
 | Cold open → glanceable dashboard (installed PWA, warm cache) | **< 1s** |
 | Capture: entry point → note persisted (excluding typing) | **< 2s** |
-| Panel interactions (filter, drag, reorder, switch page) | **< 100ms** |
+| Panel interactions (filter, drag, reorder, switch dashboard) | **< 100ms** |
 | Initial JS bundle (compressed) | **< 200KB**, hard CI gate |
 | Snapshot revalidation after cold open | background, never blocking paint |
 

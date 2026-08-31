@@ -140,7 +140,7 @@ Each level gets its own runner command (e.g. `test:unit`, `test:integration`, `t
 
 ### 9.1 Tests are named in the product's language, not the implementation's
 
-The outer `describe` is a **feature area of the product** — the parts a person would name if asked what the app does (Capture, Triage, Dashboards, Panels, Focus, Associations, Offline, Connector management, User management, Sign-in). The block inside it states the rule in product language; the cases are a table inside that body. The runner then prints the statement list itself, so nothing is stored separately and nothing goes stale.
+The outer `describe` is a **feature area of the product** — the parts a person would name if asked what the app does (Capture, Triage, Dashboards, Panels, Focus, Associations, Offline, Connector management, User management, Sign-in, Workspace management, Accounts). The block inside it states the rule in product language; the cases are a table inside that body. The runner then prints the statement list itself, so nothing is stored separately and nothing goes stale.
 
 The area is deliberately not the entity and not the operation: `item.setStatus`, `command.idempotency` and `item.change` all name an object or a function rather than a part of the product, and a statement list built from those cannot be read as a description of what the app does. The area is also not the file — one file commonly spans several areas, and an area commonly spans several files and levels.
 
