@@ -8,6 +8,13 @@
       "when": 1786563640752,
       "tag": "0000_demonic_human_robot",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788181310349,
+      "tag": "0001_daily_barracuda",
+      "breakpoints": true
     }
   ]
 }

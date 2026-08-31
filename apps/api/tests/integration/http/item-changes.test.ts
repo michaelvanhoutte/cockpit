@@ -4,8 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
 import { createDb } from '../../../src/db/client.js';
 import { associations, commands, items } from '../../../src/db/schema.js';
-
-const WORKSPACE_ID = 'ws-work';
+import { WORKSPACE_ID, seedWorkspaces } from '../seed.js';
 
 /**
  * Integration level: real D1, and requests go through the real Worker
@@ -49,6 +48,9 @@ async function captureAnItem(overrides: Partial<CommandPayload<'capture_item'>> 
 
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
+  // Items carry a foreign key onto their workspace, so the workspace these
+  // cases file into has to exist before any of them writes.
+  await seedWorkspaces();
 });
 
 describe('Offline', () => {
@@ -322,6 +324,101 @@ describe('Associations', () => {
       });
       const afterUnlinking = await db.select().from(associations).where(eq(associations.id, associationId));
       expect(afterUnlinking).toHaveLength(0);
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * The workspace on a capture is client-supplied and only shape-validated,
+   * so it is the one id that can name something that does not exist. The
+   * database refuses it either way; what this pins is that the caller is told
+   * what was wrong instead of getting an internal error.
+   */
+  describe('a thought captured into a workspace that does not exist is refused and nothing is stored', () => {
+    it('says which workspace was missing', async () => {
+      const response = await postChange('capture_item', {
+        commandId: nextId(),
+        issuedAt: '2026-08-12T10:00:00.000Z',
+        workspaceId: 'ws-that-was-never-created',
+        itemId: nextId(),
+        title: 'Make appointment with Novy',
+      });
+
+      expect(response.status).toBe(404);
+      expect((await response.json()) as { error: string }).toMatchObject({
+        error: expect.stringContaining('ws-that-was-never-created'),
+      });
+    });
+
+    it('leaves no trace of the attempt', async () => {
+      const itemId = nextId();
+      const requestId = nextId();
+      await postChange('capture_item', {
+        commandId: requestId,
+        issuedAt: '2026-08-12T10:00:00.000Z',
+        workspaceId: 'ws-that-was-never-created',
+        itemId,
+        title: 'Make appointment with Novy',
+      });
+
+      const db = createDb(env.DB);
+      expect(await db.select().from(items).where(eq(items.id, itemId))).toHaveLength(0);
+      expect(await db.select().from(commands).where(eq(commands.commandId, requestId))).toHaveLength(0);
+    });
+  });
+});
+
+describe('Triage', () => {
+  /**
+   * The timestamp constraints reject a day no calendar has, and the times on a
+   * change come from the client, so this is reachable from outside - which per
+   * the testing strategy is exactly when the caller-visible answer is the thing
+   * to pin. It is a 400 from request validation rather than the 500 a raw
+   * constraint violation would produce, and this is what keeps it that way.
+   */
+  describe('a change timed to a day no calendar has is refused and nothing is stored', () => {
+    // The item exists in every case, so the impossible date is the only thing
+    // left that can refuse the change - otherwise a missing item would refuse
+    // it first and these would pass without the timestamps being reached.
+    it.each<{
+      situation: string;
+      name: CommandName;
+      change: (requestId: string, itemId: string) => CommandPayload<CommandName>;
+    }>([
+      {
+        situation: 'capturing a thought',
+        name: 'capture_item',
+        change: (requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-02-31T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: nextId(),
+          title: 'Make appointment with Novy',
+        }),
+      },
+      {
+        situation: 'snoozing it until a date',
+        name: 'snooze_until',
+        change: (requestId, itemId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId,
+          until: '2026-02-31T08:00:00.000Z',
+        }),
+      },
+    ])('$situation', async ({ name, change }) => {
+      const itemId = await captureAnItem();
+      const requestId = nextId();
+
+      const response = await postChange(name, change(requestId, itemId));
+
+      expect(response.status).toBe(400);
+      const db = createDb(env.DB);
+      expect(await db.select().from(commands).where(eq(commands.commandId, requestId))).toHaveLength(
+        0,
+      );
     });
   });
 });
