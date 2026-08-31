@@ -98,11 +98,15 @@ jobs:
       - name: Verify preview alias derivation
         run: bash scripts/branch-alias.test.sh
       # The rest of scripts/ is Node, and carries the logic that decides whether
-      # a test run gets a fresh database and whether it is allowed to start at
-      # all — worth the same treatment as the alias derivation, for the same
-      # reason. No install step: these tests use only node:test and the standard
+      # a test run gets a fresh database, whether it is allowed to start at all,
+      # and whether a Claude security review actually reached a verdict — worth
+      # the same treatment as the alias derivation, for the same reason. The
+      # last of those is the one with teeth: it is what turns a blocked or
+      # declining review red, and the equivalent logic living as inline bash in
+      # claude-code-review.yml has shipped green over a non-review four times.
+      # No install step: these tests use only node:test and the standard
       # library, so this job stays checkout-only and finishes in seconds.
-      - name: Verify the dev and test-stack scripts
+      - name: Verify the dev, test-stack and review-gate scripts
         run: node --test scripts/lib/*.test.mjs
 
   # Publishes which product concepts own which tests, as a downloadable
