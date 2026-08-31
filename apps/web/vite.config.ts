@@ -34,7 +34,8 @@ export default defineConfig({
       // Deliberately untested, which the testing skill requires saying out loud
       // rather than leaving as a gap. No tier can reproduce the bug: F3 runs
       // Vite's dev server, where this plugin injects no manifest link at all,
-      // and an F3 run against a deployment (issue #64) authenticates with
+      // and an F3 run against a deployment ("Run the F3 suite against a
+      // deployed environment, as its own account", issue #64) authenticates with
       // CF-Access-Client-Id/Secret *headers*, which Playwright sends on every
       // request including this one — so it would pass with or without the fix.
       // The bug is specifically about cookies being omitted. Proving it needs a
