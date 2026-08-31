@@ -83,6 +83,30 @@ export function start(args, name, colorCode, cwd, env) {
 }
 
 /**
+ * What stopping a child should do, decided without doing it.
+ *
+ * Split out of stop() because the decision is the whole of the behaviour worth
+ * asserting and it branches on the platform: folded into stop(), only the branch
+ * belonging to whichever OS you are on can be observed at all. Every CI job here
+ * runs on Linux, so the Windows branch went unasserted — and the tests for this
+ * file claimed to prove stopping in general while proving only the POSIX half,
+ * red on Windows from the day they were written.
+ *
+ * Takes the platform rather than reading it, so both answers are assertable from
+ * either OS.
+ */
+export function stopPlan(child, windows = isWindows) {
+  if (child.exitCode !== null || child.signalCode !== null) return { do: 'nothing' };
+  // Asymmetric on purpose, so don't collapse the branches: Windows needs the
+  // tree because the shell hides the real process, while on POSIX the child
+  // shares this process's group, so whatever stops us — Ctrl+C, Playwright's
+  // teardown — already reaches the whole tree and this is the polite half.
+  return windows
+    ? { do: 'spawn', file: 'taskkill', args: ['/pid', String(child.pid), '/T', '/F'] }
+    : { do: 'signal', signal: 'SIGTERM' };
+}
+
+/**
  * Stops one child and everything it spawned. Always this, never `child.kill()`
  * directly: `command()` runs children under cmd.exe on Windows, where a signal
  * to the shell leaves the real Wrangler or Vite running and still holding its
@@ -91,27 +115,30 @@ export function start(args, name, colorCode, cwd, env) {
  * machine until someone finds and kills it by hand.
  */
 export function stop(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  // Asymmetric on purpose, so don't collapse the branches: Windows needs the
-  // tree because the shell hides the real process, while on POSIX the child
-  // shares this process's group, so whatever stops us — Ctrl+C, Playwright's
-  // teardown — already reaches the whole tree and this is the polite half.
-  if (isWindows) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-  else child.kill('SIGTERM');
+  const plan = stopPlan(child);
+  if (plan.do === 'spawn') spawn(plan.file, plan.args, { stdio: 'ignore' });
+  else if (plan.do === 'signal') child.kill(plan.signal);
 }
 
 /**
  * Ties a set of long-running children together: Ctrl+C stops all of them, and
  * one of them exiting stops the rest rather than leaving half an application
  * listening and looking healthy.
+ *
+ * What supervise() owns is which children get stopped and how many times, never
+ * how one is stopped — that is stopPlan()'s, asserted there. So stopping is a
+ * parameter: passed a fake, its tests can watch the orchestration without any
+ * process being signalled. That matters more than it sounds on Windows, where
+ * stop() reaches a real process by pid and a fake child's pid is some unrelated
+ * program's.
  */
-export function supervise(children) {
+export function supervise(children, stopChild = stop) {
   let shuttingDown = false;
 
   function shutdown(code) {
     if (shuttingDown) return;
     shuttingDown = true;
-    for (const child of children) stop(child);
+    for (const child of children) stopChild(child);
     process.exitCode = code;
   }
 

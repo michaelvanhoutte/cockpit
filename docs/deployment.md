@@ -361,8 +361,8 @@ HTML login page break silent `fetch` and `EventSource` refresh.** Cockpit
 revalidates on focus and holds an SSE stream open (§5.2), so when an Access session
 expires, the client gets HTML where it expects JSON or events.
 
-**Amended 2026-08-31, for reads.** That used to present as an app that had
-quietly stopped working, and on a first load as the router's raw
+**Amended 2026-08-31, for reads and for the push stream.** That used to present as
+an app that had quietly stopped working, and on a first load as the router's raw
 `Failed to fetch`. The client now recognises the case and recovers from it: it
 asks `/health` — which is outside the gate, so an answer proves the deployment
 is healthy and the fault is this browser's sign-in — then sends itself through
@@ -371,7 +371,23 @@ page it came from. The push stream recovers by a related route: `EventSource`
 abandons a badly-answered connection after one attempt, so the client reopens it
 on a backoff and runs the same check to decide whether the sign-in is what went.
 
-Three mitigations, of which only the first is a fix, and only for reads:
+**A second, sharper case: requests the browser makes with credentials omitted.**
+The web app manifest is fetched that way by specification unless its `<link>`
+carries `crossorigin="use-credentials"`, so behind Access it went out with no
+session cookie, was redirected to `conselit.cloudflareaccess.com`, and was then
+rejected by the browser as a cross-origin redirect with no
+`Access-Control-Allow-Origin` — surfacing as a CORS error, which is what makes it
+so misleading to diagnose. Fixed by `useCredentials: true` in
+[apps/web/vite.config.ts](../apps/web/vite.config.ts). Three things worth carrying
+forward: **a valid session does not help here**, because the cookie is never
+offered, so the long-session mitigation below does not touch this class; **the
+recovery above does not reach it either**, because nothing was refused and so
+nothing asks why; and manifest *icon* fetches are a separate path that this
+attribute does not govern, so whether install and splash artwork resolve behind
+Access is untested.
+
+Three mitigations, of which only the first is a fix, and it covers the expiry
+case above rather than the credentials-omitted one:
 
 - **Recover in the client**, as above. It removes the dead-end, not the
   interruption: an expired session still costs a round trip through the login.
