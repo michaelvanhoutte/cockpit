@@ -206,11 +206,20 @@ unaffected: both run `wrangler deploy`, which applies migrations as part of the
 deploy.
 
 So a **new** Durable Object class has to reach `cockpit-preview` once, by hand,
-before any branch carrying it can upload a version:
+before any branch carrying it can upload a version. Run it **from the branch
+that introduces the class**, not from `main`: this deploys the working tree you
+are standing in, and a tree without the class in its `wrangler.jsonc` introduces
+nothing.
 
 ```bash
-cd apps/api && wrangler deploy --env preview
+# from the repository root of that branch's checkout or worktree
+pnpm --filter @cockpit/api exec wrangler deploy --env preview
 ```
+
+`pnpm ... exec` because `wrangler` is a devDependency of `apps/api` and is not
+on the PATH; a bare `wrangler` only works where one happens to be installed
+globally. It also needs `apps/web/dist` to exist, since Wrangler refuses to
+start without the assets directory - `pnpm build` first if it is missing.
 
 That is the same one-time bootstrap the runbook below already performs for the
 preview Worker, repeated for the class. Afterwards the migration is applied and
@@ -509,6 +518,10 @@ can exist in production.
 can be redone on a new account or rebuilt from scratch, not as pending work.
 Everything after this is automatic via `.github/workflows/`.
 
+`wrangler` below is the workspace's own (`apps/api`'s devDependency), so either
+put `pnpm --filter @cockpit/api exec` in front of each line or run them where a
+global one is installed.
+
 ```bash
 # 1. three databases
 wrangler d1 create cockpit
@@ -528,10 +541,10 @@ wrangler d1 execute cockpit-preview --remote --yes --env preview --file=./seed.s
 
 # 3. the three Workers. The preview Worker is deployed once so that it exists
 #    with an active deployment; thereafter CI only ever uploads versions to it.
-#    Re-run the preview one by hand whenever a NEW Durable Object class lands:
-#    a version upload cannot apply a Durable Object migration, and the branch
-#    that carries the class fails its preview until this has been run once.
-#    See "A Durable Object class cannot be introduced by a preview" above.
+#    Re-run the preview one by hand, FROM THE BRANCH THAT CARRIES IT, whenever a
+#    NEW Durable Object class lands: a version upload cannot apply a Durable
+#    Object migration, and that branch fails its preview until this has been run
+#    once. See "A Durable Object class cannot be introduced by a preview" above.
 wrangler deploy --env=""
 wrangler deploy --env staging
 wrangler deploy --env preview
