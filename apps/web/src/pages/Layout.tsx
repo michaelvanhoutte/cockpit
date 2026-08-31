@@ -21,7 +21,10 @@ export function Layout() {
         className="border-b border-black/10 bg-surface/80 backdrop-blur"
         style={{ borderTopColor: active?.color, borderTopWidth: 3, borderTopStyle: 'solid' }}
       >
-        <div className="mx-auto flex w-full max-w-5xl items-center gap-6 px-4 py-2">
+        {/* Full width, not a centred column: the brand and the workspaces sit
+            against the left edge and the menu against the right, so the header
+            is a bar across the screen rather than a strip down the middle. */}
+        <div className="flex w-full items-center gap-4 px-3 py-2">
           <span className="shrink-0 text-lg font-semibold tracking-tight">Cockpit</span>
           {/* Scrolls within itself rather than widening the page. Until
               workspaces could be made, three of them fit any screen and this
@@ -51,9 +54,13 @@ export function Layout() {
           </nav>
 
           <DropdownMenu.Root>
+            {/* Reads as a control, rather than as three characters that
+                happen to be there. It was styled like the row menu inside a
+                panel — faint, unbordered — which is right for something one of
+                many rows owns and wrong for the only way into settings. */}
             <DropdownMenu.Trigger
               aria-label="Settings"
-              className="shrink-0 rounded px-2 py-1 text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
+              className="shrink-0 rounded-md border border-accent-soft/70 bg-accent-tint px-3 py-1 text-lg font-semibold leading-6 text-accent-deep hover:border-accent hover:bg-accent hover:text-white data-[state=open]:border-accent data-[state=open]:bg-accent data-[state=open]:text-white"
             >
               ···
             </DropdownMenu.Trigger>
@@ -75,7 +82,9 @@ export function Layout() {
           </DropdownMenu.Root>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto px-4 py-6">
+      {/* Left-aligned and full width, matching the header: pages get the whole
+          screen instead of a centred column with empty gutters either side. */}
+      <main className="w-full flex-1 overflow-y-auto px-3 py-5">
         <Outlet />
       </main>
     </div>
