@@ -48,6 +48,8 @@ Two directions. **Vertical** = infrastructure this service owns (its DB, queue, 
 |---|---|
 | An L2 test `import`s `runCommand()` from the domain/service layer and calls it directly | An L2 test calls `SELF.fetch('/v1/commands/...')`, which runs the real route (validation, `runCommand()`, serialization) for you |
 
+**The one exception: a rule the real interface makes unreachable by construction.** The database constraints (architecture, "The database is the second lock") exist to catch writes the command handlers never validated - and the handlers validate everything arriving over HTTP, so no request can drive an invalid value at them. A test entering through the interface could only prove Zod works, which the request-validation tests already prove. `apps/api/tests/integration/db/constraints.test.ts` therefore writes to D1 directly, which is still entering the service's own real infrastructure rather than routing around it. Narrow on purpose: this applies when the interface *cannot* reach the behaviour, never when going through it would merely be inconvenient.
+
 **L1/F1 may not touch:** filesystem, network, database, the clock (inject time), environment variables, global state, or another process. If a test needs one, it is not a unit test - move it up a level or refactor so the logic is testable in isolation.
 
 **Mocking discipline (L1/F1).** "No real dependencies" is not "mock everything":

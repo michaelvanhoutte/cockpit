@@ -4,8 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
 import { createDb } from '../../../src/db/client.js';
 import { associations, commands, items } from '../../../src/db/schema.js';
-
-const WORKSPACE_ID = 'ws-work';
+import { WORKSPACE_ID, seedWorkspaces } from '../seed.js';
 
 /**
  * Integration level: real D1, and requests go through the real Worker
@@ -49,6 +48,9 @@ async function captureAnItem(overrides: Partial<CommandPayload<'capture_item'>> 
 
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
+  // Items carry a foreign key onto their workspace, so the workspace these
+  // cases file into has to exist before any of them writes.
+  await seedWorkspaces();
 });
 
 describe('Offline', () => {

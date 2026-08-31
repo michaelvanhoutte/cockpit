@@ -79,6 +79,16 @@ These conventions are cheap now and expensive to retrofit, so they are binding f
 - **Tombstones, not deletes**, for Items, matching the reconciliation model of the functional definition (§10.1): an item resolved or removed at the source is marked, not erased.
 - **Source-owned vs app-owned fields are separate column groups**, mirroring the functional definition's reconciliation rule: re-syncs overwrite source-owned columns unconditionally and never touch app-owned ones.
 
+#### The database is the second lock
+
+The conventions above are enforced by the schema, not left to the callers that happen to exist today. Every write currently goes through one door — the command handlers (§4.3), validated by the Zod schemas in `packages/shared` — so these constraints can never fire in normal operation. That is the point: they are what still holds when a connector, a migration, a backfill script or a hand-run `wrangler d1 execute` writes rows the command handlers never saw.
+
+- **STRICT tables.** SQLite's default is dynamic typing with affinity, so a `TEXT` column stores an integer without complaint. `STRICT` (SQLite 3.37+, which D1 runs) makes declared types enforced. Its guarantee is precisely *no lossy conversion*: a blob into a text column is refused, while the integer `12345` into that same column is still accepted as `'12345'`, because that conversion loses nothing. It is not a substitute for a CHECK.
+- **A CHECK for every closed set**, generated in `src/db/schema.ts` from the same Zod enums the wire contract uses, so the database and the API contract cannot drift into disagreeing about what a status is.
+- **Foreign keys, which D1 enforces**, with `ON DELETE RESTRICT` throughout: nothing in this model is hard-deleted, so a cascade would be a silent answer to a question that should be asked explicitly. The command log is the deliberate exception and carries no foreign keys, because an audit trail has to outlive what it refers to.
+
+**Drizzle cannot express STRICT** — it is absent from drizzle-orm's `sqlite-core` table API and drizzle-kit never emits the keyword. Every migration therefore adds it by hand, and a regenerated migration will silently drop it. The rule *what the product stores is what comes back* in `apps/api/tests/integration/db/constraints.test.ts` asserts it against the applied schema for exactly that reason; it is the only thing standing between a routine `db:generate` and losing the guarantee.
+
 ### 4.3 Mutations are commands, not object PUTs
 
 All writes go through small, named, idempotent commands: `capture_item`, `set_status`, `snooze_until`, `associate`, `set_focus`. Each carries a client-generated command ID (making retries idempotent), the client timestamp, and a minimal payload validated by a Zod schema from `packages/shared`.
