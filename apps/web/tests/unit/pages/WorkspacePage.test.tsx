@@ -31,9 +31,11 @@ vi.mock('../../../src/api/queries', () => ({
   }),
 }));
 
+let nextItem = 0;
+
 function anItem(title: string, status: ItemStatus): Item {
   return {
-    id: `11111111-1111-7111-8111-11111111111${status.length}`,
+    id: `11111111-1111-7111-8111-${String(nextItem++).padStart(12, '0')}`,
     tenantId: 'tenant',
     workspaceId: 'ws-work',
     source: 'internal',
