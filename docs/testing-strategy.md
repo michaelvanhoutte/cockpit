@@ -83,6 +83,8 @@ Without rule 3, the pyramid has a silent failure mode: every level stays green a
 1. **Every capability must have at least one frontend test (F3, or F2 where F3 genuinely cannot reach it) that validates the capability works for a user.** A capability is a user-facing feature as described in the functional definition (e.g. "snooze an inbox item", "mark a goal for this week", "swipe to remove a row"). Unit and integration tests alone never count as proof that a capability works.
 2. **Every bug fix gets a regression test at the lowest level that reproduces the bug.**
 3. **New logic ships with L1/F1 tests in the same change.** Tests are not a follow-up task.
+4. **A test that cannot fail is not a test.** See the table go red before the implementation lands. Where the implementation landed first, take the behaviour back out and watch the same table go red *then*, while the test is still in hand — not as a sweep at the end of the change, where it costs a rewrite instead of a minute. A test written after the code and never seen red passes for two indistinguishable reasons: the behaviour works, or the test asks nothing of it. On "Recover from an expired sign-in instead of failing silently" (pull request 71) the obvious test for a stream error passed identically with the fix, without the fix, and with its guard removed, because the runner could not produce the condition at all; it read as coverage until a mutation exposed it as decoration, and was deleted.
+5. **State a rule as what the person ends up seeing, not as what the function returns.** Two bugs on that same change were correct logic wired to the wrong thing: a failure diagnosed correctly and then announced on a query no screen renders an error for, and a loop guard cleared by the read that is not the one arming it. Every test of the logic passed, because each asked what a function returned. A rule phrased as the end state — *the workspace shows the sign-in banner* — cannot pass while the wiring is wrong, which is why "Tests are named in the product's language, not the implementation's" (§9.1) is a correctness rule and not only a readability one.
 
 ## 6. Definition of done for agents (non-negotiable)
 
@@ -146,7 +148,7 @@ The area is deliberately not the entity and not the operation: `item.setStatus`,
 
 This applies to **everything the runner prints**, which includes the case labels of a table. A label interpolating an internal identifier (an `it.each` printing `set_status`, `snooze_until`) puts the mechanism into the statement list exactly as a mechanism-named `describe` would; the table carries a product-language field instead.
 
-The failure this prevents is a statement list that cannot be read as a description of the product — at which point it stops being reviewable by anyone deciding whether the right things are being proven, which is the only reason to state rules this way at all.
+The failure this prevents is a statement list that cannot be read as a description of the product — at which point it stops being reviewable by anyone deciding whether the right things are being proven. Reviewability was long the only reason to state rules this way; "State a rule as what the person ends up seeing, not as what the function returns" (the mandatory coverage rules, §5) names a second, because a rule phrased as an end state also fails when the logic is right and the wiring is wrong.
 
 ## 10. Enforcement
 
