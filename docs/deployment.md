@@ -536,10 +536,10 @@ Then, by hand (no API, or deliberately not automated):
      GitHub matches these strings with no idea whether anything reports under
      them, and a name nothing reports under does not go red: it sits at *Expected
      — waiting for status to be reported* on every pull request, indefinitely.
-     `enforce_admins:
-     false` means the owner can still merge past a stuck check; nobody else can. So
-     when a check is added or renamed, the order is always: merge the workflow, let
-     it run, read the name off that run, then apply this payload.
+     `enforce_admins: false` means the owner can still merge past a stuck check;
+     nobody else can. So when a check is added or renamed, the order is always:
+     merge the workflow, let it run, read the name off that run, then apply this
+     payload.
 
      One thing to confirm before this is applied, because it is not yet known: a
      pull request from a fork gets a read-only token, so its results upload may be
@@ -586,9 +586,9 @@ Then, by hand (no API, or deliberately not automated):
 
    `security_and_analysis` is also only populated for a caller with admin on the
    repository — a non-admin gets `null`, which reads as "everything is off" in the
-   same way the branch-protection `404` above reads as "wrong URL". That last one
-   is GitHub's documented behaviour rather than something measured here, unlike
-   the two calls above, which were run against this repository on 2026-08-31.
+   same way the branch-protection `404` above reads as "wrong URL". The `null` is
+   GitHub's documented behaviour rather than something measured here, unlike the
+   two calls above, which were run against this repository on 2026-08-31.
 
    **Routine dependency version updates are deliberately off.** They would need a
    `.github/dependabot.yml`, and there is none: a pull request for every
