@@ -32,10 +32,16 @@ concurrency:
 jobs:
   analyze:
     # This name is what branch protection matches on, once per matrix leg:
-    # "CodeQL (javascript-typescript)" and "CodeQL (actions)". Renaming either
-    # the job or the matrix values silently stops the required check reporting,
-    # and a required check that never reports blocks every pull request. See the
-    # ordering note in deployment.md's "Secrets and access".
+    # "CodeQL (javascript-typescript)" and "CodeQL (actions)", both verified
+    # against a real run rather than predicted. Renaming either the job or the
+    # matrix values silently stops the required check reporting, and a required
+    # check that never reports blocks every pull request. See the ordering note
+    # in deployment.md's "Bootstrap runbook".
+    #
+    # These two say the analysis ran. They do not say it was clean: the check
+    # that fails on a high-severity alert is a third one, named "CodeQL" and
+    # posted by GitHub Advanced Security rather than by this workflow, and it is
+    # required alongside them for exactly that reason.
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
     permissions:

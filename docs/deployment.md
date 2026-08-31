@@ -518,17 +518,31 @@ Then, by hand (no API, or deliberately not automated):
      the semantic conflict it guards against (two branches that each passed CI
      alone) is exactly what staging catches. A bad merge reaches staging, never
      production, because production is a separate promotion.
-   - **`contexts`** — five of the six job names in `ci.yml` (Test Explorer
-     publishes a report and deliberately does not gate), plus one per matrix leg
-     of `codeql.yml`. They must match exactly, and **the CodeQL names can only be
-     read off a run that has already happened**: the check name comes from the job
-     name with the matrix leg interpolated into it, and GitHub matches the string
-     with no idea whether anything reports under it. A name nothing reports under
-     does not go red — it sits at *Expected — waiting for status to be reported*
-     on every pull request, indefinitely. So the order is: merge the workflow, let
-     it run on `main`, read the names off that run, then apply this payload.
-     `enforce_admins: false` means the owner can still merge past a stuck check;
-     nobody else can.
+   - **`contexts`** — eight names: five of the six jobs in `ci.yml` (Test Explorer
+     publishes a report and deliberately does not gate), and three from CodeQL.
+     They must match exactly.
+
+     The three are not interchangeable. `CodeQL (javascript-typescript)` and
+     `CodeQL (actions)` are the two matrix legs, and they say only that the
+     analysis *ran*. The one that says it was **clean** is the third, named plainly
+     `CodeQL` and posted by GitHub Advanced Security rather than by the workflow —
+     it is the check that goes red on an alert at or above the failure threshold.
+     Requiring the legs without it would gate on the analysis having happened while
+     letting a high-severity finding merge.
+
+     **All three names were read off a real run** (pull request 92), never
+     predicted, and that ordering is the point rather than a detail. GitHub matches
+     these strings with no idea whether anything reports under them, and a name
+     nothing reports under does not go red: it sits at *Expected — waiting for
+     status to be reported* on every pull request, indefinitely. `enforce_admins:
+     false` means the owner can still merge past a stuck check; nobody else can. So
+     when a check is added or renamed, the order is always: merge the workflow, let
+     it run, read the name off that run, then apply this payload.
+
+     One thing to confirm before this is applied, because it is not yet known: a
+     pull request from a fork gets a read-only token, so its results upload may be
+     refused. If it is, all three CodeQL checks are unpassable from a fork, and
+     requiring them closes this repository to outside contribution.
    - **`required_linear_history: true`** — makes §1's squash-merge rule mechanical
      rather than remembered, per the preference for violations that are impossible
      over violations caught in review.
