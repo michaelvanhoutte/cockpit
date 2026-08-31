@@ -319,6 +319,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 ## 14. Glossary
 
+- **Account** — the person or organization Cockpit holds work for, and the outermost boundary: everything else here belongs to exactly one of them. There is one today. Not to be confused with the *source accounts* (a Gmail login, a Slack workspace) that a Workspace connects to. The **register** is the list of which accounts exist; it is what says an account is real before any of its data is opened.
 - **Workspace** — top-level context and privacy boundary (Work, Personal, Customer 1…); defines which sources are connected.
 - **Page** — a switchable named view inside a Workspace; holds a layout of Panels.
 - **Panel** — a movable, resizable, titled box that displays a filtered set of Items.

@@ -189,12 +189,20 @@ branch goes away, and the free plan's ten-database ceiling means it does not fit
 at all against the seventeen branches this repository already carries. The
 shared database costs nothing to run and needs no lifecycle machinery.
 
+The same is true of account data, and more sharply: every preview version runs
+under the one `cockpit-preview` Worker, so they share its Durable Object
+namespace and therefore the *same* account store. A branch that adds a change to
+`apps/api/src/accounts/changes.ts` applies it to the store every other branch's
+preview is also reading.
+
 **What is genuinely given up**, recorded rather than waved away: two branches
 with incompatible migrations will collide, because a migration applied by one
 preview is immediately visible to every other open branch's preview. There is no
 mitigation in place, only a detection story: the preview deploy applies
 migrations before uploading the version, so the branch that breaks is the branch
-that notices. If this bites in practice, the recorded escalation is per-branch
+that notices. A colliding *account* change is detected later and less kindly -
+not at deploy time, but by the first request that opens the store, which is why
+the failure names the change and the reason it would not apply. If this bites in practice, the recorded escalation is per-branch
 databases on the Workers Paid plan, which is the option this decision defers
 rather than forecloses.
 
@@ -222,6 +230,20 @@ This was verified rather than assumed: a marker row inserted into the preview
 database appeared on the preview URL and on neither staging nor production.
 
 ## 5. Migrations and rollback
+
+**This section is about the register.** An account's own store is brought up to
+date lazily, by the first request that opens it after a deploy, because nothing
+can reach a Durable Object before one exists — see "One store per account, and
+`tenant_id` stays" in [architecture.md](architecture.md) and the decision behind
+it in [account-storage-options.md](account-storage-options.md). Two consequences
+worth carrying into any change to `apps/api/src/accounts/changes.ts`: a change
+that will not apply takes down every account, one at a time as each is opened,
+so the deploy-time gate D1 gives for free is not there; and a change that has
+shipped must never be edited, because the accounts that already applied it will
+not apply it again and the ones that had not will get the edited version. The
+gate that has to replace the deploy-time one — applying an account's changes
+against a scratch store in CI before the deploy — is its own piece of work and
+is not built yet.
 
 Every deploy applies migrations **before** the new code goes live, so new code
 never meets an old schema. The inverse window is real and unavoidable: for the
@@ -484,11 +506,20 @@ wrangler deploy --env preview
 ```
 
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy
-workflow: `seed.sql` creates the single tenant and the three workspaces, which
-the application currently has no onboarding flow to create. When onboarding
-exists, this step goes away. The staging and preview seeds are re-run by CI for
-previews only; **staging is deliberately never re-seeded**, because accumulated
-old data is the entire point of it.
+workflow: `seed.sql` puts the single account in the register, which the
+application currently has no onboarding flow to create. When onboarding exists,
+this step goes away. The staging and preview seeds are re-run by CI for previews
+only; **staging is deliberately never re-seeded**, because accumulated old data
+is the entire point of it.
+
+**There is no seed step for an account's own data, and there cannot be.** Its
+workspaces, items and associations live in a Durable Object that is created by
+the first request that opens it, and `wrangler d1 execute` speaks only to D1. So
+the three workspaces an account starts with are its first change instead
+(`apps/api/src/accounts/changes.ts`), applied once, inside whichever request
+opens the account first. That is the same temporary bootstrap the paragraph
+above describes, in the only place that can now hold it, and it goes the same
+way when onboarding lands.
 
 Then, by hand (no API, or deliberately not automated):
 

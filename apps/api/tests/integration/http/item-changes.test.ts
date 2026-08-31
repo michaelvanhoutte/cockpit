@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
-import { eq } from 'drizzle-orm';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
-import { createDb } from '../../../src/db/client.js';
-import { associations, commands, items } from '../../../src/db/schema.js';
-import { WORKSPACE_ID, seedWorkspaces } from '../seed.js';
+import { WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
  * Integration level: real D1, and requests go through the real Worker
@@ -17,7 +14,16 @@ import { WORKSPACE_ID, seedWorkspaces } from '../seed.js';
  * Naming: "command" is the architecture's word for the write path and is not
  * in the product's glossary, so it stays inside these helpers and out of
  * anything the runner prints.
+ *
+ * What a case reads back it reads out of the account's own store, because that
+ * is where the data is; `inTheStore` opens the account first, exactly as the
+ * request under test does.
  */
+async function storedIn(table: string, column: string, value: string) {
+  return inTheStore((sql) =>
+    sql.exec(`SELECT * FROM ${table} WHERE ${column} = ?`, value).toArray(),
+  );
+}
 async function postChange<N extends CommandName>(name: N, payload: CommandPayload<N>) {
   return SELF.fetch(`http://cockpit.test/v1/commands/${name}`, {
     method: 'POST',
@@ -48,9 +54,11 @@ async function captureAnItem(overrides: Partial<CommandPayload<'capture_item'>> 
 
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
-  // Items carry a foreign key onto their workspace, so the workspace these
-  // cases file into has to exist before any of them writes.
-  await seedWorkspaces();
+  await startFromEmpty();
+  // The account has to be in the register before any request can resolve it.
+  // Its workspaces are not seeded from here: the store creates them itself the
+  // first time one of these requests opens it.
+  await seedRegister();
 });
 
 describe('Offline', () => {
@@ -113,9 +121,7 @@ describe('Offline', () => {
       expect(replay.status).toBe(200);
       expect(await replay.json()).toEqual({ ok: true, applied: false });
 
-      const db = createDb(env.DB);
-      const stored = await db.select().from(commands).where(eq(commands.commandId, requestId));
-      expect(stored).toHaveLength(1);
+      expect(await storedIn('commands', 'command_id', requestId)).toHaveLength(1);
     });
   });
 
@@ -142,12 +148,10 @@ describe('Offline', () => {
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ ok: true, applied: false });
-      const db = createDb(env.DB);
-      const [item] = await db.select().from(items).where(eq(items.id, itemId));
+      const [item] = await storedIn('items', 'id', itemId);
       expect(item?.status).toBe('task');
       // Still recorded, so the history stays complete even when nothing moved.
-      const stored = await db.select().from(commands).where(eq(commands.commandId, outdatedRequestId));
-      expect(stored).toHaveLength(1);
+      expect(await storedIn('commands', 'command_id', outdatedRequestId)).toHaveLength(1);
     });
   });
 });
@@ -237,9 +241,7 @@ describe('Triage', () => {
       const response = await postChange(name, change(requestId));
 
       expect(response.status).toBe(404);
-      const db = createDb(env.DB);
-      const stored = await db.select().from(commands).where(eq(commands.commandId, requestId));
-      expect(stored).toHaveLength(0);
+      expect(await storedIn('commands', 'command_id', requestId)).toHaveLength(0);
     });
   });
 
@@ -262,9 +264,7 @@ describe('Triage', () => {
       });
 
       expect(response.status).toBe(400);
-      const db = createDb(env.DB);
-      const stored = await db.select().from(items).where(eq(items.id, itemId));
-      expect(stored).toHaveLength(0);
+      expect(await storedIn('items', 'id', itemId)).toHaveLength(0);
     });
   });
 });
@@ -286,9 +286,7 @@ describe('Capture', () => {
       // A different request id, same item: the client lost track of its own retry.
       await capture(nextId());
 
-      const db = createDb(env.DB);
-      const stored = await db.select().from(items).where(eq(items.id, itemId));
-      expect(stored).toHaveLength(1);
+      expect(await storedIn('items', 'id', itemId)).toHaveLength(1);
     });
   });
 });
@@ -298,7 +296,6 @@ describe('Associations', () => {
     it('stores the link, then removes it', async () => {
       const itemId = await captureAnItem();
       const associationId = nextId();
-      const db = createDb(env.DB);
 
       await postChange('associate', {
         commandId: nextId(),
@@ -309,8 +306,7 @@ describe('Associations', () => {
         kind: 'person',
         label: 'Anna',
       });
-      const afterLinking = await db.select().from(associations).where(eq(associations.id, associationId));
-      expect(afterLinking).toHaveLength(1);
+      expect(await storedIn('associations', 'id', associationId)).toHaveLength(1);
 
       await postChange('associate', {
         commandId: nextId(),
@@ -322,8 +318,7 @@ describe('Associations', () => {
         label: 'Anna',
         remove: true,
       });
-      const afterUnlinking = await db.select().from(associations).where(eq(associations.id, associationId));
-      expect(afterUnlinking).toHaveLength(0);
+      expect(await storedIn('associations', 'id', associationId)).toHaveLength(0);
     });
   });
 });
@@ -362,9 +357,8 @@ describe('Capture', () => {
         title: 'Make appointment with Novy',
       });
 
-      const db = createDb(env.DB);
-      expect(await db.select().from(items).where(eq(items.id, itemId))).toHaveLength(0);
-      expect(await db.select().from(commands).where(eq(commands.commandId, requestId))).toHaveLength(0);
+      expect(await storedIn('items', 'id', itemId)).toHaveLength(0);
+      expect(await storedIn('commands', 'command_id', requestId)).toHaveLength(0);
     });
   });
 });
@@ -415,10 +409,7 @@ describe('Triage', () => {
       const response = await postChange(name, change(requestId, itemId));
 
       expect(response.status).toBe(400);
-      const db = createDb(env.DB);
-      expect(await db.select().from(commands).where(eq(commands.commandId, requestId))).toHaveLength(
-        0,
-      );
+      expect(await storedIn('commands', 'command_id', requestId)).toHaveLength(0);
     });
   });
 });

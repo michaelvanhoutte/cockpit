@@ -1,8 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
-import type { Db } from '../db/client.js';
-import { associations, commands, items } from '../db/schema.js';
-import { commandAlreadyApplied, getItem, getWorkspace } from '../db/repo.js';
+import type { AccountDb } from './client.js';
+import { associations, commands, items } from './schema.js';
+import { commandAlreadyApplied, getItem, getWorkspace } from './repo.js';
 import {
   applySetFocus,
   applySetNextAction,
@@ -16,27 +16,35 @@ import {
 export class ItemNotFoundError extends Error {
   constructor(itemId: string) {
     super(`item ${itemId} not found`);
+    this.name = 'ItemNotFoundError';
   }
 }
 
 export class WorkspaceNotFoundError extends Error {
   constructor(workspaceId: string) {
     super(`workspace ${workspaceId} not found`);
+    this.name = 'WorkspaceNotFoundError';
   }
 }
 
 /**
- * The one write path (architecture §4.3): idempotency check on the
- * client-generated command ID, pure domain handler, then the data change and
- * the command-log entry written in a single D1 batch (atomic).
+ * The one write path (architecture, "Mutations are commands, not object
+ * PUTs"): idempotency check on the client-generated command ID, pure domain
+ * handler, then the data change and the command-log entry written inside one
+ * transaction of the account's own store.
+ *
+ * Synchronous throughout, and deliberately: `db.transaction` on a Durable
+ * Object's SQLite is `ctx.storage.transactionSync`, which commits when its
+ * callback returns. An `await` inside it would commit the transaction before
+ * the work it wraps had happened. See `client.ts`.
  */
-export async function runCommand<N extends CommandName>(
-  db: Db,
+export function runCommand<N extends CommandName>(
+  db: AccountDb,
   tenantId: string,
   name: N,
   payload: CommandPayload<N>,
-): Promise<CommandResult> {
-  if (await commandAlreadyApplied(db, payload.commandId)) {
+): CommandResult {
+  if (commandAlreadyApplied(db, payload.commandId)) {
     return { ok: true, applied: false };
   }
 
@@ -49,7 +57,6 @@ export async function runCommand<N extends CommandName>(
     issuedAt: payload.issuedAt,
     receivedAt: new Date().toISOString(),
   };
-  const logCommand = db.insert(commands).values(commandRow);
 
   let applied = true;
 
@@ -60,26 +67,34 @@ export async function runCommand<N extends CommandName>(
       // the one place an unknown id can reach a write. Checked here rather
       // than left to the foreign key: the constraint would surface a caller's
       // mistake as a 500, and this is a 404 like any other missing thing.
-      if (!(await getWorkspace(db, tenantId, cmd.workspaceId))) {
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
       const item = captureItem(cmd, tenantId);
-      // A retried capture whose command ID was lost still may not duplicate the item.
-      await db.batch([db.insert(items).values(item).onConflictDoNothing(), logCommand]);
+      db.transaction((tx) => {
+        // A retried capture whose command ID was lost still may not duplicate the item.
+        tx.insert(items).values(item).onConflictDoNothing().run();
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     case 'associate': {
       const cmd = payload as CommandPayload<'associate'>;
-      const existing = await getItem(db, tenantId, cmd.itemId);
+      const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
-      const write = cmd.remove
-        ? db
-            .delete(associations)
-            .where(
-              and(eq(associations.tenantId, tenantId), eq(associations.id, cmd.associationId)),
-            )
-        : db.insert(associations).values(associationFromCommand(cmd, tenantId)).onConflictDoNothing();
-      await db.batch([write, logCommand]);
+      db.transaction((tx) => {
+        if (cmd.remove) {
+          tx.delete(associations)
+            .where(and(eq(associations.tenantId, tenantId), eq(associations.id, cmd.associationId)))
+            .run();
+        } else {
+          tx.insert(associations)
+            .values(associationFromCommand(cmd, tenantId))
+            .onConflictDoNothing()
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     default: {
@@ -90,7 +105,7 @@ export async function runCommand<N extends CommandName>(
         | CommandPayload<'set_focus'>
         | CommandPayload<'set_next_action'>
         | CommandPayload<'set_priority'>;
-      const existing = await getItem(db, tenantId, cmd.itemId);
+      const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
 
       const updated =
@@ -106,16 +121,16 @@ export async function runCommand<N extends CommandName>(
 
       if (updated === null) {
         // Stale by last-write-wins: log the command, change nothing.
-        await db.batch([logCommand]);
+        db.insert(commands).values(commandRow).run();
         applied = false;
       } else {
-        await db.batch([
-          db
-            .update(items)
+        db.transaction((tx) => {
+          tx.update(items)
             .set(updated)
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId))),
-          logCommand,
-        ]);
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
       }
       break;
     }

@@ -14,6 +14,9 @@
 //      (`migrations apply` skips what it has already run, seed.sql is
 //      INSERT OR IGNORE), so this runs on every start rather than being a
 //      one-time step someone has to remember or a state file that can lie.
+//      Both are about the register - which accounts exist. An account's own
+//      data lives in a Durable Object that no command line can reach, and
+//      brings itself up to date on the first request that opens it.
 //   2. Builds apps/web/dist if it is missing. Wrangler refuses to start when
 //      the assets directory in wrangler.jsonc does not exist. Only existence
 //      matters here — the SPA is served by Vite on :5173 during development,

@@ -1,9 +1,12 @@
--- Local development seed: the single tenant and the three workspaces the
--- prototype demonstrates. Idempotent (INSERT OR IGNORE) so it can be re-run.
+-- The register: the one account this application has. Idempotent
+-- (INSERT OR IGNORE) so it can be re-run.
+--
+-- The workspaces it used to create are gone from here, not because they are
+-- gone from the product but because they are no longer in this database. An
+-- account's workspaces live in that account's own store, and nothing can reach
+-- a Durable Object from the outside to seed it - `wrangler d1 execute` speaks
+-- to D1, and a store does not exist until a request opens it. The three
+-- workspaces are now the account's first change instead
+-- (src/accounts/changes.ts), applied once, the first time somebody opens it.
 INSERT OR IGNORE INTO tenants (id, name, created_at)
 VALUES ('tenant-default', 'Michael', '2026-08-12T00:00:00.000Z');
-
-INSERT OR IGNORE INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES
-  ('ws-work', 'tenant-default', 'Work', 'work', '#6f62b5', '2026-08-12T00:00:01.000Z'),
-  ('ws-atlas', 'tenant-default', 'Atlas Copco', 'atlas', '#3a72c8', '2026-08-12T00:00:02.000Z'),
-  ('ws-personal', 'tenant-default', 'Personal', 'personal', '#c06a45', '2026-08-12T00:00:03.000Z');
