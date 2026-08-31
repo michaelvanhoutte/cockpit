@@ -1,0 +1,105 @@
+name: CodeQL
+
+# Static analysis on the same two events as ci.yml, for the same reason: the
+# merge commit on main is a tree that has never been analysed as such.
+#
+# Deliberately no path filters, on this workflow or on claude-code-review.yml.
+# A required status check that is skipped on some pull requests does not report
+# green - it does not report at all, and the pull request waits on it forever.
+# "Skip the analysis on documentation-only changes" and "block every
+# documentation-only pull request" are the same setting.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  # Cancel superseded pull request runs, never superseded runs on main.
+  #
+  # On a pull request this is free: branch protection evaluates its required
+  # checks against the head commit, so an analysis cancelled on a commit that is
+  # no longer the head cannot hold the merge, and paying for it twice buys
+  # nothing.
+  #
+  # On main it is not free. The default branch's analysis is the baseline every
+  # pull request's alerts are compared against, so cancelling one leaves the
+  # baseline standing at an older commit - and two merges landing close together
+  # is exactly when that happens.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    # This name is what branch protection matches on, once per matrix leg:
+    # "CodeQL (javascript-typescript)" and "CodeQL (actions)", both verified
+    # against a real run rather than predicted. Renaming either the job or the
+    # matrix values silently stops the required check reporting, and a required
+    # check that never reports blocks every pull request. See the ordering note
+    # in deployment.md's "Bootstrap runbook".
+    #
+    # These two say the analysis ran. They do not say it was clean: the check
+    # that fails on a high-severity alert is a third one, named "CodeQL" and
+    # posted by GitHub Advanced Security rather than by this workflow, and it is
+    # required alongside them for exactly that reason.
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Writing the analysis results back is the entire point of the job.
+      security-events: write
+      # Declaring any permissions block sets every scope not listed to `none`,
+      # so this line is not the no-op it looks like. GitHub's own CodeQL
+      # template carries it, documented as needed for workflows in private
+      # repositories - which this one is not, and the cost of finding that out
+      # the hard way is two failing legs whose error names neither this block
+      # nor the visibility change that caused it.
+      actions: read
+
+    # A pull request from a fork gets a read-only token whatever this block
+    # says, so the results upload may be refused and both legs report red. That
+    # is harmless while these checks are advisory and is not harmless once they
+    # are required, which is the step the runbook describes: a required check a
+    # fork cannot pass blocks every outside contribution to a public repository
+    # that allows forking. Verify a fork pull request before applying the
+    # payload, not after.
+
+    strategy:
+      # One leg's failure must not cancel the other's: an infrastructure failure
+      # analysing the workflows says nothing about the sources, and burying the
+      # sources' result would make a partial run look like a whole one.
+      fail-fast: false
+      matrix:
+        include:
+          # The application itself. build-mode "none" is right for an
+          # interpreted language: CodeQL reads the sources directly, so there is
+          # no build to drive and no toolchain to install - which is also why
+          # this job does not use .github/actions/setup.
+          - language: javascript-typescript
+            build-mode: none
+          # The workflows themselves, which is where this repository's own risk
+          # is concentrated: they run Claude against an OAuth token and they
+          # check out pull request branches. The queries here are the ones that
+          # find an untrusted value interpolated into a run block, and a
+          # permission granted wider than the job needs.
+          - language: actions
+            build-mode: none
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      # No assertion step, unlike claude-code-review.yml. That gate exists
+      # because a Claude session can decline to review and still exit zero; this
+      # action fails the job when the analysis fails, so a broken run is already
+      # red rather than a green tick over nothing.
+      - name: Analyse
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}

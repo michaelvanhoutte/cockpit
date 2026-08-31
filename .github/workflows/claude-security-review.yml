@@ -1,0 +1,117 @@
+name: Claude Security Review
+
+# A security pass over the diff, scoped to the rules this project decided on
+# rather than to generic advice. The rules themselves are in
+# .github/security-review-instructions.md, as a file rather than a string in
+# here, because they are prose that will grow and prose inside a YAML scalar
+# inside a shell quote is three layers of escaping.
+#
+# This is the judgement half. CodeQL (codeql.yml) is the mechanical half and
+# runs on the same pull requests; the instructions file says explicitly not to
+# spend this run re-deriving what CodeQL already reports.
+#
+# `pull_request`, never `pull_request_target`. That trigger runs the base
+# branch's workflow with repository secrets in scope while checking out code the
+# pull request author controls - on a public repository that allows forking,
+# that hands CLAUDE_CODE_OAUTH_TOKEN to anyone who opens a pull request.
+# Rotating the token afterwards closes the window; it does not undo anything
+# done inside it, and it is the same token the review and @claude workflows run
+# on. The same goes for `workflow_run` and for any other arrangement that puts
+# fork-authored code and repository secrets in one job. If fork pull requests
+# ever become inconvenient, this is why the convenient fix is not already here.
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+concurrency:
+  # One review per pull request at a time. Superseded runs are cancelled: the
+  # verdict that matters is the one for the current head, and paying for a
+  # review of a commit nobody will merge buys nothing.
+  group: security-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-review:
+    name: Security review
+    # Two skips, for different reasons.
+    #
+    # A fork's pull request gets a read-only token and no secrets, so this job
+    # cannot run - and left to fail it would report red for a reason that has
+    # nothing to do with the change, which is how a check stops being read.
+    # Skipping says so instead.
+    #
+    # A draft is work in progress, and reviewing every intermediate push of one
+    # costs a full run each time to tell someone something they already know
+    # they have not finished. Marking it ready for review is in the trigger
+    # types above, so a draft is reviewed the moment it stops being one.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # write, not read: the review posts its findings as inline comments.
+      pull-requests: write
+      issues: read
+      # Carried from claude-code-review.yml rather than established here.
+      # Nothing in this repository has shown that claude-code-action needs it
+      # when it authenticates with an OAuth token rather than through OIDC, and
+      # an unexplained write permission on a job that reads pull request content
+      # is the kind of thing this repository's own security instructions tell a
+      # reviewer to flag. Worth removing and watching a run, once this workflow
+      # is on the default branch and can actually run - which it cannot on the
+      # pull request that adds it.
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # The review reads the instructions file out of the checkout, and
+          # compares against history when a rule's origin matters.
+          fetch-depth: 0
+
+      - name: Run the security review
+        id: security-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # An explicit name rather than '*': this repository is public, and '*'
+          # would let any GitHub App trigger this workflow with a prompt it
+          # controls.
+          allowed_bots: 'claude[bot]'
+          prompt: |
+            /security-review
+
+            Review the diff of pull request ${{ github.event.pull_request.number }} in ${{ github.repository }}.
+
+            Read .github/security-review-instructions.md first and treat it as the definition of what
+            counts as a finding in this repository. Post each finding as an inline comment on the line
+            it concerns, and post a short summary comment when you find nothing.
+          # Worth being explicit that the instructions are read from the branch
+          # under review rather than from the default branch, which means a
+          # pull request can weaken the rules it is about to be judged by. That
+          # is deliberate - it is the only way a change to the rules can be
+          # tried before it merges - and it is safe for the reason the fork
+          # guard above is not needed twice: only someone who can already push
+          # here can do it, and the edit appears in the diff, where the code
+          # review and a human both see it. It would stop being safe the day
+          # this workflow runs on code from someone without push access.
+          claude_args: >-
+            --allowedTools "Skill,Task,Read,Grep,Glob,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),mcp__github_inline_comment__create_inline_comment"
+            --append-system-prompt "This is a single non-interactive run. Nothing will wake you once you stop, so a background task you are waiting on will never report back and the review will end having done nothing. Launch every subagent in the foreground and wait for its result before continuing. Never launch a background task, and never end your turn to wait for a completion notification. Two further rules govern this run. FIRST: you must end your final message with a single line of the exact form 'SECURITY-VERDICT: X' where X is one of NONE, LOW, MEDIUM or HIGH, naming the highest severity you found, and NONE when you found nothing. Write that line exactly once - do not restate the format anywhere else in your output, because a second line of that form is indistinguishable from a second verdict and fails the check. A run that ends without this line is treated as one that never reached a verdict, and its check goes red. SECOND: having reviewed this pull request before is not a reason to stop. Commits pushed since you last spoke have not been reviewed by anyone, and they are exactly where a fix for an earlier finding introduces a new problem. Review the current head every time and give your verdict for it."
+          # Without this the action hides tool output, so a blocked review is
+          # indistinguishable from a clean one.
+          show_full_output: true
+
+      - name: Assert the review reached a verdict
+        if: always()
+        env:
+          CONCLUSION: ${{ steps.security-review.outputs.conclusion }}
+          EXECUTION_FILE: ${{ steps.security-review.outputs.execution_file }}
+        # Every decision this makes is in scripts/lib/review-gate.mjs, asserted
+        # by node --test in the Scripts job. The equivalent step in
+        # claude-code-review.yml is ~120 lines of bash whose comments record
+        # four occasions when a blocked or declining session reported green -
+        # all four bugs in a parser that nothing could run.
+        run: node scripts/assert-security-review.mjs "$EXECUTION_FILE" "$CONCLUSION"
