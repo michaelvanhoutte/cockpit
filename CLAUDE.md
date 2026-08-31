@@ -15,7 +15,7 @@ pnpm dev
 
 ## Scoping new work
 
-**Before writing code for any new feature or fix, run the `scoping` skill in `.claude/skills/scoping/`** — sharpening fuzzy requirements, sizing the work as a vertical slice, and generating its statement list. This applies whether the work is going straight into this session or being filed as a GitHub issue first; filing is not what triggers it.
+**Before writing code for any new feature or fix, run the `scoping` skill in `.claude/skills/scoping/`** — sharpening fuzzy requirements, sizing the work as a vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and generating its statement list. This applies whether the work is going straight into this session or being filed as a GitHub issue first; filing is not what triggers it.
 
 ## Tests
 

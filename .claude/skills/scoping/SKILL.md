@@ -1,6 +1,6 @@
 ---
 name: scoping
-description: Cockpit's process for sharpening fuzzy requirements, sizing a piece of work as a vertical slice, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
+description: Cockpit's process for sharpening fuzzy requirements, sizing a piece of work as a vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
 ---
 
 # Scoping a piece of work
@@ -33,7 +33,21 @@ If the request doesn't fit that, split it into multiple units in dependency orde
 
 **When the work grows mid-session, say what it now costs.** Each addition gets judged against the one before it rather than against the original ask, so a run of individually reasonable expansions quadruples a change without anyone deciding to. Name the new total and what it drags behind it — its own tests, another sweep of the documents it falsifies, another review round — so continuing is chosen rather than defaulted into. This is the same sizing question as above, asked again at the moment the answer changes.
 
-### 4. Generate the statement list
+### 4. Enumerate the failure modes when state cannot be put back
+
+Most work is safe to get wrong once: a wrong query returns wrong rows until someone fixes it. Some work is not - a migration, a backfill, a destructive script, anything that changes state it cannot put back. For that kind, answer these **before** writing the implementation, and write the answers down as its own header comment, so the thing is built to satisfy them rather than discovering them one at a time:
+
+- **What happens if it fails partway through?** D1 wraps nothing in a transaction: `wrangler d1 migrations apply` runs a file's statements one at a time, and a half-finished file leaves whatever it left.
+- **What happens when it runs again?** Work that did not finish is not recorded as finished, so the next deploy repeats it - and a failed migration fails the deploy, so the old code keeps writing in the meantime.
+- **What happens to data the new rules reject?** Rows written before a rule existed are the likeliest to break it, and the choice between refusing loudly and dropping them silently has to be made rather than inherited from a default.
+- **What does each environment actually do?** Read the deploy workflows, never what seems obvious: preview is re-seeded on every deploy, staging deliberately never is because accumulated state is why it exists, and production is seeded once by hand.
+- **What are the distinct windows it can be interrupted in, and what must hold in each?** Enumerate them; "before the swap" and "during the swap" are different questions with different right answers.
+
+Every one of those was answerable up front on "Make the database enforce the schema conventions, not just the callers" (pull request 69), and none was asked. They came back instead as five review rounds and about two hours, four of them data-loss paths in one file, three of those introduced by the fix for the one before: a destructive rebuild that would have emptied staging and production, then a rebuild that could not be re-run, then a cleanup that destroyed the only staged copy, then a stale copy overwriting live writes. The fourth question is the cheapest of the five and skipping it caused the first round and everything downstream - two greps would have settled it.
+
+The answers are also rows for the statement list below: *a re-run after an interruption loses nothing* is a rule with a case per window.
+
+### 5. Generate the statement list
 
 Follow [.claude/skills/testing/references/statement-lists.md](../testing/references/statement-lists.md) exactly - the passes in order, the collapsing step, the pruning criterion, the ways-things-break checklist - using the docs already read in step 1.
 
@@ -41,16 +55,17 @@ This is what tells the build agent (yourself, immediately, or a future agent wor
 
 > Drafted for build-time reference. Once implemented, these become test names in source per the testing skill; this list is not maintained afterward.
 
-### 5. Gate before building or filing
+### 6. Gate before building or filing
 
-Do not proceed - to code or to `gh issue create` - if either holds:
+Do not proceed - to code or to `gh issue create` - if any of these holds:
 
 - The vertical slice is too big for one sitting - back to step 3.
-- Any real behaviour this work describes has no row in the statement list - back to step 4. Work with a behaviour nobody wrote a case for is not ready.
+- The work changes state it cannot put back and its failure modes are not written down - back to step 4. A review round is an expensive way to be told what a checklist asks.
+- Any real behaviour this work describes has no row in the statement list - back to step 5. Work with a behaviour nobody wrote a case for is not ready.
 
 ## Output
 
-What comes out of this process is a scoped unit of work (or several, in dependency order) and its statement list. Two ways that gets used next:
+What comes out of this process is a scoped unit of work (or several, in dependency order), its statement list, and - where it changes state it cannot put back - the failure modes its implementation has to satisfy. Two ways that gets used next:
 
-- **Filed as a GitHub issue** - hand off to the `github-issue` skill, which covers only the issue-specific parts: drafting the body template and publishing with `gh issue create`. Do not repeat steps 1-5 there.
-- **Built directly in the current session** - proceed straight to implementation. The statement list from step 4 goes straight into the test files as they're written; there is no issue body to draft, but the scope still went through the same sharpening and sizing.
+- **Filed as a GitHub issue** - hand off to the `github-issue` skill, which covers only the issue-specific parts: drafting the body template and publishing with `gh issue create`. Do not repeat steps 1-6 there.
+- **Built directly in the current session** - proceed straight to implementation. The statement list from step 5 goes straight into the test files as they're written; there is no issue body to draft, but the scope still went through the same sharpening and sizing.
