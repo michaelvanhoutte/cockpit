@@ -1,0 +1,149 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { workspaceListSchema } from '@cockpit/shared';
+import { LoadFailure } from '../../../src/components/LoadFailure';
+import { signInAgain, type Reach, type Surroundings } from '../../../src/api/loadFailure';
+
+/**
+ * F1: every branch here is a decision over facts about the world, and all of
+ * them are injected, so nothing about this needs a network or a browser. The
+ * one thing this level cannot prove — that the component is reached at all when
+ * a read fails in a real browser, through a real service worker — is the single
+ * F3 walk in tests/e2e/load-failure.test.ts.
+ *
+ * Only the navigation is replaced, at the edge; `diagnose` runs for real, so
+ * these cases exercise the actual classification rather than a mock of it.
+ */
+vi.mock('../../../src/api/loadFailure', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/loadFailure')>()),
+  signInAgain: vi.fn(),
+}));
+
+const askedToSignIn = vi.mocked(signInAgain);
+
+function world(definitelyOffline: boolean, reach: Reach): Surroundings {
+  return {
+    isDefinitelyOffline: () => definitelyOffline,
+    reachServer: () => Promise.resolve(reach),
+  };
+}
+
+/** A real shape mismatch, not a hand-made stand-in for one. */
+function unreadableAnswer(): unknown {
+  try {
+    workspaceListSchema.parse({ workspaces: 'not a list' });
+    throw new Error('expected the shape to be rejected');
+  } catch (error) {
+    return error;
+  }
+}
+
+const refused = new TypeError('Failed to fetch');
+
+beforeEach(() => {
+  sessionStorage.clear();
+});
+
+describe('Offline', () => {
+  describe('Cockpit says which of the reasons it could not load your work', () => {
+    const situations = [
+      {
+        situation: 'the device knows it has no connection',
+        error: refused,
+        surroundings: world(true, 'unreachable'),
+        headline: "Cockpit can't be reached",
+      },
+      {
+        // The one the browser gets wrong: a page reloaded while already offline
+        // insists it is online, so nothing may be concluded from that claim.
+        situation: 'nothing answers, however online the browser claims to be',
+        error: refused,
+        surroundings: world(false, 'unreachable'),
+        headline: "Cockpit can't be reached",
+      },
+      {
+        situation: 'the deployment is healthy, so it is the sign-in that has run out',
+        error: refused,
+        surroundings: world(false, 'healthy'),
+        headline: 'Your sign-in expired',
+      },
+      {
+        situation: 'the deployment answers, but reports itself unwell',
+        error: refused,
+        surroundings: world(false, 'unhealthy'),
+        headline: 'Cockpit is having trouble',
+      },
+      {
+        situation: 'the read itself comes back as a failure',
+        error: new Error('workspaces failed: 500'),
+        surroundings: world(false, 'healthy'),
+        headline: 'Cockpit is having trouble',
+      },
+      {
+        situation: 'the answer is something this version cannot read',
+        error: unreadableAnswer(),
+        surroundings: world(false, 'healthy'),
+        headline: 'Cockpit has been updated',
+      },
+    ];
+
+    it.each(situations)('$situation', async ({ error, surroundings, headline }) => {
+      render(<LoadFailure error={error} surroundings={surroundings} />);
+
+      expect(await screen.findByRole('heading', { name: headline })).toBeInTheDocument();
+    });
+  });
+
+  describe('Cockpit names no reason until it has worked out which one it is', () => {
+    it('says it is still working it out while the check is unfinished', () => {
+      const neverAnswers: Surroundings = {
+        isDefinitelyOffline: () => false,
+        reachServer: () => new Promise<Reach>(() => {}),
+      };
+
+      render(<LoadFailure error={refused} surroundings={neverAnswers} />);
+
+      expect(screen.getByText('Working out what went wrong…')).toBeInTheDocument();
+      expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe('Sign-in', () => {
+  describe('Cockpit only takes over the screen to sign you in when it has nothing to show', () => {
+    it('goes straight to signing in, remembering the page, when nothing is on screen', async () => {
+      askedToSignIn.mockClear();
+      window.history.pushState({}, '', '/w/ws-work');
+
+      render(<LoadFailure error={refused} surroundings={world(false, 'healthy')} canTakeOver />);
+
+      expect(await screen.findByText('Signing you back in…')).toBeInTheDocument();
+      expect(askedToSignIn).toHaveBeenCalledWith('/w/ws-work');
+    });
+
+    it('asks rather than moves, once a sign-in has already been tried and did not help', async () => {
+      askedToSignIn.mockClear();
+      // As if this tab had just come back from signing in and failed anyway.
+      sessionStorage.setItem('cockpit-sign-in-attempted', '1');
+
+      render(<LoadFailure error={refused} surroundings={world(false, 'healthy')} canTakeOver />);
+
+      expect(await screen.findByRole('heading', { name: 'Your sign-in expired' })).toBeInTheDocument();
+      expect(askedToSignIn).not.toHaveBeenCalled();
+    });
+
+    it('waits to be asked, leaving the page alone, when work is already on screen', async () => {
+      askedToSignIn.mockClear();
+      const user = userEvent.setup();
+
+      render(<LoadFailure error={refused} surroundings={world(false, 'healthy')} />);
+
+      expect(await screen.findByRole('heading', { name: 'Your sign-in expired' })).toBeInTheDocument();
+      expect(askedToSignIn).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Sign in again' }));
+      expect(askedToSignIn).toHaveBeenCalledTimes(1);
+    });
+  });
+});

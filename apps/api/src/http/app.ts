@@ -103,6 +103,28 @@ function commandRoute<N extends CommandName>(name: N) {
   });
 }
 
+/**
+ * Where /v1/relogin is allowed to send the browser afterwards.
+ *
+ * The return location arrives in a query string, so it is attacker-supplied by
+ * definition, and handing it to a redirect unchecked is an open redirect: a
+ * link on our own trusted host that silently lands on someone else's. Only a
+ * path inside this app is allowed, and anything a browser could read as a host
+ * falls back to the start page rather than being cleaned up — rejecting is
+ * safe, repairing is where the bypasses live.
+ */
+export function safeReturnPath(raw: string | undefined): string {
+  if (!raw || !raw.startsWith('/')) return '/';
+  // `//elsewhere.example` and `/\elsewhere.example` are both read as hosts.
+  if (raw.startsWith('//') || raw.startsWith('/\\')) return '/';
+  // A control character would let the value continue into a header of its own.
+  for (let i = 0; i < raw.length; i += 1) {
+    const code = raw.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return '/';
+  }
+  return raw;
+}
+
 // --- route registration ------------------------------------------------------
 // Chained so the exported AppType gives the web client end-to-end inference.
 
@@ -186,6 +208,17 @@ const routes = app
       }
     }),
   )
+  // --- returning from the perimeter's sign-in --------------------------------
+  // Reached only *after* the gate has let the request through, which is the
+  // whole trick: the browser cannot follow a sign-in redirect from a background
+  // request, and a plain reload is answered by the service worker out of its
+  // own cache and never leaves the machine. So the client navigates here for
+  // real (`/v1/*` is on the service worker's denylist), the gate challenges it,
+  // and once signed in this hands the browser back to the page it came from.
+  //
+  // Plain `.get` rather than an OpenAPI route: this answers with a redirect,
+  // not with a documented response body.
+  .get('/v1/relogin', (c) => c.redirect(safeReturnPath(c.req.query('return')), 302))
   // --- generic webhook ingress (§6.2): no source-specific routes here ---------
   .post('/ingress/:connectorId/*', async (c) => {
     const connector = getConnector(c.req.param('connectorId'));

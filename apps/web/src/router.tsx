@@ -6,6 +6,7 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { workspacesQuery } from './api/queries';
+import { LoadFailure } from './components/LoadFailure';
 import { Layout } from './pages/Layout';
 import { WorkspacePage } from './pages/WorkspacePage';
 
@@ -44,6 +45,14 @@ export function createAppRouter(queryClient: QueryClient) {
     routeTree,
     context: { queryClient },
     defaultPreload: 'intent',
+    // Without this the router falls back to its own ErrorComponent, which
+    // prints the raw thrown error ("Failed to fetch") in unstyled markup and
+    // makes an expired sign-in, a broken deployment and a stale build all look
+    // identical. This boundary is only reached when there is no stored copy to
+    // paint from, so it may take the screen over.
+    defaultErrorComponent: ({ error, reset }) => (
+      <LoadFailure error={error} onRetry={reset} canTakeOver />
+    ),
   });
 }
 

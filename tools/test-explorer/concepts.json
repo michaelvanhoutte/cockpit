@@ -62,7 +62,9 @@
         "apps/api/src/db/client.ts",
         "apps/api/src/db/schema.ts",
         "packages/shared/src/ids.ts",
-        "packages/shared/src/commands.ts"
+        "packages/shared/src/commands.ts",
+        "apps/web/src/api/loadFailure.ts",
+        "apps/web/src/components/LoadFailure.tsx"
       ]
     },
     {
@@ -74,6 +76,15 @@
       "key": "User management",
       "label": "User management",
       "sourcePatterns": []
+    },
+    {
+      "key": "Sign-in",
+      "label": "Sign-in",
+      "sourcePatterns": [
+        "apps/web/src/api/loadFailure.ts",
+        "apps/web/src/components/LoadFailure.tsx",
+        "apps/api/src/http/app.ts"
+      ]
     }
   ]
 }

@@ -333,5 +333,6 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Next action** — the short, always-editable label describing what to actually do about an Item.
 - **Focus horizon** — Today / This Week / This Month / This Quarter priority flag on an Item, date-anchored so it escalates to overdue.
 - **Triage / process** — the act of assigning associations and a status to an Item so it leaves the To-Process inbox.
+- **Sign-in** — proving who you are before Cockpit will show you your work. A sign-in expires after a while; when it does, Cockpit says so and takes you back to the page you were on, rather than failing at you.
 
 This glossary is the product's vocabulary, and it is binding on anything written to be read as a description of the product — test names included (see `docs/testing-strategy.md`, "Tests are named in the product's language"). Words that live only in `docs/architecture.md` (command, envelope, tombstone, idempotency, last-write-wins) are implementation, and stay there.

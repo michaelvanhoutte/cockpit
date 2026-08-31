@@ -359,11 +359,22 @@ confirming it was challenged).
 its reasons now applies to us directly: **Access's expired-session redirects to an
 HTML login page break silent `fetch` and `EventSource` refresh.** Cockpit
 revalidates on focus and holds an SSE stream open (§5.2), so when an Access session
-expires, the client gets HTML where it expects JSON or events. On the installed
-phone PWA that presents as an inbox that quietly stopped updating.
+expires, the client gets HTML where it expects JSON or events.
 
-Two mitigations, neither of which is a fix:
+**Amended 2026-08-31, for reads.** That used to present as an app that had
+quietly stopped working, and on a first load as the router's raw
+`Failed to fetch`. The client now recognises the case and recovers from it: it
+asks `/health` — which is outside the gate, so an answer proves the deployment
+is healthy and the fault is this browser's sign-in — then sends itself through
+`/v1/relogin`, which is challenged by Access and hands the browser back to the
+page it came from. The push stream recovers by a related route: `EventSource`
+abandons a badly-answered connection after one attempt, so the client reopens it
+on a backoff and runs the same check to decide whether the sign-in is what went.
 
+Three mitigations, of which only the first is a fix, and only for reads:
+
+- **Recover in the client**, as above. It removes the dead-end, not the
+  interruption: an expired session still costs a round trip through the login.
 - **Set a long Access session duration** (up to one month) so expiry is rare.
 - **Treat this as interim.** It is the perimeter that exists *because* §8.1 has not
   been built. When the OIDC flow lands, Access on production should be
@@ -374,6 +385,9 @@ Two mitigations, neither of which is a fix:
 
 This does **not** reverse §8.1. Access here is a perimeter around a deployment, not
 the application's identity model, and it buys time rather than a design.
+
+When this is what you are actually looking at on a broken page, the procedure is
+in *Diagnosing a broken environment* rather than here.
 
 The Zero Trust team domain is `conselit.cloudflareaccess.com`. It is account-wide
 rather than per-project (the same account runs conselit.be and the task-creator
@@ -546,3 +560,98 @@ than to any mail provider, so it survives changing employer or email.
 - **Preview alias cleanup.** Aliases for deleted branches persist. Harmless
   (each serves an old version of a public showcase app behind Access) and there
   is no reaping command worth wiring today.
+## 9. Diagnosing a broken environment
+
+The other sections are procedures for when you already know what is wrong. This
+one is for the moment before that: a deployed environment is showing something
+bad and it is not yet clear whether the deployment is broken, the database is
+unreachable, or this browser simply needs to sign in again.
+
+It exists because the failure most likely to bring you here was already
+predicted, in the wrong genre. *The cost of gating production, stated plainly*
+argues that gating is worth its cost and names that cost exactly — Access's
+expired-session redirects break silent `fetch`. That is an argument for a
+decision. Nobody reads it while staring at a broken page, because you would have
+to know the answer already to know to look there.
+
+### First question: is it the deployment, or is it me?
+
+One command settles it, and it is the reason `/health` is Bypass-policied out of
+the gate in the first place:
+
+```bash
+curl -i https://cockpit-staging.vanhoutte-michael.workers.dev/health
+```
+
+| Answer | Meaning | Go to |
+|---|---|---|
+| `200 {"ok":true,"db":true}` | Worker up, D1 answering. The deployment is fine. | *In the browser*, below |
+| `200` with any other body | Something answered in front of the Worker | *In the browser* — usually a login page, so the Bypass policy has come undone |
+| `301`/`302` | The Bypass policy is gone; `/health` is behind the gate | *`/health` must stay outside the gate* |
+| `5xx` | The Worker is up and failing | *At the deployment*, below |
+| Nothing, or a TLS error | Not reachable at all | *At the deployment*, below |
+
+### In the browser: read the shape of the message first
+
+Cockpit names its own failures (`apps/web/src/components/LoadFailure.tsx`), so
+most of the time the screen has already done this triage for you. When you are
+looking at a raw error instead — in the console, in a test, or in an older
+build — the wording still identifies the class before you open anything:
+
+| What you see | What it means | What it rules out |
+|---|---|---|
+| `TypeError: Failed to fetch` | The request never completed | Not a Worker error. The Worker was never reached, or its answer was a redirect the browser refused to follow |
+| `... failed: 500` | The Worker answered, and failed | Not a sign-in or connectivity problem |
+| `... failed: 401` / `403` | The gate answered rather than redirecting | Not a Worker problem |
+| A `ZodError` | The API and this build of the SPA disagree on shape | Not a sign-in problem; it is version skew, and a reload fixes it |
+
+`Failed to fetch` is the ambiguous one, and deliberately so: the browser will
+not tell a page whether a cross-origin redirect happened. That is why the app
+asks `/health` before it names a reason, and why you should too.
+
+Then, in DevTools, in this order:
+
+1. **Network**, with *Preserve log* ticked — without it the 302 disappears
+   before you can read it. A `Location:` pointing at `conselit.cloudflareaccess.com`
+   is a sign-in that has run out, full stop.
+2. **Application → Cookies**, for the environment's origin. `CF_Authorization`
+   absent or expired is the whole story.
+3. **Application → Service Workers.** This is what explains the genuinely
+   confusing part: why a signed-out browser shows a *rendered app* instead of a
+   login page. The service worker answers navigations from its own precache
+   (`navigateFallback` in `apps/web/vite.config.ts`), so the document never
+   touches the network and never gets redirected; only the `/v1/*` calls do,
+   and those are the ones that fail. Tick *Bypass for network* to see what the
+   server would really have said.
+
+**A plain reload does not sign you back in**, for that same reason, and this
+surprises people every time. Only a navigation to a path on the service
+worker's denylist leaves the browser at all — which is what `/v1/relogin` is
+for: it is challenged by the gate, and once you are through it hands the
+browser back to the page you came from.
+
+### At the deployment
+
+```bash
+gh run list --workflow=deploy-staging.yml --limit 5
+```
+
+Then the Worker's own logs — `observability.logs` is enabled in
+`apps/api/wrangler.jsonc`, so this streams real requests as they arrive:
+
+```bash
+pnpm --filter @cockpit/api exec wrangler tail --env staging
+```
+
+If the deploy is the problem rather than the code, *Migrations and rollback*
+has the four ways back, in preference order.
+
+### What this does not cover
+
+The push stream (`apps/web/src/api/useServerEvents.ts`) fails the same way and
+now recovers from it, but it recovers *quietly* — `EventSource` cannot report why
+it stopped, so there is nothing to show a person and nothing said when the
+replacement succeeds. If you are chasing "it stopped updating", the Network tab
+is still where you see it: look for repeated `/v1/events` requests spaced 3s, 6s,
+12s apart, which is the client backing off against something that keeps refusing
+it.

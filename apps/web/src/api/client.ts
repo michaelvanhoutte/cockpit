@@ -1,4 +1,5 @@
 import { hc } from 'hono/client';
+import { clearSignInAttempt } from './loadFailure';
 import type { AppType } from '@cockpit/api';
 import {
   workspaceListSchema,
@@ -20,6 +21,9 @@ export const api = hc<AppType>('/');
 export async function fetchWorkspaces(): Promise<WorkspaceList> {
   const res = await api.v1.workspaces.$get();
   if (!res.ok) throw new Error(`workspaces failed: ${res.status}`);
+  // Getting an answer proves the sign-in is good, so a later expiry in this
+  // same tab is handled automatically again rather than hitting the guard.
+  clearSignInAttempt();
   return workspaceListSchema.parse(await res.json());
 }
 
