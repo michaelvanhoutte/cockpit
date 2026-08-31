@@ -26,6 +26,14 @@ The two rules that get skipped most, repeated here because they are the ones tha
 - **Test at the lowest level that can prove the behaviour**, and escalate only for what that level physically cannot verify. Never re-prove lower-level coverage higher up the pyramid.
 - **Nothing is "working" until the application has been started and the changed behaviour exercised.** Green unit and integration tests are never evidence that the app runs — start it with `pnpm dev` and drive the change in the browser. This is why the command above has to stay one command.
 
+## Review findings
+
+**A finding is not handled until its own review thread says so.** Fixing the code and pushing is half the job: GitHub never resolves a thread by itself. A push only adds an *Outdated* badge, and only when the lines the comment was anchored to have left the diff; merging changes nothing either. So for every thread, reply naming the commit that fixed it and what changed, then resolve it. Where the fix did not land, or the finding was declined on purpose, reply saying which and leave the thread open. Never resolve a thread without a reply, and never resolve one whose fix has not been checked against the committed code rather than against the commit message that claims it.
+
+The pull request is the audit trail; the session that produced the fix is not. All ten findings on "Make the database enforce the schema conventions, not just the callers" (pull request 69) had been fixed and pushed, and all ten still read as open and unanswered — from the pull request alone there was no evidence that any of the review had been handled, and the reasonable conclusion was that something had broken.
+
+`gh pr view` does not show thread state at all. Query `reviewThreads` on the pull request for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
+
 ## Where things are decided
 
 | Document | What it settles |
