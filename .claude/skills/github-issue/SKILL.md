@@ -7,7 +7,7 @@ description: Cockpit's process for turning an already-scoped piece of work into 
 
 Issues are how work gets sized and handed to an agent for one sitting. Per [docs/ideas.md](../../../docs/ideas.md), they must be small enough to control what gets tested, but they are not the long-term record - once an issue is built, the source (code, tests, the feature's own docs) is what stays true, per [docs/testing-strategy.md](../../../docs/testing-strategy.md).
 
-Sharpening the requirements, sizing the vertical slice, and generating the statement list are not part of this skill - they belong to any new piece of work, filed or not, and live in the [scoping](../scoping/SKILL.md) skill. If that hasn't run yet for this work, run it first. This skill only covers what's specific to the GitHub artifact: the body template and publishing.
+Sharpening the requirements, sizing the vertical slice, enumerating the failure modes where state cannot be put back, and generating the statement list are not part of this skill - they belong to any new piece of work, filed or not, and live in the [scoping](../scoping/SKILL.md) skill. If that hasn't run yet for this work, run it first. This skill only covers what's specific to the GitHub artifact: the body template and publishing.
 
 ## Process
 
@@ -24,6 +24,14 @@ The end-to-end behaviour this issue makes work, from the user's perspective - no
 layer-by-layer implementation list. No file paths or code snippets; they go stale fast.
 Exception: a snippet from a prototype that encodes a decision more precisely than prose
 can (schema, state machine) - trimmed to the decision, noted as coming from a prototype.
+
+## Failure modes
+
+[only where the work changes state it cannot put back - the answers from scoping step 4:
+what must hold if it fails partway, if it runs again, when it meets data the new rules
+reject, what each environment actually does, and in every window it can be interrupted.
+Omit this section entirely for work that does not. The analysis is the expensive part of
+scoping such work; an issue that drops it makes whoever builds this redo it.]
 
 ## Blocked by
 
