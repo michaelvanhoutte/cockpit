@@ -28,11 +28,15 @@ The two rules that get skipped most, repeated here because they are the ones tha
 
 ## Review findings
 
+**Run the review yourself before pushing.** `/code-review` reads the same diff the pull request's reviewer will, and it runs now, where a remote round costs a push, a fresh CI run and fourteen minutes of waiting. Five of the eight findings in the first round on "Recover from an expired sign-in instead of failing silently" (pull request 71) were a single mechanical rule — a section cited by its number — that takes no judgement to find. Two rounds on that change spent twenty-eight minutes waiting to be told things a local pass says immediately.
+
 **A finding is not handled until its own review thread says so.** Fixing the code and pushing is half the job: GitHub never resolves a thread by itself. A push only adds an *Outdated* badge, and only when the lines the comment was anchored to have left the diff; merging changes nothing either. So for every thread, reply naming the commit that fixed it and what changed, then resolve it. Where the fix did not land, or the finding was declined on purpose, reply saying which and leave the thread open. Never resolve a thread without a reply, and never resolve one whose fix has not been checked against the committed code rather than against the commit message that claims it.
 
 The pull request is the audit trail; the session that produced the fix is not. All ten findings on "Make the database enforce the schema conventions, not just the callers" (pull request 69) had been fixed and pushed, and all ten still read as open and unanswered — from the pull request alone there was no evidence that any of the review had been handled, and the reasonable conclusion was that something had broken.
 
 `gh pr view` does not show thread state at all. Query `reviewThreads` on the pull request for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
+
+**Read what `main` has gained before finishing, not only what it has changed.** Merging it in is routine; noticing that its *instructions* moved is not. The rule above landed on `main` twenty-two minutes before pull request 71 merged, and that session finished without ever reading it — every finding fixed and pushed, every thread still unanswered.
 
 ## Where things are decided
 
@@ -49,3 +53,7 @@ Options documents (`docs/*-options.md`) record integration research. `poc/` hold
 **Cite a section by its name, never by its number alone.** "The bootstrap runbook (deployment §7)" tells the reader what is being pointed at; "deployment §7" makes them go and look it up before they can even judge whether it is relevant, and in conversation it says nothing at all. The numbers are useful as locators inside the documents, which cross-reference each other constantly — they are not a shorthand anyone can read. The same applies to issue numbers: name the issue, then give the number.
 
 **When you add or change a rule, apply it across the whole change mechanically.** Search for every instance rather than judging them one at a time. Four of the thirteen review findings on the pull request that added the rule above were that same rule, broken elsewhere in the same change — each one survived because it was looked at individually and seemed defensible, and one sweep missed a whole class because grepping for `§` structurally cannot find the issue numbers the rule also covers. The same holds when a fact stops being true: search for the *claim*, not the file you happen to have open. "The browser tier runs against the `pnpm dev` pair" was corrected three times, in three files, before anyone searched for the sentence itself.
+
+**Counts and enumerations are claims as much as sentences are.** Adding a tenth feature area left the same “nine areas” claim standing in three places across two documents. Review found the pair in the file it happened to be reading; the third, the registry's own comment, surfaced only from searching for the sentence.
+
+**Write file content with `Write` and `Edit`, and keep the shell for commands.** A heredoc into a script into a TypeScript string is three layers of escaping, and `\r\n`, a lone backslash and a null byte survive none of them. Two source files were mangled that way in one session, both badly enough that `grep` reported them as binary, and the script written to repair the second was broken by the same escaping on its own Windows path. The file tools take content exactly as written.

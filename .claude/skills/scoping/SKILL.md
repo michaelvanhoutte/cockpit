@@ -31,6 +31,8 @@ If the request doesn't fit that, split it into multiple units in dependency orde
 
 **Exception:** a wide, mechanical refactor (rename a shared symbol, retype a column) whose blast radius fans across the codebase can't be sliced vertically. Sequence it instead as expand (add the new form beside the old) → migrate in batches sized by blast radius, each its own unit blocked by the expand → contract (delete the old form), blocked by every migrate batch.
 
+**When the work grows mid-session, say what it now costs.** Each addition gets judged against the one before it rather than against the original ask, so a run of individually reasonable expansions quadruples a change without anyone deciding to. Name the new total and what it drags behind it — its own tests, another sweep of the documents it falsifies, another review round — so continuing is chosen rather than defaulted into. This is the same sizing question as above, asked again at the moment the answer changes.
+
 ### 4. Generate the statement list
 
 Follow [.claude/skills/testing/references/statement-lists.md](../testing/references/statement-lists.md) exactly - the passes in order, the collapsing step, the pruning criterion, the ways-things-break checklist - using the docs already read in step 1.
