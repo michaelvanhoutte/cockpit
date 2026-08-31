@@ -2,7 +2,7 @@
 
 Raw feature ideas for Cockpit, captured as voice/WhatsApp notes between 17 and 25 August 2026 and grouped here by theme. This is a **capture list, not a plan**: nothing here is decided, sized, or scheduled, and no issues have been created for any of it. Items that contradict each other or that overlap with the [functional definition](functional-definition.md) are kept as written, because the wording is the record of what was actually wanted.
 
-Where an idea affects an existing decision, the relevant section is referenced. Terminology follows the functional definition: Workspace → Page → Panel, Item, Association. A few of these notes have since been taken up in their own documents ([routing-learning.md](routing-learning.md), [coverage-reporting-options.md](coverage-reporting-options.md)); those are marked where they appear, and the note is kept so the origin of the requirement stays visible.
+Where an idea affects an existing decision, the relevant section is referenced. Terminology follows the functional definition: Workspace → Dashboard → Panel, Item, Association. A few of these notes have since been taken up in their own documents ([routing-learning.md](routing-learning.md), [coverage-reporting-options.md](coverage-reporting-options.md)); those are marked where they appear, and the note is kept so the origin of the requirement stays visible.
 
 ---
 

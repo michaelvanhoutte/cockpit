@@ -246,7 +246,7 @@ Same philosophy as the testing strategy's 5-minute rule: budgets are gates, not 
 |---|---|
 | Cold open → glanceable dashboard (installed PWA, warm cache) | **< 1s** |
 | Capture: entry point → note persisted (excluding typing) | **< 2s** |
-| Panel interactions (filter, drag, reorder, switch page) | **< 100ms** |
+| Panel interactions (filter, drag, reorder, switch dashboard) | **< 100ms** |
 | Initial JS bundle (compressed) | **< 200KB**, hard CI gate |
 | Snapshot revalidation after cold open | background, never blocking paint |
 

@@ -5,8 +5,9 @@ import { useServerEvents } from '../api/useServerEvents';
 
 /**
  * The app shell: workspace tabs on top (the workspace color identity from the
- * functional definition §4.1), the active page below. Pages and panels arrive
- * with the dashboard work; the shell only owns workspace scoping.
+ * functional definition's container hierarchy), the active workspace below.
+ * Dashboards and panels arrive with their own issues; the shell only owns
+ * workspace scoping.
  */
 export function Layout() {
   useServerEvents();
