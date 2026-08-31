@@ -46,9 +46,22 @@ jobs:
           # first agent, said "I will wait for the background agent completion
           # notification rather than polling", and ended. In a one-shot run
           # nothing ever sends that notification.
+          # Its second half is there because the command's own stop conditions
+          # include one for a pull request that is very simple and obviously ok,
+          # and taking that one posts nothing at all: run 33407302266 judged
+          # pull request 80 (a single zero-byte file deletion) too trivial to
+          # review and stopped after 5 clean turns, having said nothing, which
+          # the gate below could not tell from a review that never happened.
+          # That decision was defensible - what is not is making it silently.
+          # The other silent stop, "already reviewed", at least leaves the
+          # earlier round's comments standing; this one leaves the pull request
+          # with nothing on it at all. Only this condition is instructed away:
+          # declining a genuine re-run stays allowed, and issue 75 ("The review
+          # check goes green when the reviewer declined to look at the new
+          # commits") owns that one.
           claude_args: >-
             --allowedTools "Skill,Task,Read,Grep,Glob,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git log:*),Bash(git blame:*),Bash(git diff:*),Bash(git show:*),mcp__github_inline_comment__create_inline_comment"
-            --append-system-prompt "This is a single non-interactive run. Nothing will wake you once you stop, so a background task you are waiting on will never report back and the review will end having done nothing. Launch every subagent in the foreground and wait for its result before continuing. Never launch a background task, and never end your turn to wait for a completion notification."
+            --append-system-prompt "This is a single non-interactive run. Nothing will wake you once you stop, so a background task you are waiting on will never report back and the review will end having done nothing. Launch every subagent in the foreground and wait for its result before continuing. Never launch a background task, and never end your turn to wait for a completion notification. One of your stop conditions needs different handling here. Judging a change too simple, too obvious or too automated to be worth reviewing is a legitimate verdict, but it is still a verdict: post a short comment saying that is your conclusion, rather than stopping without a word. Nobody reads this run's log, so a review that ends having posted nothing is indistinguishable from one that never happened, and is treated as a failure. This applies to that condition only. Your other stop conditions are unchanged and must stay silent: say nothing on a closed pull request, say nothing on a draft, and say nothing on one you have already reviewed, where the earlier round's comments still stand."
           # Without this the action hides tool output, so a blocked review is
           # indistinguishable from a clean one.
           show_full_output: true
@@ -140,8 +153,16 @@ jobs:
           # What actually separates a review from a non-review is whether Claude
           # said anything on the pull request. With --comment every path that reaches a verdict
           # posts something - inline comments when there are findings, a summary
-          # comment when there are none - and the one skip that posts nothing,
-          # "Claude already reviewed this", leaves an earlier comment standing.
+          # comment when there are none. Silence otherwise means no verdict was
+          # reached, which is the failure this test is for. The command's four
+          # stop conditions are the deliberate exceptions, and each is accounted
+          # for: closed and draft never reach this test, because PR_STATE
+          # excludes them below; "already reviewed" leaves the earlier round's
+          # comments standing; and the trivial-change stop is instructed away by
+          # the appended system prompt above, which requires that verdict to be
+          # posted like any other. Run 33407302266 is why that instruction
+          # exists - it took the trivial stop on pull request 80 and failed this
+          # gate for a review that had actually reached the right answer.
           VERDICT_SEEN=0
           PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state,isDraft -q '"\(.state) \(.isDraft)"')
           if [ "$PR_STATE" = "OPEN false" ]; then
