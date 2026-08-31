@@ -48,7 +48,7 @@ These five decisions are settled and everything below is built on them:
 - **Delivery — two iterations.** Iteration 1 delivers follow-up tracking of items explicitly flagged, saved, or assigned at the source; iteration 2 adds the unified read-and-process inbox on top of it (§1.1). The data model does not change between them: iteration 2 widens what gets ingested and adds the triage flow, but Items, Associations, Panels, and reconciliation are shared.
 - **Audience — personal-first, SaaS-ready.** Built for you as the first and only user for now, but the data model, tenancy, and auth are designed so it could become a multi-tenant product later without a rewrite. In practice this means: assume a single user today, but never hard-code that assumption into the schema.
 - **Offline — local-first.** Syncing with the source apps happens while online. But you must be able to open the app and see your current status, read already-synced items, and triage them *without* a live connection. Changes made offline queue locally and reconcile when connectivity returns. (This is "local-first," not "never touches the network.") Refined by issue 9 (§2): the primary purpose of the local copy is instant rendering; offline use is real but rare (a plane, unreliable data), so it should fall out of the cache design rather than drive extra machinery of its own.
-- **Inbox — triage queue.** The Inbox is a list of *items still to process*, not a permanent mirror of every message. Once you process an item it leaves the Inbox, though it remains visible in whatever panels its associations feed. (The full Inbox is iteration 2; in iteration 1 flagged items route straight to the dashboards, see §5.)
+- **Inbox — triage queue.** The Inbox is a list of *items still to process*, not a permanent mirror of every message. Once you process an item it leaves the Inbox, though it remains visible in whatever panels its associations feed. (The full Inbox is iteration 2; in iteration 1 flagged items route straight to the dashboards, see "The Inbox and the triage flow", §5 — whose interim note records that until Panels exist, a processed item stays in the Inbox with its status on it.)
 - **v1 sources — Gmail, Slack, Notion.** Linear, Google Calendar, Chrome (bookmarks/downloads), and YouTube (saved videos) are explicitly later phases.
 
 ## 4. Core concepts and terminology
@@ -103,6 +103,8 @@ Because associations are many-to-many, one message can appear simultaneously in 
 
 The Inbox is a Panel type showing every Item with status **To Process**, scoped to the current Workspace (so no private items while processing work).
 
+> **Interim, since "Show one Inbox per workspace, with capture at the top of it" (issue 89):** the Inbox currently shows every *open* Item — everything except what you marked Done and what you dismissed — not only the unprocessed ones, and Capture is its first row. Giving a Task, a Waiting or a Snoozed Item a status of its own would otherwise make it vanish from the only list there is, because there is nowhere else for it to go yet. Panels are what give them homes ("Panels on a dashboard, with per-screen-size layouts", issue 33), and the Inbox narrows back to the sentence above when "Render actions in panels, backed by one shared action list" (issue 36) lands. Everything below in this section describes the settled shape, not today's.
+
 When you process an Item you do one or more of:
 
 - **Read and respond** — the Item's content is readable in the app itself (not just a preview), and where the source supports it you can react or reply from here; otherwise the deep link (§6.1) takes you to the source to answer. This is the core of iteration 2's "easier inbox" promise: reading everything in one place instead of app-hopping.
@@ -111,7 +113,7 @@ When you process an Item you do one or more of:
 - **Set a status** — e.g. *Done*, *Waiting on someone*, *Scheduled/Snoozed until a date*, *Delegated*, *Reference/Archive*, or *Convert to Task* (with a due date).
 - **Delete/Dismiss** — remove it from the queue.
 
-Once it has a status other than *To Process*, it leaves the Inbox but stays reachable through its associations and through an optional "All items" view.
+Once it has a status other than *To Process*, it leaves the Inbox but stays reachable through its associations and through an optional "All items" view. (Not yet: see the interim note at the top of this section — today only *Done* and *Dismissed* take an Item out of the Inbox.)
 
 **Gestures and interactions:**
 
@@ -332,7 +334,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Priority** — low / normal / high importance flag on an Item, independent of its Focus horizon.
 - **Next action** — the short, always-editable label describing what to actually do about an Item.
 - **Focus horizon** — Today / This Week / This Month / This Quarter priority flag on an Item, date-anchored so it escalates to overdue.
-- **Triage / process** — the act of assigning associations and a status to an Item so it leaves the To-Process inbox.
+- **Triage / process** — the act of assigning associations and a status to an Item so it leaves the To-Process inbox. (Interim: until Panels exist to hold them, a triaged Item stays in the Inbox showing its new status — see the interim note in "The Inbox and the triage flow", §5.)
 - **Sign-in** — proving who you are before Cockpit will show you your work. A sign-in expires after a while; when it does, Cockpit says so and takes you back to the page you were on, rather than failing at you.
 
 This glossary is the product's vocabulary, and it is binding on anything written to be read as a description of the product — test names included (see `docs/testing-strategy.md`, "Tests are named in the product's language"). Words that live only in `docs/architecture.md` (command, envelope, tombstone, idempotency, last-write-wins) are implementation, and stay there.
