@@ -65,6 +65,11 @@ class FakeStream {
     this.readyState = FakeStream.CONNECTING;
     this.#fire('error');
   }
+
+  /** Something changed, pushed down the stream. */
+  announces(change: unknown) {
+    this.#fire('change', { data: JSON.stringify(change) } as Partial<MessageEvent>);
+  }
 }
 
 function Listening() {
@@ -175,6 +180,23 @@ describe('Offline', () => {
       await refuseTheConnection();
 
       expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(reReads);
+    });
+  });
+});
+
+describe('Workspace management', () => {
+  describe('a workspace made in another tab shows up here without a reload', () => {
+    it('re-reads the workspaces you have when a change arrives', async () => {
+      open();
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      // A workspace announces itself on itself, and this tab has never heard
+      // of it - so nothing but re-reading the list can bring it into the tabs.
+      stream.announces({ type: 'snapshot_invalidated', workspaceId: 'ws-made-elsewhere' });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['workspaces'])?.isInvalidated ?? false).toBe(true);
     });
   });
 });

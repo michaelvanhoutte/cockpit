@@ -1,5 +1,5 @@
 {
-  "$comment": "The area registry (docs/test-explorer-spec.md §5, amended by §2a/§2c/§2d/§2e). Rows are feature areas in product language, matching the outer `describe` convention in testing-strategy.md §9.1 - undotted, not an entity ('Triage', not 'item.setStatus'). A source file can legitimately match more than one area's sourcePatterns (e.g. apps/api/src/domain/items.ts backs Capture, Triage and Offline as different functions in one file) - that is expected, not an overlap error. `pnpm --filter @cockpit/test-explorer check-concepts` instead fails when a test declares an area missing from this file. A file matching zero areas falls into 'infrastructure' automatically. Concepts with an empty sourcePatterns list are declared ahead of the code that will eventually own them and stay at zero everywhere until then - that is the ONLY thing that puts a row on the page with no test behind it; nothing here is derived from actual describe blocks (docs/test-explorer-spec.md §2e explains the distinction, prompted by exactly this question). The first nine areas are testing-strategy.md §9.1's own example list verbatim; Sign-in was added later, when the product grew a behaviour they had no word for. All flat today. An entry can carry an optional \"parent\": \"<key>\" naming another entry's key, turning the flat list into a tree - a real feature area that's grown too big for one row gets children this way rather than being renamed in every test that already uses it. Nothing does yet: a demo nesting (Dashboards > Drag-drop / Resizing) proved the mechanism renders correctly and was then removed, precisely because it was invented rather than derived - add a child the day a real sub-area's tests justify it, never ahead of that.",
+  "$comment": "The area registry (docs/test-explorer-spec.md §5, amended by §2a/§2c/§2d/§2e). Rows are feature areas in product language, matching the outer `describe` convention in testing-strategy.md §9.1 - undotted, not an entity ('Triage', not 'item.setStatus'). A source file can legitimately match more than one area's sourcePatterns (e.g. apps/api/src/domain/items.ts backs Capture, Triage and Offline as different functions in one file) - that is expected, not an overlap error. `pnpm --filter @cockpit/test-explorer check-concepts` instead fails when a test declares an area missing from this file. A file matching zero areas falls into 'infrastructure' automatically. Concepts with an empty sourcePatterns list are declared ahead of the code that will eventually own them and stay at zero everywhere until then - that is the ONLY thing that puts a row on the page with no test behind it; nothing here is derived from actual describe blocks (docs/test-explorer-spec.md §2e explains the distinction, prompted by exactly this question). The first nine areas are testing-strategy.md §9.1's own example list verbatim; Sign-in and Workspace management were added later, each on the day the product grew a behaviour the ones before it had no word for. All flat today. An entry can carry an optional \"parent\": \"<key>\" naming another entry's key, turning the flat list into a tree - a real feature area that's grown too big for one row gets children this way rather than being renamed in every test that already uses it. Nothing does yet: a demo nesting (Dashboards > Drag-drop / Resizing) proved the mechanism renders correctly and was then removed, precisely because it was invented rather than derived - add a child the day a real sub-area's tests justify it, never ahead of that.",
   "concepts": [
     {
       "key": "Capture",
@@ -84,6 +84,20 @@
         "apps/web/src/api/loadFailure.ts",
         "apps/web/src/components/LoadFailure.tsx",
         "apps/api/src/http/app.ts"
+      ]
+    },
+    {
+      "key": "Workspace management",
+      "label": "Workspace management",
+      "sourcePatterns": [
+        "apps/api/src/domain/workspaces.ts",
+        "apps/api/src/http/command-service.ts",
+        "apps/api/src/db/repo.ts",
+        "apps/api/src/db/schema.ts",
+        "packages/shared/src/commands.ts",
+        "packages/shared/src/domain/item.ts",
+        "apps/web/src/pages/WorkspaceSettingsPage.tsx",
+        "apps/web/src/pages/Layout.tsx"
       ]
     }
   ]

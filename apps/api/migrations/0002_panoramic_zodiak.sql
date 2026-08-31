@@ -1,0 +1,42 @@
+-- The workspace tombstone. Deliberately alone in its own file, and
+-- deliberately not a table rebuild. Both of those are the answers to questions
+-- asked before this was written rather than after; the reasoning is here so the
+-- next person changing this table does not have to rediscover it.
+--
+-- **Why no rebuild, and therefore no CHECK on this column.** Every other
+-- timestamp column in this schema carries an `is_timestamp` CHECK, and this one
+-- does not. SQLite cannot ALTER a CHECK into an existing table, so adding one
+-- means rebuilding `workspaces` the way 0001 rebuilt everything - and that
+-- cannot be done here. `DROP TABLE workspaces` fails while `items` rows point
+-- at it under ON DELETE RESTRICT, and D1 accepts `PRAGMA foreign_keys = OFF`
+-- and ignores it (both measured against a real D1, not assumed). So the
+-- cheapest way to attach one CHECK is to rebuild `workspaces`, `items` and
+-- `associations` together: a whole-schema rebuild, with everything 0001's
+-- header warns about, for a single constraint on a column only this service's
+-- own command handlers write. That trade is not worth taking, and the gap is
+-- recorded rather than left to be found. See the note on `deletedAt` in
+-- src/db/schema.ts.
+--
+-- **Why its own file.** D1 wraps nothing: `wrangler d1 migrations apply` runs
+-- statements one at a time, and a migration that does not finish is not
+-- recorded as finished, so the next deploy runs the whole file again. This
+-- statement is not re-runnable - SQLite has no `ADD COLUMN IF NOT EXISTS`, and
+-- a second run fails with "duplicate column name". Sitting alone, that never
+-- matters: it cannot fail on data (no default, no constraint, nothing to
+-- validate), so the only way to reach it twice is for D1 to have applied it and
+-- lost the record. The index swap, which *can* fail on data, is 0003, and a
+-- failure there re-runs only 0003.
+--
+-- **What each environment does.** Preview: migrations, then seed.sql on every
+-- deploy (INSERT OR IGNORE throughout, one database shared by all previews).
+-- Staging: migrations, never seeded, because accumulated state is the whole
+-- reason it exists. Production: migrations on promote, seeded once by hand.
+-- None of them is touched by this beyond gaining a nullable column.
+--
+-- **Interrupted.** There is one statement, so either the column is there or it
+-- is not, and in both cases every read and write of the old code still works:
+-- the column is nullable and nothing reads it until "Rename and delete a
+-- workspace" (issue 77). If this ever does fail with "duplicate column name",
+-- the column is already present and the fix is to record this migration as
+-- applied, not to change the file.
+ALTER TABLE `workspaces` ADD `deleted_at` text;

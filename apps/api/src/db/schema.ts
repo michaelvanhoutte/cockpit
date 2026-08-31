@@ -35,9 +35,8 @@ import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from
  *   the wire contract uses, so the two cannot drift.
  * - **Foreign keys**, which D1 enforces. ON DELETE RESTRICT throughout,
  *   because nothing in this model is ever hard-deleted; deleting a workspace
- *   ("Workspace management: create, edit, and delete workspaces", issue 30)
- *   has to decide what happens to its items explicitly rather than inheriting
- *   a silent cascade.
+ *   ("Rename and delete a workspace", issue 77) leaves its items where they
+ *   are and tombstones the workspace, rather than inheriting a silent cascade.
  *
  * A CHECK passes when it evaluates to NULL, so the constraints below hold for
  * nullable columns without repeating `IS NULL OR` on every one.
@@ -119,12 +118,51 @@ export const workspaces = sqliteTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict' }),
     name: text('name').notNull(),
+    /**
+     * Read by nothing - no URL, no CSS selector, no component - and dropped by
+     * "Drop the unused workspace slug column" (issue 78). It cannot go in the
+     * same release that stopped reading it: migrations only roll forward, so
+     * promoting an earlier commit runs old code against the new schema, and
+     * that old code still selects this column (deployment, "Migrations and
+     * rollback"). Until then it is written, never read, and holds the
+     * workspace's own id.
+     */
     slug: text('slug').notNull(),
     color: text('color').notNull(),
     createdAt: text('created_at').notNull(),
+    /**
+     * Tombstone, written by "Rename and delete a workspace" (issue 77) and
+     * unread until then. Deliberately carrying **no** CHECK, unlike every
+     * other timestamp column here, and that is a measured limitation rather
+     * than an oversight: SQLite cannot ALTER a CHECK into an existing table,
+     * and D1 refuses to drop a table that has children under ON DELETE
+     * RESTRICT - `PRAGMA foreign_keys = OFF` is accepted and ignored. Adding
+     * one therefore means rebuilding `workspaces`, `items` and `associations`
+     * together, which is a whole-schema rebuild for a single constraint, and
+     * a far larger risk than the constraint removes. See the note in
+     * migration 0002.
+     */
+    deletedAt: text('deleted_at'),
   },
   (t) => [
-    uniqueIndex('workspaces_tenant_slug').on(t.tenantId, t.slug),
+    /**
+     * Uniqueness is on the *name*, because the name is what a person types and
+     * reads; the slug index it replaces guarded a column nothing looks at.
+     *
+     * Partial and case-insensitive, which is two decisions:
+     * - `lower(name)`, so `personal` and `Personal` are the same name. Names
+     *   arrive already trimmed, from the wire schema.
+     * - `WHERE deleted_at IS NULL`, so deleting a workspace gives its name
+     *   back. A tombstoned workspace keeps its name for the record without
+     *   holding it hostage.
+     *
+     * Written out as raw SQL because drizzle-kit emits neither the expression
+     * nor the partial clause; migration 0002 carries the real statement, and
+     * this is here so the schema file still describes the database.
+     */
+    uniqueIndex('workspaces_tenant_live_name')
+      .on(t.tenantId, sql`lower(${t.name})`)
+      .where(sql`${t.deletedAt} IS NULL`),
     check('workspaces_created_at_is_timestamp', isTimestamp('created_at')),
   ],
 );

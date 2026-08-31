@@ -615,9 +615,10 @@ separately anymore), the source-file glob patterns it owns, and an optional
 `parent` (§2c) that nests it under another entry. `Capture`, `Triage`,
 `Offline`, `Associations`, `Dashboards`, `Panels`, `Focus`,
 `Connector management`, `User management` are the nine root areas seeded
-from [testing-strategy.md §9.1](testing-strategy.md)'s own example list, and
-`Sign-in` is the first added since, on the day the product grew a behaviour
-the nine had no word for — nothing restricts the registry to exactly those,
+from [testing-strategy.md §9.1](testing-strategy.md)'s own example list;
+`Sign-in` and `Workspace management` were added since, each on the day the
+product grew a behaviour the areas before it had no word for — nothing
+restricts the registry to exactly those,
 or to being flat; it grows areas and children as real ones show up in tests. Backend plumbing that no
 area owns (the event stream, tenancy, app wiring — code testing-decisions-wip
 says stays whole rather than splitting by feature) lives under an implicit
@@ -727,7 +728,9 @@ zero entries falls into the implicit `infrastructure` bucket. What CI checks
 their own frontend component); `Associations` and `Offline` likewise, plus
 `Offline`'s own `packages/shared/src/ids.ts` (client-side ID generation for
 offline capture, per [ids.test.ts](../packages/shared/tests/unit/ids.test.ts)).
-`Sign-in` has real patterns too, added later with the sign-in recovery work.
+`Sign-in` has real patterns too, added later with the sign-in recovery work,
+as does `Workspace management`, added with "Create a workspace from a settings
+page" (issue 30).
 `Dashboards`, `Panels`, `Focus`, `Connector management`, `User management` —
 the rest of testing-strategy §9.1's example list — are declared with empty
 `sourcePatterns: []` until code exists to match them; an empty pattern list

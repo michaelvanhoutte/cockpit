@@ -1,0 +1,36 @@
+-- Uniqueness moves from the slug to the name.
+--
+-- `slug` is read by nothing - no URL, no CSS selector, no component - so its
+-- unique index was guarding a column nobody looks at, while the thing a person
+-- actually types and reads had no rule at all. The new index is partial and
+-- case-insensitive: `lower(name)` so `personal` and `Personal` are the same
+-- name, `WHERE deleted_at IS NULL` so deleting a workspace gives its name back.
+-- Names arrive already trimmed, from the wire schema.
+--
+-- The column itself stays until "Drop the unused workspace slug column"
+-- (issue 78). It cannot go in the same release that stopped reading it:
+-- migrations only roll forward, so promoting an earlier commit runs old code
+-- against the new schema, and that old code selects `slug` (deployment,
+-- "Migrations and rollback").
+--
+-- **This is the statement that can fail on data**, which is the whole reason it
+-- is not in 0002. Two live workspaces whose names differ only in case exist
+-- nowhere in seed.sql, so preview cannot hit it - but staging is deliberately
+-- never seeded and has whatever has accumulated, and production is a person's
+-- real data. When it happens the index is refused, this migration fails, the
+-- deploy fails, and the old code keeps running against a database that is
+-- otherwise untouched. That is the intended outcome: silently renaming
+-- somebody's workspace to get a deploy through would be worse than a deploy
+-- that stops and says why. The fix is one rename by hand, then redeploy.
+--
+-- **Both statements are therefore re-runnable**, because that redeploy runs
+-- this file again from the top. `IF EXISTS` / `IF NOT EXISTS` are not
+-- decoration here: without them the retry fails on the index it already
+-- dropped, and no amount of fixing the data would get the deploy through.
+--
+-- Nothing else needs the same treatment. There is no swap and no staging table:
+-- an index is a derived structure, so a failure loses no row, and the window
+-- between the two statements is one where the only missing thing is a
+-- uniqueness guarantee on a column nothing reads.
+DROP INDEX IF EXISTS `workspaces_tenant_slug`;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `workspaces_tenant_live_name` ON `workspaces` (`tenant_id`,lower("name")) WHERE "workspaces"."deleted_at" IS NULL;

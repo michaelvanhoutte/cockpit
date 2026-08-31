@@ -21,12 +21,20 @@ export type CommandArgs = {
   [N in CommandName]: { name: N; payload: CommandPayload<N> };
 }[CommandName];
 
+/** Grows as renaming and deleting land ("Rename and delete a workspace", issue 77). */
+const CHANGES_THE_WORKSPACE_LIST = new Set<CommandName>(['create_workspace']);
+
 export function useCommand() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (args: CommandArgs) => sendCommand(args.name, args.payload as never),
     onSuccess: (_result, args) => {
       void queryClient.invalidateQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
+      // Only the changes that alter which workspaces there are, so triaging an
+      // item does not refetch the list on every click.
+      if (CHANGES_THE_WORKSPACE_LIST.has(args.name)) {
+        void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      }
     },
   });
 }
