@@ -40,24 +40,30 @@
 --
 -- **An interrupted run must never be made worse by re-running it.** A
 -- migration that does not finish is not recorded as applied, so the next
--- deploy runs this file again. Between the drops and the last rename there is
--- a window where the only copy of every row is in the `__new_*` tables, so
--- this file must not begin by clearing them - that would destroy the very
--- data it is trying to move. Instead:
+-- deploy runs this file again - and a failed migration fails the deploy, so
+-- the old Worker keeps serving and writing to the original tables until
+-- someone fixes whatever stopped it. That can be days.
 --
--- - `CREATE TABLE IF NOT EXISTS`, and each copy skips the keys it already
---   staged, so a re-run after an interruption *before* the swap simply
---   finishes the copy and carries on. Deliberately not `INSERT OR IGNORE`:
---   that would also swallow CHECK, NOT NULL and UNIQUE violations, silently
---   discarding the rows this migration exists to preserve.
--- - No unconditional cleanup of `__new_*`. A re-run after an interruption
---   *inside* the swap stops at the first copy, because the original it reads
---   from is gone - "no such table" - with every row still sitting in the
---   `__new_*` table it was staged into, ready to be recovered by completing
---   the renames by hand.
+-- Which copy is authoritative therefore depends on whether the swap started:
 --
--- So every interruption is either self-healing or safely stuck, and none of
--- them loses data.
+-- - **Before the swap**, the originals are still live and still being written
+--   to, so anything left in `__new_*` by an earlier failed run is a stale
+--   snapshot. It is cleared and rebuilt from the live tables, so the re-run
+--   picks up everything written in between.
+-- - **Inside the swap**, an original is gone and its staged copy is the only
+--   copy in existence. Clearing it would destroy the very data this migration
+--   is moving, so the clear-out is gated on the original still existing and
+--   becomes a no-op. The re-run then stops at the first copy - "no such
+--   table" - leaving every row staged and recoverable by completing the
+--   renames by hand.
+--
+-- So a re-run either rebuilds from live data or stops safely, and neither
+-- loses a write. The one thing that must never happen is merging the two: a
+-- stale staged row surviving alongside live ones, and then winning the swap.
+--
+-- The copies are plain `INSERT`, deliberately not `INSERT OR IGNORE`: IGNORE
+-- swallows CHECK, NOT NULL and UNIQUE violations, silently discarding the
+-- rows this migration exists to preserve. A violation has to abort.
 --
 -- The renames rely on SQLite rewriting foreign-key references to follow a
 -- renamed table, which is the default behaviour (`legacy_alter_table` off).
@@ -147,6 +153,19 @@ CREATE TABLE IF NOT EXISTS `__new_commands` (
 ) STRICT;
 --> statement-breakpoint
 
+-- Clear out any staging left by an earlier failed run, but only while the
+-- original it was staged from is still there to rebuild it. Once that original
+-- has been dropped, the staged copy is the only copy and these become no-ops -
+-- which is what keeps the mid-swap case recoverable. The `sqlite_master`
+-- lookup is how a plain SQL file gets that condition without branching.
+--
+-- Child-first, so no ON DELETE RESTRICT blocks a parent being cleared.
+DELETE FROM `__new_associations` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'associations') > 0;--> statement-breakpoint
+DELETE FROM `__new_items` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'items') > 0;--> statement-breakpoint
+DELETE FROM `__new_commands` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'commands') > 0;--> statement-breakpoint
+DELETE FROM `__new_workspaces` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'workspaces') > 0;--> statement-breakpoint
+DELETE FROM `__new_tenants` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'tenants') > 0;--> statement-breakpoint
+
 -- Copied parent-first. Columns are named rather than `SELECT *` so a future
 -- column reorder cannot silently shift values into the wrong columns.
 --
@@ -156,25 +175,20 @@ CREATE TABLE IF NOT EXISTS `__new_commands` (
 -- the migration here - before anything is dropped, so the database is left
 -- untouched and the cause is visible in the failed statement.
 INSERT INTO `__new_tenants` (`id`, `name`, `created_at`)
-	SELECT `id`, `name`, `created_at` FROM `tenants`
-	WHERE `id` NOT IN (SELECT `id` FROM `__new_tenants`);--> statement-breakpoint
+	SELECT `id`, `name`, `created_at` FROM `tenants`;--> statement-breakpoint
 INSERT INTO `__new_workspaces` (`id`, `tenant_id`, `name`, `slug`, `color`, `created_at`)
 	SELECT `id`, `tenant_id`, `name`, `slug`, `color`, `created_at` FROM `workspaces`
-	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`)
-	  AND `id` NOT IN (SELECT `id` FROM `__new_workspaces`);--> statement-breakpoint
+	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`);--> statement-breakpoint
 INSERT INTO `__new_items` (`id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at`)
 	SELECT `id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at` FROM `items`
 	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`)
-	  AND `workspace_id` IN (SELECT `id` FROM `__new_workspaces`)
-	  AND `id` NOT IN (SELECT `id` FROM `__new_items`);--> statement-breakpoint
+	  AND `workspace_id` IN (SELECT `id` FROM `__new_workspaces`);--> statement-breakpoint
 INSERT INTO `__new_associations` (`id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at`)
 	SELECT `id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at` FROM `associations`
 	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`)
-	  AND `item_id` IN (SELECT `id` FROM `__new_items`)
-	  AND `id` NOT IN (SELECT `id` FROM `__new_associations`);--> statement-breakpoint
+	  AND `item_id` IN (SELECT `id` FROM `__new_items`);--> statement-breakpoint
 INSERT INTO `__new_commands` (`command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at`)
-	SELECT `command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at` FROM `commands`
-	WHERE `command_id` NOT IN (SELECT `command_id` FROM `__new_commands`);--> statement-breakpoint
+	SELECT `command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at` FROM `commands`;--> statement-breakpoint
 
 -- The swap. Dropped child-first so no foreign key is dangling at any point;
 -- the `__new_*` tables reference each other, never the originals, so none of
