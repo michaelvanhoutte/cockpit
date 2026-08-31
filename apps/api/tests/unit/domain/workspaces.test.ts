@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_PALETTE, nextColor, workspaceFromCommand } from '../../../src/domain/workspaces.js';
+import {
+  WORKSPACE_PALETTE,
+  foldName,
+  nextColor,
+  workspaceFromCommand,
+} from '../../../src/domain/workspaces.js';
 
 const TENANT_ID = 'tenant-default';
 const AT = '2026-08-12T10:00:00.000Z';
@@ -32,6 +37,25 @@ describe('Workspace management', () => {
     it('gives every workspace its own color while the palette lasts', () => {
       const given = handOut(WORKSPACE_PALETTE.length);
       expect(new Set(given).size).toBe(WORKSPACE_PALETTE.length);
+    });
+  });
+
+  describe('two names are the same name when only their case differs, in any alphabet', () => {
+    // L1: which names count as the same one is a pure decision over two
+    // strings. That the second of them is then actually refused - by the
+    // handler, and by the index behind it - is proved against a real database
+    // in tests/integration.
+    it.each([
+      { situation: 'the same accented name in another case', one: 'ÉTÉ', other: 'été', same: true },
+      { situation: 'the same plain name in another case', one: 'Personal', other: 'personal', same: true },
+      // Lower case alone would leave these two apart: `STRASSE` lowercases to
+      // `strasse` while `Straße` stays as it is. Upper case expands the sharp
+      // s first, which is what makes them meet.
+      { situation: 'a name whose sharp s is written out in the other case', one: 'STRASSE', other: 'Straße', same: true },
+      { situation: 'a name that differs by an accent rather than by case', one: 'Reunions', other: 'Réunions', same: false },
+      { situation: 'the same name with blanks around one of them', one: '  Réunions ', other: 'Réunions', same: true },
+    ])('$situation', ({ one, other, same }) => {
+      expect(foldName(one) === foldName(other)).toBe(same);
     });
   });
 

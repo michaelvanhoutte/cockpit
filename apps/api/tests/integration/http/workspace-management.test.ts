@@ -167,45 +167,30 @@ describe('Workspace management', () => {
   });
 
   describe('no two workspaces share a name, whatever alphabet it is in', () => {
-    // Every case makes both workspaces itself, because what it asks is whether
-    // the second is refused *given* the first. The suffix is what keeps one
-    // case's names out of the next one's way.
-    //
-    // Reusing the name of a workspace that is not there any more stays allowed,
-    // and is proved by "gives the name back to a workspace that is not there
-    // any more" above rather than repeated here - it needs a tombstone, which
-    // is not something a pair of names can express.
-    it.each([
-      {
-        situation: 'the same accented name in another case',
-        first: (u: string) => `ÉTÉ ${u}`,
-        then: (u: string) => `été ${u}`,
-        answer: 409,
-      },
-      {
-        situation: 'the same plain name in another case',
-        first: (u: string) => `Personal ${u}`,
-        then: (u: string) => `personal ${u}`,
-        answer: 409,
-      },
-      {
-        situation: 'a name whose sharp s is written out in the other case',
-        first: (u: string) => `STRASSE ${u}`,
-        then: (u: string) => `Straße ${u}`,
-        answer: 409,
-      },
-      {
-        situation: 'a name that differs by an accent rather than by case',
-        first: (u: string) => `Reunions ${u}`,
-        then: (u: string) => `Réunions ${u}`,
-        answer: 200,
-      },
-    ])('$situation', async ({ first, then, answer }) => {
+    /**
+     * Which names count as the same name is a pure decision, and it is decided
+     * in apps/api/tests/unit/domain/workspaces.test.ts - the whole case table
+     * lives there, including the sharp s and the accent that is a different
+     * letter rather than a different case. What is left here is what only a
+     * real database answers: that a name refused this way comes back as a 409
+     * and stores nothing, and that a row whose stored fold is missing is
+     * refused too.
+     *
+     * Reusing the name of a workspace that is not there any more stays allowed,
+     * and is proved by "gives the name back to a workspace that is not there
+     * any more" above rather than repeated here - it needs a tombstone, which
+     * is not something a pair of names can express.
+     */
+    it('refuses the second of two names that differ only in case, whatever alphabet', async () => {
       seq += 1;
-      const suffix = String(seq);
-      expect((await makeWorkspace(first(suffix))).status).toBe(200);
+      const name = `ÉTÉ ${seq}`;
+      expect((await makeWorkspace(name)).status).toBe(200);
+      const before = await storedNames();
 
-      expect((await makeWorkspace(then(suffix))).status).toBe(answer);
+      const response = await makeWorkspace(name.toLowerCase());
+
+      expect(response.status).toBe(409);
+      expect(await storedNames()).toEqual(before);
     });
 
     it('holds its name even when it was stored by a version that did not know the rule', async () => {
@@ -225,25 +210,19 @@ describe('Workspace management', () => {
   });
 
   describe('a workspace name is a single line', () => {
-    it.each([
-      { situation: 'a name broken over two lines', typed: (n: string) => `${n}\nand more`, answer: 400 },
-      { situation: 'a name with a tab in it', typed: (n: string) => `${n}\tand more`, answer: 400 },
-      // A browser breaks the line on this one as readily as on a newline, and
-      // it is not a control character, so nothing above catches it.
-      {
-        situation: 'a name broken with a line separator',
-        typed: (n: string) => `${n}\u2028and more`,
-        answer: 400,
-      },
-      { situation: 'a name of ordinary text', typed: (n: string) => n, answer: 200 },
-    ])('$situation', async ({ typed, answer }) => {
+    // Which characters break the line is decided in
+    // packages/shared/tests/unit/domain/item.test.ts, over the whole table.
+    // What is asked here is the half that only a real request answers: that the
+    // rule is reachable at all, that it comes back as a refusal to the caller
+    // rather than as a failure, and that nothing is stored on the way.
+    it('refuses a name broken over two lines, and stores nothing', async () => {
       const name = aName();
 
-      const response = await makeWorkspace(typed(name));
+      const response = await makeWorkspace(`${name}\nand more`);
 
-      expect(response.status).toBe(answer);
+      expect(response.status).toBe(400);
       // Refused, not cleaned up: repairing input is where the bypasses live.
-      if (answer === 400) expect(await storedNames()).not.toContain(name);
+      expect(await storedNames()).not.toContain(name);
     });
   });
 
