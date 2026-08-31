@@ -42,6 +42,21 @@ jobs:
       contents: read
       # Writing the analysis results back is the entire point of the job.
       security-events: write
+      # Declaring any permissions block sets every scope not listed to `none`,
+      # so this line is not the no-op it looks like. GitHub's own CodeQL
+      # template carries it, documented as needed for workflows in private
+      # repositories - which this one is not, and the cost of finding that out
+      # the hard way is two failing legs whose error names neither this block
+      # nor the visibility change that caused it.
+      actions: read
+
+    # A pull request from a fork gets a read-only token whatever this block
+    # says, so the results upload may be refused and both legs report red. That
+    # is harmless while these checks are advisory and is not harmless once they
+    # are required, which is the step the runbook describes: a required check a
+    # fork cannot pass blocks every outside contribution to a public repository
+    # that allows forking. Verify a fork pull request before applying the
+    # payload, not after.
 
     strategy:
       # One leg's failure must not cancel the other's: an infrastructure failure
