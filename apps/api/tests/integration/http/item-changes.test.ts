@@ -368,3 +368,53 @@ describe('Capture', () => {
     });
   });
 });
+
+describe('Triage', () => {
+  /**
+   * The timestamp constraints reject a day no calendar has, and the times on a
+   * change come from the client, so this is reachable from outside - which per
+   * the testing strategy is exactly when the caller-visible answer is the thing
+   * to pin. It is a 400 from request validation rather than the 500 a raw
+   * constraint violation would produce, and this is what keeps it that way.
+   */
+  describe('a change timed to a day no calendar has is refused and nothing is stored', () => {
+    it.each<{
+      situation: string;
+      name: CommandName;
+      change: (requestId: string) => CommandPayload<CommandName>;
+    }>([
+      {
+        situation: 'capturing a thought',
+        name: 'capture_item',
+        change: (requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-02-31T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: nextId(),
+          title: 'Make appointment with Novy',
+        }),
+      },
+      {
+        situation: 'snoozing it until a date',
+        name: 'snooze_until',
+        change: (requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: nextId(),
+          until: '2026-02-31T08:00:00.000Z',
+        }),
+      },
+    ])('$situation', async ({ name, change }) => {
+      const requestId = nextId();
+
+      const response = await postChange(name, change(requestId));
+
+      expect(response.status).toBe(400);
+      const db = createDb(env.DB);
+      expect(await db.select().from(commands).where(eq(commands.commandId, requestId))).toHaveLength(
+        0,
+      );
+    });
+  });
+});

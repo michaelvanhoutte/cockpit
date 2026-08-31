@@ -32,32 +32,43 @@
 -- still intact. Everything data-dependent (the copy, and every CHECK, STRICT
 -- and foreign-key check it triggers) runs against `__new_*` tables before a
 -- single original is dropped. A failure there leaves the database exactly as
--- it was, and the leading DROP ... IF EXISTS block makes the file re-runnable
--- rather than wedged.
+-- it was.
 --
 -- Nothing after the swap can fail on data: the drops and renames are pure
 -- DDL, and the indexes only re-state constraints the source tables already
 -- enforced, so no duplicate can reach them.
 --
+-- **An interrupted run must never be made worse by re-running it.** A
+-- migration that does not finish is not recorded as applied, so the next
+-- deploy runs this file again. Between the drops and the last rename there is
+-- a window where the only copy of every row is in the `__new_*` tables, so
+-- this file must not begin by clearing them - that would destroy the very
+-- data it is trying to move. Instead:
+--
+-- - `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`, so a re-run after an
+--   interruption *before* the swap simply finishes the copy and carries on.
+-- - No unconditional cleanup of `__new_*`. A re-run after an interruption
+--   *inside* the swap stops at the first copy, because the original it reads
+--   from is gone - "no such table" - with every row still sitting in the
+--   `__new_*` table it was staged into, ready to be recovered by completing
+--   the renames by hand.
+--
+-- So every interruption is either self-healing or safely stuck, and none of
+-- them loses data.
+--
 -- The renames rely on SQLite rewriting foreign-key references to follow a
 -- renamed table, which is the default behaviour (`legacy_alter_table` off).
--- The "every table keeps its guarantees" test asserts the rebuilt foreign
+-- The "points every link at a real table" test asserts the rebuilt foreign
 -- keys point at the real tables, so this cannot rot silently.
 
-DROP TABLE IF EXISTS `__new_associations`;--> statement-breakpoint
-DROP TABLE IF EXISTS `__new_items`;--> statement-breakpoint
-DROP TABLE IF EXISTS `__new_commands`;--> statement-breakpoint
-DROP TABLE IF EXISTS `__new_workspaces`;--> statement-breakpoint
-DROP TABLE IF EXISTS `__new_tenants`;--> statement-breakpoint
-
-CREATE TABLE `__new_tenants` (
+CREATE TABLE IF NOT EXISTS `__new_tenants` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`created_at` text NOT NULL,
 	CONSTRAINT "tenants_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
 ) STRICT;
 --> statement-breakpoint
-CREATE TABLE `__new_workspaces` (
+CREATE TABLE IF NOT EXISTS `__new_workspaces` (
 	`id` text PRIMARY KEY NOT NULL,
 	`tenant_id` text NOT NULL,
 	`name` text NOT NULL,
@@ -68,7 +79,7 @@ CREATE TABLE `__new_workspaces` (
 	CONSTRAINT "workspaces_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
 ) STRICT;
 --> statement-breakpoint
-CREATE TABLE `__new_items` (
+CREATE TABLE IF NOT EXISTS `__new_items` (
 	`id` text PRIMARY KEY NOT NULL,
 	`tenant_id` text NOT NULL,
 	`workspace_id` text NOT NULL,
@@ -106,7 +117,7 @@ CREATE TABLE `__new_items` (
 	CONSTRAINT "items_updated_at_is_timestamp" CHECK(updated_at IS NULL OR (datetime(updated_at) IS NOT NULL AND substr(updated_at, 11, 1) = 'T' AND length(updated_at) >= 20 AND date(updated_at) = substr(updated_at, 1, 10)))
 ) STRICT;
 --> statement-breakpoint
-CREATE TABLE `__new_associations` (
+CREATE TABLE IF NOT EXISTS `__new_associations` (
 	`id` text PRIMARY KEY NOT NULL,
 	`tenant_id` text NOT NULL,
 	`item_id` text NOT NULL,
@@ -119,7 +130,7 @@ CREATE TABLE `__new_associations` (
 	CONSTRAINT "associations_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
 ) STRICT;
 --> statement-breakpoint
-CREATE TABLE `__new_commands` (
+CREATE TABLE IF NOT EXISTS `__new_commands` (
 	`command_id` text PRIMARY KEY NOT NULL,
 	`tenant_id` text NOT NULL,
 	`workspace_id` text NOT NULL,
@@ -141,20 +152,20 @@ CREATE TABLE `__new_commands` (
 -- them; every other row carries over. Anything violating a CHECK instead fails
 -- the migration here - before anything is dropped, so the database is left
 -- untouched and the cause is visible in the failed statement.
-INSERT INTO `__new_tenants` (`id`, `name`, `created_at`)
+INSERT OR IGNORE INTO `__new_tenants` (`id`, `name`, `created_at`)
 	SELECT `id`, `name`, `created_at` FROM `tenants`;--> statement-breakpoint
-INSERT INTO `__new_workspaces` (`id`, `tenant_id`, `name`, `slug`, `color`, `created_at`)
+INSERT OR IGNORE INTO `__new_workspaces` (`id`, `tenant_id`, `name`, `slug`, `color`, `created_at`)
 	SELECT `id`, `tenant_id`, `name`, `slug`, `color`, `created_at` FROM `workspaces`
 	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`);--> statement-breakpoint
-INSERT INTO `__new_items` (`id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at`)
+INSERT OR IGNORE INTO `__new_items` (`id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at`)
 	SELECT `id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at` FROM `items`
 	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`)
 	  AND `workspace_id` IN (SELECT `id` FROM `__new_workspaces`);--> statement-breakpoint
-INSERT INTO `__new_associations` (`id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at`)
+INSERT OR IGNORE INTO `__new_associations` (`id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at`)
 	SELECT `id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at` FROM `associations`
 	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`)
 	  AND `item_id` IN (SELECT `id` FROM `__new_items`);--> statement-breakpoint
-INSERT INTO `__new_commands` (`command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at`)
+INSERT OR IGNORE INTO `__new_commands` (`command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at`)
 	SELECT `command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at` FROM `commands`;--> statement-breakpoint
 
 -- The swap. Dropped child-first so no foreign key is dangling at any point;
