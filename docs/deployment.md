@@ -532,10 +532,11 @@ Then, by hand (no API, or deliberately not automated):
 
      **All three names were read off a real run** ("Analyse every pull request
      with CodeQL, and let Dependabot report vulnerable dependencies", pull request
-     92), never predicted, and that ordering is the point rather than a detail. GitHub matches
-     these strings with no idea whether anything reports under them, and a name
-     nothing reports under does not go red: it sits at *Expected — waiting for
-     status to be reported* on every pull request, indefinitely. `enforce_admins:
+     92), never predicted, and that ordering is the point rather than a detail.
+     GitHub matches these strings with no idea whether anything reports under
+     them, and a name nothing reports under does not go red: it sits at *Expected
+     — waiting for status to be reported* on every pull request, indefinitely.
+     `enforce_admins:
      false` means the owner can still merge past a stuck check; nobody else can. So
      when a check is added or renamed, the order is always: merge the workflow, let
      it run, read the name off that run, then apply this payload.
@@ -585,7 +586,9 @@ Then, by hand (no API, or deliberately not automated):
 
    `security_and_analysis` is also only populated for a caller with admin on the
    repository — a non-admin gets `null`, which reads as "everything is off" in the
-   same way the branch-protection `404` above reads as "wrong URL".
+   same way the branch-protection `404` above reads as "wrong URL". That last one
+   is GitHub's documented behaviour rather than something measured here, unlike
+   the two calls above, which were run against this repository on 2026-08-31.
 
    **Routine dependency version updates are deliberately off.** They would need a
    `.github/dependabot.yml`, and there is none: a pull request for every
