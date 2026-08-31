@@ -189,6 +189,34 @@ branch goes away, and the free plan's ten-database ceiling means it does not fit
 at all against the seventeen branches this repository already carries. The
 shared database costs nothing to run and needs no lifecycle machinery.
 
+### A Durable Object class cannot be introduced by a preview
+
+**Measured, not inferred**, on the first preview deploy that carried one:
+
+```
+Version upload failed. You attempted to upload a version of a Worker that
+includes a Durable Object migration, but migrations must be fully applied via
+a non-versioned deployment. [code: 10211]
+```
+
+Previews use `wrangler versions upload`, which is the whole point of them - one
+Worker, one version per branch, addressed by alias - and Cloudflare will not
+apply a Durable Object migration through it. Staging and production are
+unaffected: both run `wrangler deploy`, which applies migrations as part of the
+deploy.
+
+So a **new** Durable Object class has to reach `cockpit-preview` once, by hand,
+before any branch carrying it can upload a version:
+
+```bash
+cd apps/api && wrangler deploy --env preview
+```
+
+That is the same one-time bootstrap the runbook below already performs for the
+preview Worker, repeated for the class. Afterwards the migration is applied and
+every branch's `versions upload` sends no migration at all, so the failure does
+not recur - including for branches that do not know the class exists.
+
 The same is true of account data, and more sharply: every preview version runs
 under the one `cockpit-preview` Worker, so they share its Durable Object
 namespace and therefore the *same* account store. A branch that adds a change to
@@ -500,6 +528,10 @@ wrangler d1 execute cockpit-preview --remote --yes --env preview --file=./seed.s
 
 # 3. the three Workers. The preview Worker is deployed once so that it exists
 #    with an active deployment; thereafter CI only ever uploads versions to it.
+#    Re-run the preview one by hand whenever a NEW Durable Object class lands:
+#    a version upload cannot apply a Durable Object migration, and the branch
+#    that carries the class fails its preview until this has been run once.
+#    See "A Durable Object class cannot be introduced by a preview" above.
 wrangler deploy --env=""
 wrangler deploy --env staging
 wrangler deploy --env preview

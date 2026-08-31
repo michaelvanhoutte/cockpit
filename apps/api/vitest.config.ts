@@ -5,7 +5,8 @@ import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
  * L1 (tests/unit) and L2 (tests/integration) share this config: the workers
  * pool runs plain unit tests fine, and only the integration tier touches the
  * real bindings declared here - D1 for the register, and the Durable Object
- * namespace an account's own store lives in (see docs/testing-strategy.md §2).
+ * namespace an account's own store lives in (docs/testing-strategy.md, "Test
+ * level definitions and dependency restrictions").
  */
 export default defineConfig({
   test: {

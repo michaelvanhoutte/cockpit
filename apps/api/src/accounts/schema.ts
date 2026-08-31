@@ -42,9 +42,10 @@ import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from
  * - **CHECK constraints for every closed set**, built from the same Zod enums
  *   the wire contract uses, so the two cannot drift.
  * - **Foreign keys**, ON DELETE RESTRICT throughout, because nothing in this
- *   model is ever hard-deleted; deleting a workspace ("Workspace management:
- *   create, edit, and delete workspaces", issue 30) has to decide what happens
- *   to its items explicitly rather than inheriting a silent cascade.
+ *   model is ever hard-deleted; deleting a workspace ("Rename and delete a
+ *   workspace", issue 77) has to decide what happens to its items explicitly
+ *   rather than inheriting a silent cascade - which is why it tombstones the
+ *   workspace and leaves them where they are.
  *
  * `tenant_id` carries no foreign key here, and cannot: the register it would
  * point at is in D1, and SQLite has no way to reference a table in another

@@ -97,7 +97,7 @@ One package at a time, when you only want the tests near what you're touching:
 ```bash
 pnpm --filter @cockpit/shared test:unit       # domain types, schemas, ids — no real dependencies
 pnpm --filter @cockpit/api test:unit          # domain logic — no real dependencies
-pnpm --filter @cockpit/api test:integration   # command handling against a real local D1 (~15s, not in test:fast)
+pnpm --filter @cockpit/api test:integration   # command handling against real local storage (~25s, not in test:fast)
 pnpm --filter @cockpit/web test:f-unit        # component logic, API client mocked at the boundary
 pnpm test:e2e --project=phone                 # the browser walks on one device instead of both
 pnpm test:e2e tests/e2e/capture.test.ts       # one browser walk
@@ -107,8 +107,8 @@ For a live-reloading loop while writing a test, run vitest directly instead of t
 
 **Nothing has to be running first, and nothing you have running will be disturbed.** Every tier brings its own world:
 
-- `apps/api`'s integration tests get a fresh, real D1 instance per test file from the Workers pool (`@cloudflare/vitest-pool-workers`), gone when the run ends.
-- The browser tier starts a **second copy of the whole application** — its own Wrangler on :8887, its own Vite on :5273, its own D1 directory — and throws the database away afterwards. Your `pnpm dev` on :5173/:8787 keeps running throughout, untouched: run the suite while you are clicking around and neither notices the other.
+- `apps/api`'s integration tests get a fresh, real D1 instance per test file from the Workers pool (`@cloudflare/vitest-pool-workers`), gone when the run ends. An account's own data lives in a real Durable Object rather than in D1, and there is one of those per account name rather than one per test file, so the cases that touch it empty it themselves between them (`tests/integration/seed.ts`).
+- The browser tier starts a **second copy of the whole application** — its own Wrangler on :8887, its own Vite on :5273, its own state directory — and throws the storage away afterwards. Your `pnpm dev` on :5173/:8787 keeps running throughout, untouched: run the suite while you are clicking around and neither notices the other.
 
 That database is rebuilt before every run, so a run always starts from exactly the seed and can never be made to pass or fail by something you did in the browser yesterday. It is rebuilt by copying a template (about 220KB, 5 milliseconds) rather than by running migrations and the seed, which costs about seven seconds and is nearly all process startup. The template itself is rebuilt only when a migration or `seed.sql` changes, keyed by their contents, so there is no stale-template failure to remember. A whole run costs about 7 seconds warm, about 18 the first time, when the template and possibly `apps/web/dist` have to be built.
 
