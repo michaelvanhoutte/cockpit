@@ -93,7 +93,23 @@ export type Association = z.infer<typeof associationSchema>;
  * label, and there is no length at which one stays readable in a tab and
  * unreadable at 60.
  */
-export const workspaceNameSchema = z.string().trim().min(1).max(60);
+export const workspaceNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  /**
+   * A name is a single line. A tab or a newline inside one breaks every place
+   * it is displayed and is nothing a person meant to type, so it is refused
+   * rather than cleaned up - repairing input is where the bypasses live.
+   *
+   * `\p{Cc}` only: the C0 and C1 control characters. Not `\p{Cf}`, which would
+   * take the zero-width joiner with it and refuse half the emoji anybody would
+   * put in a name.
+   */
+  .refine((name) => !/\p{Cc}/u.test(name), {
+    message: 'a name is a single line, without tabs or line breaks',
+  });
 
 export const workspaceSchema = z.object({
   id: z.string(),

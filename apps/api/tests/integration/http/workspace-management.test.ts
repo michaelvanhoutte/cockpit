@@ -166,6 +166,84 @@ describe('Workspace management', () => {
     });
   });
 
+  describe('no two workspaces share a name, whatever alphabet it is in', () => {
+    // Every case makes both workspaces itself, because what it asks is whether
+    // the second is refused *given* the first. The suffix is what keeps one
+    // case's names out of the next one's way.
+    //
+    // Reusing the name of a workspace that is not there any more stays allowed,
+    // and is proved by "gives the name back to a workspace that is not there
+    // any more" above rather than repeated here - it needs a tombstone, which
+    // is not something a pair of names can express.
+    it.each([
+      {
+        situation: 'the same accented name in another case',
+        first: (u: string) => `ÉTÉ ${u}`,
+        then: (u: string) => `été ${u}`,
+        answer: 409,
+      },
+      {
+        situation: 'the same plain name in another case',
+        first: (u: string) => `Personal ${u}`,
+        then: (u: string) => `personal ${u}`,
+        answer: 409,
+      },
+      {
+        situation: 'a name whose sharp s is written out in the other case',
+        first: (u: string) => `STRASSE ${u}`,
+        then: (u: string) => `Straße ${u}`,
+        answer: 409,
+      },
+      {
+        situation: 'a name that differs by an accent rather than by case',
+        first: (u: string) => `Reunions ${u}`,
+        then: (u: string) => `Réunions ${u}`,
+        answer: 200,
+      },
+    ])('$situation', async ({ first, then, answer }) => {
+      seq += 1;
+      const suffix = String(seq);
+      expect((await makeWorkspace(first(suffix))).status).toBe(200);
+
+      expect((await makeWorkspace(then(suffix))).status).toBe(answer);
+    });
+  });
+
+  describe('a workspace name is a single line', () => {
+    it.each([
+      { situation: 'a name broken over two lines', typed: (n: string) => `${n}\nand more`, answer: 400 },
+      { situation: 'a name with a tab in it', typed: (n: string) => `${n}\tand more`, answer: 400 },
+      { situation: 'a name of ordinary text', typed: (n: string) => n, answer: 200 },
+    ])('$situation', async ({ typed, answer }) => {
+      const name = aName();
+
+      const response = await makeWorkspace(typed(name));
+
+      expect(response.status).toBe(answer);
+      // Refused, not cleaned up: repairing input is where the bypasses live.
+      if (answer === 400) expect(await storedNames()).not.toContain(name);
+    });
+  });
+
+  describe('a workspace name comes back exactly as it was typed', () => {
+    // What sits between typing a name and reading it back is the command's
+    // JSON, a STRICT table with its CHECKs, and the wire schema on the way out.
+    // Any of them could change a character without anything else noticing.
+    it.each([
+      { situation: 'an ampersand', typed: 'Rock & Roll' },
+      { situation: 'something that looks like markup', typed: '<script>' },
+      { situation: 'an accent', typed: 'Réunion' },
+      { situation: 'an emoji', typed: '📊 Numbers' },
+    ])('$situation', async ({ typed }) => {
+      seq += 1;
+      const name = `${typed} ${seq}`;
+
+      expect((await makeWorkspace(name)).status).toBe(200);
+
+      expect((await theWorkspaces()).map((w) => w.name)).toContain(name);
+    });
+  });
+
   describe('the same name sent twice makes one workspace', () => {
     it('refuses the second and keeps the first', async () => {
       // Two separate attempts, not a replay: the second carries its own

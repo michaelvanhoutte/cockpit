@@ -29,6 +29,20 @@
       "when": 1788192169419,
       "tag": "0003_brave_praxagora",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788200312540,
+      "tag": "0004_lazy_bug",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788200332302,
+      "tag": "0005_brief_star_brand",
+      "breakpoints": true
     }
   ]
 }

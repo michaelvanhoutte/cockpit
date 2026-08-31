@@ -9,7 +9,7 @@ import {
   listWorkspaces,
   liveWorkspaceNamed,
 } from '../db/repo.js';
-import { nextColor, workspaceFromCommand } from '../domain/workspaces.js';
+import { foldName, nextColor, workspaceFromCommand } from '../domain/workspaces.js';
 import {
   applySetFocus,
   applySetNextAction,
@@ -69,7 +69,9 @@ export async function runCommand<N extends CommandName>(
   switch (name) {
     case 'create_workspace': {
       const cmd = payload as CommandPayload<'create_workspace'>;
-      const alreadyCalledThat = await liveWorkspaceNamed(db, tenantId, cmd.name);
+      // Folded here and nowhere else: the same function writes the column and
+      // asks whether the name is taken, so the two cannot disagree.
+      const alreadyCalledThat = await liveWorkspaceNamed(db, tenantId, foldName(cmd.name));
       if (alreadyCalledThat) throw new WorkspaceNameTakenError(alreadyCalledThat);
       // The color is a function of the whole set, so it is picked here rather
       // than by the client, whose copy of that set can be stale.

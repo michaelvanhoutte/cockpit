@@ -46,6 +46,12 @@ describe('Workspace management', () => {
         id: 'ws-new',
         tenantId: TENANT_ID,
         name: 'Personal',
+        // The copy the unique index holds, so that two names differing only in
+        // case are one name whatever alphabet they are written in ("Workspace
+        // names are only case-insensitive in ASCII", issue 91). Which names
+        // that makes the same is proved through the interface, in
+        // tests/integration/http/workspace-management.test.ts.
+        foldedName: 'personal',
         // Written, read by nothing, and dropped by "Drop the unused workspace
         // slug column" (issue 78); the id is used because it is unique without
         // inventing a second naming rule.

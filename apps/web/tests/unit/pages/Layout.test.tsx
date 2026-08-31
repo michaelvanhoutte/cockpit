@@ -1,0 +1,56 @@
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Layout } from '../../../src/pages/Layout';
+
+/**
+ * F1, and one case only. This is not a test of React's escaping, which is
+ * framework mechanics and would be cut - it guards the one way Cockpit can undo
+ * that escaping itself. Nothing in the codebase reaches for
+ * `dangerouslySetInnerHTML` today, and this is what would go red on the day
+ * something does, on the screen where every workspace name in the tenant is
+ * rendered ("Workspace names are only case-insensitive in ASCII", issue 91).
+ */
+const A_NAME_THAT_LOOKS_LIKE_MARKUP = '<img src=x onerror=alert(1)>';
+
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children, ...rest }: { children?: React.ReactNode }) => <a {...rest}>{children}</a>,
+  Outlet: () => null,
+  useParams: () => ({}),
+}));
+
+vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
+
+vi.mock('../../../src/api/queries', () => ({
+  workspacesQuery: {
+    queryKey: ['workspaces'],
+    queryFn: () =>
+      Promise.resolve({
+        workspaces: [
+          {
+            id: 'ws-markup',
+            tenantId: 'tenant',
+            name: '<img src=x onerror=alert(1)>',
+            color: '#6f62b5',
+          },
+        ],
+      }),
+  },
+}));
+
+describe('Workspace management', () => {
+  describe('a workspace name is shown as text, never as markup', () => {
+    it('puts the characters in the tab and builds nothing out of them', async () => {
+      const { container } = render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      expect(await screen.findByText(A_NAME_THAT_LOOKS_LIKE_MARKUP)).toBeVisible();
+      expect(container.querySelector('img')).toBeNull();
+    });
+  });
+});

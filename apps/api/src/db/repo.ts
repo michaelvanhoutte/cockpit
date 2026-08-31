@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, ne } from 'drizzle-orm';
 import type { Association, Item, Workspace } from '@cockpit/shared';
 import type { Db } from './client.js';
 import { associations, commands, items, workspaces } from './schema.js';
@@ -46,11 +46,17 @@ export async function getWorkspace(
 }
 
 /**
- * The live workspace already going by this name, compared the way the unique
- * index compares it, or null. Asked before the insert rather than left to the
- * index for the same reason a capture checks its workspace exists: the
- * constraint would surface as a 500, and a name already in use is something to
- * say out loud. The index is still the lock behind this one.
+ * The live workspace already going by this name, or null. It is handed the
+ * folded name and looks in the folded column, so it asks the index's own
+ * question of the index's own data rather than a second opinion that could
+ * disagree with it - the failure that made "Workspace names are only
+ * case-insensitive in ASCII" (issue 91) an issue was exactly a fold in one
+ * place not matching a fold in another.
+ *
+ * Asked before the insert rather than left to the index for the same reason a
+ * capture checks its workspace exists: the constraint would surface as a 500,
+ * and a name already in use is something to say out loud. The index is still
+ * the lock behind this one.
  *
  * It returns the *stored* name rather than a yes or no so the refusal can name
  * what is actually on screen. Someone typing `work` against a workspace called
@@ -60,12 +66,12 @@ export async function getWorkspace(
 export async function liveWorkspaceNamed(
   db: Db,
   tenantId: string,
-  name: string,
+  foldedName: string,
 ): Promise<string | null> {
   const rows = await db
     .select({ name: workspaces.name })
     .from(workspaces)
-    .where(and(live(tenantId), sql`lower(${workspaces.name}) = lower(${name})`));
+    .where(and(live(tenantId), eq(workspaces.foldedName, foldedName)));
   return rows[0]?.name ?? null;
 }
 

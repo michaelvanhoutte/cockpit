@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
-import { env, applyD1Migrations } from 'cloudflare:test';
+import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 
 /**
  * Integration level: a migration only exists against a real database, and what
@@ -22,6 +22,22 @@ function before() {
 }
 function andTheRest() {
   return inject('migrations').filter((m) => !m.name.startsWith('0000'));
+}
+
+/**
+ * Asks for a workspace the way a person does, through the real Worker, because
+ * whether the migration folded the rows it found is only visible in what the
+ * next create is allowed to do.
+ */
+let seq = 0;
+async function makeWorkspace(name: string): Promise<Response> {
+  seq += 1;
+  const id = `018f0000-0000-7000-8000-${String(seq).padStart(12, '0')}`;
+  return SELF.fetch('http://cockpit.test/v1/commands/create_workspace', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ commandId: id, issuedAt: AT, workspaceId: id, name }),
+  });
 }
 
 async function countOf(table: string): Promise<number> {
@@ -101,6 +117,41 @@ describe('Capture', () => {
         "SELECT name FROM sqlite_master WHERE name LIKE '__new_%' OR name LIKE '_migrate_%'",
       ).all<{ name: string }>();
       expect(results).toEqual([]);
+    });
+  });
+});
+
+describe('Workspace management', () => {
+  describe('a workspace that was there before an update keeps its name and holds on to it', () => {
+    it('is still called what it was called', async () => {
+      expect(
+        await env.DB.prepare('SELECT name FROM workspaces WHERE id = ?').bind('ws-work').first<{
+          name: string;
+        }>(),
+      ).toMatchObject({ name: 'Work' });
+    });
+
+    it('still holds the thoughts that were filed in it', async () => {
+      expect(
+        await env.DB.prepare(
+          `SELECT items.id FROM items
+             JOIN workspaces ON workspaces.id = items.workspace_id
+            WHERE items.id = ?`,
+        )
+          .bind('kept')
+          .first<{ id: string }>(),
+      ).toMatchObject({ id: 'kept' });
+    });
+
+    it('keeps a new workspace from taking its name in another case', async () => {
+      // The half of the update no other test can see: the names that were
+      // already stored have to be folded too, or a workspace from before the
+      // change holds its name against nothing.
+      const refused = await makeWorkspace('WORK');
+      expect(refused.status).toBe(409);
+
+      const accepted = await makeWorkspace('Bookkeeping');
+      expect(accepted.status).toBe(200);
     });
   });
 });

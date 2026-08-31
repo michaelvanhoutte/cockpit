@@ -48,6 +48,33 @@ export function nextColor(taken: readonly string[]): string {
 }
 
 /**
+ * The name with its case folded away, which is what the unique index holds and
+ * the only thing that decides whether two workspaces share a name ("Workspace
+ * names are only case-insensitive in ASCII", issue 91).
+ *
+ * Upper-then-lower, not `toLowerCase()` alone, because lowercasing is not case
+ * folding: `STRASSE` lowercases to `strasse` while `Straße` stays `straße`, so
+ * the two would remain different names. Uppercasing expands `ß` to `SS` first,
+ * and the pair folds together. Measured, not assumed - the case table in
+ * apps/api/tests/integration/http/workspace-management.test.ts is what pins it.
+ *
+ * Locale-independent on purpose: `toLocaleLowerCase()` would fold `I` by
+ * whatever locale the Worker happens to run under, so the same two names could
+ * be the same name in one deployment and not in another.
+ *
+ * What it deliberately does not do is normalize Unicode composition, so `é` as
+ * one code point and `e` plus a combining accent still count as two names.
+ * That is a real second way two names can look identical; it needs its own
+ * decision about which normal form, and folding case is the half that bites.
+ *
+ * Dashboards get the same rule when "Add and switch dashboards" (issue 32)
+ * lands, and share this function rather than growing a second one.
+ */
+export function foldName(name: string): string {
+  return name.trim().toUpperCase().toLowerCase();
+}
+
+/**
  * `createdAt` is the client's own timestamp, like every other command, so the
  * order workspaces are listed in is the order they were made in even when a
  * create was queued offline.
@@ -62,11 +89,17 @@ export function workspaceFromCommand(
   cmd: CreateWorkspaceCommand,
   tenantId: string,
   color: string,
-): Workspace & { slug: string; createdAt: string; deletedAt: string | null } {
+): Workspace & {
+  foldedName: string;
+  slug: string;
+  createdAt: string;
+  deletedAt: string | null;
+} {
   return {
     id: cmd.workspaceId,
     tenantId,
     name: cmd.name,
+    foldedName: foldName(cmd.name),
     slug: cmd.workspaceId,
     color,
     createdAt: cmd.issuedAt,

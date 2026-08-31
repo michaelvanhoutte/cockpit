@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations } from 'cloudflare:test';
+import { foldName } from '../../../src/domain/workspaces.js';
 import { TENANT_ID, WORKSPACE_ID, seedWorkspaces } from '../seed.js';
 
 /**
@@ -174,11 +175,17 @@ describe('Triage', () => {
 
 describe('Workspace management', () => {
   describe('two workspaces never go by the same name', () => {
+    /**
+     * Written with the folded name a handler would have written: the index is
+     * on that column, so a row without it is not the row this rule is about.
+     * Folded by the same function the handlers use, because a test that folded
+     * the name its own way would be proving its own arithmetic.
+     */
     async function makeWorkspaceRow(id: string, name: string): Promise<void> {
       await env.DB.prepare(
-        'INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO workspaces (id, tenant_id, name, folded_name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
-        .bind(id, TENANT_ID, name, id, '#3f8f78', AT)
+        .bind(id, TENANT_ID, name, foldName(name), id, '#3f8f78', AT)
         .run();
     }
 
