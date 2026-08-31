@@ -125,6 +125,22 @@ export function safeReturnPath(raw: string | undefined): string {
   return raw;
 }
 
+/**
+ * Whether an error raised while streaming changes is worth reporting.
+ *
+ * A browser closing its tab is how a stream ends, not a failure: the loop is
+ * mid-flight when that happens and its database read is torn down along with
+ * the request, surfacing as an error like any other. Reporting those would file
+ * one for every closed tab and bury the real ones underneath.
+ *
+ * Only the decision lives here, because only the decision can be checked. That
+ * the teardown reaches this at all is workerd's behaviour, not ours, and it does
+ * not happen under the test runner — see apps/api/tests/unit/http/app.test.ts.
+ */
+export function worthReporting(stream: { aborted: boolean; closed: boolean }): boolean {
+  return !stream.aborted && !stream.closed;
+}
+
 // --- route registration ------------------------------------------------------
 // Chained so the exported AppType gives the web client end-to-end inference.
 
@@ -188,25 +204,38 @@ const routes = app
   })
   // --- push invalidation (§5.5): SSE doorbell, not a data channel -------------
   .get('/v1/events', (c) =>
-    streamSSE(c, async (stream) => {
-      const db = createDb(c.env.DB);
-      let cursor = new Date().toISOString();
-      let lastPing = Date.now();
-      await stream.writeSSE({ event: 'ping', data: '' });
-      while (!stream.aborted) {
-        const { events, cursor: next } = await collectInvalidations(db, DEFAULT_TENANT_ID, cursor);
-        cursor = next;
-        for (const event of events) {
-          await stream.writeSSE({ event: 'change', data: JSON.stringify(event) });
+    streamSSE(
+      c,
+      async (stream) => {
+        const db = createDb(c.env.DB);
+        let cursor = new Date().toISOString();
+        let lastPing = Date.now();
+        await stream.writeSSE({ event: 'ping', data: '' });
+        while (!stream.aborted) {
+          const { events, cursor: next } = await collectInvalidations(
+            db,
+            DEFAULT_TENANT_ID,
+            cursor,
+          );
+          cursor = next;
+          for (const event of events) {
+            await stream.writeSSE({ event: 'change', data: JSON.stringify(event) });
+          }
+          // Heartbeat keeps intermediaries from closing the idle stream.
+          if (Date.now() - lastPing > 25_000) {
+            await stream.writeSSE({ event: 'ping', data: '' });
+            lastPing = Date.now();
+          }
+          await stream.sleep(3_000);
         }
-        // Heartbeat keeps intermediaries from closing the idle stream.
-        if (Date.now() - lastPing > 25_000) {
-          await stream.writeSSE({ event: 'ping', data: '' });
-          lastPing = Date.now();
-        }
-        await stream.sleep(3_000);
-      }
-    }),
+      },
+      async (error, stream) => {
+        if (!worthReporting(stream)) return;
+        console.error(
+          JSON.stringify({ level: 'error', message: error.message, stack: error.stack }),
+        );
+      },
+    ),
   )
   // --- returning from the perimeter's sign-in --------------------------------
   // Reached only *after* the gate has let the request through, which is the
