@@ -77,7 +77,21 @@ export async function runCommand<N extends CommandName>(
       const workspace = workspaceFromCommand(cmd, tenantId, nextColor(existing.map((w) => w.color)));
       // A retried create whose command ID was lost still may not make a second
       // workspace: the id is the client's, so the replay carries the same one.
-      await db.batch([db.insert(workspaces).values(workspace).onConflictDoNothing(), logCommand]);
+      //
+      // `target` is load-bearing, and this is the one table where leaving it
+      // off is dangerous. Bare `onConflictDoNothing()` means *any* conflict,
+      // and workspaces now carry a second unique index - the one on the name.
+      // Two creates of the same name racing past the check above would then
+      // both answer "done" while the second wrote nothing at all: the box
+      // clears, the list is re-read, and the workspace is simply not there.
+      // Named at the primary key, the id replay stays a no-op and a name
+      // collision raises, which is what the index is for. (`items` and
+      // `associations` have no second unique index, so their bare calls below
+      // mean only what they say.)
+      await db.batch([
+        db.insert(workspaces).values(workspace).onConflictDoNothing({ target: workspaces.id }),
+        logCommand,
+      ]);
       break;
     }
     case 'capture_item': {
