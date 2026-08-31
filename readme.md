@@ -137,11 +137,13 @@ The four workflows that need a toolchain — CI and the three deploys — share 
 
 One consequence worth knowing: the action refuses to run when the workflow file differs from the copy on `main`, so **a pull request that edits `claude-code-review.yml` is not reviewed by it**. The gate makes that red rather than green, on purpose.
 
+**Posting the findings is where the automation stops.** Answering them is manual, and it is a rule rather than a courtesy: reply in each review thread naming the commit that fixed it, then resolve it — see "Review findings" in [CLAUDE.md](CLAUDE.md). Nothing about pushing a fix, or merging, closes a thread, so a pull request whose review still looks untouched is exactly what a fully handled review looks like until someone answers it.
+
 ### Checked in — agent configuration
 
 | What | Where | Effect |
 |---|---|---|
-| Project instructions | [CLAUDE.md](CLAUDE.md) | Loaded into every session in this repository: how to run it, when to scope, and the two testing rules that get skipped most. |
+| Project instructions | [CLAUDE.md](CLAUDE.md) | Loaded into every session in this repository: how to run it, when to scope, the two testing rules that get skipped most, and what answering a review's findings requires. |
 | `scoping` skill | [.claude/skills/scoping/](.claude/skills/scoping/SKILL.md) | Sharpen fuzzy requirements, size the work as a vertical slice, produce its statement list — before any code. Triggers on work starting, not on the decision to file an issue. |
 | `testing` skill | [.claude/skills/testing/](.claude/skills/testing/SKILL.md) | The binding test rules, restated in full so no agent has to open the strategy document to write a test. |
 | `github-issue` skill | [.claude/skills/github-issue/](.claude/skills/github-issue/SKILL.md) | The issue body template and the `gh` publishing step, once scoping has run. |
