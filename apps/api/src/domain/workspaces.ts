@@ -1,8 +1,8 @@
 import type { CreateWorkspaceCommand, Workspace } from '@cockpit/shared';
 
 /**
- * Pure handlers for workspaces (architecture §6.1: domain imports nothing from
- * the other layers).
+ * Pure handlers for workspaces (architecture, "Hono + Zod on Cloudflare
+ * Workers": domain imports nothing from the other layers).
  */
 
 /**

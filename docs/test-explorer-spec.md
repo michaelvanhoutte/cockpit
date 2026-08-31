@@ -615,7 +615,8 @@ separately anymore), the source-file glob patterns it owns, and an optional
 `parent` (§2c) that nests it under another entry. `Capture`, `Triage`,
 `Offline`, `Associations`, `Dashboards`, `Panels`, `Focus`,
 `Connector management`, `User management` are the nine root areas seeded
-from [testing-strategy.md §9.1](testing-strategy.md)'s own example list;
+from the example list in [testing-strategy.md](testing-strategy.md)'s "Tests
+are named in the product's language, not the implementation's" (§9.1);
 `Sign-in` and `Workspace management` were added since, each on the day the
 product grew a behaviour the areas before it had no word for — nothing
 restricts the registry to exactly those,
