@@ -118,6 +118,21 @@ describe('Capture', () => {
       ]);
       expect(results.filter((t) => t.strict !== 1)).toEqual([]);
     });
+
+    it('points every link at a real table, not a leftover of the rebuild', async () => {
+      // The constraints migration builds the tables under `__new_` names and
+      // renames them last, relying on SQLite rewriting foreign keys to follow
+      // a renamed table. If that ever stopped happening, the schema would
+      // still load and every reference would point at a table that is gone.
+      const { results } = await env.DB.prepare(
+        `SELECT "table" AS target FROM pragma_foreign_key_list('items')
+         UNION SELECT "table" FROM pragma_foreign_key_list('associations')
+         UNION SELECT "table" FROM pragma_foreign_key_list('workspaces')
+         ORDER BY target`,
+      ).all<{ target: string }>();
+
+      expect(results.map((r) => r.target)).toEqual(['items', 'tenants', 'workspaces']);
+    });
   });
 });
 

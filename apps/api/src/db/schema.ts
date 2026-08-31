@@ -51,11 +51,16 @@ function oneOf(column: string, values: readonly string[]) {
 /**
  * An ISO-8601 instant: 2026-08-31T09:26:28.000Z, matching z.iso.datetime().
  *
- * `datetime()` rather than a GLOB of the shape, for two reasons. A GLOB
- * spelling out fourteen `[0-9]` classes exceeds SQLite's pattern-complexity
- * limit and fails at runtime with "LIKE or GLOB pattern too complex". And
- * `datetime()` is the stronger check anyway: it returns NULL for a month or
- * hour that could not exist, where a shape pattern would wave it through.
+ * `datetime()` rather than a GLOB of the shape: a GLOB spelling out fourteen
+ * `[0-9]` classes exceeds SQLite's pattern-complexity limit and fails at
+ * runtime with "LIKE or GLOB pattern too complex".
+ *
+ * `datetime()` alone is not enough, though, and it fails in a way worth
+ * spelling out. It returns NULL for a month or an hour that could not exist,
+ * but the day of month is only range-checked as 1..31 and then *normalised*:
+ * `datetime('2026-02-31T10:00:00.000Z')` is `2026-03-03 10:00:00`, not NULL.
+ * So the date part is round-tripped the same way isDate does it below - a
+ * valid day is the only one that comes back unchanged.
  *
  * The `IS NULL` branch is load-bearing on nullable columns and written on
  * every one for uniformity: a CHECK passes when it evaluates to NULL, but
@@ -65,7 +70,8 @@ function oneOf(column: string, values: readonly string[]) {
 function isTimestamp(column: string) {
   return sql.raw(
     `${column} IS NULL OR (datetime(${column}) IS NOT NULL` +
-      ` AND substr(${column}, 11, 1) = 'T' AND length(${column}) >= 20)`,
+      ` AND substr(${column}, 11, 1) = 'T' AND length(${column}) >= 20` +
+      ` AND date(${column}) = substr(${column}, 1, 10))`,
   );
 }
 

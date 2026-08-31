@@ -81,7 +81,7 @@ These conventions are cheap now and expensive to retrofit, so they are binding f
 
 #### The database is the second lock
 
-The conventions above are enforced by the schema, not left to the callers that happen to exist today. Every write currently goes through one door — the command handlers (§4.3), validated by the Zod schemas in `packages/shared` — so these constraints can never fire in normal operation. That is the point: they are what still holds when a connector, a migration, a backfill script or a hand-run `wrangler d1 execute` writes rows the command handlers never saw.
+The conventions above are enforced by the schema, not left to the callers that happen to exist today. Every write currently goes through one door — the command handlers ("Mutations are commands, not object PUTs" below), validated by the Zod schemas in `packages/shared` — so these constraints can never fire in normal operation. That is the point: they are what still holds when a connector, a migration, a backfill script or a hand-run `wrangler d1 execute` writes rows the command handlers never saw.
 
 - **STRICT tables.** SQLite's default is dynamic typing with affinity, so a `TEXT` column stores an integer without complaint. `STRICT` (SQLite 3.37+, which D1 runs) makes declared types enforced. Its guarantee is precisely *no lossy conversion*: a blob into a text column is refused, while the integer `12345` into that same column is still accepted as `'12345'`, because that conversion loses nothing. It is not a substitute for a CHECK.
 - **A CHECK for every closed set**, generated in `src/db/schema.ts` from the same Zod enums the wire contract uses, so the database and the API contract cannot drift into disagreeing about what a status is.
