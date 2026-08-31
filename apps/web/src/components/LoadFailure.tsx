@@ -15,7 +15,8 @@ interface Props {
    * True when there is nothing of the person's own work on screen, so this may
    * own the whole view and may navigate away to sign in. False when a stored
    * copy is already rendered behind it: reading what you already have is a
-   * promise the app keeps offline (functional definition §10), and hijacking
+   * promise the app keeps offline (functional definition, "Offline /
+   * local-first behavior", §10), and hijacking
    * the screen to a sign-in page would break it.
    */
   canTakeOver?: boolean;

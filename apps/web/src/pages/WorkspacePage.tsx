@@ -31,7 +31,8 @@ export function WorkspacePage() {
   return (
     <div className="flex flex-col gap-6">
       {/* The stored copy stays on screen behind this: reading what you already
-          have is what the local copy is for (functional definition §10), so a
+          have is what the local copy is for (functional definition, "Offline /
+          local-first behavior", §10), so a
           failed refresh reports itself instead of blanking the workspace. */}
       {error && <LoadFailure error={error} onRetry={() => void refetch()} />}
       <CaptureForm workspaceId={workspaceId} />

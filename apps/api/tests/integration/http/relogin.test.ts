@@ -3,13 +3,20 @@ import { SELF } from 'cloudflare:test';
 
 /**
  * Integration level, and through `SELF.fetch` rather than by calling the
- * handler: what this proves is a redirect the Worker performs — the status, the
- * Location header, and the routing that gets there — none of which exists below
- * the HTTP entry point ("Enter through the real interface, not around it").
+ * handler: what this proves is that the route exists, reads the return location
+ * off the query string, puts the answer in a `Location` header and says 302 —
+ * none of which exists below the HTTP entry point ("Enter through the real
+ * interface, not around it").
  *
- * No database is touched, because signing back in does not read anything: the
- * gate in front of the Worker has already done the deciding by the time this
- * route runs at all.
+ * It deliberately does *not* re-prove which locations are allowed. That is a
+ * decision about a string with no dependency of any kind, so it belongs at unit
+ * level and lives in apps/api/tests/unit/http/app.test.ts; repeating the table
+ * here would be coverage duplicated upward. One refused case stays, because
+ * "the guard is actually called on the way through" is wiring rather than
+ * branching, and nothing below can show it.
+ *
+ * No database is touched, because signing back in reads nothing: the gate in
+ * front of the Worker has already done the deciding by the time this runs.
  */
 async function arriveBackFrom(query: string) {
   return SELF.fetch(`http://cockpit.test/v1/relogin${query}`, { redirect: 'manual' });
@@ -17,39 +24,18 @@ async function arriveBackFrom(query: string) {
 
 describe('Sign-in', () => {
   describe('signing in again puts you back on the page you were on', () => {
-    const situations = [
-      { situation: 'a workspace page', query: '?return=%2Fw%2Fws-work', lands: '/w/ws-work' },
-      { situation: 'the start page', query: '?return=%2F', lands: '/' },
-      { situation: 'a page that was never recorded', query: '', lands: '/' },
-    ];
-
-    it.each(situations)('sends you back to $situation', async ({ query, lands }) => {
-      const res = await arriveBackFrom(query);
+    it('hands the browser the page it came from', async () => {
+      const res = await arriveBackFrom('?return=%2Fw%2Fws-work');
 
       expect(res.status).toBe(302);
-      expect(res.headers.get('location')).toBe(lands);
+      expect(res.headers.get('location')).toBe('/w/ws-work');
     });
-  });
 
-  describe('a return location pointing anywhere but Cockpit is refused', () => {
-    const situations = [
-      { situation: 'another site entirely', asked: 'https://elsewhere.example/inbox' },
-      { situation: 'a site borrowing our protocol', asked: '//elsewhere.example/inbox' },
-      { situation: 'a site disguised with a backslash', asked: '/\\elsewhere.example/inbox' },
-      { situation: 'a location smuggling a line break', asked: '/w/ws-work\r\nSet-Cookie: a=b' },
-    ];
-
-    it.each(situations)('refuses $situation and starts you at the top', async ({ asked }) => {
-      const res = await arriveBackFrom(`?return=${encodeURIComponent(asked)}`);
+    it('refuses a page outside Cockpit on the way through', async () => {
+      const res = await arriveBackFrom(`?return=${encodeURIComponent('//elsewhere.example')}`);
 
       expect(res.status).toBe(302);
       expect(res.headers.get('location')).toBe('/');
-    });
-
-    it('keeps an ordinary page inside Cockpit', async () => {
-      const res = await arriveBackFrom('?return=%2Fw%2Fws-personal');
-
-      expect(res.headers.get('location')).toBe('/w/ws-personal');
     });
   });
 });

@@ -4,7 +4,8 @@ import { serverEventSchema } from '@cockpit/shared';
 import { diagnoseConnection } from './loadFailure';
 
 /**
- * Liveness via SSE (§5.2): the server pushes "something changed" events and the
+ * Liveness via SSE (architecture, "The read model: persisted snapshot,
+ * revalidate, push", §5.2): the server pushes "something changed" events and the
  * client revalidates the affected snapshot.
  *
  * `EventSource` reconnects on its own, but only from *some* failures, and the
@@ -70,9 +71,15 @@ export function useServerEvents() {
       // how that gets said out loud: the read fails the same way, and the
       // screen the person already knows explains it. Deliberately not a second
       // way of announcing it, and deliberately not a navigation — a tab showing
-      // your work keeps showing it (functional definition §10).
+      // your work keeps showing it (functional definition, "Offline /
+      // local-first behavior").
+      //
+      // It has to be the workspace snapshot. The workspace *list* is read by
+      // Layout, which takes only `data` and no error, so invalidating that
+      // would fail again in silence and change nothing on screen — which is
+      // the very thing this is here to stop.
       if ((await diagnoseConnection()) === 'signed-out') {
-        void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+        void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
       }
       if (unmounted) return;
       retry = setTimeout(listen, wait);

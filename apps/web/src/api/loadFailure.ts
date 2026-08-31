@@ -24,7 +24,10 @@
  */
 
 export type FailureReason =
-  /** Nothing could be reached at all. The stored copy is still readable (§10). */
+  /**
+   * Nothing could be reached at all. The stored copy is still readable
+   * (functional definition, "Offline / local-first behavior", §10).
+   */
   | 'offline'
   /** The deployment is fine; this browser needs to sign in again. */
   | 'signed-out'
@@ -55,13 +58,24 @@ export interface Surroundings {
 export const realSurroundings: Surroundings = {
   isDefinitelyOffline: () => navigator.onLine === false,
   reachServer: async () => {
+    let res: Response;
     try {
-      const res = await fetch('/health', { cache: 'no-store' });
-      if (!res.ok) return 'unhealthy';
+      res = await fetch('/health', { cache: 'no-store' });
+    } catch {
+      // Nothing came back at all: this is the only genuinely unreachable case.
+      return 'unreachable';
+    }
+    if (!res.ok) return 'unhealthy';
+    try {
       const body: unknown = await res.json();
       return (body as { ok?: unknown } | null)?.ok === true ? 'healthy' : 'unhealthy';
     } catch {
-      return 'unreachable';
+      // It answered, just not with our JSON — a login page or something else
+      // standing in front of the Worker. Answering badly is not the same as
+      // not answering, and calling it unreachable would tell the person their
+      // connection is down when it plainly is not. The runbook's "Diagnosing
+      // a broken environment" lists this as its own case for the same reason.
+      return 'unhealthy';
     }
   },
 };

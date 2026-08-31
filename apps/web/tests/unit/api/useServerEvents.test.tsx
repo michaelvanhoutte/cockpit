@@ -76,6 +76,10 @@ let client: QueryClient;
 
 function open() {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The workspace snapshot, because that is what WorkspacePage renders and what
+  // therefore has somewhere to show a failure. The workspace *list* is read by
+  // Layout, which takes no error and would swallow it.
+  client.setQueryData(['snapshot', 'ws-work'], { items: [] });
   client.setQueryData(['workspaces'], { workspaces: [] });
   render(
     <QueryClientProvider client={client}>
@@ -170,7 +174,7 @@ describe('Offline', () => {
 
       await refuseTheConnection();
 
-      expect(client.getQueryState(['workspaces'])?.isInvalidated ?? false).toBe(reReads);
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(reReads);
     });
   });
 });
