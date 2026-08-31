@@ -6,7 +6,7 @@ import { WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.
 /**
  * Integration level: real D1, and requests go through the real Worker
  * (`SELF.fetch`, bound to the app's own default export in
- * `apps/api/src/index.ts`) rather than by calling the write path directly.
+ * `apps/api/src/worker.ts`) rather than by calling the write path directly.
  * Routing, request validation and error-to-status mapping are as much a part
  * of the service's own infrastructure as the database is - see "Enter through
  * the real interface, not around it" in the testing skill.

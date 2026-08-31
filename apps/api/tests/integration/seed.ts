@@ -53,7 +53,10 @@ export async function startFromEmpty(): Promise<void> {
  */
 export async function inTheStore<T>(work: (sql: SqlStorage) => T): Promise<T> {
   const stub = accountStore();
-  await stub.workspaces(ACCOUNT_NAME);
+  const opened = await stub.workspaces(ACCOUNT_NAME);
+  // Said out loud rather than left to the caller's SQL, which would otherwise
+  // fail with "no such table" and hide the reason the tables are not there.
+  if (opened.status !== 'ok') throw new Error(JSON.stringify(opened));
   return runInDurableObject(stub, (_instance, state) => work(state.storage.sql));
 }
 

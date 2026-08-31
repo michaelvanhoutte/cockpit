@@ -110,6 +110,8 @@ Three things follow, and each shows up in the code:
 - **The platform choice is provisional.** The recorded fallback is the co-located-Postgres platform, where the credible shape is row-scoping in a shared database and `tenant_id` is mandatory. Dropping it now would bet the schema on a decision this document already flags as reversible.
 - **The cost is asymmetric**, which is the general form of the argument for every convention here: keeping it is one text column already written, indexed and filtered; re-adding it later means backfilling every row of every table.
 
+**The move is a cutover, not a copy.** Rows already in D1's `items`, `associations` and `commands` are not carried into any account's store: production holds `seed.sql` fixtures rather than real mail, and staging holds what has been clicked through it, so there was nothing worth writing a one-off backfill for. What each environment gets instead is a store that starts empty and creates the three starting workspaces on the first request.
+
 **D1 still holds the four tables an account's data used to live in.** Removing them is a *contract* step and belongs to a later release, per "Migrations and rollback" in [deployment.md](deployment.md): a deploy applies migrations before the new code goes live, so dropping them in the same release would leave the old code reading tables that were already gone — and re-promoting the previous commit, the first way back, would leave it that way. Keeping them is also what makes that rollback work, since the rows they hold are exactly what the old code reads.
 
 ### 4.3 Mutations are commands, not object PUTs
