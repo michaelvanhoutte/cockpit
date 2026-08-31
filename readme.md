@@ -17,7 +17,7 @@ cockpit/
 │   └── config/        # shared tsconfig / prettier
 ├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
 ├── scripts/           # local dev startup, branch-alias derivation (+ its assertions), branch tidying
-├── .github/           # CI, the two Claude workflows, the three deploy workflows, branch protection
+├── .github/           # CI, CodeQL, the two Claude workflows, the three deploy workflows, branch protection
 ├── .claude/           # project skills and Claude Code settings every session picks up
 └── poc/               # proofs of concept (kept; they are part of the showcase)
 ```

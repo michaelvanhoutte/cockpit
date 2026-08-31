@@ -530,8 +530,9 @@ Then, by hand (no API, or deliberately not automated):
      Requiring the legs without it would gate on the analysis having happened while
      letting a high-severity finding merge.
 
-     **All three names were read off a real run** (pull request 92), never
-     predicted, and that ordering is the point rather than a detail. GitHub matches
+     **All three names were read off a real run** ("Analyse every pull request
+     with CodeQL, and let Dependabot report vulnerable dependencies", pull request
+     92), never predicted, and that ordering is the point rather than a detail. GitHub matches
      these strings with no idea whether anything reports under them, and a name
      nothing reports under does not go red: it sits at *Expected — waiting for
      status to be reported* on every pull request, indefinitely. `enforce_admins:
@@ -570,8 +571,21 @@ Then, by hand (no API, or deliberately not automated):
    gh api -X PUT repos/michaelvanhoutte/cockpit/automated-security-fixes  # Dependabot security updates
    ```
 
-   Read all four back with
-   `gh api repos/michaelvanhoutte/cockpit --jq '.security_and_analysis'`.
+   Reading them back takes two calls, not one, and the reason matters: three of
+   the four live on the repository resource, and **Dependabot alerts is not one of
+   them**. Its key is simply absent from `security_and_analysis`, which reads
+   exactly like "off" to anyone checking.
+
+   ```bash
+   # secret scanning, push protection, Dependabot security updates
+   gh api repos/michaelvanhoutte/cockpit --jq '.security_and_analysis'
+   # Dependabot alerts: 204 when on, 404 when off, no body either way
+   gh api repos/michaelvanhoutte/cockpit/vulnerability-alerts --silent && echo enabled || echo disabled
+   ```
+
+   `security_and_analysis` is also only populated for a caller with admin on the
+   repository — a non-admin gets `null`, which reads as "everything is off" in the
+   same way the branch-protection `404` above reads as "wrong URL".
 
    **Routine dependency version updates are deliberately off.** They would need a
    `.github/dependabot.yml`, and there is none: a pull request for every
