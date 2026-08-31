@@ -54,7 +54,9 @@ Every setup step is idempotent, so it is safe to re-run and there is no one-time
 
 **It stays one command deliberately.** The testing strategy's definition of done requires that the application be started and the changed behaviour actually exercised before anything is claimed to work — green unit tests are never evidence that the app runs. Four commands across two terminals is the friction that quietly turns "start the app" into "the tests passed", so the friction is removed rather than documented.
 
-`pnpm typecheck` and `pnpm test` run across all packages. A freshly created worktree has no `node_modules`, so run `pnpm install` in it before either, or the first run fails for that reason rather than for anything you changed.
+`pnpm typecheck` and `pnpm test` run across all packages. Both assume the install matches `pnpm-lock.yaml`, and two ordinary things leave it behind: a freshly created worktree has no `node_modules` at all, and a pull that adds a workspace package or changes a dependency leaves the `node_modules` you have incomplete. Run `pnpm install` after either — it is the same idempotent command, so re-running it costs seconds and never hurts.
+
+Skip it and the first run fails for that reason rather than for anything you changed, which is worth recognising because it does not look like a missing install. A package whose dependencies were never linked reports its test runner missing (`'vitest' is not recognized`), and the giveaway is above it: pnpm prints how many workspace projects it is running over, so `Scope: 6 of 7 workspace projects` against a repository that now has seven is the install being a package behind.
 
 ### Tidying up branches
 
