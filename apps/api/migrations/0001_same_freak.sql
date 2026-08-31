@@ -50,12 +50,21 @@
 --   to, so anything left in `__new_*` by an earlier failed run is a stale
 --   snapshot. It is cleared and rebuilt from the live tables, so the re-run
 --   picks up everything written in between.
--- - **Inside the swap**, an original is gone and its staged copy is the only
---   copy in existence. Clearing it would destroy the very data this migration
---   is moving, so the clear-out is gated on the original still existing and
---   becomes a no-op. The re-run then stops at the first copy - "no such
---   table" - leaving every row staged and recoverable by completing the
---   renames by hand.
+-- - **Inside the swap**, at least one original is gone and its staged copy is
+--   the only copy in existence. Clearing anything would destroy the very data
+--   this migration is moving, so the whole clear-out is gated on *all five*
+--   originals still being there and becomes a no-op. The re-run then stops at
+--   the copy - on a missing source table, or on the keys it staged the first
+--   time - leaving every row staged and recoverable by completing the renames
+--   by hand.
+--
+-- The gate is deliberately shared rather than per-table. Gating each table on
+-- its own original sounds equivalent and is not: the staging tables reference
+-- each other with ON DELETE RESTRICT, so in a window where `associations` has
+-- been dropped but `items` has not, clearing `__new_items` while
+-- `__new_associations` still holds rows pointing at it fails on a foreign key
+-- - a confusing error at the wrong statement, mid-incident. All five clear
+-- together or none do.
 --
 -- So a re-run either rebuilds from live data or stops safely, and neither
 -- loses a write. The one thing that must never happen is merging the two: a
@@ -160,11 +169,11 @@ CREATE TABLE IF NOT EXISTS `__new_commands` (
 -- lookup is how a plain SQL file gets that condition without branching.
 --
 -- Child-first, so no ON DELETE RESTRICT blocks a parent being cleared.
-DELETE FROM `__new_associations` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'associations') > 0;--> statement-breakpoint
-DELETE FROM `__new_items` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'items') > 0;--> statement-breakpoint
-DELETE FROM `__new_commands` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'commands') > 0;--> statement-breakpoint
-DELETE FROM `__new_workspaces` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'workspaces') > 0;--> statement-breakpoint
-DELETE FROM `__new_tenants` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'tenants') > 0;--> statement-breakpoint
+DELETE FROM `__new_associations` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tenants', 'workspaces', 'items', 'associations', 'commands')) = 5;--> statement-breakpoint
+DELETE FROM `__new_items` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tenants', 'workspaces', 'items', 'associations', 'commands')) = 5;--> statement-breakpoint
+DELETE FROM `__new_commands` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tenants', 'workspaces', 'items', 'associations', 'commands')) = 5;--> statement-breakpoint
+DELETE FROM `__new_workspaces` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tenants', 'workspaces', 'items', 'associations', 'commands')) = 5;--> statement-breakpoint
+DELETE FROM `__new_tenants` WHERE (SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tenants', 'workspaces', 'items', 'associations', 'commands')) = 5;--> statement-breakpoint
 
 -- Copied parent-first. Columns are named rather than `SELECT *` so a future
 -- column reorder cannot silently shift values into the wrong columns.
