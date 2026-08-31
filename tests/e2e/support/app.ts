@@ -6,10 +6,11 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * an abstraction over four locators would hide the thing the tests exist to
  * prove.
  *
- * Every run starts from exactly the seed: scripts/e2e-stack.mjs stamps out a
- * fresh database before the stack comes up, and it is not the database
- * `pnpm dev` uses. So a run cannot be affected by what was clicked yesterday,
- * and cannot leave anything in the database being developed against.
+ * Every run starts from the same place: scripts/e2e-stack.mjs stamps out a
+ * fresh register before the stack comes up, and the account's own store is
+ * created empty by the run's first request. Neither is the storage `pnpm dev`
+ * uses. So a run cannot be affected by what was clicked yesterday, and cannot
+ * leave anything in the storage being developed against.
  *
  * What that does NOT give is isolation *within* a run. All the specs, under
  * both projects, share one stack and one database, so an item captured by the

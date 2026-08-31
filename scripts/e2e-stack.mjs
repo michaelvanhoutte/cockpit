@@ -10,7 +10,7 @@
 //     app you are clicking through can be open at the same time and neither
 //     notices the other.
 //   - Its own state directory, restored to a known state before every run. The
-//     tests therefore start from exactly the seed, every time, and may assert
+//     tests therefore start from the same place, every time, and may assert
 //     what is on screen rather than only that their own row appeared.
 //
 // The template holds the register only. An account's own store is a Durable
