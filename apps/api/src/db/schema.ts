@@ -180,10 +180,12 @@ export const workspaces = sqliteTable(
      *   back. A tombstoned workspace keeps its name for the record without
      *   holding it hostage.
      *
-     * This index *is* the answer to "is this name taken?". Nothing recomputes
-     * it, which is what keeps the two writers of a name - creating here and
-     * renaming in "Rename and delete a workspace" (issue 77) - from drifting
-     * apart.
+     * This index is the lock behind the check, not the answer itself: nothing
+     * reads `folded_name` to decide whether a name is taken, so it only
+     * catches what a concurrent write gets past. Both writers of a name -
+     * creating here and renaming in "Rename and delete a workspace" (issue 77)
+     * - fold through the same `foldName`, and this index is what keeps a race
+     * between them from producing two rows with the same folded name.
      *
      * Migration 0005 makes the swap, and carries the answers to what happens
      * when it meets two workspaces already named the same; 0004 is the column

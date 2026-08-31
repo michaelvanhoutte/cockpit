@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
+import { foldName } from '../../../src/domain/workspaces.js';
 
 /**
  * Integration level: a migration only exists against a real database, and what
@@ -143,15 +144,25 @@ describe('Workspace management', () => {
       ).toMatchObject({ id: 'kept' });
     });
 
-    it('keeps a new workspace from taking its name in another case', async () => {
-      // The half of the update no other test can see: the names that were
-      // already stored have to be folded too, or a workspace from before the
-      // change holds its name against nothing.
-      const refused = await makeWorkspace('WORK');
-      expect(refused.status).toBe(409);
+    it('will not let a second workspace take its name, even written straight to the database', async () => {
+      // Straight to the database on purpose, and this is the only way to ask
+      // the question. The handler folds the *names* it reads, so it would
+      // refuse a second Work whether or not the update ever touched this row;
+      // going around it is what asks whether the row itself was folded, which
+      // is the half of the update nothing else can see.
+      await expect(
+        env.DB.prepare(
+          'INSERT INTO workspaces (id, tenant_id, name, folded_name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+          .bind('ws-work-again', TENANT_ID, 'work', foldName('work'), 'work-again', '#3f8f78', AT)
+          .run(),
+      ).rejects.toThrow();
+    });
 
-      const accepted = await makeWorkspace('Bookkeeping');
-      expect(accepted.status).toBe(200);
+    it('still lets a new workspace be made beside it', async () => {
+      // Against a database the update ran over rows it found, rather than the
+      // empty one every other test starts from.
+      expect((await makeWorkspace('Bookkeeping')).status).toBe(200);
     });
   });
 });
