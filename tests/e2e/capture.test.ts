@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test';
 import {
   captureBox,
   expectNoSidewaysScroll,
+  inbox,
   itemRow,
   openFirstWorkspace,
-  panel,
   press,
   uniqueTitle,
 } from './support/app';
@@ -35,7 +35,7 @@ test.describe('Capture', () => {
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
 
       await expect(itemRow(page, thought)).toBeVisible();
-      await expect(panel(page, 'Inbox').getByText(thought)).toBeVisible();
+      await expect(inbox(page).getByText(thought)).toBeVisible();
       await expectNoSidewaysScroll(page);
     });
   });

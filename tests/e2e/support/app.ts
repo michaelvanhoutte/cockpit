@@ -60,9 +60,9 @@ export function captureBox(page: Page): Locator {
   return page.getByLabel('Capture a note or to-do');
 }
 
-/** The panel with this heading — "Inbox", "In play", "Done". */
-export function panel(page: Page, name: string): Locator {
-  return page.locator('section').filter({ has: page.getByRole('heading', { name, exact: true }) });
+/** The workspace's Inbox, holding everything still to deal with. */
+export function inbox(page: Page): Locator {
+  return page.getByRole('region', { name: 'Inbox' });
 }
 
 /** The row for one captured title, wherever it currently sits. */
