@@ -45,36 +45,6 @@ export async function getWorkspace(
   return row ? asWorkspace(row) : null;
 }
 
-/**
- * The live workspace already going by this name, or null. It is handed the
- * folded name and looks in the folded column, so it asks the index's own
- * question of the index's own data rather than a second opinion that could
- * disagree with it - the failure that made "Workspace names are only
- * case-insensitive in ASCII" (issue 91) an issue was exactly a fold in one
- * place not matching a fold in another.
- *
- * Asked before the insert rather than left to the index for the same reason a
- * capture checks its workspace exists: the constraint would surface as a 500,
- * and a name already in use is something to say out loud. The index is still
- * the lock behind this one.
- *
- * It returns the *stored* name rather than a yes or no so the refusal can name
- * what is actually on screen. Someone typing `work` against a workspace called
- * `Work` is told about `Work`, not told that "work already exists" next to a
- * tab that plainly says something else.
- */
-export async function liveWorkspaceNamed(
-  db: Db,
-  tenantId: string,
-  foldedName: string,
-): Promise<string | null> {
-  const rows = await db
-    .select({ name: workspaces.name })
-    .from(workspaces)
-    .where(and(live(tenantId), eq(workspaces.foldedName, foldedName)));
-  return rows[0]?.name ?? null;
-}
-
 /** Open items: tombstoned rows stay in the database but never in the snapshot. */
 export async function listOpenItems(
   db: Db,

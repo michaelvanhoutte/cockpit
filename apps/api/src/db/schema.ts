@@ -119,8 +119,12 @@ export const workspaces = sqliteTable(
       .references(() => tenants.id, { onDelete: 'restrict' }),
     name: text('name').notNull(),
     /**
-     * The name with its case folded away, written beside the name itself and
-     * read by nothing but the unique index below.
+     * The name with its case folded away, written beside the name itself. The
+     * unique index below is its only reader: the handler that asks whether a
+     * name is taken folds the *names* it already has in hand instead, because
+     * a row can hold a stale folded copy or none at all (see migration 0005,
+     * and the comment where that question is asked in
+     * src/http/command-service.ts).
      *
      * It exists because SQLite's `lower()` folds `A`-`Z` and nothing else, and
      * D1 carries no ICU extension, so `Réunions` and `réunions` were two

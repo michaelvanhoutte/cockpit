@@ -103,11 +103,16 @@ export const workspaceNameSchema = z
    * it is displayed and is nothing a person meant to type, so it is refused
    * rather than cleaned up - repairing input is where the bypasses live.
    *
-   * `\p{Cc}` only: the C0 and C1 control characters. Not `\p{Cf}`, which would
-   * take the zero-width joiner with it and refuse half the emoji anybody would
-   * put in a name.
+   * `\p{Cc}` is the C0 and C1 control characters, and `\p{Zl}`/`\p{Zp}` are the
+   * line and paragraph separators - not control characters at all, and a
+   * browser breaks the line on U+2028 as readily as on a newline, so a name
+   * holding one still renders over two lines. `.trim()` above takes them off
+   * the ends and leaves the interior alone, which is where they would sit.
+   *
+   * Not `\p{Cf}`, which would take the zero-width joiner with it and refuse
+   * half the emoji anybody would put in a name.
    */
-  .refine((name) => !/\p{Cc}/u.test(name), {
+  .refine((name) => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(name), {
     message: 'a name is a single line, without tabs or line breaks',
   });
 

@@ -14,16 +14,30 @@
 -- **Order matters.** The new index is created *before* the old one is dropped,
 -- so a failure leaves the stricter guarantee standing rather than none.
 --
--- **This is the statement that can fail on data.** Two live workspaces whose
--- names differ only in non-ASCII case are legal before this and illegal after.
--- They exist nowhere in seed.sql, so preview cannot hit it - but staging is
--- deliberately never seeded and has whatever has accumulated, and production is
--- a person's real data. When it happens the index is refused, this migration
--- fails, the deploy fails, and the old code keeps running against a database
--- that is otherwise untouched. That is the intended outcome, and the same one
--- 0003 chose: silently renaming somebody's workspace to get a deploy through
--- would be worse than a deploy that stops and says why. The fix is one rename
--- by hand, then redeploy.
+-- **What this cannot fail on, contrary to how 0003 read.** Two live workspaces
+-- whose names differ only in non-ASCII case survive this migration rather than
+-- stopping it. They have to: the backfill writes `lower(name)`, which is the
+-- *same expression* the old index already enforced uniqueness on, so any pair
+-- the old index tolerated gets two different folded values here and the new
+-- index tolerates it too. `RÉUNIONS` and `Réunions` fold to `rÉunions` and
+-- `réunions` under SQL's ASCII-only `lower()`, and those are not equal. Such a
+-- pair is carried through and stays carried through until one of them is
+-- renamed - which is the permissive under-fold described above, seen from the
+-- other side, not a second behaviour.
+--
+-- Deliberately not fixed by folding harder here, because there is no harder
+-- fold in SQL to reach for, and not by choosing a winner, for the reason 0003
+-- gives: silently renaming somebody's workspace would be worse than the
+-- duplicate. What closes it instead is the *handler*, which folds the names it
+-- reads rather than trusting this column, so it refuses the second one the
+-- next time somebody types it (src/http/command-service.ts).
+--
+-- The one thing here that can fail on data is narrower: two rows already
+-- holding the empty-string default, written by old code between 0004 and this
+-- file. The new index refuses the pair, this migration fails, the deploy fails,
+-- and the old code keeps running against a database that is otherwise
+-- untouched - which is the intended outcome. The fix is one rename by hand,
+-- then redeploy.
 --
 -- **Every statement here is therefore re-runnable**, because that redeploy runs
 -- this file again from the top. The `UPDATE` is idempotent - it only touches
@@ -42,6 +56,9 @@
 --      workspace old code creates is refused whatever it is called, not only
 --      one whose name is taken. A deploy is seconds long and a refusal that
 --      says so is recoverable; a duplicate name written past the index is not.
+--      The row the *first* such create leaves behind keeps an empty folded
+--      name for good - nothing backfills it a second time - and that is the
+--      other reason the handler folds names rather than reading this column.
 UPDATE `workspaces` SET `folded_name` = lower(`name`) WHERE `folded_name` = '';--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `workspaces_tenant_live_folded_name` ON `workspaces` (`tenant_id`,`folded_name`) WHERE "workspaces"."deleted_at" IS NULL;--> statement-breakpoint
 DROP INDEX IF EXISTS `workspaces_tenant_live_name`;

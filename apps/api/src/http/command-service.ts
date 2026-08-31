@@ -7,7 +7,6 @@ import {
   getItem,
   getWorkspace,
   listWorkspaces,
-  liveWorkspaceNamed,
 } from '../db/repo.js';
 import { foldName, nextColor, workspaceFromCommand } from '../domain/workspaces.js';
 import {
@@ -69,13 +68,21 @@ export async function runCommand<N extends CommandName>(
   switch (name) {
     case 'create_workspace': {
       const cmd = payload as CommandPayload<'create_workspace'>;
-      // Folded here and nowhere else: the same function writes the column and
-      // asks whether the name is taken, so the two cannot disagree.
-      const alreadyCalledThat = await liveWorkspaceNamed(db, tenantId, foldName(cmd.name));
-      if (alreadyCalledThat) throw new WorkspaceNameTakenError(alreadyCalledThat);
-      // The color is a function of the whole set, so it is picked here rather
-      // than by the client, whose copy of that set can be stale.
+      // One list, two questions: which colors are taken, and whether the name
+      // is. The color is a function of the whole set, so it is picked here
+      // rather than by the client, whose copy of that set can be stale.
       const existing = await listWorkspaces(db, tenantId);
+      // Folded from the names on the way past, rather than read from the
+      // folded column. A row can hold a name whose folded copy is missing or
+      // stale - the code serving requests during the deploy that introduced
+      // the column wrote no folded name at all, and migration 0005's backfill
+      // could only fold the ASCII part of what it found. Asking the names
+      // themselves is the only question that is right for those rows too, and
+      // it is the same `foldName` the write uses, so the two cannot disagree.
+      // The index stays the lock behind this, refusing what a race gets past.
+      const folded = foldName(cmd.name);
+      const alreadyCalledThat = existing.find((w) => foldName(w.name) === folded);
+      if (alreadyCalledThat) throw new WorkspaceNameTakenError(alreadyCalledThat.name);
       const workspace = workspaceFromCommand(cmd, tenantId, nextColor(existing.map((w) => w.color)));
       // A retried create whose command ID was lost still may not make a second
       // workspace: the id is the client's, so the replay carries the same one.

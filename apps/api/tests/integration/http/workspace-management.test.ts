@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { Workspace } from '@cockpit/shared';
 import { createDb } from '../../../src/db/client.js';
 import { commands, workspaces } from '../../../src/db/schema.js';
-import { WORKSPACE_ID, seedWorkspaces } from '../seed.js';
+import { TENANT_ID, WORKSPACE_ID, seedWorkspaces } from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`SELF.fetch`), because every rule
@@ -207,12 +207,34 @@ describe('Workspace management', () => {
 
       expect((await makeWorkspace(then(suffix))).status).toBe(answer);
     });
+
+    it('holds its name even when it was stored by a version that did not know the rule', async () => {
+      // The row an older Cockpit wrote: a name and no folded copy of it,
+      // exactly what the code serving requests during the deploy that
+      // introduced the column produces. Written directly because that version
+      // is not here to be asked, and there is no other way to arrange it.
+      const name = aName();
+      await env.DB.prepare(
+        'INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+        .bind(nextId(), TENANT_ID, name, nextId(), '#b58a2f', '2026-08-12T10:00:00.000Z')
+        .run();
+
+      expect((await makeWorkspace(name)).status).toBe(409);
+    });
   });
 
   describe('a workspace name is a single line', () => {
     it.each([
       { situation: 'a name broken over two lines', typed: (n: string) => `${n}\nand more`, answer: 400 },
       { situation: 'a name with a tab in it', typed: (n: string) => `${n}\tand more`, answer: 400 },
+      // A browser breaks the line on this one as readily as on a newline, and
+      // it is not a control character, so nothing above catches it.
+      {
+        situation: 'a name broken with a line separator',
+        typed: (n: string) => `${n}\u2028and more`,
+        answer: 400,
+      },
       { situation: 'a name of ordinary text', typed: (n: string) => n, answer: 200 },
     ])('$situation', async ({ typed, answer }) => {
       const name = aName();
