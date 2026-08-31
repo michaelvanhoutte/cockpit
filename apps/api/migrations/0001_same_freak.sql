@@ -45,8 +45,11 @@
 -- this file must not begin by clearing them - that would destroy the very
 -- data it is trying to move. Instead:
 --
--- - `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`, so a re-run after an
---   interruption *before* the swap simply finishes the copy and carries on.
+-- - `CREATE TABLE IF NOT EXISTS`, and each copy skips the keys it already
+--   staged, so a re-run after an interruption *before* the swap simply
+--   finishes the copy and carries on. Deliberately not `INSERT OR IGNORE`:
+--   that would also swallow CHECK, NOT NULL and UNIQUE violations, silently
+--   discarding the rows this migration exists to preserve.
 -- - No unconditional cleanup of `__new_*`. A re-run after an interruption
 --   *inside* the swap stops at the first copy, because the original it reads
 --   from is gone - "no such table" - with every row still sitting in the
@@ -152,21 +155,26 @@ CREATE TABLE IF NOT EXISTS `__new_commands` (
 -- them; every other row carries over. Anything violating a CHECK instead fails
 -- the migration here - before anything is dropped, so the database is left
 -- untouched and the cause is visible in the failed statement.
-INSERT OR IGNORE INTO `__new_tenants` (`id`, `name`, `created_at`)
-	SELECT `id`, `name`, `created_at` FROM `tenants`;--> statement-breakpoint
-INSERT OR IGNORE INTO `__new_workspaces` (`id`, `tenant_id`, `name`, `slug`, `color`, `created_at`)
+INSERT INTO `__new_tenants` (`id`, `name`, `created_at`)
+	SELECT `id`, `name`, `created_at` FROM `tenants`
+	WHERE `id` NOT IN (SELECT `id` FROM `__new_tenants`);--> statement-breakpoint
+INSERT INTO `__new_workspaces` (`id`, `tenant_id`, `name`, `slug`, `color`, `created_at`)
 	SELECT `id`, `tenant_id`, `name`, `slug`, `color`, `created_at` FROM `workspaces`
-	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`);--> statement-breakpoint
-INSERT OR IGNORE INTO `__new_items` (`id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at`)
+	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`)
+	  AND `id` NOT IN (SELECT `id` FROM `__new_workspaces`);--> statement-breakpoint
+INSERT INTO `__new_items` (`id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at`)
 	SELECT `id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at` FROM `items`
 	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`)
-	  AND `workspace_id` IN (SELECT `id` FROM `__new_workspaces`);--> statement-breakpoint
-INSERT OR IGNORE INTO `__new_associations` (`id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at`)
+	  AND `workspace_id` IN (SELECT `id` FROM `__new_workspaces`)
+	  AND `id` NOT IN (SELECT `id` FROM `__new_items`);--> statement-breakpoint
+INSERT INTO `__new_associations` (`id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at`)
 	SELECT `id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at` FROM `associations`
 	WHERE `tenant_id` IN (SELECT `id` FROM `__new_tenants`)
-	  AND `item_id` IN (SELECT `id` FROM `__new_items`);--> statement-breakpoint
-INSERT OR IGNORE INTO `__new_commands` (`command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at`)
-	SELECT `command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at` FROM `commands`;--> statement-breakpoint
+	  AND `item_id` IN (SELECT `id` FROM `__new_items`)
+	  AND `id` NOT IN (SELECT `id` FROM `__new_associations`);--> statement-breakpoint
+INSERT INTO `__new_commands` (`command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at`)
+	SELECT `command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at` FROM `commands`
+	WHERE `command_id` NOT IN (SELECT `command_id` FROM `__new_commands`);--> statement-breakpoint
 
 -- The swap. Dropped child-first so no foreign key is dangling at any point;
 -- the `__new_*` tables reference each other, never the originals, so none of

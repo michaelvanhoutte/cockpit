@@ -378,10 +378,13 @@ describe('Triage', () => {
    * constraint violation would produce, and this is what keeps it that way.
    */
   describe('a change timed to a day no calendar has is refused and nothing is stored', () => {
+    // The item exists in every case, so the impossible date is the only thing
+    // left that can refuse the change - otherwise a missing item would refuse
+    // it first and these would pass without the timestamps being reached.
     it.each<{
       situation: string;
       name: CommandName;
-      change: (requestId: string) => CommandPayload<CommandName>;
+      change: (requestId: string, itemId: string) => CommandPayload<CommandName>;
     }>([
       {
         situation: 'capturing a thought',
@@ -397,18 +400,19 @@ describe('Triage', () => {
       {
         situation: 'snoozing it until a date',
         name: 'snooze_until',
-        change: (requestId) => ({
+        change: (requestId, itemId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
-          itemId: nextId(),
+          itemId,
           until: '2026-02-31T08:00:00.000Z',
         }),
       },
     ])('$situation', async ({ name, change }) => {
+      const itemId = await captureAnItem();
       const requestId = nextId();
 
-      const response = await postChange(name, change(requestId));
+      const response = await postChange(name, change(requestId, itemId));
 
       expect(response.status).toBe(400);
       const db = createDb(env.DB);
