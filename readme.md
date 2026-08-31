@@ -139,6 +139,8 @@ One consequence worth knowing: the action refuses to run when the workflow file 
 
 **Posting the findings is where the automation stops.** Answering them is manual, and it is a rule rather than a courtesy: reply in each review thread naming the commit that fixed it, then resolve it — see "Review findings" in [CLAUDE.md](CLAUDE.md). Nothing about pushing a fix, or merging, closes a thread, so a pull request whose review still looks untouched is exactly what a fully handled review looks like until someone answers it.
 
+Note the ordering this implies. The review is triggered *by* the push, so it has not run yet at the moment the pull request appears — opening one and calling the work done reliably leaves findings nobody has read. Wait for the checks to settle first (`until ! gh pr checks <number> | grep -q 'pending'; do sleep 30; done`), then answer what came back.
+
 ### Checked in — agent configuration
 
 | What | Where | Effect |

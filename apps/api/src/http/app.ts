@@ -11,7 +11,12 @@ import type { Env } from '../env.js';
 import { DEFAULT_TENANT_ID } from '../tenancy.js';
 import { createDb } from '../db/client.js';
 import { getWorkspace, listAssociationsForWorkspace, listOpenItems, listWorkspaces } from '../db/repo.js';
-import { ItemNotFoundError, WorkspaceNotFoundError, runCommand } from './command-service.js';
+import {
+  ItemNotFoundError,
+  WorkspaceNameTakenError,
+  WorkspaceNotFoundError,
+  runCommand,
+} from './command-service.js';
 import { collectInvalidations } from './events.js';
 import { getConnector } from '../connectors/registry.js';
 
@@ -31,6 +36,9 @@ const app = new OpenAPIHono<AppEnv>({
 app.onError((err, c) => {
   if (err instanceof ItemNotFoundError || err instanceof WorkspaceNotFoundError) {
     return c.json({ error: err.message }, 404);
+  }
+  if (err instanceof WorkspaceNameTakenError) {
+    return c.json({ error: err.message }, 409);
   }
   console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }));
   return c.json({ error: 'internal error' }, 500);
@@ -80,7 +88,7 @@ const snapshotRoute = createRoute({
 
 // --- commands (§4.3): one POST endpoint per command ---------------------------
 
-function commandRoute<N extends CommandName>(name: N) {
+function commandRoute<N extends CommandName>(name: N, extra?: { conflict: string }) {
   return createRoute({
     method: 'post',
     path: `/v1/commands/${name}`,
@@ -99,6 +107,16 @@ function commandRoute<N extends CommandName>(name: N) {
         description: 'Target item does not exist',
         content: { 'application/json': { schema: errorSchema } },
       },
+      // Only the commands that can actually collide declare a 409, so the
+      // published contract does not promise one from every endpoint.
+      ...(extra
+        ? {
+            409: {
+              description: extra.conflict,
+              content: { 'application/json': { schema: errorSchema } },
+            },
+          }
+        : {}),
     },
   });
 }
@@ -174,6 +192,18 @@ const routes = app
       200,
     );
   })
+  .openapi(
+    commandRoute('create_workspace', { conflict: 'A workspace already has that name' }),
+    async (c) => {
+      const result = await runCommand(
+        createDb(c.env.DB),
+        DEFAULT_TENANT_ID,
+        'create_workspace',
+        c.req.valid('json'),
+      );
+      return c.json(result, 200);
+    },
+  )
   .openapi(commandRoute('capture_item'), async (c) => {
     const result = await runCommand(createDb(c.env.DB), DEFAULT_TENANT_ID, 'capture_item', c.req.valid('json'));
     return c.json(result, 200);

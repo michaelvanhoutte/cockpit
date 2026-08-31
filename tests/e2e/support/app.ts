@@ -20,9 +20,12 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * THAT. A count ("the inbox has three items") depends on which specs ran
  * first, and would break the day one is added.
  *
- * The way out, when it arrives: creating a workspace is a capability the
- * product is going to grow, and a test that makes its own workspace gets real
- * per-test isolation for free. Until then, unique titles.
+ * The way out now exists but is not taken: making a workspace is a capability
+ * as of "Create a workspace from a settings page" (issue 30), and a spec that
+ * makes its own would get real per-test isolation for free. It costs a
+ * workspace and a page load per spec, so it stays available rather than
+ * mandatory - and unique titles remain the rule for everything that does not
+ * take it.
  */
 
 /**

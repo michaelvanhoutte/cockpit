@@ -25,7 +25,7 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
 const reads = vi.mocked(fetchSnapshot);
 
 const snapshot: WorkspaceSnapshot = {
-  workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', slug: 'work', color: '#6f62b5' },
+  workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' },
   items: [],
   associations: [],
   generatedAt: '2026-08-31T10:00:00.000Z',

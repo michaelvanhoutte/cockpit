@@ -172,6 +172,40 @@ describe('Triage', () => {
   });
 });
 
+describe('Workspace management', () => {
+  describe('two workspaces never go by the same name', () => {
+    async function makeWorkspaceRow(id: string, name: string): Promise<void> {
+      await env.DB.prepare(
+        'INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+        .bind(id, TENANT_ID, name, id, '#3f8f78', AT)
+        .run();
+    }
+
+    it.each([
+      { situation: 'the same name', name: 'Work' },
+      { situation: 'the same name in another case', name: 'work' },
+    ])('is refused $situation', async ({ name }) => {
+      // The seeded workspace is called Work. The handlers ask first and answer
+      // with a message, so nothing invalid reaches here through the interface -
+      // which is exactly why this rule is checked against the database itself
+      // ("The database is the second lock"). It is what still holds when two
+      // creates race past that check, and it has to *refuse* rather than
+      // quietly drop the row, or the second one reports success having written
+      // nothing.
+      await expect(makeWorkspaceRow(nextId(), name)).rejects.toThrow();
+    });
+
+    it('is allowed once the workspace holding the name is gone', async () => {
+      await env.DB.prepare('UPDATE workspaces SET deleted_at = ? WHERE id = ?')
+        .bind(AT, WORKSPACE_ID)
+        .run();
+
+      await expect(makeWorkspaceRow(nextId(), 'Work')).resolves.toBeUndefined();
+    });
+  });
+});
+
 describe('Associations', () => {
   describe('a link always points at an item that exists', () => {
     it('is stored when the item was captured', async () => {

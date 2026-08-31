@@ -16,7 +16,6 @@ const workspace = {
   id: 'ws-work',
   tenantId: 'tenant',
   name: 'Work',
-  slug: 'work',
   color: '#6f62b5',
 };
 
