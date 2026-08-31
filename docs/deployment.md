@@ -518,7 +518,17 @@ Then, by hand (no API, or deliberately not automated):
      the semantic conflict it guards against (two branches that each passed CI
      alone) is exactly what staging catches. A bad merge reaches staging, never
      production, because production is a separate promotion.
-   - **`contexts`** — the four job names in `ci.yml`. They must match exactly.
+   - **`contexts`** — five of the six job names in `ci.yml` (Test Explorer
+     publishes a report and deliberately does not gate), plus one per matrix leg
+     of `codeql.yml`. They must match exactly, and **the CodeQL names can only be
+     read off a run that has already happened**: the check name comes from the job
+     name with the matrix leg interpolated into it, and GitHub matches the string
+     with no idea whether anything reports under it. A name nothing reports under
+     does not go red — it sits at *Expected — waiting for status to be reported*
+     on every pull request, indefinitely. So the order is: merge the workflow, let
+     it run on `main`, read the names off that run, then apply this payload.
+     `enforce_admins: false` means the owner can still merge past a stuck check;
+     nobody else can.
    - **`required_linear_history: true`** — makes §1's squash-merge rule mechanical
      rather than remembered, per the preference for violations that are impossible
      over violations caught in review.
@@ -529,6 +539,41 @@ Then, by hand (no API, or deliberately not automated):
    do this, and the branch-protection API answers `404` rather than `403` when the
    caller lacks admin, which reads as "wrong URL" and sends you looking in the
    wrong place. Not the same thing as the Cloudflare credentials.
+
+4. **The GitHub-native security controls.** Two of these were already running
+   before anything was built for them, and they are listed here so the next person
+   reading this does not go and enable what is already enabled. Checked
+   2026-08-31: **secret scanning** and **secret scanning push protection**, both
+   on, both free on a public repository, and between them they are what catches a
+   committed credential before it is pushed rather than after.
+
+   Two more were turned on by "Scan every pull request with CodeQL, and let
+   Dependabot report vulnerable dependencies" (issue 28). Neither has a file to
+   check in, so they are recorded here as the commands that set them:
+
+   ```bash
+   gh api -X PUT repos/michaelvanhoutte/cockpit/vulnerability-alerts      # Dependabot alerts
+   gh api -X PUT repos/michaelvanhoutte/cockpit/automated-security-fixes  # Dependabot security updates
+   ```
+
+   Read all four back with
+   `gh api repos/michaelvanhoutte/cockpit --jq '.security_and_analysis'`.
+
+   **Routine dependency version updates are deliberately off.** They would need a
+   `.github/dependabot.yml`, and there is none: a pull request for every
+   dependency that falls behind is a steady stream against this workspace's
+   lockfile, each one dragging a full CI run and a Claude review behind it.
+   Security updates are the ones worth that, and those are on.
+
+   **The code-scanning check-failure threshold stays at its default**, which fails
+   a pull request's check on alerts of error, critical or high severity — which is
+   what issue 28 asked for, so the default here is a decision rather than
+   something nobody looked at. It is a dashboard setting (Settings → Code
+   security) with no API to read it back from, which is the only reason it needs a
+   paragraph instead of a command.
+
+   Unlike branch protection, all four are settable by any admin, and the two
+   `gh api` calls above answer `204` on success and print nothing.
 
 ### Commit attribution
 
