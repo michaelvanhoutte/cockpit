@@ -36,7 +36,7 @@ The pull request is the audit trail; the session that produced the fix is not. A
 
 `gh pr view` does not show thread state at all. Query `reviewThreads` on the pull request for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
 
-**Read what `main` has gained before finishing, not only what it has changed.** Merging it in is routine; noticing that its *instructions* moved is not. The rule above landed on `main` twenty-two minutes before pull request 71 merged, and that session finished without ever reading it — every finding fixed and pushed, every thread still unanswered.
+**Read what `main` has gained before finishing, not only what it has changed.** Merging it in is routine; noticing that its *instructions* moved is not. The rule above landed on `main` twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it — every finding fixed and pushed, every thread still unanswered.
 
 ## Where things are decided
 
