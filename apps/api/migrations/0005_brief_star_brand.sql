@@ -38,6 +38,10 @@
 --   3. After the swap, before the new code is live - old code writes no folded
 --      value, so its inserts take the column default and collide with each
 --      other on the empty string rather than escaping uniqueness. See 0004.
+--      Stated plainly, because it cuts both ways: in that window the *second*
+--      workspace old code creates is refused whatever it is called, not only
+--      one whose name is taken. A deploy is seconds long and a refusal that
+--      says so is recoverable; a duplicate name written past the index is not.
 UPDATE `workspaces` SET `folded_name` = lower(`name`) WHERE `folded_name` = '';--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `workspaces_tenant_live_folded_name` ON `workspaces` (`tenant_id`,`folded_name`) WHERE "workspaces"."deleted_at" IS NULL;--> statement-breakpoint
 DROP INDEX IF EXISTS `workspaces_tenant_live_name`;

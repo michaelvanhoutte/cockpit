@@ -13,8 +13,12 @@ import { Layout } from '../../../src/pages/Layout';
  */
 const A_NAME_THAT_LOOKS_LIKE_MARKUP = '<img src=x onerror=alert(1)>';
 
+// The router itself is not under test, and `to`/`params` are its props rather
+// than an anchor's, so they stop here instead of being spread onto the DOM.
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, ...rest }: { children?: React.ReactNode }) => <a {...rest}>{children}</a>,
+  Link: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
+    <a className={className}>{children}</a>
+  ),
   Outlet: () => null,
   useParams: () => ({}),
 }));
