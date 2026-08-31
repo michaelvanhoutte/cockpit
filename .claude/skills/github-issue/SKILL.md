@@ -1,6 +1,6 @@
 ---
 name: github-issue
-description: Cockpit's process for turning an already-scoped piece of work into a filed GitHub issue - drafting the body and publishing with gh. Use once the `scoping` skill (sharpening requirements, sizing as a vertical slice, generating the statement list) has already run for this work; run `scoping` first if it hasn't.
+description: Cockpit's process for turning an already-scoped piece of work into a filed GitHub issue - drafting the body and publishing with gh. Use once the `scoping` skill (sharpening requirements, sizing as a vertical slice, enumerating failure modes where state cannot be put back, generating the statement list) has already run for this work; run `scoping` first if it hasn't.
 ---
 
 # Filing a GitHub issue
@@ -31,7 +31,7 @@ Issue numbers this depends on, or "None."
 
 ## Test cases
 
-[the statement list scoping produced, with the framing line from scoping step 4]
+[the statement list scoping produced, with the framing line from scoping step 5]
 
 ## Out of scope / open questions
 

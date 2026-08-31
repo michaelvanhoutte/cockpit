@@ -144,7 +144,7 @@ One consequence worth knowing: the action refuses to run when the workflow file 
 | What | Where | Effect |
 |---|---|---|
 | Project instructions | [CLAUDE.md](CLAUDE.md) | Loaded into every session in this repository: how to run it, when to scope, the two testing rules that get skipped most, and what answering a review's findings requires. |
-| `scoping` skill | [.claude/skills/scoping/](.claude/skills/scoping/SKILL.md) | Sharpen fuzzy requirements, size the work as a vertical slice, produce its statement list — before any code. Triggers on work starting, not on the decision to file an issue. |
+| `scoping` skill | [.claude/skills/scoping/](.claude/skills/scoping/SKILL.md) | Sharpen fuzzy requirements, size the work as a vertical slice, enumerate the failure modes of anything that changes state it cannot put back, produce its statement list — before any code. Triggers on work starting, not on the decision to file an issue. |
 | `testing` skill | [.claude/skills/testing/](.claude/skills/testing/SKILL.md) | The binding test rules, restated in full so no agent has to open the strategy document to write a test. |
 | `github-issue` skill | [.claude/skills/github-issue/](.claude/skills/github-issue/SKILL.md) | The issue body template and the `gh` publishing step, once scoping has run. |
 | Enabled plugin | [.claude/settings.json](.claude/settings.json) | Records that `mattpocock-skills` should be on for this project. The plugin itself is installed per machine (below); the repository only records the intent. |
