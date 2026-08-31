@@ -6,6 +6,16 @@ on:
 
 jobs:
   claude-review:
+    # A fork's pull request gets a read-only token and no secrets, so this job
+    # cannot run - and left to fail it would report red for a reason that has
+    # nothing to do with the change, which is how a check stops being read.
+    # Skipping says so instead. Never solved by reaching for
+    # `pull_request_target`: that runs the base branch's workflow with the
+    # secrets in scope against code the author controls, which on a public
+    # repository hands CLAUDE_CODE_OAUTH_TOKEN to anyone who opens a pull
+    # request. The same guard, and the same reasoning, is in
+    # claude-security-review.yml.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
