@@ -32,6 +32,19 @@ summary.push(`| turns | ${outcome.turns} |`);
 summary.push(`| permission denials | ${outcome.denials.count} |`);
 summary.push('');
 
+// The action sets no outputs at all when it skips itself, and the usual cause
+// is its own workflow validation: it refuses to run when this workflow file
+// differs from the copy on the default branch, which is true of every pull
+// request that edits it. Expected, and still not a review - so the check goes
+// red rather than showing a green tick that would imply one happened.
+if (!executionFile) {
+  console.log(
+    '::notice::The review step produced no output file, so it never started. On a pull request that ' +
+      'edits this workflow, that is the action refusing to run a version of itself that is not yet on ' +
+      'the default branch. Expected there, and it still means this pull request was not reviewed.',
+  );
+}
+
 for (const warning of outcome.warnings) {
   console.log(`::warning::${warning}`);
   summary.push(`- Warning: ${warning}`);

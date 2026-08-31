@@ -45,6 +45,10 @@ This repository's workflows run Claude against an OAuth token and check out pull
 - `${{ ... }}` interpolation of anything a contributor controls (a title, a branch name, a comment body) into a `run:` block;
 - a `permissions:` block granting more than the job needs, particularly `contents: write` or `id-token: write` on a job that handles untrusted input.
 
+## When you could not read the whole diff
+
+A verdict of `NONE` means you looked and found nothing. It must never mean you ran out of room. If the diff is too large to read in full, or a tool you needed was denied, **say so explicitly in your summary comment and give the verdict for what you did read, naming what you did not**. The gate cannot tell a thorough `NONE` from a truncated one — only you can, so a review that quietly covers half a diff and reports nothing is the one failure here that nothing downstream can catch.
+
 ## What not to report
 
 - Findings CodeQL already reports. This run is for what it cannot see.
