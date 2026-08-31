@@ -8,7 +8,12 @@ import {
   getWorkspace,
   listWorkspaces,
 } from '../db/repo.js';
-import { foldName, nextColor, workspaceFromCommand } from '../domain/workspaces.js';
+import {
+  foldName,
+  nextColor,
+  workspaceFromCommand,
+  workspaceNamed,
+} from '../domain/workspaces.js';
 import {
   applySetFocus,
   applySetNextAction,
@@ -72,16 +77,10 @@ export async function runCommand<N extends CommandName>(
       // is. The color is a function of the whole set, so it is picked here
       // rather than by the client, whose copy of that set can be stale.
       const existing = await listWorkspaces(db, tenantId);
-      // Folded from the names on the way past, rather than read from the
-      // folded column. A row can hold a name whose folded copy is missing or
-      // stale - the code serving requests during the deploy that introduced
-      // the column wrote no folded name at all, and migration 0005's backfill
-      // could only fold the ASCII part of what it found. Asking the names
-      // themselves is the only question that is right for those rows too, and
-      // it is the same `foldName` the write uses, so the two cannot disagree.
-      // The index stays the lock behind this, refusing what a race gets past.
-      const folded = foldName(cmd.name);
-      const alreadyCalledThat = existing.find((w) => foldName(w.name) === folded);
+      // `workspaceNamed` is the one place a name is compared, for creating and
+      // for renaming alike, and its own comment says why it folds the names it
+      // is handed rather than reading the folded column.
+      const alreadyCalledThat = workspaceNamed(existing, cmd.name);
       if (alreadyCalledThat) throw new WorkspaceNameTakenError(alreadyCalledThat.name);
       const workspace = workspaceFromCommand(cmd, tenantId, nextColor(existing.map((w) => w.color)));
       // A retried create whose command ID was lost still may not make a second
@@ -99,6 +98,54 @@ export async function runCommand<N extends CommandName>(
       // mean only what they say.)
       await db.batch([
         db.insert(workspaces).values(workspace).onConflictDoNothing({ target: workspaces.id }),
+        logCommand,
+      ]);
+      break;
+    }
+    case 'rename_workspace': {
+      const cmd = payload as CommandPayload<'rename_workspace'>;
+      // One list, two questions again: is this workspace still there, and is
+      // the name free. Live only, so renaming a workspace that is no longer
+      // there is a 404 rather than an update that quietly matches no rows.
+      const existing = await listWorkspaces(db, tenantId);
+      if (!existing.some((w) => w.id === cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      // The same question creating asks, minus this workspace's own row: the
+      // name it already has, in any capitalization, collides with nothing.
+      const alreadyCalledThat = workspaceNamed(existing, cmd.name, cmd.workspaceId);
+      if (alreadyCalledThat) throw new WorkspaceNameTakenError(alreadyCalledThat.name);
+      await db.batch([
+        db
+          .update(workspaces)
+          // `foldedName` alongside `name`, never on its own and never left
+          // behind: it is what the unique index holds, so a rename that wrote
+          // only the name would leave the index guarding the old one - the
+          // workspace would still block its previous name and stop blocking
+          // its current one.
+          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
+          .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId))),
+        logCommand,
+      ]);
+      break;
+    }
+    case 'delete_workspace': {
+      const cmd = payload as CommandPayload<'delete_workspace'>;
+      // A workspace already deleted is not there to delete again, so the same
+      // delete sent twice deletes one workspace whether the replay carries the
+      // original request id (caught above) or a fresh one (caught here).
+      if (!(await getWorkspace(db, tenantId, cmd.workspaceId))) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      // A tombstone, not a delete: the items stay exactly where they are, so
+      // the router keeps the history of where things were actually filed.
+      // `issuedAt` is the client's own clock, like every other timestamp a
+      // command writes, so a delete queued offline records when it was made.
+      await db.batch([
+        db
+          .update(workspaces)
+          .set({ deletedAt: cmd.issuedAt })
+          .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId))),
         logCommand,
       ]);
       break;

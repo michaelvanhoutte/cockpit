@@ -154,8 +154,12 @@ export const workspaces = sqliteTable(
     color: text('color').notNull(),
     createdAt: text('created_at').notNull(),
     /**
-     * Tombstone, written by "Rename and delete a workspace" (issue 77) and
-     * unread until then. Deliberately carrying **no** CHECK, unlike every
+     * Tombstone. Deleting a workspace sets it and leaves everything filed in
+     * that workspace exactly where it is, because the router learns from the
+     * whole history of where things were actually filed and erasing a
+     * workspace would erase that signal with it.
+     *
+     * Deliberately carrying **no** CHECK, unlike every
      * other timestamp column here, and that is a measured limitation rather
      * than an oversight: SQLite cannot ALTER a CHECK into an existing table,
      * and D1 refuses to drop a table that has children under ON DELETE

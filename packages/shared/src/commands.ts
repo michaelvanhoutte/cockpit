@@ -34,6 +34,33 @@ export const createWorkspaceSchema = commandEnvelopeSchema.extend({
 });
 export type CreateWorkspaceCommand = z.infer<typeof createWorkspaceSchema>;
 
+/**
+ * rename_workspace — the envelope's `workspaceId` is the workspace being
+ * renamed, so the change announces itself on it like every other change.
+ *
+ * Deliberately `workspaceNameSchema`, the same one create uses: renaming obeys
+ * exactly the rules creating does, and sharing the schema is what stops the two
+ * drifting apart. It trims before it measures, so the name is cleaned before
+ * uniqueness is decided on it rather than after.
+ *
+ * Unlike create, the id here names something that already exists, and the
+ * workspaces seeded before ids were client-generated are not UUIDs - so the
+ * envelope's plain string is what this takes.
+ */
+export const renameWorkspaceSchema = commandEnvelopeSchema.extend({
+  name: workspaceNameSchema,
+});
+export type RenameWorkspaceCommand = z.infer<typeof renameWorkspaceSchema>;
+
+/**
+ * delete_workspace — the envelope on its own: which workspace is the only
+ * thing there is to say. Its items are left where they are (architecture,
+ * "Schema conventions": tombstones, not deletes), because the router learns
+ * from the whole history of where things were filed.
+ */
+export const deleteWorkspaceSchema = commandEnvelopeSchema;
+export type DeleteWorkspaceCommand = z.infer<typeof deleteWorkspaceSchema>;
+
 /** capture_item — the one command with many front doors (architecture §6.5). */
 export const captureItemSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -90,6 +117,8 @@ export type SetPriorityCommand = z.infer<typeof setPrioritySchema>;
  */
 export const commandSchemas = {
   create_workspace: createWorkspaceSchema,
+  rename_workspace: renameWorkspaceSchema,
+  delete_workspace: deleteWorkspaceSchema,
   capture_item: captureItemSchema,
   set_status: setStatusSchema,
   snooze_until: snoozeUntilSchema,
