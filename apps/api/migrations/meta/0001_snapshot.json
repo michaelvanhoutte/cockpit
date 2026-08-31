@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "befa048c-e080-4557-a063-f53249cb5197",
+  "id": "1422f25b-1088-471b-bd46-8b8178ff3c02",
   "prevId": "3f096ee3-e0a4-4d84-a18f-29cffa3490d4",
   "tables": {
     "associations": {
@@ -97,7 +97,7 @@
         },
         "associations_created_at_is_timestamp": {
           "name": "associations_created_at_is_timestamp",
-          "value": "created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))"
+          "value": "created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))"
         }
       }
     },
@@ -174,11 +174,11 @@
         },
         "commands_issued_at_is_timestamp": {
           "name": "commands_issued_at_is_timestamp",
-          "value": "issued_at IS NULL OR (datetime(issued_at) IS NOT NULL AND substr(issued_at, 11, 1) = 'T' AND length(issued_at) >= 20 AND date(issued_at) = substr(issued_at, 1, 10))"
+          "value": "issued_at IS NULL OR (datetime(issued_at) IS NOT NULL AND substr(issued_at, 11, 1) = 'T' AND substr(issued_at, -1) = 'Z' AND length(issued_at) >= 20 AND date(issued_at) = substr(issued_at, 1, 10))"
         },
         "commands_received_at_is_timestamp": {
           "name": "commands_received_at_is_timestamp",
-          "value": "received_at IS NULL OR (datetime(received_at) IS NOT NULL AND substr(received_at, 11, 1) = 'T' AND length(received_at) >= 20 AND date(received_at) = substr(received_at, 1, 10))"
+          "value": "received_at IS NULL OR (datetime(received_at) IS NOT NULL AND substr(received_at, 11, 1) = 'T' AND substr(received_at, -1) = 'Z' AND length(received_at) >= 20 AND date(received_at) = substr(received_at, 1, 10))"
         }
       }
     },
@@ -402,27 +402,27 @@
         },
         "items_source_timestamp_is_timestamp": {
           "name": "items_source_timestamp_is_timestamp",
-          "value": "source_timestamp IS NULL OR (datetime(source_timestamp) IS NOT NULL AND substr(source_timestamp, 11, 1) = 'T' AND length(source_timestamp) >= 20 AND date(source_timestamp) = substr(source_timestamp, 1, 10))"
+          "value": "source_timestamp IS NULL OR (datetime(source_timestamp) IS NOT NULL AND substr(source_timestamp, 11, 1) = 'T' AND substr(source_timestamp, -1) = 'Z' AND length(source_timestamp) >= 20 AND date(source_timestamp) = substr(source_timestamp, 1, 10))"
         },
         "items_source_resolved_at_is_timestamp": {
           "name": "items_source_resolved_at_is_timestamp",
-          "value": "source_resolved_at IS NULL OR (datetime(source_resolved_at) IS NOT NULL AND substr(source_resolved_at, 11, 1) = 'T' AND length(source_resolved_at) >= 20 AND date(source_resolved_at) = substr(source_resolved_at, 1, 10))"
+          "value": "source_resolved_at IS NULL OR (datetime(source_resolved_at) IS NOT NULL AND substr(source_resolved_at, 11, 1) = 'T' AND substr(source_resolved_at, -1) = 'Z' AND length(source_resolved_at) >= 20 AND date(source_resolved_at) = substr(source_resolved_at, 1, 10))"
         },
         "items_snoozed_until_is_timestamp": {
           "name": "items_snoozed_until_is_timestamp",
-          "value": "snoozed_until IS NULL OR (datetime(snoozed_until) IS NOT NULL AND substr(snoozed_until, 11, 1) = 'T' AND length(snoozed_until) >= 20 AND date(snoozed_until) = substr(snoozed_until, 1, 10))"
+          "value": "snoozed_until IS NULL OR (datetime(snoozed_until) IS NOT NULL AND substr(snoozed_until, 11, 1) = 'T' AND substr(snoozed_until, -1) = 'Z' AND length(snoozed_until) >= 20 AND date(snoozed_until) = substr(snoozed_until, 1, 10))"
         },
         "items_deleted_at_is_timestamp": {
           "name": "items_deleted_at_is_timestamp",
-          "value": "deleted_at IS NULL OR (datetime(deleted_at) IS NOT NULL AND substr(deleted_at, 11, 1) = 'T' AND length(deleted_at) >= 20 AND date(deleted_at) = substr(deleted_at, 1, 10))"
+          "value": "deleted_at IS NULL OR (datetime(deleted_at) IS NOT NULL AND substr(deleted_at, 11, 1) = 'T' AND substr(deleted_at, -1) = 'Z' AND length(deleted_at) >= 20 AND date(deleted_at) = substr(deleted_at, 1, 10))"
         },
         "items_created_at_is_timestamp": {
           "name": "items_created_at_is_timestamp",
-          "value": "created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))"
+          "value": "created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))"
         },
         "items_updated_at_is_timestamp": {
           "name": "items_updated_at_is_timestamp",
-          "value": "updated_at IS NULL OR (datetime(updated_at) IS NOT NULL AND substr(updated_at, 11, 1) = 'T' AND length(updated_at) >= 20 AND date(updated_at) = substr(updated_at, 1, 10))"
+          "value": "updated_at IS NULL OR (datetime(updated_at) IS NOT NULL AND substr(updated_at, 11, 1) = 'T' AND substr(updated_at, -1) = 'Z' AND length(updated_at) >= 20 AND date(updated_at) = substr(updated_at, 1, 10))"
         }
       }
     },
@@ -458,7 +458,7 @@
       "checkConstraints": {
         "tenants_created_at_is_timestamp": {
           "name": "tenants_created_at_is_timestamp",
-          "value": "created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))"
+          "value": "created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))"
         }
       }
     },
@@ -538,7 +538,7 @@
       "checkConstraints": {
         "workspaces_created_at_is_timestamp": {
           "name": "workspaces_created_at_is_timestamp",
-          "value": "created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))"
+          "value": "created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))"
         }
       }
     }

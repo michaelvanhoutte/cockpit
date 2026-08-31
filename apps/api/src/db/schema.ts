@@ -62,6 +62,15 @@ function oneOf(column: string, values: readonly string[]) {
  * So the date part is round-tripped the same way isDate does it below - a
  * valid day is the only one that comes back unchanged.
  *
+ * That round-trip is why the trailing `Z` is asserted rather than assumed.
+ * `date()` converts an offset like `+02:00` to UTC before taking the date,
+ * while `substr` takes the characters as written, so on an offset timestamp
+ * the two disagree whenever the local time falls on the other side of the UTC
+ * day boundary - rejecting a perfectly valid instant, and only sometimes.
+ * Requiring `Z` (which is what z.iso.datetime() accepts) removes the
+ * conversion entirely, and incidentally closes the other end: without it a
+ * string carrying no zone at all passed on length alone.
+ *
  * The `IS NULL` branch is load-bearing on nullable columns and written on
  * every one for uniformity: a CHECK passes when it evaluates to NULL, but
  * `datetime(NULL) IS NOT NULL` is FALSE rather than NULL, so without it the
@@ -70,7 +79,8 @@ function oneOf(column: string, values: readonly string[]) {
 function isTimestamp(column: string) {
   return sql.raw(
     `${column} IS NULL OR (datetime(${column}) IS NOT NULL` +
-      ` AND substr(${column}, 11, 1) = 'T' AND length(${column}) >= 20` +
+      ` AND substr(${column}, 11, 1) = 'T' AND substr(${column}, -1) = 'Z'` +
+      ` AND length(${column}) >= 20` +
       ` AND date(${column}) = substr(${column}, 1, 10))`,
   );
 }

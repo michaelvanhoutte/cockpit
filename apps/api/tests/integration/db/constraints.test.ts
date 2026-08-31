@@ -147,8 +147,21 @@ describe('Triage', () => {
       { situation: 'a due date that is not a calendar date', override: { due_date: '31-08-2026' } },
       { situation: 'a due date no calendar has', override: { due_date: '2026-02-31' } },
       { situation: 'a captured time that is not a moment', override: { created_at: 'yesterday' } },
+      // The wire contract is UTC-only (z.iso.datetime()). Both of these were
+      // once let through: the day check converts an offset to UTC before
+      // comparing, so it only caught the offsets that happened to land on
+      // another day, and a string with no zone at all passed on length alone.
+      { situation: 'a time told in somebody else’s clock', override: { source_timestamp: '2026-08-12T13:00:00.000+02:00' } },
+      { situation: 'a time that never says which clock', override: { source_timestamp: '2026-08-12T01:00:00.000' } },
     ])('refuses $situation', async ({ override }) => {
       await expect(fileItem(override)).rejects.toThrow();
+    });
+
+    it('still accepts a moment on the far side of the day from UTC', async () => {
+      // Late-evening UTC is the case a day-boundary bug shows up on first.
+      await expect(
+        fileItem({ source_timestamp: '2026-08-31T23:30:00.000Z' }),
+      ).resolves.toBeUndefined();
     });
 
     it('still accepts the dates and times it is given nothing for', async () => {
