@@ -1,6 +1,8 @@
 # Where an account's data lives
 
-**Status: decided.** One Durable Object per account, adopted when multiple users land. Written from [poc/account-storage](../poc/account-storage/README.md), which measured the two things the argument turned on rather than assuming them.
+**Status: decided.** One Durable Object per account, adopted when multiple users land.
+
+The two things the argument turned on were measured rather than assumed, by a throwaway proof — one Worker, one Durable Object class, four migration sets, a few accounts seeded with thousands of items. That proof is deliberately **not kept**: it was a local experiment whose only lasting product is this document, and a copy of it in the repository would rot into a second, staler account of the same decision. The numbers below are the record, with the conditions they were taken under, and the method that produced them is described where it matters for reading them.
 
 Multiple-user support forces a question deferred since the first migration. Every row has carried a `tenant_id` since then, on the rule from the functional definition's "personal-first, SaaS-ready" decision: assume one account today, never hard-code that assumption. The column has never been exercised — there has only ever been one account, resolved from a constant in `apps/api/src/tenancy.ts`. Deciding what that constant becomes is deciding this.
 
@@ -40,6 +42,8 @@ The price is that migrations become lazy: each object applies outstanding migrat
 
 ## What the proof found
 
+Local `workerd` under `wrangler` 4.127.1 and `drizzle-orm` 0.45.2, on Windows 11. Each figure is a median, and the method is why it can be one: a schema change applies once per object, so a single account gives a single sample and no way to separate a cost from noise. Several accounts were used instead — after a change, each is an independent first-open with it outstanding; the same accounts are then evicted and reopened for the baseline in the same session. **The cost is the difference of the medians**, over eight accounts of 2,000 items and four of 20,000.
+
 | | Measured | Read as |
 |---|---|---|
 | Adding a column, 2,000 and 20,000 items | **+0 ms** | free, as SQLite promises |
@@ -54,6 +58,11 @@ Two findings sharpen how it must be built rather than whether:
 
 - **A bad migration takes down every account, one at a time as they wake.** Partitioning the data buys no blast-radius protection, because the *code* is what is shared. Whatever a deploy-time migration gate would have caught, something else must now catch — which is an argument for applying migrations against a scratch object in CI before the deploy, not an argument against the shape.
 - **The failure is opaque.** Drizzle's migrator reports only `DrizzleError: Rollback`; the real SQL error appears nowhere, in the response or the logs. Fixable in a few lines by running the migration set directly, and it must be fixed *before* this ships, because the first time it matters is the first time something goes wrong in production.
+
+Two constraints turned up on the way, both worth knowing before building against this:
+
+- **100 bound variables per statement** (measured: 99 accepted, 108 rejected, reported as `too many SQL variables`). The same cap D1 documents, so it is not a difference between the options — but any bulk write has to batch, and the limit bites at runtime rather than at compile time.
+- **How long a schema change took cannot be measured from inside the object.** A Worker's clock does not advance during computation, so timing the migrator from within always reads zero however much work it did. The cost is only ever visible as latency to whoever made the request, which rules out logging it from the object and means watching it has to be external.
 
 ## The decision
 
