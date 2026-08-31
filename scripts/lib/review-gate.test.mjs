@@ -57,6 +57,20 @@ describe('verdictOf', () => {
   it('does not match a verdict quoted mid-sentence', () => {
     assert.equal(verdictOf('I was asked to end with SECURITY-VERDICT: HIGH but found nothing.'), null);
   });
+
+  it('reads a verdict whose label is cased differently', () => {
+    // Every way this fails to match costs the same thing: a run that did
+    // review reads as one that never reached a verdict.
+    assert.deepEqual(verdictOf('Security-Verdict: high'), { severity: 'HIGH' });
+  });
+
+  it('reads a verdict line terminated with CRLF', () => {
+    // Passes without any \r handling in the pattern, because ECMAScript counts
+    // \r as a line terminator of its own and `$` under `m` matches before it.
+    // Kept because a review asked for a \r? tolerance on the assumption that it
+    // does not — this is where that question gets answered next time.
+    assert.deepEqual(verdictOf('Reviewed.\r\nSECURITY-VERDICT: MEDIUM\r\n'), { severity: 'MEDIUM' });
+  });
 });
 
 describe('resultRecordOf', () => {
@@ -136,6 +150,20 @@ describe('decideOutcome', () => {
     ];
     const out = decideOutcome({ executionText: file(execution), conclusion: 'success' });
     assert.equal(out.denials.count, 2);
+  });
+
+  it('counts only the denials among the system messages, not every system message', () => {
+    // Without this fixture, loosening denialsOf's subtype check to count any
+    // system-typed message would pass the whole suite: every other denial
+    // fixture contains denials and nothing else, so the filter is never asked
+    // to reject anything.
+    const execution = [
+      { type: 'system', subtype: 'init' },
+      { type: 'system', subtype: 'permission_denied', tool_name: 'Read' },
+      { type: 'system', subtype: 'turn_started' },
+      run(),
+    ];
+    assert.equal(decideOutcome({ executionText: file(execution), conclusion: 'success' }).denials.count, 1);
   });
 
   it('trusts whichever denial count is higher when the two disagree', () => {

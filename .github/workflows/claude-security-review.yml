@@ -53,6 +53,14 @@ jobs:
       # write, not read: the review posts its findings as inline comments.
       pull-requests: write
       issues: read
+      # Carried from claude-code-review.yml rather than established here.
+      # Nothing in this repository has shown that claude-code-action needs it
+      # when it authenticates with an OAuth token rather than through OIDC, and
+      # an unexplained write permission on a job that reads pull request content
+      # is the kind of thing this repository's own security instructions tell a
+      # reviewer to flag. Worth removing and watching a run, once this workflow
+      # is on the default branch and can actually run - which it cannot on the
+      # pull request that adds it.
       id-token: write
 
     steps:
@@ -80,6 +88,15 @@ jobs:
             Read .github/security-review-instructions.md first and treat it as the definition of what
             counts as a finding in this repository. Post each finding as an inline comment on the line
             it concerns, and post a short summary comment when you find nothing.
+          # Worth being explicit that the instructions are read from the branch
+          # under review rather than from the default branch, which means a
+          # pull request can weaken the rules it is about to be judged by. That
+          # is deliberate - it is the only way a change to the rules can be
+          # tried before it merges - and it is safe for the reason the fork
+          # guard above is not needed twice: only someone who can already push
+          # here can do it, and the edit appears in the diff, where the code
+          # review and a human both see it. It would stop being safe the day
+          # this workflow runs on code from someone without push access.
           claude_args: >-
             --allowedTools "Skill,Task,Read,Grep,Glob,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),mcp__github_inline_comment__create_inline_comment"
             --append-system-prompt "This is a single non-interactive run. Nothing will wake you once you stop, so a background task you are waiting on will never report back and the review will end having done nothing. Launch every subagent in the foreground and wait for its result before continuing. Never launch a background task, and never end your turn to wait for a completion notification. Two further rules govern this run. FIRST: you must end your final message with a single line of the exact form 'SECURITY-VERDICT: X' where X is one of NONE, LOW, MEDIUM or HIGH, naming the highest severity you found, and NONE when you found nothing. Write that line exactly once - do not restate the format anywhere else in your output, because a second line of that form is indistinguishable from a second verdict and fails the check. A run that ends without this line is treated as one that never reached a verdict, and its check goes red. SECOND: having reviewed this pull request before is not a reason to stop. Commits pushed since you last spoke have not been reviewed by anyone, and they are exactly where a fix for an earlier finding introduces a new problem. Review the current head every time and give your verdict for it."

@@ -34,8 +34,27 @@ export const SEVERITIES = ['NONE', 'LOW', 'MEDIUM', 'HIGH'];
  * the same sentence depending on how it is phrased: "no critical or high
  * severity issues found" contains both words and means the opposite of what
  * grepping for them concludes.
+ *
+ * Case-insensitive, matching the `.toUpperCase()` applied to the severity
+ * below: holding the label to an exact case while normalising the word after it
+ * was an asymmetry with no argument behind it, and every way this fails to
+ * match costs the same thing - a run that did review reads as one that never
+ * reached a verdict, and goes red for a reason unrelated to the code.
+ *
+ * No `\r?` before the end anchor, deliberately, because a review of this file
+ * asked for one. ECMAScript counts `\r` as a line terminator in its own right,
+ * so under `m` the `$` already matches before the `\r` of a CRLF ending and a
+ * `SECURITY-VERDICT: HIGH\r\n` line matches as it stands. (Measured, not
+ * assumed: `/^b$/m.test('a\rb')` is true.) The tolerance would have been dead
+ * code justified by a false statement about the language, which is worse than
+ * either on its own. The CRLF case is covered by a test regardless, so the day
+ * the anchoring changes, that fact is not rediscovered by a red check in CI.
+ *
+ * None of this loosens what counts as a verdict. The line must still be a
+ * line: prose mentioning the label mid-sentence does not match, and two
+ * matching lines still fail rather than resolve.
  */
-const VERDICT_LINE = /^[ \t]*SECURITY-VERDICT:[ \t]*([A-Za-z]+)[ \t]*$/gm;
+const VERDICT_LINE = /^[ \t]*SECURITY-VERDICT:[ \t]*([A-Za-z]+)[ \t]*$/gim;
 
 /**
  * The result record, from either shape the action emits. It writes a stream of
