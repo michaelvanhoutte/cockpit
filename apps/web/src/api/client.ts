@@ -21,9 +21,6 @@ export const api = hc<AppType>('/');
 export async function fetchWorkspaces(): Promise<WorkspaceList> {
   const res = await api.v1.workspaces.$get();
   if (!res.ok) throw new Error(`workspaces failed: ${res.status}`);
-  // Getting an answer proves the sign-in is good, so a later expiry in this
-  // same tab is handled automatically again rather than hitting the guard.
-  clearSignInAttempt();
   return workspaceListSchema.parse(await res.json());
 }
 
@@ -32,6 +29,12 @@ export async function fetchSnapshot(workspaceId: string): Promise<WorkspaceSnaps
     param: { workspaceId },
   });
   if (!res.ok) throw new Error(`snapshot failed: ${res.status}`);
+  // Reaching a workspace is what proves we are back in, so this is where the
+  // one-attempt-per-tab guard is forgotten. Deliberately not on the workspace
+  // list: Layout reads that on every route and it succeeds even while the
+  // snapshot is being refused, which would clear the guard immediately before
+  // it is consulted and turn one sign-in attempt into an endless round trip.
+  clearSignInAttempt();
   return workspaceSnapshotSchema.parse(await res.json());
 }
 
