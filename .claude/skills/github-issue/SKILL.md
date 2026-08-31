@@ -27,7 +27,7 @@ can (schema, state machine) - trimmed to the decision, noted as coming from a pr
 
 ## Failure modes
 
-[only where the work changes state it cannot put back - the answers from scoping step 4:
+[only where the work changes state it cannot put back - the answers from scoping's "Enumerate the failure modes when state cannot be put back" step:
 what must hold if it fails partway, if it runs again, when it meets data the new rules
 reject, what each environment actually does, and in every window it can be interrupted.
 Omit this section entirely for work that does not. The analysis is the expensive part of
@@ -39,7 +39,7 @@ Issue numbers this depends on, or "None."
 
 ## Test cases
 
-[the statement list scoping produced, with the framing line from scoping step 5]
+[the statement list scoping produced, with the framing line from scoping's "Generate the statement list" step]
 
 ## Out of scope / open questions
 

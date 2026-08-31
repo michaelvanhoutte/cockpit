@@ -35,7 +35,7 @@ If the request doesn't fit that, split it into multiple units in dependency orde
 
 ### 4. Enumerate the failure modes when state cannot be put back
 
-Most work is safe to get wrong once: a wrong query returns wrong rows until someone fixes it. Some work is not - a migration, a backfill, a destructive script, anything writing to an environment that accumulates state. For that kind, answer these **before** writing the implementation, and write the answers down as its own header comment, so the thing is built to satisfy them rather than discovering them one at a time:
+Most work is safe to get wrong once: a wrong query returns wrong rows until someone fixes it. Some work is not - a migration, a backfill, a destructive script, anything that changes state it cannot put back. For that kind, answer these **before** writing the implementation, and write the answers down as its own header comment, so the thing is built to satisfy them rather than discovering them one at a time:
 
 - **What happens if it fails partway through?** D1 wraps nothing in a transaction: `wrangler d1 migrations apply` runs a file's statements one at a time, and a half-finished file leaves whatever it left.
 - **What happens when it runs again?** Work that did not finish is not recorded as finished, so the next deploy repeats it - and a failed migration fails the deploy, so the old code keeps writing in the meantime.
