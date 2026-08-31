@@ -86,7 +86,7 @@ describe('Triage', () => {
 
 The runner then prints the statement list itself: `Triage > a dismissed item leaves the lists but is never erased > records when it was dismissed`. Nothing is stored separately, so nothing goes stale.
 
-**A feature area, not an entity and not a function.** The areas are the parts of the product a person would name if asked what the app does: `Capture`, `Triage`, `Dashboards`, `Panels`, `Focus`, `Associations`, `Offline`, `Connector management`, `User management`. They are capitalised and undotted. `item.setStatus`, `command.idempotency` and `item.change` are all wrong for the same reason - they name an object or an operation rather than an area of the product.
+**A feature area, not an entity and not a function.** The areas are the parts of the product a person would name if asked what the app does: `Capture`, `Triage`, `Dashboards`, `Panels`, `Focus`, `Associations`, `Offline`, `Connector management`, `User management`, `Sign-in`. They are capitalised and undotted. `item.setStatus`, `command.idempotency` and `item.change` are all wrong for the same reason - they name an object or an operation rather than an area of the product.
 
 **The area is not the file.** One test file often spans two or three areas, and the same area appears in several files at several levels. Group by what the rule is about, never by where the code lives.
 

@@ -103,6 +103,44 @@ function commandRoute<N extends CommandName>(name: N) {
   });
 }
 
+/**
+ * Where /v1/relogin is allowed to send the browser afterwards.
+ *
+ * The return location arrives in a query string, so it is attacker-supplied by
+ * definition, and handing it to a redirect unchecked is an open redirect: a
+ * link on our own trusted host that silently lands on someone else's. Only a
+ * path inside this app is allowed, and anything a browser could read as a host
+ * falls back to the start page rather than being cleaned up — rejecting is
+ * safe, repairing is where the bypasses live.
+ */
+export function safeReturnPath(raw: string | undefined): string {
+  if (!raw || !raw.startsWith('/')) return '/';
+  // `//elsewhere.example` and `/\elsewhere.example` are both read as hosts.
+  if (raw.startsWith('//') || raw.startsWith('/\\')) return '/';
+  // A control character would let the value continue into a header of its own.
+  for (let i = 0; i < raw.length; i += 1) {
+    const code = raw.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return '/';
+  }
+  return raw;
+}
+
+/**
+ * Whether an error raised while streaming changes is worth reporting.
+ *
+ * A browser closing its tab is how a stream ends, not a failure: the loop is
+ * mid-flight when that happens and its database read is torn down along with
+ * the request, surfacing as an error like any other. Reporting those would file
+ * one for every closed tab and bury the real ones underneath.
+ *
+ * Only the decision lives here, because only the decision can be checked. That
+ * the teardown reaches this at all is workerd's behaviour, not ours, and it does
+ * not happen under the test runner — see apps/api/tests/unit/http/app.test.ts.
+ */
+export function worthReporting(stream: { aborted: boolean; closed: boolean }): boolean {
+  return !stream.aborted && !stream.closed;
+}
+
 // --- route registration ------------------------------------------------------
 // Chained so the exported AppType gives the web client end-to-end inference.
 
@@ -166,26 +204,50 @@ const routes = app
   })
   // --- push invalidation (§5.5): SSE doorbell, not a data channel -------------
   .get('/v1/events', (c) =>
-    streamSSE(c, async (stream) => {
-      const db = createDb(c.env.DB);
-      let cursor = new Date().toISOString();
-      let lastPing = Date.now();
-      await stream.writeSSE({ event: 'ping', data: '' });
-      while (!stream.aborted) {
-        const { events, cursor: next } = await collectInvalidations(db, DEFAULT_TENANT_ID, cursor);
-        cursor = next;
-        for (const event of events) {
-          await stream.writeSSE({ event: 'change', data: JSON.stringify(event) });
+    streamSSE(
+      c,
+      async (stream) => {
+        const db = createDb(c.env.DB);
+        let cursor = new Date().toISOString();
+        let lastPing = Date.now();
+        await stream.writeSSE({ event: 'ping', data: '' });
+        while (!stream.aborted) {
+          const { events, cursor: next } = await collectInvalidations(
+            db,
+            DEFAULT_TENANT_ID,
+            cursor,
+          );
+          cursor = next;
+          for (const event of events) {
+            await stream.writeSSE({ event: 'change', data: JSON.stringify(event) });
+          }
+          // Heartbeat keeps intermediaries from closing the idle stream.
+          if (Date.now() - lastPing > 25_000) {
+            await stream.writeSSE({ event: 'ping', data: '' });
+            lastPing = Date.now();
+          }
+          await stream.sleep(3_000);
         }
-        // Heartbeat keeps intermediaries from closing the idle stream.
-        if (Date.now() - lastPing > 25_000) {
-          await stream.writeSSE({ event: 'ping', data: '' });
-          lastPing = Date.now();
-        }
-        await stream.sleep(3_000);
-      }
-    }),
+      },
+      async (error, stream) => {
+        if (!worthReporting(stream)) return;
+        console.error(
+          JSON.stringify({ level: 'error', message: error.message, stack: error.stack }),
+        );
+      },
+    ),
   )
+  // --- returning from the perimeter's sign-in --------------------------------
+  // Reached only *after* the gate has let the request through, which is the
+  // whole trick: the browser cannot follow a sign-in redirect from a background
+  // request, and a plain reload is answered by the service worker out of its
+  // own cache and never leaves the machine. So the client navigates here for
+  // real (`/v1/*` is on the service worker's denylist), the gate challenges it,
+  // and once signed in this hands the browser back to the page it came from.
+  //
+  // Plain `.get` rather than an OpenAPI route: this answers with a redirect,
+  // not with a documented response body.
+  .get('/v1/relogin', (c) => c.redirect(safeReturnPath(c.req.query('return')), 302))
   // --- generic webhook ingress (§6.2): no source-specific routes here ---------
   .post('/ingress/:connectorId/*', async (c) => {
     const connector = getConnector(c.req.param('connectorId'));

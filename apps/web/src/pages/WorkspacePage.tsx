@@ -3,6 +3,7 @@ import type { Item } from '@cockpit/shared';
 import { snapshotQuery } from '../api/queries';
 import { workspaceRoute } from '../router';
 import { CaptureForm } from '../components/CaptureForm';
+import { LoadFailure } from '../components/LoadFailure';
 import { ItemRow } from '../components/ItemRow';
 
 /**
@@ -13,10 +14,11 @@ import { ItemRow } from '../components/ItemRow';
  */
 export function WorkspacePage() {
   const { workspaceId } = workspaceRoute.useParams();
-  const { data, isLoading, error } = useQuery(snapshotQuery(workspaceId));
+  const { data, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
 
-  if (error) {
-    return <p className="text-over">Could not load this workspace: {String(error)}</p>;
+  // Nothing of this workspace to show, so the failure is the whole view.
+  if (error && !data) {
+    return <LoadFailure error={error} onRetry={() => void refetch()} canTakeOver />;
   }
   if (isLoading || !data) {
     return <p className="text-ink-faint">Loading…</p>;
@@ -28,6 +30,11 @@ export function WorkspacePage() {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* The stored copy stays on screen behind this: reading what you already
+          have is what the local copy is for (functional definition, "Offline /
+          local-first behavior", §10), so a
+          failed refresh reports itself instead of blanking the workspace. */}
+      {error && <LoadFailure error={error} onRetry={() => void refetch()} />}
       <CaptureForm workspaceId={workspaceId} />
 
       <Panel title="Inbox" subtitle="to process" items={inbox} workspaceId={workspaceId} />
