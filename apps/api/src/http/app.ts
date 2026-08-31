@@ -11,7 +11,7 @@ import type { Env } from '../env.js';
 import { DEFAULT_TENANT_ID } from '../tenancy.js';
 import { createDb } from '../db/client.js';
 import { getWorkspace, listAssociationsForWorkspace, listOpenItems, listWorkspaces } from '../db/repo.js';
-import { ItemNotFoundError, runCommand } from './command-service.js';
+import { ItemNotFoundError, WorkspaceNotFoundError, runCommand } from './command-service.js';
 import { collectInvalidations } from './events.js';
 import { getConnector } from '../connectors/registry.js';
 
@@ -29,7 +29,7 @@ const app = new OpenAPIHono<AppEnv>({
 });
 
 app.onError((err, c) => {
-  if (err instanceof ItemNotFoundError) {
+  if (err instanceof ItemNotFoundError || err instanceof WorkspaceNotFoundError) {
     return c.json({ error: err.message }, 404);
   }
   console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }));

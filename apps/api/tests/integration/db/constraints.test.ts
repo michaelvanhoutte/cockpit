@@ -4,11 +4,17 @@ import { TENANT_ID, WORKSPACE_ID, seedWorkspaces } from '../seed.js';
 
 /**
  * Integration level, and deliberately not through `SELF.fetch`. The rules
- * below are the database's own refusals, and the write path's Zod validation
- * means nothing invalid can be driven at them through the HTTP layer - the
- * whole point of these constraints is to be the lock behind that one. The
- * database is this service's real infrastructure and this is what entering it
- * directly looks like.
+ * below are the database's own refusals, and nothing invalid can be driven at
+ * them through the HTTP layer: the command handlers shape-validate with Zod
+ * and check that what a command names actually exists. The whole point of
+ * these constraints is to be the lock behind that one. The database is this
+ * service's real infrastructure and this is what entering it directly looks
+ * like.
+ *
+ * Where a handler's own refusal is the observable behaviour - an unknown
+ * workspace is a 404, not a foreign-key error - that belongs at the HTTP tier
+ * and lives in tests/integration/http/item-changes.test.ts. These cases are
+ * only about what the database does when something gets past the handlers.
  */
 
 const AT = '2026-08-12T10:00:00.000Z';

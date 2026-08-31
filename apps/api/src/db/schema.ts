@@ -35,7 +35,7 @@ import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from
  *   the wire contract uses, so the two cannot drift.
  * - **Foreign keys**, which D1 enforces. ON DELETE RESTRICT throughout,
  *   because nothing in this model is ever hard-deleted; deleting a workspace
- *   (issue 30, "Workspace management: create, edit, and delete workspaces")
+ *   ("Workspace management: create, edit, and delete workspaces", issue 30)
  *   has to decide what happens to its items explicitly rather than inheriting
  *   a silent cascade.
  *

@@ -11,19 +11,37 @@
 --    and recreated `tenants` underneath them, having re-enabled
 --    PRAGMA foreign_keys partway through.
 --
--- Existing rows are dropped rather than copied, which is what lets this be a
--- plain drop-and-recreate instead of the twelve-step rebuild. The local and
--- preview databases are rebuilt from seed.sql on every run; staging and
--- production are re-seeded the same way.
+-- **Data is preserved.** Staging is deliberately never re-seeded - accumulated
+-- state is the whole reason it exists - and production is seeded only once, as
+-- a manual bootstrap. A drop-and-recreate would therefore leave both with no
+-- tenant and no workspaces, and the new foreign keys would then reject every
+-- write. It would also break the rule in docs/deployment.md ("Migrations and
+-- rollback"): migrations must be expand-then-contract, never destructive in a
+-- single release, because promoting an earlier commit rolls code back without
+-- rolling the schema back.
 --
--- Dropped child-first and created parent-first, so no foreign key is ever
--- dangling and this needs no PRAGMA to get through.
+-- Tightening constraints in place is compatible with the old code in that
+-- window, with one narrow exception: the old code accepted a capture naming a
+-- workspace that does not exist, and the new foreign key refuses it. That
+-- request was writing an orphan row before, so nothing that was previously
+-- correct starts failing.
+--
+-- Shape: copy each table aside, rebuild it with its constraints, copy back.
+-- The copies carry no constraints of their own, so this needs no PRAGMA and
+-- no reliance on foreign-key enforcement being toggleable on D1.
 
-DROP TABLE IF EXISTS `associations`;--> statement-breakpoint
-DROP TABLE IF EXISTS `items`;--> statement-breakpoint
-DROP TABLE IF EXISTS `commands`;--> statement-breakpoint
-DROP TABLE IF EXISTS `workspaces`;--> statement-breakpoint
-DROP TABLE IF EXISTS `tenants`;--> statement-breakpoint
+CREATE TABLE `_migrate_tenants` AS SELECT * FROM `tenants`;--> statement-breakpoint
+CREATE TABLE `_migrate_workspaces` AS SELECT * FROM `workspaces`;--> statement-breakpoint
+CREATE TABLE `_migrate_items` AS SELECT * FROM `items`;--> statement-breakpoint
+CREATE TABLE `_migrate_associations` AS SELECT * FROM `associations`;--> statement-breakpoint
+CREATE TABLE `_migrate_commands` AS SELECT * FROM `commands`;--> statement-breakpoint
+
+-- Dropped child-first, so no foreign key is dangling at any point.
+DROP TABLE `associations`;--> statement-breakpoint
+DROP TABLE `items`;--> statement-breakpoint
+DROP TABLE `commands`;--> statement-breakpoint
+DROP TABLE `workspaces`;--> statement-breakpoint
+DROP TABLE `tenants`;--> statement-breakpoint
 
 CREATE TABLE `tenants` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -113,4 +131,34 @@ CREATE TABLE `commands` (
 	CONSTRAINT "commands_received_at_is_timestamp" CHECK(received_at IS NULL OR (datetime(received_at) IS NOT NULL AND substr(received_at, 11, 1) = 'T' AND length(received_at) >= 20))
 ) STRICT;
 --> statement-breakpoint
-CREATE INDEX `commands_tenant_received` ON `commands` (`tenant_id`,`received_at`);
+CREATE INDEX `commands_tenant_received` ON `commands` (`tenant_id`,`received_at`);--> statement-breakpoint
+
+-- Restored parent-first. Columns are named rather than `SELECT *` so a future
+-- column reorder cannot silently shift values into the wrong columns.
+--
+-- The WHERE clauses drop rows whose parent is missing. Those are exactly the
+-- orphans the new foreign keys declare impossible, so there is nowhere to put
+-- them; every other row carries over. Anything violating a CHECK instead fails
+-- the migration loudly, which is correct - the write path validated all of it
+-- on the way in, so a violation means an assumption is wrong.
+INSERT INTO `tenants` (`id`, `name`, `created_at`)
+	SELECT `id`, `name`, `created_at` FROM `_migrate_tenants`;--> statement-breakpoint
+INSERT INTO `workspaces` (`id`, `tenant_id`, `name`, `slug`, `color`, `created_at`)
+	SELECT `id`, `tenant_id`, `name`, `slug`, `color`, `created_at` FROM `_migrate_workspaces`
+	WHERE `tenant_id` IN (SELECT `id` FROM `tenants`);--> statement-breakpoint
+INSERT INTO `items` (`id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at`)
+	SELECT `id`, `tenant_id`, `workspace_id`, `source`, `source_id`, `source_link`, `sender`, `source_timestamp`, `title`, `preview`, `source_resolved_at`, `status`, `next_action`, `focus_horizon`, `priority`, `due_date`, `snoozed_until`, `unseen`, `deleted_at`, `created_at`, `updated_at` FROM `_migrate_items`
+	WHERE `tenant_id` IN (SELECT `id` FROM `tenants`)
+	  AND `workspace_id` IN (SELECT `id` FROM `workspaces`);--> statement-breakpoint
+INSERT INTO `associations` (`id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at`)
+	SELECT `id`, `tenant_id`, `item_id`, `kind`, `label`, `created_at` FROM `_migrate_associations`
+	WHERE `tenant_id` IN (SELECT `id` FROM `tenants`)
+	  AND `item_id` IN (SELECT `id` FROM `items`);--> statement-breakpoint
+INSERT INTO `commands` (`command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at`)
+	SELECT `command_id`, `tenant_id`, `workspace_id`, `name`, `payload`, `issued_at`, `received_at` FROM `_migrate_commands`;--> statement-breakpoint
+
+DROP TABLE `_migrate_tenants`;--> statement-breakpoint
+DROP TABLE `_migrate_workspaces`;--> statement-breakpoint
+DROP TABLE `_migrate_items`;--> statement-breakpoint
+DROP TABLE `_migrate_associations`;--> statement-breakpoint
+DROP TABLE `_migrate_commands`;

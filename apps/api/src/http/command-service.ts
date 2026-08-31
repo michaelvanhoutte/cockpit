@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
 import type { Db } from '../db/client.js';
 import { associations, commands, items } from '../db/schema.js';
-import { commandAlreadyApplied, getItem } from '../db/repo.js';
+import { commandAlreadyApplied, getItem, getWorkspace } from '../db/repo.js';
 import {
   applySetFocus,
   applySetNextAction,
@@ -16,6 +16,12 @@ import {
 export class ItemNotFoundError extends Error {
   constructor(itemId: string) {
     super(`item ${itemId} not found`);
+  }
+}
+
+export class WorkspaceNotFoundError extends Error {
+  constructor(workspaceId: string) {
+    super(`workspace ${workspaceId} not found`);
   }
 }
 
@@ -50,6 +56,13 @@ export async function runCommand<N extends CommandName>(
   switch (name) {
     case 'capture_item': {
       const cmd = payload as CommandPayload<'capture_item'>;
+      // The workspace is client-supplied and only shape-validated, so this is
+      // the one place an unknown id can reach a write. Checked here rather
+      // than left to the foreign key: the constraint would surface a caller's
+      // mistake as a 500, and this is a 404 like any other missing thing.
+      if (!(await getWorkspace(db, tenantId, cmd.workspaceId))) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
       const item = captureItem(cmd, tenantId);
       // A retried capture whose command ID was lost still may not duplicate the item.
       await db.batch([db.insert(items).values(item).onConflictDoNothing(), logCommand]);

@@ -327,3 +327,44 @@ describe('Associations', () => {
     });
   });
 });
+
+describe('Capture', () => {
+  /**
+   * The workspace on a capture is client-supplied and only shape-validated,
+   * so it is the one id that can name something that does not exist. The
+   * database refuses it either way; what this pins is that the caller is told
+   * what was wrong instead of getting an internal error.
+   */
+  describe('a thought captured into a workspace that does not exist is refused and nothing is stored', () => {
+    it('says which workspace was missing', async () => {
+      const response = await postChange('capture_item', {
+        commandId: nextId(),
+        issuedAt: '2026-08-12T10:00:00.000Z',
+        workspaceId: 'ws-that-was-never-created',
+        itemId: nextId(),
+        title: 'Make appointment with Novy',
+      });
+
+      expect(response.status).toBe(404);
+      expect((await response.json()) as { error: string }).toMatchObject({
+        error: expect.stringContaining('ws-that-was-never-created'),
+      });
+    });
+
+    it('leaves no trace of the attempt', async () => {
+      const itemId = nextId();
+      const requestId = nextId();
+      await postChange('capture_item', {
+        commandId: requestId,
+        issuedAt: '2026-08-12T10:00:00.000Z',
+        workspaceId: 'ws-that-was-never-created',
+        itemId,
+        title: 'Make appointment with Novy',
+      });
+
+      const db = createDb(env.DB);
+      expect(await db.select().from(items).where(eq(items.id, itemId))).toHaveLength(0);
+      expect(await db.select().from(commands).where(eq(commands.commandId, requestId))).toHaveLength(0);
+    });
+  });
+});
