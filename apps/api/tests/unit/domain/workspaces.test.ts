@@ -46,8 +46,9 @@ describe('Workspace management', () => {
         id: 'ws-new',
         tenantId: TENANT_ID,
         name: 'Personal',
-        // Written, read by nothing, and dropped by issue 78; the id is used
-        // because it is unique without inventing a second naming rule.
+        // Written, read by nothing, and dropped by "Drop the unused workspace
+        // slug column" (issue 78); the id is used because it is unique without
+        // inventing a second naming rule.
         slug: 'ws-new',
         color: '#3f8f78',
         createdAt: AT,

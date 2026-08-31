@@ -156,9 +156,10 @@ export const workspaces = sqliteTable(
      *   back. A tombstoned workspace keeps its name for the record without
      *   holding it hostage.
      *
-     * Written out as raw SQL because drizzle-kit emits neither the expression
-     * nor the partial clause; migration 0002 carries the real statement, and
-     * this is here so the schema file still describes the database.
+     * Migration 0003 makes the swap, and carries the answers to what happens
+     * when it meets two workspaces already named the same. Migration 0002 is
+     * the `deleted_at` column this index's WHERE clause depends on, which is
+     * why they are two files and in that order.
      */
     uniqueIndex('workspaces_tenant_live_name')
       .on(t.tenantId, sql`lower(${t.name})`)

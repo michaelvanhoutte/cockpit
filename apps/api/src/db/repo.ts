@@ -12,7 +12,8 @@ import { associations, commands, items, workspaces } from './schema.js';
 /**
  * The wire shape of a workspace, from the row. `slug` and the bookkeeping
  * columns are dropped here rather than being selected around, so there is one
- * place to change when issue 78 removes the column.
+ * place to change when "Drop the unused workspace slug column" (issue 78)
+ * removes it.
  */
 function asWorkspace(row: typeof workspaces.$inferSelect): Workspace {
   return { id: row.id, tenantId: row.tenantId, name: row.name, color: row.color };
