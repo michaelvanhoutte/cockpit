@@ -34,6 +34,13 @@ export const SEVERITIES = ['NONE', 'LOW', 'MEDIUM', 'HIGH'];
 export const COMMENT_MARKER = '<!-- cockpit-security-review -->';
 
 /**
+ * Who the gate's own note is posted as. `github.token` authenticates the run as
+ * this account, so a note claiming to be the gate's and authored by anyone else
+ * is not the gate's - see markedCommentId, where that matters.
+ */
+export const GATE_AUTHOR = 'github-actions[bot]';
+
+/**
  * What the pull request should say about this run.
  *
  * The workflow posts this rather than asking the reviewer to. The prompt does
@@ -91,7 +98,7 @@ export function summaryComment(outcome) {
  * One JSON object per line concatenates safely, which is the shape
  * claude-code-review.yml's own gate already uses for the same reason.
  */
-export function markedCommentId(ghOutput, marker = COMMENT_MARKER) {
+export function markedCommentId(ghOutput, { marker = COMMENT_MARKER, author = GATE_AUTHOR } = {}) {
   for (const line of String(ghOutput ?? '').split('\n')) {
     if (line.trim() === '') continue;
     let comment;
@@ -102,6 +109,15 @@ export function markedCommentId(ghOutput, marker = COMMENT_MARKER) {
       // looked for may be on any of them.
       continue;
     }
+    // The author check is not belt-and-braces. The marker is a public constant
+    // in a public repository, GitHub lists comments oldest first, and this
+    // returns the first match - so without it, anyone who can comment on a pull
+    // request could post the marker before the gate's first run and have every
+    // later run PATCH their comment instead of writing its own. The gate holds
+    // `pull-requests: write`, so that is someone else's text being overwritten
+    // by a token they do not have, and the verdict never appearing at all,
+    // which is the exact outcome this whole change exists to prevent.
+    if (comment?.login !== author) continue;
     if (String(comment?.body ?? '').includes(marker)) return comment.id;
   }
   return null;

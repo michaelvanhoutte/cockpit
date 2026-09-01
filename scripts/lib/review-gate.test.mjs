@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { COMMENT_MARKER, decideOutcome, markedCommentId, resultRecordOf, summaryComment, verdictOf } from './review-gate.mjs';
+import { COMMENT_MARKER, GATE_AUTHOR, decideOutcome, markedCommentId, resultRecordOf, summaryComment, verdictOf } from './review-gate.mjs';
 
 /** A result record as the action writes one, with the parts under test. */
 function run({ text = 'SECURITY-VERDICT: NONE', turns = 14, ...rest } = {}) {
@@ -261,11 +261,13 @@ describe('summaryComment', () => {
 });
 
 describe('markedCommentId', () => {
-  const marked = (id) => JSON.stringify({ id, body: `${COMMENT_MARKER}\n## Security review` });
-  const other = (id) => JSON.stringify({ id, body: 'Looks good to me' });
+  const gate = (id) => JSON.stringify({ id, login: GATE_AUTHOR, body: `${COMMENT_MARKER}\n## Security review` });
+  const other = (id) => JSON.stringify({ id, login: 'someone', body: 'Looks good to me' });
+  /** Someone else's comment carrying the marker. The marker is public. */
+  const impostor = (id) => JSON.stringify({ id, login: 'someone', body: `${COMMENT_MARKER} not really` });
 
-  it('finds the note this workflow left', () => {
-    assert.equal(markedCommentId([other(1), marked(2), other(3)].join('\n')), 2);
+  it('finds the note the gate left', () => {
+    assert.equal(markedCommentId([other(1), gate(2), other(3)].join('\n')), 2);
   });
 
   it('is null when there is no note yet', () => {
@@ -281,18 +283,22 @@ describe('markedCommentId', () => {
     // The first version wrapped its filter in an array, so this arrived as
     // `[...]\n[...]` and threw — swallowed into a warning, leaving the comment
     // unposted on any pull request past thirty comments.
-    const pages = [other(1), other(2), other(3), marked(4)].join('\n');
-    assert.equal(markedCommentId(pages), 4);
+    assert.equal(markedCommentId([other(1), other(2), other(3), gate(4)].join('\n')), 4);
   });
 
   it('keeps reading past a line it cannot parse', () => {
-    assert.equal(markedCommentId(['not json at all', marked(7)].join('\n')), 7);
+    assert.equal(markedCommentId(['not json at all', gate(7)].join('\n')), 7);
   });
 
-  it('ignores a body that merely mentions the marker in prose', () => {
-    // A quoted marker is still a match, and should be: the alternative is
-    // parsing prose to decide. What must not happen is a crash on either.
-    const quoting = JSON.stringify({ id: 9, body: `someone pasted ${COMMENT_MARKER} here` });
-    assert.equal(markedCommentId(quoting), 9);
+  it('ignores the marker in a comment somebody else wrote', () => {
+    // The marker is a public constant and GitHub lists comments oldest first,
+    // so without the author check anyone able to comment could post it before
+    // the gate's first run and have every later run overwrite their comment
+    // instead of writing the verdict anywhere.
+    assert.equal(markedCommentId(impostor(1)), null);
+  });
+
+  it('finds its own note even when an impostor posted first', () => {
+    assert.equal(markedCommentId([impostor(1), gate(2)].join('\n')), 2);
   });
 });

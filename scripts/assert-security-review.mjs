@@ -35,7 +35,16 @@ function leaveSummary(outcome) {
     // One object per line, never an array: --paginate applies --jq per page and
     // concatenates, so a wrapped filter emits one array per page and stops
     // being JSON. See markedCommentId, which is where that is asserted.
-    const listed = gh(['api', `repos/${repo}/issues/${pr}/comments`, '--paginate', '--jq', '.[] | {id, body} | @json']);
+    const listed = gh([
+      'api',
+      `repos/${repo}/issues/${pr}/comments`,
+      '--paginate',
+      // The author travels with the id and body because matching on the marker
+      // alone lets anyone who can comment claim the gate's note - see
+      // markedCommentId.
+      '--jq',
+      '.[] | {id, body, login: .user.login} | @json',
+    ]);
     const existingId = markedCommentId(listed);
 
     const body = JSON.stringify({ body: summaryComment(outcome) });
