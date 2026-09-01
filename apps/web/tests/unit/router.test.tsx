@@ -203,6 +203,22 @@ describe('Triage', () => {
       expect(await screen.findByRole('region', { name: 'Inbox' })).toBeVisible();
       expect(inboxColumn()).toBeNull();
     });
+
+    it('stays on the Inbox where there is nowhere else to go, rather than bouncing', async () => {
+      // A workspace with no dashboards cannot happen - one is created with a
+      // dashboard and its last cannot be deleted - and both this and
+      // `viewToOpen` answer it anyway, because the two answers together are a
+      // loop if either is careless: the workspace's address sends you here,
+      // and here would send you straight back.
+      withRoomForTheInbox();
+
+      await open('/w/ws-work/inbox', [work, personal], () => []);
+
+      // Twice: the column, and the screen that did not send you away. That is
+      // the price of the guard, and it is a better screen than two addresses
+      // bouncing off each other.
+      expect(await screen.findAllByRole('region', { name: 'Inbox' })).toHaveLength(2);
+    });
   });
 });
 

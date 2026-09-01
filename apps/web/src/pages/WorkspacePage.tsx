@@ -1,4 +1,6 @@
 import { Navigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { snapshotQuery } from '../api/queries';
 import { inboxRoute } from '../router';
 import { InboxPanel } from '../components/InboxPanel';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -14,12 +16,24 @@ import { useRoomForTheInbox } from '../roomForTheInbox';
  * instead, which is a dashboard. That happens here rather than in the route so
  * that widening the window on this address is answered too - a route decides
  * once, on arrival, and a window can be resized long after.
+ *
+ * **Unless there is nowhere else to go**, and that guard is not decoration: the
+ * workspace's address sends you back here when the workspace has no dashboards
+ * (lastVisited.ts), so going there unconditionally would be a redirect loop
+ * rather than a screen. It cannot happen - a workspace is created with a
+ * dashboard and its last one cannot be deleted - and the same "cannot happen"
+ * is why `viewToOpen` answers the Inbox there rather than throwing. Showing the
+ * Inbox twice is a poor screen; bouncing between two addresses is not a screen
+ * at all.
  */
 export function WorkspacePage() {
   const { workspaceId } = inboxRoute.useParams();
   const roomForTheInbox = useRoomForTheInbox();
+  // Already in hand: the route this page is under read it on the way in.
+  const { data } = useQuery(snapshotQuery(workspaceId));
+  const somewhereElse = (data?.dashboards.length ?? 0) > 0;
 
-  if (roomForTheInbox) {
+  if (roomForTheInbox && somewhereElse) {
     return <Navigate to="/w/$workspaceId" params={{ workspaceId }} replace />;
   }
 
