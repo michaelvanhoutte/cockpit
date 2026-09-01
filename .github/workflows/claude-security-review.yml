@@ -69,6 +69,14 @@ jobs:
         with:
           # The review reads the instructions file out of the checkout, and
           # compares against history when a rule's origin matters.
+          #
+          # Also load-bearing for the step below: only at depth 0 does checkout
+          # fetch `+refs/heads/*:refs/remotes/origin/*`, and without those
+          # remote-tracking branches there is no `origin/<base>` to point
+          # `origin/HEAD` at. At any other depth it fetches the pull request's
+          # merge ref alone, and `set-head` fails with "Not a valid ref" - red,
+          # which is the right way round: the alternative is a checkout that
+          # silently reviews nothing again.
           fetch-depth: 0
 
       # Without this the review never runs at all, and says nothing about why.
@@ -83,11 +91,31 @@ jobs:
       #
       # set-head writes a local symbolic ref and makes no network call, so this
       # costs nothing. --auto would ask the remote which branch is default and
-      # need one; the default branch is already in the event payload.
-      - name: Point origin/HEAD at the default branch
+      # need one; the branch is already in the event payload.
+      #
+      # The pull request's own base, not the repository's default branch. They
+      # are the same value for as long as every pull request targets `main`, and
+      # they are the same value today - but the day one targets something else,
+      # the default branch would have the review read the diff against the wrong
+      # base and say nothing about it. That is the one failure the instructions
+      # file says nothing downstream can catch: a review that quietly covers the
+      # wrong thing still ends with a verdict, and the gate cannot tell.
+      #
+      # It stays in `env:` rather than being interpolated into the script, and
+      # that matters more here than it did for the default branch: this is a
+      # branch name someone chose, and this repository's own security
+      # instructions call interpolating one into a `run:` block a finding.
+      #
+      # The echo is what makes the next run legible. This step failing is loud,
+      # but this step succeeding against a ref nobody can see is how the same
+      # class of silence comes back; printing what it resolved means the run log
+      # answers "was the diff scoped correctly" without anyone re-deriving it.
+      - name: Point origin/HEAD at the branch under review
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: git remote set-head origin "$DEFAULT_BRANCH"
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git remote set-head origin "$BASE_REF"
+          echo "origin/HEAD -> $(git symbolic-ref --short refs/remotes/origin/HEAD)"
 
       - name: Run the security review
         id: security-review
