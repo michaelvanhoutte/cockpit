@@ -70,8 +70,11 @@
 --
 -- **Data the new rules reject.** None; this removes a rule rather than adding
 -- one. The other half was confirmed first: the name index 0005 added is present
--- and holding, because after this there is no other uniqueness constraint on the
--- table at all.
+-- and holding, because after this it is the only thing keeping two workspaces
+-- from being the same one to look at. The primary key on `id` is still a
+-- uniqueness constraint, and a load-bearing one - a replayed create is a no-op
+-- because of it (`onConflictDoNothing({ target: workspaces.id })` in
+-- src/http/command-service.ts) - but it holds ids apart, and nobody reads an id.
 --
 -- **What each environment does.** Preview is re-seeded from seed.sql on every
 -- deploy, so that file stops writing `slug` in this same change or every preview
