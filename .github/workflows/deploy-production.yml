@@ -108,7 +108,7 @@ jobs:
         # than "the login page loaded" (docs/deployment.md, "`/health` must stay
         # outside the gate"). It covers the register and an account store, not
         # the register alone — see the same step in deploy-staging.yml.
-        run: bash scripts/health-check.sh "https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
+        run: node scripts/health-check.mjs "https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
 
       - name: Summarise
         run: |

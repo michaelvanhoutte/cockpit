@@ -15,6 +15,7 @@ cockpit/
 │   ├── shared/        # THE contract: domain types, Zod schemas, commands, API shapes
 │   ├── connector-sdk/ # the connector SPI (connectors land as packages/connectors/*)
 │   └── config/        # shared tsconfig / prettier
+├── tools/             # workspace packages that serve the build, not the product: the Test Explorer
 ├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
 ├── scripts/           # local dev startup, the browser tier's stack, branch tidying
 ├── .github/           # CI, CodeQL, the three Claude workflows, the two deploy workflows, branch protection
@@ -24,7 +25,7 @@ cockpit/
 
 One Worker per environment serves both the API and the SPA, on one origin (see [docs/deployment.md](docs/deployment.md)). `apps/api` is therefore the deployment, and `apps/web/dist` is its static-asset payload.
 
-Not yet in place (deliberately, in build order): auth (§8.1), the connectors themselves (§6.2), and the task-creator merge (§6.5).
+Not yet in place (deliberately, in build order): app login ("App login: hand-rolled Google OIDC + own sessions" in [docs/architecture.md](docs/architecture.md)), the connectors themselves ("Connectors: plugin-shaped, host-blind"), and the task-creator merge ("Multi-channel capture and the task-creator merge").
 
 ## Environments
 
@@ -90,8 +91,8 @@ pnpm test
 # the browser tier alone
 pnpm test:e2e
 
-# the scripts that start the app and the test stack, and the security
-# review's gate; no install needed
+# the scripts that start the app and the test stack, the post-deploy
+# health check, and the security review's gate; no install needed
 pnpm test:scripts
 ```
 
@@ -153,7 +154,7 @@ One consequence worth knowing, and it is the action's behaviour rather than eith
 
 **Posting the findings is where the automation stops.** Answering them is manual, and it is a rule rather than a courtesy: reply in each review thread naming the commit that fixed it, then resolve it — see "Review findings" in [CLAUDE.md](CLAUDE.md). Nothing about pushing a fix, or merging, closes a thread, so a pull request whose review still looks untouched is exactly what a fully handled review looks like until someone answers it.
 
-Note the ordering this implies. The review is triggered *by* the push, so it has not run yet at the moment the pull request appears — opening one and calling the work done reliably leaves findings nobody has read. Wait for the checks to settle first (`until ! gh pr checks <number> | grep -q 'pending'; do sleep 30; done`), then answer what came back.
+Note the ordering this implies. The review is triggered *by* the push, so it has not run yet at the moment the pull request appears — opening one and calling the work done reliably leaves findings nobody has read. Worse, it has not necessarily been *created* yet either: `ci.yml` also runs on `push`, so a commit can carry a full set of finished check runs while the pull-request-triggered ones have not been dispatched at all. Wait for the checks to settle first — the command is in "Review findings" in [CLAUDE.md](CLAUDE.md), and lives there alone rather than in both places, because the copy that used to sit here went stale the day that one was fixed — then answer what came back.
 
 ### Checked in — agent configuration
 
@@ -174,7 +175,7 @@ Skills trigger themselves from their descriptions, so nobody has to remember to 
 | `pnpm dev` | Migrates, seeds, builds `dist` if it has never been built, then runs both halves. One command, deliberately: see [Run it](#run-it). |
 | `pnpm branches:tidy` | Reaps the local branches and worktree metadata that squash-merging leaves behind: see [Tidying up branches](#tidying-up-branches). |
 | `pnpm typecheck`, `pnpm test`, `pnpm build` | The same three gates CI runs, so a red pipeline is reproducible locally. |
-| `scripts/health-check.sh` | The post-deploy assertion against `/health`, which is Bypass-policied out of Cloudflare Access so it tests the app rather than a login page. |
+| `scripts/health-check.mjs` | The post-deploy assertion against `/health`, which is Bypass-policied out of Cloudflare Access so it tests the app rather than a login page. It asks until the deployment says it is well or a minute is up, because the first request after a deploy is the one that brings an account store up to date. |
 | [.vscode/launch.json](.vscode/launch.json) | Debug the SPA in Chrome, attach to the Worker's inspector on `:9229`, or both at once. |
 
 **There are no git hooks in this repository, on purpose.** Nothing installs a `pre-commit` or `pre-push` hook and there is no husky/lefthook dependency. The gate is CI: it cannot be skipped with `--no-verify`, and it runs on the machine that decides. When you want to be interrupted locally is a personal preference, so it belongs in the machine-local list below.

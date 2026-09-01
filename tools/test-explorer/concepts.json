@@ -41,6 +41,7 @@
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/DashboardBar.tsx",
         "apps/web/src/pages/DashboardPage.tsx",
+        "apps/web/src/pages/DashboardSettingsPage.tsx",
         "apps/web/src/lastVisited.ts",
         "apps/web/src/router.tsx"
       ]
@@ -136,6 +137,7 @@
         "apps/api/src/accounts/schema.ts",
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/item.ts",
+        "packages/shared/src/domain/workspace-themes.ts",
         "apps/web/src/pages/WorkspaceSettingsPage.tsx",
         "apps/web/src/pages/Layout.tsx",
         "apps/web/src/router.tsx"
