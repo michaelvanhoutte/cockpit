@@ -74,8 +74,11 @@ const rowsFor: { table: string; sql: string; params: (name: string) => string[] 
   // In foreign-key order, which is why this is a list and not a lookup.
   {
     table: 'workspaces',
-    sql: `INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at)
-          VALUES ('ws-before', ?, 'Before', 'ws-before', '#6f62b5', ?)`,
+    // Every column named out loud, defaults included: this row is here to be
+    // what the *next* update meets, so it should be a whole workspace rather
+    // than the subset that happens to have no default today.
+    sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, ground, header, created_at)
+          VALUES ('ws-before', ?, 'Before', 'before', '#6f62b5', '#e3e1f2', '#d2cdea', ?)`,
     params: (name) => [name, AT],
   },
   {

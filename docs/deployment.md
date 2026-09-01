@@ -495,9 +495,9 @@ free to gate, and what nothing replaced when they went (§4).
 Two things depend on reaching `/health` unauthenticated, and both break silently
 without it: the post-deploy assertion in the deploy workflows, and the external
 uptime check (architecture, "Observability"), which is deliberately the only
-observability layer not running on the app's own code. `/health` returns `{"ok":true,"register":true,"store":true}` and
-nothing else, so it discloses only whether each half answered — never *why* one
-did not, since the reason an update will not apply names tables and columns and
+observability layer not running on the app's own code. `/health` returns `{"ok":true,"register":true,"store":true}`
+and nothing else, so it discloses only whether each half answered — never *why*
+one did not, since the reason an update will not apply names tables and columns and
 this endpoint answers anyone. That reason goes to the logs instead.
 
 `store` is checked against a store belonging to no account, addressed by a name
@@ -888,15 +888,15 @@ than to any mail provider, so it survives changing employer or email.
   asset routing proven by nothing but a manual look.
 - **Bundle-size gate** (§7): the budget needs recording as a number before it
   can be enforced as one.
-- **Sentry, the connector watchdog, and the external uptime check** (architecture, "Observability"): they
-  land with the code they observe. `/health` already reports whether the register
-  and an account store can both be reached, and the production deploy asserts it.
+- **Sentry, the connector watchdog, and the external uptime check**
+  (architecture, "Observability"): they land with the code they observe.
+  `/health` already reports whether the register and an account store can both
+  be reached, and the production deploy asserts it.
 - **~~Preview alias cleanup.~~** Gone with the previews (§4): there are no
   aliases left to reap, and `scripts/branch-alias.sh`, which derived them, is
   deleted. What remains is a one-time tidy rather than a standing task - the
   `cockpit-preview` Worker and database still exist on Cloudflare, and
   "Removing the infrastructure" in §4 has the two commands.
-
 ## 9. Diagnosing a broken environment
 
 The other sections are procedures for when you already know what is wrong. This
