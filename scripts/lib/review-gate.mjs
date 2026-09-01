@@ -58,7 +58,9 @@ export const GATE_AUTHOR = 'github-actions[bot]';
  * anyone.
  */
 export function summaryComment(outcome) {
-  const lines = [COMMENT_MARKER, '## Security review', ''];
+  // No marker here: upsertSticky prepends it, so that one place decides how a
+  // workflow's note is identified and every caller gets the same answer.
+  const lines = ['## Security review', ''];
 
   if (outcome.ok) {
     lines.push(`**Verdict: ${outcome.verdict}.** ${verdictMeaning(outcome.verdict)}`);

@@ -216,8 +216,9 @@ describe('decideOutcome', () => {
 describe('summaryComment', () => {
   const decide = (opts) => decideOutcome({ executionText: file(run(opts)), conclusion: 'success' });
 
-  it('carries the marker, so the next run edits this comment instead of adding another', () => {
-    assert.ok(summaryComment(decide()).startsWith(COMMENT_MARKER));
+  it('leaves the marker to upsertSticky, so it is not written twice', () => {
+    // Identifying a workflow's note is one decision and it lives in one place.
+    assert.doesNotMatch(summaryComment(decide()), new RegExp(COMMENT_MARKER));
   });
 
   it('says a clean review looked and found nothing, not merely that the check passed', () => {

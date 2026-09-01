@@ -92,9 +92,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           URL: https://${{ steps.alias.outputs.alias }}-cockpit-preview.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
+        # Identified by a marker rather than by `gh pr comment --edit-last`,
+        # which matches the most recent comment by the current author and
+        # nothing else. That was unambiguous while this was the only workflow
+        # commenting as github-actions[bot]; the security review's gate now
+        # posts its verdict under the same identity, so whichever of the two
+        # spoke last would have become the other's next edit target - a preview
+        # URL overwriting a verdict, or a fresh verdict posted and overwritten
+        # again on the next push. Both workflows now look for their own marker
+        # and ignore each other's.
         run: |
           pr=$(gh pr list --head "$GITHUB_REF_NAME" --json number --jq '.[0].number // empty')
           if [ -n "$pr" ]; then
-            gh pr comment "$pr" --edit-last --create-if-none \
-              --body "Preview: $URL (Access-gated, shared preview database)"
+            PR_NUMBER="$pr" node scripts/sticky-comment.mjs \
+              '<!-- cockpit-preview-url -->' \
+              "Preview: $URL (Access-gated, shared preview database)"
           fi

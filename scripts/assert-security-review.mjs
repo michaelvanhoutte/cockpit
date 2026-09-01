@@ -10,7 +10,8 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 
-import { decideOutcome, markedCommentId, summaryComment } from './lib/review-gate.mjs';
+import { COMMENT_MARKER, decideOutcome, summaryComment } from './lib/review-gate.mjs';
+import { upsertSticky } from './lib/sticky-comment.mjs';
 
 const [executionFile, conclusion] = process.argv.slice(2);
 
@@ -32,27 +33,8 @@ function leaveSummary(outcome) {
     execFileSync('gh', args, { input, encoding: 'utf8', env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
 
   try {
-    // One object per line, never an array: --paginate applies --jq per page and
-    // concatenates, so a wrapped filter emits one array per page and stops
-    // being JSON. See markedCommentId, which is where that is asserted.
-    const listed = gh([
-      'api',
-      `repos/${repo}/issues/${pr}/comments`,
-      '--paginate',
-      // The author travels with the id and body because matching on the marker
-      // alone lets anyone who can comment claim the gate's note - see
-      // markedCommentId.
-      '--jq',
-      '.[] | {id, body, login: .user.login} | @json',
-    ]);
-    const existingId = markedCommentId(listed);
-
-    const body = JSON.stringify({ body: summaryComment(outcome) });
-    if (existingId !== null) {
-      gh(['api', '--method', 'PATCH', `repos/${repo}/issues/comments/${existingId}`, '--input', '-'], body);
-    } else {
-      gh(['api', '--method', 'POST', `repos/${repo}/issues/${pr}/comments`, '--input', '-'], body);
-    }
+    const { action } = upsertSticky({ gh, repo, pr, marker: COMMENT_MARKER, body: summaryComment(outcome) });
+    console.log(`Verdict comment ${action}.`);
   } catch (error) {
     console.log(`::warning::Could not leave the verdict on the pull request: ${error.message}`);
   }
