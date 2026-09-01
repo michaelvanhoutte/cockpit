@@ -192,6 +192,8 @@ This lives in repository settings, so a fresh fork gets none of it. The deployme
   gh api -X PUT repos/michaelvanhoutte/cockpit/branches/main/protection --input .github/branch-protection.json
   ```
 
+  Because applying it is a separate act, **the payload and the live setting drift**, and nothing fails when they disagree. On 2026-09-01 the file listed eight required checks and `main` enforced four. Read the live one whenever the answer matters, rather than the file: `gh api repos/michaelvanhoutte/cockpit/branches/main/protection --jq '.required_status_checks.contexts'`. The reasoning is in [docs/deployment.md](docs/deployment.md) under *Bootstrap runbook*.
+
 - **The GitHub-native security controls.** Secret scanning and push protection were already on before anything was built for them; Dependabot alerts and security updates were turned on by two `gh api` calls. Routine dependency version bumps are deliberately off, and the code-scanning failure threshold is deliberately left at its default. The commands, the dates they were checked, and the reasoning are in [docs/deployment.md](docs/deployment.md) under *Bootstrap runbook*.
 - **Automatically delete head branches**, in the repository settings. `pnpm branches:tidy` keys on a local branch's upstream being `[gone]`, so it is only trustworthy while that setting is on.
 - **The Claude GitHub App**, installed on the repository, plus the OAuth token above. The usual path is `/install-github-app` from an interactive Claude Code session, which installs the app and stores the secret for you.
