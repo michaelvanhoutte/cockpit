@@ -26,6 +26,7 @@ import {
   forgetSessionCookie,
   gate,
   rememberSessionCookie,
+  stillSignedIn,
   type GatedEnv,
 } from '../auth/gate.js';
 import { endSession, listUsers, startSession } from '../auth/register.js';
@@ -422,14 +423,30 @@ const routes = app
     streamSSE(
       c,
       async (stream) => {
-        // The account is resolved once, outside the loop: the stream is long-
-        // lived, and re-checking the register every three seconds would ask the
-        // same question of the same row for as long as a tab stays open.
+        // The account is resolved once, outside the loop: which account this
+        // person owns cannot change while the stream is open, so asking again
+        // would be the same question of the same row for as long as a tab
+        // stays open.
         const account = await openAccount(c.env, c.get('visitor').accountName);
+        const sessionId = c.get('sessionId');
         let cursor = new Date().toISOString();
         let lastPing = Date.now();
         await stream.writeSSE({ event: 'ping', data: '' });
         while (!stream.aborted) {
+          // Whether the sign-in is still current *is* a question whose answer
+          // changes, which is why it is asked again where the account is not.
+          // The gate answers it once on the way in, and that is enough for a
+          // request; a stream outlives its own admission by hours, so without
+          // this it would go on delivering an account's changes long after
+          // somebody signed out - and signing out is meant to be final, not to
+          // take effect on the next request the browser happens to make.
+          //
+          // Every time round rather than on a slower cadence of its own: the
+          // loop already wakes every three seconds and already reads the
+          // account's store, so this is one small read beside one that is
+          // happening anyway, and it saves a second interval to get wrong.
+          if (!(await stillSignedIn(c.env, sessionId))) break;
+
           const { events, cursor: next } = await account.changesSince(cursor);
           cursor = next;
           for (const event of events) {

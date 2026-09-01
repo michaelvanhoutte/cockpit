@@ -624,9 +624,10 @@ case above rather than the credentials-omitted one:
   control, so removing Access would leave a deployed environment open to anybody
   who can reach the URL. When the OIDC flow lands, Access on production should be
   reconsidered rather than left in place by inertia: it would then be a second
-  gate in front of the app's own, and the §8.1 rejection reasons (tenancy left
-  unexercised, cannot become customer auth) apply for real - the first of them
-  already does, now that there is a second user.
+  gate in front of the app's own, and the rejection reasons under "App login:
+  hand-rolled Google OIDC + own sessions" (architecture §8.1) - tenancy left
+  unexercised, cannot become customer auth - apply for real, the first of them
+  already now that there is a second user.
 
 This does **not** reverse §8.1. Access here is a perimeter around a deployment, not
 the application's identity model, and it buys time rather than a design.

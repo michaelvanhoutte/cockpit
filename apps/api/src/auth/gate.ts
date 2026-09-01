@@ -113,6 +113,26 @@ export function gate(): MiddlewareHandler<GatedEnv> {
 }
 
 /**
+ * Whether the sign-in something was started with is *still* current.
+ *
+ * The gate answers that once, on the way in, which is all a request needs
+ * because a request is over in milliseconds. A live-updates stream is not: it is
+ * held open for hours, and without this it would go on delivering an account's
+ * changes long after that sign-in was ended - which is precisely what signing
+ * out is supposed to stop. So the stream asks again as it goes (see the
+ * `/v1/events` handler).
+ *
+ * Deliberately does **not** extend the sign-in. A stream is a listener, not use:
+ * a person actually working makes other requests, and renewing from an open
+ * socket would keep a forgotten tab's sign-in alive for as long as the tab was
+ * left open.
+ */
+export async function stillSignedIn(env: Env, sessionId: string): Promise<boolean> {
+  const held = await sessionHeld(env, sessionId);
+  return recogniseSession(held?.session, new Date()).recognised;
+}
+
+/**
  * Sets the cookie, and re-sets it on every request so the browser's own copy
  * slides along with the row.
  *

@@ -179,6 +179,32 @@ describe('Sign-in', () => {
   });
 
   describe('signing out ends the sign-in for good', () => {
+    /**
+     * The live-updates stream is the one thing that outlives its own admission:
+     * the gate lets it in once and it is then held open for hours, so "signing
+     * out is final" is a claim about a socket that is already open, not only
+     * about the next request the browser makes.
+     *
+     * Read to the end rather than sampled, because the outcome under test is
+     * that it *stops*. A stream that went on delivering would leave this
+     * waiting, which the runner's timeout turns into the failure it should be.
+     */
+    it('stops the live-updates stream it was holding open', { timeout: 30_000 }, async () => {
+      const cookie = await signedInAs(USER_ID);
+      const stream = await SELF.fetch('http://cockpit.test/v1/events', carrying(cookie));
+      expect(stream.status).toBe(200);
+      const listening = stream.body!.getReader();
+      // The opening heartbeat, which is what says the stream is genuinely live
+      // before anything is done to it.
+      expect((await listening.read()).done).toBe(false);
+
+      await SELF.fetch('http://cockpit.test/v1/sign-out', carrying(cookie, { method: 'POST' }));
+
+      let ended = false;
+      while (!ended) ended = (await listening.read()).done;
+      expect(ended).toBe(true);
+    });
+
     it('refuses the very next request made with it', async () => {
       const cookie = await signedInAs(USER_ID);
       expect((await SELF.fetch('http://cockpit.test/v1/workspaces', carrying(cookie))).status).toBe(
