@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { uuidv7 } from '@cockpit/shared';
 import type { Dashboard } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
@@ -35,6 +35,7 @@ export function DashboardSettingsPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const command = useCommand();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const dashboards = data?.dashboards ?? [];
   const answered = data !== undefined;
@@ -91,11 +92,19 @@ export function DashboardSettingsPage() {
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: async () => {
           setDeleting(null);
+          // Re-read before going anywhere, for the reason adding one does
+          // (components/DashboardBar.tsx): the snapshot in hand still holds the
+          // dashboard that has just gone, and the workspace's own route reads
+          // it to decide where to land. Without this it can land back on the
+          // deleted one and remember it, leaving you on a dashboard that is not
+          // there. `useCommand` asks for the same re-read but does not wait for
+          // it, and this is the caller that has to.
+          await queryClient.refetchQueries({ queryKey: ['snapshot', workspaceId] });
           // The workspace decides where to land, which is the dashboard you
-          // were last on - and if that was this one, its own route sends you
-          // on to another. Nothing here has to know which.
+          // were last on - and if that was this one, the re-read above means it
+          // is no longer among them. Nothing here has to know which is next.
           void navigate({ to: '/w/$workspaceId', params: { workspaceId } });
         },
       },

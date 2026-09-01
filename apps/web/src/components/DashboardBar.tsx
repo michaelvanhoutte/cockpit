@@ -46,7 +46,8 @@ export function DashboardBar({ workspaceId }: { workspaceId: string }) {
       ))}
       <AddDashboard workspaceId={workspaceId} />
       {/* The way to what a dashboard has beyond its name. One entry today -
-          renaming and deleting - and where issue 33's layouts will go. */}
+          renaming and deleting - and where "Panels on a dashboard, with
+          per-screen-size layouts" (issue 33) will put its layouts. */}
       <Link
         to="/w/$workspaceId/settings/dashboards"
         params={{ workspaceId }}

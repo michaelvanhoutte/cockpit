@@ -104,7 +104,8 @@ describe('Dashboards', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Delete Research' }));
 
-      // Panels are what a dashboard holds, and there are none until issue 33.
+      // Panels are what a dashboard holds, and there are none until "Panels on
+      // a dashboard, with per-screen-size layouts" (issue 33).
       expect(screen.getByText('Delete Research? There is nothing on it.')).toBeVisible();
     });
 
