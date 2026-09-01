@@ -47,35 +47,26 @@ const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string)
 };
 
 /**
- * The workspace's snapshot: re-read when the copy in hand is stale, and the
- * copy in hand when it cannot be re-read.
+ * The workspace's snapshot, from the copy in hand where there is one.
  *
- * `fetchQuery` rather than `ensureQueryData`, because the second answers from
- * the cache whenever there is one - and the moment this matters most, just
- * after adding a dashboard, that cache is the snapshot from before it existed.
- * The route would decide the new dashboard is not there and send you back to
- * the workspace, which is the dashboard you were on before: adding one would
- * look like doing nothing.
+ * Deliberately cache-first, like every other read in this file. Making it
+ * network-first was tried and is worse in two ways that both land on the
+ * person: a failing fetch retries twice with backoff before it rejects, so the
+ * route sits on the previous screen for about three seconds with nothing said;
+ * and a query made while genuinely offline is *paused* rather than run and
+ * failed, so it never settles at all and the route never commits. Reading what
+ * you already have is what the stored copy is for (functional definition,
+ * "Offline / local-first behavior").
  *
- * But `fetchQuery` alone would trade one failure for a worse one. Past the
- * fifteen seconds a snapshot stays fresh it awaits the network and *rejects* if
- * that fails, which would take every navigation on a bad connection - and every
- * cold open offline - into the router's full-screen error boundary, over a
- * perfectly good snapshot sitting in the persisted cache. Reading what you
- * already have is exactly what that cache is for (functional definition,
- * "Offline / local-first behavior"), so a failed re-read falls back to it and
- * only a workspace with no stored copy at all reaches the boundary.
+ * What that costs is freshness, and it is paid where the freshness is actually
+ * needed rather than on every navigation: adding a dashboard re-reads the
+ * snapshot before going to it (components/DashboardBar.tsx), because that is
+ * the one moment the copy in hand is known to be a snapshot from before the
+ * thing being navigated to existed - and the one moment the network is known to
+ * be working, since the add just came back.
  */
-const dashboardsOf = async (queryClient: QueryClient, workspaceId: string) => {
-  const query = snapshotQuery(workspaceId);
-  try {
-    return await queryClient.fetchQuery(query);
-  } catch (couldNotReRead) {
-    const stored = queryClient.getQueryData(query.queryKey);
-    if (stored) return stored;
-    throw couldNotReRead;
-  }
-};
+const dashboardsOf = (queryClient: QueryClient, workspaceId: string) =>
+  queryClient.ensureQueryData(snapshotQuery(workspaceId));
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,

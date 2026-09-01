@@ -190,10 +190,13 @@ describe('Dashboards', () => {
       expect(await screen.findByLabelText('Capture a note or to-do')).toBeVisible();
     });
 
-    it('opens from the copy it already has when the workspace cannot be re-read', async () => {
-      // A snapshot older than fifteen seconds is re-read, and offline that read
-      // fails. Reading what you already have is what the stored copy is for, so
-      // this is a workspace that opens rather than an error page.
+    it('opens from the copy it already has when the workspace cannot be read', async () => {
+      // What this pins is that the route reads the stored copy rather than the
+      // network. A network-first read costs the person twice over: a failing
+      // fetch retries with backoff before it rejects, and a genuinely offline
+      // one is paused rather than failed, so it never settles and the route
+      // never commits. Reading what you already have is what the stored copy is
+      // for (functional definition, "Offline / local-first behavior").
       readsWorkspaces.mockResolvedValue({ workspaces: [work, personal] });
       readsSnapshot.mockRejectedValue(new Error('Failed to fetch'));
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

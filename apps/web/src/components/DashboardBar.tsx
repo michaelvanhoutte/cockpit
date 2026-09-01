@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { uuidv7, type Dashboard } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand } from '../api/queries';
@@ -59,6 +59,7 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
   const [name, setName] = useState('');
   const command = useCommand();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,8 +83,19 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
       // the field open with what was typed still in it, so the name can be
       // fixed rather than typed again.
       {
-        onSuccess: () => {
+        onSuccess: async () => {
           close();
+          // Re-read before going there. The dashboard's own route checks that
+          // it is one of the workspace's, against the snapshot in hand - and
+          // the snapshot in hand is the one from before this dashboard
+          // existed, so without this it decides the new dashboard is not real
+          // and sends you back to the one you were already on: adding one
+          // would look like doing nothing.
+          //
+          // Here rather than in the route because this is where it is known to
+          // be needed, and where the network is known to be working: the add
+          // has just come back.
+          await queryClient.refetchQueries({ queryKey: ['snapshot', workspaceId] });
           // You are put on the dashboard you just made: adding one and then
           // having to find it in the bar is two gestures for what reads as one.
           void navigate({
