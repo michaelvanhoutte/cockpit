@@ -4,6 +4,8 @@ import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { Workspace } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
+  OTHER_USER_ID,
+  USER_ID,
   WORKSPACE_ID,
   asUser,
   inTheStore,
@@ -91,6 +93,27 @@ async function setTheme(
   });
 }
 
+async function reorderWorkspaces(
+  moved: string,
+  workspaceIds: string[],
+  overrides: { commandId?: string; userId?: string } = {},
+) {
+  return asUser(
+    'http://cockpit.test/v1/commands/reorder_workspaces',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        commandId: overrides.commandId ?? nextId(),
+        issuedAt: '2026-08-12T13:00:00.000Z',
+        workspaceId: moved,
+        workspaceIds,
+      }),
+    },
+    overrides.userId ?? USER_ID,
+  );
+}
+
 async function captureInto(workspaceId: string, title: string): Promise<string> {
   const itemId = nextId();
   await asUser('http://cockpit.test/v1/commands/capture_item', {
@@ -115,10 +138,15 @@ async function aWorkspace(): Promise<{ id: string; name: string }> {
   return { id, name };
 }
 
-async function theWorkspaces(): Promise<Workspace[]> {
-  const res = await asUser('http://cockpit.test/v1/workspaces');
+async function theWorkspaces(userId: string = USER_ID): Promise<Workspace[]> {
+  const res = await asUser('http://cockpit.test/v1/workspaces', {}, userId);
   const body = (await res.json()) as { workspaces: Workspace[] };
   return body.workspaces;
+}
+
+/** The workspaces of an account, left to right, which is all an order is. */
+async function theOrder(userId: string = USER_ID): Promise<string[]> {
+  return (await theWorkspaces(userId)).map((w) => w.id);
 }
 
 async function storedNames(): Promise<string[]> {
@@ -378,6 +406,195 @@ describe('Workspace management', () => {
 
     it('lets a new workspace take the name it had', async () => {
       expect((await makeWorkspace(deleted.name)).status).toBe(200);
+    });
+  });
+
+  describe('the workspaces are in the order you put them in, and a new one goes last', () => {
+    /**
+     * The workspaces an account starts with, in the order they arrive in. The
+     * order is what this whole rule is about, so it is written out rather than
+     * read from the list under test.
+     */
+    const STARTING_ORDER = ['ws-work', 'ws-atlas', 'ws-personal'];
+
+    it('starts in the order the workspaces were made in', async () => {
+      // Which is where an account that has never reordered anything has to be:
+      // the tabs cannot move on their own, and an account that predates this
+      // being possible at all has to keep the order it has always had.
+      expect(await theOrder()).toEqual(STARTING_ORDER);
+    });
+
+    it('comes back in the order it was given, not the order it was made in', async () => {
+      const wanted = ['ws-personal', 'ws-work', 'ws-atlas'];
+
+      const response = await reorderWorkspaces('ws-personal', wanted);
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true, applied: true });
+      expect(await theOrder()).toEqual(wanted);
+    });
+
+    it('keeps that order for the next person who asks, not just for the move', async () => {
+      // A separate read rather than the same one twice: the order has to be
+      // what the store holds, not something the reordering request answered
+      // with. A position written nowhere would pass the case above.
+      await reorderWorkspaces('ws-atlas', ['ws-atlas', 'ws-personal', 'ws-work']);
+
+      expect(await theOrder()).toEqual(['ws-atlas', 'ws-personal', 'ws-work']);
+      expect(await theOrder()).toEqual(['ws-atlas', 'ws-personal', 'ws-work']);
+    });
+
+    it('puts a workspace you make after all the ones already there', async () => {
+      const made = await aWorkspace();
+
+      expect(await theOrder()).toEqual([...STARTING_ORDER, made.id]);
+    });
+
+    it('puts a workspace you make after the ones already there, whatever order they are in', async () => {
+      // The half that a `position` counted from the number of *live* workspaces
+      // would get wrong, and the reason the count is taken from the highest
+      // position rather than from the list: reordering leaves the same count
+      // behind, so the new workspace would land on top of one of them.
+      await reorderWorkspaces('ws-personal', ['ws-personal', 'ws-work', 'ws-atlas']);
+
+      const made = await aWorkspace();
+
+      expect(await theOrder()).toEqual(['ws-personal', 'ws-work', 'ws-atlas', made.id]);
+    });
+
+    it('does not give a deleted workspace’s place to the next one made', async () => {
+      // A place counted from what is still there would reuse the gone
+      // workspace's number, which is a new workspace appearing in the middle of
+      // the tabs rather than at the end of them.
+      const gone = await aWorkspace();
+      await deleteWorkspace(gone.id);
+
+      const made = await aWorkspace();
+
+      expect(await theOrder()).toEqual([...STARTING_ORDER, made.id]);
+    });
+
+    it('closes up when a workspace is deleted, leaving the rest as they were', async () => {
+      await reorderWorkspaces('ws-personal', ['ws-personal', 'ws-work', 'ws-atlas']);
+
+      await deleteWorkspace('ws-work');
+
+      expect(await theOrder()).toEqual(['ws-personal', 'ws-atlas']);
+    });
+
+    it('leaves another account’s workspaces in the order they were in', async () => {
+      const before = await theOrder(OTHER_USER_ID);
+
+      await reorderWorkspaces('ws-personal', ['ws-personal', 'ws-atlas', 'ws-work']);
+
+      expect(before).toEqual(STARTING_ORDER);
+      expect(await theOrder(OTHER_USER_ID)).toEqual(STARTING_ORDER);
+    });
+  });
+
+  describe('an order of workspaces that are no longer yours is refused, and the order is left as it was', () => {
+    /**
+     * The list comes from a page painted some time ago, so it can be about an
+     * account that has moved on since - a workspace made or deleted in another
+     * tab. Which lists count as an order of these workspaces is decided in
+     * apps/api/tests/unit/domain/workspaces.test.ts over its whole table; what
+     * is asked here is that each way of being wrong is *reachable*, comes back
+     * refused, and changes nothing.
+     *
+     * The two answers differ on purpose. A list that names the same workspace
+     * twice, or that does not name the workspace it says moved, is refused as a
+     * shape - it is wrong on its own terms, whatever the account holds. A list
+     * that simply describes an older account is a collision, and the person can
+     * make the same move again once the page has caught up.
+     */
+    it.each([
+      {
+        situation: 'an order made before somebody else added a workspace',
+        order: () => ['ws-personal', 'ws-work'],
+        moved: 'ws-personal',
+        refusal: 409,
+      },
+      {
+        situation: 'an order made before somebody else deleted one',
+        order: (extra: string) => ['ws-personal', 'ws-work', 'ws-atlas', extra],
+        moved: 'ws-personal',
+        refusal: 409,
+      },
+      {
+        situation: 'an order with the same workspace in two places',
+        order: () => ['ws-work', 'ws-work', 'ws-atlas'],
+        moved: 'ws-work',
+        refusal: 400,
+      },
+      {
+        situation: 'an order that does not name the workspace it says moved',
+        order: () => ['ws-work', 'ws-atlas', 'ws-personal'],
+        moved: 'ws-nowhere',
+        refusal: 400,
+      },
+      {
+        situation: 'no order at all',
+        order: () => [],
+        moved: 'ws-work',
+        refusal: 400,
+      },
+    ])('refuses $situation', async ({ order, moved, refusal }) => {
+      // A workspace that is not there any more, so the "deleted one" row has
+      // something real to name. Made and deleted for every row, which costs two
+      // requests and keeps the rows from having to know about each other.
+      const gone = await aWorkspace();
+      await deleteWorkspace(gone.id);
+      const before = await theOrder();
+
+      const response = await reorderWorkspaces(moved, order(gone.id));
+
+      expect(response.status).toBe(refusal);
+      expect(await theOrder()).toEqual(before);
+    });
+
+    it('says the workspaces changed, so the same move can be made again', async () => {
+      const gone = await aWorkspace();
+      await deleteWorkspace(gone.id);
+
+      const response = await reorderWorkspaces('ws-work', ['ws-work', 'ws-atlas', 'ws-personal', gone.id]);
+
+      expect(await response.json()).toEqual({
+        error: 'the workspaces changed while they were being put in order',
+      });
+    });
+
+    it('refuses an order of another account’s workspaces, and leaves both accounts alone', async () => {
+      // The ids are the same in both accounts - every account starts with the
+      // same three - so the case that actually distinguishes the two is one
+      // account naming a workspace only the *other* has.
+      const theirs = await asUser(
+        'http://cockpit.test/v1/commands/create_workspace',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: nextId(),
+            issuedAt: '2026-08-12T10:00:00.000Z',
+            workspaceId: nextId(),
+            name: aName(),
+          }),
+        },
+        OTHER_USER_ID,
+      );
+      expect(theirs.status).toBe(200);
+      const onlyTheirs = (await theOrder(OTHER_USER_ID)).at(-1)!;
+      const before = await theOrder();
+
+      const response = await reorderWorkspaces('ws-work', [
+        'ws-work',
+        'ws-atlas',
+        'ws-personal',
+        onlyTheirs,
+      ]);
+
+      expect(response.status).toBe(409);
+      expect(await theOrder()).toEqual(before);
+      expect(await theOrder(OTHER_USER_ID)).toEqual([...before, onlyTheirs]);
     });
   });
 

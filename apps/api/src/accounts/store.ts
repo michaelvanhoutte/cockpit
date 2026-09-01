@@ -14,6 +14,7 @@ import {
   UnknownThemeError,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
+  WorkspaceOrderStaleError,
   runCommand,
 } from './command-service.js';
 import {
@@ -111,7 +112,11 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         // A refusal to say out loud rather than a shape problem: the request is
         // well formed and names a dashboard that exists, and the answer is that
         // this one may not go.
-        error instanceof LastDashboardError
+        error instanceof LastDashboardError ||
+        // Not a missing workspace, even though a deleted one is the likeliest
+        // way to get here: what has collided is the whole list against a list
+        // of workspaces that has moved on.
+        error instanceof WorkspaceOrderStaleError
       ) {
         return { status: 'conflict', what: error.message };
       }

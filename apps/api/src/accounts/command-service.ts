@@ -6,6 +6,7 @@ import {
   commandAlreadyApplied,
   getItem,
   getWorkspace,
+  lastWorkspacePosition,
   listDashboards,
   listWorkspaces,
 } from './repo.js';
@@ -16,7 +17,13 @@ import {
   dashboardNamed,
   firstDashboardFor,
 } from '../domain/dashboards.js';
-import { nextColor, workspaceFromCommand, workspaceNamed } from '../domain/workspaces.js';
+import {
+  nextColor,
+  nextPosition,
+  ordersExactly,
+  workspaceFromCommand,
+  workspaceNamed,
+} from '../domain/workspaces.js';
 import {
   applySetFocus,
   applySetNextAction,
@@ -57,6 +64,22 @@ export class WorkspaceNameTakenError extends Error {
   constructor(name: string) {
     super(`a workspace called ${name} already exists`);
     this.name = 'WorkspaceNameTakenError';
+  }
+}
+
+/**
+ * An order of workspaces that are no longer the account's workspaces - one was
+ * made or deleted in another tab while this one was being put in order.
+ *
+ * A collision rather than a missing thing, so it is a 409: nothing the request
+ * names is necessarily gone, the list as a whole is simply about a state of the
+ * account that has moved on. The message says what to do about it, because the
+ * page will have the current list a moment later and the move can be made again.
+ */
+export class WorkspaceOrderStaleError extends Error {
+  constructor() {
+    super('the workspaces changed while they were being put in order');
+    this.name = 'WorkspaceOrderStaleError';
   }
 }
 
@@ -138,7 +161,16 @@ export function runCommand<N extends CommandName>(
       // is handed rather than reading the folded column.
       const alreadyCalledThat = workspaceNamed(existing, cmd.name);
       if (alreadyCalledThat) throw new WorkspaceNameTakenError(alreadyCalledThat.name);
-      const workspace = workspaceFromCommand(cmd, tenantId, nextColor(existing.map((w) => w.color)));
+      // The position comes from its own query rather than from `existing`,
+      // because it is decided against every workspace the account has ever had
+      // and `existing` is the live ones - a new workspace goes after a deleted
+      // one's place rather than into it.
+      const workspace = workspaceFromCommand(
+        cmd,
+        tenantId,
+        nextColor(existing.map((w) => w.color)),
+        nextPosition(lastWorkspacePosition(db, tenantId)),
+      );
       // A retried create whose command ID was lost still may not make a second
       // workspace: the id is the client's, so the replay carries the same one.
       //
@@ -288,6 +320,29 @@ export function runCommand<N extends CommandName>(
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId)))
           .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'reorder_workspaces': {
+      const cmd = payload as CommandPayload<'reorder_workspaces'>;
+      // One list, one question: is this an order of the workspaces the account
+      // actually has? It answers "is the workspace that moved still there" at
+      // the same time, because the wire schema has already made that id one of
+      // the ones in the list.
+      const existing = listWorkspaces(db, tenantId);
+      if (!ordersExactly(existing, cmd.workspaceIds)) throw new WorkspaceOrderStaleError();
+      db.transaction((tx) => {
+        // Every workspace written, not only the ones that moved. Working out
+        // which those are would be a second implementation of the order that
+        // could disagree with the first, and it is at most a handful of rows -
+        // the tabs across the top of one screen.
+        cmd.workspaceIds.forEach((workspaceId, position) => {
+          tx.update(workspaces)
+            .set({ position })
+            .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, workspaceId)))
+            .run();
+        });
         tx.insert(commands).values(commandRow).run();
       });
       break;

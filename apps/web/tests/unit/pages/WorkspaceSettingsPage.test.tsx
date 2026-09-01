@@ -68,10 +68,33 @@ const mockUseCommand = vi.mocked(useCommand);
  * the change a refusal belongs to, which is what the page uses to put the
  * refusal next to the control that asked for it.
  */
-function showPage(answer: { succeeds: boolean; error?: Error; about?: CommandArgs }) {
-  const mutate = vi.fn((_args: CommandArgs, options?: { onSuccess?: () => void }) => {
-    if (answer.succeeds) options?.onSuccess?.();
-  });
+function showPage(answer: {
+  succeeds: boolean;
+  error?: Error;
+  about?: CommandArgs;
+  /**
+   * That the answer arrives later, so a case can send a second change while the
+   * first is still in flight - which is the only way to arrange two of them
+   * overlapping, and is what a real change does anyway.
+   */
+  answersLater?: boolean;
+}) {
+  const waiting: ((error: Error) => void)[] = [];
+  const mutate = vi.fn(
+    (
+      _args: CommandArgs,
+      options?: { onSuccess?: () => void; onError?: (error: Error) => void },
+    ) => {
+      const fail = () => options?.onError?.(answer.error ?? new Error('refused'));
+      if (answer.succeeds) options?.onSuccess?.();
+      else if (answer.answersLater) waiting.push(fail);
+      else fail();
+    },
+  );
+  /** Refuses everything still in flight, oldest first, as the server would. */
+  const refuseEverythingSent = () => {
+    for (const fail of waiting.splice(0)) fail(answer.error ?? new Error('refused'));
+  };
   mockUseCommand.mockReturnValue({
     mutate,
     isPending: false,
@@ -84,7 +107,11 @@ function showPage(answer: { succeeds: boolean; error?: Error; about?: CommandArg
       <WorkspaceSettingsPage />
     </QueryClientProvider>,
   );
-  return { mutate, box: screen.getByLabelText('Name of the new workspace') };
+  return {
+    mutate,
+    refuseEverythingSent,
+    box: screen.getByLabelText('Name of the new workspace'),
+  };
 }
 
 const newWorkspaceButton = () => screen.getByRole('button', { name: 'New workspace' });
@@ -98,6 +125,27 @@ const newWorkspaceButton = () => screen.getByRole('button', { name: 'New workspa
 async function choose(user: ReturnType<typeof userEvent.setup>, row: string, entry: string) {
   await user.click(await screen.findByRole('button', { name: `Actions for ${row}` }));
   await user.click(await screen.findByRole('menuitem', { name: entry }));
+}
+
+/**
+ * Three workspaces, because one cannot be in the wrong order. Every case about
+ * moving one asks for this list; every other case in the file wants the single
+ * workspace the mock answers with by default.
+ */
+const THREE = [
+  { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' },
+  { id: 'ws-atlas', tenantId: 'tenant', name: 'Atlas', color: '#3a72c8', ground: '#d8e5f7', header: '#bed6f2' },
+  { id: 'ws-personal', tenantId: 'tenant', name: 'Personal', color: '#c06a45', ground: '#f2e5d4', header: '#ead2b3' },
+];
+
+function showThree() {
+  list.answer = () => Promise.resolve({ workspaces: THREE });
+}
+
+/** The workspaces as the page is currently showing them, top to bottom. */
+async function onScreen(): Promise<string[]> {
+  const rows = await screen.findAllByRole('listitem');
+  return rows.map((row) => within(row).getByRole('button', { name: /^Actions for / }).getAttribute('aria-label')!.replace('Actions for ', ''));
 }
 
 beforeEach(() => {
@@ -206,6 +254,101 @@ describe('Workspace management', () => {
         'aria-pressed',
         'false',
       );
+    });
+  });
+
+  describe('moving a workspace asks for the whole order, and says which one moved', () => {
+    /**
+     * The menu's half of moving a workspace ("Reorder workspaces", issue 31),
+     * which is the half a keyboard and a phone have. The drag is the other half
+     * and cannot be driven here at all - where the pointer is over the list is
+     * measured from the rows' rectangles, and jsdom reports every one of them
+     * as zero pixels tall in the same place - so it is walked in
+     * tests/e2e/workspace-management.test.ts. What both halves compute is
+     * proved in tests/unit/reorder.test.ts.
+     */
+    it.each([
+      {
+        situation: 'moved up',
+        row: 'Atlas',
+        entry: 'Move up',
+        moved: 'ws-atlas',
+        asks: ['ws-atlas', 'ws-work', 'ws-personal'],
+      },
+      {
+        situation: 'moved down',
+        row: 'Atlas',
+        entry: 'Move down',
+        moved: 'ws-atlas',
+        asks: ['ws-work', 'ws-personal', 'ws-atlas'],
+      },
+      {
+        situation: 'moved up from the bottom of the list',
+        row: 'Personal',
+        entry: 'Move up',
+        moved: 'ws-personal',
+        asks: ['ws-work', 'ws-personal', 'ws-atlas'],
+      },
+      {
+        situation: 'moved down from the top of the list',
+        row: 'Work',
+        entry: 'Move down',
+        moved: 'ws-work',
+        asks: ['ws-atlas', 'ws-work', 'ws-personal'],
+      },
+    ])('$situation', async ({ row, entry, moved, asks }) => {
+      showThree();
+      const user = userEvent.setup();
+      const { mutate } = showPage({ succeeds: true });
+
+      await choose(user, row, entry);
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate.mock.calls[0]![0]).toMatchObject({
+        name: 'reorder_workspaces',
+        // The whole order, and the workspace that moved: the order alone would
+        // leave the record of the change saying only that something changed.
+        payload: { workspaceId: moved, workspaceIds: asks },
+      });
+    });
+
+    it.each([
+      { situation: 'the first workspace cannot be moved up', row: 'Work', entry: 'Move up', says: 'It is already the first' },
+      { situation: 'the last workspace cannot be moved down', row: 'Personal', entry: 'Move down', says: 'It is already the last' },
+    ])('$situation, and says why rather than going quiet', async ({ row, entry, says }) => {
+      // Said rather than hidden, for the reason the dashboard settings page
+      // says it: an entry that vanishes on one row leaves somebody hunting for
+      // a control that was there a moment ago.
+      showThree();
+      const user = userEvent.setup();
+      const { mutate } = showPage({ succeeds: true });
+
+      await user.click(await screen.findByRole('button', { name: `Actions for ${row}` }));
+      const unavailable = await screen.findByRole('menuitem', { name: `${entry}: ${says}` });
+      await user.click(unavailable);
+
+      expect(unavailable).toHaveAttribute('aria-disabled', 'true');
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('shows the new order before the server has agreed to it', async () => {
+      // Not only so a drop does not snap back for the length of a round trip.
+      // The order a second move is computed from is the order in hand, so a
+      // move made before the first came back would be computed from the list
+      // *before* it and would undo it.
+      showThree();
+      const user = userEvent.setup();
+      const { mutate } = showPage({ succeeds: true });
+      expect(await onScreen()).toEqual(['Work', 'Atlas', 'Personal']);
+
+      await choose(user, 'Personal', 'Move up');
+      expect(await onScreen()).toEqual(['Work', 'Personal', 'Atlas']);
+      await choose(user, 'Personal', 'Move up');
+
+      expect(await onScreen()).toEqual(['Personal', 'Work', 'Atlas']);
+      expect(mutate.mock.calls[1]![0]).toMatchObject({
+        payload: { workspaceIds: ['ws-personal', 'ws-work', 'ws-atlas'] },
+      });
     });
   });
 
@@ -370,6 +513,104 @@ describe('Workspace management', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('that workspace is not there');
       expect(screen.getByText('Delete Work? There is nothing in it.')).toBeVisible();
       expect(screen.getByText('Work')).toBeVisible();
+    });
+
+    it('puts a refused move back where it was, and says why next to the workspace that moved', async () => {
+      // The one change on this page that shows itself before the server has
+      // agreed, so it is the one that has to undo itself. Without the message
+      // the row simply reappears where it started, which reads as the move
+      // having missed rather than having been refused.
+      showThree();
+      const user = userEvent.setup();
+      showPage({
+        succeeds: false,
+        error: new CommandRefused(409, 'the workspaces changed while they were being put in order'),
+        about: {
+          name: 'reorder_workspaces',
+          payload: {
+            commandId: 'c',
+            issuedAt: 'now',
+            workspaceId: 'ws-personal',
+            workspaceIds: ['ws-work', 'ws-personal', 'ws-atlas'],
+          },
+        },
+      });
+
+      await choose(user, 'Personal', 'Move up');
+
+      expect(await onScreen()).toEqual(['Work', 'Atlas', 'Personal']);
+      const row = (await screen.findAllByRole('listitem')).at(-1)!;
+      expect(within(row).getByRole('alert')).toHaveTextContent(
+        'the workspaces changed while they were being put in order',
+      );
+    });
+
+    it('puts a move that never reached the server back, without asking the server where it was', async () => {
+      // The half re-reading the list cannot do. A move that failed because
+      // nothing could be reached fails a re-read for the same reason, so the
+      // only answer left is the copy the page was holding before it moved
+      // anything - and without it the order stays showing a move that never
+      // happened.
+      let asked = 0;
+      list.answer = () => {
+        asked += 1;
+        return asked === 1
+          ? Promise.resolve({ workspaces: THREE })
+          : Promise.reject(new TypeError('Failed to fetch'));
+      };
+      const user = userEvent.setup();
+      showPage({
+        succeeds: false,
+        error: new Error('Failed to fetch'),
+        about: {
+          name: 'reorder_workspaces',
+          payload: {
+            commandId: 'c',
+            issuedAt: 'now',
+            workspaceId: 'ws-personal',
+            workspaceIds: ['ws-work', 'ws-personal', 'ws-atlas'],
+          },
+        },
+      });
+
+      await choose(user, 'Personal', 'Move up');
+
+      await expect.poll(onScreen).toEqual(['Work', 'Atlas', 'Personal']);
+      expect(screen.getAllByRole('alert').at(-1)).toHaveTextContent(
+        'That did not reach the server. Try again.',
+      );
+    });
+
+    it('shows what the account holds after two moves made before either was answered', async () => {
+      // The half putting the copy in hand back cannot do. Each move is holding
+      // the order from before *itself*, so the second one's copy already has
+      // the first one's move in it - and whichever refusal happens to land last
+      // would otherwise leave the page showing an order the account never had.
+      // Only asking the server settles it.
+      showThree();
+      const user = userEvent.setup();
+      const { refuseEverythingSent } = showPage({
+        succeeds: false,
+        answersLater: true,
+        error: new CommandRefused(409, 'the workspaces changed while they were being put in order'),
+        about: {
+          name: 'reorder_workspaces',
+          payload: {
+            commandId: 'c',
+            issuedAt: 'now',
+            workspaceId: 'ws-personal',
+            workspaceIds: ['ws-personal', 'ws-work', 'ws-atlas'],
+          },
+        },
+      });
+
+      await choose(user, 'Personal', 'Move up');
+      await choose(user, 'Personal', 'Move up');
+      expect(await onScreen()).toEqual(['Personal', 'Work', 'Atlas']);
+
+      refuseEverythingSent();
+
+      await expect.poll(onScreen).toEqual(['Work', 'Atlas', 'Personal']);
     });
 
     it('says why a colour was refused, next to the workspace it was for', async () => {

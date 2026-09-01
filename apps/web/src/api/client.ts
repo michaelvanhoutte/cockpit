@@ -106,6 +106,8 @@ const commandSenders = {
     api.v1.commands.rename_workspace.$post({ json: p }),
   delete_workspace: (p: CommandPayload<'delete_workspace'>) =>
     api.v1.commands.delete_workspace.$post({ json: p }),
+  reorder_workspaces: (p: CommandPayload<'reorder_workspaces'>) =>
+    api.v1.commands.reorder_workspaces.$post({ json: p }),
   set_workspace_theme: (p: CommandPayload<'set_workspace_theme'>) =>
     api.v1.commands.set_workspace_theme.$post({ json: p }),
   add_dashboard: (p: CommandPayload<'add_dashboard'>) =>

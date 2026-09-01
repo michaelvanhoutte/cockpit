@@ -51,11 +51,18 @@ export type CommandArgs = {
   [N in CommandName]: { name: N; payload: CommandPayload<N> };
 }[CommandName];
 
-/** Grows as reordering lands ("Reorder workspaces", issue 31). */
+/**
+ * The changes after which the list of workspaces is not what it was: which
+ * workspaces there are, what they are called, what colour they wear, and what
+ * order they are in.
+ */
 const CHANGES_THE_WORKSPACE_LIST = new Set<CommandName>([
   'create_workspace',
   'rename_workspace',
   'delete_workspace',
+  // The list arrives in the order the tabs are drawn in, so moving one changes
+  // the list itself rather than a field of it ("Reorder workspaces", issue 31).
+  'reorder_workspaces',
   // The tabs carry each workspace's colour, and the page is painted in it, so
   // a theme change moves what the list holds as much as a rename does.
   'set_workspace_theme',
