@@ -108,6 +108,49 @@ describe('Offline', () => {
       expect(screen.queryByRole('heading')).not.toBeInTheDocument();
     });
   });
+
+  /**
+   * A failure that persists is *re-*read: the workspace is re-read on the push
+   * stream's backoff, and each refusal arrives as its own new error object. So
+   * this is not an edge case — it is what the screen does for as long as it is
+   * on screen, and going blank each time is what made "Sign in again" take
+   * several attempts to hit.
+   */
+  describe('Cockpit keeps the reason it has named while it checks again', () => {
+    it('leaves the way to sign in on screen, and working, when the read fails again', async () => {
+      askedToSignIn.mockClear();
+      const user = userEvent.setup();
+      const { rerender } = render(
+        <LoadFailure error={refused} surroundings={world(false, 'healthy')} />,
+      );
+      expect(await screen.findByRole('button', { name: 'Sign in again' })).toBeInTheDocument();
+
+      // The next refused read: the same failure, told again as a new error.
+      rerender(
+        <LoadFailure error={new TypeError('Failed to fetch')} surroundings={world(false, 'healthy')} />,
+      );
+
+      // Synchronously, in the instant the click has to land in.
+      expect(screen.getByRole('button', { name: 'Sign in again' })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Sign in again' }));
+      expect(askedToSignIn).toHaveBeenCalledTimes(1);
+    });
+
+    it('replaces the reason once the situation behind it has changed', async () => {
+      const { rerender } = render(
+        <LoadFailure error={refused} surroundings={world(false, 'healthy')} />,
+      );
+      expect(await screen.findByRole('heading', { name: 'Your sign-in expired' })).toBeInTheDocument();
+
+      // The connection has since gone, so the same failure now has a different
+      // reason and the screen has to follow it rather than keep the old one.
+      rerender(<LoadFailure error={refused} surroundings={world(true, 'unreachable')} />);
+
+      expect(
+        await screen.findByRole('heading', { name: "Cockpit can't be reached" }),
+      ).toBeInTheDocument();
+    });
+  });
 });
 
 describe('Sign-in', () => {
