@@ -155,6 +155,24 @@ describe('Dashboards', () => {
     });
   });
 
+  describe('closing the question leaves you on the row you asked from', () => {
+    it.each([
+      { situation: 'cancelled', answer: 'Cancel' },
+      { situation: 'dismissed with Escape', answer: null },
+    ])('$situation', async ({ answer }) => {
+      // The question is opened from an entry in a menu rather than by a
+      // control of its own, so nothing puts the focus back unless this page
+      // does - and in a list of rows, the top of the page is a lost place.
+      const { user } = showPage(['Dashboard 1', 'Research']);
+
+      await choose(user, 'Research', 'Delete');
+      if (answer) await user.click(screen.getByRole('button', { name: answer }));
+      else await user.keyboard('{Escape}');
+
+      expect(screen.getByRole('button', { name: 'Actions for Research' })).toHaveFocus();
+    });
+  });
+
   describe('a workspace’s last dashboard cannot be deleted, and says so before it is asked for', () => {
     it('offers the entry, unavailable, with the reason on it', async () => {
       // Offered and then refused is how this read before: the rule is the
@@ -170,6 +188,30 @@ describe('Dashboards', () => {
 
       expect(screen.queryByText(/Delete Dashboard 1\?/)).toBeNull();
       expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('can be reached by the keyboard, which is who most needs to hear the reason', async () => {
+      // Marked unavailable rather than disabled: a disabled entry is taken out
+      // of the menu's roving focus, so arrow keys skip it and the reason is
+      // never read out - leaving the people who cannot see it greyed out with
+      // no entry at all, which is worse than the offered-then-refused this
+      // replaced.
+      const { user, mutate } = showPage(['Dashboard 1']);
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Dashboard 1' }));
+      await user.keyboard('{ArrowDown}{ArrowDown}');
+
+      const entry = screen.getByRole('menuitem', {
+        name: 'Delete: A workspace keeps at least one dashboard',
+      });
+      expect(entry).toHaveFocus();
+
+      await user.keyboard('{Enter}');
+
+      expect(mutate).not.toHaveBeenCalled();
+      // Still open: choosing it did nothing, and a menu that closed would read
+      // as having done something.
+      expect(entry).toBeVisible();
     });
   });
 

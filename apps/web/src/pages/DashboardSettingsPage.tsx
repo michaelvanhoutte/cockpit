@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { uuidv7 } from '@cockpit/shared';
@@ -42,6 +42,12 @@ export function DashboardSettingsPage() {
   const { data, error, refetch } = useQuery(snapshotQuery(workspaceId));
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  /**
+   * The control the question was opened from, so the focus can go back to it.
+   * A ref rather than state: nothing on screen depends on it, and it is read
+   * only as the question closes.
+   */
+  const askedFrom = useRef<HTMLElement | null>(null);
   const command = useCommand();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -63,9 +69,10 @@ export function DashboardSettingsPage() {
     command.reset();
     setRenaming({ id: dashboard.id, name: dashboard.name });
   };
-  const startDeleting = (dashboard: Dashboard) => {
+  const startDeleting = (dashboard: Dashboard, openedFrom: HTMLElement | null) => {
     setRenaming(null);
     command.reset();
+    askedFrom.current = openedFrom;
     setDeleting(dashboard.id);
   };
   const stopAsking = () => {
@@ -188,7 +195,7 @@ export function DashboardSettingsPage() {
                             dashboards.length === 1
                               ? 'A workspace keeps at least one dashboard'
                               : undefined,
-                          onSelect: () => startDeleting(dashboard),
+                          onSelect: (openedFrom) => startDeleting(dashboard, openedFrom),
                         },
                       ]}
                     />
@@ -212,6 +219,7 @@ export function DashboardSettingsPage() {
             confirmLabel={`Yes, delete ${beingDeleted.name}`}
             canConfirm={!command.isPending}
             refusal={refusalFor('delete_dashboard', beingDeleted.id)}
+            returnFocusTo={askedFrom.current}
             onCancel={stopAsking}
             onConfirm={() => confirmDelete(beingDeleted.id)}
           />

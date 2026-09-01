@@ -22,9 +22,19 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  * look without the behaviour: the trigger carries its own accessible name,
  * which is what the walks and the tests reach for.
  */
-export function MenuTrigger({ label, className }: { label: string; className?: string }) {
+export function MenuTrigger({
+  label,
+  className,
+  ref,
+}: {
+  label: string;
+  className?: string;
+  /** Held where something has to put the focus back on this control afterwards. */
+  ref?: React.Ref<HTMLButtonElement>;
+}) {
   return (
     <DropdownMenu.Trigger
+      ref={ref}
       aria-label={label}
       // 36px, comfortably past the 24px minimum target size and reachable with
       // a thumb, in a bar whose other controls are smaller than that: the
@@ -69,12 +79,23 @@ export const menuItemClass =
 /** An entry that deletes something, which is the one kind that is coloured. */
 const destructiveItemClass = `${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`;
 
-/** An entry that cannot be chosen. It stays visible and says why, rather than going. */
-const unavailableItemClass = `${menuItemClass} text-ink-faint data-[highlighted]:bg-transparent data-[highlighted]:text-ink-faint`;
+/**
+ * An entry that cannot be chosen. It stays visible, reachable and says why,
+ * rather than going - so it still highlights as the focus moves over it, and
+ * looks unavailable rather than looking like nothing.
+ */
+const unavailableItemClass = `${menuItemClass} text-ink-faint data-[highlighted]:bg-black/5 data-[highlighted]:text-ink-faint`;
 
 export interface MenuEntry {
   label: string;
-  onSelect: () => void;
+  /**
+   * What choosing it does. It is handed the control the menu was opened from,
+   * because whatever it opens has to be able to put the focus back there when
+   * it closes - a dialog opened this way has no trigger of its own to return
+   * to, and dropping the focus to the top of the page is how a keyboard user
+   * loses their place in a list.
+   */
+  onSelect: (openedFrom: HTMLElement | null) => void;
   /** Why this cannot be chosen. Present means unavailable; it is said, not hidden. */
   unavailable?: string | undefined;
   destructive?: boolean | undefined;
@@ -93,10 +114,11 @@ export interface MenuEntry {
  */
 export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
   const chose = useRef(false);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   return (
     <DropdownMenu.Root>
-      <MenuTrigger label={label} />
+      <MenuTrigger label={label} ref={trigger} />
       <MenuContent
         onCloseAutoFocus={(event) => {
           // Choosing an entry opens something that takes the focus itself: the
@@ -113,13 +135,18 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
         {entries.map((entry) => (
           <DropdownMenu.Item
             key={entry.label}
-            disabled={Boolean(entry.unavailable)}
-            // Said outright rather than left to be assembled out of two
-            // elements: whether a reason on its own line is read as part of
-            // the entry's name is the reader's to decide, and an entry that
-            // cannot be chosen and appears to give no reason is the failure
-            // this exists to prevent.
-            {...(entry.unavailable ? { 'aria-label': `${entry.label}: ${entry.unavailable}` } : {})}
+            // `aria-disabled` rather than `disabled`, which is not a smaller
+            // way of saying the same thing: Radix takes `disabled` out of the
+            // menu's roving focus, so arrow keys, Home/End and typeahead all
+            // skip it and a keyboard reader never reaches the entry at all -
+            // which is worse than the offered-then-refused it replaced, and
+            // only for the people who could not see it was there. It stays
+            // reachable, says why it cannot be chosen, and does nothing when
+            // it is; `preventDefault` on the choice also leaves the menu open,
+            // so choosing it does not read as having worked.
+            {...(entry.unavailable
+              ? { 'aria-disabled': true, 'aria-label': `${entry.label}: ${entry.unavailable}` }
+              : {})}
             className={
               entry.unavailable
                 ? unavailableItemClass
@@ -127,9 +154,13 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
                   ? destructiveItemClass
                   : menuItemClass
             }
-            onSelect={() => {
+            onSelect={(event) => {
+              if (entry.unavailable) {
+                event.preventDefault();
+                return;
+              }
               chose.current = true;
-              entry.onSelect();
+              entry.onSelect(trigger.current);
             }}
           >
             {entry.label}

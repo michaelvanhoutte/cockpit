@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, uuidv7 } from '@cockpit/shared';
 import type { Workspace, WorkspaceTheme } from '@cockpit/shared';
@@ -34,6 +34,12 @@ export function WorkspaceSettingsPage() {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   /** The workspace whose delete is waiting to be confirmed. */
   const [deleting, setDeleting] = useState<string | null>(null);
+  /**
+   * The control the question was opened from, so the focus can go back to it.
+   * A ref rather than state: nothing on screen depends on it, and it is read
+   * only as the question closes.
+   */
+  const askedFrom = useRef<HTMLElement | null>(null);
   const command = useCommand();
 
   const workspaces = data?.workspaces ?? [];
@@ -76,9 +82,10 @@ export function WorkspaceSettingsPage() {
     command.reset();
     setRenaming({ id: ws.id, name: ws.name });
   };
-  const startDeleting = (ws: Workspace) => {
+  const startDeleting = (ws: Workspace, openedFrom: HTMLElement | null) => {
     setRenaming(null);
     command.reset();
+    askedFrom.current = openedFrom;
     setDeleting(ws.id);
   };
   const stopAsking = () => {
@@ -217,7 +224,11 @@ export function WorkspaceSettingsPage() {
                       label={`Actions for ${ws.name}`}
                       entries={[
                         { label: 'Rename', onSelect: () => startRenaming(ws) },
-                        { label: 'Delete', destructive: true, onSelect: () => startDeleting(ws) },
+                        {
+                          label: 'Delete',
+                          destructive: true,
+                          onSelect: (openedFrom) => startDeleting(ws, openedFrom),
+                        },
                       ]}
                     />
                   </>
@@ -281,6 +292,7 @@ export function WorkspaceSettingsPage() {
             // failed read lets it through.
             canConfirm={!command.isPending && (counted !== undefined || contents.isError)}
             refusal={refusalFor('delete_workspace', beingDeleted.id)}
+            returnFocusTo={askedFrom.current}
             onCancel={stopAsking}
             onConfirm={() => confirmDelete(beingDeleted.id)}
           />
