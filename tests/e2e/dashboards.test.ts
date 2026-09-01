@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  chooseRowAction,
   dashboardBar,
   expectNoSidewaysScroll,
   openFirstWorkspace,
@@ -99,12 +100,12 @@ test.describe('Dashboards', () => {
       await press(dashboardBar(page).getByRole('button', { name: 'Dashboard actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Manage dashboards' }), isMobile);
       const renamed = uniqueTitle('Renamed');
-      await press(page.getByRole('button', { name: `Rename ${doomed}` }), isMobile);
+      await chooseRowAction(page, doomed, 'Rename', isMobile);
       await page.getByLabel(`New name for ${doomed}`).fill(renamed);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
       await expect(dashboardBar(page).getByRole('link', { name: renamed })).toBeVisible();
 
-      await press(page.getByRole('button', { name: `Delete ${renamed}` }), isMobile);
+      await chooseRowAction(page, renamed, 'Delete', isMobile);
       await expect(page.getByText(`Delete ${renamed}? There is nothing on it.`)).toBeVisible();
       await press(page.getByRole('button', { name: `Yes, delete ${renamed}` }), isMobile);
 

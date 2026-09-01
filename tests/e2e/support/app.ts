@@ -114,6 +114,22 @@ export async function openSettings(page: Page, isMobile: boolean): Promise<void>
 }
 
 /**
+ * Chooses what to do to one row of a settings page: its own menu, then the
+ * entry ("Ask before deleting in a dialog, from the row's own menu", issue
+ * 116). Both settings pages offer their rows the same way, so both walks reach
+ * them the same way.
+ */
+export async function chooseRowAction(
+  page: Page,
+  row: string,
+  entry: string,
+  isMobile: boolean,
+): Promise<void> {
+  await press(page.getByRole('button', { name: `Actions for ${row}` }), isMobile);
+  await press(page.getByRole('menuitem', { name: entry }), isMobile);
+}
+
+/**
  * The colour the page is actually painted in, as the browser computed it - the
  * shell covers the viewport, so this is the ground behind the panels. Read from
  * the computed style rather than the inline one, because what is under test is

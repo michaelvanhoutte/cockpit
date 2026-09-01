@@ -1,15 +1,22 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, uuidv7 } from '@cockpit/shared';
 import type { Workspace, WorkspaceTheme } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
+import { DeleteQuestion } from '../components/DeleteQuestion';
 import { LoadFailure } from '../components/LoadFailure';
+import { RowMenu } from '../components/Menu';
 
 /**
  * Where workspaces are managed. It lists them, makes new ones, renames them,
  * colors them and deletes them; reordering arrives with "Reorder workspaces"
  * (issue 31), on this page too.
+ *
+ * **A row keeps its shape**, exactly as on the dashboard settings page: what
+ * can be done to a workspace is in its own menu, renaming happens in the row,
+ * and deleting asks in a dialog ("Ask before deleting in a dialog, from the
+ * row's own menu", issue 116).
  *
  * A new workspace is still handed a color rather than asked for one, so it is
  * distinguishable in the tabs from the moment it exists; the swatches are for
@@ -27,6 +34,12 @@ export function WorkspaceSettingsPage() {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   /** The workspace whose delete is waiting to be confirmed. */
   const [deleting, setDeleting] = useState<string | null>(null);
+  /**
+   * The control the question was opened from, so the focus can go back to it.
+   * A ref rather than state: nothing on screen depends on it, and it is read
+   * only as the question closes.
+   */
+  const askedFrom = useRef<HTMLElement | null>(null);
   const command = useCommand();
 
   const workspaces = data?.workspaces ?? [];
@@ -55,6 +68,13 @@ export function WorkspaceSettingsPage() {
    */
   const contents = useQuery({ ...snapshotQuery(deleting ?? ''), enabled: deleting !== null });
   const counted = contents.data?.items.length;
+  /**
+   * The workspace the question is about, read from the list rather than kept
+   * beside the id: one deleted in another tab is gone from the next list, and
+   * a question about a workspace that is no longer there closes itself instead
+   * of asking about a name nothing holds.
+   */
+  const beingDeleted = workspaces.find((w) => w.id === deleting);
 
   /** Starting one leaves the other, so at most one row is ever asking something. */
   const startRenaming = (ws: Workspace) => {
@@ -62,9 +82,10 @@ export function WorkspaceSettingsPage() {
     command.reset();
     setRenaming({ id: ws.id, name: ws.name });
   };
-  const startDeleting = (ws: Workspace) => {
+  const startDeleting = (ws: Workspace, openedFrom: HTMLElement | null) => {
     setRenaming(null);
     command.reset();
+    askedFrom.current = openedFrom;
     setDeleting(ws.id);
   };
   const stopAsking = () => {
@@ -173,7 +194,7 @@ export function WorkspaceSettingsPage() {
       <section className="rounded-lg bg-surface shadow-panel">
         <ul>
           {workspaces.map((ws) => (
-            <li key={ws.id} className="border-b border-black/5 px-4 py-3 last:border-b-0">
+            <li key={ws.id} className="border-b border-black/5 px-4 py-2 last:border-b-0">
               <div className="flex items-center gap-3">
                 <span
                   className="inline-block size-3 shrink-0 rounded-full"
@@ -196,55 +217,30 @@ export function WorkspaceSettingsPage() {
                       Cancel
                     </button>
                   </form>
-                ) : deleting === ws.id ? (
-                  <>
-                    <span className="min-w-0 flex-1 text-sm">{deleteQuestion(ws.name, counted)}</span>
-                    <button
-                      type="button"
-                      // Nothing is deleted before the question has an answer in
-                      // it: an empty workspace reads as harmless and a full one
-                      // does not, so "how many" is part of what is being asked.
-                      // A count that could not be read is not a reason to trap
-                      // someone on this row, so a failed read lets it through.
-                      disabled={command.isPending || (counted === undefined && !contents.isError)}
-                      onClick={() => confirmDelete(ws.id)}
-                      aria-label={`Yes, delete ${ws.name}`}
-                      className="shrink-0 rounded-md bg-over px-3 py-1 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-                    >
-                      Delete
-                    </button>
-                    <button type="button" onClick={stopAsking} className={quietButton}>
-                      Cancel
-                    </button>
-                  </>
                 ) : (
                   <>
                     <span className="min-w-0 flex-1 truncate text-sm">{ws.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => startRenaming(ws)}
-                      aria-label={`Rename ${ws.name}`}
-                      className={quietButton}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => startDeleting(ws)}
-                      aria-label={`Delete ${ws.name}`}
-                      className={quietButton}
-                    >
-                      Delete
-                    </button>
+                    <RowMenu
+                      label={`Actions for ${ws.name}`}
+                      entries={[
+                        { label: 'Rename', onSelect: () => startRenaming(ws) },
+                        {
+                          label: 'Delete',
+                          destructive: true,
+                          onSelect: (openedFrom) => startDeleting(ws, openedFrom),
+                        },
+                      ]}
+                    />
                   </>
                 )}
               </div>
               {/* The palette, as a row of swatches. Each one shows the whole
                   theme rather than a dot: the ground it paints the page in,
                   with the tint sitting on it, so what you are choosing is what
-                  you will see. Hidden while the row is asking something else,
-                  so a row is only ever doing one thing. */}
-              {renaming?.id !== ws.id && deleting !== ws.id && (
+                  you will see. Hidden while the row is being renamed, because
+                  that is the one thing that takes the row over; the question
+                  before a delete no longer does. */}
+              {renaming?.id !== ws.id && (
                 <div className="flex flex-wrap gap-1.5 pt-2 pl-6">
                   {WORKSPACE_THEMES.map((theme) => (
                     <button
@@ -270,18 +266,37 @@ export function WorkspaceSettingsPage() {
                   ))}
                 </div>
               )}
+              {/* A refused delete says so in the dialog that asked for it,
+                  which is still open; these two are asked for in the row. */}
               {(refusalFor('rename_workspace', ws.id) ??
-                refusalFor('delete_workspace', ws.id) ??
                 refusalFor('set_workspace_theme', ws.id)) && (
                 <p role="alert" className="pt-2 text-sm text-over">
                   {refusalFor('rename_workspace', ws.id) ??
-                    refusalFor('delete_workspace', ws.id) ??
                     refusalFor('set_workspace_theme', ws.id)}
                 </p>
               )}
             </li>
           ))}
         </ul>
+        {/* One question for the page: at most one row can be asking, and the
+            dialog covers the page while it is. */}
+        {beingDeleted && (
+          <DeleteQuestion
+            open
+            question={deleteQuestion(beingDeleted.name, counted)}
+            confirmLabel={`Yes, delete ${beingDeleted.name}`}
+            // Nothing is deleted before the question has an answer in it: an
+            // empty workspace reads as harmless and a full one does not, so
+            // "how many" is part of what is being asked. A count that could
+            // not be read is not a reason to trap someone in the dialog, so a
+            // failed read lets it through.
+            canConfirm={!command.isPending && (counted !== undefined || contents.isError)}
+            refusal={refusalFor('delete_workspace', beingDeleted.id)}
+            returnFocusTo={askedFrom.current}
+            onCancel={stopAsking}
+            onConfirm={() => confirmDelete(beingDeleted.id)}
+          />
+        )}
         {listFailed && (
           <div className="px-4 py-4">
             {/*
