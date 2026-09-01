@@ -5,11 +5,14 @@ import { persister } from '../persistence';
 /**
  * Everything this browser is holding about the person who was signed in.
  *
- * Called when a visit ends - by signing out, or by Cockpit finding the sign-in
- * has gone - and it is the whole of "nothing of what you were looking at is
- * left on screen or in the browser's cache for whoever signs in next". There
- * are three places to reach, and missing any one of them leaves a leak that
- * only shows up when a second person uses the same browser:
+ * Called from one place, when the logon page opens - which is where both ways a
+ * visit can end arrive, whether the person signed out or the sign-in ran out,
+ * and the only screen with none of the app mounted to write what it removes
+ * straight back out again (the reason is in `pages/LogonPage.tsx`). It is the
+ * whole of "nothing of what you were looking at is left on screen or in the
+ * browser's cache for whoever signs in next". There are three places to reach,
+ * and missing any one of them leaves a leak that only shows up when a second
+ * person uses the same browser:
  *
  * - the in-memory cache, which is what is on screen;
  * - the copy of it in IndexedDB, which is what the *next* cold open would paint

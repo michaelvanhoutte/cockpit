@@ -113,13 +113,21 @@ test.describe('Workspace management', () => {
       await expect(dashboardBar(page)).toBeVisible();
 
       // Repainted, without a reload anywhere in the walk.
-      const olive = await groundOf(page);
-      expect(olive).toBe('rgb(230, 235, 214)');
+      //
+      // Polled rather than read once, and the difference is not cosmetic. Every
+      // other assertion in this walk is an `expect(locator)`, which retries;
+      // this one reads a computed style out of the page in a single
+      // `page.evaluate` and would have to be right on the first try. What it is
+      // waiting for is the workspace list being re-read after the colour was
+      // accepted, so the window is however long that round trip takes - 12ms on
+      // one run and 184ms on the next, and the slow one failed on a phone in CI
+      // while the same commit passed on the desktop project beside it.
+      await expect.poll(() => groundOf(page)).toBe('rgb(230, 235, 214)');
 
-      // And switching away takes the colour with it.
+      // And switching away takes the colour with it. Polled for the same reason.
       await press(page.locator('header').getByRole('link', { name: 'Work' }), isMobile);
       await expect(dashboardBar(page)).toBeVisible();
-      expect(await groundOf(page)).toBe(firstGround);
+      await expect.poll(() => groundOf(page)).toBe(firstGround);
     });
   });
 

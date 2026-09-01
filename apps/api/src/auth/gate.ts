@@ -59,8 +59,24 @@ export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
   '/v1/relogin',
 ];
 
+/**
+ * The one prefix outside the gate, and the only thing here that is not an exact
+ * path: **webhook ingress is called by Slack, Gmail and the rest**, which can
+ * never hold a session cookie, so a sign-in is the wrong question to ask of it.
+ * What authenticates a delivery is the connector's own signature verification
+ * (architecture, "Connectors"), which lives behind this route and not in front
+ * of it.
+ *
+ * It has to be a prefix because the path carries the connector's id and
+ * whatever the source appends after it. That is deliberately the only one: the
+ * gate stands in front of everything it has not been told about, so a route
+ * added later is refused until somebody decides otherwise, rather than open
+ * until somebody notices.
+ */
+const INGRESS_PREFIX = '/ingress/';
+
 export function isOutsideTheGate(path: string): boolean {
-  return PATHS_OUTSIDE_THE_GATE.includes(path);
+  return PATHS_OUTSIDE_THE_GATE.includes(path) || path.startsWith(INGRESS_PREFIX);
 }
 
 /**

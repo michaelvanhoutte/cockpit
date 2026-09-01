@@ -75,6 +75,40 @@ describe('Sign-in', () => {
     });
   });
 
+  /**
+   * Login CSRF: another site making this browser sign in as somebody its owner
+   * did not choose, so that everything captured afterwards lands in a stranger's
+   * account.
+   *
+   * What stands between the two is that signing in declares `application/json`
+   * and the request is checked against that header, not merely parsed. It is
+   * worth a test rather than a comment because it is a *library's* behaviour:
+   * the obvious reading - "a form cannot produce a JSON body" - is false, since
+   * `enctype="text/plain"` is CORS-safelisted and a field named
+   * `{"userId":"…","junk":"` with a value of `"}` serializes to valid JSON. If a
+   * dependency bump ever made the body parse regardless of the header, nothing
+   * else here would notice.
+   */
+  describe('signing in cannot be done by another site on your behalf', () => {
+    it.each([
+      {
+        situation: 'a form that dresses valid JSON up as plain text',
+        contentType: 'text/plain',
+      },
+      { situation: 'a delivery that says nothing about what it is', contentType: undefined },
+    ])('hands out no sign-in to $situation', async ({ contentType }) => {
+      const res = await SELF.fetch('http://cockpit.test/v1/sign-in', {
+        method: 'POST',
+        ...(contentType ? { headers: { 'content-type': contentType } } : {}),
+        // Exactly what the form above serializes to, stray `=` and all.
+        body: '{"userId":"user-ada","junk":"="}',
+      });
+
+      expect(res.status).not.toBe(200);
+      expect(res.headers.get('set-cookie')).toBeNull();
+    });
+  });
+
   describe('nothing but the logon page works until you have signed in', () => {
     /**
      * Refused *and* refused in the application's own shape, in one assertion,
@@ -118,6 +152,29 @@ describe('Sign-in', () => {
       const res = await SELF.fetch(`http://cockpit.test${path}`);
 
       expect(res.status).toBe(200);
+    });
+
+    /**
+     * A delivery from a source is not somebody who can sign in - Slack and
+     * Gmail hold no cookie of ours and never will - so the gate must not be the
+     * thing that answers it. What authenticates one is the connector's own
+     * signature verification, behind this route rather than in front of it.
+     *
+     * Asserted as "answered by the connector layer" rather than as a status,
+     * because there are no connectors yet: an unknown one is a 404 today and a
+     * real one will be something else. What must never come back is the gate's
+     * refusal, and that is what would happen the day the first connector ships
+     * if this were left out.
+     */
+    it('lets a delivery from a source reach the connector that owns it', async () => {
+      const res = await SELF.fetch('http://cockpit.test/ingress/nobody/events', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+
+      expect(res.status).not.toBe(401);
+      expect((await res.json()) as { error: string }).toMatchObject({ error: 'unknown connector' });
     });
   });
 

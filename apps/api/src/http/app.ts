@@ -79,11 +79,14 @@ app.onError((err, c) => {
 
 /**
  * Before every route below, so that "signed in" is a property of reaching a
- * handler at all rather than something each one remembers to check. The four
- * paths that answer without a sign-in are named in `auth/gate.ts`, with the
- * reason each one is there.
+ * handler at all rather than something each one remembers to check - and on
+ * `*` rather than on `/v1/*`, so that a route added later is refused until
+ * somebody decides otherwise instead of being open until somebody notices. What
+ * answers without a sign-in is named in `auth/gate.ts`, with the reason each one
+ * is there.
  */
 app.use('*', gate());
+
 
 // --- health -----------------------------------------------------------------
 
@@ -144,15 +147,28 @@ const usersRoute = createRoute({
  * real cookie, a real gate on every request. Until then Cloudflare Access stays
  * in front of every deployed environment (docs/architecture.md, "App login").
  *
- * **There is no CSRF token here, and what stands in for one is the content
- * type.** The risk this endpoint would otherwise carry is login CSRF - another
- * site making a browser sign in as somebody its owner did not choose. A
- * cross-site form POST cannot reach it: this route accepts a JSON body and
- * nothing else, and JSON is not among the content types a form can send, so
- * anything able to send one needs a preflight that this origin answers no CORS
- * headers to. When Google sign-in lands, the code flow's `state` parameter is
- * what covers this properly, and it is one of the risks "App login" records as
- * deliberately owned.
+ * **There is no CSRF token here, and what stands in for one is the declared
+ * content type.** The risk this endpoint would otherwise carry is login CSRF -
+ * another site making a browser sign in as somebody its owner did not choose.
+ *
+ * The protection is *not* that a form cannot produce a JSON-shaped body: it
+ * can. `enctype="text/plain"` is CORS-safelisted, needs no preflight, and a
+ * field named `{"userId":"…","junk":"` with a value of `"}` serializes to
+ * exactly `{"userId":"…","junk":"="}`, which parses. The protection is that
+ * this route declares `application/json` and the validator checks the header
+ * rather than only parsing the body, so a `text/plain` delivery is refused
+ * before anything reads it - and `Content-Type: application/json` is one of the
+ * headers a form cannot set, which is what forces the preflight this origin
+ * answers no CORS headers to.
+ *
+ * That distinction is a library's behaviour rather than this file's, so it is
+ * **pinned by a test** ("signing in cannot be done by another site on your
+ * behalf", tests/integration/http/sign-in.test.ts) instead of being trusted to
+ * a comment that a dependency bump could quietly falsify.
+ *
+ * When Google sign-in lands, the code flow's `state` parameter is what covers
+ * this properly, and it is one of the risks "App login" records as deliberately
+ * owned.
  */
 const signInRoute = createRoute({
   method: 'post',
