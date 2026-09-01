@@ -111,7 +111,7 @@ jobs:
       # claude-code-review.yml has shipped green over a non-review four times.
       # No install step: these tests use only node:test and the standard
       # library, so this job stays checkout-only and finishes in seconds.
-      - name: Verify the dev, test-stack and review-gate scripts
+      - name: Verify the dev, test-stack, health-check and review-gate scripts
         run: node --test scripts/lib/*.test.mjs
 
   # Publishes which product concepts own which tests, as a downloadable
