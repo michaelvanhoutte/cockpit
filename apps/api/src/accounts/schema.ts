@@ -11,7 +11,8 @@ import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from
 
 /**
  * The tables inside one account's store (architecture, "One store per account,
- * and `tenant_id` stays"): its workspaces, items, associations and change log.
+ * and `tenant_id` stays"): its workspaces, dashboards, items, associations and
+ * change log.
  * They live in the account's own Durable Object, never in D1, which holds only
  * the register of which accounts exist (src/db/schema.ts).
  *
@@ -132,8 +133,8 @@ export const workspaces = sqliteTable(
      * `Réunions` and `réunions` were two different workspaces you could not
      * tell apart in the tabs ("Workspace names are only case-insensitive in
      * ASCII", issue 91). Folding happens in the application, where the whole of
-     * Unicode is available; `foldName` in src/domain/workspaces.ts is the one
-     * function that does it.
+     * Unicode is available; `foldName` in src/domain/names.ts is the one
+     * function that does it, for this table and for dashboards alike.
      *
      * `NOT NULL DEFAULT ''` matches the D1 copy, where the default was
      * load-bearing across the deploy that added it. A store creates the column

@@ -3,7 +3,8 @@ import { sql } from 'drizzle-orm';
 
 /**
  * The register, in D1: which accounts exist, and nothing else. An account's own
- * data - its workspaces, items, associations and change log - lives in that
+ * data - its workspaces, dashboards, items, associations and change log - lives
+ * in that
  * account's store (src/accounts/schema.ts), never here.
  *
  * The split is the account storage decision
