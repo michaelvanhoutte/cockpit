@@ -7,11 +7,12 @@ Cloudflare and why; this document records *how*, and it is the runbook.
 ## 1. The branch model
 
 **Decision: trunk-based, one long-lived branch.** `main` is the trunk.
-Everything else is a short-lived branch with its own preview environment.
+Everything else is a short-lived branch, which can be given its own environment
+whenever one is wanted (§4).
 **Merging deploys to staging; production is a separate, deliberate promotion.**
 
 ```
-                        ┌─ every branch gets its own Access-gated preview URL
+                        ┌─ an Access-gated environment on request, per branch
   claude/swipe    ●───● ┤
   claude/panel  ●───●   │  squash-merge, via PR
                     ┌───┴───┐
@@ -24,9 +25,14 @@ Everything else is a short-lived branch with its own preview environment.
 
 | Trigger | Result |
 |---|---|
-| push to any branch | preview URL, Access-gated, shared preview database |
+| push to any branch | the gates run; nothing is deployed |
+| run **Deploy branch environment** | that branch gets its own Access-gated Worker |
 | merge PR into `main` | staging deploys automatically |
 | run **Promote to production** | that commit deploys to production |
+
+Branches used to get an environment on every push. They no longer do, and the
+reason is not a preference: see "Preview URLs and Durable Objects are mutually
+exclusive" below.
 
 The rules:
 
@@ -50,16 +56,24 @@ The rules:
 ### Why staging exists, and why it is not a branch
 
 Staging classically solves multi-team integration, and Cockpit has one developer.
-Every branch already gets a clickable environment, so staging adds nothing to
-"review this change". It earns its place for a narrower and more specific reason:
+A branch can be given a clickable environment whenever one is wanted (§4), so
+staging is not where a change gets reviewed. It earns its place for a narrower
+and more specific reason:
 **staging is the only environment besides production where cron triggers and
 queue consumers run continuously against a database that accumulates state.**
 
-Triggers attach to a Worker's *active deployment*, not to uploaded versions, so a
-per-branch preview serves HTTP and will never fire a §6.3 sync cadence, never age
-an OAuth token into needing a refresh, never trip the §9.2 dead-man's switch, and
-never meet a migration applied to a table that already has rows in it. Those are
-precisely the failure modes architecture §9.2 calls hardest to detect.
+A branch environment is short-lived and holds whatever the seed gives it, so it
+will never age an OAuth token into needing a refresh, never trip the §9.2
+dead-man's switch, and never meet a migration applied to a table that already has
+rows in it. Those are precisely the failure modes architecture §9.2 calls hardest
+to detect, and only somewhere long-running can find them.
+
+**A branch environment now *can* fire a cron, which the old one could not.**
+Triggers attach to a Worker's active deployment, and a version upload never had
+one - the safety was free. A branch Worker is a real deployment, so a `triggers`
+block at the top level of `wrangler.jsonc`, where it is inheritable, would fire
+on every branch environment that exists. Declare cron schedules per environment
+rather than at the top level; the note in `wrangler.jsonc` says so too.
 
 The insight that shapes this document: **that argument justifies a staging
 *environment*, not a staging *branch*.** An earlier draft gave staging its own
@@ -145,24 +159,50 @@ be kept in sync**; they are the same boundary expressed twice.
 Because `assets.directory` points at `../web/dist`, the web app must be built
 before the API is deployed *or* run with `wrangler dev`. `pnpm build` first.
 
-## 4. Preview environments
+## 4. Branch environments
 
-**Status: the URLs no longer work, and cannot.** Everything below describes a
-mechanism that operated as designed until this Worker gained a Durable Object.
-It is kept because the alias rules, the shared database and the bootstrap are
-all still true of what the workflow does — but the URL it ends up commenting on
-a pull request resolves to Cloudflare's "There is nothing here yet" placeholder.
-See "Preview URLs and Durable Objects are mutually exclusive" below for the
-reason and what is left. Read that first.
+**Decided, not yet built.** What is described here replaces the per-push preview
+environment, which stopped being possible when this Worker gained a Durable
+Object. The mechanism it replaces, and why it died, is
+"Preview URLs and Durable Objects are mutually exclusive" below; read that first
+if the *why* matters more than the *what*.
 
-Every branch except `main` gets one, triggered on `push` rather than
-`pull_request` so that a draft PR, or a branch with no PR at all, is deployed
-too.
+**A branch gets an environment when it is asked for, not on every push.** A
+`workflow_dispatch` deploys the branch as **its own Worker**, named
+`<alias>-cockpit-preview`, and a second one tears it down. Between those, a push
+runs the gates and deploys nothing.
 
-Previews are **versions of a single Worker**, not a Worker per branch.
-`wrangler versions upload --env preview --preview-alias <alias>` uploads a new
-version and points a stable aliased URL at it without touching that Worker's
-active deployment. One Worker to exist, no per-branch Worker to reap.
+Three things make this the shape it is:
+
+- **Its own Worker, not a version of one.** That is the whole point: Cloudflare
+  withholds *version* preview URLs from a Worker with a Durable Object, but an
+  ordinary Worker with a Durable Object serves on its ordinary `workers.dev`
+  route — as production and staging do.
+- **`<alias>-cockpit-preview`, in that order.** It puts the branch on exactly
+  the hostname shape the version preview URLs used, which the existing Access
+  application already covers by wildcard. Named the other way round it would
+  not match, and every branch environment would be public. The alias rules below
+  were built for this arithmetic and still hold.
+- **It gets its own account store for free.** Durable Object namespaces are
+  per-Worker, so branches stop sharing one — which the per-push model could not
+  avoid, and which was a real hazard once a branch could add a change to
+  `src/accounts/changes.ts`.
+
+**What this gives up, deliberately.** There is no longer a rehearsal on every
+push: nothing applies migrations to a real D1 or uploads a real bundle to
+Cloudflare unless somebody asks for an environment. A migration or a
+configuration that only fails against the real platform therefore surfaces on
+**staging, after the merge** — which is exactly how the Durable Object migration
+error in the section below was caught before merge, and would not have been.
+That is the accepted cost of not paying for infrastructure nobody asked for; the
+recovery is an ordinary short-lived branch and an ordinary PR, which is what the
+branch model says about every other fix.
+
+**One consequence that is not optional.** `ci.yml` is scoped to `main` today
+*because* the preview deploy gated branch pushes with `pnpm typecheck` and
+`pnpm test`. Removing that workflow without widening CI to branch pushes would
+leave every branch without an open pull request completely ungated. The two
+changes are one change.
 
 ### The alias, and why there is a script for it
 
@@ -184,18 +224,24 @@ so a future rename of the Worker does not silently break every preview URL.
 Because the hash covers the full branch name, neither the truncation nor the
 segment-stripping can collide two branches.
 
-### Shared preview database: a recorded reversal
+### Shared branch database: a recorded reversal
 
 Architecture §9.1 specified "an isolated preview D1 database" per preview.
-**That is amended: all previews share one `cockpit-preview` database**, which is
-re-migrated and re-seeded (`seed.sql` is `INSERT OR IGNORE` throughout, so this
-is idempotent) on every preview deploy.
+**That is amended: every branch environment shares one `cockpit-preview`
+database**, re-migrated and re-seeded (`seed.sql` is `INSERT OR IGNORE`
+throughout, so this is idempotent) whenever one is deployed.
 
-The argument: per-branch isolation needs a database created on first push, its id
+The argument: per-branch isolation needs a database created on first use, its id
 injected into a generated Wrangler config, and a reaper to delete it when the
 branch goes away, and the free plan's ten-database ceiling means it does not fit
-at all against the seventeen branches this repository already carries. The
-shared database costs nothing to run and needs no lifecycle machinery.
+at all against the dozens of branches this repository carries. The shared
+database costs nothing to run and needs no lifecycle machinery.
+
+**It shares less than it used to, and that matters.** All this database now holds
+is the register - one row, the same account for every branch. An account's own
+workspaces, items and associations live in a Durable Object namespace, which is
+per-Worker, so branch environments no longer share any of it. The isolation
+§9.1 asked for arrived by another route, for nothing.
 
 ### Preview URLs and Durable Objects are mutually exclusive
 
@@ -219,13 +265,14 @@ and comments it on the pull request. So a pull request carries a green check and
 a URL that looks right and answers with a placeholder. The tell in the log is
 that Wrangler prints no `Version Preview URL:` line at all.
 
-**What is left, until this is decided.** Staging is a real deploy of `main` and
-is unaffected; it is where a change is seen running before production. The
-alternatives, none of them taken yet: accept that and make the check and its
-comment say so rather than implying a preview exists; go back to a Worker per
-branch, which is what this section rejected for its lifecycle machinery and
-which the free plan's limits shaped; or keep previews for the frontend only,
-against a deployed backend.
+**What replaced it.** A branch environment on request, as its own Worker - §4
+above. Four candidates were weighed: keep the per-push job as a rehearsal with no
+URL; a Worker per branch on every push; remove the machinery entirely; or a
+Worker per branch on request. The last was chosen because it pays for an
+environment only when one is wanted, and because naming the Worker
+`<alias>-cockpit-preview` puts it on the hostname the Access application already
+covers, so the perimeter never reopens. What it gives up - a rehearsal against
+real Cloudflare on every push - is written down in §4 rather than left implied.
 
 ### A Durable Object class cannot be introduced by a preview
 
@@ -264,8 +311,11 @@ preview Worker, repeated for the class. Afterwards the migration is applied and
 every branch's `versions upload` sends no migration at all, so the failure does
 not recur - including for branches that do not know the class exists.
 
-It buys a green check and nothing else: the version uploads, and the section
-above is why no URL serves it.
+**This stops applying once §4 is built.** A branch environment is deployed with
+`wrangler deploy`, which applies migrations the way staging and production do, so
+a new class reaches it without ceremony. The section is kept because the rule
+survives its cause: a Durable Object migration cannot travel by version upload,
+and anything that ever uploads a version again will meet it.
 
 The same is true of account data, and more sharply: every preview version runs
 under the one `cockpit-preview` Worker, so they share its Durable Object
@@ -274,13 +324,14 @@ namespace and therefore the *same* account store. A branch that adds a change to
 preview is also reading.
 
 **What is genuinely given up**, recorded rather than waved away: two branches
-with incompatible migrations will collide, because a migration applied by one
-preview is immediately visible to every other open branch's preview. There is no
-mitigation in place, only a detection story: the preview deploy applies
-migrations before uploading the version, so the branch that breaks is the branch
-that notices. A colliding *account* change is detected later and less kindly -
-not at deploy time, but by the first request that opens the store, which is why
-the failure names the change and the reason it would not apply. If this bites in practice, the recorded escalation is per-branch
+with incompatible migrations to the *register* will collide, because a migration
+applied by one branch environment is immediately visible to every other one.
+There is no mitigation in place, only a detection story: deploying a branch
+environment applies migrations first, so the branch that breaks is the branch
+that notices - and now only when somebody asks for an environment, so a
+collision can sit undetected until then. Account changes no longer collide at
+all: each branch Worker has its own Durable Object namespace, so a change to
+`src/accounts/changes.ts` reaches nothing but that branch's own store. If this bites in practice, the recorded escalation is per-branch
 databases on the Workers Paid plan, which is the option this decision defers
 rather than forecloses.
 
@@ -305,7 +356,8 @@ each environment needs its own queue names, or staging will consume production's
 messages.
 
 This was verified rather than assumed: a marker row inserted into the preview
-database appeared on the preview URL and on neither staging nor production.
+database appeared on the preview URL of the day and on neither staging nor
+production.
 
 ## 5. Migrations and rollback
 
