@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, focusManager, useQuery } from '@tanstack/react-query';
+import userEvent from '@testing-library/user-event';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
-import { snapshotQuery } from '../../../src/api/queries';
-import { fetchSnapshot } from '../../../src/api/client';
+import { snapshotQuery, useCommand, type CommandArgs } from '../../../src/api/queries';
+import { fetchSnapshot, sendCommand } from '../../../src/api/client';
 
 /**
  * F1, and deliberately not a browser test: whether a screen refreshes itself
@@ -20,9 +21,11 @@ import { fetchSnapshot } from '../../../src/api/client';
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
   fetchSnapshot: vi.fn(),
+  sendCommand: vi.fn(),
 }));
 
 const reads = vi.mocked(fetchSnapshot);
+const sends = vi.mocked(sendCommand);
 
 const snapshot: WorkspaceSnapshot = {
   workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' },
@@ -48,6 +51,7 @@ async function openTheScreen() {
 
 beforeEach(() => {
   reads.mockReset();
+  sends.mockReset();
   reads.mockResolvedValue(snapshot);
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
@@ -79,5 +83,66 @@ describe('Offline', () => {
 
       expect(reads).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+/** A control that asks for one change, so a click drives the real mutation. */
+function Change({ args }: { args: CommandArgs }) {
+  const command = useCommand();
+  return (
+    <button type="button" onClick={() => command.mutate(args)}>
+      go
+    </button>
+  );
+}
+
+const AT = '2026-08-31T10:00:00.000Z';
+
+describe('Workspace management', () => {
+  describe('what a deleted workspace held is not kept to be shown again', () => {
+    it.each([
+      {
+        situation: 'a workspace that was deleted, whose contents are gone for good',
+        args: {
+          name: 'delete_workspace',
+          payload: { commandId: 'c1', issuedAt: AT, workspaceId: 'ws-work' },
+        },
+        keptAfterwards: false,
+      },
+      {
+        // The other half of the branch: everything else still has a workspace
+        // to re-read, so its copy is marked stale rather than thrown away.
+        situation: 'a workspace that was renamed, which is still there to re-read',
+        args: {
+          name: 'rename_workspace',
+          payload: { commandId: 'c2', issuedAt: AT, workspaceId: 'ws-work', name: 'Accounts' },
+        },
+        keptAfterwards: true,
+      },
+    ] as { situation: string; args: CommandArgs; keptAfterwards: boolean }[])(
+      '$situation',
+      async ({ args, keptAfterwards }) => {
+        sends.mockResolvedValue({ ok: true, applied: true });
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        // What the person was last shown of that workspace, the way a week-long
+        // stored copy holds it (main.tsx).
+        client.setQueryData(['snapshot', 'ws-work'], snapshot);
+        // The suite runs on fake timers; userEvent needs to drive them or its
+        // own waits never elapse.
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        render(
+          <QueryClientProvider client={client}>
+            <Change args={args} />
+          </QueryClientProvider>,
+        );
+
+        await user.click(screen.getByRole('button', { name: 'go' }));
+
+        await waitFor(() => expect(sends).toHaveBeenCalledTimes(1));
+        await waitFor(() =>
+          expect(client.getQueryData(['snapshot', 'ws-work']) !== undefined).toBe(keptAfterwards),
+        );
+      },
+    );
   });
 });

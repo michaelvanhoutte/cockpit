@@ -57,6 +57,19 @@ export async function openFirstWorkspace(page: Page): Promise<void> {
   await expect(captureBox(page)).toBeVisible();
 }
 
+/**
+ * Opens the workspace settings page through the header's "···" menu. Used as
+ * arrangement by the walks about renaming and deleting; the walk about
+ * *reaching* the settings asserts its own way through those two controls
+ * rather than calling this, because a helper that both arranges and asserts is
+ * a helper that can make its own test vacuous.
+ */
+export async function openSettings(page: Page, isMobile: boolean): Promise<void> {
+  await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Workspaces' }), isMobile);
+  await expect(page.getByLabel('Name of the new workspace')).toBeVisible();
+}
+
 export function captureBox(page: Page): Locator {
   return page.getByLabel('Capture a note or to-do');
 }

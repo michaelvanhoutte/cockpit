@@ -113,7 +113,8 @@
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/item.ts",
         "apps/web/src/pages/WorkspaceSettingsPage.tsx",
-        "apps/web/src/pages/Layout.tsx"
+        "apps/web/src/pages/Layout.tsx",
+        "apps/web/src/router.tsx"
       ]
     }
   ]

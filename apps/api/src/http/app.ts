@@ -115,7 +115,9 @@ function commandRoute<N extends CommandName>(name: N, extra?: { conflict: string
         content: { 'application/json': { schema: commandResultSchema } },
       },
       404: {
-        description: 'Target item does not exist',
+        // Workspace as well as item, since renaming and deleting a workspace
+        // name one that has to still be there.
+        description: 'The item or workspace it names does not exist',
         content: { 'application/json': { schema: errorSchema } },
       },
       // Only the commands that can actually collide declare a 409, so the
@@ -212,6 +214,11 @@ const routes = app
     commandRoute('create_workspace', { conflict: 'A workspace already has that name' }),
     async (c) => c.json(await change(c.env, 'create_workspace', c.req.valid('json')), 200),
   )
+  .openapi(
+    commandRoute('rename_workspace', { conflict: 'A workspace already has that name' }),
+    async (c) => c.json(await change(c.env, 'rename_workspace', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c.env, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c.env, 'capture_item', c.req.valid('json')), 200))
   .openapi(commandRoute('set_status'), async (c) => c.json(await change(c.env, 'set_status', c.req.valid('json')), 200))
   .openapi(commandRoute('snooze_until'), async (c) => c.json(await change(c.env, 'snooze_until', c.req.valid('json')), 200))

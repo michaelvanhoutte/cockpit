@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
-import { env, applyD1Migrations } from 'cloudflare:test';
+import { env, applyD1Migrations, SELF } from 'cloudflare:test';
+import { foldName } from '../../../src/domain/workspaces.js';
 
 /**
  * Integration level: a migration only exists against a real database, and what
@@ -22,6 +23,22 @@ function before() {
 }
 function andTheRest() {
   return inject('migrations').filter((m) => !m.name.startsWith('0000'));
+}
+
+/**
+ * Asks for a workspace the way a person does, through the real Worker, because
+ * whether the migration folded the rows it found is only visible in what the
+ * next create is allowed to do.
+ */
+let seq = 0;
+async function makeWorkspace(name: string): Promise<Response> {
+  seq += 1;
+  const id = `018f0000-0000-7000-8000-${String(seq).padStart(12, '0')}`;
+  return SELF.fetch('http://cockpit.test/v1/commands/create_workspace', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ commandId: id, issuedAt: AT, workspaceId: id, name }),
+  });
 }
 
 async function countOf(table: string): Promise<number> {
@@ -101,6 +118,54 @@ describe('Capture', () => {
         "SELECT name FROM sqlite_master WHERE name LIKE '__new_%' OR name LIKE '_migrate_%'",
       ).all<{ name: string }>();
       expect(results).toEqual([]);
+    });
+  });
+});
+
+describe('Workspace management', () => {
+  describe('a workspace that was there before an update keeps its name and holds on to it', () => {
+    it('is still called what it was called, and still looks the same', async () => {
+      // The colour as well as the name, because an update that drops a column
+      // carries every other one across, and getting one of them wrong is
+      // exactly how that goes wrong quietly.
+      expect(
+        await env.DB.prepare('SELECT name, color FROM workspaces WHERE id = ?')
+          .bind('ws-work')
+          .first<{ name: string; color: string }>(),
+      ).toMatchObject({ name: 'Work', color: '#6f62b5' });
+    });
+
+    it('still holds the thoughts that were filed in it', async () => {
+      expect(
+        await env.DB.prepare(
+          `SELECT items.id FROM items
+             JOIN workspaces ON workspaces.id = items.workspace_id
+            WHERE items.id = ?`,
+        )
+          .bind('kept')
+          .first<{ id: string }>(),
+      ).toMatchObject({ id: 'kept' });
+    });
+
+    it('will not let a second workspace take its name, even written straight to the database', async () => {
+      // Straight to the database on purpose, and this is the only way to ask
+      // the question. The handler folds the *names* it reads, so it would
+      // refuse a second Work whether or not the update ever touched this row;
+      // going around it is what asks whether the row itself was folded, which
+      // is the half of the update nothing else can see.
+      await expect(
+        env.DB.prepare(
+          'INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+          .bind('ws-work-again', TENANT_ID, 'work', foldName('work'), '#3f8f78', AT)
+          .run(),
+      ).rejects.toThrow();
+    });
+
+    it('still lets a new workspace be made beside it', async () => {
+      // Against a database the update ran over rows it found, rather than the
+      // empty one every other test starts from.
+      expect((await makeWorkspace('Bookkeeping')).status).toBe(200);
     });
   });
 });

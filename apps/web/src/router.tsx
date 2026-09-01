@@ -19,23 +19,41 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: Layout,
 });
 
-/** "/" resolves to the first workspace; there is no workspace-less view. */
+/**
+ * Where you go when you have not said which workspace: the first one you have,
+ * or - once the last one can be deleted ("Rename and delete a workspace", issue
+ * 77) - the page that makes one. The settings page *is* the invitation: it says
+ * there are none and the box to type a name into is right under it. Anything
+ * else would be a screen whose only content is a link to that one.
+ */
+const somewhereThatWorks = async (queryClient: QueryClient) => {
+  const { workspaces } = await queryClient.ensureQueryData(workspacesQuery);
+  const first = workspaces[0];
+  throw first
+    ? redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } })
+    : redirect({ to: '/settings/workspaces' });
+};
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: async ({ context }) => {
-    const { workspaces } = await context.queryClient.ensureQueryData(workspacesQuery);
-    const first = workspaces[0];
-    if (first) {
-      throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
-    }
-  },
-  component: () => <p className="p-6 text-ink-soft">No workspaces yet.</p>,
+  beforeLoad: ({ context }) => somewhereThatWorks(context.queryClient),
 });
 
 export const workspaceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/w/$workspaceId',
+  /**
+   * A workspace that is no longer there is not a dead end. Deleting the one you
+   * were looking at, or coming back to a link for one deleted in another tab,
+   * lands you on a workspace that works instead of on a failed snapshot read.
+   */
+  beforeLoad: async ({ context, params }) => {
+    const { workspaces } = await context.queryClient.ensureQueryData(workspacesQuery);
+    if (!workspaces.some((w) => w.id === params.workspaceId)) {
+      await somewhereThatWorks(context.queryClient);
+    }
+  },
   component: WorkspacePage,
 });
 

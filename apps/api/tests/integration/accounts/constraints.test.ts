@@ -195,11 +195,11 @@ describe('Workspace management', () => {
     async function makeWorkspaceRow(id: string, name: string): Promise<void> {
       await inTheStore((sql) => {
         sql.exec(
-          'INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          'INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
           id,
           ACCOUNT_NAME,
           name,
-          id,
+          name.toLowerCase(),
           '#3f8f78',
           AT,
         );

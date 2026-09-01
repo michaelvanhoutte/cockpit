@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import type { Workspace } from '@cockpit/shared';
-import { WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import { ACCOUNT_NAME, WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`SELF.fetch`), because every rule
@@ -10,12 +10,10 @@ import { WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.
  * a pure function with its own unit test; the only thing asked here is whether
  * it was handed the colours already in use.
  *
- * Every case makes its own workspace under a name no other case uses -
- * `aName()` - so that a case cannot pass alone and fail behind the case before
- * it, which is exactly what happened while this file was being written. The
- * store is emptied between cases as well, and the names still differ: the
- * account starts with three workspaces of its own, and a case that reused one
- * of *their* names would be asking a different question than it means to.
+ * What these cases write survives into the next one, so every case makes its
+ * own workspace under a name no other case uses - `aName()`. A case that
+ * reused a fixed name would pass alone and fail behind the case before it,
+ * which is exactly what happened while this file was being written.
  */
 
 let seq = 0;
@@ -39,6 +37,55 @@ async function makeWorkspace(name: string, overrides: { workspaceId?: string } =
       name,
     }),
   });
+}
+
+async function renameWorkspace(workspaceId: string, name: string, overrides: { commandId?: string } = {}) {
+  return SELF.fetch('http://cockpit.test/v1/commands/rename_workspace', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      commandId: overrides.commandId ?? nextId(),
+      issuedAt: '2026-08-12T10:00:00.000Z',
+      workspaceId,
+      name,
+    }),
+  });
+}
+
+async function deleteWorkspace(workspaceId: string, overrides: { commandId?: string } = {}) {
+  return SELF.fetch('http://cockpit.test/v1/commands/delete_workspace', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      commandId: overrides.commandId ?? nextId(),
+      issuedAt: '2026-08-12T11:00:00.000Z',
+      workspaceId,
+    }),
+  });
+}
+
+async function captureInto(workspaceId: string, title: string): Promise<string> {
+  const itemId = nextId();
+  await SELF.fetch('http://cockpit.test/v1/commands/capture_item', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      commandId: nextId(),
+      issuedAt: '2026-08-12T10:30:00.000Z',
+      workspaceId,
+      itemId,
+      title,
+    }),
+  });
+  return itemId;
+}
+
+/** A workspace that exists, ready to be renamed or deleted. */
+async function aWorkspace(): Promise<{ id: string; name: string }> {
+  const id = nextId();
+  const name = aName();
+  await makeWorkspace(name, { workspaceId: id });
+  return { id, name };
 }
 
 async function theWorkspaces(): Promise<Workspace[]> {
@@ -122,22 +169,56 @@ describe('Workspace management', () => {
       expect(await storedNames()).toContain(name);
     });
 
-    it.each([
-      { situation: 'a name another workspace already has', typed: (n: string) => n, refusal: 409 },
-      { situation: 'the same name in another case', typed: (n: string) => n.toUpperCase(), refusal: 409 },
-      { situation: 'a name that only collides once trimmed', typed: (n: string) => `  ${n} `, refusal: 409 },
+    /**
+     * The two ways a workspace is given a name. They answer to one rule, so
+     * they answer to one table: a name refused when a workspace is made is
+     * refused when one is renamed, and a row added here is asked of both.
+     * Each returns the way to give a name, having arranged whatever it needs.
+     */
+    const naming = [
+      { way: 'making one', prepare: () => Promise.resolve((typed: string) => makeWorkspace(typed)) },
+      {
+        way: 'renaming one',
+        prepare: async () => {
+          const subject = await aWorkspace();
+          return (typed: string) => renameWorkspace(subject.id, typed);
+        },
+      },
+    ];
+
+    /**
+     * One row per rule, not one per character. *Which* names are the same name
+     * is decided in apps/api/tests/unit/domain/workspaces.test.ts and which
+     * characters break a line in packages/shared/tests/unit/domain/item.test.ts,
+     * each over its whole table; repeating either here would prove it twice and
+     * would prove it at the slowest level there is. What is asked here is that
+     * every rule is *reachable* down both paths, and refuses without storing.
+     */
+    const refusedNames: { situation: string; typed: (n: string) => string; refusal: number }[] = [
+      { situation: 'a name another workspace already has', typed: (n) => n, refusal: 409 },
+      { situation: 'the same name in another case', typed: (n) => n.toUpperCase(), refusal: 409 },
+      { situation: 'a name that only collides once trimmed', typed: (n) => `  ${n} `, refusal: 409 },
       { situation: 'no name at all', typed: () => '', refusal: 400 },
       { situation: 'a name of nothing but blanks', typed: () => '   ', refusal: 400 },
       { situation: 'a name too long to read in a tab', typed: () => 'W'.repeat(61), refusal: 400 },
-    ])('refuses $situation, and stores nothing', async ({ typed, refusal }) => {
-      const taken = aName();
-      await makeWorkspace(taken);
-      const before = await storedNames();
+      { situation: 'a name broken across two lines', typed: () => 'Book\nkeeping', refusal: 400 },
+    ];
 
-      const response = await makeWorkspace(typed(taken));
+    describe.each(naming)('$way', ({ prepare }) => {
+      it.each(refusedNames)(
+        'refuses $situation, and stores nothing',
+        async ({ typed, refusal }) => {
+          const taken = aName();
+          await makeWorkspace(taken);
+          const give = await prepare();
+          const before = await storedNames();
 
-      expect(response.status).toBe(refusal);
-      expect(await storedNames()).toEqual(before);
+          const response = await give(typed(taken));
+
+          expect(response.status).toBe(refusal);
+          expect(await storedNames()).toEqual(before);
+        },
+      );
     });
 
     it('says which workspace already has the name, as that workspace spells it', async () => {
@@ -151,25 +232,231 @@ describe('Workspace management', () => {
       expect(await response.json()).toEqual({ error: `a workspace called ${taken} already exists` });
     });
 
+    it('renamed to the name it already has, changes nothing and is not refused', async () => {
+      const subject = await aWorkspace();
+
+      const response = await renameWorkspace(subject.id, subject.name);
+
+      expect(response.status).toBe(200);
+      expect((await theWorkspaces()).find((w) => w.id === subject.id)?.name).toBe(subject.name);
+    });
+
+    it('renamed to its own name in different capitalization, shows the new capitalization', async () => {
+      // The one row the new name folds onto is the workspace itself. A plain
+      // "is this name taken?" finds that row and refuses a rename that
+      // collides with nothing, which is what this case is here to catch.
+      const subject = await aWorkspace();
+
+      const response = await renameWorkspace(subject.id, subject.name.toUpperCase());
+
+      expect(response.status).toBe(200);
+      expect((await theWorkspaces()).find((w) => w.id === subject.id)?.name).toBe(
+        subject.name.toUpperCase(),
+      );
+    });
+
+    it('renamed with blanks around it, stores the name without them', async () => {
+      const subject = await aWorkspace();
+      const wanted = aName();
+
+      await renameWorkspace(subject.id, `  ${wanted}  `);
+
+      expect((await theWorkspaces()).find((w) => w.id === subject.id)?.name).toBe(wanted);
+    });
+
+    it('renamed, gives up the name it used to have and holds the one it now has', async () => {
+      // The half a rename that wrote only the name would get wrong. The index
+      // holds the folded copy, so leaving it behind would keep the workspace
+      // blocking a name nobody can see it under, while its real one went free
+      // for a second workspace to take. Neither is visible in what the rename
+      // returns; both are visible in what happens next.
+      const subject = await aWorkspace();
+      const wanted = aName();
+
+      expect((await renameWorkspace(subject.id, wanted)).status).toBe(200);
+
+      // The old name is free again...
+      expect((await makeWorkspace(subject.name)).status).toBe(200);
+      // ...and the new one is not.
+      expect((await makeWorkspace(wanted.toUpperCase())).status).toBe(409);
+    });
+
     it('gives the name back to a workspace that is not there any more', async () => {
-      // Deleting is "Rename and delete a workspace" (issue 77), but the index
-      // that holds only *live* workspaces apart, and the reads that skip a
-      // tombstoned one, both ship here - so they are proved here rather than
-      // going out untested. Tombstoned directly because nothing can yet ask
-      // for it: there is no delete to enter through.
+      const gone = await aWorkspace();
+      const subject = await aWorkspace();
+      await deleteWorkspace(gone.id);
+
+      expect((await theWorkspaces()).map((w) => w.id)).not.toContain(gone.id);
+      expect((await makeWorkspace(gone.name)).status).toBe(200);
+      // And to a rename, not only to a create: one rule, both paths.
+      const second = await aWorkspace();
+      await deleteWorkspace(second.id);
+      expect((await renameWorkspace(subject.id, second.name)).status).toBe(200);
+    });
+  });
+
+  describe('a deleted workspace is gone from everywhere you can reach it, and nothing it held is erased', () => {
+    /**
+     * One deletion, read five ways. Arranged once for the whole rule because
+     * every case asks a different question of the same event, and each of
+     * those questions is a different query with a different filter - which is
+     * exactly how this breaks: right in one read path, forgotten in another.
+     */
+    let deleted: { id: string; name: string };
+    let itemId: string;
+    let untouched: { id: string; name: string };
+
+    beforeEach(async () => {
+      deleted = await aWorkspace();
+      untouched = await aWorkspace();
+      itemId = await captureInto(deleted.id, 'A note that outlives its workspace');
+      await captureInto(untouched.id, 'A note in the workspace that stays');
+      expect((await deleteWorkspace(deleted.id)).status).toBe(200);
+    });
+
+    it('is not one of the workspaces you have', async () => {
+      expect((await theWorkspaces()).map((w) => w.id)).not.toContain(deleted.id);
+    });
+
+    it('cannot be opened any more', async () => {
+      const res = await SELF.fetch(`http://cockpit.test/v1/workspaces/${deleted.id}/snapshot`);
+      expect(res.status).toBe(404);
+    });
+
+    it('keeps the items that were in it', async () => {
+      // Read straight from the database, because the whole point is that they
+      // are no longer reachable through anything else: the router learns from
+      // the history of where things were filed, so erasing them would erase
+      // that. Nothing else can ask this question.
+      const rows = await inTheStore((sql) =>
+        sql
+          .exec<{ workspace_id: string; deleted_at: string | null }>(
+            'SELECT workspace_id, deleted_at FROM items WHERE id = ?',
+            itemId,
+          )
+          .toArray(),
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.workspace_id).toBe(deleted.id);
+      expect(rows[0]?.deleted_at).toBeNull();
+    });
+
+    it('leaves the other workspaces and what is in them alone', async () => {
+      expect((await theWorkspaces()).map((w) => w.id)).toContain(untouched.id);
+      const res = await SELF.fetch(`http://cockpit.test/v1/workspaces/${untouched.id}/snapshot`);
+      expect(res.status).toBe(200);
+      const snapshot = (await res.json()) as { items: { title: string }[] };
+      expect(snapshot.items.map((i) => i.title)).toEqual(['A note in the workspace that stays']);
+    });
+
+    it('lets a new workspace take the name it had', async () => {
+      expect((await makeWorkspace(deleted.name)).status).toBe(200);
+    });
+  });
+
+  describe('a change to a workspace that no longer exists is refused and nothing is stored', () => {
+    it.each([
+      { situation: 'renaming it', change: (id: string) => renameWorkspace(id, aName()) },
+      { situation: 'deleting it', change: (id: string) => deleteWorkspace(id) },
+    ])('$situation', async ({ change }) => {
+      const gone = await aWorkspace();
+      await deleteWorkspace(gone.id);
+      const before = await storedNames();
+
+      const response = await change(gone.id);
+
+      expect(response.status).toBe(404);
+      expect(await storedNames()).toEqual(before);
+    });
+  });
+
+  describe('the same delete sent twice deletes one workspace', () => {
+    it('applies a delete replayed after reconnecting only once', async () => {
+      const subject = await aWorkspace();
+      const commandId = nextId();
+      await deleteWorkspace(subject.id, { commandId });
+
+      const replay = await deleteWorkspace(subject.id, { commandId });
+
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual({ ok: true, applied: false });
+    });
+
+    it('refuses a second delete of a workspace already deleted', async () => {
+      // A fresh request id, so nothing recognises it as the same delete: the
+      // workspace simply is not there to delete, which is the same 404 any
+      // other change to a workspace that is gone gets.
+      const subject = await aWorkspace();
+      await deleteWorkspace(subject.id);
+
+      expect((await deleteWorkspace(subject.id)).status).toBe(404);
+    });
+  });
+
+  describe('no two workspaces share a name, whatever alphabet it is in', () => {
+    /**
+     * Which names count as the same name is a pure decision, and it is decided
+     * in apps/api/tests/unit/domain/workspaces.test.ts - the whole case table
+     * lives there, including the sharp s and the accent that is a different
+     * letter rather than a different case. What is left here is what only a
+     * real database answers: that a name refused this way comes back as a 409
+     * and stores nothing, and that a row whose stored fold is missing is
+     * refused too.
+     *
+     * Reusing the name of a workspace that is not there any more stays allowed,
+     * and is proved by "gives the name back to a workspace that is not there
+     * any more" above rather than repeated here - it needs a tombstone, which
+     * is not something a pair of names can express.
+     */
+    it('refuses the second of two names that differ only in case, whatever alphabet', async () => {
+      seq += 1;
+      const name = `ÉTÉ ${seq}`;
+      expect((await makeWorkspace(name)).status).toBe(200);
+      const before = await storedNames();
+
+      const response = await makeWorkspace(name.toLowerCase());
+
+      expect(response.status).toBe(409);
+      expect(await storedNames()).toEqual(before);
+    });
+
+    it('holds its name even when it was stored by a version that did not know the rule', async () => {
+      // The row an older Cockpit wrote: a name and no folded copy of it,
+      // exactly what the code serving requests during the deploy that
+      // introduced the column produces. Written directly because that version
+      // is not here to be asked, and there is no other way to arrange it.
       const name = aName();
-      const workspaceId = nextId();
-      await makeWorkspace(name, { workspaceId });
       await inTheStore((sql) => {
         sql.exec(
-          'UPDATE workspaces SET deleted_at = ? WHERE id = ?',
-          '2026-08-12T09:00:00.000Z',
-          workspaceId,
+          'INSERT INTO workspaces (id, tenant_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)',
+          nextId(),
+          ACCOUNT_NAME,
+          name,
+          '#b58a2f',
+          '2026-08-12T10:00:00.000Z',
         );
       });
 
-      expect((await theWorkspaces()).map((w) => w.id)).not.toContain(workspaceId);
+      expect((await makeWorkspace(name)).status).toBe(409);
+    });
+  });
+
+  describe('a workspace name comes back exactly as it was typed', () => {
+    // What sits between typing a name and reading it back is the command's
+    // JSON, a STRICT table with its CHECKs, and the wire schema on the way out.
+    // Any of them could change a character without anything else noticing.
+    it.each([
+      { situation: 'an ampersand', typed: 'Rock & Roll' },
+      { situation: 'something that looks like markup', typed: '<script>' },
+      { situation: 'an accent', typed: 'Réunion' },
+      { situation: 'an emoji', typed: '📊 Numbers' },
+    ])('$situation', async ({ typed }) => {
+      seq += 1;
+      const name = `${typed} ${seq}`;
+
       expect((await makeWorkspace(name)).status).toBe(200);
+
+      expect((await theWorkspaces()).map((w) => w.name)).toContain(name);
     });
   });
 

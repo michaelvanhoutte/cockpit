@@ -1,0 +1,31 @@
+-- The folded copy of a workspace's name. Alone in its own file for the reason
+-- 0002 is: SQLite has no `ADD COLUMN IF NOT EXISTS`, so this statement is the
+-- one thing here that cannot be re-run, and D1 wraps nothing across statements
+-- - a migration that does not finish is not recorded as finished and the whole
+-- file runs again on the next deploy. Sitting alone, that never matters: it
+-- cannot fail on data (a default, no CHECK, nothing to validate), so the only
+-- way to reach it twice is for D1 to have applied it and lost the record. The
+-- backfill and the index swap, which *can* fail on data, are 0005, and a
+-- failure there re-runs only 0005.
+--
+-- **Why the column exists.** Uniqueness of workspace names was enforced on
+-- `lower(name)`, and SQLite's `lower()` folds `A`-`Z` and nothing else - D1
+-- carries no ICU extension, so there is no SQL-side fix. `Réunions` and
+-- `réunions` were therefore two different workspaces you could not tell apart
+-- in the tabs, which is the exact thing the rule exists to prevent ("Workspace
+-- names are only case-insensitive in ASCII", issue 91). The fold moves into
+-- the application, and this column holds its result.
+--
+-- **Why `NOT NULL DEFAULT ''` and not nullable.** For the length of the deploy
+-- that follows 0005, old code is still writing workspaces and knows nothing
+-- about this column. A NULL would slip straight through the new unique index,
+-- because NULLs never collide, and let that code create the duplicate name the
+-- index exists to refuse. An empty string collides with the next one, so the
+-- second such write fails loudly instead.
+--
+-- **Interrupted.** One statement: either the column is there or it is not, and
+-- in both cases every read and write of the old code still works, because
+-- nothing but 0005's index reads it. If this ever does fail with "duplicate
+-- column name", the column is already present and the fix is to record this
+-- migration as applied, not to change the file.
+ALTER TABLE `workspaces` ADD `folded_name` text DEFAULT '' NOT NULL;

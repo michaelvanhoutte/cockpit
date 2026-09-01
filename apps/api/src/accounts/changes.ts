@@ -41,7 +41,7 @@ const ACCOUNT_SCHEMA: Change = {
 	\`id\` text PRIMARY KEY NOT NULL,
 	\`tenant_id\` text NOT NULL,
 	\`name\` text NOT NULL,
-	\`slug\` text NOT NULL,
+	\`folded_name\` text DEFAULT '' NOT NULL,
 	\`color\` text NOT NULL,
 	\`created_at\` text NOT NULL,
 	\`deleted_at\` text,
@@ -115,7 +115,7 @@ const ACCOUNT_SCHEMA: Change = {
 ) STRICT`,
     },
     {
-      sql: 'CREATE UNIQUE INDEX `workspaces_tenant_live_name` ON `workspaces` (`tenant_id`,lower("name")) WHERE "deleted_at" IS NULL',
+      sql: 'CREATE UNIQUE INDEX `workspaces_tenant_live_folded_name` ON `workspaces` (`tenant_id`,`folded_name`) WHERE "deleted_at" IS NULL',
     },
     {
       sql: 'CREATE INDEX `items_tenant_workspace_status` ON `items` (`tenant_id`,`workspace_id`,`status`)',
@@ -143,10 +143,10 @@ function startingWorkspaces(accountId: string): Change {
     name: '0002-starting-workspaces',
     statements: [
       {
-        sql: `INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES
-                ('ws-work', ?, 'Work', 'ws-work', '#6f62b5', '2026-08-12T00:00:01.000Z'),
-                ('ws-atlas', ?, 'Atlas Copco', 'ws-atlas', '#3a72c8', '2026-08-12T00:00:02.000Z'),
-                ('ws-personal', ?, 'Personal', 'ws-personal', '#c06a45', '2026-08-12T00:00:03.000Z')`,
+        sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES
+                ('ws-work', ?, 'Work', 'work', '#6f62b5', '2026-08-12T00:00:01.000Z'),
+                ('ws-atlas', ?, 'Atlas Copco', 'atlas copco', '#3a72c8', '2026-08-12T00:00:02.000Z'),
+                ('ws-personal', ?, 'Personal', 'personal', '#c06a45', '2026-08-12T00:00:03.000Z')`,
         params: [accountId, accountId, accountId],
       },
     ],

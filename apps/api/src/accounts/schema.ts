@@ -123,11 +123,24 @@ export const workspaces = sqliteTable(
     tenantId: text('tenant_id').notNull(),
     name: text('name').notNull(),
     /**
-     * Read by nothing - no URL, no CSS selector, no component - and dropped by
-     * "Drop the unused workspace slug column" (issue 78). Until then it is
-     * written, never read, and holds the workspace's own id.
+     * The name with its case folded away, written beside the name itself. The
+     * unique index below is its only reader: the handler that asks whether a
+     * name is taken folds the *names* it already has in hand instead, because a
+     * row can hold a stale folded copy or none at all.
+     *
+     * It exists because SQLite's `lower()` folds `A`-`Z` and nothing else, so
+     * `Réunions` and `réunions` were two different workspaces you could not
+     * tell apart in the tabs ("Workspace names are only case-insensitive in
+     * ASCII", issue 91). Folding happens in the application, where the whole of
+     * Unicode is available; `foldName` in src/domain/workspaces.ts is the one
+     * function that does it.
+     *
+     * `NOT NULL DEFAULT ''` matches the D1 copy, where the default was
+     * load-bearing across the deploy that added it. A store creates the column
+     * with the table, so nothing here ever wrote a row without it - the default
+     * is kept so the two schemas do not differ in a way nobody meant.
      */
-    slug: text('slug').notNull(),
+    foldedName: text('folded_name').notNull().default(''),
     color: text('color').notNull(),
     createdAt: text('created_at').notNull(),
     /**
@@ -148,17 +161,24 @@ export const workspaces = sqliteTable(
   (t) => [
     /**
      * Uniqueness is on the *name*, because the name is what a person types and
-     * reads; the slug index it replaces guarded a column nothing looks at.
+     * reads.
      *
-     * Partial and case-insensitive, which is two decisions:
-     * - `lower(name)`, so `personal` and `Personal` are the same name. Names
-     *   arrive already trimmed, from the wire schema.
+     * Partial and folded, which is two decisions:
+     * - on `folded_name`, so `Personal` and `personal` are the same name - and
+     *   so are `ÉTÉ` and `été`, which `lower(name)` in SQL could not manage
+     *   (see the column). Names arrive already trimmed, from the wire schema.
      * - `WHERE deleted_at IS NULL`, so deleting a workspace gives its name
      *   back. A tombstoned workspace keeps its name for the record without
      *   holding it hostage.
+     *
+     * This index is the lock behind the check, not the answer itself: nothing
+     * reads `folded_name` to decide whether a name is taken. Both writers of a
+     * name - creating and renaming - fold through the same `foldName`, and this
+     * index is what keeps a race between them from producing two rows with the
+     * same folded name.
      */
-    uniqueIndex('workspaces_tenant_live_name')
-      .on(t.tenantId, sql`lower(${t.name})`)
+    uniqueIndex('workspaces_tenant_live_folded_name')
+      .on(t.tenantId, t.foldedName)
       .where(sql`${t.deletedAt} IS NULL`),
     check('workspaces_created_at_is_timestamp', isTimestamp('created_at')),
     check('workspaces_deleted_at_is_timestamp', isTimestamp('deleted_at')),

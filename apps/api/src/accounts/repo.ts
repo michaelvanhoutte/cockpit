@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, ne } from 'drizzle-orm';
 import type { Association, Item, Workspace } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { associations, commands, items, workspaces } from './schema.js';
@@ -14,14 +14,34 @@ import { associations, commands, items, workspaces } from './schema.js';
  */
 
 /**
- * The wire shape of a workspace, from the row. `slug` and the bookkeeping
- * columns are dropped here rather than being selected around, so there is one
- * place to change when "Drop the unused workspace slug column" (issue 78)
- * removes it.
+ * The columns a workspace is read by: exactly the wire shape, named one by one.
+ *
+ * **Spelled out rather than left to a bare `select()`, and that is the whole
+ * point of it.** Drizzle builds a bare `select()`'s field list from every
+ * column declared on the table, so the SQL it sends names each one - including
+ * the ones this service has no use for. Measured, not assumed: it emitted
+ * `select "id", "tenant_id", "name", "folded_name", "slug", "color",
+ * "created_at", "deleted_at" from "workspaces"`.
+ *
+ * That is what makes dropping a column a two-release job rather than one, and
+ * naming the columns here is the first of those releases. A column this list
+ * does not mention can be dropped by a later release without the code running
+ * at that moment - which is this one - ever noticing. Drop one out from under a
+ * bare `select()` and every read of the table fails instead, which is not a
+ * degraded workspace list: it is no page at all.
+ *
+ * So: add a column here only when something reads it, and take it out one
+ * release before the migration that drops it. The rule has a test -
+ * "a workspace is read by the columns it is read by" in
+ * tests/integration/accounts/workspace-reads.test.ts - which drops a column nothing
+ * needs and asks for a workspace anyway.
  */
-function asWorkspace(row: typeof workspaces.$inferSelect): Workspace {
-  return { id: row.id, tenantId: row.tenantId, name: row.name, color: row.color };
-}
+const workspaceColumns = {
+  id: workspaces.id,
+  tenantId: workspaces.tenantId,
+  name: workspaces.name,
+  color: workspaces.color,
+};
 
 /** A deleted workspace is tombstoned, so every read of one filters it out. */
 const live = (tenantId: string) =>
@@ -29,12 +49,11 @@ const live = (tenantId: string) =>
 
 export function listWorkspaces(db: AccountDb, tenantId: string): Workspace[] {
   return db
-    .select()
+    .select(workspaceColumns)
     .from(workspaces)
     .where(live(tenantId))
     .orderBy(workspaces.createdAt)
-    .all()
-    .map(asWorkspace);
+    .all();
 }
 
 export function getWorkspace(
@@ -42,33 +61,13 @@ export function getWorkspace(
   tenantId: string,
   workspaceId: string,
 ): Workspace | null {
-  const row = db
-    .select()
-    .from(workspaces)
-    .where(and(live(tenantId), eq(workspaces.id, workspaceId)))
-    .get();
-  return row ? asWorkspace(row) : null;
-}
-
-/**
- * The live workspace already going by this name, compared the way the unique
- * index compares it, or null. Asked before the insert rather than left to the
- * index for the same reason a capture checks its workspace exists: the
- * constraint would surface as a 500, and a name already in use is something to
- * say out loud. The index is still the lock behind this one.
- *
- * It returns the *stored* name rather than a yes or no so the refusal can name
- * what is actually on screen. Someone typing `work` against a workspace called
- * `Work` is told about `Work`, not told that "work already exists" next to a
- * tab that plainly says something else.
- */
-export function liveWorkspaceNamed(db: AccountDb, tenantId: string, name: string): string | null {
-  const row = db
-    .select({ name: workspaces.name })
-    .from(workspaces)
-    .where(and(live(tenantId), sql`lower(${workspaces.name}) = lower(${name})`))
-    .get();
-  return row?.name ?? null;
+  return (
+    db
+      .select(workspaceColumns)
+      .from(workspaces)
+      .where(and(live(tenantId), eq(workspaces.id, workspaceId)))
+      .get() ?? null
+  );
 }
 
 /** Open items: tombstoned rows stay in the store but never in the snapshot. */

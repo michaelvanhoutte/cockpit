@@ -52,8 +52,8 @@ describe('Accounts', () => {
       await fetchWorkspaces();
       await inTheStoreAsItIs((sql) => {
         sql.exec(
-          `INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at)
-           VALUES ('ws-somebody-else', 'another-account', 'Theirs', 'ws-somebody-else', '#000000', '2026-08-12T00:00:04.000Z')`,
+          `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at)
+           VALUES ('ws-somebody-else', 'another-account', 'Theirs', 'theirs', '#000000', '2026-08-12T00:00:04.000Z')`,
         );
       });
 

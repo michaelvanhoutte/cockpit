@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { expectNoSidewaysScroll, openFirstWorkspace, press, uniqueTitle } from './support/app';
+import {
+  expectNoSidewaysScroll,
+  openFirstWorkspace,
+  openSettings,
+  press,
+  uniqueTitle,
+} from './support/app';
 
 /**
  * F3, because none of this exists below a real browser: the "···" menu is
@@ -10,8 +16,19 @@ import { expectNoSidewaysScroll, openFirstWorkspace, press, uniqueTitle } from '
  * It is not re-proving the naming rules, which
  * apps/api/tests/integration/http/workspace-management.test.ts owns against a
  * real database, nor the form's own behaviour, which
- * apps/web/tests/unit/pages/WorkspaceSettingsPage.test.tsx owns. This is the
- * one walk that says the capability works for a person.
+ * apps/web/tests/unit/pages/WorkspaceSettingsPage.test.tsx owns, nor where the
+ * router sends you when a workspace is gone, which
+ * apps/web/tests/unit/router.test.tsx owns. One walk per capability - making
+ * one, renaming one, deleting one - saying it works for a person.
+ *
+ * None of them touches a seeded workspace. Every spec in a run, under both
+ * projects, shares one database (support/app.ts), so deleting Work would take
+ * the other specs' workspace with it; each walk makes the workspace it is
+ * going to change. That is also why "the last workspace can be deleted" is not
+ * here: it needs a database with nothing in it, which this tier cannot arrange
+ * without emptying it for everything else. The router's side of it is proved
+ * in apps/web/tests/unit/router.test.tsx, and the server's in the integration
+ * tests above.
  */
 test.describe('Workspace management', () => {
   test.describe('a workspace you make is one you can switch to', () => {
@@ -40,6 +57,61 @@ test.describe('Workspace management', () => {
 
       await press(tab, isMobile);
       await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+    });
+  });
+
+  test.describe('a workspace you rename is called that everywhere you see it', () => {
+    test('changes the name in the tabs, from the settings page', async ({ page, isMobile }) => {
+      const before = uniqueTitle('Bookkeeping');
+      const after = uniqueTitle('Accounts');
+      await openFirstWorkspace(page);
+      await openSettings(page, isMobile);
+      await page.getByLabel('Name of the new workspace').fill(before);
+      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+      await expect(page.locator('header').getByRole('link', { name: before })).toBeVisible();
+
+      await press(page.getByRole('button', { name: `Rename ${before}` }), isMobile);
+      await page.getByLabel(`New name for ${before}`).fill(after);
+      await press(page.getByRole('button', { name: 'Save' }), isMobile);
+
+      await expect(page.locator('header').getByRole('link', { name: after })).toBeVisible();
+      await expect(page.locator('header').getByRole('link', { name: before })).toHaveCount(0);
+      await expectNoSidewaysScroll(page);
+    });
+  });
+
+  test.describe('deleting the workspace you were looking at leaves you somewhere that works', () => {
+    test('takes the workspace out of the tabs and lands you on one that is still there', async ({
+      page,
+      isMobile,
+    }) => {
+      const name = uniqueTitle('Doomed');
+      await openFirstWorkspace(page);
+      await openSettings(page, isMobile);
+      await page.getByLabel('Name of the new workspace').fill(name);
+      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+
+      // Look at it, so what is deleted is the workspace being viewed.
+      const tab = page.locator('header').getByRole('link', { name });
+      await press(tab, isMobile);
+      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+      const itsUrl = page.url();
+
+      await openSettings(page, isMobile);
+      await press(page.getByRole('button', { name: `Delete ${name}` }), isMobile);
+      // What goes with it, before it goes: nothing was put in this one.
+      await expect(page.getByText(`Delete ${name}? There is nothing in it.`)).toBeVisible();
+      await press(page.getByRole('button', { name: `Yes, delete ${name}` }), isMobile);
+
+      await expect(tab).toHaveCount(0);
+      await expect(page.getByRole('button', { name: `Delete ${name}` })).toHaveCount(0);
+      await expectNoSidewaysScroll(page);
+
+      // Going back to where it was is not a dead end: a workspace you can work
+      // in, not a failed read of one that is gone.
+      await page.goto(itsUrl);
+      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+      expect(page.url()).not.toBe(itsUrl);
     });
   });
 });

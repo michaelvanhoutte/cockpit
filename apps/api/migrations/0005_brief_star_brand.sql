@@ -1,0 +1,71 @@
+-- Uniqueness of workspace names moves off `lower(name)` and onto the folded
+-- column 0004 added ("Workspace names are only case-insensitive in ASCII",
+-- issue 91). 0003 is the template for everything below, including its ordering
+-- notes.
+--
+-- **The backfill under-folds, on purpose.** It uses `lower(name)` - the very
+-- function this migration exists to stop trusting - because it is the only
+-- fold SQL has, and the application's is not reachable from here. That is safe
+-- rather than wrong: it is exact for every ASCII name, and an under-folded row
+-- is too *permissive*, never falsely rejecting anything. It corrects itself the
+-- next time that workspace is renamed. A workspace named before this lands and
+-- never renamed keeps a slightly wrong fold forever, and that is accepted.
+--
+-- **Order matters.** The new index is created *before* the old one is dropped,
+-- so a failure leaves the stricter guarantee standing rather than none.
+--
+-- **What this cannot fail on, contrary to how 0003 read.** Two live workspaces
+-- whose names differ only in non-ASCII case survive this migration rather than
+-- stopping it. They have to: the backfill writes `lower(name)`, which is the
+-- *same expression* the old index already enforced uniqueness on, so any pair
+-- the old index tolerated gets two different folded values here and the new
+-- index tolerates it too. `RÉUNIONS` and `Réunions` fold to `rÉunions` and
+-- `réunions` under SQL's ASCII-only `lower()`, and those are not equal. Such a
+-- pair is carried through and stays carried through until one of them is
+-- renamed - which is the permissive under-fold described above, seen from the
+-- other side, not a second behaviour.
+--
+-- Deliberately not fixed by folding harder here, because there is no harder
+-- fold in SQL to reach for, and not by choosing a winner, for the reason 0003
+-- gives: silently renaming somebody's workspace would be worse than the
+-- duplicate. What closes it instead is the *handler*, which folds the names it
+-- reads rather than trusting this column, so it refuses the second one the
+-- next time somebody types it (src/http/command-service.ts).
+--
+-- **So, unlike 0003, nothing here can fail on the data it finds.** The same
+-- argument covers the empty-string rows old code writes between 0004 and this
+-- file: the old index is live until the last statement below, so every live row
+-- in a tenant already has a distinct `lower(name)`, and the backfill gives each
+-- of them exactly that. Two of them cannot come out equal.
+--
+-- What is left is a race of milliseconds rather than a state of the data: two
+-- workspaces created by old code *between* the backfill and the `CREATE`, which
+-- take the default and are both still `''` when the index is built. If that
+-- ever happens the index is refused, this migration fails, the deploy fails,
+-- and the old code keeps running against a database that is otherwise
+-- untouched - which is the intended outcome. The fix is one rename by hand,
+-- then redeploy.
+--
+-- **Every statement here is therefore re-runnable**, because that redeploy runs
+-- this file again from the top. The `UPDATE` is idempotent - it only touches
+-- rows the backfill has not reached - and `IF NOT EXISTS` / `IF EXISTS` are not
+-- decoration: without them the retry fails on work it already did, and no
+-- amount of fixing the data would get the deploy through.
+--
+-- **The windows this can be interrupted in**, in order:
+--   1. Backfilled, before the new index exists - the old index is still the one
+--      enforcing uniqueness, so nothing is weaker than before.
+--   2. Both indexes present - strictly stricter than before.
+--   3. After the swap, before the new code is live - old code writes no folded
+--      value, so its inserts take the column default and collide with each
+--      other on the empty string rather than escaping uniqueness. See 0004.
+--      Stated plainly, because it cuts both ways: in that window the *second*
+--      workspace old code creates is refused whatever it is called, not only
+--      one whose name is taken. A deploy is seconds long and a refusal that
+--      says so is recoverable; a duplicate name written past the index is not.
+--      The row the *first* such create leaves behind keeps an empty folded
+--      name for good - nothing backfills it a second time - and that is the
+--      other reason the handler folds names rather than reading this column.
+UPDATE `workspaces` SET `folded_name` = lower(`name`) WHERE `folded_name` = '';--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `workspaces_tenant_live_folded_name` ON `workspaces` (`tenant_id`,`folded_name`) WHERE "workspaces"."deleted_at" IS NULL;--> statement-breakpoint
+DROP INDEX IF EXISTS `workspaces_tenant_live_name`;

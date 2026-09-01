@@ -42,6 +42,10 @@ export async function fetchSnapshot(workspaceId: string): Promise<WorkspaceSnaps
 const commandSenders = {
   create_workspace: (p: CommandPayload<'create_workspace'>) =>
     api.v1.commands.create_workspace.$post({ json: p }),
+  rename_workspace: (p: CommandPayload<'rename_workspace'>) =>
+    api.v1.commands.rename_workspace.$post({ json: p }),
+  delete_workspace: (p: CommandPayload<'delete_workspace'>) =>
+    api.v1.commands.delete_workspace.$post({ json: p }),
   capture_item: (p: CommandPayload<'capture_item'>) => api.v1.commands.capture_item.$post({ json: p }),
   set_status: (p: CommandPayload<'set_status'>) => api.v1.commands.set_status.$post({ json: p }),
   snooze_until: (p: CommandPayload<'snooze_until'>) => api.v1.commands.snooze_until.$post({ json: p }),
