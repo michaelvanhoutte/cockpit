@@ -5,6 +5,7 @@ import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
 import { workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
 import { DashboardBar } from '../components/DashboardBar';
+import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
 
 /** The default theme in the shape a workspace carries it. */
 const DEFAULT_WORKSPACE_THEME_COLORS = {
@@ -85,32 +86,20 @@ export function Layout() {
             ))}
           </nav>
 
+          {/* The same control as every other menu in the app (components/
+              Menu.tsx). It used to be a bordered pill, given that weight
+              because three faint characters did not read as a control - which
+              an icon with a hover and a focus state does without inventing a
+              second look for the one menu in the header. */}
           <DropdownMenu.Root>
-            {/* Reads as a control, rather than as three characters that
-                happen to be there. It was styled like the row menu inside a
-                panel — faint, unbordered — which is right for something one of
-                many rows owns and wrong for the only way into settings. */}
-            <DropdownMenu.Trigger
-              aria-label="Settings"
-              className="shrink-0 rounded-md border border-accent-soft/70 bg-accent-tint px-3 py-1 text-lg font-semibold leading-6 text-accent-deep hover:border-accent hover:bg-accent hover:text-white data-[state=open]:border-accent data-[state=open]:bg-accent data-[state=open]:text-white"
-            >
-              ···
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                align="end"
-                className="min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
-              >
-                <DropdownMenu.Item asChild>
-                  <Link
-                    to="/settings/workspaces"
-                    className="block cursor-default rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-tint data-[highlighted]:text-accent-deep"
-                  >
-                    Workspaces
-                  </Link>
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
+            <MenuTrigger label="Settings" />
+            <MenuContent>
+              <DropdownMenu.Item asChild>
+                <Link to="/settings/workspaces" className={menuItemClass}>
+                  Workspaces
+                </Link>
+              </DropdownMenu.Item>
+            </MenuContent>
           </DropdownMenu.Root>
         </div>
         {/* The dashboards of the workspace you are in, directly under its tab.

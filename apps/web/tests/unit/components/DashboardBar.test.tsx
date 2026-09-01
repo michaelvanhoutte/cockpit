@@ -22,8 +22,22 @@ vi.mock('@tanstack/react-router', () => ({
   // `href` so it is a link to the accessibility tree, which is what the bar's
   // entries are; where each one goes is the router's, and is walked in
   // tests/e2e/dashboards.test.ts.
-  Link: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
-    <a href="#" className={className}>
+  //
+  // Everything else is passed through rather than dropped: the entry inside
+  // the bar's menu is a `Link` rendered `asChild`, so the role that makes it a
+  // menu entry arrives as a prop from Radix and a mock that kept only
+  // `children` would quietly render it as an ordinary anchor.
+  Link: ({
+    children,
+    to: _to,
+    params: _params,
+    ...rest
+  }: {
+    children?: React.ReactNode;
+    to?: unknown;
+    params?: unknown;
+  } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href="#" {...rest}>
       {children}
     </a>
   ),
@@ -109,12 +123,12 @@ describe('Dashboards', () => {
       await screen.findByRole('link', { name: 'Research' });
       const entries = screen.getAllByRole('link');
       // The Inbox first because it is pinned, then the dashboards in the order
-      // the workspace holds them, and the way to manage them at the end.
+      // the workspace holds them. The way to manage them is a menu rather than
+      // a fourth entry, and is covered by the rule below.
       expect(entries.map((entry) => entry.textContent)).toEqual([
         'Inbox',
         'Dashboard 1',
         'Research',
-        '···',
       ]);
       expect(bar).toBeVisible();
     });
@@ -124,6 +138,25 @@ describe('Dashboards', () => {
 
       // It is pinned, not a row of anything: nothing can take it away.
       expect(screen.getByRole('link', { name: 'Inbox' })).toBeVisible();
+    });
+  });
+
+  describe('the bar opens a menu of its own, and managing dashboards is an entry in it', () => {
+    // It used to be three dots that navigated straight to the settings page:
+    // a menu's glyph on a link ("Open every menu from the same control",
+    // issue 115). What it opens is asserted here; that the entry really lands
+    // on the settings page is the router's, and is walked in
+    // tests/e2e/dashboards.test.ts.
+    it('opens on the control and closes again without going anywhere', async () => {
+      const { user } = showBar(['Dashboard 1']);
+
+      expect(screen.queryByRole('menu')).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Dashboard actions' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Manage dashboards' })).toBeVisible();
+
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('menu')).toBeNull();
     });
   });
 

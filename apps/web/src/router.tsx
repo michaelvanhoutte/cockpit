@@ -143,8 +143,10 @@ export const dashboardRoute = createRoute({
 });
 
 /**
- * The dashboards of one workspace, managed. Reached from the `...` at the right
- * of the bar it governs, and addressed under the workspace for the same reason:
+ * The dashboards of one workspace, managed. Reached from "Manage dashboards"
+ * in the menu at the right of the bar it governs ("Open every menu from the
+ * same control", issue 115), and addressed under the workspace for the same
+ * reason:
  * what it acts on is where it sits ("Rename and delete a dashboard from a
  * dashboard settings page", issue 90).
  */
@@ -157,7 +159,7 @@ export const dashboardSettingsRoute = createRoute({
   component: DashboardSettingsPage,
 });
 
-/** Reached from the header's "···" menu; the home of everything per-workspace. */
+/** Reached from the header's menu; the home of everything per-workspace. */
 const workspaceSettingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/workspaces',
