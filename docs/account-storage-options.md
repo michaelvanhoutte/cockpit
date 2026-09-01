@@ -78,6 +78,14 @@ Two things this decision does *not* change:
 - **The register stays in D1.** Users, sessions and the account register are global, are queried before any account is known, and are small. They also stay physically separate from account data, which the platform then enforces: D1 cannot join across bindings, and a Worker cannot join D1 to a Durable Object at all.
 - **The live-updates stream stays in the Worker.** Durable Objects bill wall-clock duration, an open connection keeps an object in memory and billing for up to 15 minutes at a stretch, and hibernation covers WebSockets only. The Worker polls the object; the object does not hold the stream. If that is ever revisited, the prize is dropping the 3-second poll for a push, and the price is a WebSocket.
 
+## A cost the proof did not find
+
+**Preview URLs stop existing.** Cloudflare does not generate them for a Worker that implements a Durable Object ([preview URLs](https://developers.cloudflare.com/workers/configuration/previews/): "Preview URLs are not generated for Workers that implement a Durable Object"), and every preview here is a *version of one Worker*, so the moment `cockpit-preview` gained the account store its per-branch URLs began answering with Cloudflare's placeholder page.
+
+It is recorded here rather than only in the deployment document because it belongs to this decision and not to that mechanism, and because it is the one cost the proof missed: the proof measured an object, not a deployment, so the question never came up. It does not reverse the decision — a per-branch URL for a personal application is a convenience, and staging still deploys for real — but it was not on the ledger when the decision was taken, and anyone reading this to make the same choice should have it on theirs. What replaces previews is deliberately still open; see "Preview URLs and Durable Objects are mutually exclusive" in [deployment.md](deployment.md).
+
+The related, smaller finding beside it: a Durable Object migration cannot be applied by `wrangler versions upload` at all, so a *new* class has to reach each Worker through one non-versioned `wrangler deploy` before any version carrying it will upload.
+
 ## What would reverse it
 
 - **Lazy migration turning out worse in production than locally.** Everything measured ran on `workerd` and miniflare, where an object's storage is a file on disk rather than replicated. The shape of the answer should hold; the constant may not. The first deployed schema change is the check.

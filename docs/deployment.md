@@ -147,6 +147,14 @@ before the API is deployed *or* run with `wrangler dev`. `pnpm build` first.
 
 ## 4. Preview environments
 
+**Status: the URLs no longer work, and cannot.** Everything below describes a
+mechanism that operated as designed until this Worker gained a Durable Object.
+It is kept because the alias rules, the shared database and the bootstrap are
+all still true of what the workflow does — but the URL it ends up commenting on
+a pull request resolves to Cloudflare's "There is nothing here yet" placeholder.
+See "Preview URLs and Durable Objects are mutually exclusive" below for the
+reason and what is left. Read that first.
+
 Every branch except `main` gets one, triggered on `push` rather than
 `pull_request` so that a draft PR, or a branch with no PR at all, is deployed
 too.
@@ -189,6 +197,36 @@ branch goes away, and the free plan's ten-database ceiling means it does not fit
 at all against the seventeen branches this repository already carries. The
 shared database costs nothing to run and needs no lifecycle machinery.
 
+### Preview URLs and Durable Objects are mutually exclusive
+
+**Measured, then confirmed against Cloudflare's own documentation.** The upload
+succeeds and the check goes green; the URL serves nothing. Cloudflare's
+[preview URLs page](https://developers.cloudflare.com/workers/configuration/previews/)
+says it outright:
+
+> Preview URLs are not generated for Workers that implement a Durable Object,
+> including Containers and Sandbox Workers.
+
+An account's data lives in one Durable Object per account, so `cockpit-preview`
+implements one, so it gets no preview URLs. Nothing about the alias, the
+bootstrap or the workflow changes that; the limitation is the platform's.
+
+**How it presents, which is the dangerous part.** `wrangler versions upload`
+still succeeds, so the Preview check passes — it asserts that the upload
+happened, not that anything is reachable. The workflow then *constructs* the
+alias URL from the alias it passed rather than reading one back from Wrangler,
+and comments it on the pull request. So a pull request carries a green check and
+a URL that looks right and answers with a placeholder. The tell in the log is
+that Wrangler prints no `Version Preview URL:` line at all.
+
+**What is left, until this is decided.** Staging is a real deploy of `main` and
+is unaffected; it is where a change is seen running before production. The
+alternatives, none of them taken yet: accept that and make the check and its
+comment say so rather than implying a preview exists; go back to a Worker per
+branch, which is what this section rejected for its lifecycle machinery and
+which the free plan's limits shaped; or keep previews for the frontend only,
+against a deployed backend.
+
 ### A Durable Object class cannot be introduced by a preview
 
 **Measured, not inferred**, on the first preview deploy that carried one:
@@ -225,6 +263,9 @@ That is the same one-time bootstrap the runbook below already performs for the
 preview Worker, repeated for the class. Afterwards the migration is applied and
 every branch's `versions upload` sends no migration at all, so the failure does
 not recur - including for branches that do not know the class exists.
+
+It buys a green check and nothing else: the version uploads, and the section
+above is why no URL serves it.
 
 The same is true of account data, and more sharply: every preview version runs
 under the one `cockpit-preview` Worker, so they share its Durable Object
