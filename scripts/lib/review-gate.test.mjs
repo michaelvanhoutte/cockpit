@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { decideOutcome, resultRecordOf, verdictOf } from './review-gate.mjs';
+import { COMMENT_MARKER, decideOutcome, resultRecordOf, summaryComment, verdictOf } from './review-gate.mjs';
 
 /** A result record as the action writes one, with the parts under test. */
 function run({ text = 'SECURITY-VERDICT: NONE', turns = 14, ...rest } = {}) {
@@ -210,5 +210,47 @@ describe('decideOutcome', () => {
     const out = decideOutcome({ executionText: file(run({ turns: 3 })), conclusion: 'success' });
     assert.equal(out.ok, true);
     assert.match(out.warnings.join(' '), /only 3 turns/);
+  });
+});
+
+describe('summaryComment', () => {
+  const decide = (opts) => decideOutcome({ executionText: file(run(opts)), conclusion: 'success' });
+
+  it('carries the marker, so the next run edits this comment instead of adding another', () => {
+    assert.ok(summaryComment(decide()).startsWith(COMMENT_MARKER));
+  });
+
+  it('says a clean review looked and found nothing, not merely that the check passed', () => {
+    // The distinction the whole gate exists for: from the pull request alone,
+    // "reviewed, found nothing" must not read the same as "never ran".
+    const body = summaryComment(decide());
+    assert.match(body, /Verdict: NONE/);
+    assert.match(body, /read the diff and found nothing/);
+  });
+
+  it('states the verdict for findings that do not block', () => {
+    const body = summaryComment(decide({ text: 'SECURITY-VERDICT: MEDIUM' }));
+    assert.match(body, /Verdict: MEDIUM/);
+    assert.match(body, /do not block the merge/);
+  });
+
+  it('gives the reason when the check is red, rather than only the verdict', () => {
+    const body = summaryComment(decide({ text: 'SECURITY-VERDICT: HIGH' }));
+    assert.match(body, /This check is red/);
+    assert.match(body, /must not merge/);
+  });
+
+  it('explains a red that is not a finding at all', () => {
+    const body = summaryComment(decide({ turns: 0, text: '' }));
+    assert.match(body, /This check is red/);
+    assert.match(body, /without taking a single turn/);
+    assert.doesNotMatch(body, /Verdict:/);
+  });
+
+  it('keeps warnings out of the headline', () => {
+    const body = summaryComment(decide({ turns: 2 }));
+    assert.match(body, /Verdict: NONE/);
+    assert.match(body, /only 2 turns/);
+    assert.match(body, /<details>/);
   });
 });

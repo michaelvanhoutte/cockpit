@@ -7,11 +7,45 @@
 // Usage: node scripts/assert-security-review.mjs <execution-file> <conclusion>
 //
 
+import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 
-import { decideOutcome } from './lib/review-gate.mjs';
+import { COMMENT_MARKER, decideOutcome, summaryComment } from './lib/review-gate.mjs';
 
 const [executionFile, conclusion] = process.argv.slice(2);
+
+/**
+ * Leave the verdict on the pull request, editing the note this workflow left
+ * last time rather than adding another.
+ *
+ * Deliberately never fatal. The verdict is what the check is about, and turning
+ * a clean review red because a comment could not be posted would be the gate
+ * failing for a reason that has nothing to do with the code - the exact
+ * behaviour it exists to refuse in the reviewer.
+ */
+function leaveSummary(outcome) {
+  const repo = process.env.GITHUB_REPOSITORY;
+  const pr = process.env.PR_NUMBER;
+  if (!repo || !pr) return;
+
+  const gh = (args, input) =>
+    execFileSync('gh', args, { input, encoding: 'utf8', env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+
+  try {
+    const existing = JSON.parse(
+      gh(['api', `repos/${repo}/issues/${pr}/comments`, '--paginate', '--jq', '[.[] | {id, body}]']),
+    ).find((c) => (c.body ?? '').includes(COMMENT_MARKER));
+
+    const body = JSON.stringify({ body: summaryComment(outcome) });
+    if (existing) {
+      gh(['api', '--method', 'PATCH', `repos/${repo}/issues/comments/${existing.id}`, '--input', '-'], body);
+    } else {
+      gh(['api', '--method', 'POST', `repos/${repo}/issues/${pr}/comments`, '--input', '-'], body);
+    }
+  } catch (error) {
+    console.log(`::warning::Could not leave the verdict on the pull request: ${error.message}`);
+  }
+}
 
 let executionText = '';
 try {
@@ -60,5 +94,7 @@ if (outcome.ok) {
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary.join('\n')}\n`);
 }
+
+leaveSummary(outcome);
 
 process.exit(outcome.ok ? 0 : 1);

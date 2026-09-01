@@ -26,6 +26,58 @@
 export const SEVERITIES = ['NONE', 'LOW', 'MEDIUM', 'HIGH'];
 
 /**
+ * Hidden marker identifying this workflow's comment, so each run edits the one
+ * it left last time instead of adding another. A review that comments on every
+ * push turns a long pull request into a column of near-identical notices, which
+ * is its own way of not being read.
+ */
+export const COMMENT_MARKER = '<!-- cockpit-security-review -->';
+
+/**
+ * What the pull request should say about this run.
+ *
+ * The workflow posts this rather than asking the reviewer to. The prompt does
+ * ask - "post a short summary comment when you find nothing" - and on the first
+ * run that ever reached a verdict it did not, leaving a green check whose only
+ * evidence was inside the job log. That is the state this whole gate exists to
+ * refuse: from the pull request alone, "reviewed, found nothing" and "never ran"
+ * looked identical.
+ *
+ * Asking harder would have been the obvious fix and the wrong one. The sibling
+ * workflow already tried inferring a review from whether Claude spoke, and
+ * issue 75 is the open bug saying that inference goes stale. The gate already
+ * knows the verdict; having it say so needs no cooperation from anyone.
+ */
+export function summaryComment(outcome) {
+  const lines = [COMMENT_MARKER, '## Security review', ''];
+
+  if (outcome.ok) {
+    lines.push(`**Verdict: ${outcome.verdict}.** ${verdictMeaning(outcome.verdict)}`);
+  } else {
+    lines.push('**This check is red.**', '');
+    for (const failure of outcome.failures) lines.push(`- ${failure}`);
+  }
+
+  if (outcome.warnings.length > 0) {
+    lines.push('', '<details><summary>Worth a look</summary>', '');
+    for (const warning of outcome.warnings) lines.push(`- ${warning}`);
+    lines.push('', '</details>');
+  }
+
+  lines.push(
+    '',
+    '<sub>Any findings are inline comments on the diff. This note is written by the gate, not by the reviewer, so it appears whether or not the reviewer said anything.</sub>',
+  );
+  return lines.join('\n');
+}
+
+function verdictMeaning(severity) {
+  if (severity === 'NONE') return 'The reviewer read the diff and found nothing to report.';
+  if (severity === 'HIGH') return 'This must not merge as it stands.';
+  return `Findings at ${severity} do not block the merge; they are for a person to weigh.`;
+}
+
+/**
  * The single line the run is required to end with, anchored to the start of a
  * line so that prose about severities cannot match it.
  *

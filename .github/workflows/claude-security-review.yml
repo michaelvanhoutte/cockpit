@@ -133,7 +133,8 @@ jobs:
 
             Read .github/security-review-instructions.md first and treat it as the definition of what
             counts as a finding in this repository. Post each finding as an inline comment on the line
-            it concerns, and post a short summary comment when you find nothing.
+            it concerns. Do not post a summary comment: the gate writes one from your verdict after
+            you finish, and a second would just be a duplicate of it.
           # Worth being explicit that the instructions are read from the branch
           # under review rather than from the default branch, which means a
           # pull request can weaken the rules it is about to be judged by. That
@@ -155,6 +156,20 @@ jobs:
         env:
           CONCLUSION: ${{ steps.security-review.outputs.conclusion }}
           EXECUTION_FILE: ${{ steps.security-review.outputs.execution_file }}
+          # The gate leaves the verdict on the pull request itself, because the
+          # reviewer does not reliably do it. The prompt asks it to - "post a
+          # short summary comment when you find nothing" - and on the first run
+          # that ever reached a verdict it posted nothing at all, leaving a green
+          # check whose only evidence was inside the job log. That is the state
+          # this gate exists to refuse: from the pull request alone, "reviewed,
+          # found nothing" read exactly like "never ran".
+          #
+          # Asking harder was the obvious fix and the wrong one. The sibling
+          # workflow already infers a review from whether Claude spoke, and issue
+          # 75 is the open bug saying that inference goes stale. The gate knows
+          # the verdict; having it say so needs nobody's cooperation.
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         # Every decision this makes is in scripts/lib/review-gate.mjs, asserted
         # by node --test in the Scripts job. The equivalent step in
         # claude-code-review.yml is ~120 lines of bash whose comments record
