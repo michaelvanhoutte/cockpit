@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, ne } from 'drizzle-orm';
 import type { Association, Item, Workspace } from '@cockpit/shared';
 import type { Db } from './client.js';
 import { associations, commands, items, workspaces } from './schema.js';
@@ -43,30 +43,6 @@ export async function getWorkspace(
     .where(and(live(tenantId), eq(workspaces.id, workspaceId)));
   const row = rows[0];
   return row ? asWorkspace(row) : null;
-}
-
-/**
- * The live workspace already going by this name, compared the way the unique
- * index compares it, or null. Asked before the insert rather than left to the
- * index for the same reason a capture checks its workspace exists: the
- * constraint would surface as a 500, and a name already in use is something to
- * say out loud. The index is still the lock behind this one.
- *
- * It returns the *stored* name rather than a yes or no so the refusal can name
- * what is actually on screen. Someone typing `work` against a workspace called
- * `Work` is told about `Work`, not told that "work already exists" next to a
- * tab that plainly says something else.
- */
-export async function liveWorkspaceNamed(
-  db: Db,
-  tenantId: string,
-  name: string,
-): Promise<string | null> {
-  const rows = await db
-    .select({ name: workspaces.name })
-    .from(workspaces)
-    .where(and(live(tenantId), sql`lower(${workspaces.name}) = lower(${name})`));
-  return rows[0]?.name ?? null;
 }
 
 /** Open items: tombstoned rows stay in the database but never in the snapshot. */

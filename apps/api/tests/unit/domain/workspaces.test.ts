@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_PALETTE, nextColor, workspaceFromCommand } from '../../../src/domain/workspaces.js';
+import {
+  WORKSPACE_PALETTE,
+  foldName,
+  nextColor,
+  workspaceFromCommand,
+} from '../../../src/domain/workspaces.js';
 
 const TENANT_ID = 'tenant-default';
 const AT = '2026-08-12T10:00:00.000Z';
@@ -35,6 +40,25 @@ describe('Workspace management', () => {
     });
   });
 
+  describe('two names are the same name when only their case differs, in any alphabet', () => {
+    // L1: which names count as the same one is a pure decision over two
+    // strings. That the second of them is then actually refused - by the
+    // handler, and by the index behind it - is proved against a real database
+    // in tests/integration.
+    it.each([
+      { situation: 'the same accented name in another case', one: 'ÉTÉ', other: 'été', same: true },
+      { situation: 'the same plain name in another case', one: 'Personal', other: 'personal', same: true },
+      // Lower case alone would leave these two apart: `STRASSE` lowercases to
+      // `strasse` while `Straße` stays as it is. Upper case expands the sharp
+      // s first, which is what makes them meet.
+      { situation: 'a name whose sharp s is written out in the other case', one: 'STRASSE', other: 'Straße', same: true },
+      { situation: 'a name that differs by an accent rather than by case', one: 'Reunions', other: 'Réunions', same: false },
+      { situation: 'the same name with blanks around one of them', one: '  Réunions ', other: 'Réunions', same: true },
+    ])('$situation', ({ one, other, same }) => {
+      expect(foldName(one) === foldName(other)).toBe(same);
+    });
+  });
+
   describe('a new workspace starts out empty and belongs to the person who made it', () => {
     it('records the name, the color and who it belongs to', () => {
       const workspace = workspaceFromCommand(
@@ -46,6 +70,12 @@ describe('Workspace management', () => {
         id: 'ws-new',
         tenantId: TENANT_ID,
         name: 'Personal',
+        // The copy the unique index holds, so that two names differing only in
+        // case are one name whatever alphabet they are written in ("Workspace
+        // names are only case-insensitive in ASCII", issue 91). Which names
+        // that makes the same is proved through the interface, in
+        // tests/integration/http/workspace-management.test.ts.
+        foldedName: 'personal',
         // Written, read by nothing, and dropped by "Drop the unused workspace
         // slug column" (issue 78); the id is used because it is unique without
         // inventing a second naming rule.

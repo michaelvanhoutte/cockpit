@@ -119,6 +119,29 @@ export const workspaces = sqliteTable(
       .references(() => tenants.id, { onDelete: 'restrict' }),
     name: text('name').notNull(),
     /**
+     * The name with its case folded away, written beside the name itself. The
+     * unique index below is its only reader: the handler that asks whether a
+     * name is taken folds the *names* it already has in hand instead, because
+     * a row can hold a stale folded copy or none at all (see migration 0005,
+     * and the comment where that question is asked in
+     * src/http/command-service.ts).
+     *
+     * It exists because SQLite's `lower()` folds `A`-`Z` and nothing else, and
+     * D1 carries no ICU extension, so `Réunions` and `réunions` were two
+     * different workspaces you could not tell apart in the tabs ("Workspace
+     * names are only case-insensitive in ASCII", issue 91). Folding happens in
+     * the application, where the whole of Unicode is available; `foldName` in
+     * src/domain/workspaces.ts is the one function that does it.
+     *
+     * `NOT NULL DEFAULT ''` rather than nullable, and that default is
+     * load-bearing: for the length of the deploy that follows migration 0005,
+     * old code is still writing rows and knows nothing about this column. A
+     * NULL would slip through the unique index - NULLs never collide - and let
+     * that code create a duplicate name. An empty string collides with the
+     * next one, which is the loud failure this wants.
+     */
+    foldedName: text('folded_name').notNull().default(''),
+    /**
      * Read by nothing - no URL, no CSS selector, no component - and dropped by
      * "Drop the unused workspace slug column" (issue 78). It cannot go in the
      * same release that stopped reading it: migrations only roll forward, so
@@ -147,22 +170,29 @@ export const workspaces = sqliteTable(
   (t) => [
     /**
      * Uniqueness is on the *name*, because the name is what a person types and
-     * reads; the slug index it replaces guarded a column nothing looks at.
+     * reads; the slug index it replaced guarded a column nothing looks at.
      *
      * Partial and case-insensitive, which is two decisions:
-     * - `lower(name)`, so `personal` and `Personal` are the same name. Names
-     *   arrive already trimmed, from the wire schema.
+     * - on `folded_name`, so `Personal` and `personal` are the same name - and
+     *   so are `ÉTÉ` and `été`, which `lower(name)` in SQL could not manage
+     *   (see the column). Names arrive already trimmed, from the wire schema.
      * - `WHERE deleted_at IS NULL`, so deleting a workspace gives its name
      *   back. A tombstoned workspace keeps its name for the record without
      *   holding it hostage.
      *
-     * Migration 0003 makes the swap, and carries the answers to what happens
-     * when it meets two workspaces already named the same. Migration 0002 is
-     * the `deleted_at` column this index's WHERE clause depends on, which is
-     * why they are two files and in that order.
+     * This index is the lock behind the check, not the answer itself: nothing
+     * reads `folded_name` to decide whether a name is taken, so it only
+     * catches what a concurrent write gets past. Both writers of a name -
+     * creating here and renaming in "Rename and delete a workspace" (issue 77)
+     * - fold through the same `foldName`, and this index is what keeps a race
+     * between them from producing two rows with the same folded name.
+     *
+     * Migration 0005 makes the swap, and carries the answers to what happens
+     * when it meets two workspaces already named the same; 0004 is the column
+     * it reads, alone in its own file because `ADD COLUMN` cannot be re-run.
      */
-    uniqueIndex('workspaces_tenant_live_name')
-      .on(t.tenantId, sql`lower(${t.name})`)
+    uniqueIndex('workspaces_tenant_live_folded_name')
+      .on(t.tenantId, t.foldedName)
       .where(sql`${t.deletedAt} IS NULL`),
     check('workspaces_created_at_is_timestamp', isTimestamp('created_at')),
   ],

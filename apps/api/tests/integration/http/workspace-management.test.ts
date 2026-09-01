@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { Workspace } from '@cockpit/shared';
 import { createDb } from '../../../src/db/client.js';
 import { commands, workspaces } from '../../../src/db/schema.js';
-import { WORKSPACE_ID, seedWorkspaces } from '../seed.js';
+import { TENANT_ID, WORKSPACE_ID, seedWorkspaces } from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`SELF.fetch`), because every rule
@@ -163,6 +163,85 @@ describe('Workspace management', () => {
 
       expect((await theWorkspaces()).map((w) => w.id)).not.toContain(workspaceId);
       expect((await makeWorkspace(name)).status).toBe(200);
+    });
+  });
+
+  describe('no two workspaces share a name, whatever alphabet it is in', () => {
+    /**
+     * Which names count as the same name is a pure decision, and it is decided
+     * in apps/api/tests/unit/domain/workspaces.test.ts - the whole case table
+     * lives there, including the sharp s and the accent that is a different
+     * letter rather than a different case. What is left here is what only a
+     * real database answers: that a name refused this way comes back as a 409
+     * and stores nothing, and that a row whose stored fold is missing is
+     * refused too.
+     *
+     * Reusing the name of a workspace that is not there any more stays allowed,
+     * and is proved by "gives the name back to a workspace that is not there
+     * any more" above rather than repeated here - it needs a tombstone, which
+     * is not something a pair of names can express.
+     */
+    it('refuses the second of two names that differ only in case, whatever alphabet', async () => {
+      seq += 1;
+      const name = `ÉTÉ ${seq}`;
+      expect((await makeWorkspace(name)).status).toBe(200);
+      const before = await storedNames();
+
+      const response = await makeWorkspace(name.toLowerCase());
+
+      expect(response.status).toBe(409);
+      expect(await storedNames()).toEqual(before);
+    });
+
+    it('holds its name even when it was stored by a version that did not know the rule', async () => {
+      // The row an older Cockpit wrote: a name and no folded copy of it,
+      // exactly what the code serving requests during the deploy that
+      // introduced the column produces. Written directly because that version
+      // is not here to be asked, and there is no other way to arrange it.
+      const name = aName();
+      await env.DB.prepare(
+        'INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+        .bind(nextId(), TENANT_ID, name, nextId(), '#b58a2f', '2026-08-12T10:00:00.000Z')
+        .run();
+
+      expect((await makeWorkspace(name)).status).toBe(409);
+    });
+  });
+
+  describe('a workspace name is a single line', () => {
+    // Which characters break the line is decided in
+    // packages/shared/tests/unit/domain/item.test.ts, over the whole table.
+    // What is asked here is the half that only a real request answers: that the
+    // rule is reachable at all, that it comes back as a refusal to the caller
+    // rather than as a failure, and that nothing is stored on the way.
+    it('refuses a name broken over two lines, and stores nothing', async () => {
+      const name = aName();
+
+      const response = await makeWorkspace(`${name}\nand more`);
+
+      expect(response.status).toBe(400);
+      // Refused, not cleaned up: repairing input is where the bypasses live.
+      expect(await storedNames()).not.toContain(name);
+    });
+  });
+
+  describe('a workspace name comes back exactly as it was typed', () => {
+    // What sits between typing a name and reading it back is the command's
+    // JSON, a STRICT table with its CHECKs, and the wire schema on the way out.
+    // Any of them could change a character without anything else noticing.
+    it.each([
+      { situation: 'an ampersand', typed: 'Rock & Roll' },
+      { situation: 'something that looks like markup', typed: '<script>' },
+      { situation: 'an accent', typed: 'Réunion' },
+      { situation: 'an emoji', typed: '📊 Numbers' },
+    ])('$situation', async ({ typed }) => {
+      seq += 1;
+      const name = `${typed} ${seq}`;
+
+      expect((await makeWorkspace(name)).status).toBe(200);
+
+      expect((await theWorkspaces()).map((w) => w.name)).toContain(name);
     });
   });
 
