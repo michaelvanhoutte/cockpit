@@ -62,9 +62,18 @@ const WORDING: Record<FailureReason, Wording> = {
 export function LoadFailure({ error, onRetry, canTakeOver = false, surroundings }: Props) {
   const [reason, setReason] = useState<FailureReason | null>(null);
 
+  // Re-diagnosed on every fresh failure, because the reason genuinely moves: a
+  // deployment comes back, a connection goes. What must *not* move is the way
+  // out. A failure that persists is re-read for as long as this is on screen —
+  // the push stream reopens on a 3s→60s backoff and re-reads the workspace each
+  // time it fails (useServerEvents.ts), and every refusal arrives as its own new
+  // `Error` — so clearing the reason first replaced "Sign in again" with
+  // "Working out what went wrong…" for a whole `/health` round trip, over and
+  // over, and the button was simply not there when it was clicked. Keeping the
+  // last answer costs at worst naming a reason that is one round trip stale;
+  // taking the button away costs the click.
   useEffect(() => {
     let current = true;
-    setReason(null);
     void diagnose(error, surroundings).then((r) => {
       if (current) setReason(r);
     });
