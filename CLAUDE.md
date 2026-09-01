@@ -17,6 +17,13 @@ pnpm dev
 
 **Before writing code for any new feature or fix, run the `scoping` skill in `.claude/skills/scoping/`** — sharpening fuzzy requirements, sizing the work as a vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and generating its statement list. This applies whether the work is going straight into this session or being filed as a GitHub issue first; filing is not what triggers it.
 
+**Check the issue is still open, and unclaimed, at the moment you start it.** Several sessions work this repository at once: during one five-issue run `main` gained thirteen commits from other sessions, including one that took an issue explicitly held back from that run. "Rename and delete a workspace" (issue 77) was built whole — nine hundred lines, its tests, its browser pass — and only then found to have merged hours earlier as pull request 97. None of it was salvageable, because the version already on `main` was not worse: the three bugs the browser pass had found were all absent from it. Fetching `main` is not this check, and neither is having read the issue an hour ago — it can be closed by work that merged before your branch point, and by work that merges while you read it.
+
+```bash
+gh issue view <number> --json state,title,assignees
+gh pr list --state all --search <number> --json number,title,state
+```
+
 ## Tests
 
 **Follow the `testing` skill in `.claude/skills/testing/` before writing, moving or reviewing any test.** It triggers on its own and restates every binding rule, so there is no need to open the strategy document to write a test. `docs/testing-strategy.md` holds the reasoning and is the authoritative version of record; open it to change a rule or to settle something the skill does not decide.
@@ -28,15 +35,20 @@ The two rules that get skipped most, repeated here because they are the ones tha
 
 ## Review findings
 
-**Run the review yourself before pushing.** `/code-review` reads the same diff the pull request's reviewer will, and it runs now, where a remote round costs a push, a fresh CI run and fourteen minutes of waiting. Five of the eight findings in the first round on "Recover from an expired sign-in instead of failing silently" (pull request 71) were a single mechanical rule — a section cited by its number — that takes no judgement to find. Two rounds on that change spent twenty-eight minutes waiting to be told things a local pass says immediately.
+**Run the review yourself before pushing — `/code-review`, not only `/security-review`.** The two are not interchangeable, and running the cheaper one reads, from the transcript, exactly like having reviewed. Across the five pull requests of one run, every one of the twenty findings that came back — eighteen review threads and two more raised in a comment — was a code-review finding: an offline read that hung instead of failing, a route preload writing state on hover, a test that could no longer fail. The security review found nothing on any of them, correctly, and that silence read as a review having happened. `/code-review` reads the same diff the pull request's reviewer will, and it runs now, where a remote round costs a push, a fresh CI run and fourteen minutes of waiting. Five of the eight findings in the first round on "Recover from an expired sign-in instead of failing silently" (pull request 71) were a single mechanical rule — a section cited by its number — that takes no judgement to find. Two rounds on that change spent twenty-eight minutes waiting to be told things a local pass says immediately.
 
 **Opening the pull request is not the end of the task — the review runs after the push.** So a session that reports back the moment the pull request exists is handing over a job it has not finished, and "CI was still pending when I looked" is not a status: it is a note saying nobody looked again. Wait for the checks to settle before reporting done, then work the findings to the end of the rule below. Waiting is one command, and it costs nothing but wall clock:
 
 ```bash
-until ! gh pr checks <number> 2>/dev/null | grep -q 'pending'; do sleep 30; done; gh pr checks <number>
+sha=$(git rev-parse HEAD)
+until [ "$(gh pr view <number> --json headRefOid -q .headRefOid)" = "$sha" ] &&
+      [ -z "$(gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '.check_runs[] | select(.status != "completed") | .name')" ]; do sleep 30; done
+gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '.check_runs[] | [.name, .conclusion] | @tsv'
 ```
 
-Run it in the background and carry on with something else; do not poll it by hand and do not finish the turn on a pending check. This is what happened on "Create a workspace from a settings page" (pull request 81): the pull request was opened while `claude-review` was still pending, reported as done in the same breath, and the one finding it went on to raise sat unanswered until it was noticed by hand — and it was a mechanical one, a section cited by its number, which is the same rule the two rounds on pull request 71 were spent on.
+Run it from inside the repository — `git rev-parse` needs the working directory, and so does gh's `{owner}/{repo}`. Run it in the background and carry on with something else; do not poll it by hand and do not finish the turn on a pending check.
+
+**Wait on the commit you pushed, which is why that command names a SHA.** A waiter that asks "are this pull request's checks still pending?" answers about whatever GitHub currently calls the head, and for the seconds around a push that is still the *previous* commit — whose checks are long finished and green. It returns immediately, reporting a pass that belongs to code you have replaced. That happened twice in one run, and the second time the green it reported was one command away from being merged on. This is what happened on "Create a workspace from a settings page" (pull request 81): the pull request was opened while `claude-review` was still pending, reported as done in the same breath, and the one finding it went on to raise sat unanswered until it was noticed by hand — and it was a mechanical one, a section cited by its number, which is the same rule the two rounds on pull request 71 were spent on.
 
 **A finding is not handled until its own review thread says so.** Fixing the code and pushing is half the job: GitHub never resolves a thread by itself. A push only adds an *Outdated* badge, and only when the lines the comment was anchored to have left the diff; merging changes nothing either. So for every thread, reply naming the commit that fixed it and what changed, then resolve it. Where the fix did not land, or the finding was declined on purpose, reply saying which and leave the thread open. Never resolve a thread without a reply, and never resolve one whose fix has not been checked against the committed code rather than against the commit message that claims it.
 
@@ -65,3 +77,7 @@ Options documents (`docs/*-options.md`) record integration research. `poc/` hold
 **Counts and enumerations are claims as much as sentences are.** Adding a tenth feature area left the same “nine areas” claim standing in three places across two documents. Review found the pair in the file it happened to be reading; the third, the registry's own comment, surfaced only from searching for the sentence.
 
 **Write file content with `Write` and `Edit`, and keep the shell for commands.** A heredoc into a script into a TypeScript string is three layers of escaping, and `\r\n`, a lone backslash and a null byte survive none of them. Two source files were mangled that way in one session, both badly enough that `grep` reported them as binary, and the script written to repair the second was broken by the same escaping on its own Windows path. The file tools take content exactly as written.
+
+**Editing a file through the shell is the same rule, and it fails more quietly.** A scripted edit that half-applies leaves a file that still compiles and still passes: one such edit duplicated a four-line guard in `apps/api/src/accounts/command-service.ts`, and all forty tests in the file went on passing — it was found by reading the file, not by running anything. `Edit` fails loudly instead, because it refuses when its `old_string` does not match.
+
+**Never run a command that discards uncommitted work to get out of a shell problem.** `git checkout <ref> -- .`, `git restore .` and `git reset --hard` take the whole working tree with them and there is nothing to recover from: the work was never committed, so no reflog holds it. The paragraphs above this one were written twice, because the first set was wiped by a `git checkout origin/main -- .` prefixed onto an unrelated command purely to fix which directory it ran in. Commit first, or change directory — a `cd` costs nothing and destroys nothing.
