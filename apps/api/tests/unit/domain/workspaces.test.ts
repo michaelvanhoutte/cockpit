@@ -4,6 +4,7 @@ import {
   foldName,
   nextColor,
   workspaceFromCommand,
+  workspaceNamed,
 } from '../../../src/domain/workspaces.js';
 
 const TENANT_ID = 'tenant-default';
@@ -56,6 +57,52 @@ describe('Workspace management', () => {
       { situation: 'the same name with blanks around one of them', one: '  Réunions ', other: 'Réunions', same: true },
     ])('$situation', ({ one, other, same }) => {
       expect(foldName(one) === foldName(other)).toBe(same);
+    });
+  });
+
+  describe('a workspace looking for a free name finds the one already using it, except itself', () => {
+    // L1: which of a list of workspaces is in the way is a pure decision over
+    // a list and a name. That both the make and the rename path actually ask
+    // it is proved against a real database in tests/integration.
+    const live = [
+      { id: 'ws-work', tenantId: TENANT_ID, name: 'Work', color: '#6f62b5' },
+      { id: 'ws-personal', tenantId: TENANT_ID, name: 'Personal', color: '#c06a45' },
+    ];
+
+    it.each([
+      { situation: 'a name nobody is using', asked: 'Bookkeeping', by: undefined, inTheWay: undefined },
+      { situation: 'a name another workspace has', asked: 'Personal', by: undefined, inTheWay: 'Personal' },
+      {
+        situation: 'a name another workspace has, in another case',
+        asked: 'PERSONAL',
+        by: undefined,
+        inTheWay: 'Personal',
+      },
+      {
+        // The case this exists for: renaming a workspace to what it is already
+        // called finds only itself, and being in your own way is not a
+        // collision. Without it, changing nothing but capitalization fails.
+        situation: 'its own name, asked by the workspace that has it',
+        asked: 'Personal',
+        by: 'ws-personal',
+        inTheWay: undefined,
+      },
+      {
+        situation: 'its own name in another case, asked by the workspace that has it',
+        asked: 'PERSONAL',
+        by: 'ws-personal',
+        inTheWay: undefined,
+      },
+      {
+        situation: 'another workspace’s name, asked by a workspace being renamed',
+        asked: 'Work',
+        by: 'ws-personal',
+        inTheWay: 'Work',
+      },
+    ])('$situation', ({ asked, by, inTheWay }) => {
+      // The name as that workspace spells it, so a refusal can name what is
+      // actually on screen rather than what was typed.
+      expect(workspaceNamed(live, asked, by)?.name).toBe(inTheWay);
     });
   });
 

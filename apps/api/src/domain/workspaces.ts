@@ -75,6 +75,35 @@ export function foldName(name: string): string {
 }
 
 /**
+ * The live workspace already going by this name, or undefined.
+ *
+ * **One function, both writers.** Creating a workspace and renaming one are
+ * the two places a name is given, and they answer "is it taken?" here rather
+ * than each folding and comparing for itself - which is what stops them
+ * drifting apart. The unique index is the lock behind this, refusing what a
+ * race gets past.
+ *
+ * It folds the names on the way past rather than reading `folded_name`,
+ * because a row can hold a name whose folded copy is missing or stale: the
+ * code serving requests during the deploy that introduced the column wrote no
+ * folded name, and migration 0005's backfill could only fold the ASCII part of
+ * what it found.
+ *
+ * `except` is the workspace doing the asking, and it is what makes renaming
+ * `Personal` to `PERSONAL` work. The only row the new name folds onto is the
+ * workspace itself, and a plain "is this name taken?" finds that row and
+ * refuses a rename that collides with nothing.
+ */
+export function workspaceNamed(
+  live: readonly Workspace[],
+  name: string,
+  except?: string,
+): Workspace | undefined {
+  const folded = foldName(name);
+  return live.find((w) => w.id !== except && foldName(w.name) === folded);
+}
+
+/**
  * `createdAt` is the client's own timestamp, like every other command, so the
  * order workspaces are listed in is the order they were made in even when a
  * create was queued offline.

@@ -185,7 +185,14 @@ describe('Offline', () => {
 });
 
 describe('Workspace management', () => {
-  describe('a workspace made in another tab shows up here without a reload', () => {
+  describe('a workspace made or deleted in another tab reaches this one without a reload', () => {
+    /**
+     * One case, not two. Deleting takes the identical path - a change arrives,
+     * the list is re-read - because the event says only "something changed"
+     * and nothing here branches on what it was. A second case would be the
+     * same data through the same query, and would go red and green with this
+     * one for the same reasons.
+     */
     it('re-reads the workspaces you have when a change arrives', async () => {
       open();
       const stream = FakeStream.made.at(-1)!;

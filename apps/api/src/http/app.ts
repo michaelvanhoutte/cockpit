@@ -104,7 +104,9 @@ function commandRoute<N extends CommandName>(name: N, extra?: { conflict: string
         content: { 'application/json': { schema: commandResultSchema } },
       },
       404: {
-        description: 'Target item does not exist',
+        // Workspace as well as item, since renaming and deleting a workspace
+        // name one that has to still be there.
+        description: 'The item or workspace it names does not exist',
         content: { 'application/json': { schema: errorSchema } },
       },
       // Only the commands that can actually collide declare a 409, so the
@@ -204,6 +206,27 @@ const routes = app
       return c.json(result, 200);
     },
   )
+  .openapi(
+    commandRoute('rename_workspace', { conflict: 'A workspace already has that name' }),
+    async (c) => {
+      const result = await runCommand(
+        createDb(c.env.DB),
+        DEFAULT_TENANT_ID,
+        'rename_workspace',
+        c.req.valid('json'),
+      );
+      return c.json(result, 200);
+    },
+  )
+  .openapi(commandRoute('delete_workspace'), async (c) => {
+    const result = await runCommand(
+      createDb(c.env.DB),
+      DEFAULT_TENANT_ID,
+      'delete_workspace',
+      c.req.valid('json'),
+    );
+    return c.json(result, 200);
+  })
   .openapi(commandRoute('capture_item'), async (c) => {
     const result = await runCommand(createDb(c.env.DB), DEFAULT_TENANT_ID, 'capture_item', c.req.valid('json'));
     return c.json(result, 200);
