@@ -42,11 +42,40 @@ export default defineConfig({
       // real browser session against a gated deployment, which is a human step.
       useCredentials: true,
       // The service worker serves the cached app shell so cold open makes
-      // zero blocking network requests (architecture §5.2); API calls are
-      // never intercepted — the persisted snapshot lives in IndexedDB.
+      // zero blocking network requests (architecture, "The read model"); API
+      // calls are never intercepted — the persisted snapshot lives in IndexedDB.
       workbox: {
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/v1\//, /^\/health/, /^\/ingress\//],
+        // Four prefixes the shell must never answer for. The first three are
+        // this service's own: they are requests for data, and a cached page is
+        // not an answer to one.
+        //
+        // `/cdn-cgi/` is **Cloudflare's, not ours**, and it is here because
+        // leaving it out broke signing in. Access completes a sign-in by
+        // redirecting the browser to `/cdn-cgi/access/authorized?...` on this
+        // hostname; that is a navigation, so the shell answered it from cache
+        // and the request never left the browser. The cookie was therefore
+        // never set, the app rendered its own "Not Found" over Cloudflare's
+        // callback URL, and every API call kept being redirected to the login
+        // page - which looks like the app being broken rather than a sign-in
+        // that never finished. The origin was always doing the right thing:
+        // asked directly, `/cdn-cgi/access/authorized` is answered by Access
+        // itself and never reaches this application at all.
+        //
+        // Deliberately untested, which the testing skill requires saying out
+        // loud rather than leaving as a gap - the same gap, for the same
+        // reason, as `useCredentials` above. No tier can reach it: F3 runs
+        // Vite's dev server, where this plugin registers no service worker at
+        // all, and reproducing it needs a real browser holding a real service
+        // worker in front of a gated deployment. That is a human step.
+        //
+        // Note this list is **not** the same as `run_worker_first` in
+        // apps/api/wrangler.jsonc, though the first three entries match it.
+        // `/cdn-cgi/` must bypass the service worker and must *not* reach the
+        // Worker: it belongs to Cloudflare's edge, which handles it before
+        // either. The two lists agree about this application's own prefixes
+        // and about nothing else.
+        navigateFallbackDenylist: [/^\/v1\//, /^\/health/, /^\/ingress\//, /^\/cdn-cgi\//],
         runtimeCaching: [],
       },
       manifest: {

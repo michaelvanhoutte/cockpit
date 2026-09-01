@@ -11,9 +11,14 @@
   // Static assets (apps/web/dist) are served *before* the Worker runs, so a
   // cold page load bills no Worker invocation. Only the three API prefixes
   // reach the Worker; everything else falls back to index.html for the SPA
-  // router. These prefixes are the same three the service worker refuses to
-  // intercept (see navigateFallbackDenylist in apps/web/vite.config.ts) —
-  // keep the two lists in sync.
+  // router.
+  //
+  // The service worker refuses to intercept these same three
+  // (navigateFallbackDenylist in apps/web/vite.config.ts) — add a prefix to one
+  // list and it belongs in the other. That list carries a fourth, `/cdn-cgi/`,
+  // which deliberately does **not** belong here: it is Cloudflare's own, and
+  // Access answers it at the edge before assets or this Worker see it. So the
+  // two lists agree about this application's prefixes and about nothing else.
   //
   // `assets` and `observability` are *inheritable* config keys, so the staging
   // environment below gets them for free. `d1_databases` (and `vars`, `queues`,

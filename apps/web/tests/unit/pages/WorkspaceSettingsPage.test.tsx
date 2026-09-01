@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -6,6 +6,18 @@ import { WorkspaceSettingsPage } from '../../../src/pages/WorkspaceSettingsPage'
 import { CommandRefused } from '../../../src/api/client';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import { useCommand, type CommandArgs } from '../../../src/api/queries';
+
+/**
+ * `LoadFailure` asks the world two questions it cannot answer from the error
+ * alone, and asking them is a network call. F1 keeps none, so the answer is
+ * given here. *Which* wording each reason gets is proved in
+ * tests/unit/components/LoadFailure.test.tsx; what this file asks is which of
+ * the two things the page puts on screen.
+ */
+vi.mock('../../../src/api/loadFailure', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/loadFailure')>()),
+  diagnose: () => Promise.resolve('offline' as const),
+}));
 
 /**
  * F1: what is under test is the page's own behaviour - what it asks for, what
@@ -20,11 +32,18 @@ const workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f
 /** What the workspace holds, so the confirmation has something to count. */
 const held = vi.hoisted(() => ({ items: [] as { id: string }[] }));
 
+/**
+ * What the list answers with. A case sets this before rendering; the default is
+ * the one workspace every other case in this file expects.
+ */
+const list = vi.hoisted(() => ({ answer: null as null | (() => Promise<unknown>) }));
+
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () =>
+      list.answer?.() ??
       Promise.resolve({
         workspaces: [{ id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' }],
       }),
@@ -62,6 +81,10 @@ function showPage(answer: { succeeds: boolean; error?: Error; about?: CommandArg
 }
 
 const newWorkspaceButton = () => screen.getByRole('button', { name: 'New workspace' });
+
+beforeEach(() => {
+  list.answer = null;
+});
 
 describe('Workspace management', () => {
   describe('making a workspace asks for the name you typed and leaves the box ready for the next one', () => {
@@ -309,6 +332,43 @@ describe('Workspace management', () => {
       showPage({ succeeds: true });
 
       expect(await screen.findByText(workspace.name)).toBeVisible();
+    });
+  });
+});
+
+describe('Workspace management', () => {
+  describe('a list of workspaces that could not be loaded says so, rather than that there are none', () => {
+    it('says what went wrong when the list could not be read', async () => {
+      list.answer = () => Promise.reject(new TypeError('Failed to fetch'));
+
+      showPage({ succeeds: true });
+
+      expect(await screen.findByRole('alert')).toHaveTextContent("Cockpit can't be reached");
+      // The lie this rule exists to stop: an account whose list did not arrive
+      // is not an account with nothing in it.
+      expect(screen.queryByText(/No workspaces yet/)).not.toBeInTheDocument();
+    });
+
+    it('says nothing about how many there are while it is still asking', async () => {
+      // Found by running the app rather than by this file: keyed on the error
+      // alone, a query that is still retrying has no error yet, so the page
+      // went on claiming the account was empty for as long as the retries
+      // lasted. An answer has to have arrived before either message is true.
+      list.answer = () => new Promise(() => {});
+
+      showPage({ succeeds: true });
+
+      expect(screen.queryByText(/No workspaces yet/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('says there are none when the list arrived and was empty', async () => {
+      list.answer = () => Promise.resolve({ workspaces: [] });
+
+      showPage({ succeeds: true });
+
+      expect(await screen.findByText(/No workspaces yet/)).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });
 });
