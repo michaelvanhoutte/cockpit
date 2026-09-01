@@ -89,8 +89,8 @@ pnpm test
 # the browser tier alone
 pnpm test:e2e
 
-# the scripts that start the app and the test stack, and the security
-# review's gate; no install needed
+# the scripts that start the app and the test stack, the post-deploy
+# health check, and the security review's gate; no install needed
 pnpm test:scripts
 ```
 
