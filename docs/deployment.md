@@ -493,9 +493,9 @@ free to gate, and what nothing replaced when they went (§4).
 ### `/health` must stay outside the gate
 
 Two things depend on reaching `/health` unauthenticated, and both break silently
-without it: the post-deploy assertion in the deploy workflows, and §9.2's external
-uptime check, which is deliberately the only observability layer not running on the
-app's own code. `/health` returns `{"ok":true,"register":true,"store":true}` and
+without it: the post-deploy assertion in the deploy workflows, and the external
+uptime check (architecture, "Observability"), which is deliberately the only
+observability layer not running on the app's own code. `/health` returns `{"ok":true,"register":true,"store":true}` and
 nothing else, so it discloses only whether each half answered — never *why* one
 did not, since the reason an update will not apply names tables and columns and
 this endpoint answers anyone. That reason goes to the logs instead.
@@ -888,7 +888,7 @@ than to any mail provider, so it survives changing employer or email.
   asset routing proven by nothing but a manual look.
 - **Bundle-size gate** (§7): the budget needs recording as a number before it
   can be enforced as one.
-- **Sentry, the connector watchdog, and the external uptime check** (§9.2): they
+- **Sentry, the connector watchdog, and the external uptime check** (architecture, "Observability"): they
   land with the code they observe. `/health` already reports whether the register
   and an account store can both be reached, and the production deploy asserts it.
 - **~~Preview alias cleanup.~~** Gone with the previews (§4): there are no
@@ -923,7 +923,8 @@ curl -i https://cockpit-staging.vanhoutte-michael.workers.dev/health
 | Answer | Meaning | Go to |
 |---|---|---|
 | `200 {"ok":true,...}` | Worker up, register answering, an account store openable. The deployment is fine. | *In the browser*, below |
-| `200 {"ok":false,...}` | Worker up and one half unwell: `register` or `store` says which. A false `store` most often means an update that will not apply — the reason is in the logs, never in the body. | *At the deployment*, below |
+| `200 {"ok":false,"register":true,"store":false}` | Worker up, register answering, and a store would not open — most often an update that will not apply. | *At the deployment*, below |
+| `200 {"ok":false,"register":false,...}` | Either D1 did not answer, **or** somebody registered an account under the health check's own name, which makes it refuse to run rather than open their data. Two very different faults with one shape, so read the logs to tell them apart — the reason is never in the body. | *At the deployment*, below |
 | `200` with any other body | Something answered in front of the Worker | *In the browser* — usually a login page, so the Bypass policy has come undone |
 | `301`/`302` | The Bypass policy is gone; `/health` is behind the gate | *`/health` must stay outside the gate* |
 | `5xx` | The Worker is up and failing | *At the deployment*, below |

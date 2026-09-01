@@ -78,7 +78,10 @@ describe('Accounts', () => {
         .bind(PROBE_NAME, 'Somebody', '2026-08-12T00:00:00.000Z')
         .run();
 
-      expect(await health()).toMatchObject({ ok: false, store: false });
+      // `register` is asserted here too, not only `ok`: it is documented as
+      // "answered, and does not contain the name below", and leaving it out is
+      // what let it report true for the one state it is meant to deny.
+      expect(await health()).toEqual({ ok: false, register: false, store: false });
       expect(await tablesIn(PROBE_NAME)).toEqual([]);
     });
 

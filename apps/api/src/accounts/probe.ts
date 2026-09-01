@@ -45,13 +45,13 @@ export async function checkHealth(env: Env): Promise<Health> {
   const register = await checkRegister(env.DB);
 
   // Each field says only what was actually established, which is the point of
-  // the whole change: an unreachable register leaves `store` false because
-  // nothing looked, not because a store said no, and a register that answers
-  // with the name taken leaves it false for the same reason. Reporting either
-  // as a healthy register would repeat the mistake this replaced.
-  if (register.failure) {
-    return { register: register.answered, store: false, failure: register.failure };
-  }
+  // the whole change. `register` is false for both of its failures - the
+  // register did not answer, or it answered with the name taken - because the
+  // field means the whole of what it is documented to mean, and the second of
+  // those is a misconfiguration that has to be loud rather than shaded. `store`
+  // is false because nothing looked, not because a store said no. Which of the
+  // three it was is in `failure`, and so in the logs.
+  if (register.failure) return { register: false, store: false, failure: register.failure };
 
   return { register: true, ...(await checkStore(env)) };
 }
@@ -63,22 +63,19 @@ export async function checkHealth(env: Env): Promise<Health> {
  * same and turns the safety property from a comment into something that is
  * true on every probe.
  */
-async function checkRegister(db: D1Database): Promise<{ answered: boolean; failure?: string }> {
+async function checkRegister(db: D1Database): Promise<{ failure?: string }> {
   let taken: unknown;
   try {
     taken = await db.prepare('SELECT id FROM tenants WHERE id = ?').bind(PROBE_NAME).first();
   } catch (error) {
-    return { answered: false, failure: `the register could not be read: ${message(error)}` };
+    return { failure: `the register could not be read: ${message(error)}` };
   }
   if (taken) {
     // Refusing is the whole point. Carrying on would apply schema changes to a
     // real account's data on every unauthenticated request to /health.
-    return {
-      answered: true,
-      failure: `the health check's name ${PROBE_NAME} is a registered account`,
-    };
+    return { failure: `the health check's name ${PROBE_NAME} is a registered account` };
   }
-  return { answered: true };
+  return {};
 }
 
 /**
