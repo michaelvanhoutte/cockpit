@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
@@ -87,16 +87,34 @@ class NoStream {
 }
 
 /**
- * A screen wide enough to hold the Inbox beside the dashboards. jsdom answers
- * every media query with "no" - which is the narrow shape, and so is what every
- * other case here gets - so the wide ones say so out loud.
+ * A screen whose width can change, which is what the app has to survive: jsdom
+ * answers every media query with "no" and never changes its mind, so a window
+ * being resized past the breakpoint exists only if a case makes it.
+ *
+ * Returns the handle for doing that. `withRoomForTheInbox()` is the common
+ * case - wide from the start - and says so out loud, because everything else
+ * here runs on the narrow shape jsdom gives for free.
  */
-function withRoomForTheInbox() {
+function screenThatCanBeResized() {
+  const watching = new Set<() => void>();
+  let wide = false;
   vi.stubGlobal('matchMedia', () => ({
-    matches: true,
-    addEventListener() {},
-    removeEventListener() {},
+    get matches() {
+      return wide;
+    },
+    addEventListener: (_: string, listener: () => void) => void watching.add(listener),
+    removeEventListener: (_: string, listener: () => void) => void watching.delete(listener),
   }));
+  return {
+    widen() {
+      wide = true;
+      act(() => watching.forEach((listener) => listener()));
+    },
+  };
+}
+
+function withRoomForTheInbox() {
+  screenThatCanBeResized().widen();
 }
 
 /** The Inbox as the column it is where there is room for one. */
@@ -166,6 +184,23 @@ describe('Triage', () => {
       expect(screen.queryByRole('link', { name: 'Inbox' })).toBeNull();
     });
 
+    it('arrives when the window is widened past the breakpoint, without going anywhere', async () => {
+      // The whole reason the shell watches the question rather than asking it
+      // once: a route decides on arrival, and a window is resized long after.
+      const screenWidth = screenThatCanBeResized();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      const bar = await screen.findByRole('navigation', { name: 'Dashboards' });
+      expect(inboxColumn()).toBeNull();
+
+      screenWidth.widen();
+
+      expect(inboxColumn()).toBeVisible();
+      // Still on the dashboard it was on: widening the window is not a
+      // navigation, and the tab it no longer needs has gone.
+      expect(screen.getByRole('heading', { name: 'Research' })).toBeVisible();
+      expect(within(bar).queryByRole('link', { name: 'Inbox' })).toBeNull();
+    });
+
     it('is not there on the page reached without a workspace', async () => {
       // The workspaces settings page is where the first workspace is made, so
       // there is no workspace to have an Inbox.
@@ -202,6 +237,28 @@ describe('Triage', () => {
 
       expect(await screen.findByRole('region', { name: 'Inbox' })).toBeVisible();
       expect(inboxColumn()).toBeNull();
+    });
+
+    it('says a workspace could not be read once, not once per place the Inbox is drawn', async () => {
+      // The address reads the workspace before it paints, like the two routes
+      // beside it. Without that, a cold cache - a hard reload, or a link
+      // straight here - renders the Inbox in the outlet *and* in its column,
+      // neither of them knowing yet that there is a dashboard to go to; and a
+      // read that then fails leaves both of them there, saying the same thing
+      // twice, for good.
+      withRoomForTheInbox();
+      readsWorkspaces.mockResolvedValue({ workspaces: [work, personal] });
+      readsSnapshot.mockRejectedValue(new TypeError('Failed to fetch'));
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      window.history.pushState({}, '', '/w/ws-work/inbox');
+      render(
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={createAppRouter(queryClient)} />
+        </QueryClientProvider>,
+      );
+
+      const said = await screen.findAllByRole('heading', { name: "Cockpit can't be reached" });
+      expect(said).toHaveLength(1);
     });
 
     it('stays on the Inbox where there is nowhere else to go, rather than bouncing', async () => {

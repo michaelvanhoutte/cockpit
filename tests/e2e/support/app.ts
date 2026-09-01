@@ -58,7 +58,11 @@ export async function openFirstWorkspace(page: Page): Promise<void> {
   await expect(dashboardBar(page)).toBeVisible();
 }
 
-/** The bar of views under the workspace tabs: the Inbox, then the dashboards. */
+/**
+ * The bar of views under the workspace tabs: the workspace's dashboards, and
+ * the Inbox before them only on a screen too narrow to hold it beside them
+ * ("Show the Inbox beside the dashboards instead of as a tab", issue 117).
+ */
 export function dashboardBar(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Dashboards' });
 }

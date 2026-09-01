@@ -116,6 +116,12 @@ export const inboxRoute = createRoute({
   path: '/w/$workspaceId/inbox',
   beforeLoad: async ({ context, params, preload }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
+    // The same read its two sibling routes do, and for a reason of its own:
+    // the page asks whether the workspace has a dashboard to send it to, and
+    // on a cold cache - a hard reload, or a link straight to this address -
+    // an unread snapshot answers "none", which renders the Inbox here as well
+    // as in its column.
+    await dashboardsOf(context.queryClient, params.workspaceId);
     // Not on a preload. `defaultPreload: 'intent'` runs this on hover, and
     // remembering a view nobody went to would mean brushing past a tab decides
     // where the workspace opens next time.
