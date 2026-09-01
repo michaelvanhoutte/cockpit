@@ -43,10 +43,10 @@ export const GATE_AUTHOR = 'github-actions[bot]';
 /**
  * What the pull request should say about this run.
  *
- * The workflow posts this rather than asking the reviewer to. The prompt does
- * ask - "post a short summary comment when you find nothing" - and on the first
- * run that ever reached a verdict it did not, leaving a green check whose only
- * evidence was inside the job log. That is the state this whole gate exists to
+ * The workflow posts this rather than asking the reviewer to. The prompt used
+ * to ask - "post a short summary comment when you find nothing" - and on the
+ * first run that ever reached a verdict it did not, leaving a green check whose
+ * only evidence was inside the job log. That is the state this whole gate exists to
  * refuse: from the pull request alone, "reviewed, found nothing" and "never ran"
  * looked identical.
  *

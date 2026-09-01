@@ -157,14 +157,27 @@ jobs:
           show_full_output: true
 
       - name: Assert the review reached a verdict
-        if: always()
+        # Not `always()`. That form runs on cancellation too, and this workflow
+        # cancels its own superseded runs - so a second push while a review was
+        # in flight would land here with the review step killed, no execution
+        # file, and "the review produced no result record" as the outcome. That
+        # is correct about the cancelled run and wrong about the pull request,
+        # and since the gate now writes its verdict as a comment it would
+        # overwrite the previous run's real verdict with a false "did not run"
+        # for as long as the new review took. A routine double-push would have
+        # produced exactly the failure this change exists to prevent.
+        #
+        # `!cancelled()` still covers the case that matters - the review step
+        # failing or being skipped - which is the whole reason this step is not
+        # a plain sequential one.
+        if: ${{ !cancelled() }}
         env:
           CONCLUSION: ${{ steps.security-review.outputs.conclusion }}
           EXECUTION_FILE: ${{ steps.security-review.outputs.execution_file }}
           # The gate leaves the verdict on the pull request itself, because the
-          # reviewer does not reliably do it. The prompt asks it to - "post a
-          # short summary comment when you find nothing" - and on the first run
-          # that ever reached a verdict it posted nothing at all, leaving a green
+          # reviewer does not reliably do it. The prompt used to ask it to -
+          # "post a short summary comment when you find nothing" - and on the
+          # first run that ever reached a verdict it posted nothing at all, leaving a green
           # check whose only evidence was inside the job log. That is the state
           # this gate exists to refuse: from the pull request alone, "reviewed,
           # found nothing" read exactly like "never ran".
