@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { decideOutcome, resultRecordOf, verdictOf } from './review-gate.mjs';
+import { COMMENT_MARKER, GATE_AUTHOR, decideOutcome, markedCommentId, resultRecordOf, summaryComment, verdictOf } from './review-gate.mjs';
 
 /** A result record as the action writes one, with the parts under test. */
 function run({ text = 'SECURITY-VERDICT: NONE', turns = 14, ...rest } = {}) {
@@ -210,5 +210,96 @@ describe('decideOutcome', () => {
     const out = decideOutcome({ executionText: file(run({ turns: 3 })), conclusion: 'success' });
     assert.equal(out.ok, true);
     assert.match(out.warnings.join(' '), /only 3 turns/);
+  });
+});
+
+describe('summaryComment', () => {
+  const decide = (opts) => decideOutcome({ executionText: file(run(opts)), conclusion: 'success' });
+
+  it('leaves the marker to upsertSticky, so it is not written twice', () => {
+    // Identifying a workflow's note is one decision and it lives in one place.
+    assert.doesNotMatch(summaryComment(decide()), new RegExp(COMMENT_MARKER));
+  });
+
+  it('says a clean review looked and found nothing, not merely that the check passed', () => {
+    // The distinction the whole gate exists for: from the pull request alone,
+    // "reviewed, found nothing" must not read the same as "never ran".
+    const body = summaryComment(decide());
+    assert.match(body, /Verdict: NONE/);
+    assert.match(body, /reported nothing/);
+    // Must not claim the whole diff was read: the gate cannot see how much was
+    // covered, and saying so confidently is the failure the instructions file
+    // calls the one nothing downstream can catch.
+    assert.doesNotMatch(body, /read the diff and found nothing/);
+    assert.match(body, /cannot tell you how much was covered/);
+  });
+
+  it('states the verdict for findings that do not block', () => {
+    const body = summaryComment(decide({ text: 'SECURITY-VERDICT: MEDIUM' }));
+    assert.match(body, /Verdict: MEDIUM/);
+    assert.match(body, /do not block the merge/);
+  });
+
+  it('gives the reason when the check is red, rather than only the verdict', () => {
+    const body = summaryComment(decide({ text: 'SECURITY-VERDICT: HIGH' }));
+    assert.match(body, /This check is red/);
+    assert.match(body, /must not merge/);
+  });
+
+  it('explains a red that is not a finding at all', () => {
+    const body = summaryComment(decide({ turns: 0, text: '' }));
+    assert.match(body, /This check is red/);
+    assert.match(body, /without taking a single turn/);
+    assert.doesNotMatch(body, /Verdict:/);
+  });
+
+  it('keeps warnings out of the headline', () => {
+    const body = summaryComment(decide({ turns: 2 }));
+    assert.match(body, /Verdict: NONE/);
+    assert.match(body, /only 2 turns/);
+    assert.match(body, /<details>/);
+  });
+});
+
+describe('markedCommentId', () => {
+  const gate = (id) => JSON.stringify({ id, login: GATE_AUTHOR, body: `${COMMENT_MARKER}\n## Security review` });
+  const other = (id) => JSON.stringify({ id, login: 'someone', body: 'Looks good to me' });
+  /** Someone else's comment carrying the marker. The marker is public. */
+  const impostor = (id) => JSON.stringify({ id, login: 'someone', body: `${COMMENT_MARKER} not really` });
+
+  it('finds the note the gate left', () => {
+    assert.equal(markedCommentId([other(1), gate(2), other(3)].join('\n')), 2);
+  });
+
+  it('is null when there is no note yet', () => {
+    assert.equal(markedCommentId([other(1), other(2)].join('\n')), null);
+  });
+
+  it('is null for empty output', () => {
+    assert.equal(markedCommentId(''), null);
+  });
+
+  it('reads across pages, where the first version stopped being JSON', () => {
+    // `gh api --paginate` applies --jq per page and concatenates the results.
+    // The first version wrapped its filter in an array, so this arrived as
+    // `[...]\n[...]` and threw — swallowed into a warning, leaving the comment
+    // unposted on any pull request past thirty comments.
+    assert.equal(markedCommentId([other(1), other(2), other(3), gate(4)].join('\n')), 4);
+  });
+
+  it('keeps reading past a line it cannot parse', () => {
+    assert.equal(markedCommentId(['not json at all', gate(7)].join('\n')), 7);
+  });
+
+  it('ignores the marker in a comment somebody else wrote', () => {
+    // The marker is a public constant and GitHub lists comments oldest first,
+    // so without the author check anyone able to comment could post it before
+    // the gate's first run and have every later run overwrite their comment
+    // instead of writing the verdict anywhere.
+    assert.equal(markedCommentId(impostor(1)), null);
+  });
+
+  it('finds its own note even when an impostor posted first', () => {
+    assert.equal(markedCommentId([impostor(1), gate(2)].join('\n')), 2);
   });
 });

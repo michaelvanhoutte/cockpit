@@ -741,6 +741,26 @@ Then, by hand (no API, or deliberately not automated):
      pull request from a fork gets a read-only token, so its results upload may be
      refused. If it is, all three CodeQL checks are unpassable from a fork, and
      requiring them closes this repository to outside contribution.
+
+     **The payload is what this file says; it is not what GitHub is enforcing.**
+     Checking one in does not apply it, and the two drift silently — nothing
+     fails when they disagree, which is the whole difficulty. Measured on
+     2026-09-01, the payload listed eight contexts while `main` enforced four:
+     `E2E (F3)` had been added to the file and never applied, so the browser
+     tier had been reporting on every pull request without gating any of them.
+     Nobody had done anything wrong; the payload had simply been edited more
+     recently than it had been applied, which is the normal state of affairs for
+     a file that only takes effect when someone runs a command.
+
+     So read the live setting rather than this file whenever the answer matters:
+
+     ```bash
+     gh api repos/michaelvanhoutte/cockpit/branches/main/protection --jq '.required_status_checks.contexts'
+     ```
+
+     The same distinction the readme draws for branch protection as a whole —
+     the payload is checked in, applying it is a separate act by the owner —
+     applies to every individual name inside it.
    - **`required_linear_history: true`** — makes §1's squash-merge rule mechanical
      rather than remembered, per the preference for violations that are impossible
      over violations caught in review.

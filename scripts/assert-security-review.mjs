@@ -7,11 +7,38 @@
 // Usage: node scripts/assert-security-review.mjs <execution-file> <conclusion>
 //
 
+import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 
-import { decideOutcome } from './lib/review-gate.mjs';
+import { COMMENT_MARKER, decideOutcome, summaryComment } from './lib/review-gate.mjs';
+import { upsertSticky } from './lib/sticky-comment.mjs';
 
 const [executionFile, conclusion] = process.argv.slice(2);
+
+/**
+ * Leave the verdict on the pull request, editing the note this workflow left
+ * last time rather than adding another.
+ *
+ * Deliberately never fatal. The verdict is what the check is about, and turning
+ * a clean review red because a comment could not be posted would be the gate
+ * failing for a reason that has nothing to do with the code - the exact
+ * behaviour it exists to refuse in the reviewer.
+ */
+function leaveSummary(outcome) {
+  const repo = process.env.GITHUB_REPOSITORY;
+  const pr = process.env.PR_NUMBER;
+  if (!repo || !pr) return;
+
+  const gh = (args, input) =>
+    execFileSync('gh', args, { input, encoding: 'utf8', env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+
+  try {
+    const { action } = upsertSticky({ gh, repo, pr, marker: COMMENT_MARKER, body: summaryComment(outcome) });
+    console.log(`Verdict comment ${action}.`);
+  } catch (error) {
+    console.log(`::warning::Could not leave the verdict on the pull request: ${error.message}`);
+  }
+}
 
 let executionText = '';
 try {
@@ -60,5 +87,7 @@ if (outcome.ok) {
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary.join('\n')}\n`);
 }
+
+leaveSummary(outcome);
 
 process.exit(outcome.ok ? 0 : 1);

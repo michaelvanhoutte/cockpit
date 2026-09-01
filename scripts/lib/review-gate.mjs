@@ -26,6 +26,131 @@
 export const SEVERITIES = ['NONE', 'LOW', 'MEDIUM', 'HIGH'];
 
 /**
+ * Hidden marker identifying this workflow's comment, so each run edits the one
+ * it left last time instead of adding another. A review that comments on every
+ * push turns a long pull request into a column of near-identical notices, which
+ * is its own way of not being read.
+ */
+export const COMMENT_MARKER = '<!-- cockpit-security-review -->';
+
+/**
+ * Who the gate's own note is posted as. `github.token` authenticates the run as
+ * this account, so a note claiming to be the gate's and authored by anyone else
+ * is not the gate's - see markedCommentId, where that matters.
+ */
+export const GATE_AUTHOR = 'github-actions[bot]';
+
+/**
+ * What the pull request should say about this run.
+ *
+ * The workflow posts this rather than asking the reviewer to. The prompt used
+ * to ask - "post a short summary comment when you find nothing" - and on the
+ * first run that ever reached a verdict it did not, leaving a green check whose
+ * only evidence was inside the job log. That is the state this whole gate exists to
+ * refuse: from the pull request alone, "reviewed, found nothing" and "never ran"
+ * looked identical.
+ *
+ * Asking harder would have been the obvious fix and the wrong one. The sibling
+ * workflow already tried inferring a review from whether Claude spoke, and "The
+ * review check goes green when the reviewer declined to look at the new
+ * commits" (issue 75) is the open bug saying that inference goes stale. The
+ * gate already knows the verdict; having it say so needs no cooperation from
+ * anyone.
+ */
+export function summaryComment(outcome) {
+  // No marker here: upsertSticky prepends it, so that one place decides how a
+  // workflow's note is identified and every caller gets the same answer.
+  const lines = ['## Security review', ''];
+
+  if (outcome.ok) {
+    lines.push(`**Verdict: ${outcome.verdict}.** ${verdictMeaning(outcome.verdict)}`);
+  } else {
+    lines.push('**This check is red.**', '');
+    for (const failure of outcome.failures) lines.push(`- ${failure}`);
+  }
+
+  if (outcome.warnings.length > 0) {
+    lines.push('', '<details><summary>Worth a look</summary>', '');
+    for (const warning of outcome.warnings) lines.push(`- ${warning}`);
+    lines.push('', '</details>');
+  }
+
+  lines.push(
+    '',
+    '<sub>Any findings are inline comments on the diff. This note is written by the gate, not by the reviewer, so it appears whether or not the reviewer said anything.</sub>',
+  );
+  return lines.join('\n');
+}
+
+/**
+ * The id of the note this workflow left last time, from `gh api --paginate`
+ * output, or null if there is none yet.
+ *
+ * Line-oriented on purpose, and this is the whole reason it is a function with
+ * tests rather than two lines in the script. `--paginate` applies `--jq` to
+ * each page separately and concatenates the results, so a filter that wraps its
+ * output in an array emits one array per page - `[...]\n[...]` - which is not
+ * JSON and throws when parsed. The first version did exactly that. It would
+ * have worked on every pull request until one passed thirty comments, and then
+ * failed inside the try that makes posting non-fatal: no comment, no update of
+ * the stale one already there, and a warning nobody reads. A change whose only
+ * purpose is making the verdict visible would have stopped doing that
+ * invisibly, which is the joke it deserved to be caught for.
+ *
+ * One JSON object per line concatenates safely, which is the shape
+ * claude-code-review.yml's own gate already uses for the same reason.
+ */
+export function markedCommentId(ghOutput, { marker = COMMENT_MARKER, author = GATE_AUTHOR } = {}) {
+  for (const line of String(ghOutput ?? '').split('\n')) {
+    if (line.trim() === '') continue;
+    let comment;
+    try {
+      comment = JSON.parse(line);
+    } catch {
+      // One unreadable line is not a reason to abandon the rest: the id being
+      // looked for may be on any of them.
+      continue;
+    }
+    // The author check is not belt-and-braces. The marker is a public constant
+    // in a public repository, GitHub lists comments oldest first, and this
+    // returns the first match - so without it, anyone who can comment on a pull
+    // request could post the marker before the gate's first run and have every
+    // later run PATCH their comment instead of writing its own. The gate holds
+    // `pull-requests: write`, so that is someone else's text being overwritten
+    // by a token they do not have, and the verdict never appearing at all,
+    // which is the exact outcome this whole change exists to prevent.
+    if (comment?.login !== author) continue;
+    if (String(comment?.body ?? '').includes(marker)) return comment.id;
+  }
+  return null;
+}
+
+/**
+ * What a verdict means, said only as far as the gate can actually know it.
+ *
+ * "The reviewer read the diff and found nothing" was the first wording, and it
+ * claims something this cannot see. The gate reads one line; it has no idea how
+ * much of the diff that line covers. A review that ran out of room and reported
+ * NONE would have been announced here in the same confident words as a thorough
+ * one - which is the failure the instructions file calls the one nothing
+ * downstream can catch, restated by the thing meant to make it visible.
+ *
+ * So the note says what was reported, and points at where a coverage caveat
+ * would be if there is one: its own comment, which the prompt requires and this
+ * cannot generate.
+ */
+function verdictMeaning(severity) {
+  if (severity === 'NONE') {
+    return (
+      'The reviewer reported nothing. If it could not read the whole diff, it says so in a ' +
+      'comment of its own — this note cannot tell you how much was covered.'
+    );
+  }
+  if (severity === 'HIGH') return 'This must not merge as it stands.';
+  return `Findings at ${severity} do not block the merge; they are for a person to weigh.`;
+}
+
+/**
  * The single line the run is required to end with, anchored to the start of a
  * line so that prose about severities cannot match it.
  *
