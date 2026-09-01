@@ -40,16 +40,21 @@ The two rules that get skipped most, repeated here because they are the ones tha
 **Opening the pull request is not the end of the task — the review runs after the push.** So a session that reports back the moment the pull request exists is handing over a job it has not finished, and "CI was still pending when I looked" is not a status: it is a note saying nobody looked again. Wait for the checks to settle before reporting done, then work the findings to the end of the rule below. Waiting is one command, and it costs nothing but wall clock:
 
 ```bash
-sha=$(git rev-parse HEAD)
-until [ "$(gh pr view <number> --json headRefOid -q .headRefOid)" = "$sha" ] &&
-      [ "$(gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq .total_count)" -gt 0 ] &&
-      [ -z "$(gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '.check_runs[] | select(.status != "completed") | .name')" ]; do sleep 30; done
+sha=$(git rev-parse HEAD); before=
+while :; do
+  runs=$(gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '[.check_runs[] | .name + ":" + .status] | sort | .[]')
+  [ "$(gh pr view <number> --json headRefOid -q .headRefOid)" = "$sha" ] && [ -n "$runs" ] &&
+    [ "$runs" = "$before" ] && ! printf '%s\n' "$runs" | grep -qv ':completed$' && break
+  before=$runs; sleep 30
+done
 gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '.check_runs[] | [.name, .conclusion] | @tsv'
 ```
 
 Run it from inside the repository — `git rev-parse` needs the working directory, and so does gh's `{owner}/{repo}`. Run it in the background and carry on with something else; do not poll it by hand and do not finish the turn on a pending check. This is what happened on "Create a workspace from a settings page" (pull request 81): the pull request was opened while `claude-review` was still pending, reported as done in the same breath, and the one finding it went on to raise sat unanswered until it was noticed by hand — and it was a mechanical one, a section cited by its number, which is the same rule the two rounds on pull request 71 were spent on.
 
-**Wait on the commit you pushed, which is why that command names a SHA.** A waiter that asks "are this pull request's checks still pending?" answers about whatever GitHub currently calls the head, and for the seconds around a push that is still the *previous* commit — whose checks are long finished and green. It returns immediately, reporting a pass that belongs to code you have replaced. That happened twice in one run, and the second time the green it reported was one command away from being merged on. The count of check runs is in the condition for the same reason: for the first seconds after a push the right commit has *no* runs yet, and "nothing is pending" is true of an empty list, so a waiter without it settles instantly on a commit CI has not started.
+**Wait on the commit you pushed, which is why that command names a SHA.** A waiter that asks "are this pull request's checks still pending?" answers about whatever GitHub currently calls the head, and for the seconds around a push that is still the *previous* commit — whose checks are long finished and green. It returns immediately, reporting a pass that belongs to code you have replaced. That happened twice in one run, and the second time the green it reported was one command away from being merged on.
+
+**Settled means the list of checks stopped changing, not that the checks it happened to see are done.** Check runs are not registered together: `ci.yml` triggers on `push` as well as on `pull_request`, while the two review workflows and CodeQL trigger only on `pull_request`, so the ordinary sequence — push, `ci.yml` starts and finishes, `gh pr create`, start waiting — reaches a commit that has a full set of *completed* runs and no `claude-review` yet. A waiter that asks only "is anything pending?" answers green there, on the exact failure this section exists to prevent. So the loop above compares the whole `name:status` list against the previous poll and settles only when it is non-empty, unchanged, and completed throughout; it therefore always costs at least two polls, which is the price of the guarantee.
 
 **A finding is not handled until its own review thread says so.** Fixing the code and pushing is half the job: GitHub never resolves a thread by itself. A push only adds an *Outdated* badge, and only when the lines the comment was anchored to have left the diff; merging changes nothing either. So for every thread, reply naming the commit that fixed it and what changed, then resolve it. Where the fix did not land, or the finding was declined on purpose, reply saying which and leave the thread open. Never resolve a thread without a reply, and never resolve one whose fix has not been checked against the committed code rather than against the commit message that claims it.
 
