@@ -141,7 +141,36 @@ export const workspaces = sqliteTable(
      * next one, which is the loud failure this wants.
      */
     foldedName: text('folded_name').notNull().default(''),
+    /**
+     * The workspace's three colors, chosen together from the palette in
+     * `@cockpit/shared`'s domain/workspace-themes.ts: `color` is the saturated
+     * tint on the tab dot and the header stripe, `ground` is the page behind
+     * the panels, `header` is the bar across the top.
+     *
+     * All three are stored rather than the name of a theme, so the palette is a
+     * picker and not a storage format - mixing your own colors later writes the
+     * same three columns instead of needing a migration.
+     *
+     * `ground` and `header` are `NOT NULL DEFAULT` the first theme's, and the
+     * default is load-bearing twice over. For the length of the deploy that
+     * follows migration 0008, old code writes workspaces knowing nothing about
+     * these columns, and what it leaves behind has to be a workspace that looks
+     * like something rather than one painted in nothing. And it is what a
+     * workspace whose tint is not in the palette keeps: an unfamiliar color is
+     * one thing that looks slightly wrong, not a corrupt row, so it falls back
+     * rather than failing the deploy (contrast the name index, which does
+     * refuse, because two workspaces sharing a name is two things a person
+     * cannot tell apart).
+     *
+     * No CHECK on the format, for the reason `deleted_at` has none: SQLite
+     * cannot ALTER one into an existing table, and D1 will not let this table
+     * be rebuilt without `items` and `associations` going with it (see 0002).
+     * `color` never carried one either, so this is the convention here rather
+     * than a new gap.
+     */
     color: text('color').notNull(),
+    ground: text('ground').notNull().default('#e3e1f2'),
+    header: text('header').notNull().default('#d2cdea'),
     createdAt: text('created_at').notNull(),
     /**
      * Tombstone. Deleting a workspace sets it and leaves everything filed in

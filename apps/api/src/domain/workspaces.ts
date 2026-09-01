@@ -1,3 +1,4 @@
+import { DEFAULT_WORKSPACE_THEME, WORKSPACE_THEMES, themeOf } from '@cockpit/shared';
 import type { CreateWorkspaceCommand, Workspace } from '@cockpit/shared';
 
 /**
@@ -6,27 +7,11 @@ import type { CreateWorkspaceCommand, Workspace } from '@cockpit/shared';
  */
 
 /**
- * The colors a workspace can be handed, in the order they are handed out.
- *
- * The first three are the prototype's own workspace tints (`poc/prototype/
- * app.js`), so the seeded Work, Atlas Copco and Personal keep the identity
- * they have always had; the rest continue the same saturation and lightness at
- * hues far enough apart to tell apart in a row of tabs.
- *
- * Nobody is asked to pick one. Picking is "Choose a workspace's colors from a
- * palette" (issue 79), which also replaces this single tint with the three
- * colors the prototype actually themes a page with.
+ * The tints, in the order they are handed out - one per theme, derived rather
+ * than written twice, so a theme added to the palette is a color handed out
+ * and the two cannot disagree about which colors exist.
  */
-export const WORKSPACE_PALETTE = [
-  '#6f62b5', // violet
-  '#3a72c8', // blue
-  '#c06a45', // terracotta
-  '#3f8f78', // teal
-  '#a8548c', // magenta
-  '#b58a2f', // amber
-  '#4f8fa8', // cyan
-  '#7d8f3f', // olive
-] as const;
+export const WORKSPACE_PALETTE = WORKSPACE_THEMES.map((theme) => theme.tint);
 
 /**
  * The first color no live workspace is using, so workspaces are distinguishable
@@ -44,7 +29,9 @@ export function nextColor(taken: readonly string[]): string {
   // In range by construction. The `??` is there only because a computed index
   // is `| undefined` under noUncheckedIndexedAccess and the checker cannot see
   // that a modulo of the length never leaves the array.
-  return WORKSPACE_PALETTE.at(taken.length % WORKSPACE_PALETTE.length) ?? WORKSPACE_PALETTE[0];
+  return (
+    WORKSPACE_PALETTE.at(taken.length % WORKSPACE_PALETTE.length) ?? DEFAULT_WORKSPACE_THEME.tint
+  );
 }
 
 /**
@@ -110,6 +97,10 @@ export function workspaceNamed(
  *
  * There was a `slug` here until migration 0006 dropped the column. Nothing
  * ever read it, and uniqueness moved to the name, where a person can see it.
+ *
+ * The whole theme goes in, not just the tint it was handed: a new workspace has
+ * all three of its colors from the moment it exists, so it is never a workspace
+ * wearing somebody else's page.
  */
 export function workspaceFromCommand(
   cmd: CreateWorkspaceCommand,
@@ -120,12 +111,15 @@ export function workspaceFromCommand(
   createdAt: string;
   deletedAt: string | null;
 } {
+  const theme = themeOf(color);
   return {
     id: cmd.workspaceId,
     tenantId,
     name: cmd.name,
     foldedName: foldName(cmd.name),
     color,
+    ground: theme.ground,
+    header: theme.header,
     createdAt: cmd.issuedAt,
     deletedAt: null,
   };

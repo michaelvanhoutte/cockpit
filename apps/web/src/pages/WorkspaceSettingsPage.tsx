@@ -1,18 +1,18 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { uuidv7 } from '@cockpit/shared';
-import type { Workspace } from '@cockpit/shared';
+import { WORKSPACE_THEMES, uuidv7 } from '@cockpit/shared';
+import type { Workspace, WorkspaceTheme } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 
 /**
- * Where workspaces are managed. It lists them, makes new ones, renames them and
- * deletes them; reordering arrives with "Reorder workspaces" (issue 31), on
- * this page too.
+ * Where workspaces are managed. It lists them, makes new ones, renames them,
+ * colors them and deletes them; reordering arrives with "Reorder workspaces"
+ * (issue 31), on this page too.
  *
- * Colors are not offered yet: one is assigned from a fixed palette so a new
- * workspace is distinguishable in the tabs from the moment it exists. Picking
- * them is "Choose a workspace's colors from a palette" (issue 79).
+ * A new workspace is still handed a color rather than asked for one, so it is
+ * distinguishable in the tabs from the moment it exists; the swatches are for
+ * changing it afterwards.
  *
  * One `useCommand` for the whole page rather than one per control, so a refusal
  * can only belong to the last thing asked for - and `variables` says which
@@ -98,6 +98,22 @@ export function WorkspaceSettingsPage() {
     );
   };
 
+  const chooseTheme = (workspaceId: string, theme: WorkspaceTheme) => {
+    command.mutate({
+      name: 'set_workspace_theme',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        // All three, because all three are what a workspace stores. The server
+        // still checks they are a theme from the palette.
+        color: theme.tint,
+        ground: theme.ground,
+        header: theme.header,
+      },
+    });
+  };
+
   const confirmDelete = (workspaceId: string) => {
     command.mutate(
       {
@@ -126,7 +142,10 @@ export function WorkspaceSettingsPage() {
    * last thing sent, and there is only ever one in flight, so this is exact
    * rather than a guess.
    */
-  const refusalFor = (what: 'create_workspace' | 'rename_workspace' | 'delete_workspace', id?: string) =>
+  const refusalFor = (
+    what: 'create_workspace' | 'rename_workspace' | 'delete_workspace' | 'set_workspace_theme',
+    id?: string,
+  ) =>
     refusal && command.variables?.name === what && (!id || command.variables.payload.workspaceId === id)
       ? refusal
       : null;
@@ -204,9 +223,44 @@ export function WorkspaceSettingsPage() {
                   </>
                 )}
               </div>
-              {(refusalFor('rename_workspace', ws.id) ?? refusalFor('delete_workspace', ws.id)) && (
+              {/* The palette, as a row of swatches. Each one shows the whole
+                  theme rather than a dot: the ground it paints the page in,
+                  with the tint sitting on it, so what you are choosing is what
+                  you will see. Hidden while the row is asking something else,
+                  so a row is only ever doing one thing. */}
+              {renaming?.id !== ws.id && deleting !== ws.id && (
+                <div className="flex flex-wrap gap-1.5 pt-2 pl-6">
+                  {WORKSPACE_THEMES.map((theme) => (
+                    <button
+                      key={theme.name}
+                      type="button"
+                      onClick={() => chooseTheme(ws.id, theme)}
+                      disabled={command.isPending}
+                      aria-label={`${theme.name} for ${ws.name}`}
+                      aria-pressed={ws.color === theme.tint}
+                      title={theme.name}
+                      className={`size-6 rounded-md border disabled:opacity-50 ${
+                        ws.color === theme.tint
+                          ? 'border-ink ring-2 ring-ink/20'
+                          : 'border-black/10 hover:border-black/30'
+                      }`}
+                      style={{ backgroundColor: theme.ground }}
+                    >
+                      <span
+                        className="mx-auto block size-2.5 rounded-full"
+                        style={{ backgroundColor: theme.tint }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+              {(refusalFor('rename_workspace', ws.id) ??
+                refusalFor('delete_workspace', ws.id) ??
+                refusalFor('set_workspace_theme', ws.id)) && (
                 <p role="alert" className="pt-2 text-sm text-over">
-                  {refusalFor('rename_workspace', ws.id) ?? refusalFor('delete_workspace', ws.id)}
+                  {refusalFor('rename_workspace', ws.id) ??
+                    refusalFor('delete_workspace', ws.id) ??
+                    refusalFor('set_workspace_theme', ws.id)}
                 </p>
               )}
             </li>

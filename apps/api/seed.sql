@@ -9,7 +9,7 @@
 INSERT OR IGNORE INTO tenants (id, name, created_at)
 VALUES ('tenant-default', 'Michael', '2026-08-12T00:00:00.000Z');
 
-INSERT OR IGNORE INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES
-  ('ws-work', 'tenant-default', 'Work', 'work', '#6f62b5', '2026-08-12T00:00:01.000Z'),
-  ('ws-atlas', 'tenant-default', 'Atlas Copco', 'atlas copco', '#3a72c8', '2026-08-12T00:00:02.000Z'),
-  ('ws-personal', 'tenant-default', 'Personal', 'personal', '#c06a45', '2026-08-12T00:00:03.000Z');
+INSERT OR IGNORE INTO workspaces (id, tenant_id, name, folded_name, color, ground, header, created_at) VALUES
+  ('ws-work', 'tenant-default', 'Work', 'work', '#6f62b5', '#e3e1f2', '#d2cdea', '2026-08-12T00:00:01.000Z'),
+  ('ws-atlas', 'tenant-default', 'Atlas Copco', 'atlas copco', '#3a72c8', '#d8e5f7', '#bed6f2', '2026-08-12T00:00:02.000Z'),
+  ('ws-personal', 'tenant-default', 'Personal', 'personal', '#c06a45', '#f2e5d4', '#ead2b3', '2026-08-12T00:00:03.000Z');

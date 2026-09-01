@@ -8,6 +8,7 @@ import {
   getWorkspace,
   listWorkspaces,
 } from '../db/repo.js';
+import { isPaletteTheme } from '@cockpit/shared';
 import {
   foldName,
   nextColor,
@@ -33,6 +34,17 @@ export class ItemNotFoundError extends Error {
 export class WorkspaceNotFoundError extends Error {
   constructor(workspaceId: string) {
     super(`workspace ${workspaceId} not found`);
+  }
+}
+
+/**
+ * A theme that is not one of the palette's. Its own kind because it is a 400,
+ * not a 404 or a 409: the request names a workspace that exists and asks for
+ * colors that are simply not on offer.
+ */
+export class UnknownThemeError extends Error {
+  constructor() {
+    super('that is not one of the themes');
   }
 }
 
@@ -145,6 +157,28 @@ export async function runCommand<N extends CommandName>(
         db
           .update(workspaces)
           .set({ deletedAt: cmd.issuedAt })
+          .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId))),
+        logCommand,
+      ]);
+      break;
+    }
+    case 'set_workspace_theme': {
+      const cmd = payload as CommandPayload<'set_workspace_theme'>;
+      if (!(await getWorkspace(db, tenantId, cmd.workspaceId))) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      // The three colors are stored, but only the palette's combinations may be
+      // stored: that is what "picked from designed options" means once there is
+      // a wire format a caller can put anything into, and it is how the
+      // legibility half of the decision is actually kept rather than intended.
+      // The day mixing your own is wanted, this check is what relaxes.
+      if (!isPaletteTheme({ tint: cmd.color, ground: cmd.ground, header: cmd.header })) {
+        throw new UnknownThemeError();
+      }
+      await db.batch([
+        db
+          .update(workspaces)
+          .set({ color: cmd.color, ground: cmd.ground, header: cmd.header })
           .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId))),
         logCommand,
       ]);

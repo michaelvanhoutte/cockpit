@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import { eq } from 'drizzle-orm';
+import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { Workspace } from '@cockpit/shared';
 import { createDb } from '../../../src/db/client.js';
 import { commands, items, workspaces } from '../../../src/db/schema.js';
@@ -63,6 +64,25 @@ async function deleteWorkspace(workspaceId: string, overrides: { commandId?: str
       commandId: overrides.commandId ?? nextId(),
       issuedAt: '2026-08-12T11:00:00.000Z',
       workspaceId,
+    }),
+  });
+}
+
+async function setTheme(
+  workspaceId: string,
+  theme: { tint: string; ground: string; header: string },
+  overrides: { commandId?: string } = {},
+) {
+  return SELF.fetch('http://cockpit.test/v1/commands/set_workspace_theme', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      commandId: overrides.commandId ?? nextId(),
+      issuedAt: '2026-08-12T12:00:00.000Z',
+      workspaceId,
+      color: theme.tint,
+      ground: theme.ground,
+      header: theme.header,
     }),
   });
 }
@@ -345,10 +365,73 @@ describe('Workspace management', () => {
     });
   });
 
+  describe('a workspace wears the colors chosen for it', () => {
+    /** The theme a workspace is wearing, as the workspace list gives it back. */
+    async function coloursOf(workspaceId: string) {
+      const workspace = (await theWorkspaces()).find((w) => w.id === workspaceId);
+      return { color: workspace?.color, ground: workspace?.ground, header: workspace?.header };
+    }
+
+    it('comes back in all three of them, not just the one on the dot', async () => {
+      const subject = await aWorkspace();
+      const chosen = WORKSPACE_THEMES[4]!;
+
+      expect((await setTheme(subject.id, chosen)).status).toBe(200);
+
+      expect(await coloursOf(subject.id)).toEqual({
+        color: chosen.tint,
+        ground: chosen.ground,
+        header: chosen.header,
+      });
+    });
+
+    it('leaves every other workspace wearing what it was wearing', async () => {
+      const subject = await aWorkspace();
+      const untouched = await aWorkspace();
+      const before = await coloursOf(untouched.id);
+
+      await setTheme(subject.id, WORKSPACE_THEMES[5]!);
+
+      expect(await coloursOf(untouched.id)).toEqual(before);
+    });
+
+    it('lets two workspaces wear the same theme, which is the person’s business', async () => {
+      // Unlike names, which are refused: two workspaces that look alike are
+      // two the person chose to make look alike, and they are still told apart
+      // by what the tabs say.
+      const one = await aWorkspace();
+      const other = await aWorkspace();
+      const chosen = WORKSPACE_THEMES[6]!;
+
+      expect((await setTheme(one.id, chosen)).status).toBe(200);
+      expect((await setTheme(other.id, chosen)).status).toBe(200);
+
+      expect(await coloursOf(one.id)).toEqual(await coloursOf(other.id));
+    });
+
+    it('refuses colors that are not a theme, and keeps the ones it had', async () => {
+      // The palette is what keeps every combination legible, and a wire format
+      // takes whatever it is given - so the rule has to be enforced here, not
+      // only offered by the swatches.
+      const subject = await aWorkspace();
+      const before = await coloursOf(subject.id);
+
+      const response = await setTheme(subject.id, {
+        tint: WORKSPACE_THEMES[1]!.tint,
+        ground: WORKSPACE_THEMES[2]!.ground,
+        header: WORKSPACE_THEMES[3]!.header,
+      });
+
+      expect(response.status).toBe(400);
+      expect(await coloursOf(subject.id)).toEqual(before);
+    });
+  });
+
   describe('a change to a workspace that no longer exists is refused and nothing is stored', () => {
     it.each([
       { situation: 'renaming it', change: (id: string) => renameWorkspace(id, aName()) },
       { situation: 'deleting it', change: (id: string) => deleteWorkspace(id) },
+      { situation: 'coloring it', change: (id: string) => setTheme(id, WORKSPACE_THEMES[3]!) },
     ])('$situation', async ({ change }) => {
       const gone = await aWorkspace();
       await deleteWorkspace(gone.id);

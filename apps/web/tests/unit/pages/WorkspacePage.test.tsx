@@ -23,7 +23,7 @@ vi.mock('../../../src/api/queries', () => ({
     queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
       Promise.resolve({
-        workspace: { id: workspaceId, tenantId: 'tenant', name: 'Work', color: '#6f62b5' },
+        workspace: { id: workspaceId, tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' },
         items: held.items,
         associations: [],
         generatedAt: '2026-08-31T09:00:00.000Z',
