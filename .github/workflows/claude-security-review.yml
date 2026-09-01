@@ -165,9 +165,11 @@ jobs:
           # found nothing" read exactly like "never ran".
           #
           # Asking harder was the obvious fix and the wrong one. The sibling
-          # workflow already infers a review from whether Claude spoke, and issue
-          # 75 is the open bug saying that inference goes stale. The gate knows
-          # the verdict; having it say so needs nobody's cooperation.
+          # workflow already infers a review from whether Claude spoke, and "The
+          # review check goes green when the reviewer declined to look at the new
+          # commits" (issue 75) is the open bug saying that inference goes stale.
+          # The gate knows the verdict; having it say so needs nobody's
+          # cooperation.
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         # Every decision this makes is in scripts/lib/review-gate.mjs, asserted

@@ -10,7 +10,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 
-import { COMMENT_MARKER, decideOutcome, summaryComment } from './lib/review-gate.mjs';
+import { decideOutcome, markedCommentId, summaryComment } from './lib/review-gate.mjs';
 
 const [executionFile, conclusion] = process.argv.slice(2);
 
@@ -32,13 +32,15 @@ function leaveSummary(outcome) {
     execFileSync('gh', args, { input, encoding: 'utf8', env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
 
   try {
-    const existing = JSON.parse(
-      gh(['api', `repos/${repo}/issues/${pr}/comments`, '--paginate', '--jq', '[.[] | {id, body}]']),
-    ).find((c) => (c.body ?? '').includes(COMMENT_MARKER));
+    // One object per line, never an array: --paginate applies --jq per page and
+    // concatenates, so a wrapped filter emits one array per page and stops
+    // being JSON. See markedCommentId, which is where that is asserted.
+    const listed = gh(['api', `repos/${repo}/issues/${pr}/comments`, '--paginate', '--jq', '.[] | {id, body} | @json']);
+    const existingId = markedCommentId(listed);
 
     const body = JSON.stringify({ body: summaryComment(outcome) });
-    if (existing) {
-      gh(['api', '--method', 'PATCH', `repos/${repo}/issues/comments/${existing.id}`, '--input', '-'], body);
+    if (existingId !== null) {
+      gh(['api', '--method', 'PATCH', `repos/${repo}/issues/comments/${existingId}`, '--input', '-'], body);
     } else {
       gh(['api', '--method', 'POST', `repos/${repo}/issues/${pr}/comments`, '--input', '-'], body);
     }

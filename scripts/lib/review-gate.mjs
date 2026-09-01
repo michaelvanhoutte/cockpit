@@ -44,9 +44,11 @@ export const COMMENT_MARKER = '<!-- cockpit-security-review -->';
  * looked identical.
  *
  * Asking harder would have been the obvious fix and the wrong one. The sibling
- * workflow already tried inferring a review from whether Claude spoke, and
- * issue 75 is the open bug saying that inference goes stale. The gate already
- * knows the verdict; having it say so needs no cooperation from anyone.
+ * workflow already tried inferring a review from whether Claude spoke, and "The
+ * review check goes green when the reviewer declined to look at the new
+ * commits" (issue 75) is the open bug saying that inference goes stale. The
+ * gate already knows the verdict; having it say so needs no cooperation from
+ * anyone.
  */
 export function summaryComment(outcome) {
   const lines = [COMMENT_MARKER, '## Security review', ''];
@@ -69,6 +71,40 @@ export function summaryComment(outcome) {
     '<sub>Any findings are inline comments on the diff. This note is written by the gate, not by the reviewer, so it appears whether or not the reviewer said anything.</sub>',
   );
   return lines.join('\n');
+}
+
+/**
+ * The id of the note this workflow left last time, from `gh api --paginate`
+ * output, or null if there is none yet.
+ *
+ * Line-oriented on purpose, and this is the whole reason it is a function with
+ * tests rather than two lines in the script. `--paginate` applies `--jq` to
+ * each page separately and concatenates the results, so a filter that wraps its
+ * output in an array emits one array per page - `[...]\n[...]` - which is not
+ * JSON and throws when parsed. The first version did exactly that. It would
+ * have worked on every pull request until one passed thirty comments, and then
+ * failed inside the try that makes posting non-fatal: no comment, no update of
+ * the stale one already there, and a warning nobody reads. A change whose only
+ * purpose is making the verdict visible would have stopped doing that
+ * invisibly, which is the joke it deserved to be caught for.
+ *
+ * One JSON object per line concatenates safely, which is the shape
+ * claude-code-review.yml's own gate already uses for the same reason.
+ */
+export function markedCommentId(ghOutput, marker = COMMENT_MARKER) {
+  for (const line of String(ghOutput ?? '').split('\n')) {
+    if (line.trim() === '') continue;
+    let comment;
+    try {
+      comment = JSON.parse(line);
+    } catch {
+      // One unreadable line is not a reason to abandon the rest: the id being
+      // looked for may be on any of them.
+      continue;
+    }
+    if (String(comment?.body ?? '').includes(marker)) return comment.id;
+  }
+  return null;
 }
 
 function verdictMeaning(severity) {

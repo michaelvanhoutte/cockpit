@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { COMMENT_MARKER, decideOutcome, resultRecordOf, summaryComment, verdictOf } from './review-gate.mjs';
+import { COMMENT_MARKER, decideOutcome, markedCommentId, resultRecordOf, summaryComment, verdictOf } from './review-gate.mjs';
 
 /** A result record as the action writes one, with the parts under test. */
 function run({ text = 'SECURITY-VERDICT: NONE', turns = 14, ...rest } = {}) {
@@ -252,5 +252,42 @@ describe('summaryComment', () => {
     assert.match(body, /Verdict: NONE/);
     assert.match(body, /only 2 turns/);
     assert.match(body, /<details>/);
+  });
+});
+
+describe('markedCommentId', () => {
+  const marked = (id) => JSON.stringify({ id, body: `${COMMENT_MARKER}\n## Security review` });
+  const other = (id) => JSON.stringify({ id, body: 'Looks good to me' });
+
+  it('finds the note this workflow left', () => {
+    assert.equal(markedCommentId([other(1), marked(2), other(3)].join('\n')), 2);
+  });
+
+  it('is null when there is no note yet', () => {
+    assert.equal(markedCommentId([other(1), other(2)].join('\n')), null);
+  });
+
+  it('is null for empty output', () => {
+    assert.equal(markedCommentId(''), null);
+  });
+
+  it('reads across pages, where the first version stopped being JSON', () => {
+    // `gh api --paginate` applies --jq per page and concatenates the results.
+    // The first version wrapped its filter in an array, so this arrived as
+    // `[...]\n[...]` and threw — swallowed into a warning, leaving the comment
+    // unposted on any pull request past thirty comments.
+    const pages = [other(1), other(2), other(3), marked(4)].join('\n');
+    assert.equal(markedCommentId(pages), 4);
+  });
+
+  it('keeps reading past a line it cannot parse', () => {
+    assert.equal(markedCommentId(['not json at all', marked(7)].join('\n')), 7);
+  });
+
+  it('ignores a body that merely mentions the marker in prose', () => {
+    // A quoted marker is still a match, and should be: the alternative is
+    // parsing prose to decide. What must not happen is a crash on either.
+    const quoting = JSON.stringify({ id: 9, body: `someone pasted ${COMMENT_MARKER} here` });
+    assert.equal(markedCommentId(quoting), 9);
   });
 });
