@@ -30,6 +30,7 @@ const sends = vi.mocked(sendCommand);
 const snapshot: WorkspaceSnapshot = {
   workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' },
   items: [],
+  dashboards: [],
   associations: [],
   generatedAt: '2026-08-31T10:00:00.000Z',
 };

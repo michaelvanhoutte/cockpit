@@ -700,7 +700,8 @@ this step goes away. **Staging is deliberately never re-seeded**, because
 accumulated old data is the entire point of it.
 
 **There is no seed step for an account's own data, and there cannot be.** Its
-workspaces, items and associations live in a Durable Object that is created by
+workspaces, dashboards, items and associations live in a Durable Object that is
+created by
 the first request that opens it, and `wrangler d1 execute` speaks only to D1. So
 the three workspaces an account starts with are its first change instead
 (`apps/api/src/accounts/changes.ts`), applied once, inside whichever request

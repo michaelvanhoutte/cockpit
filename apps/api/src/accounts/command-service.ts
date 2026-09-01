@@ -1,20 +1,22 @@
 import { and, eq } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import { associations, commands, items, workspaces } from './schema.js';
+import { associations, commands, dashboards, items, workspaces } from './schema.js';
 import {
   commandAlreadyApplied,
   getItem,
   getWorkspace,
+  listDashboards,
   listWorkspaces,
 } from './repo.js';
 import { isPaletteTheme } from '@cockpit/shared';
+import { foldName } from '../domain/names.js';
 import {
-  foldName,
-  nextColor,
-  workspaceFromCommand,
-  workspaceNamed,
-} from '../domain/workspaces.js';
+  dashboardFromCommand,
+  dashboardNamed,
+  firstDashboardFor,
+} from '../domain/dashboards.js';
+import { nextColor, workspaceFromCommand, workspaceNamed } from '../domain/workspaces.js';
 import {
   applySetFocus,
   applySetNextAction,
@@ -55,6 +57,18 @@ export class WorkspaceNameTakenError extends Error {
   constructor(name: string) {
     super(`a workspace called ${name} already exists`);
     this.name = 'WorkspaceNameTakenError';
+  }
+}
+
+/**
+ * Its own kind rather than the workspace one, because the message is what a
+ * person reads and "a workspace called Research already exists" next to a bar
+ * of dashboards names the wrong thing entirely.
+ */
+export class DashboardNameTakenError extends Error {
+  constructor(name: string) {
+    super(`a dashboard called ${name} already exists in this workspace`);
+    this.name = 'DashboardNameTakenError';
   }
 }
 
@@ -119,6 +133,40 @@ export function runCommand<N extends CommandName>(
       // mean only what they say.)
       db.transaction((tx) => {
         tx.insert(workspaces).values(workspace).onConflictDoNothing({ target: workspaces.id }).run();
+        // Its first dashboard, in the same act, so "every workspace has at
+        // least one dashboard" holds from the moment the workspace exists
+        // rather than from the next time somebody adds one ("Add and switch
+        // dashboards", issue 32). Named at the primary key for the same reason
+        // the workspace above is: a replayed create must add neither a second
+        // workspace nor a second dashboard.
+        tx.insert(dashboards)
+          .values(firstDashboardFor(workspace))
+          .onConflictDoNothing({ target: dashboards.id })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'add_dashboard': {
+      const cmd = payload as CommandPayload<'add_dashboard'>;
+      // The workspace is client-supplied and only shape-validated, so this is
+      // where an unknown one is caught. Live only: a dashboard cannot be added
+      // to a workspace that is no longer there.
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      // Scoped to this workspace, which is the whole difference from a
+      // workspace name: two workspaces may each have a Research.
+      const alreadyCalledThat = dashboardNamed(
+        listDashboards(db, tenantId, cmd.workspaceId),
+        cmd.name,
+      );
+      if (alreadyCalledThat) throw new DashboardNameTakenError(alreadyCalledThat.name);
+      db.transaction((tx) => {
+        tx.insert(dashboards)
+          .values(dashboardFromCommand(cmd, tenantId))
+          .onConflictDoNothing({ target: dashboards.id })
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

@@ -59,6 +59,7 @@ describe('Sign-in', () => {
       answersWith({
         workspace,
         items: [],
+        dashboards: [],
         associations: [],
         generatedAt: '2026-08-31T10:00:00.000Z',
       });

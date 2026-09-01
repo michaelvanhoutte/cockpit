@@ -119,7 +119,7 @@ describe('Capture', () => {
           .exec<{ name: string; strict: number }>(
             `SELECT name, strict FROM pragma_table_list
               WHERE schema = 'main'
-                AND name IN ('workspaces', 'items', 'associations', 'commands')
+                AND name IN ('workspaces', 'dashboards', 'items', 'associations', 'commands')
               ORDER BY name`,
           )
           .toArray(),
@@ -128,6 +128,7 @@ describe('Capture', () => {
       expect(tables.map((t) => t.name)).toEqual([
         'associations',
         'commands',
+        'dashboards',
         'items',
         'workspaces',
       ]);
@@ -143,6 +144,7 @@ describe('Capture', () => {
           .exec<{ target: string }>(
             `SELECT "table" AS target FROM pragma_foreign_key_list('items')
              UNION SELECT "table" FROM pragma_foreign_key_list('associations')
+             UNION SELECT "table" FROM pragma_foreign_key_list('dashboards')
              ORDER BY target`,
           )
           .toArray()

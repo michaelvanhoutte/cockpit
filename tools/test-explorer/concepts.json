@@ -30,7 +30,20 @@
     {
       "key": "Dashboards",
       "label": "Dashboards",
-      "sourcePatterns": []
+      "sourcePatterns": [
+        "apps/api/src/domain/dashboards.ts",
+        "apps/api/src/domain/names.ts",
+        "apps/api/src/accounts/command-service.ts",
+        "apps/api/src/accounts/repo.ts",
+        "apps/api/src/accounts/changes.ts",
+        "apps/api/src/accounts/schema.ts",
+        "packages/shared/src/commands.ts",
+        "packages/shared/src/domain/item.ts",
+        "apps/web/src/components/DashboardBar.tsx",
+        "apps/web/src/pages/DashboardPage.tsx",
+        "apps/web/src/lastVisited.ts",
+        "apps/web/src/router.tsx"
+      ]
     },
     {
       "key": "Panels",
@@ -108,6 +121,7 @@
       "label": "Workspace management",
       "sourcePatterns": [
         "apps/api/src/domain/workspaces.ts",
+        "apps/api/src/domain/names.ts",
         "apps/api/src/accounts/command-service.ts",
         "apps/api/src/accounts/repo.ts",
         "apps/api/src/accounts/schema.ts",

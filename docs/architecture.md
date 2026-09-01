@@ -93,7 +93,7 @@ The conventions above are enforced by the schema, not left to the callers that h
 
 #### One store per account, and `tenant_id` stays
 
-**Status: built.** An account's workspaces, items, associations and change log live in that account's own store; the register — which accounts exist — stays in D1. `apps/api/src/accounts/` is the only place either is read or written.
+**Status: built.** An account's workspaces, dashboards, items, associations and change log live in that account's own store; the register — which accounts exist — stays in D1. `apps/api/src/accounts/` is the only place either is read or written.
 
 **A tenant is an account, not a Workspace.** The shape is one store per *account* — per person or organization paying for Cockpit. Workspaces (Work, Atlas Copco, Personal) are the privacy boundary *inside* one account's data, per the functional definition's workspace model. One store per Workspace would be the wrong reading: it breaks the Workspace switcher and every future cross-Workspace view, which are the whole point of Workspaces being one person's compartments rather than separate accounts.
 

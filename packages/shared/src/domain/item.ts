@@ -148,3 +148,31 @@ export const workspaceSchema = z.object({
   header: z.string(),
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
+
+/**
+ * A Dashboard's name obeys exactly the rules a Workspace's does, by being the
+ * same schema rather than a copy of it: required, trimmed, single-line, at most
+ * 60 characters. What differs is only the scope uniqueness is decided in - the
+ * workspace rather than the account - and that is not a shape, so it is not
+ * here ("Add and switch dashboards", issue 32).
+ */
+export const dashboardNameSchema = workspaceNameSchema;
+
+/**
+ * A Dashboard: a named view inside a Workspace, which you switch between like
+ * tabs (functional definition, "Container hierarchy"). It holds Panels once
+ * "Panels on a dashboard, with per-screen-size layouts" (issue 33) lands.
+ *
+ * `name` and `id` are the permissive `z.string()` for the reason a Workspace's
+ * are: this is the shape read back, and a stored name that predates the rules
+ * should still render rather than blanking the bar it appears in. The ids of
+ * the dashboards every workspace was given when this landed are derived from
+ * their workspace's own id, so they are not all uuids either.
+ */
+export const dashboardSchema = z.object({
+  id: z.string(),
+  tenantId: z.string(),
+  workspaceId: z.string(),
+  name: z.string(),
+});
+export type Dashboard = z.infer<typeof dashboardSchema>;

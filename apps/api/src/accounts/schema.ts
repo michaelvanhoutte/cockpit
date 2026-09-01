@@ -11,7 +11,8 @@ import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from
 
 /**
  * The tables inside one account's store (architecture, "One store per account,
- * and `tenant_id` stays"): its workspaces, items, associations and change log.
+ * and `tenant_id` stays"): its workspaces, dashboards, items, associations and
+ * change log.
  * They live in the account's own Durable Object, never in D1, which holds only
  * the register of which accounts exist (src/db/schema.ts).
  *
@@ -132,8 +133,8 @@ export const workspaces = sqliteTable(
      * `Réunions` and `réunions` were two different workspaces you could not
      * tell apart in the tabs ("Workspace names are only case-insensitive in
      * ASCII", issue 91). Folding happens in the application, where the whole of
-     * Unicode is available; `foldName` in src/domain/workspaces.ts is the one
-     * function that does it.
+     * Unicode is available; `foldName` in src/domain/names.ts is the one
+     * function that does it, for this table and for dashboards alike.
      *
      * `NOT NULL DEFAULT ''` matches the D1 copy, where the default was
      * load-bearing across the deploy that added it. A store creates the column
@@ -200,6 +201,65 @@ export const workspaces = sqliteTable(
       .where(sql`${t.deletedAt} IS NULL`),
     check('workspaces_created_at_is_timestamp', isTimestamp('created_at')),
     check('workspaces_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
+/**
+ * A dashboard: a named view inside a workspace, switched between like tabs
+ * (functional definition, "Container hierarchy"). It holds panels once "Panels
+ * on a dashboard, with per-screen-size layouts" (issue 33) lands; until then a
+ * dashboard is its name and the fact that you can switch to it.
+ *
+ * The Inbox is not here and never will be. It is a fixed entry at the left of
+ * the bar rather than a row of this table, so nothing can rename, delete or
+ * move it - which is what "pinned" means, expressed in the schema rather than
+ * in a rule somebody has to remember.
+ */
+export const dashboards = sqliteTable(
+  'dashboards',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    /**
+     * The name with its case folded away, exactly as a workspace carries one
+     * and for exactly the same reason: SQL's `lower()` folds `A`-`Z` and
+     * nothing else, so `Été` and `été` would be two dashboards nobody could
+     * tell apart in the bar. `foldName` in src/domain/names.ts is the one
+     * function that folds, for both tables ("Add and switch dashboards", issue
+     * 32, which says in as many words not to copy `lower(name)` into a second
+     * table).
+     */
+    foldedName: text('folded_name').notNull(),
+    createdAt: text('created_at').notNull(),
+    /**
+     * Tombstone, written by "Rename and delete a dashboard from a dashboard
+     * settings page" (issue 90) and unread until then. It is here from the
+     * first change rather than added later because a column costs nothing in a
+     * table being created, and adding one to a live table is what `workspaces`
+     * had to spend two migrations on.
+     */
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    /**
+     * Unique within the *workspace*, not the account: two workspaces may each
+     * have a Research, and neither knows about the other's. That is the one
+     * thing this differs from the workspaces index in, and it is why the
+     * workspace id is part of the key.
+     *
+     * Partial on the tombstone like that one, so a deleted dashboard gives its
+     * name back to the workspace it was in.
+     */
+    uniqueIndex('dashboards_workspace_live_folded_name')
+      .on(t.tenantId, t.workspaceId, t.foldedName)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index('dashboards_tenant_workspace').on(t.tenantId, t.workspaceId),
+    check('dashboards_created_at_is_timestamp', isTimestamp('created_at')),
+    check('dashboards_deleted_at_is_timestamp', isTimestamp('deleted_at')),
   ],
 );
 

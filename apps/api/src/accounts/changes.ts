@@ -24,7 +24,7 @@ import type { Change } from './up-to-date.js';
  * actually ends up with, rather than against the TypeScript that describes it.
  */
 export function accountChanges(accountId: string): readonly Change[] {
-  return [ACCOUNT_SCHEMA, startingWorkspaces(accountId)];
+  return [ACCOUNT_SCHEMA, startingWorkspaces(accountId), DASHBOARDS];
 }
 
 /**
@@ -154,3 +154,79 @@ function startingWorkspaces(accountId: string): Change {
     ],
   };
 }
+
+/**
+ * Dashboards: the table, and one dashboard for every workspace that was there
+ * before it ("Add and switch dashboards", issue 32).
+ *
+ * **Nothing is rebuilt and nothing is dropped**, so the destructive half of the
+ * checklist is genuinely empty. What is left is the backfill, which writes rows
+ * a second run must not double.
+ *
+ * **Interrupted, or run again.** A change is applied atomically here - its
+ * statements and the record that they ran, together (up-to-date.ts) - so a
+ * change that fails partway leaves nothing of itself behind and is retried
+ * whole. That is stronger than the D1 migrations this issue's failure modes
+ * were written against, where nothing wraps two statements and a repeat has to
+ * survive its own first half. The guards below are kept anyway, because they
+ * cost nothing and because "it cannot happen" is a claim about the applier
+ * rather than about this file:
+ *
+ * - `CREATE TABLE IF NOT EXISTS`, so a retry over a table that is somehow
+ *   already there is a no-op rather than a failed deploy;
+ * - the backfill **skips workspaces that already have a dashboard** rather than
+ *   leaning on the unique index to catch the collision, so a second run does
+ *   nothing rather than failing over rows that are already correct;
+ * - backfilled ids are **derived from the workspace's own id**, matching
+ *   `firstDashboardId` in src/domain/dashboards.ts, so a workspace's first
+ *   dashboard has one id whether this change made it or `create_workspace`
+ *   did, and no run can produce a second row that merely looks different.
+ *
+ * **Tombstoned workspaces get one too.** Backfilling them costs a row each and
+ * keeps "every workspace has at least one dashboard" unconditional; skipping
+ * them leaves a hole that opens the moment a deleted workspace is restored by
+ * hand. The unique index is partial on the *dashboard's* tombstone, not the
+ * workspace's, so nothing about a deleted workspace makes its dashboard
+ * special.
+ *
+ * **No data can be rejected.** Every workspace gets a name no dashboard of that
+ * workspace can already hold, because that workspace has no dashboards at all
+ * when this runs; the foreign key holds because the row it points at is the one
+ * being read to write it.
+ */
+const DASHBOARDS: Change = {
+  name: '0003-dashboards',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`dashboards\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`folded_name\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "dashboards_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))),
+	CONSTRAINT "dashboards_deleted_at_is_timestamp" CHECK(deleted_at IS NULL OR (datetime(deleted_at) IS NOT NULL AND substr(deleted_at, 11, 1) = 'T' AND substr(deleted_at, -1) = 'Z' AND length(deleted_at) >= 20 AND date(deleted_at) = substr(deleted_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `dashboards_workspace_live_folded_name` ON `dashboards` (`tenant_id`,`workspace_id`,`folded_name`) WHERE "deleted_at" IS NULL',
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `dashboards_tenant_workspace` ON `dashboards` (`tenant_id`,`workspace_id`)',
+    },
+    {
+      // One INSERT ... SELECT, so it fills every workspace or none. The name
+      // is written out here rather than bound, to keep it beside the fold it
+      // must agree with; both match FIRST_DASHBOARD_NAME in
+      // src/domain/dashboards.ts, and the constraints test is what notices if
+      // they ever stop agreeing.
+      sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+              SELECT w.id || '-dashboard-1', w.tenant_id, w.id, 'Dashboard 1', 'dashboard 1', w.created_at
+                FROM workspaces w
+               WHERE NOT EXISTS (SELECT 1 FROM dashboards d WHERE d.workspace_id = w.id)`,
+    },
+  ],
+};

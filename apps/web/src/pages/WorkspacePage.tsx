@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
-import { workspaceRoute } from '../router';
+import { inboxRoute } from '../router';
 import { CaptureForm } from '../components/CaptureForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { ItemRow } from '../components/ItemRow';
@@ -17,7 +17,7 @@ import { ItemRow } from '../components/ItemRow';
  * ("Render actions in panels, backed by one shared action list", issue 36).
  */
 export function WorkspacePage() {
-  const { workspaceId } = workspaceRoute.useParams();
+  const { workspaceId } = inboxRoute.useParams();
   const { data, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
   const headingId = useId();
 

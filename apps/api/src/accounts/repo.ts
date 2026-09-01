@@ -1,7 +1,7 @@
 import { and, eq, isNull, ne } from 'drizzle-orm';
-import type { Association, Item, Workspace } from '@cockpit/shared';
+import type { Association, Dashboard, Item, Workspace } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import { associations, commands, items, workspaces } from './schema.js';
+import { associations, commands, dashboards, items, workspaces } from './schema.js';
 
 /**
  * Repositories: the only place queries live. Every query filters on tenant_id
@@ -70,6 +70,42 @@ export function getWorkspace(
       .where(and(live(tenantId), eq(workspaces.id, workspaceId)))
       .get() ?? null
   );
+}
+
+/**
+ * The columns a dashboard is read by, named one by one for the reason the
+ * workspace ones are: a bare `select()` names every column of the table, which
+ * makes dropping one a two-release job. `folded_name` is deliberately not among
+ * them - nothing outside the index reads it.
+ */
+const dashboardColumns = {
+  id: dashboards.id,
+  tenantId: dashboards.tenantId,
+  workspaceId: dashboards.workspaceId,
+  name: dashboards.name,
+};
+
+/**
+ * A workspace's dashboards, oldest first, which is the order they sit in the
+ * bar. Tombstoned ones are left out the way tombstoned workspaces are.
+ */
+export function listDashboards(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): Dashboard[] {
+  return db
+    .select(dashboardColumns)
+    .from(dashboards)
+    .where(
+      and(
+        eq(dashboards.tenantId, tenantId),
+        eq(dashboards.workspaceId, workspaceId),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(dashboards.createdAt)
+    .all();
 }
 
 /** Open items: tombstoned rows stay in the store but never in the snapshot. */
