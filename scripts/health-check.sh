@@ -2,11 +2,17 @@
 #
 # Assert that a deployed environment is up and its database reachable.
 #
-# /health returns {"ok":true,"db":true} and verifies D1 connectivity (architecture
-# §9.2). It must stay reachable *without* Cloudflare Access, because two things
-# depend on reaching it unauthenticated: this post-deploy check, and the external
-# uptime monitor that is the only observability layer not running on the app's own
-# code. docs/deployment.md §6 records the Bypass policy that keeps it open.
+# /health returns {"ok":true,"register":true,"store":true}: the register answered,
+# and a store belonging to no account was opened and brought up to date
+# (architecture, "Observability"). Both halves matter here — an account's data
+# lives in its own store, so a check on the register alone would pass this
+# assertion while every real request to the deployment failed.
+#
+# It must stay reachable *without* Cloudflare Access, because two things depend on
+# reaching it unauthenticated: this post-deploy check, and the external uptime
+# monitor that is the only observability layer not running on the app's own code.
+# docs/deployment.md's "`/health` must stay outside the gate" records the Bypass
+# policy that keeps it open.
 #
 # If Access ever does gate it, curl receives an HTML login page instead of JSON.
 # That is a configuration error with a specific fix, so it is detected and named
@@ -31,7 +37,7 @@ echo "GET $endpoint -> $code"
 case "$code" in
   200) ;;
   30[1237])
-    echo "::error::$endpoint redirected ($code). /health must be reachable without Cloudflare Access: add a Bypass policy scoped to the /health path (docs/deployment.md §6). The §9.2 uptime monitor depends on this too."
+    echo "::error::$endpoint redirected ($code). /health must be reachable without Cloudflare Access: add a Bypass policy scoped to the /health path (docs/deployment.md, \"\`/health\` must stay outside the gate\"). The uptime monitor in architecture's Observability section depends on this too."
     exit 1
     ;;
   000)
@@ -47,7 +53,7 @@ esac
 
 # A 200 that is not our JSON means something answered in front of the Worker.
 if ! printf '%s' "$body" | grep -q '"ok":true'; then
-  echo "::error::$endpoint returned 200 but not a healthy body. Either D1 is unreachable, or something (an Access login page, a cached error) answered instead of the Worker."
+  echo "::error::$endpoint returned 200 but not a healthy body. Either the register is unreachable, or an account store could not be opened or brought up to date (the reason is in the Worker's logs, never in this body), or something (an Access login page, a cached error) answered instead of the Worker."
   printf '%s\n' "$body" | head -5
   exit 1
 fi

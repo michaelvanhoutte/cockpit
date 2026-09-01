@@ -406,10 +406,17 @@ worth carrying into any change to `apps/api/src/accounts/changes.ts`: a change
 that will not apply takes down every account, one at a time as each is opened,
 so the deploy-time gate D1 gives for free is not there; and a change that has
 shipped must never be edited, because the accounts that already applied it will
-not apply it again and the ones that had not will get the edited version. The
-gate that has to replace the deploy-time one — applying an account's changes
-against a scratch store in CI before the deploy — is its own piece of work and
-is not built yet.
+not apply it again and the ones that had not will get the edited version.
+
+The gate that replaces the deploy-time one is
+`apps/api/tests/integration/accounts/aged-store.test.ts`: it brings a store no
+account owns up to every point in the list, fills it with rows, and applies the
+rest. A test rather than a workflow step, because `pnpm test` already runs
+before the deploy in both deploy workflows, so a red one already stops the
+deploy and there is no second mechanism to keep in step with this one. **An
+update that creates a table needs a row adding to that file's fixtures in the
+same change**, or the next update meets an empty table and the gate quietly goes
+back to proving what opening a new account already proves.
 
 Every deploy applies migrations **before** the new code goes live, so new code
 never meets an old schema. The inverse window is real and unavoidable: for the
@@ -486,10 +493,18 @@ free to gate, and what nothing replaced when they went (§4).
 ### `/health` must stay outside the gate
 
 Two things depend on reaching `/health` unauthenticated, and both break silently
-without it: the post-deploy assertion in the deploy workflows, and §9.2's external
-uptime check, which is deliberately the only observability layer not running on the
-app's own code. `/health` returns `{"ok":true,"db":true}` and nothing else, so it
-discloses only whether the database answered.
+without it: the post-deploy assertion in the deploy workflows, and the external
+uptime check (architecture, "Observability"), which is deliberately the only
+observability layer not running on the app's own code. `/health` returns `{"ok":true,"register":true,"store":true}`
+and nothing else, so it discloses only whether each half answered — never *why*
+one did not, since the reason an update will not apply names tables and columns and
+this endpoint answers anyone. That reason goes to the logs instead.
+
+`store` is checked against a store belonging to no account, addressed by a name
+the same request confirms is absent from the register. An unauthenticated
+endpoint must not open somebody's data to decide whether a deploy was safe, and
+this one structurally cannot: it never goes through `openAccount`, which is the
+only thing that resolves a registered account.
 
 The recipe, which is fiddly enough to be worth writing down exactly:
 
@@ -529,8 +544,8 @@ failing with an unexplained parse error on an HTML login page.
 
 | | `/` | `/v1/workspaces` | `/health` |
 |---|---|---|---|
-| production | 302 → Access | 302 → Access | 200 `{"ok":true,"db":true}` |
-| staging | 302 → Access | 302 → Access | 200 `{"ok":true,"db":true}` |
+| production | 302 → Access | 302 → Access | 200 `{"ok":true,...}` |
+| staging | 302 → Access | 302 → Access | 200 `{"ok":true,...}` |
 | preview alias | 302 → Access | — | 302 → Access |
 
 The preview row is kept as the record of a test that was run, not as a live
@@ -873,9 +888,10 @@ than to any mail provider, so it survives changing employer or email.
   asset routing proven by nothing but a manual look.
 - **Bundle-size gate** (§7): the budget needs recording as a number before it
   can be enforced as one.
-- **Sentry, the connector watchdog, and the external uptime check** (§9.2): they
-  land with the code they observe. `/health` already reports D1 connectivity and
-  the production deploy asserts it.
+- **Sentry, the connector watchdog, and the external uptime check**
+  (architecture, "Observability"): they land with the code they observe.
+  `/health` already reports whether the register and an account store can both
+  be reached, and the production deploy asserts it.
 - **~~Preview alias cleanup.~~** Gone with the previews (§4): there are no
   aliases left to reap, and `scripts/branch-alias.sh`, which derived them, is
   deleted. What remains is a one-time tidy rather than a standing task - the
@@ -906,7 +922,9 @@ curl -i https://cockpit-staging.vanhoutte-michael.workers.dev/health
 
 | Answer | Meaning | Go to |
 |---|---|---|
-| `200 {"ok":true,"db":true}` | Worker up, D1 answering. The deployment is fine. | *In the browser*, below |
+| `200 {"ok":true,...}` | Worker up, register answering, an account store openable. The deployment is fine. | *In the browser*, below |
+| `200 {"ok":false,"register":true,"store":false}` | Worker up, register answering, and a store would not open — most often an update that will not apply. | *At the deployment*, below |
+| `200 {"ok":false,"register":false,...}` | Either D1 did not answer, **or** somebody registered an account under the health check's own name, which makes it refuse to run rather than open their data. Two very different faults with one shape, so read the logs to tell them apart — the reason is never in the body. | *At the deployment*, below |
 | `200` with any other body | Something answered in front of the Worker | *In the browser* — usually a login page, so the Bypass policy has come undone |
 | `301`/`302` | The Bypass policy is gone; `/health` is behind the gate | *`/health` must stay outside the gate* |
 | `5xx` | The Worker is up and failing | *At the deployment*, below |

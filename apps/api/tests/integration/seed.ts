@@ -1,5 +1,6 @@
 import { abortAllDurableObjects, env, runInDurableObject } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
+import { PROBE_NAME } from '../../src/accounts/probe.js';
 
 /**
  * What a test has to arrange before a request can succeed, what to put back
@@ -25,7 +26,7 @@ export async function seedRegister(): Promise<void> {
 }
 
 function accountStore() {
-  return env.ACCOUNT.get(env.ACCOUNT.idFromName(ACCOUNT_NAME));
+  return storeNamed(ACCOUNT_NAME);
 }
 
 /**
@@ -38,9 +39,23 @@ function accountStore() {
  * would then serve the next case over tables that are no longer there.
  */
 export async function startFromEmpty(): Promise<void> {
-  await runInDurableObject(accountStore(), (_instance, state) => state.storage.deleteAll());
+  // The account's store, and the one /health practises on: both outlive a case,
+  // and there is a case that deliberately breaks each of them.
+  for (const name of [ACCOUNT_NAME, PROBE_NAME]) {
+    await runInDurableObject(storeNamed(name), (_instance, state) => state.storage.deleteAll());
+  }
   await abortAllDurableObjects();
   await env.DB.prepare('DELETE FROM tenants').run();
+}
+
+/** Any store, by the name it is addressed under - the stores no account owns included. */
+export function storeNamed(name: string) {
+  return env.ACCOUNT.get(env.ACCOUNT.idFromName(name));
+}
+
+/** Reads or writes any store directly, without bringing it up to date first. */
+export async function inStoreAsItIs<T>(name: string, work: (sql: SqlStorage) => T): Promise<T> {
+  return runInDurableObject(storeNamed(name), (_instance, state) => work(state.storage.sql));
 }
 
 /**
@@ -65,5 +80,5 @@ export async function inTheStore<T>(work: (sql: SqlStorage) => T): Promise<T> {
  * arrange storage before the first change has run.
  */
 export async function inTheStoreAsItIs<T>(work: (sql: SqlStorage) => T): Promise<T> {
-  return runInDurableObject(accountStore(), (_instance, state) => work(state.storage.sql));
+  return inStoreAsItIs(ACCOUNT_NAME, work);
 }

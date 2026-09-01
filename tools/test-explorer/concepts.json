@@ -88,6 +88,7 @@
         "apps/api/src/accounts/store.ts",
         "apps/api/src/accounts/up-to-date.ts",
         "apps/api/src/accounts/changes.ts",
+        "apps/api/src/accounts/probe.ts",
         "apps/api/src/accounts/answer.ts",
         "apps/api/src/accounts/rpc.ts",
         "apps/api/src/db/schema.ts"
