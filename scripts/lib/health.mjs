@@ -16,7 +16,8 @@
 // ten seconds after the deploy, healthy on every ask afterwards.
 //
 // **The retry is bounded and loud, not a way of getting to green.** Only the
-// two states that can plausibly right themselves are retried; a redirect or a
+// states that can plausibly right themselves are retried, and `worthRetrying`
+// below is the list rather than any count kept in prose here; a redirect or a
 // login page is a configuration fault that waiting cannot fix, and those still
 // fail on the first answer. Every attempt is reported, so an environment that
 // needed four goes says so in the deploy log instead of looking identical to
@@ -92,10 +93,11 @@ export function readAnswer({ status, body }) {
  * What to say when the check fails, given how it stopped.
  *
  * Here rather than in the runner because it is a claim about what happened, and
- * the first version of it made two that were not true: it appended "still so
- * after N attempts over 60s" whenever there had been more than one attempt,
+ * the first version of it claimed things that were not so: it appended "still
+ * so after N attempts over 60s" whenever there had been more than one attempt,
  * including when the run waited three seconds on one answer and then met a
- * redirect it would never wait on.
+ * redirect it would never wait on - asserting both a persistence and a duration
+ * that never happened.
  */
 export function failureReport({ stopped, attempts, answer }, windowMs = WINDOW_MS, intervalMs = INTERVAL_MS) {
   if (stopped !== 'window-closed') return answer.message;
@@ -106,9 +108,14 @@ export function failureReport({ stopped, attempts, answer }, windowMs = WINDOW_M
 /**
  * Whether waiting could change this answer.
  *
- * Only the two that a deployment settling can fix. A redirect and a login page
- * are both somebody having changed the perimeter, and asking twenty more times
- * only delays saying so.
+ * The deployment being unwell, unreachable, or up and failing are all things a
+ * deployment settling can fix. A redirect and a login page are both somebody
+ * having changed the perimeter, and asking twenty more times only delays saying
+ * so.
+ *
+ * The list is here and nowhere else. An earlier version said "the two" in this
+ * file's header as well, and adding a third left that sentence wrong - which is
+ * what CLAUDE.md means by counts being claims as much as sentences are.
  */
 export function worthRetrying(state) {
   return state === 'unhealthy' || state === 'unreachable' || state === 'failing';
