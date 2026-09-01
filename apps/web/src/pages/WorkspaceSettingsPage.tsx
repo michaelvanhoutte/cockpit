@@ -4,6 +4,7 @@ import { WORKSPACE_THEMES, uuidv7 } from '@cockpit/shared';
 import type { Workspace, WorkspaceTheme } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
+import { LoadFailure } from '../components/LoadFailure';
 
 /**
  * Where workspaces are managed. It lists them, makes new ones, renames them,
@@ -20,7 +21,7 @@ import { snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
  * refused instead of at the bottom of the page.
  */
 export function WorkspaceSettingsPage() {
-  const { data } = useQuery(workspacesQuery);
+  const { data, error, refetch } = useQuery(workspacesQuery);
   const [name, setName] = useState('');
   /** The workspace being renamed and the name typed for it so far. */
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
@@ -29,6 +30,21 @@ export function WorkspaceSettingsPage() {
   const command = useCommand();
 
   const workspaces = data?.workspaces ?? [];
+  /**
+   * Saying "no workspaces yet" is a claim about what this account holds, so it
+   * needs an answer to have arrived. `data` is undefined while the list is
+   * still being fetched, while it is being retried, and when it failed for
+   * good - and `?? []` collapses all three into the same empty array as an
+   * account that really has none.
+   *
+   * That is the lie that made a signed-out session on staging read as an empty
+   * account. Keying the message on `error` instead is not enough either, and
+   * the app said so when it was tried: a query that is still retrying has no
+   * error yet, so the page went on claiming the account was empty for as long
+   * as the retries lasted.
+   */
+  const answered = data !== undefined;
+  const listFailed = Boolean(error) && !answered;
 
   /**
    * What is in the workspace being deleted, so the confirmation can say what
@@ -266,7 +282,19 @@ export function WorkspaceSettingsPage() {
             </li>
           ))}
         </ul>
-        {workspaces.length === 0 && (
+        {listFailed && (
+          <div className="px-4 py-4">
+            {/*
+              `canTakeOver`: there is no stored copy of this list behind the
+              message, so this may own the view and send the browser through
+              sign-in. The page below it still works - making a workspace is
+              how an account with none gets its first - so the message sits in
+              the list rather than replacing the page.
+            */}
+            <LoadFailure error={error} onRetry={() => void refetch()} canTakeOver />
+          </div>
+        )}
+        {answered && workspaces.length === 0 && (
           <p className="px-4 py-4 text-sm text-ink-faint">
             No workspaces yet. Make your first one below.
           </p>
