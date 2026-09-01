@@ -16,10 +16,10 @@
   // keep the two lists in sync.
   //
   // `assets` and `observability` are *inheritable* config keys, so the staging
-  // and preview environments below get them for free. `d1_databases` (and
-  // `vars`, `queues`, `secrets`) are NOT inheritable and must be repeated per
-  // environment — that is deliberate on Cloudflare's part and it is also the
-  // mechanism that keeps previews off the production database (see docs/deployment.md).
+  // environment below gets them for free. `d1_databases` (and `vars`, `queues`,
+  // `secrets`, `durable_objects`) are NOT inheritable and must be repeated per
+  // environment — that is deliberate on Cloudflare's part, and it is the
+  // mechanism that keeps staging off the production database (see docs/deployment.md).
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
@@ -33,9 +33,12 @@
     }
   },
 
-  // Production exposes no per-version preview URLs; only the preview
-  // environment does. Inheritable, so staging re-disables it explicitly below
-  // for the avoidance of doubt.
+  // No per-version preview URLs on either environment. Nothing here would get
+  // them anyway - Cloudflare withholds them from a Worker that implements a
+  // Durable Object, which is what took the preview environment with it
+  // (docs/deployment.md, "No branch environments"). This stays off explicitly
+  // so that is a decision rather than a platform default nobody chose, and
+  // staging repeats it below for the same reason, inheritable or not.
   "preview_urls": false,
 
   // One Durable Object per account, holding that account's workspaces, items,

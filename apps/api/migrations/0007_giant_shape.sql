@@ -1,0 +1,55 @@
+-- The two colors a workspace was missing: the page ground behind the panels and
+-- the header bar across the top. The tint it already had is the third
+-- ("Choose a workspace's colors from a palette", issue 79).
+--
+-- **Why columns and not a theme name.** A workspace stores all three resolved
+-- colors, so the palette is a picker rather than a storage format: letting
+-- somebody mix their own later writes these same columns instead of needing
+-- another migration.
+--
+-- **Why `NOT NULL DEFAULT` and not nullable.** The defaults are the first
+-- theme's - the violet the whole app was painted in before this - and they are
+-- load-bearing twice. For the length of the deploy that follows 0008, old code
+-- is still creating workspaces and knows nothing about these columns; what it
+-- leaves behind has to be a workspace that looks like *something* rather than
+-- one painted in nothing, and a NULL or an empty string would reach the page as
+-- no color at all. And they are what a workspace whose tint is in no theme
+-- keeps for good: an unfamiliar color is one thing that looks slightly wrong,
+-- not a corrupt row, so it falls back rather than failing the deploy.
+--
+-- **No CHECK on the format**, for the reason `deleted_at` has none: SQLite
+-- cannot ALTER one into an existing table, and D1 will not let this table be
+-- rebuilt without `items` and `associations` going with it, because it refuses
+-- to drop a table with children under ON DELETE RESTRICT and ignores
+-- `PRAGMA foreign_keys = OFF` (both measured, see 0002). `color` never carried
+-- one either, so this is the convention on this table rather than a new gap.
+--
+-- **If it fails partway through, and if it runs again.** Two statements, both
+-- pure DDL with constant defaults, so neither can fail on the data it finds -
+-- and neither is re-runnable, because SQLite has no `ADD COLUMN IF NOT EXISTS`.
+-- That is one more non-re-runnable statement than 0002 or 0004 carry, and the
+-- difference is worth stating rather than glossing: those two sit alone
+-- precisely so that the *only* way to reach them twice is D1 applying them and
+-- losing the record, while this file can also be reached twice by dying between
+-- its two lines. Splitting them would remove that, and would cost a second
+-- migration whose drizzle snapshot has to be maintained by hand for a window
+-- that needs the machine killed mid-statement to open at all.
+--
+-- So the recovery is written down instead. If this fails with "duplicate column
+-- name: ground", both statements ran and the fix is to record the migration as
+-- applied. If it fails with "duplicate column name: header", only the first
+-- ran; add `header` by hand -
+--   ALTER TABLE workspaces ADD header text DEFAULT '#d2cdea' NOT NULL;
+-- - and then record it as applied. In neither case is the file the thing to
+-- change, and in neither case has any row been touched.
+--
+-- The backfill, which gives the workspaces that already exist the rest of their
+-- own theme rather than the default, is 0008 - separate because it *is*
+-- re-runnable and must stay that way.
+--
+-- **What each environment does.** Preview is re-seeded from seed.sql on every
+-- deploy, and that file now writes all three colors. Staging is never seeded,
+-- so its rows take the defaults here and are corrected by 0008. Production is
+-- seeded once by hand and is not re-seeded.
+ALTER TABLE `workspaces` ADD `ground` text DEFAULT '#e3e1f2' NOT NULL;--> statement-breakpoint
+ALTER TABLE `workspaces` ADD `header` text DEFAULT '#d2cdea' NOT NULL;

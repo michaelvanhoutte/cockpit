@@ -26,8 +26,8 @@ vi.mock('../../src/api/client', async (importOriginal) => ({
 const readsWorkspaces = vi.mocked(fetchWorkspaces);
 const readsSnapshot = vi.mocked(fetchSnapshot);
 
-const work: Workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' };
-const personal: Workspace = { id: 'ws-personal', tenantId: 'tenant', name: 'Personal', color: '#c06a45' };
+const work: Workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' };
+const personal: Workspace = { id: 'ws-personal', tenantId: 'tenant', name: 'Personal', color: '#c06a45', ground: '#f2e5d4', header: '#ead2b3' };
 
 /** Opens the app at `at`, with `have` as the workspaces there are. */
 async function open(at: string, have: Workspace[]) {

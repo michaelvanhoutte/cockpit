@@ -112,6 +112,18 @@ describe('decideOutcome', () => {
     assert.match(out.failures.join(' '), /HIGH/);
   });
 
+  it('says the session never started when it took no turns, rather than blaming the verdict', () => {
+    // The shape every run took between this workflow merging and the
+    // origin/HEAD step being added: the action reports success, the record
+    // carries no error, and nothing was reviewed because the prompt never
+    // reached the model. Reported as a missing verdict it sends the reader
+    // looking at the reviewer's output, of which there is none.
+    const out = decideOutcome({ executionText: file(run({ turns: 0, text: '' })), conclusion: 'success' });
+    assert.equal(out.ok, false);
+    assert.match(out.failures.join(' '), /without taking a single turn/);
+    assert.doesNotMatch(out.failures.join(' '), /verdict line/);
+  });
+
   it('fails a run that never gave a verdict', () => {
     const out = decideOutcome({ executionText: file(run({ text: 'Nothing to add.' })), conclusion: 'success' });
     assert.equal(out.ok, false);

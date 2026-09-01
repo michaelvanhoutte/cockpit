@@ -159,7 +159,22 @@ export function decideOutcome({ executionText, conclusion, failAt = 'HIGH', minT
     failures.push('The review session ended with is_error=true.');
   }
 
-  if (verdict === null) {
+  if (turns === 0) {
+    // Distinguished from "gave no verdict" because the two have nothing in
+    // common except being red, and saying the wrong one costs an investigation.
+    // A session that took no turn never reached the model at all: the usual
+    // cause is a shell command embedded in a slash command's own prompt
+    // template failing during expansion, which aborts the run while the action
+    // still reports conclusion=success. /security-review expands
+    // `git log --no-decorate origin/HEAD...`, and a checkout without an
+    // origin/HEAD ref fails it - see the step that sets one in
+    // claude-security-review.yml.
+    failures.push(
+      'The review session ended without taking a single turn, so the prompt never reached the model ' +
+        'and nothing was reviewed. This is not a verdict problem: look for a failure while the prompt ' +
+        'was being expanded, which the action reports as success.',
+    );
+  } else if (verdict === null) {
     failures.push(
       'The review ended without a verdict line, so it never reached a verdict. ' +
         'Every run is required to end with SECURITY-VERDICT: followed by one of ' +

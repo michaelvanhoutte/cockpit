@@ -70,6 +70,20 @@ export async function openSettings(page: Page, isMobile: boolean): Promise<void>
   await expect(page.getByLabel('Name of the new workspace')).toBeVisible();
 }
 
+/**
+ * The colour the page is actually painted in, as the browser computed it - the
+ * shell covers the viewport, so this is the ground behind the panels. Read from
+ * the computed style rather than the inline one, because what is under test is
+ * what a person sees rather than what the attribute says.
+ */
+export async function groundOf(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    // The app shell is what the router mounts straight into #root.
+    const shell = document.querySelector('#root > div');
+    return shell ? getComputedStyle(shell).backgroundColor : '';
+  });
+}
+
 export function captureBox(page: Page): Locator {
   return page.getByLabel('Capture a note or to-do');
 }

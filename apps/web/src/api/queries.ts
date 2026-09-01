@@ -26,6 +26,9 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<CommandName>([
   'create_workspace',
   'rename_workspace',
   'delete_workspace',
+  // The tabs carry each workspace's colour, and the page is painted in it, so
+  // a theme change moves what the list holds as much as a rename does.
+  'set_workspace_theme',
 ]);
 
 export function useCommand() {

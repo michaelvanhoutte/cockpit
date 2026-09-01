@@ -62,9 +62,30 @@ describe('Workspace management', () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
         workspaces: [
-          { id: 'ws-work', tenantId: ACCOUNT_NAME, name: 'Work', color: '#6f62b5' },
-          { id: 'ws-atlas', tenantId: ACCOUNT_NAME, name: 'Atlas Copco', color: '#3a72c8' },
-          { id: 'ws-personal', tenantId: ACCOUNT_NAME, name: 'Personal', color: '#c06a45' },
+          {
+            id: 'ws-work',
+            tenantId: ACCOUNT_NAME,
+            name: 'Work',
+            color: '#6f62b5',
+            ground: '#e3e1f2',
+            header: '#d2cdea',
+          },
+          {
+            id: 'ws-atlas',
+            tenantId: ACCOUNT_NAME,
+            name: 'Atlas Copco',
+            color: '#3a72c8',
+            ground: '#d8e5f7',
+            header: '#bed6f2',
+          },
+          {
+            id: 'ws-personal',
+            tenantId: ACCOUNT_NAME,
+            name: 'Personal',
+            color: '#c06a45',
+            ground: '#f2e5d4',
+            header: '#ead2b3',
+          },
         ],
       });
     });

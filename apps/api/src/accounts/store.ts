@@ -8,6 +8,7 @@ import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations } from './events.js';
 import {
   ItemNotFoundError,
+  UnknownThemeError,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
   runCommand,
@@ -92,6 +93,9 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       }
       if (error instanceof WorkspaceNameTakenError) {
         return { status: 'conflict', what: error.message };
+      }
+      if (error instanceof UnknownThemeError) {
+        return { status: 'refused', what: error.message };
       }
       throw error;
     }

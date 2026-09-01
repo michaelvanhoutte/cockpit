@@ -117,7 +117,7 @@ merged but not live"; the promotion run's summary records which commit shipped.
 Two D1 databases, out of the free plan's ten - three until `cockpit-preview`
 went with §4. The two thresholds that would
 force the $5/month Workers Paid plan, recorded so they are recognised rather than
-rediscovered: **a database crossing 500 MB** (or 5 GB across all three), and
+rediscovered: **a database crossing 500 MB** (or 5 GB across both), and
 **needing queue retention beyond 24 hours**. Cloudflare Queues moved onto the
 free plan in February 2026, so it is no longer a reason to upgrade on its own.
 
@@ -319,13 +319,18 @@ nothing.
 
 ```bash
 # from the repository root of that branch's checkout or worktree
-pnpm --filter @cockpit/api exec wrangler deploy --env preview
+pnpm --filter @cockpit/api exec wrangler deploy --env <that Worker's environment>
 ```
 
 `pnpm ... exec` because `wrangler` is a devDependency of `apps/api` and is not
 on the PATH; a bare `wrangler` only works where one happens to be installed
 globally. It also needs `apps/web/dist` to exist, since Wrangler refuses to
 start without the assets directory - `pnpm build` first if it is missing.
+
+**Written as history, not as an instruction.** The environment this was run
+against was `preview`, and §4 removed it, so the command above no longer names
+anything. It is kept because the rule it records outlives the environment that
+taught it.
 
 That is the same one-time bootstrap the runbook below already performs for the
 preview Worker, repeated for the class. Afterwards the migration is applied and
@@ -451,7 +456,7 @@ when standing up the repository, and a missing secret there presents as a workfl
 that goes green having done nothing. The readme's *Development automation* section
 has the rest of what those two workflows need.
 
-**All three environments are gated with Cloudflare Access, production included.**
+**Both environments are gated with Cloudflare Access, production included.**
 
 **This is a recorded reversal.** An earlier draft of this document gated staging
 and previews but left production open, reasoning that production is the showcase.
@@ -462,11 +467,11 @@ in by connectors, which makes it the *most* sensitive environment rather than th
 least, and §8.1's app login does not exist yet, so without Access it has no
 authentication whatsoever. Previews, by contrast, hold `seed.sql` fixtures.
 
-Cloudflare makes this a toggle rather than per-branch work. Enabling Access on any
-preview URL creates one account-level policy (`Cloudflare Workers Preview URLs`)
-that covers every preview, including branches that do not exist yet; each
-`workers.dev` URL gets its own per-Worker policy, so production and staging are
-gated independently of each other.
+Each `workers.dev` URL gets its own per-Worker policy, so production and staging
+are gated independently of each other. There is also an account-level
+`Cloudflare Workers Preview URLs` policy that covers every *preview URL* at once,
+including branches that do not exist yet - which is what used to make previews
+free to gate, and what nothing replaced when they went (§4).
 
 ### `/health` must stay outside the gate
 
@@ -641,7 +646,7 @@ put `pnpm --filter @cockpit/api exec` in front of each line or run them where a
 global one is installed.
 
 ```bash
-# 1. three databases
+# 1. two databases
 wrangler d1 create cockpit
 wrangler d1 create cockpit-staging
 # put the returned ids into apps/api/wrangler.jsonc (they are not secrets)
@@ -682,9 +687,12 @@ Then, by hand (no API, or deliberately not automated):
 
 1. **Cloudflare Access** on both Workers, production included, plus a
    **Bypass policy scoped to `/health`** so the deploy checks and the §9.2 uptime
-   monitor can still reach it. Dashboard only. Enabling it on any one preview URL
-   creates a single account-level policy covering every preview, including
-   branches that do not exist yet. Set a long session duration; see §6 for why.
+   monitor can still reach it. Dashboard only, one per Worker. Set a long session
+   duration; see §6 for why. (There used to be a third, and it came free: a
+   single account-level policy covering every preview URL, including branches
+   that did not exist yet. It went with the previews - and its absence is why
+   nothing cheap replaced them, per "Gating a branch Worker costs what previews
+   did not".)
 2. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
    Settings: Read), stored as the `CLOUDFLARE_API_TOKEN` GitHub secret.
 3. **Branch protection** on `main`. The payload lives in

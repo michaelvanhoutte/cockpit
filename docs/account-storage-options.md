@@ -22,7 +22,7 @@ Cheapest by a distance while the schema churns: one database per environment, on
 
 ### B. One D1 database per account
 
-Cloudflare's own recommended scale-out shape, and the one that cannot be provisioned at runtime. **D1 bindings are static**: they are names resolved when a Worker version is deployed. Adding an account means creating the database, adding the binding to production, staging and preview (`d1_databases` is not inheritable), and deploying.
+Cloudflare's own recommended scale-out shape, and the one that cannot be provisioned at runtime. **D1 bindings are static**: they are names resolved when a Worker version is deployed. Adding an account means creating the database, adding the binding to production and staging (`d1_databases` is not inheritable), and deploying.
 
 Three consequences, in descending order of how much they matter:
 

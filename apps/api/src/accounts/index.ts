@@ -43,6 +43,14 @@ export class ConflictInAccountError extends Error {
   }
 }
 
+/** The request named something the product does not offer - not a collision, just not on the menu. */
+export class RefusedByAccountError extends Error {
+  constructor(what: string) {
+    super(what);
+    this.name = 'RefusedByAccountError';
+  }
+}
+
 /** Something a request named does not exist in the account. */
 export class NotFoundInAccountError extends Error {
   constructor(what: string) {
@@ -99,6 +107,8 @@ function unwrap<T>(answer: Answer<T>): T {
       throw new NotFoundInAccountError(answer.what);
     case 'conflict':
       throw new ConflictInAccountError(answer.what);
+    case 'refused':
+      throw new RefusedByAccountError(answer.what);
     case 'not-up-to-date':
       throw new AccountNotUpToDateError(answer.failure);
   }

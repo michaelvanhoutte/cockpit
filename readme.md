@@ -17,7 +17,7 @@ cockpit/
 │   └── config/        # shared tsconfig / prettier
 ├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
 ├── scripts/           # local dev startup, the browser tier's stack, branch tidying
-├── .github/           # CI, CodeQL, the three Claude workflows, the three deploy workflows, branch protection
+├── .github/           # CI, CodeQL, the three Claude workflows, the two deploy workflows, branch protection
 ├── .claude/           # project skills and Claude Code settings every session picks up
 └── poc/               # proofs of concept (kept; they are part of the showcase)
 ```
@@ -30,7 +30,7 @@ Not yet in place (deliberately, in build order): auth (§8.1), the connectors th
 
 Trunk-based: `main` is the trunk, every other branch is gated on push and deployed nowhere, merging deploys staging, and **production is a deliberate promotion pinned to one commit** rather than a consequence of merging. The model and its arguments are in [docs/deployment.md](docs/deployment.md).
 
-All three are behind Cloudflare Access, `/health` excepted so the deploy checks and the uptime monitor can reach it.
+Both are behind Cloudflare Access, `/health` excepted so the deploy checks and the uptime monitor can reach it.
 
 | | Deployed by | URL |
 |---|---|---|
@@ -135,7 +135,7 @@ Two different things get called "our automation", and keeping them apart saves a
 | [Deploy staging](.github/workflows/deploy-staging.yml) | every commit on `main`, plus manual re-runs | The same gate, then migrate and deploy, then assert `/health`. Never re-seeded: accumulated old data is the whole point of staging. |
 | [Promote to production](.github/workflows/deploy-production.yml) | manual only, with an optional commit SHA | Refuses any commit that is not an ancestor of `origin/main`, since it has neither passed CI nor soaked on staging; then re-runs the full gate against that exact tree, migrates, deploys, and verifies `/health`. |
 
-The four workflows that need a toolchain — CI and the three deploys — share [`.github/actions/setup`](.github/actions/setup/action.yml), so the pnpm version, the Node version and the frozen-lockfile install are declared once. The three Claude workflows need no such install, and neither does CodeQL: with `build-mode: none` it reads the sources rather than building them. *Claude Security Review* does run Node, for its gate, but only against the standard library, so it stays checkout-only for the same reason the `Scripts` job does.
+The three workflows that need a toolchain — CI and the two deploys — share [`.github/actions/setup`](.github/actions/setup/action.yml), so the pnpm version, the Node version and the frozen-lockfile install are declared once. The three Claude workflows need no such install, and neither does CodeQL: with `build-mode: none` it reads the sources rather than building them. *Claude Security Review* does run Node, for its gate, but only against the standard library, so it stays checkout-only for the same reason the `Scripts` job does.
 
 **Why the security review's gate is a module and the code review's is not.** They answer the same question — did this run actually reach a verdict — and the older one answers it in about 120 lines of bash inside a `run:` block. Every incident recorded in that file's comments is a bug in that bash rather than in the reviewing: a `permission_denials_count` field missing from the result record and read as "no denials", a three-turn blocked session passing as clean, a seven-turn one doing the same, a result payload that is sometimes an array and sometimes an object. All four shipped green, and nothing covered them, because inline bash cannot be run by a test. The security review's version is [`scripts/lib/review-gate.mjs`](scripts/lib/review-gate.mjs) instead, a pure function from an execution record to a decision, asserted by `node --test` in the `Scripts` job with fabricated execution records as fixtures. Retrofitting the older gate onto it is the obvious follow-up and is deliberately not done here, because that gate is entangled with the stop-condition problem in "The review check goes green when the reviewer declined to look at the new commits" (issue 75), and doing both at once makes one change out of two.
 
@@ -181,8 +181,8 @@ This lives in repository settings, so a fresh fork gets none of it. The deployme
 
 | Kind | Name | Needed by |
 |---|---|---|
-| Secret | `CLOUDFLARE_API_TOKEN` | all three deploy workflows |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | all three deploy workflows |
+| Secret | `CLOUDFLARE_API_TOKEN` | both deploy workflows |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | both deploy workflows |
 | Secret | `CLAUDE_CODE_OAUTH_TOKEN` | all three Claude workflows |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | the deploy URLs and the health checks |
 
@@ -195,7 +195,7 @@ This lives in repository settings, so a fresh fork gets none of it. The deployme
 - **The GitHub-native security controls.** Secret scanning and push protection were already on before anything was built for them; Dependabot alerts and security updates were turned on by two `gh api` calls. Routine dependency version bumps are deliberately off, and the code-scanning failure threshold is deliberately left at its default. The commands, the dates they were checked, and the reasoning are in [docs/deployment.md](docs/deployment.md) under *Bootstrap runbook*.
 - **Automatically delete head branches**, in the repository settings. `pnpm branches:tidy` keys on a local branch's upstream being `[gone]`, so it is only trustworthy while that setting is on.
 - **The Claude GitHub App**, installed on the repository, plus the OAuth token above. The usual path is `/install-github-app` from an interactive Claude Code session, which installs the app and stores the secret for you.
-- **Cloudflare Access on all three environments**, with a Bypass policy scoped to `/health`. Dashboard only; the reasoning is in the deployment doc.
+- **Cloudflare Access on both environments**, with a Bypass policy scoped to `/health`. Dashboard only; the reasoning is in the deployment doc.
 - The `staging` and `production` **GitHub environments**, which give deployment history in the UI and somewhere to hang a required reviewer later without touching a workflow file.
 
 ### Set up on your own machine (recommended, none of it in the code)

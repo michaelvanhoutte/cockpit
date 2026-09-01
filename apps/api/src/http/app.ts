@@ -16,6 +16,7 @@ import {
   ConflictInAccountError,
   CURRENT_ACCOUNT_NAME,
   NotFoundInAccountError,
+  RefusedByAccountError,
   openAccount,
 } from '../accounts/index.js';
 import { getConnector } from '../connectors/registry.js';
@@ -39,6 +40,12 @@ app.onError((err, c) => {
   }
   if (err instanceof ConflictInAccountError) {
     return c.json({ error: err.message }, 409);
+  }
+  // A 400 rather than a 409: nothing is in the way, the colors are simply not
+  // on offer. Shaped like the wire schema's own refusals, which is what the
+  // client already knows how to read.
+  if (err instanceof RefusedByAccountError) {
+    return c.json({ error: err.message }, 400);
   }
   // An account that cannot be found or cannot be brought up to date is the
   // server's problem, not the caller's - nobody chooses an account yet - so it
@@ -218,6 +225,7 @@ const routes = app
     commandRoute('rename_workspace', { conflict: 'A workspace already has that name' }),
     async (c) => c.json(await change(c.env, 'rename_workspace', c.req.valid('json')), 200),
   )
+  .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c.env, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c.env, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c.env, 'capture_item', c.req.valid('json')), 200))
   .openapi(commandRoute('set_status'), async (c) => c.json(await change(c.env, 'set_status', c.req.valid('json')), 200))

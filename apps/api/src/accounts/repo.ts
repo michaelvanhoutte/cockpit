@@ -41,6 +41,8 @@ const workspaceColumns = {
   tenantId: workspaces.tenantId,
   name: workspaces.name,
   color: workspaces.color,
+  ground: workspaces.ground,
+  header: workspaces.header,
 };
 
 /** A deleted workspace is tombstoned, so every read of one filters it out. */

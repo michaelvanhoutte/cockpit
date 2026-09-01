@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   expectNoSidewaysScroll,
+  groundOf,
   openFirstWorkspace,
   openSettings,
   press,
@@ -77,6 +78,44 @@ test.describe('Workspace management', () => {
       await expect(page.locator('header').getByRole('link', { name: after })).toBeVisible();
       await expect(page.locator('header').getByRole('link', { name: before })).toHaveCount(0);
       await expectNoSidewaysScroll(page);
+    });
+  });
+
+  test.describe('the page is painted in the colours of the workspace you are in', () => {
+    test('takes the colour you choose, and changes back when you switch workspace', async ({
+      page,
+      isMobile,
+    }) => {
+      // F3 for the reason the whole rule is F3: "the page is a different
+      // colour" is a computed style, and there is no computed style without a
+      // browser. Everything below it - which three colours a theme is, what the
+      // picker asks for, what the server stores - is settled at its own level.
+      const mine = uniqueTitle('Repainted');
+      await openFirstWorkspace(page);
+      const firstGround = await groundOf(page);
+
+      await openSettings(page, isMobile);
+      await page.getByLabel('Name of the new workspace').fill(mine);
+      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+      // Deliberately not asserting that a *new* workspace already differs from
+      // the first: which colour it is handed depends on how many workspaces
+      // exist, every spec in the run shares one database, and the palette wraps
+      // once all eight are taken - so that claim is true or false depending on
+      // what ran before. It is the server's rule anyway, and is proved against
+      // a real database in apps/api/tests/integration/http.
+      const row = page.getByRole('listitem').filter({ hasText: mine });
+      await press(row.getByRole('button', { name: `Olive for ${mine}` }), isMobile);
+      await press(page.locator('header').getByRole('link', { name: mine }), isMobile);
+      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+
+      // Repainted, without a reload anywhere in the walk.
+      const olive = await groundOf(page);
+      expect(olive).toBe('rgb(230, 235, 214)');
+
+      // And switching away takes the colour with it.
+      await press(page.locator('header').getByRole('link', { name: 'Work' }), isMobile);
+      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+      expect(await groundOf(page)).toBe(firstGround);
     });
   });
 

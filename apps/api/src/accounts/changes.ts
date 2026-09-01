@@ -43,6 +43,8 @@ const ACCOUNT_SCHEMA: Change = {
 	\`name\` text NOT NULL,
 	\`folded_name\` text DEFAULT '' NOT NULL,
 	\`color\` text NOT NULL,
+	\`ground\` text DEFAULT '#e3e1f2' NOT NULL,
+	\`header\` text DEFAULT '#d2cdea' NOT NULL,
 	\`created_at\` text NOT NULL,
 	\`deleted_at\` text,
 	CONSTRAINT "workspaces_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))),
@@ -143,10 +145,10 @@ function startingWorkspaces(accountId: string): Change {
     name: '0002-starting-workspaces',
     statements: [
       {
-        sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES
-                ('ws-work', ?, 'Work', 'work', '#6f62b5', '2026-08-12T00:00:01.000Z'),
-                ('ws-atlas', ?, 'Atlas Copco', 'atlas copco', '#3a72c8', '2026-08-12T00:00:02.000Z'),
-                ('ws-personal', ?, 'Personal', 'personal', '#c06a45', '2026-08-12T00:00:03.000Z')`,
+        sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, ground, header, created_at) VALUES
+                ('ws-work', ?, 'Work', 'work', '#6f62b5', '#e3e1f2', '#d2cdea', '2026-08-12T00:00:01.000Z'),
+                ('ws-atlas', ?, 'Atlas Copco', 'atlas copco', '#3a72c8', '#d8e5f7', '#bed6f2', '2026-08-12T00:00:02.000Z'),
+                ('ws-personal', ?, 'Personal', 'personal', '#c06a45', '#f2e5d4', '#ead2b3', '2026-08-12T00:00:03.000Z')`,
         params: [accountId, accountId, accountId],
       },
     ],
