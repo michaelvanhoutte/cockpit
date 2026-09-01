@@ -16,7 +16,7 @@ cockpit/
 │   ├── connector-sdk/ # the connector SPI (connectors land as packages/connectors/*)
 │   └── config/        # shared tsconfig / prettier
 ├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
-├── scripts/           # local dev startup, branch-alias derivation (+ its assertions), branch tidying
+├── scripts/           # local dev startup, the browser tier's stack, branch tidying
 ├── .github/           # CI, CodeQL, the three Claude workflows, the three deploy workflows, branch protection
 ├── .claude/           # project skills and Claude Code settings every session picks up
 └── poc/               # proofs of concept (kept; they are part of the showcase)
@@ -28,7 +28,7 @@ Not yet in place (deliberately, in build order): auth (§8.1), the connectors th
 
 ## Environments
 
-Trunk-based: `main` is the trunk, any other branch can be given its own Access-gated environment when one is wanted, merging deploys staging, and **production is a deliberate promotion pinned to one commit** rather than a consequence of merging. The model and its arguments are in [docs/deployment.md](docs/deployment.md).
+Trunk-based: `main` is the trunk, every other branch is gated on push and deployed nowhere, merging deploys staging, and **production is a deliberate promotion pinned to one commit** rather than a consequence of merging. The model and its arguments are in [docs/deployment.md](docs/deployment.md).
 
 All three are behind Cloudflare Access, `/health` excepted so the deploy checks and the uptime monitor can reach it.
 
@@ -36,7 +36,9 @@ All three are behind Cloudflare Access, `/health` excepted so the deploy checks 
 |---|---|---|
 | production | the *Promote to production* action | `cockpit.vanhoutte-michael.workers.dev` |
 | staging | every commit on `main` | `cockpit-staging.vanhoutte-michael.workers.dev` |
-| preview | every push to any other branch | `<branch-alias>-cockpit-preview.vanhoutte-michael.workers.dev` |
+
+Branches are gated on every push and deployed nowhere; the reason, and what it
+costs, is "No branch environments" in [docs/deployment.md](docs/deployment.md).
 
 ## Run it
 
@@ -125,12 +127,11 @@ Two different things get called "our automation", and keeping them apart saves a
 
 | Workflow | Fires on | What it does |
 |---|---|---|
-| [CI](.github/workflows/ci.yml) | pushes and pull requests to `main` | Six parallel jobs, so a failure names itself. Five of them — `Typecheck`, `Test`, `E2E (F3)`, `Build`, `Scripts` — are five of the eight contexts the checked-in branch-protection payload lists, the other three being CodeQL's. The sixth, `Test Explorer`, publishes a report and deliberately does not gate. `E2E (F3)` installs Chromium and runs the browser tier against the same isolated local stack you would get locally, keeping its failure traces as an artifact. `Scripts` runs `scripts/branch-alias.test.sh` and the unit tests for `scripts/lib/`, because a silent change in the preview-alias derivation would collide two branches onto one URL, and a silent change in the test stack's guards would let a run start against a database it did not create. Deliberately *not* triggered on every branch push: the preview deploy already runs the same checks there, and doing both would run everything twice. |
+| [CI](.github/workflows/ci.yml) | every push, and pull requests to `main` | Six parallel jobs, so a failure names itself. Five of them — `Typecheck`, `Test`, `E2E (F3)`, `Build`, `Scripts` — are five of the eight contexts the checked-in branch-protection payload lists, the other three being CodeQL's. The sixth, `Test Explorer`, publishes a report and deliberately does not gate. `E2E (F3)` installs Chromium and runs the browser tier against the same isolated local stack you would get locally, keeping its failure traces as an artifact. `Scripts` runs the unit tests for `scripts/lib/`, because a silent change in the test stack's guards would let a run start against a database it did not create, and a silent change in the review gate would let a non-review ship green. A branch with an open pull request is checked twice, once per event: `push` covers a branch that has no pull request at all, `pull_request` covers the merge result, and since this is the only gate a branch gets, running twice beats not running. |
 | [CodeQL](.github/workflows/codeql.yml) | pushes and pull requests to `main` | Two parallel legs, one per language: `javascript-typescript` over the application sources, and `actions` over the workflow files themselves — which is where this repository's own risk sits, since its workflows run Claude against an OAuth token and check out pull request branches. Both read the sources directly (`build-mode: none`), so neither needs a toolchain. No path filters, deliberately: a required check that is skipped never reports, and a pull request waits on it forever. Superseded pull request runs are cancelled; runs on `main` are not, because the default branch's analysis is the baseline every pull request is compared against. |
 | [Claude Code Review](.github/workflows/claude-code-review.yml) | every pull request opened, pushed to, reopened or marked ready for review | Runs the `code-review` plugin command against the pull request and posts its findings as inline comments (a summary comment when it finds nothing). A second step then asserts that the review *actually ran* — see below. |
 | [Claude Security Review](.github/workflows/claude-security-review.yml) | every pull request opened, pushed to, reopened or marked ready for review | A security pass over the diff, scoped by [.github/security-review-instructions.md](.github/security-review-instructions.md) to the rules this project decided on — the ingress hardening template, tokens encrypted at rest and never logged, server-side workspace scoping, the hand-rolled auth surface, and the workflows themselves. CodeQL is the mechanical half and this is the judgement half, so the instructions say explicitly not to re-derive what CodeQL already reports. The run must end with a one-line verdict naming the highest severity it found; the check goes red when that line is missing (it never reached a verdict) or names the top severity. Skipped on pull requests from forks — see below. |
 | [Claude Code](.github/workflows/claude.yml) | `@claude` in an issue, an issue or PR comment, or a review | Hands that comment to Claude with read access to the repository and to CI results, so an explanation or a fix can be asked for from the pull request itself. |
-| [Deploy preview](.github/workflows/deploy-preview.yml) *(superseded; see "Branch environments" in [docs/deployment.md](docs/deployment.md))* | pushes to any branch except `main` | Typechecks and tests first (a broken build must not replace a working preview), derives the branch alias, migrates and seeds the shared preview database, uploads a new Worker version behind `<alias>-cockpit-preview…`, and comments the URL on the pull request if there is one. Triggered on `push`, not `pull_request`, so a branch with no PR — or a draft one — still gets an environment. |
 | [Deploy staging](.github/workflows/deploy-staging.yml) | every commit on `main`, plus manual re-runs | The same gate, then migrate and deploy, then assert `/health`. Never re-seeded: accumulated old data is the whole point of staging. |
 | [Promote to production](.github/workflows/deploy-production.yml) | manual only, with an optional commit SHA | Refuses any commit that is not an ancestor of `origin/main`, since it has neither passed CI nor soaked on staging; then re-runs the full gate against that exact tree, migrates, deploys, and verifies `/health`. |
 
@@ -169,11 +170,10 @@ Skills trigger themselves from their descriptions, so nobody has to remember to 
 | `pnpm dev` | Migrates, seeds, builds `dist` if it has never been built, then runs both halves. One command, deliberately: see [Run it](#run-it). |
 | `pnpm branches:tidy` | Reaps the local branches and worktree metadata that squash-merging leaves behind: see [Tidying up branches](#tidying-up-branches). |
 | `pnpm typecheck`, `pnpm test`, `pnpm build` | The same three gates CI runs, so a red pipeline is reproducible locally. |
-| `scripts/branch-alias.sh` | Derives a branch's preview hostname. Used by the preview deploy, and asserted by its own test script in CI. |
 | `scripts/health-check.sh` | The post-deploy assertion against `/health`, which is Bypass-policied out of Cloudflare Access so it tests the app rather than a login page. |
 | [.vscode/launch.json](.vscode/launch.json) | Debug the SPA in Chrome, attach to the Worker's inspector on `:9229`, or both at once. |
 
-**There are no git hooks in this repository, on purpose.** Nothing installs a `pre-commit` or `pre-push` hook and there is no husky/lefthook dependency. The gate is CI and the preview deploy: they cannot be skipped with `--no-verify`, and they run on the machine that decides. When you want to be interrupted locally is a personal preference, so it belongs in the machine-local list below.
+**There are no git hooks in this repository, on purpose.** Nothing installs a `pre-commit` or `pre-push` hook and there is no husky/lefthook dependency. The gate is CI: it cannot be skipped with `--no-verify`, and it runs on the machine that decides. When you want to be interrupted locally is a personal preference, so it belongs in the machine-local list below.
 
 ### Set up once on the GitHub repository (not in the code)
 

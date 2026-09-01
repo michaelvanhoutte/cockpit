@@ -1,8 +1,20 @@
 name: CI
 
-# Scoped to the trunk on purpose. Pushes to short-lived branches are gated by
-# deploy-preview.yml, which runs the same checks before it will replace a working
-# preview; triggering CI on every push as well would just run everything twice.
+# Every push, on every branch. This used to be scoped to the trunk, because
+# deploy-preview.yml ran the same checks on branch pushes on its way to building
+# a preview; that workflow is gone (docs/deployment.md, "No branch
+# environments"), and without this a branch with no open pull request would be
+# gated by nothing at all.
+#
+# **A branch with an open pull request is therefore checked twice**, once per
+# event, which the old comment here called out as the thing to avoid. That
+# reasoning is reversed rather than forgotten: the duplicate was avoidable while
+# something else gated branch pushes, and the choice now is between running twice
+# and not running at all. Both runs earn their place anyway - `push` tests the
+# branch tip, which is what a branch with no pull request has, and
+# `pull_request` tests the merge result, which is what actually lands. Branch
+# protection does not require a branch to be up to date (`strict: false`), so
+# those are genuinely different trees.
 #
 # The push trigger overlaps slightly with deploy-staging.yml, which gates itself
 # before deploying. That is deliberate: the merge commit on main is a tree that
@@ -10,7 +22,6 @@ name: CI
 # faster than the same checks inlined into a deploy job.
 on:
   push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -92,16 +103,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Every branch's preview URL is derived by branch-alias.sh, and a silent
-      # change in it would collide two branches onto one URL or exceed
-      # Cloudflare's hostname budget. So it is asserted, not trusted.
-      - name: Verify preview alias derivation
-        run: bash scripts/branch-alias.test.sh
-      # The rest of scripts/ is Node, and carries the logic that decides whether
+      # scripts/ is Node, and carries the logic that decides whether
       # a test run gets a fresh database, whether it is allowed to start at all,
       # and whether a Claude security review actually reached a verdict — worth
-      # the same treatment as the alias derivation, for the same reason. The
-      # last of those is the one with teeth: it is what turns a blocked or
+      # asserting rather than trusting. The last of those is the one with teeth: it is what turns a blocked or
       # declining review red, and the equivalent logic living as inline bash in
       # claude-code-review.yml has shipped green over a non-review four times.
       # No install step: these tests use only node:test and the standard

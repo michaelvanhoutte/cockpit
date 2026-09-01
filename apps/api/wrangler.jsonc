@@ -100,34 +100,6 @@
           "migrations_dir": "migrations"
         }
       ]
-    },
-
-    // Preview: one Worker, one version per branch, addressed by preview alias.
-    // All branches share this single database; it is re-migrated and re-seeded
-    // on every preview deploy. Isolated-per-branch databases were considered
-    // and rejected for now (preview environments in docs/deployment.md).
-    //
-    // No cron triggers are declared here, and none would fire anyway: triggers
-    // attach to a Worker's active deployment, not to uploaded versions.
-    "preview": {
-      "name": "cockpit-preview",
-      "preview_urls": true,
-      "durable_objects": {
-        "bindings": [
-          {
-            "name": "ACCOUNT",
-            "class_name": "AccountStore"
-          }
-        ]
-      },
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "cockpit-preview",
-          "database_id": "fdd3ac00-312b-4914-872e-71972c100088",
-          "migrations_dir": "migrations"
-        }
-      ]
     }
   }
 

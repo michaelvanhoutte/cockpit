@@ -1,7 +1,7 @@
 //
 // Unit tests for the security review's gate, run by `node --test` from the
 // Scripts CI job — the same place scripts/lib/processes.test.mjs and
-// branch-alias.test.sh are asserted, and for the same reason: this is tooling
+// the other scripts/lib tests are asserted, and for the same reason: this is tooling
 // logic outside any package, and a silent change in it turns a check that is
 // supposed to block a merge into one that always agrees.
 //

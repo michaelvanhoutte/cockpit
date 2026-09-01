@@ -1,6 +1,6 @@
 //
 // Unit tests for the process plumbing, run by `node --test` from the Scripts CI
-// job — the same place scripts/branch-alias.test.sh is asserted, and for the
+// job — the same place the rest of scripts/lib is asserted, and for the
 // same reason: this is tooling logic outside any package, and a silent change
 // in it breaks something that is hard to trace back here.
 //
