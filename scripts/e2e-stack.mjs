@@ -9,9 +9,15 @@
 //   - Its own ports (5273/8887, against dev's 5173/8787), so a test run and the
 //     app you are clicking through can be open at the same time and neither
 //     notices the other.
-//   - Its own D1 directory, restored to a known state before every run. The
-//     tests therefore start from exactly the seed, every time, and may assert
+//   - Its own state directory, restored to a known state before every run. The
+//     tests therefore start from the same place, every time, and may assert
 //     what is on screen rather than only that their own row appeared.
+//
+// The template holds the register only. An account's own store is a Durable
+// Object nothing outside the Worker can write to, so it is not in the template
+// and is instead created, brought up to date and given its starting workspaces
+// by the run's first request - from the same empty start every time, which is
+// the property that matters here.
 //
 // Why a restored copy rather than migrating and seeding each run: measured,
 // `wrangler d1 migrations apply` plus `d1 execute` costs about 7 seconds, almost

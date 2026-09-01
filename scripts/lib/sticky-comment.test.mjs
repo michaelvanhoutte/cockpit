@@ -54,9 +54,11 @@ describe('upsertSticky', () => {
   });
 
   it('leaves the other workflow note alone', () => {
-    // The collision this exists for: both workflows post as the same bot, and
-    // deploy-preview.yml used to match on author alone. Whichever spoke last
-    // became the other's next edit target.
+    // The collision this exists for: another note from the same bot must not
+    // be claimed. The preview deploy was the case that forced it - it matched
+    // on author alone, so whichever workflow spoke last became the other's next
+    // edit target - and it is kept as the fixture now that workflow is gone,
+    // because "some other comment by this bot" is the condition that matters.
     const gh = fakeGh([comment(3, GATE_AUTHOR, `${PREVIEW}\nPreview: https://example`)]);
     assert.equal(upsertSticky({ gh, repo: 'o/r', pr: 5, marker: GATE, body: 'verdict' }).action, 'posted');
   });

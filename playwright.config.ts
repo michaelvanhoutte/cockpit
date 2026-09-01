@@ -14,10 +14,11 @@ import { defineConfig, devices } from '@playwright/test';
  * Two things this configuration decides, both recorded because both were
  * argued:
  *
- * 1. WHAT IT RUNS AGAINST. Its own stack, on its own ports, against a database
- *    rebuilt from a template before every run (scripts/e2e-stack.mjs) — never
- *    the one `pnpm dev` uses. So a run starts from exactly the seed and cannot
- *    disturb, or be disturbed by, the app you are clicking through on :5173.
+ * 1. WHAT IT RUNS AGAINST. Its own stack, on its own ports, against storage
+ *    rebuilt before every run (scripts/e2e-stack.mjs) — never the one
+ *    `pnpm dev` uses. So a run starts from the same place every time and
+ *    cannot disturb, or be disturbed by, the app you are clicking through on
+ *    :5173.
  *    Same one-origin shape as production either way: Vite proxies /v1, /health
  *    and /ingress to the Worker, so the browser sees a single origin.
  *

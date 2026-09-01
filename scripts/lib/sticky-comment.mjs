@@ -2,16 +2,23 @@
 // One comment per workflow per pull request, edited in place rather than
 // re-posted.
 //
-// Extracted because two workflows now need it and they were about to fight over
-// the same comment. deploy-preview.yml used `gh pr comment --edit-last`, which
-// matches the most recent comment by the current author and nothing else, and
-// the security review's gate began posting under that same identity - so
-// whichever spoke last became the other's next edit target: the verdict
-// overwritten by a preview URL, or a fresh verdict posted and overwritten
-// again. Neither workflow was wrong on its own; the collision only existed once
-// both were talking.
+// Extracted when two workflows needed it and were about to fight over the same
+// comment. The preview deploy used `gh pr comment --edit-last`, which matches
+// the most recent comment by the current author and nothing else, and the
+// security review's gate began posting under that same identity - so whichever
+// spoke last became the other's next edit target: the verdict overwritten by a
+// preview URL, or a fresh verdict posted and overwritten again. Neither
+// workflow was wrong on its own; the collision only existed once both were
+// talking.
 //
-// A marker per workflow is what makes them ignore each other, and the author
+// **The preview deploy has since been removed** (docs/deployment.md, "No branch
+// environments"), so the gate is the only caller today. The marker still earns
+// its place: `--edit-last` would claim *any* most-recent comment by that bot,
+// and the same bot leaves others. Being addressed by name rather than by "who
+// spoke last" is what makes a second caller safe to add, which is the property
+// that was missing before.
+//
+// A marker per workflow is what makes callers ignore each other, and the author
 // check is what stops anyone else claiming either - see markedCommentId.
 //
 // `gh` is a parameter rather than an import for the same reason stopPlan() in

@@ -1,12 +1,16 @@
 import { and, eq, isNull, ne } from 'drizzle-orm';
 import type { Association, Item, Workspace } from '@cockpit/shared';
-import type { Db } from './client.js';
+import type { AccountDb } from './client.js';
 import { associations, commands, items, workspaces } from './schema.js';
 
 /**
  * Repositories: the only place queries live. Every query filters on tenant_id
- * (architecture §8: workspace scoping is enforced server-side, the UI's
- * scoping is presentation, not protection).
+ * (architecture, "Security": workspace scoping is enforced server-side, the
+ * UI's scoping is presentation, not protection).
+ *
+ * The filter is not redundant now that a store holds exactly one account. It is
+ * what turns a request that reached the wrong store into no rows rather than
+ * somebody else's items - see "One store per account, and `tenant_id` stays".
  */
 
 /**
@@ -29,7 +33,7 @@ import { associations, commands, items, workspaces } from './schema.js';
  * So: add a column here only when something reads it, and take it out one
  * release before the migration that drops it. The rule has a test -
  * "a workspace is read by the columns it is read by" in
- * tests/integration/db/workspace-reads.test.ts - which drops a column nothing
+ * tests/integration/accounts/workspace-reads.test.ts - which drops a column nothing
  * needs and asks for a workspace anyway.
  */
 const workspaceColumns = {
@@ -45,32 +49,31 @@ const workspaceColumns = {
 const live = (tenantId: string) =>
   and(eq(workspaces.tenantId, tenantId), isNull(workspaces.deletedAt));
 
-export async function listWorkspaces(db: Db, tenantId: string): Promise<Workspace[]> {
+export function listWorkspaces(db: AccountDb, tenantId: string): Workspace[] {
   return db
     .select(workspaceColumns)
     .from(workspaces)
     .where(live(tenantId))
-    .orderBy(workspaces.createdAt);
+    .orderBy(workspaces.createdAt)
+    .all();
 }
 
-export async function getWorkspace(
-  db: Db,
+export function getWorkspace(
+  db: AccountDb,
   tenantId: string,
   workspaceId: string,
-): Promise<Workspace | null> {
-  const rows = await db
-    .select(workspaceColumns)
-    .from(workspaces)
-    .where(and(live(tenantId), eq(workspaces.id, workspaceId)));
-  return rows[0] ?? null;
+): Workspace | null {
+  return (
+    db
+      .select(workspaceColumns)
+      .from(workspaces)
+      .where(and(live(tenantId), eq(workspaces.id, workspaceId)))
+      .get() ?? null
+  );
 }
 
-/** Open items: tombstoned rows stay in the database but never in the snapshot. */
-export async function listOpenItems(
-  db: Db,
-  tenantId: string,
-  workspaceId: string,
-): Promise<Item[]> {
+/** Open items: tombstoned rows stay in the store but never in the snapshot. */
+export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: string): Item[] {
   return db
     .select()
     .from(items)
@@ -82,23 +85,26 @@ export async function listOpenItems(
         ne(items.status, 'dismissed'),
       ),
     )
-    .orderBy(items.createdAt);
+    .orderBy(items.createdAt)
+    .all();
 }
 
-export async function getItem(db: Db, tenantId: string, itemId: string): Promise<Item | null> {
-  const rows = await db
-    .select()
-    .from(items)
-    .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)));
-  return rows[0] ?? null;
+export function getItem(db: AccountDb, tenantId: string, itemId: string): Item | null {
+  return (
+    db
+      .select()
+      .from(items)
+      .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
+      .get() ?? null
+  );
 }
 
-export async function listAssociationsForWorkspace(
-  db: Db,
+export function listAssociationsForWorkspace(
+  db: AccountDb,
   tenantId: string,
   workspaceId: string,
-): Promise<Association[]> {
-  const rows = await db
+): Association[] {
+  return db
     .select({
       id: associations.id,
       tenantId: associations.tenantId,
@@ -109,11 +115,10 @@ export async function listAssociationsForWorkspace(
     })
     .from(associations)
     .innerJoin(items, eq(associations.itemId, items.id))
-    .where(and(eq(associations.tenantId, tenantId), eq(items.workspaceId, workspaceId)));
-  return rows;
+    .where(and(eq(associations.tenantId, tenantId), eq(items.workspaceId, workspaceId)))
+    .all();
 }
 
-export async function commandAlreadyApplied(db: Db, commandId: string): Promise<boolean> {
-  const rows = await db.select().from(commands).where(eq(commands.commandId, commandId));
-  return rows.length > 0;
+export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {
+  return db.select().from(commands).where(eq(commands.commandId, commandId)).all().length > 0;
 }

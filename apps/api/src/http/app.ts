@@ -6,26 +6,26 @@ import {
   workspaceListSchema,
   workspaceSnapshotSchema,
   type CommandName,
+  type CommandPayload,
+  type CommandResult,
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
-import { DEFAULT_TENANT_ID } from '../tenancy.js';
-import { createDb } from '../db/client.js';
-import { getWorkspace, listAssociationsForWorkspace, listOpenItems, listWorkspaces } from '../db/repo.js';
 import {
-  ItemNotFoundError,
-  UnknownThemeError,
-  WorkspaceNameTakenError,
-  WorkspaceNotFoundError,
-  runCommand,
-} from './command-service.js';
-import { collectInvalidations } from './events.js';
+  AccountNotInRegisterError,
+  AccountNotUpToDateError,
+  ConflictInAccountError,
+  CURRENT_ACCOUNT_NAME,
+  NotFoundInAccountError,
+  RefusedByAccountError,
+  openAccount,
+} from '../accounts/index.js';
 import { getConnector } from '../connectors/registry.js';
 
 type AppEnv = { Bindings: Env };
 
 const errorSchema = z.object({ error: z.string() });
 
-/** Thin adapters only: validate → call domain/service → serialize (§6.1). */
+/** Thin adapters only: validate → call the account, serialize (architecture, "Hono + Zod on Cloudflare Workers"). */
 const app = new OpenAPIHono<AppEnv>({
   defaultHook: (result, c) => {
     if (!result.success) {
@@ -35,17 +35,28 @@ const app = new OpenAPIHono<AppEnv>({
 });
 
 app.onError((err, c) => {
-  if (err instanceof ItemNotFoundError || err instanceof WorkspaceNotFoundError) {
+  if (err instanceof NotFoundInAccountError) {
     return c.json({ error: err.message }, 404);
   }
-  if (err instanceof WorkspaceNameTakenError) {
+  if (err instanceof ConflictInAccountError) {
     return c.json({ error: err.message }, 409);
   }
   // A 400 rather than a 409: nothing is in the way, the colors are simply not
   // on offer. Shaped like the wire schema's own refusals, which is what the
   // client already knows how to read.
-  if (err instanceof UnknownThemeError) {
+  if (err instanceof RefusedByAccountError) {
     return c.json({ error: err.message }, 400);
+  }
+  // An account that cannot be found or cannot be brought up to date is the
+  // server's problem, not the caller's - nobody chooses an account yet - so it
+  // is a 500. What it says is the exception to "internal error": the message
+  // names the account, and for a change that would not apply it names the
+  // change and the underlying cause. That is the whole reason this path exists
+  // rather than the default, which reports only `Rollback` and loses the real
+  // error in the response and the logs alike.
+  if (err instanceof AccountNotInRegisterError || err instanceof AccountNotUpToDateError) {
+    console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }));
+    return c.json({ error: err.message }, 500);
   }
   console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }));
   return c.json({ error: 'internal error' }, 500);
@@ -64,14 +75,14 @@ const healthRoute = createRoute({
   },
 });
 
-// --- reads (the snapshot model, §5.2) ----------------------------------------
+// --- reads (the snapshot model: architecture, "The read model") --------------
 
 const workspacesRoute = createRoute({
   method: 'get',
   path: '/v1/workspaces',
   responses: {
     200: {
-      description: 'All workspaces of the tenant',
+      description: 'All workspaces of the account',
       content: { 'application/json': { schema: workspaceListSchema } },
     },
   },
@@ -93,7 +104,7 @@ const snapshotRoute = createRoute({
   },
 });
 
-// --- commands (§4.3): one POST endpoint per command ---------------------------
+// --- changes ("Mutations are commands"): one POST endpoint per change --------
 
 function commandRoute<N extends CommandName>(name: N, extra?: { conflict: string }) {
   return createRoute({
@@ -128,6 +139,20 @@ function commandRoute<N extends CommandName>(name: N, extra?: { conflict: string
         : {}),
     },
   });
+}
+
+/**
+ * Every change endpoint is the same two steps, so they are written once:
+ * resolve the account, hand its store the validated body. Nothing here knows
+ * what a change does or where it is stored.
+ */
+async function change<N extends CommandName>(
+  env: Env,
+  name: N,
+  payload: CommandPayload<N>,
+): Promise<CommandResult> {
+  const account = await openAccount(env, CURRENT_ACCOUNT_NAME);
+  return account.applyChange(name, payload);
 }
 
 /**
@@ -183,109 +208,46 @@ const routes = app
     return c.json({ ok: db, db }, 200);
   })
   .openapi(workspacesRoute, async (c) => {
-    const db = createDb(c.env.DB);
-    const workspaces = await listWorkspaces(db, DEFAULT_TENANT_ID);
-    return c.json({ workspaces }, 200);
+    const account = await openAccount(c.env, CURRENT_ACCOUNT_NAME);
+    return c.json({ workspaces: await account.workspaces() }, 200);
   })
   .openapi(snapshotRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
-    const db = createDb(c.env.DB);
-    const workspace = await getWorkspace(db, DEFAULT_TENANT_ID, workspaceId);
-    if (!workspace) return c.json({ error: `workspace ${workspaceId} not found` }, 404);
-    const [items, associations] = await Promise.all([
-      listOpenItems(db, DEFAULT_TENANT_ID, workspaceId),
-      listAssociationsForWorkspace(db, DEFAULT_TENANT_ID, workspaceId),
-    ]);
-    return c.json(
-      { workspace, items, associations, generatedAt: new Date().toISOString() },
-      200,
-    );
+    const account = await openAccount(c.env, CURRENT_ACCOUNT_NAME);
+    const snapshot = await account.snapshot(workspaceId);
+    return c.json({ ...snapshot, generatedAt: new Date().toISOString() }, 200);
   })
   .openapi(
     commandRoute('create_workspace', { conflict: 'A workspace already has that name' }),
-    async (c) => {
-      const result = await runCommand(
-        createDb(c.env.DB),
-        DEFAULT_TENANT_ID,
-        'create_workspace',
-        c.req.valid('json'),
-      );
-      return c.json(result, 200);
-    },
+    async (c) => c.json(await change(c.env, 'create_workspace', c.req.valid('json')), 200),
   )
   .openapi(
     commandRoute('rename_workspace', { conflict: 'A workspace already has that name' }),
-    async (c) => {
-      const result = await runCommand(
-        createDb(c.env.DB),
-        DEFAULT_TENANT_ID,
-        'rename_workspace',
-        c.req.valid('json'),
-      );
-      return c.json(result, 200);
-    },
+    async (c) => c.json(await change(c.env, 'rename_workspace', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('set_workspace_theme'), async (c) => {
-    const result = await runCommand(
-      createDb(c.env.DB),
-      DEFAULT_TENANT_ID,
-      'set_workspace_theme',
-      c.req.valid('json'),
-    );
-    return c.json(result, 200);
-  })
-  .openapi(commandRoute('delete_workspace'), async (c) => {
-    const result = await runCommand(
-      createDb(c.env.DB),
-      DEFAULT_TENANT_ID,
-      'delete_workspace',
-      c.req.valid('json'),
-    );
-    return c.json(result, 200);
-  })
-  .openapi(commandRoute('capture_item'), async (c) => {
-    const result = await runCommand(createDb(c.env.DB), DEFAULT_TENANT_ID, 'capture_item', c.req.valid('json'));
-    return c.json(result, 200);
-  })
-  .openapi(commandRoute('set_status'), async (c) => {
-    const result = await runCommand(createDb(c.env.DB), DEFAULT_TENANT_ID, 'set_status', c.req.valid('json'));
-    return c.json(result, 200);
-  })
-  .openapi(commandRoute('snooze_until'), async (c) => {
-    const result = await runCommand(createDb(c.env.DB), DEFAULT_TENANT_ID, 'snooze_until', c.req.valid('json'));
-    return c.json(result, 200);
-  })
-  .openapi(commandRoute('associate'), async (c) => {
-    const result = await runCommand(createDb(c.env.DB), DEFAULT_TENANT_ID, 'associate', c.req.valid('json'));
-    return c.json(result, 200);
-  })
-  .openapi(commandRoute('set_focus'), async (c) => {
-    const result = await runCommand(createDb(c.env.DB), DEFAULT_TENANT_ID, 'set_focus', c.req.valid('json'));
-    return c.json(result, 200);
-  })
-  .openapi(commandRoute('set_next_action'), async (c) => {
-    const result = await runCommand(createDb(c.env.DB), DEFAULT_TENANT_ID, 'set_next_action', c.req.valid('json'));
-    return c.json(result, 200);
-  })
-  .openapi(commandRoute('set_priority'), async (c) => {
-    const result = await runCommand(createDb(c.env.DB), DEFAULT_TENANT_ID, 'set_priority', c.req.valid('json'));
-    return c.json(result, 200);
-  })
-  // --- push invalidation (§5.5): SSE doorbell, not a data channel -------------
+  .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c.env, 'set_workspace_theme', c.req.valid('json')), 200))
+  .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c.env, 'delete_workspace', c.req.valid('json')), 200))
+  .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c.env, 'capture_item', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_status'), async (c) => c.json(await change(c.env, 'set_status', c.req.valid('json')), 200))
+  .openapi(commandRoute('snooze_until'), async (c) => c.json(await change(c.env, 'snooze_until', c.req.valid('json')), 200))
+  .openapi(commandRoute('associate'), async (c) => c.json(await change(c.env, 'associate', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_focus'), async (c) => c.json(await change(c.env, 'set_focus', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_next_action'), async (c) => c.json(await change(c.env, 'set_next_action', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_priority'), async (c) => c.json(await change(c.env, 'set_priority', c.req.valid('json')), 200))
+  // --- push invalidation: an SSE doorbell, not a data channel ----------------
   .get('/v1/events', (c) =>
     streamSSE(
       c,
       async (stream) => {
-        const db = createDb(c.env.DB);
+        // The account is resolved once, outside the loop: the stream is long-
+        // lived, and re-checking the register every three seconds would ask the
+        // same question of the same row for as long as a tab stays open.
+        const account = await openAccount(c.env, CURRENT_ACCOUNT_NAME);
         let cursor = new Date().toISOString();
         let lastPing = Date.now();
         await stream.writeSSE({ event: 'ping', data: '' });
         while (!stream.aborted) {
-          const { events, cursor: next } = await collectInvalidations(
-            db,
-            DEFAULT_TENANT_ID,
-            cursor,
-          );
+          const { events, cursor: next } = await account.changesSince(cursor);
           cursor = next;
           for (const event of events) {
             await stream.writeSSE({ event: 'change', data: JSON.stringify(event) });
@@ -317,7 +279,7 @@ const routes = app
   // Plain `.get` rather than an OpenAPI route: this answers with a redirect,
   // not with a documented response body.
   .get('/v1/relogin', (c) => c.redirect(safeReturnPath(c.req.query('return')), 302))
-  // --- generic webhook ingress (§6.2): no source-specific routes here ---------
+  // --- generic webhook ingress: no source-specific routes here ---------------
   .post('/ingress/:connectorId/*', async (c) => {
     const connector = getConnector(c.req.param('connectorId'));
     if (!connector?.handleWebhook) {

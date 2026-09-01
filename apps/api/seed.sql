@@ -1,15 +1,12 @@
--- Local development seed: the single tenant and the three workspaces the
--- prototype demonstrates. Idempotent (INSERT OR IGNORE) so it can be re-run.
+-- The register: the one account this application has. Idempotent
+-- (INSERT OR IGNORE) so it can be re-run.
 --
--- `folded_name` is spelled out rather than left to the column default: the
--- default is the empty string, and the unique index would then see three
--- workspaces all called the same nothing and keep only the first. It is the
--- name folded the way src/domain/workspaces.ts folds it, which for three ASCII
--- names is simply their lower case.
+-- The workspaces it used to create are gone from here, not because they are
+-- gone from the product but because they are no longer in this database. An
+-- account's workspaces live in that account's own store, and nothing can reach
+-- a Durable Object from the outside to seed it - `wrangler d1 execute` speaks
+-- to D1, and a store does not exist until a request opens it. The three
+-- workspaces are now the account's first change instead
+-- (src/accounts/changes.ts), applied once, the first time somebody opens it.
 INSERT OR IGNORE INTO tenants (id, name, created_at)
 VALUES ('tenant-default', 'Michael', '2026-08-12T00:00:00.000Z');
-
-INSERT OR IGNORE INTO workspaces (id, tenant_id, name, folded_name, color, ground, header, created_at) VALUES
-  ('ws-work', 'tenant-default', 'Work', 'work', '#6f62b5', '#e3e1f2', '#d2cdea', '2026-08-12T00:00:01.000Z'),
-  ('ws-atlas', 'tenant-default', 'Atlas Copco', 'atlas copco', '#3a72c8', '#d8e5f7', '#bed6f2', '2026-08-12T00:00:02.000Z'),
-  ('ws-personal', 'tenant-default', 'Personal', 'personal', '#c06a45', '#f2e5d4', '#ead2b3', '2026-08-12T00:00:03.000Z');

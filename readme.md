@@ -16,8 +16,8 @@ cockpit/
 │   ├── connector-sdk/ # the connector SPI (connectors land as packages/connectors/*)
 │   └── config/        # shared tsconfig / prettier
 ├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
-├── scripts/           # local dev startup, branch-alias derivation (+ its assertions), branch tidying
-├── .github/           # CI, CodeQL, the three Claude workflows, the three deploy workflows, branch protection
+├── scripts/           # local dev startup, the browser tier's stack, branch tidying
+├── .github/           # CI, CodeQL, the three Claude workflows, the two deploy workflows, branch protection
 ├── .claude/           # project skills and Claude Code settings every session picks up
 └── poc/               # proofs of concept (kept; they are part of the showcase)
 ```
@@ -28,15 +28,17 @@ Not yet in place (deliberately, in build order): auth (§8.1), the connectors th
 
 ## Environments
 
-Trunk-based: `main` is the trunk, every other branch gets its own Access-gated preview URL, merging deploys staging, and **production is a deliberate promotion pinned to one commit** rather than a consequence of merging. The model and its arguments are in [docs/deployment.md](docs/deployment.md).
+Trunk-based: `main` is the trunk, every other branch is gated on push and deployed nowhere, merging deploys staging, and **production is a deliberate promotion pinned to one commit** rather than a consequence of merging. The model and its arguments are in [docs/deployment.md](docs/deployment.md).
 
-All three are behind Cloudflare Access, `/health` excepted so the deploy checks and the uptime monitor can reach it.
+Both are behind Cloudflare Access, `/health` excepted so the deploy checks and the uptime monitor can reach it.
 
 | | Deployed by | URL |
 |---|---|---|
 | production | the *Promote to production* action | `cockpit.vanhoutte-michael.workers.dev` |
 | staging | every commit on `main` | `cockpit-staging.vanhoutte-michael.workers.dev` |
-| preview | every push to any other branch | `<branch-alias>-cockpit-preview.vanhoutte-michael.workers.dev` |
+
+Branches are gated on every push and deployed nowhere; the reason, and what it
+costs, is "No branch environments" in [docs/deployment.md](docs/deployment.md).
 
 ## Run it
 
@@ -98,7 +100,7 @@ One package at a time, when you only want the tests near what you're touching:
 ```bash
 pnpm --filter @cockpit/shared test:unit       # domain types, schemas, ids — no real dependencies
 pnpm --filter @cockpit/api test:unit          # domain logic — no real dependencies
-pnpm --filter @cockpit/api test:integration   # command handling against a real local D1 (~15s, not in test:fast)
+pnpm --filter @cockpit/api test:integration   # command handling against real local storage (~25s, not in test:fast)
 pnpm --filter @cockpit/web test:f-unit        # component logic, API client mocked at the boundary
 pnpm test:e2e --project=phone                 # the browser walks on one device instead of both
 pnpm test:e2e tests/e2e/capture.test.ts       # one browser walk
@@ -108,10 +110,10 @@ For a live-reloading loop while writing a test, run vitest directly instead of t
 
 **Nothing has to be running first, and nothing you have running will be disturbed.** Every tier brings its own world:
 
-- `apps/api`'s integration tests get a fresh, real D1 instance per test file from the Workers pool (`@cloudflare/vitest-pool-workers`), gone when the run ends.
-- The browser tier starts a **second copy of the whole application** — its own Wrangler on :8887, its own Vite on :5273, its own D1 directory — and throws the database away afterwards. Your `pnpm dev` on :5173/:8787 keeps running throughout, untouched: run the suite while you are clicking around and neither notices the other.
+- `apps/api`'s integration tests get a fresh, real D1 instance per test file from the Workers pool (`@cloudflare/vitest-pool-workers`), gone when the run ends. An account's own data lives in a real Durable Object rather than in D1, and there is one of those per account name rather than one per test file, so the cases that touch it empty it themselves between them (`tests/integration/seed.ts`).
+- The browser tier starts a **second copy of the whole application** — its own Wrangler on :8887, its own Vite on :5273, its own state directory — and throws the storage away afterwards. Your `pnpm dev` on :5173/:8787 keeps running throughout, untouched: run the suite while you are clicking around and neither notices the other.
 
-That database is rebuilt before every run, so a run always starts from exactly the seed and can never be made to pass or fail by something you did in the browser yesterday. It is rebuilt by copying a template (about 220KB, 5 milliseconds) rather than by running migrations and the seed, which costs about seven seconds and is nearly all process startup. The template itself is rebuilt only when a migration or `seed.sql` changes, keyed by their contents, so there is no stale-template failure to remember. A whole run costs about 7 seconds warm, about 18 the first time, when the template and possibly `apps/web/dist` have to be built.
+That storage is rebuilt before every run, so a run always starts from the same place and can never be made to pass or fail by something you did in the browser yesterday — but the two halves get there differently. The **register** is rebuilt by copying a template (about 220KB, 5 milliseconds) rather than by running migrations and the seed, which costs about seven seconds and is nearly all process startup; the template itself is rebuilt only when a migration or `seed.sql` changes, keyed by their contents, so there is no stale-template failure to remember. The **account's own store** is not in that template at all — a Durable Object is not something `wrangler` can write to from outside — so each run starts it empty and the run's first request creates it, brings it up to date and gives it the workspaces an account starts with. Same place every time, arrived at from the other end. A whole run costs about 7 seconds warm, about 18 the first time, when the template and possibly `apps/web/dist` have to be built.
 
 What that does *not* buy is isolation between tests inside one run: all the specs share the one stack, so each still creates what it needs and asserts only on its own rows rather than on counts. Real per-test isolation arrives with workspace creation, when a test can make its own.
 
@@ -125,16 +127,15 @@ Two different things get called "our automation", and keeping them apart saves a
 
 | Workflow | Fires on | What it does |
 |---|---|---|
-| [CI](.github/workflows/ci.yml) | pushes and pull requests to `main` | Six parallel jobs, so a failure names itself. Five of them — `Typecheck`, `Test`, `E2E (F3)`, `Build`, `Scripts` — are five of the eight contexts the checked-in branch-protection payload lists, the other three being CodeQL's. The sixth, `Test Explorer`, publishes a report and deliberately does not gate. `E2E (F3)` installs Chromium and runs the browser tier against the same isolated local stack you would get locally, keeping its failure traces as an artifact. `Scripts` runs `scripts/branch-alias.test.sh` and the unit tests for `scripts/lib/`, because a silent change in the preview-alias derivation would collide two branches onto one URL, and a silent change in the test stack's guards would let a run start against a database it did not create. Deliberately *not* triggered on every branch push: the preview deploy already runs the same checks there, and doing both would run everything twice. |
+| [CI](.github/workflows/ci.yml) | every push, and pull requests to `main` | Six parallel jobs, so a failure names itself. Five of them — `Typecheck`, `Test`, `E2E (F3)`, `Build`, `Scripts` — are five of the eight contexts the checked-in branch-protection payload lists, the other three being CodeQL's. The sixth, `Test Explorer`, publishes a report and deliberately does not gate. `E2E (F3)` installs Chromium and runs the browser tier against the same isolated local stack you would get locally, keeping its failure traces as an artifact. `Scripts` runs the unit tests for `scripts/lib/`, because a silent change in the test stack's guards would let a run start against a database it did not create, and a silent change in the review gate would let a non-review ship green. A branch with an open pull request is checked twice, once per event: `push` covers a branch that has no pull request at all, `pull_request` covers the merge result, and since this is the only gate a branch gets, running twice beats not running. |
 | [CodeQL](.github/workflows/codeql.yml) | pushes and pull requests to `main` | Two parallel legs, one per language: `javascript-typescript` over the application sources, and `actions` over the workflow files themselves — which is where this repository's own risk sits, since its workflows run Claude against an OAuth token and check out pull request branches. Both read the sources directly (`build-mode: none`), so neither needs a toolchain. No path filters, deliberately: a required check that is skipped never reports, and a pull request waits on it forever. Superseded pull request runs are cancelled; runs on `main` are not, because the default branch's analysis is the baseline every pull request is compared against. |
 | [Claude Code Review](.github/workflows/claude-code-review.yml) | every pull request opened, pushed to, reopened or marked ready for review | Runs the `code-review` plugin command against the pull request and posts its findings as inline comments (a summary comment when it finds nothing). A second step then asserts that the review *actually ran* — see below. |
 | [Claude Security Review](.github/workflows/claude-security-review.yml) | every pull request opened, pushed to, reopened or marked ready for review | A security pass over the diff, scoped by [.github/security-review-instructions.md](.github/security-review-instructions.md) to the rules this project decided on — the ingress hardening template, tokens encrypted at rest and never logged, server-side workspace scoping, the hand-rolled auth surface, and the workflows themselves. CodeQL is the mechanical half and this is the judgement half, so the instructions say explicitly not to re-derive what CodeQL already reports. The run must end with a one-line verdict naming the highest severity it found; the check goes red when that line is missing (it never reached a verdict) or names the top severity. Skipped on pull requests from forks — see below. |
 | [Claude Code](.github/workflows/claude.yml) | `@claude` in an issue, an issue or PR comment, or a review | Hands that comment to Claude with read access to the repository and to CI results, so an explanation or a fix can be asked for from the pull request itself. |
-| [Deploy preview](.github/workflows/deploy-preview.yml) | pushes to any branch except `main` | Typechecks and tests first (a broken build must not replace a working preview), derives the branch alias, migrates and seeds the shared preview database, uploads a new Worker version behind `<alias>-cockpit-preview…`, and comments the URL on the pull request if there is one. Triggered on `push`, not `pull_request`, so a branch with no PR — or a draft one — still gets an environment. |
 | [Deploy staging](.github/workflows/deploy-staging.yml) | every commit on `main`, plus manual re-runs | The same gate, then migrate and deploy, then assert `/health`. Never re-seeded: accumulated old data is the whole point of staging. |
 | [Promote to production](.github/workflows/deploy-production.yml) | manual only, with an optional commit SHA | Refuses any commit that is not an ancestor of `origin/main`, since it has neither passed CI nor soaked on staging; then re-runs the full gate against that exact tree, migrates, deploys, and verifies `/health`. |
 
-The four workflows that need a toolchain — CI and the three deploys — share [`.github/actions/setup`](.github/actions/setup/action.yml), so the pnpm version, the Node version and the frozen-lockfile install are declared once. The three Claude workflows need no such install, and neither does CodeQL: with `build-mode: none` it reads the sources rather than building them. *Claude Security Review* does run Node, for its gate, but only against the standard library, so it stays checkout-only for the same reason the `Scripts` job does.
+The three workflows that need a toolchain — CI and the two deploys — share [`.github/actions/setup`](.github/actions/setup/action.yml), so the pnpm version, the Node version and the frozen-lockfile install are declared once. The three Claude workflows need no such install, and neither does CodeQL: with `build-mode: none` it reads the sources rather than building them. *Claude Security Review* does run Node, for its gate, but only against the standard library, so it stays checkout-only for the same reason the `Scripts` job does.
 
 **Why the security review's gate is a module and the code review's is not.** They answer the same question — did this run actually reach a verdict — and the older one answers it in about 120 lines of bash inside a `run:` block. Every incident recorded in that file's comments is a bug in that bash rather than in the reviewing: a `permission_denials_count` field missing from the result record and read as "no denials", a three-turn blocked session passing as clean, a seven-turn one doing the same, a result payload that is sometimes an array and sometimes an object. All four shipped green, and nothing covered them, because inline bash cannot be run by a test. The security review's version is [`scripts/lib/review-gate.mjs`](scripts/lib/review-gate.mjs) instead, a pure function from an execution record to a decision, asserted by `node --test` in the `Scripts` job with fabricated execution records as fixtures. Retrofitting the older gate onto it is the obvious follow-up and is deliberately not done here, because that gate is entangled with the stop-condition problem in "The review check goes green when the reviewer declined to look at the new commits" (issue 75), and doing both at once makes one change out of two.
 
@@ -171,11 +172,10 @@ Skills trigger themselves from their descriptions, so nobody has to remember to 
 | `pnpm dev` | Migrates, seeds, builds `dist` if it has never been built, then runs both halves. One command, deliberately: see [Run it](#run-it). |
 | `pnpm branches:tidy` | Reaps the local branches and worktree metadata that squash-merging leaves behind: see [Tidying up branches](#tidying-up-branches). |
 | `pnpm typecheck`, `pnpm test`, `pnpm build` | The same three gates CI runs, so a red pipeline is reproducible locally. |
-| `scripts/branch-alias.sh` | Derives a branch's preview hostname. Used by the preview deploy, and asserted by its own test script in CI. |
 | `scripts/health-check.sh` | The post-deploy assertion against `/health`, which is Bypass-policied out of Cloudflare Access so it tests the app rather than a login page. |
 | [.vscode/launch.json](.vscode/launch.json) | Debug the SPA in Chrome, attach to the Worker's inspector on `:9229`, or both at once. |
 
-**There are no git hooks in this repository, on purpose.** Nothing installs a `pre-commit` or `pre-push` hook and there is no husky/lefthook dependency. The gate is CI and the preview deploy: they cannot be skipped with `--no-verify`, and they run on the machine that decides. When you want to be interrupted locally is a personal preference, so it belongs in the machine-local list below.
+**There are no git hooks in this repository, on purpose.** Nothing installs a `pre-commit` or `pre-push` hook and there is no husky/lefthook dependency. The gate is CI: it cannot be skipped with `--no-verify`, and it runs on the machine that decides. When you want to be interrupted locally is a personal preference, so it belongs in the machine-local list below.
 
 ### Set up once on the GitHub repository (not in the code)
 
@@ -183,8 +183,8 @@ This lives in repository settings, so a fresh fork gets none of it. The deployme
 
 | Kind | Name | Needed by |
 |---|---|---|
-| Secret | `CLOUDFLARE_API_TOKEN` | all three deploy workflows |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | all three deploy workflows |
+| Secret | `CLOUDFLARE_API_TOKEN` | both deploy workflows |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | both deploy workflows |
 | Secret | `CLAUDE_CODE_OAUTH_TOKEN` | all three Claude workflows |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | the deploy URLs and the health checks |
 
@@ -199,7 +199,7 @@ This lives in repository settings, so a fresh fork gets none of it. The deployme
 - **The GitHub-native security controls.** Secret scanning and push protection were already on before anything was built for them; Dependabot alerts and security updates were turned on by two `gh api` calls. Routine dependency version bumps are deliberately off, and the code-scanning failure threshold is deliberately left at its default. The commands, the dates they were checked, and the reasoning are in [docs/deployment.md](docs/deployment.md) under *Bootstrap runbook*.
 - **Automatically delete head branches**, in the repository settings. `pnpm branches:tidy` keys on a local branch's upstream being `[gone]`, so it is only trustworthy while that setting is on.
 - **The Claude GitHub App**, installed on the repository, plus the OAuth token above. The usual path is `/install-github-app` from an interactive Claude Code session, which installs the app and stores the secret for you.
-- **Cloudflare Access on all three environments**, with a Bypass policy scoped to `/health`. Dashboard only; the reasoning is in the deployment doc.
+- **Cloudflare Access on both environments**, with a Bypass policy scoped to `/health`. Dashboard only; the reasoning is in the deployment doc.
 - The `staging` and `production` **GitHub environments**, which give deployment history in the UI and somewhere to hang a required reviewer later without touching a workflow file.
 
 ### Set up on your own machine (recommended, none of it in the code)

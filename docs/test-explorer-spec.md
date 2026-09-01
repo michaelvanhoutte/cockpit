@@ -114,7 +114,7 @@ this, both implemented and validated against the real repo:
 **A second, unrelated finding surfaced by running this against the real
 suite, also fixed:** `apps/api/tests/integration/http/item-changes.test.ts`
 drives the real Worker over HTTP (`SELF.fetch` from `cloudflare:test`) rather
-than importing `http/command-service.ts` or `db/repo.ts` directly — exactly
+than importing `accounts/command-service.ts` or `accounts/repo.ts` directly — exactly
 the testing-strategy-mandated "enter through the real interface, not around
 it" pattern. "Files nothing runs" (§6.3) is import-reach only, so it cannot
 see that HTTP-mediated exercise and reports those two files as untested —
@@ -536,7 +536,7 @@ Three corrections, all from the very next look at §2g's own output:
    `tests/integration`) split apps/api already uses.
 2. **`model.js`'s `summarise()` double-counted shared files.** `concepts.json`
    deliberately lets one source file belong to more than one feature area
-   (§2a/§5 — `apps/api/src/db/repo.ts` backs four areas), so a plain sum of
+   (§2a/§5 — `apps/api/src/accounts/repo.ts` backs four areas), so a plain sum of
    `filesNothingRuns.length`/`branchesNothingTakes.length` across every tree
    node counted that file's gap once per area it belongs to — the masthead
    read 29 "files nothing runs" against a true count of 21 unique files.
@@ -617,11 +617,11 @@ separately anymore), the source-file glob patterns it owns, and an optional
 `Connector management`, `User management` are the nine root areas seeded
 from the example list in [testing-strategy.md](testing-strategy.md)'s "Tests
 are named in the product's language, not the implementation's" (§9.1);
-`Sign-in` and `Workspace management` were added since, each on the day the
-product grew a behaviour the areas before it had no word for — nothing
+`Sign-in`, `Workspace management` and `Accounts` were added since, each on the
+day the product grew a behaviour the areas before it had no word for — nothing
 restricts the registry to exactly those,
 or to being flat; it grows areas and children as real ones show up in tests. Backend plumbing that no
-area owns (the event stream, tenancy, app wiring — code testing-decisions-wip
+area owns (app wiring, background jobs — code testing-decisions-wip
 says stays whole rather than splitting by feature) lives under an implicit
 `infrastructure` bucket, always a root, not left unmatched. Rows are the
 resulting tree, one node per registry entry, `Infrastructure` always last
@@ -700,8 +700,8 @@ entry:
   "label": "Capture",
   "sourcePatterns": [
     "apps/api/src/domain/items.ts",
-    "apps/api/src/http/command-service.ts",
-    "apps/api/src/db/repo.ts",
+    "apps/api/src/accounts/command-service.ts",
+    "apps/api/src/accounts/repo.ts",
     "packages/shared/src/commands.ts",
     "packages/shared/src/domain/item.ts",
     "apps/web/src/components/CaptureForm.tsx"
@@ -725,13 +725,15 @@ zero entries falls into the implicit `infrastructure` bucket. What CI checks
 
 **Seeded with** (`tools/test-explorer/concepts.json`, as built): `Capture` and
 `Triage` have real source patterns (both have tests today, both reaching into
-`items.ts`, `command-service.ts`, `db/repo.ts`, `commands.ts`, `item.ts`, and
-their own frontend component); `Associations` and `Offline` likewise, plus
-`Offline`'s own `packages/shared/src/ids.ts` (client-side ID generation for
-offline capture, per [ids.test.ts](../packages/shared/tests/unit/ids.test.ts)).
+`items.ts`, `accounts/command-service.ts`, `accounts/repo.ts`, `commands.ts`,
+`item.ts`, and their own frontend component); `Associations` and `Offline`
+likewise, plus `Offline`'s own `packages/shared/src/ids.ts` (client-side ID
+generation for offline capture, per
+[ids.test.ts](../packages/shared/tests/unit/ids.test.ts)).
 `Sign-in` has real patterns too, added later with the sign-in recovery work,
 as does `Workspace management`, added with "Create a workspace from a settings
-page" (issue 30).
+page" (issue 30), and `Accounts` with the move of an account's data into its
+own store.
 `Dashboards`, `Panels`, `Focus`, `Connector management`, `User management` —
 the rest of testing-strategy §9.1's example list — are declared with empty
 `sourcePatterns: []` until code exists to match them; an empty pattern list
@@ -1006,7 +1008,7 @@ re-validated against the real merge (`0897f91`) once it landed, which is when
 
 **One honest limitation surfaced by the real run, not "fixed" because it
 can't be**: `apps/api/tests/integration/http/item-changes.test.ts` drives the
-Worker over real HTTP rather than importing `command-service.ts`/`db/repo.ts`
+Worker over real HTTP rather than importing `command-service.ts`/`accounts/repo.ts`
 directly, so "files nothing runs" reports false positives on exactly those
 two files. §2a covers this in full; the mitigation is a warning naming the
 limitation, not a heuristic that guesses which files an HTTP call reached.

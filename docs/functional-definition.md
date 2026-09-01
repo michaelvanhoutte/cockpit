@@ -323,7 +323,8 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 ## 14. Glossary
 
-- **Workspace** — top-level context and privacy boundary (Work, Personal, Customer 1…); defines which sources are connected.
+- **Account** — the person or organization Cockpit holds work for, and the outermost boundary: everything else here belongs to exactly one of them. There is one today. Not to be confused with the *source accounts* (a Gmail login, a Slack workspace) that a Workspace connects to. The **register** is the list of which accounts exist; it is what says an account is real before any of its data is opened.
+- **Workspace** — top-level context inside an Account, and the privacy boundary (Work, Personal, Customer 1…); defines which sources are connected.
 - **Dashboard** — a switchable named view inside a Workspace; holds a layout of Panels.
 - **Panel** — a movable, resizable, titled box that displays a filtered set of Items.
 - **Item** — the single object everything is stored as: any normalized piece of content, whether it arrived from a source (email, message, page, event…) or was created in the app. **Action** and **Thought** are *types* of Item, not separate objects.

@@ -1,11 +1,8 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
-import { eq } from 'drizzle-orm';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { Workspace } from '@cockpit/shared';
-import { createDb } from '../../../src/db/client.js';
-import { commands, items, workspaces } from '../../../src/db/schema.js';
-import { TENANT_ID, WORKSPACE_ID, seedWorkspaces } from '../seed.js';
+import { ACCOUNT_NAME, WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`SELF.fetch`), because every rule
@@ -118,13 +115,18 @@ async function theWorkspaces(): Promise<Workspace[]> {
 }
 
 async function storedNames(): Promise<string[]> {
-  const rows = await createDb(env.DB).select({ name: workspaces.name }).from(workspaces);
-  return rows.map((r) => r.name);
+  return inTheStore((sql) =>
+    sql
+      .exec<{ name: string }>('SELECT name FROM workspaces')
+      .toArray()
+      .map((row) => row.name),
+  );
 }
 
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
-  await seedWorkspaces();
+  await startFromEmpty();
+  await seedRegister();
 });
 
 describe('Workspace management', () => {
@@ -346,10 +348,17 @@ describe('Workspace management', () => {
       // are no longer reachable through anything else: the router learns from
       // the history of where things were filed, so erasing them would erase
       // that. Nothing else can ask this question.
-      const rows = await createDb(env.DB).select().from(items).where(eq(items.id, itemId));
+      const rows = await inTheStore((sql) =>
+        sql
+          .exec<{ workspace_id: string; deleted_at: string | null }>(
+            'SELECT workspace_id, deleted_at FROM items WHERE id = ?',
+            itemId,
+          )
+          .toArray(),
+      );
       expect(rows).toHaveLength(1);
-      expect(rows[0]?.workspaceId).toBe(deleted.id);
-      expect(rows[0]?.deletedAt).toBeNull();
+      expect(rows[0]?.workspace_id).toBe(deleted.id);
+      expect(rows[0]?.deleted_at).toBeNull();
     });
 
     it('leaves the other workspaces and what is in them alone', async () => {
@@ -500,11 +509,16 @@ describe('Workspace management', () => {
       // introduced the column produces. Written directly because that version
       // is not here to be asked, and there is no other way to arrange it.
       const name = aName();
-      await env.DB.prepare(
-        'INSERT INTO workspaces (id, tenant_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)',
-      )
-        .bind(nextId(), TENANT_ID, name, '#b58a2f', '2026-08-12T10:00:00.000Z')
-        .run();
+      await inTheStore((sql) => {
+        sql.exec(
+          'INSERT INTO workspaces (id, tenant_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)',
+          nextId(),
+          ACCOUNT_NAME,
+          name,
+          '#b58a2f',
+          '2026-08-12T10:00:00.000Z',
+        );
+      });
 
       expect((await makeWorkspace(name)).status).toBe(409);
     });
@@ -557,10 +571,11 @@ describe('Workspace management', () => {
         }),
       });
 
-      const logged = await createDb(env.DB)
-        .select()
-        .from(commands)
-        .where(eq(commands.commandId, refusedRequestId));
+      const logged = await inTheStore((sql) =>
+        sql
+          .exec('SELECT command_id FROM commands WHERE command_id = ?', refusedRequestId)
+          .toArray(),
+      );
       expect(logged).toHaveLength(0);
     });
   });

@@ -7,13 +7,13 @@ Cloudflare and why; this document records *how*, and it is the runbook.
 ## 1. The branch model
 
 **Decision: trunk-based, one long-lived branch.** `main` is the trunk.
-Everything else is a short-lived branch with its own preview environment.
+Everything else is a short-lived branch, gated on every push and deployed
+nowhere (§4).
 **Merging deploys to staging; production is a separate, deliberate promotion.**
 
 ```
-                        ┌─ every branch gets its own Access-gated preview URL
-  claude/swipe    ●───● ┤
-  claude/panel  ●───●   │  squash-merge, via PR
+  claude/swipe    ●───● ┐
+  claude/panel  ●───●   │  gates run per push; nothing is deployed
                     ┌───┴───┐
   main ──●──────────●───────●───────●────────►  staging      (automatic; cron + queues run here)
                             │       │
@@ -24,9 +24,12 @@ Everything else is a short-lived branch with its own preview environment.
 
 | Trigger | Result |
 |---|---|
-| push to any branch | preview URL, Access-gated, shared preview database |
+| push to any branch | the gates run; nothing is deployed |
 | merge PR into `main` | staging deploys automatically |
 | run **Promote to production** | that commit deploys to production |
+
+Branches used to get their own environment on every push. They no longer do, and
+the reason is a platform limitation rather than a preference: §4.
 
 The rules:
 
@@ -50,16 +53,16 @@ The rules:
 ### Why staging exists, and why it is not a branch
 
 Staging classically solves multi-team integration, and Cockpit has one developer.
-Every branch already gets a clickable environment, so staging adds nothing to
-"review this change". It earns its place for a narrower and more specific reason:
+Since §4, staging is also the first place a change runs deployed at all, which
+makes it more load-bearing than this section originally described. It still earns
+its place for a narrower and more specific reason:
 **staging is the only environment besides production where cron triggers and
 queue consumers run continuously against a database that accumulates state.**
 
-Triggers attach to a Worker's *active deployment*, not to uploaded versions, so a
-per-branch preview serves HTTP and will never fire a §6.3 sync cadence, never age
-an OAuth token into needing a refresh, never trip the §9.2 dead-man's switch, and
-never meet a migration applied to a table that already has rows in it. Those are
-precisely the failure modes architecture §9.2 calls hardest to detect.
+Nothing else runs long enough to age an OAuth token into needing a refresh, trip
+the §9.2 dead-man's switch, or meet a migration applied to a table that already
+has rows in it. Those are precisely the failure modes architecture §9.2 calls
+hardest to detect, and only somewhere long-running can find them.
 
 The insight that shapes this document: **that argument justifies a staging
 *environment*, not a staging *branch*.** An earlier draft gave staging its own
@@ -100,7 +103,9 @@ wrong.
 |---|---|---|---|---|---|---|
 | **production** | manual promotion | `cockpit` | `cockpit` | yes | `cockpit.vanhoutte-michael.workers.dev` | gated |
 | **staging** | every commit on `main` | `cockpit-staging` | `cockpit-staging` | yes | `cockpit-staging.vanhoutte-michael.workers.dev` | gated |
-| **preview** | every push to any other branch | `cockpit-preview`, one version per branch | `cockpit-preview`, shared | no | `<alias>-cockpit-preview.vanhoutte-michael.workers.dev` | gated |
+
+There is no third environment. Branches are gated on every push and deployed
+nowhere; §4 has the reason and what it costs.
 
 **Every environment is gated, `/health` excepted.** There is no public instance;
 the showcase is this repository, not a running app holding real mail and messages.
@@ -109,9 +114,10 @@ Production therefore **lags `main` by design**, by however many commits have bee
 merged but not promoted. `git log <promoted-sha>..main` is the answer to "what is
 merged but not live"; the promotion run's summary records which commit shipped.
 
-Three D1 databases, out of the free plan's ten. The two thresholds that would
+Two D1 databases, out of the free plan's ten - three until `cockpit-preview`
+went with §4. The two thresholds that would
 force the $5/month Workers Paid plan, recorded so they are recognised rather than
-rediscovered: **a database crossing 500 MB** (or 5 GB across all three), and
+rediscovered: **a database crossing 500 MB** (or 5 GB across both), and
 **needing queue retention beyond 24 hours**. Cloudflare Queues moved onto the
 free plan in February 2026, so it is no longer a reason to upgrade on its own.
 
@@ -145,56 +151,213 @@ be kept in sync**; they are the same boundary expressed twice.
 Because `assets.directory` points at `../web/dist`, the web app must be built
 before the API is deployed *or* run with `wrangler dev`. `pnpm build` first.
 
-## 4. Preview environments
+## 4. No branch environments
 
-Every branch except `main` gets one, triggered on `push` rather than
-`pull_request` so that a draft PR, or a branch with no PR at all, is deployed
-too.
+**Removed, deliberately.** A branch used to get its own Access-gated URL on every
+push. It cannot any more, and rebuilding the capability another way costs more
+than it is worth here. Both halves of that are argued below rather than asserted,
+because "we deleted the preview environment" is the kind of sentence that reads
+as neglect a year later.
 
-Previews are **versions of a single Worker**, not a Worker per branch.
-`wrangler versions upload --env preview --preview-alias <alias>` uploads a new
-version and points a stable aliased URL at it without touching that Worker's
-active deployment. One Worker to exist, no per-branch Worker to reap.
+What is gone: `deploy-preview.yml`, the `cockpit-preview` Wrangler environment,
+`scripts/branch-alias.sh` and the CI step that asserted it. What replaces it is
+nothing - a push runs the gates in `ci.yml` and deploys nowhere.
 
-### The alias, and why there is a script for it
+### Why it could not stay
 
-Cloudflare caps the combined alias and Worker name at 63 characters, and aliases
-must be lowercase alphanumeric-with-dashes beginning with a letter. Branch names
-here are long (`claude/cloudflare-deployment-strategy-9dcc0f` is 44 characters
-before any prefix handling), so a naive slug overflows. `scripts/branch-alias.sh`
-applies four rules, and `scripts/branch-alias.test.sh` asserts them in CI
-because a silent change would either collide two branches onto one URL or
-produce an invalid hostname:
+Cloudflare does not generate version preview URLs for a Worker that implements a
+Durable Object, and since "Account data moves into a per-account store"
+(issue 84) this one does. The mechanism, the error it produced and how it
+presents are in "Preview URLs and Durable Objects are mutually exclusive" below.
+Everything after that is about what to do instead.
 
-1. Use only the branch's last path segment (`claude/inbox-swipe` → `inbox-swipe`).
-2. Sanitise to `[a-z0-9-]`, beginning with a letter.
-3. Truncate to 38 characters.
-4. Always append a 6-character hash of the **full** branch name.
+### Why nothing replaced it
 
-38 + 1 + 6 = 45, plus `-cockpit-preview` = 61, two under the limit deliberately
-so a future rename of the Worker does not silently break every preview URL.
-Because the hash covers the full branch name, neither the truncation nor the
-segment-stripping can collide two branches.
+Four shapes were weighed. Two keep a clickable branch environment and two do not:
 
-### Shared preview database: a recorded reversal
+| | Click through before merge | Cost |
+|---|---|---|
+| Keep the job as a rehearsal, no URL | no | a workflow that deploys nothing anyone can see |
+| A Worker per branch, every push | yes | per-environment Access, lifecycle, on every push |
+| A Worker per branch, on request | yes | per-environment Access, lifecycle, when asked |
+| **Remove it** | no | no rehearsal against real Cloudflare before merge |
 
-Architecture §9.1 specified "an isolated preview D1 database" per preview.
-**That is amended: all previews share one `cockpit-preview` database**, which is
-re-migrated and re-seeded (`seed.sql` is `INSERT OR IGNORE` throughout, so this
-is idempotent) on every preview deploy.
+The two that keep the capability both founder on the same thing, and it is not
+lifecycle: **a branch Worker cannot be gated cheaply.** That is
+"Gating a branch Worker costs what previews did not" below - Access on a
+`workers.dev` URL is per Worker, `.workers.dev` has no wildcard subdomains, and
+the account-level policy that covered every preview was a property of preview
+URLs specifically. Each branch environment would therefore need its own Access
+application, created and destroyed with it, with an unauthenticated instance of
+this application on the public internet as the failure mode. A custom domain
+would fix that with one wildcard application, and that is a zone, DNS and
+custom-domain routing for a convenience.
 
-The argument: per-branch isolation needs a database created on first push, its id
-injected into a generated Wrangler config, and a reaper to delete it when the
-branch goes away, and the free plan's ten-database ceiling means it does not fit
-at all against the seventeen branches this repository already carries. The
-shared database costs nothing to run and needs no lifecycle machinery.
+Between the two that give the capability up, the rehearsal is the smaller loss
+and the larger residue: a workflow, a database, a Worker and an alias script kept
+alive to produce a green check nobody looks at. Removing it is the same trade
+taken further, and it is the one that leaves nothing to explain.
+
+### What it costs, stated plainly
+
+**Nothing is deployed anywhere until a branch merges.** A migration or a
+configuration that fails only against the real platform now surfaces on
+**staging, after the merge** - main is briefly a commit whose staging deploy is
+red, and the fix is an ordinary short-lived branch and an ordinary pull request,
+which is what the branch model says about every other fix.
+
+That is not hypothetical. The Durable Object migration error in
+"A Durable Object class cannot be introduced by a preview" below was caught
+before merge by exactly the step this section removes. The trade is accepted with
+that example in view: one deploy-time surprise per platform limitation, against a
+workflow, a Worker, a database and an Access policy maintained permanently.
+
+**What still gates a branch:** `ci.yml`, on every push - typecheck, the fast test
+tiers, the browser tier against its own local stack, the build, the script tests
+and the concept registry. Nothing about *code* correctness moved.
+
+### Removing the infrastructure
+
+The repository no longer references them, but the `cockpit-preview` Worker and
+the `cockpit-preview` D1 database still exist on Cloudflare, along with any
+Access application scoped to them. Deleting them is a **one-time, irreversible**
+step, done by hand because nothing here should be able to delete infrastructure
+on its own:
+
+```bash
+wrangler delete cockpit-preview
+wrangler d1 delete cockpit-preview
+```
+
+D1 keeps 30 days of point-in-time recovery, but a deleted database is deleted;
+there is nothing in either that is not `seed.sql` fixtures. Leaving them costs
+nothing but a stale row in the dashboard, so this is cleanup rather than a
+requirement.
+
+### Preview URLs and Durable Objects are mutually exclusive
+
+**Measured, then confirmed against Cloudflare's own documentation.** The upload
+succeeds and the check goes green; the URL serves nothing. Cloudflare's
+[preview URLs page](https://developers.cloudflare.com/workers/configuration/previews/)
+says it outright:
+
+> Preview URLs are not generated for Workers that implement a Durable Object,
+> including Containers and Sandbox Workers.
+
+An account's data lives in one Durable Object per account, so `cockpit-preview`
+implements one, so it gets no preview URLs. Nothing about the alias, the
+bootstrap or the workflow changes that; the limitation is the platform's.
+
+**How it presents, which is the dangerous part.** `wrangler versions upload`
+still succeeds, so the Preview check passes — it asserts that the upload
+happened, not that anything is reachable. The workflow then *constructs* the
+alias URL from the alias it passed rather than reading one back from Wrangler,
+and comments it on the pull request. So a pull request carries a green check and
+a URL that looks right and answers with a placeholder. The tell in the log is
+that Wrangler prints no `Version Preview URL:` line at all.
+
+**What replaced it.** Nothing - see "Why nothing replaced it" above for the four
+candidates and why the two that keep a clickable environment both founder on the
+section that follows this one.
+
+### Gating a branch Worker costs what previews did not
+
+**The account-level Access policy does not reach a branch Worker**, and no
+naming or wildcard makes it. Two facts, both from Cloudflare:
+
+- Access on a `workers.dev` URL protects
+  [one Worker's production URL, its preview URLs, or both](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
+  - it is per Worker.
+- [`.workers.dev` does not support wildcard subdomains](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/),
+  so one application cannot stand in front of every branch Worker the way
+  `Cloudflare Workers Preview URLs` stands in front of every preview URL.
+
+That account-level policy covering "every preview, including branches that do
+not exist yet" was a property of **preview URLs specifically**. Losing preview
+URLs loses it, and a branch Worker inherits nothing.
+
+So a branch environment is gated per environment or not at all, which leaves
+three shapes and no free one:
+
+- **Create and delete an Access application per environment from the workflow.**
+  Doable through the API, and it widens the CI token from Workers and D1 to
+  Access. Its failure mode is the one §6 exists to prevent: an application that
+  is not created leaves an unauthenticated instance of this app on the public
+  internet, and nothing about the deploy looks wrong when that happens.
+- **Move branch environments to a custom domain**, where a wildcard application
+  does work and covers them all once. That is the documented answer to exactly
+  this, and it is a bigger, one-time setup: a zone, DNS, and custom-domain
+  routing.
+- **Accept public branch environments.** They hold `seed.sql` fixtures rather
+  than real mail, which is the argument §6 already makes about previews - but §6
+  gates them anyway, and that reversal was the owner's.
+
+This is what reopened §4. It is recorded here rather than in a commit message
+because the cost is the decision.
+
+### A Durable Object class cannot be introduced by a preview
+
+**Measured, not inferred**, on the first preview deploy that carried one:
+
+```
+Version upload failed. You attempted to upload a version of a Worker that
+includes a Durable Object migration, but migrations must be fully applied via
+a non-versioned deployment. [code: 10211]
+```
+
+Previews use `wrangler versions upload`, which is the whole point of them - one
+Worker, one version per branch, addressed by alias - and Cloudflare will not
+apply a Durable Object migration through it. Staging and production are
+unaffected: both run `wrangler deploy`, which applies migrations as part of the
+deploy.
+
+So a **new** Durable Object class has to reach `cockpit-preview` once, by hand,
+before any branch carrying it can upload a version. Run it **from the branch
+that introduces the class**, not from `main`: this deploys the working tree you
+are standing in, and a tree without the class in its `wrangler.jsonc` introduces
+nothing.
+
+```bash
+# from the repository root of that branch's checkout or worktree
+pnpm --filter @cockpit/api exec wrangler deploy --env <that Worker's environment>
+```
+
+`pnpm ... exec` because `wrangler` is a devDependency of `apps/api` and is not
+on the PATH; a bare `wrangler` only works where one happens to be installed
+globally. It also needs `apps/web/dist` to exist, since Wrangler refuses to
+start without the assets directory - `pnpm build` first if it is missing.
+
+**Written as history, not as an instruction.** The environment this was run
+against was `preview`, and §4 removed it, so the command above no longer names
+anything. It is kept because the rule it records outlives the environment that
+taught it.
+
+That is the same one-time bootstrap the runbook below already performs for the
+preview Worker, repeated for the class. Afterwards the migration is applied and
+every branch's `versions upload` sends no migration at all, so the failure does
+not recur - including for branches that do not know the class exists.
+
+**Nothing uploads a version any more**, so this cannot bite today: staging and
+production both `wrangler deploy`, which applies migrations the way it always
+did. It is kept because the rule outlives its cause - a Durable Object migration
+cannot travel by version upload, and the next thing that uploads one will meet
+it, whether that is a returning preview or a gradual deployment.
+
+The same is true of account data, and more sharply: every preview version runs
+under the one `cockpit-preview` Worker, so they share its Durable Object
+namespace and therefore the *same* account store. A branch that adds a change to
+`apps/api/src/accounts/changes.ts` applies it to the store every other branch's
+preview is also reading.
 
 **What is genuinely given up**, recorded rather than waved away: two branches
-with incompatible migrations will collide, because a migration applied by one
-preview is immediately visible to every other open branch's preview. There is no
-mitigation in place, only a detection story: the preview deploy applies
-migrations before uploading the version, so the branch that breaks is the branch
-that notices. If this bites in practice, the recorded escalation is per-branch
+with incompatible migrations to the *register* will collide, because a migration
+applied by one branch environment is immediately visible to every other one.
+There is no mitigation in place, only a detection story: deploying a branch
+environment applies migrations first, so the branch that breaks is the branch
+that notices - and now only when somebody asks for an environment, so a
+collision can sit undetected until then. Account changes no longer collide at
+all: each branch Worker has its own Durable Object namespace, so a change to
+`src/accounts/changes.ts` reaches nothing but that branch's own store. If this bites in practice, the recorded escalation is per-branch
 databases on the Workers Paid plan, which is the option this decision defers
 rather than forecloses.
 
@@ -219,9 +382,24 @@ each environment needs its own queue names, or staging will consume production's
 messages.
 
 This was verified rather than assumed: a marker row inserted into the preview
-database appeared on the preview URL and on neither staging nor production.
+database appeared on the preview URL of the day and on neither staging nor
+production.
 
 ## 5. Migrations and rollback
+
+**This section is about the register.** An account's own store is brought up to
+date lazily, by the first request that opens it after a deploy, because nothing
+can reach a Durable Object before one exists — see "One store per account, and
+`tenant_id` stays" in [architecture.md](architecture.md) and the decision behind
+it in [account-storage-options.md](account-storage-options.md). Two consequences
+worth carrying into any change to `apps/api/src/accounts/changes.ts`: a change
+that will not apply takes down every account, one at a time as each is opened,
+so the deploy-time gate D1 gives for free is not there; and a change that has
+shipped must never be edited, because the accounts that already applied it will
+not apply it again and the ones that had not will get the edited version. The
+gate that has to replace the deploy-time one — applying an account's changes
+against a scratch store in CI before the deploy — is its own piece of work and
+is not built yet.
 
 Every deploy applies migrations **before** the new code goes live, so new code
 never meets an old schema. The inverse window is real and unavoidable: for the
@@ -261,7 +439,6 @@ environment, because they are non-inheritable:
 ```bash
 wrangler secret put <NAME>                 # production
 wrangler secret put <NAME> --env staging
-wrangler secret put <NAME> --env preview
 ```
 
 CI needs, in GitHub:
@@ -279,7 +456,7 @@ when standing up the repository, and a missing secret there presents as a workfl
 that goes green having done nothing. The readme's *Development automation* section
 has the rest of what those two workflows need.
 
-**All three environments are gated with Cloudflare Access, production included.**
+**Both environments are gated with Cloudflare Access, production included.**
 
 **This is a recorded reversal.** An earlier draft of this document gated staging
 and previews but left production open, reasoning that production is the showcase.
@@ -290,11 +467,11 @@ in by connectors, which makes it the *most* sensitive environment rather than th
 least, and §8.1's app login does not exist yet, so without Access it has no
 authentication whatsoever. Previews, by contrast, hold `seed.sql` fixtures.
 
-Cloudflare makes this a toggle rather than per-branch work. Enabling Access on any
-preview URL creates one account-level policy (`Cloudflare Workers Preview URLs`)
-that covers every preview, including branches that do not exist yet; each
-`workers.dev` URL gets its own per-Worker policy, so production and staging are
-gated independently of each other.
+Each `workers.dev` URL gets its own per-Worker policy, so production and staging
+are gated independently of each other. There is also an account-level
+`Cloudflare Workers Preview URLs` policy that covers every *preview URL* at once,
+including branches that do not exist yet - which is what used to make previews
+free to gate, and what nothing replaced when they went (§4).
 
 ### `/health` must stay outside the gate
 
@@ -333,7 +510,7 @@ Three traps, each of which cost a wrong turn:
   actually the hole in the perimeter is a trap for later. `Cockpit /health
   (public)` or similar.
 
-Previews need none of this: `deploy-preview.yml` runs no health check.
+There is no third environment to do this for; §4.
 
 `scripts/health-check.sh` detects the gated case and names this fix, rather than
 failing with an unexplained parse error on an HTML login page.
@@ -346,12 +523,17 @@ failing with an unexplained parse error on an HTML login page.
 | staging | 302 → Access | 302 → Access | 200 `{"ok":true,"db":true}` |
 | preview alias | 302 → Access | — | 302 → Access |
 
+The preview row is kept as the record of a test that was run, not as a live
+environment; §4 removed it.
+
 All challenges redirect to `conselit.cloudflareaccess.com`. Two things this
 settles that the documentation does not state: **a path-scoped public-hostname
 destination does take precedence over a whole-Worker Access app on a
 `workers.dev` hostname**, and **the `*-cockpit-preview` wildcard covers aliases
 created after Access was enabled** (tested by uploading a fresh alias and
-confirming it was challenged).
+confirming it was challenged). The second is what made previews free to gate, and
+"Gating a branch Worker costs what previews did not" is where its absence lands
+for anything that is not a preview URL.
 
 ### The cost of gating production, stated plainly
 
@@ -418,9 +600,9 @@ Recorded rather than fixed, both deliberately:
    somehow reaches it without passing Access is still rejected. Deferred because it
    means three per-environment `aud` tags, JWKS fetching, RS256 verification, and a
    local-dev bypass — throwaway code that §8.1's session handling replaces. The
-   practical bypass surface is currently small (the `*-cockpit-preview` wildcard
-   covers versioned preview URLs, and no service bindings or extra routes exist),
-   and production holds `seed.sql` fixtures rather than real mail.
+   practical bypass surface is currently small - two Workers, no service bindings,
+   no extra routes, and nothing deployed per branch since §4 - and production
+   holds `seed.sql` fixtures rather than real mail.
 
    **The trigger to close this is the first connector landing.** Real Gmail or
    Slack content in the production database changes the calculation, and that is
@@ -440,17 +622,17 @@ Recorded rather than fixed, both deliberately:
 
 ### A constraint to know before auth lands
 
-**Preview URLs cannot run on a custom domain, only `workers.dev`.** So when a
-custom domain is attached to production and staging, previews stay on
-`workers.dev` permanently.
+**This used to be a problem and §4 dissolved it.** Preview URLs cannot run on a
+custom domain, only `workers.dev`, so per-branch hostnames would have stayed on
+`workers.dev` permanently - and **Google requires exact redirect URIs with no
+wildcards**, which per-branch hostnames cannot each be registered for. Two
+answers were on the table, both unpleasant: a fixed redirect endpoint bouncing to
+the originating preview via signed state, or a stubbed development session on
+previews only, which must never be a code path that can exist in production.
 
-That matters for §8.1's Google sign-in, because **Google requires exact redirect
-URIs with no wildcards**, and per-branch preview hostnames cannot each be
-registered. This is unsolved and deliberately so, since auth is not built yet.
-The two candidate answers when it is: a single fixed redirect endpoint that
-bounces to the originating preview via signed state, or a stubbed development
-session on previews only. Whichever is chosen, it must not be a code path that
-can exist in production.
+With no per-branch hostnames there is nothing to register beyond production and
+staging, whose URLs are fixed. Worth knowing if branch environments ever come
+back on a custom domain: this cost comes back with them.
 
 ## 7. Bootstrap runbook
 
@@ -459,11 +641,14 @@ can exist in production.
 can be redone on a new account or rebuilt from scratch, not as pending work.
 Everything after this is automatic via `.github/workflows/`.
 
+`wrangler` below is the workspace's own (`apps/api`'s devDependency), so either
+put `pnpm --filter @cockpit/api exec` in front of each line or run them where a
+global one is installed.
+
 ```bash
-# 1. three databases
+# 1. two databases
 wrangler d1 create cockpit
 wrangler d1 create cockpit-staging
-wrangler d1 create cockpit-preview
 # put the returned ids into apps/api/wrangler.jsonc (they are not secrets)
 
 # 2. schema and bootstrap data, per environment
@@ -471,32 +656,43 @@ pnpm build                                  # assets must exist before deploy
 cd apps/api
 wrangler d1 migrations apply cockpit          --remote --env=""
 wrangler d1 migrations apply cockpit-staging  --remote --env staging
-wrangler d1 migrations apply cockpit-preview  --remote --env preview
 wrangler d1 execute cockpit         --remote --yes --env=""      --file=./seed.sql
 wrangler d1 execute cockpit-staging --remote --yes --env staging --file=./seed.sql
-wrangler d1 execute cockpit-preview --remote --yes --env preview --file=./seed.sql
 
-# 3. the three Workers. The preview Worker is deployed once so that it exists
-#    with an active deployment; thereafter CI only ever uploads versions to it.
+# 3. the two Workers.
 wrangler deploy --env=""
 wrangler deploy --env staging
-wrangler deploy --env preview
 ```
 
+**This was executed when there were three of each.** The preview database and
+Worker were removed with §4; if you are rebuilding from scratch, there were never
+two of anything you now need.
+
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy
-workflow: `seed.sql` creates the single tenant and the three workspaces, which
-the application currently has no onboarding flow to create. When onboarding
-exists, this step goes away. The staging and preview seeds are re-run by CI for
-previews only; **staging is deliberately never re-seeded**, because accumulated
-old data is the entire point of it.
+workflow: `seed.sql` puts the single account in the register, which the
+application currently has no onboarding flow to create. When onboarding exists,
+this step goes away. **Staging is deliberately never re-seeded**, because
+accumulated old data is the entire point of it.
+
+**There is no seed step for an account's own data, and there cannot be.** Its
+workspaces, items and associations live in a Durable Object that is created by
+the first request that opens it, and `wrangler d1 execute` speaks only to D1. So
+the three workspaces an account starts with are its first change instead
+(`apps/api/src/accounts/changes.ts`), applied once, inside whichever request
+opens the account first. That is the same temporary bootstrap the paragraph
+above describes, in the only place that can now hold it, and it goes the same
+way when onboarding lands.
 
 Then, by hand (no API, or deliberately not automated):
 
-1. **Cloudflare Access** on all three Workers, production included, plus a
+1. **Cloudflare Access** on both Workers, production included, plus a
    **Bypass policy scoped to `/health`** so the deploy checks and the §9.2 uptime
-   monitor can still reach it. Dashboard only. Enabling it on any one preview URL
-   creates a single account-level policy covering every preview, including
-   branches that do not exist yet. Set a long session duration; see §6 for why.
+   monitor can still reach it. Dashboard only, one per Worker. Set a long session
+   duration; see §6 for why. (There used to be a third, and it came free: a
+   single account-level policy covering every preview URL, including branches
+   that did not exist yet. It went with the previews - and its absence is why
+   nothing cheap replaced them, per "Gating a branch Worker costs what previews
+   did not".)
 2. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
    Settings: Read), stored as the `CLOUDFLARE_API_TOKEN` GitHub secret.
 3. **Branch protection** on `main`. The payload lives in
@@ -653,25 +849,28 @@ than to any mail provider, so it survives changing employer or email.
   waits — the browser tier runs as its own `E2E (F3)` job on every pull request
   and on `main`, against its own isolated local stack, never the `pnpm dev`
   pair.
-- **F3 against a deployed preview.** The suite already takes `E2E_BASE_URL` and
-  the `CF-Access-Client-*` header pair, so pointing it at a branch's preview is
+- **F3 against a deployed environment.** The suite already takes `E2E_BASE_URL`
+  and the `CF-Access-Client-*` header pair, so pointing it at one is
   configuration rather than code. What is missing is the credential: Access
   fronts every deployment (secrets and access, §6) and no **service token**
-  exists yet, so an
-  unauthenticated run would test the login page. Creating one (Zero Trust →
-  Access → Service Auth, then a policy on the preview application that accepts
-  it) is owner work, and the preview-deploy job that uses it lands with it.
-  Until then the local pair is the only thing F3 drives, which leaves the
-  service worker, the built bundle and the Worker's own asset routing proven by
-  nothing but a manual look.
+  exists yet, so an unauthenticated run would test the login page. Creating one
+  (Zero Trust → Access → Service Auth, then a policy that accepts it) is owner
+  work. This used to name a branch's preview; §4 removed those, so the only
+  candidate now is staging, which is a different proposition - it accumulates
+  state on purpose, and a suite that asserts what is on screen would be running
+  against whatever is there. Until then the local pair is the only thing F3
+  drives, which leaves the service worker, the built bundle and the Worker's own
+  asset routing proven by nothing but a manual look.
 - **Bundle-size gate** (§7): the budget needs recording as a number before it
   can be enforced as one.
 - **Sentry, the connector watchdog, and the external uptime check** (§9.2): they
   land with the code they observe. `/health` already reports D1 connectivity and
   the production deploy asserts it.
-- **Preview alias cleanup.** Aliases for deleted branches persist. Harmless
-  (each serves an old version of a public showcase app behind Access) and there
-  is no reaping command worth wiring today.
+- **~~Preview alias cleanup.~~** Gone with the previews (§4): there are no
+  aliases left to reap, and `scripts/branch-alias.sh`, which derived them, is
+  deleted. What remains is a one-time tidy rather than a standing task - the
+  `cockpit-preview` Worker and database still exist on Cloudflare, and
+  "Removing the infrastructure" in §4 has the two commands.
 ## 9. Diagnosing a broken environment
 
 The other sections are procedures for when you already know what is wrong. This

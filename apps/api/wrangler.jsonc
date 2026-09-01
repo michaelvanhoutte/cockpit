@@ -2,9 +2,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   // One Worker serves the whole application: the Hono API, SSE, the queue
   // consumers, the cron triggers, AND the built SPA as static assets
-  // (architecture §9). Hence "cockpit", not "cockpit-api".
+  // (architecture, "Hosting, CI/CD, and observability"). Hence "cockpit", not
+  // "cockpit-api".
   "name": "cockpit",
-  "main": "src/index.ts",
+  "main": "src/worker.ts",
   "compatibility_date": "2026-08-01",
 
   // Static assets (apps/web/dist) are served *before* the Worker runs, so a
@@ -15,10 +16,10 @@
   // keep the two lists in sync.
   //
   // `assets` and `observability` are *inheritable* config keys, so the staging
-  // and preview environments below get them for free. `d1_databases` (and
-  // `vars`, `queues`, `secrets`) are NOT inheritable and must be repeated per
-  // environment — that is deliberate on Cloudflare's part and it is also the
-  // mechanism that keeps previews off the production database (see docs/deployment.md).
+  // environment below gets them for free. `d1_databases` (and `vars`, `queues`,
+  // `secrets`, `durable_objects`) are NOT inheritable and must be repeated per
+  // environment — that is deliberate on Cloudflare's part, and it is the
+  // mechanism that keeps staging off the production database (see docs/deployment.md).
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
@@ -32,10 +33,43 @@
     }
   },
 
-  // Production exposes no per-version preview URLs; only the preview
-  // environment does. Inheritable, so staging re-disables it explicitly below
-  // for the avoidance of doubt.
+  // No per-version preview URLs on either environment. Nothing here would get
+  // them anyway - Cloudflare withholds them from a Worker that implements a
+  // Durable Object, which is what took the preview environment with it
+  // (docs/deployment.md, "No branch environments"). This stays off explicitly
+  // so that is a decision rather than a platform default nobody chose, and
+  // staging repeats it below for the same reason, inheritable or not.
   "preview_urls": false,
+
+  // One Durable Object per account, holding that account's workspaces, items,
+  // associations and change log (docs/account-storage-options.md). The binding
+  // names a *namespace*, never one account: an account is reached by name at
+  // runtime, created on first touch, and appears in no configuration - which is
+  // why provisioning one needs no deploy and nothing here can drift out of step
+  // with live infrastructure.
+  //
+  // `durable_objects` is NOT inheritable, so it is repeated per environment
+  // below, for the same reason `d1_databases` is. `migrations` IS inheritable
+  // and is therefore declared once, at the top level.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ACCOUNT",
+        "class_name": "AccountStore"
+      }
+    ]
+  },
+
+  // SQLite-backed, which is what gives an account real transactions rather than
+  // D1's batch-only model. `new_sqlite_classes` is the only correct choice for
+  // a class that has never been deployed; a class already live as key-value
+  // storage cannot be converted.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AccountStore"]
+    }
+  ],
 
   "d1_databases": [
     {
@@ -49,10 +83,18 @@
   "env": {
     // Staging: the only environment besides production where cron triggers and
     // queue consumers actually run, against a database that accumulates state.
-    // That is the whole reason it exists (docs/deployment.md §1).
+    // That is the whole reason it exists (the branch model in docs/deployment.md).
     "staging": {
       "name": "cockpit-staging",
       "preview_urls": false,
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "ACCOUNT",
+            "class_name": "AccountStore"
+          }
+        ]
+      },
       "d1_databases": [
         {
           "binding": "DB",
@@ -61,30 +103,11 @@
           "migrations_dir": "migrations"
         }
       ]
-    },
-
-    // Preview: one Worker, one version per branch, addressed by preview alias.
-    // All branches share this single database; it is re-migrated and re-seeded
-    // on every preview deploy. Isolated-per-branch databases were considered
-    // and rejected for now (docs/deployment.md §4).
-    //
-    // No cron triggers are declared here, and none would fire anyway: triggers
-    // attach to a Worker's active deployment, not to uploaded versions.
-    "preview": {
-      "name": "cockpit-preview",
-      "preview_urls": true,
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "cockpit-preview",
-          "database_id": "fdd3ac00-312b-4914-872e-71972c100088",
-          "migrations_dir": "migrations"
-        }
-      ]
     }
   }
 
-  // Queues and Cron Triggers (§6.3) are wired when the first connector and
+  // Queues and Cron Triggers (architecture, "Background jobs") are wired when
+  // the first connector and
   // enrichment job land. Note when they are: `triggers` is inheritable (so a
   // cron schedule set at the top level would silently also apply to staging,
   // which is what we want) but `queues` is NOT, so each environment needs its
