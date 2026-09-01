@@ -172,7 +172,7 @@ Skills trigger themselves from their descriptions, so nobody has to remember to 
 | `pnpm dev` | Migrates, seeds, builds `dist` if it has never been built, then runs both halves. One command, deliberately: see [Run it](#run-it). |
 | `pnpm branches:tidy` | Reaps the local branches and worktree metadata that squash-merging leaves behind: see [Tidying up branches](#tidying-up-branches). |
 | `pnpm typecheck`, `pnpm test`, `pnpm build` | The same three gates CI runs, so a red pipeline is reproducible locally. |
-| `scripts/health-check.sh` | The post-deploy assertion against `/health`, which is Bypass-policied out of Cloudflare Access so it tests the app rather than a login page. |
+| `scripts/health-check.mjs` | The post-deploy assertion against `/health`, which is Bypass-policied out of Cloudflare Access so it tests the app rather than a login page. It asks until the deployment says it is well or a minute is up, because the first request after a deploy is the one that brings an account store up to date. |
 | [.vscode/launch.json](.vscode/launch.json) | Debug the SPA in Chrome, attach to the Worker's inspector on `:9229`, or both at once. |
 
 **There are no git hooks in this repository, on purpose.** Nothing installs a `pre-commit` or `pre-push` hook and there is no husky/lefthook dependency. The gate is CI: it cannot be skipped with `--no-verify`, and it runs on the machine that decides. When you want to be interrupted locally is a personal preference, so it belongs in the machine-local list below.

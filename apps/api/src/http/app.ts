@@ -67,7 +67,7 @@ app.onError((err, c) => {
 
 /**
  * `ok` stays the single verdict, because it is the only field anything reads:
- * scripts/health-check.sh greps for it, scripts/lib/stack.mjs waits on it before
+ * scripts/health-check.mjs asserts it, scripts/lib/stack.mjs waits on it before
  * starting the e2e suite, and apps/web/src/api/loadFailure.ts asks this endpoint
  * whether a failed request means "sign in again" or "the deployment is unwell".
  * The two below say which half was unwell, for whoever reads the answer by hand.

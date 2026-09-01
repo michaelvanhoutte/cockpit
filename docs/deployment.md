@@ -506,6 +506,18 @@ endpoint must not open somebody's data to decide whether a deploy was safe, and
 this one structurally cannot: it never goes through `openAccount`, which is the
 only thing that resolves a registered account.
 
+**The first request after a deploy is the one that does the work**, because that
+is when the store applies whatever changes are outstanding — so `/health` can
+legitimately answer `store: false` for a moment and be well immediately after.
+Observed on the deploy of a762ff1: unwell ten seconds after the deploy, healthy
+on every ask afterwards. The post-deploy check therefore asks until the
+deployment says it is well or a minute is up, and reports how many attempts it
+took; a redirect or a login page is not waited on at all, since no amount of
+asking again puts a Bypass policy back. Whether that first-touch failure is a
+race or something to fix in the application is not yet settled — the attempt
+count in the deploy log is the evidence, and the reason itself is in the Worker's
+logs.
+
 The recipe, which is fiddly enough to be worth writing down exactly:
 
 **One** Access application (Zero Trust → Access → Applications → self-hosted)
@@ -537,8 +549,9 @@ Three traps, each of which cost a wrong turn:
 
 There is no third environment to do this for; §4.
 
-`scripts/health-check.sh` detects the gated case and names this fix, rather than
-failing with an unexplained parse error on an HTML login page.
+`scripts/health-check.mjs` detects the gated case and names this fix, rather than
+failing with an unexplained parse error on an HTML login page — and it refuses to
+wait on that one, since no amount of asking again puts a Bypass policy back.
 
 **Verified 2026-08-13**, from outside, unauthenticated:
 
