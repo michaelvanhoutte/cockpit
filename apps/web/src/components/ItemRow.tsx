@@ -36,24 +36,31 @@ export function ItemRow({ item, workspaceId }: { item: Item; workspaceId: string
     command.mutate({ name: 'set_focus', payload: { ...envelope(), horizon: 'today' } });
 
   return (
-    <li className="flex items-center gap-3 border-b border-black/5 px-4 py-2.5 last:border-b-0 hover:bg-accent-tint/40">
+    <li className="flex items-center gap-2 border-b border-black/5 px-4 py-2.5 last:border-b-0 hover:bg-accent-tint/40">
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm">{item.nextAction ?? item.title}</span>
-        <span className="block truncate text-xs text-ink-faint">
-          {item.source === 'internal' ? 'Own' : item.source}
-          {item.sender ? ` · ${item.sender}` : ''}
-          {item.snoozedUntil ? ` · until ${item.snoozedUntil.slice(0, 10)}` : ''}
+        {/* Where it came from and what it is now, on one line under the title.
+            The status used to be a pill of its own out to the right, which is
+            about seventy pixels a row cannot spare once the Inbox is a column
+            a fifth of the screen wide ("Show the Inbox beside the dashboards
+            instead of as a tab", issue 117). Its own element, still, so it is
+            a thing on the row rather than part of a sentence. */}
+        <span className="flex min-w-0 gap-1 text-xs text-ink-faint">
+          <span className="shrink-0 text-accent-deep">{STATUS_LABEL[item.status]}</span>
+          <span className="truncate">
+            {'· '}
+            {item.source === 'internal' ? 'Own' : item.source}
+            {item.sender ? ` · ${item.sender}` : ''}
+            {item.snoozedUntil ? ` · until ${item.snoozedUntil.slice(0, 10)}` : ''}
+          </span>
         </span>
       </span>
 
       {item.focusHorizon && (
-        <span className="rounded bg-accent-deep px-1.5 text-xs font-semibold uppercase text-white">
+        <span className="shrink-0 rounded bg-accent-deep px-1.5 text-xs font-semibold uppercase text-white">
           {item.focusHorizon[0]}
         </span>
       )}
-      <span className="rounded-full bg-accent-tint px-2 py-0.5 text-xs text-accent-deep">
-        {STATUS_LABEL[item.status]}
-      </span>
 
       <DropdownMenu.Root>
         <MenuTrigger label="Item actions" />

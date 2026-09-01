@@ -5,15 +5,17 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { uuidv7, type Dashboard } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand } from '../api/queries';
+import { useRoomForTheInbox } from '../roomForTheInbox';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
 /**
- * The bar under the workspace tabs: the workspace's Inbox, its dashboards, and
- * a `+` that adds one ("Add and switch dashboards", issue 32).
+ * The bar under the workspace tabs: the workspace's dashboards, a `+` that adds
+ * one ("Add and switch dashboards", issue 32), and - on a screen too narrow for
+ * the Inbox to sit beside them - the Inbox pinned at the left.
  *
- * **The Inbox is pinned at the left and is not a dashboard.** It is always
- * there, it cannot be renamed, deleted or moved, and it is not a row of the
- * dashboards table at all - so nothing can address it to change it.
+ * **The Inbox is never a dashboard**, wherever it appears. It is always there,
+ * it cannot be renamed, deleted or moved, and it is not a row of the dashboards
+ * table at all - so nothing can address it to change it.
  *
  * The dashboards come from the workspace's snapshot, which the page below is
  * reading anyway (architecture, "The read model: persisted snapshot,
@@ -23,19 +25,27 @@ import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 export function DashboardBar({ workspaceId }: { workspaceId: string }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
   const dashboards = data?.dashboards ?? [];
+  const roomForTheInbox = useRoomForTheInbox();
 
   return (
     <nav
       aria-label="Dashboards"
       className="flex w-full items-center gap-1 overflow-x-auto border-t border-black/5 px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      <Link
-        to="/w/$workspaceId/inbox"
-        params={{ workspaceId }}
-        className="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-sm text-ink-soft hover:bg-accent-tint [&.active]:bg-accent-tint [&.active]:font-medium [&.active]:text-accent-deep"
-      >
-        Inbox
-      </Link>
+      {/* Only where the Inbox is not already on screen. Where there is room it
+          is a column beside the dashboards rather than one of them ("Show the
+          Inbox beside the dashboards instead of as a tab", issue 117), and a
+          tab that switched to something already in front of you is not a
+          switch. */}
+      {!roomForTheInbox && (
+        <Link
+          to="/w/$workspaceId/inbox"
+          params={{ workspaceId }}
+          className="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-sm text-ink-soft hover:bg-accent-tint [&.active]:bg-accent-tint [&.active]:font-medium [&.active]:text-accent-deep"
+        >
+          Inbox
+        </Link>
+      )}
       {dashboards.map((dashboard: Dashboard) => (
         <Link
           key={dashboard.id}

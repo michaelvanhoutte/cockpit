@@ -56,10 +56,15 @@ test.describe('Dashboards', () => {
       await expect(page.getByText('Nothing on this dashboard yet. Panels are what go here.')).toBeVisible();
       await expectNoSidewaysScroll(page);
 
-      // The Inbox is pinned in the same bar, and switching to it is a switch
-      // like any other.
+      // The Inbox is on screen either way, which is what says the bar holds
+      // dashboards and the Inbox is not one of them: a tab in the same bar
+      // where there is no room beside, and already there where there is
+      // ("Show the Inbox beside the dashboards instead of as a tab", issue
+      // 117). Which of the two, and that they fit, is tests/e2e/inbox.test.ts.
       const address = page.url();
-      await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      if (isMobile) {
+        await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      }
       await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
 
       // Reachable by its own address, which is what makes a dashboard something

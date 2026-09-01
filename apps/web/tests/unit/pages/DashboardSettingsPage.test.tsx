@@ -104,7 +104,7 @@ describe('Dashboards', () => {
 
       expect(await screen.findByText('Research')).toBeVisible();
       expect(screen.getByText('Dashboard 1')).toBeVisible();
-      // The Inbox is in the bar, not in this list: it is not a dashboard, so
+      // The Inbox is beside this page, not in this list: it is not a dashboard, so
       // there is nothing here to rename or delete.
       expect(screen.queryByText('Inbox')).toBeNull();
       expect(screen.queryByRole('button', { name: 'Actions for Inbox' })).toBeNull();

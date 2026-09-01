@@ -6,8 +6,8 @@ import { foldName, namedTheSame } from './names.js';
  * Workers": domain imports nothing from the other layers).
  *
  * A dashboard is a named view inside one workspace ("Add and switch
- * dashboards", issue 32). The Inbox is not one of these: it is a fixed entry in
- * the bar rather than a row, so nothing here can name it, and nothing here has
+ * dashboards", issue 32). The Inbox is not one of these: it is a fixture of the
+ * screen rather than a row, so nothing here can name it, and nothing here has
  * to keep it first.
  */
 

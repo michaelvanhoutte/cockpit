@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-router';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { INBOX, browserStore, rememberView, rememberedIn, viewToOpen } from './lastVisited';
+import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
 import { DashboardPage } from './pages/DashboardPage';
 import { DashboardSettingsPage } from './pages/DashboardSettingsPage';
@@ -89,7 +90,11 @@ export const workspaceRoute = createRoute({
   beforeLoad: async ({ context, params }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
     const { dashboards } = await dashboardsOf(context.queryClient, params.workspaceId);
-    const view = viewToOpen(rememberedIn(browserStore(), params.workspaceId), dashboards);
+    const view = viewToOpen(
+      rememberedIn(browserStore(), params.workspaceId),
+      dashboards,
+      roomForTheInbox(),
+    );
     throw view.on === 'inbox'
       ? redirect({ to: '/w/$workspaceId/inbox', params: { workspaceId: params.workspaceId } })
       : redirect({
@@ -100,9 +105,11 @@ export const workspaceRoute = createRoute({
 });
 
 /**
- * The workspace's Inbox: pinned, always there, and not a dashboard. It has an
- * address of its own so that switching to it is a switch like any other, and so
- * that being on it is what gets remembered.
+ * The workspace's Inbox as a screen of its own: what the tab in the bar opens
+ * on a screen too narrow to hold the Inbox beside the dashboards. It keeps its
+ * own address whatever the width, so a link made on a phone is never a dead
+ * end on a desktop - where the page answers it by going to the workspace,
+ * because the Inbox is already on the screen there (pages/WorkspacePage.tsx).
  */
 export const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -112,7 +119,13 @@ export const inboxRoute = createRoute({
     // Not on a preload. `defaultPreload: 'intent'` runs this on hover, and
     // remembering a view nobody went to would mean brushing past a tab decides
     // where the workspace opens next time.
-    if (!preload) rememberView(browserStore(), params.workspaceId, INBOX);
+    //
+    // Nor where the Inbox has a column of its own: this address does not stay
+    // on screen there, and remembering a view you were sent straight off is
+    // remembering somewhere you never were.
+    if (!preload && !roomForTheInbox()) {
+      rememberView(browserStore(), params.workspaceId, INBOX);
+    }
   },
   component: WorkspacePage,
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
@@ -86,6 +86,22 @@ class NoStream {
   close() {}
 }
 
+/**
+ * A screen wide enough to hold the Inbox beside the dashboards. jsdom answers
+ * every media query with "no" - which is the narrow shape, and so is what every
+ * other case here gets - so the wide ones say so out loud.
+ */
+function withRoomForTheInbox() {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: true,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
+}
+
+/** The Inbox as the column it is where there is room for one. */
+const inboxColumn = () => screen.queryByRole('complementary', { name: 'Inbox' });
+
 beforeEach(() => {
   vi.stubGlobal('EventSource', NoStream);
   // Which view a workspace opens on is remembered in the browser, so each case
@@ -125,6 +141,67 @@ describe('Workspace management', () => {
       // only content is a link to it.
       expect(await screen.findByLabelText('Name of the new workspace')).toBeVisible();
       expect(screen.getByText('No workspaces yet. Make your first one below.')).toBeVisible();
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('a workspace always shows its Inbox, beside the dashboards or instead of them', () => {
+    it.each([
+      { situation: 'on a dashboard', at: '/w/ws-work/d/ws-work-research' },
+      { situation: 'on the page its dashboards are managed from', at: '/w/ws-work/settings/dashboards' },
+    ])('$situation, it is the column beside it', async ({ at }) => {
+      withRoomForTheInbox();
+
+      await open(at, [work, personal]);
+
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      // The Inbox itself, not merely a column: capture is its first row
+      // wherever it is rendered. Waited for, because the column paints before
+      // the snapshot behind it has arrived.
+      expect(await screen.findByLabelText('Capture a note or to-do')).toBeVisible();
+      expect(inboxColumn()).toBeVisible();
+      // And it is no longer one of the views to switch between, because it is
+      // not something you switch to any more.
+      expect(screen.queryByRole('link', { name: 'Inbox' })).toBeNull();
+    });
+
+    it('is not there on the page reached without a workspace', async () => {
+      // The workspaces settings page is where the first workspace is made, so
+      // there is no workspace to have an Inbox.
+      withRoomForTheInbox();
+
+      await open('/settings/workspaces', [work, personal]);
+
+      expect(await screen.findByLabelText('Name of the new workspace')).toBeVisible();
+      expect(inboxColumn()).toBeNull();
+    });
+
+    it('is a view of its own where there is no room to put it beside', async () => {
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+
+      const bar = await screen.findByRole('navigation', { name: 'Dashboards' });
+      expect(inboxColumn()).toBeNull();
+      expect(within(bar).getByRole('link', { name: 'Inbox' })).toBeVisible();
+    });
+
+    it('answers its own address with a dashboard where it is already on screen', async () => {
+      // The address stays good - a link made on a phone, or a workspace that
+      // remembered the Inbox - and rendering it here as well would show the
+      // Inbox twice.
+      withRoomForTheInbox();
+
+      await open('/w/ws-work/inbox', [work, personal]);
+
+      expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      expect(inboxColumn()).toBeVisible();
+    });
+
+    it('answers its own address with the Inbox where there is no room beside', async () => {
+      await open('/w/ws-work/inbox', [work, personal]);
+
+      expect(await screen.findByRole('region', { name: 'Inbox' })).toBeVisible();
+      expect(inboxColumn()).toBeNull();
     });
   });
 });
@@ -221,6 +298,18 @@ describe('Dashboards', () => {
           <RouterProvider router={createAppRouter(queryClient)} />
         </QueryClientProvider>,
       );
+
+      expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+    });
+
+    it('opens the first dashboard, not the Inbox, when the Inbox is beside it anyway', async () => {
+      // A remembered Inbox is not a view to return to where the Inbox has a
+      // column of its own: returning to it would land you on a workspace
+      // showing the same thing twice.
+      await havingBeenOn('/w/ws-work/inbox');
+      withRoomForTheInbox();
+
+      await open('/w/ws-work', [work, personal]);
 
       expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
     });

@@ -122,9 +122,14 @@ describe('Dashboards', () => {
       // every link straight away finds the Inbox alone and passes.
       await screen.findByRole('link', { name: 'Research' });
       const entries = screen.getAllByRole('link');
-      // The Inbox first because it is pinned, then the dashboards in the order
-      // the workspace holds them. The way to manage them is a menu rather than
-      // a fourth entry, and is covered by the rule below.
+      // The Inbox first, then the dashboards in the order the workspace holds
+      // them. jsdom answers every media query with "no", so this is the narrow
+      // shape, where the Inbox is a tab in the bar rather than a column beside
+      // it ("Show the Inbox beside the dashboards instead of as a tab", issue
+      // 117); which shape a screen gets is in tests/unit/router.test.tsx.
+      //
+      // The way to manage them is a menu rather than a fourth entry, and is
+      // covered by the rule below.
       expect(entries.map((entry) => entry.textContent)).toEqual([
         'Inbox',
         'Dashboard 1',
@@ -136,7 +141,7 @@ describe('Dashboards', () => {
     it('shows the Inbox even in a workspace with no dashboards', () => {
       showBar([]);
 
-      // It is pinned, not a row of anything: nothing can take it away.
+      // It is a fixture, not a row of anything: nothing can take it away.
       expect(screen.getByRole('link', { name: 'Inbox' })).toBeVisible();
     });
   });
