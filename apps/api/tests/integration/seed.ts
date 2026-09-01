@@ -26,7 +26,7 @@ export async function seedRegister(): Promise<void> {
 }
 
 function accountStore() {
-  return env.ACCOUNT.get(env.ACCOUNT.idFromName(ACCOUNT_NAME));
+  return storeNamed(ACCOUNT_NAME);
 }
 
 /**
@@ -39,11 +39,11 @@ function accountStore() {
  * would then serve the next case over tables that are no longer there.
  */
 export async function startFromEmpty(): Promise<void> {
-  await runInDurableObject(accountStore(), (_instance, state) => state.storage.deleteAll());
-  // The store /health practises on is emptied for the same reason and by the
-  // same argument: it is a second store that outlives a case, and one case
-  // deliberately breaks it.
-  await runInDurableObject(storeNamed(PROBE_NAME), (_instance, state) => state.storage.deleteAll());
+  // The account's store, and the one /health practises on: both outlive a case,
+  // and there is a case that deliberately breaks each of them.
+  for (const name of [ACCOUNT_NAME, PROBE_NAME]) {
+    await runInDurableObject(storeNamed(name), (_instance, state) => state.storage.deleteAll());
+  }
   await abortAllDurableObjects();
   await env.DB.prepare('DELETE FROM tenants').run();
 }
@@ -80,5 +80,5 @@ export async function inTheStore<T>(work: (sql: SqlStorage) => T): Promise<T> {
  * arrange storage before the first change has run.
  */
 export async function inTheStoreAsItIs<T>(work: (sql: SqlStorage) => T): Promise<T> {
-  return runInDurableObject(accountStore(), (_instance, state) => work(state.storage.sql));
+  return inStoreAsItIs(ACCOUNT_NAME, work);
 }
