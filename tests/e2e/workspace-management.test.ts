@@ -39,7 +39,7 @@ test.describe('Workspace management', () => {
       page,
       isMobile,
     }) => {
-      await openFirstWorkspace(page);
+      await openFirstWorkspace(page, isMobile);
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Workspaces' }), isMobile);
@@ -70,7 +70,7 @@ test.describe('Workspace management', () => {
     test('changes the name in the tabs, from the settings page', async ({ page, isMobile }) => {
       const before = uniqueTitle('Bookkeeping');
       const after = uniqueTitle('Accounts');
-      await openFirstWorkspace(page);
+      await openFirstWorkspace(page, isMobile);
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(before);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
@@ -96,7 +96,7 @@ test.describe('Workspace management', () => {
       // browser. Everything below it - which three colours a theme is, what the
       // picker asks for, what the server stores - is settled at its own level.
       const mine = uniqueTitle('Repainted');
-      await openFirstWorkspace(page);
+      await openFirstWorkspace(page, isMobile);
       const firstGround = await groundOf(page);
 
       await openSettings(page, isMobile);
@@ -114,13 +114,21 @@ test.describe('Workspace management', () => {
       await expect(dashboardBar(page)).toBeVisible();
 
       // Repainted, without a reload anywhere in the walk.
-      const olive = await groundOf(page);
-      expect(olive).toBe('rgb(230, 235, 214)');
+      //
+      // Polled rather than read once, and the difference is not cosmetic. Every
+      // other assertion in this walk is an `expect(locator)`, which retries;
+      // this one reads a computed style out of the page in a single
+      // `page.evaluate` and would have to be right on the first try. What it is
+      // waiting for is the workspace list being re-read after the colour was
+      // accepted, so the window is however long that round trip takes - 12ms on
+      // one run and 184ms on the next, and the slow one failed on a phone in CI
+      // while the same commit passed on the desktop project beside it.
+      await expect.poll(() => groundOf(page)).toBe('rgb(230, 235, 214)');
 
-      // And switching away takes the colour with it.
+      // And switching away takes the colour with it. Polled for the same reason.
       await press(page.locator('header').getByRole('link', { name: 'Work' }), isMobile);
       await expect(dashboardBar(page)).toBeVisible();
-      expect(await groundOf(page)).toBe(firstGround);
+      await expect.poll(() => groundOf(page)).toBe(firstGround);
     });
   });
 
@@ -130,7 +138,7 @@ test.describe('Workspace management', () => {
       isMobile,
     }) => {
       const name = uniqueTitle('Doomed');
-      await openFirstWorkspace(page);
+      await openFirstWorkspace(page, isMobile);
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(name);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);

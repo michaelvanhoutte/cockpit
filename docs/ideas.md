@@ -61,9 +61,9 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 
 ## 7. Platform, users and operations
 
-- **Multiple users, staged.** Start without authentication: the logon page simply shows a list of users to choose from and you log on by clicking a name, no password at all. Add OAuth and password support afterwards.
-- **Admin section for user management.** As soon as there are multiple users, an admin section (its own pages) to manage every user on the system: delete a user, reset a password, and the rest of the day-to-day user administration.
-- **Roles from the start.** Introduce a role concept (e.g. *User* vs *Admin*) together with multiple-user support, so the role logic is part of the code from the beginning instead of being retrofitted later.
+- ~~**Multiple users, staged.** Start without authentication: the logon page simply shows a list of users to choose from and you log on by clicking a name, no password at all. Add OAuth and password support afterwards.~~ *(Taken up by "Sign in by picking a name, each user in their own account" (issue 86): the logon page, a real session behind it, and each user in an account of their own. What is left of the idea is its second half - OAuth and password support - which is "App login" in [architecture.md](architecture.md) and the trigger for reconsidering Cloudflare Access. The two entries below it are still open.)*
+- **Admin section for user management.** As soon as there are multiple users, an admin section (its own pages) to manage every user on the system: delete a user, reset a password, and the rest of the day-to-day user administration. *(Still open, and now the nearest thing to due: there are multiple users, and adding one is a hand-written row in the register.)*
+- ~~**Roles from the start.** Introduce a role concept (e.g. *User* vs *Admin*) together with multiple-user support, so the role logic is part of the code from the beginning instead of being retrofitted later.~~ *(Done, in the sense the idea asked for: every user carries a role of `user` or `admin` as of issue 86. Nothing enforces it, because there is no admin-only page yet - the admin section above is what brings the first gate and the first test of it.)*
 - **Multi-tenancy.**
 - **Audit trail.**
 - **Backup.**

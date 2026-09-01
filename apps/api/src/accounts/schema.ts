@@ -25,7 +25,9 @@ import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from
  *
  * Schema conventions (architecture, "Schema conventions"), binding from the
  * first change:
- * - tenant_id on every row, non-null, even while there is exactly one account;
+ * - tenant_id on every row, non-null - redundant now that a store *is* an
+ *   account, and exactly what makes a mis-routed request match no row instead
+ *   of somebody else's;
  * - client-generated IDs (UUIDv7) as text primary keys;
  * - tombstones, not deletes (deleted_at / source_resolved_at);
  * - source-owned vs app-owned columns are separate groups on items:

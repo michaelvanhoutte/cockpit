@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
-import { ACCOUNT_NAME, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import { ACCOUNT_NAME, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
  * Integration level, and it could be nothing else: what is under test is the
@@ -57,7 +57,7 @@ beforeAll(async () => {
 describe('Workspace management', () => {
   describe('a workspace survives a column it is not made of being taken away', () => {
     it('comes back as itself, with nothing invented', async () => {
-      const response = await SELF.fetch('http://cockpit.test/v1/workspaces');
+      const response = await asUser('http://cockpit.test/v1/workspaces');
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({

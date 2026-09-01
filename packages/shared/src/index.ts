@@ -4,3 +4,4 @@ export * from './domain/workspace-themes.js';
 export * from './commands.js';
 export * from './api/snapshot.js';
 export * from './api/events.js';
+export * from './api/users.js';

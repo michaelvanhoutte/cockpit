@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import type { Dashboard, Workspace } from '@cockpit/shared';
 import { createAppRouter } from '../../src/router';
-import { fetchSnapshot, fetchWorkspaces } from '../../src/api/client';
+import { NotSignedIn, fetchMe, fetchSnapshot, fetchUsers, fetchWorkspaces } from '../../src/api/client';
 
 /**
  * F1: where the app sends you is a decision the router makes from the list of
@@ -22,10 +22,16 @@ vi.mock('../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/api/client')>()),
   fetchWorkspaces: vi.fn(),
   fetchSnapshot: vi.fn(),
+  fetchMe: vi.fn(),
+  fetchUsers: vi.fn(),
 }));
 
 const readsWorkspaces = vi.mocked(fetchWorkspaces);
 const readsSnapshot = vi.mocked(fetchSnapshot);
+const readsWhoIAm = vi.mocked(fetchMe);
+const readsUsers = vi.mocked(fetchUsers);
+
+const SIGNED_IN = { user: { id: 'user-michael', name: 'Michael' } };
 
 const work: Workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' };
 const personal: Workspace = { id: 'ws-personal', tenantId: 'tenant', name: 'Personal', color: '#c06a45', ground: '#f2e5d4', header: '#ead2b3' };
@@ -88,6 +94,10 @@ class NoStream {
 
 beforeEach(() => {
   vi.stubGlobal('EventSource', NoStream);
+  // Signed in unless a case says otherwise: the shell asks who you are on every
+  // route, and a browser holding no answer would be sent to the logon page.
+  readsWhoIAm.mockResolvedValue(SIGNED_IN);
+  readsUsers.mockResolvedValue([{ id: 'user-michael', name: 'Michael' }]);
   // Which view a workspace opens on is remembered in the browser, so each case
   // starts having remembered nothing.
   window.localStorage.clear();
@@ -233,6 +243,64 @@ describe('Dashboards', () => {
       // Personal was never opened, so it opens on its own first dashboard -
       // not on the Research that Work remembers.
       expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+    });
+  });
+});
+
+describe('Sign-in', () => {
+  describe('opening the app shows your last view before it checks that you are still signed in', () => {
+    /**
+     * F1 because this is about what renders while the check is in flight -
+     * component state, not layout - and because both halves of it need the
+     * check held open or failed on purpose, which no browser can be asked for.
+     *
+     * It gets a rule of its own because this is the first change able to break
+     * the standing never-block-paint rule (architecture, "Performance budgets
+     * and the standing rules"): opening the app on a train has to show your
+     * work, not a spinner over a question nothing can answer.
+     */
+    async function openWithAStoredCopy() {
+      readsWorkspaces.mockResolvedValue({ workspaces: [work] });
+      readsSnapshot.mockResolvedValue({
+        workspace: work,
+        items: [],
+        dashboards: dashboardsOf('ws-work'),
+        associations: [],
+        generatedAt: '2026-08-31T10:00:00.000Z',
+      });
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      window.history.pushState({}, '', '/w/ws-work');
+      render(
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={createAppRouter(queryClient)} />
+        </QueryClientProvider>,
+      );
+    }
+
+    it('paints the view without waiting to hear whether the sign-in is still good', async () => {
+      // Never answers, so anything that waited for it would wait forever.
+      readsWhoIAm.mockImplementation(() => new Promise(() => {}));
+
+      await openWithAStoredCopy();
+
+      expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+    });
+
+    it('paints the view, then puts the logon page over it once the sign-in turns out to be gone', async () => {
+      readsWhoIAm.mockRejectedValue(new NotSignedIn('sign-in failed: 401'));
+
+      await openWithAStoredCopy();
+
+      expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      expect(await screen.findByText('Choose who you are.')).toBeVisible();
+      expect(screen.queryByRole('heading', { name: 'Dashboard 1' })).not.toBeInTheDocument();
+      // A logon page you can actually sign in from. That it lists anybody is
+      // not free: emptying what the browser was holding happens while this
+      // page's own read is in flight, and the browser walk in
+      // tests/e2e/sign-in.test.ts is what caught that going wrong - this level
+      // cannot produce the timing, and is here to say the page is usable at
+      // all rather than to guard that.
+      expect(await screen.findByRole('button', { name: 'Michael' })).toBeVisible();
     });
   });
 });

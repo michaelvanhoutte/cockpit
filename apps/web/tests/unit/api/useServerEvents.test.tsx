@@ -86,6 +86,9 @@ function open() {
   // Layout, which takes no error and would swallow it.
   client.setQueryData(['snapshot', 'ws-work'], { items: [] });
   client.setQueryData(['workspaces'], { workspaces: [] });
+  // And who is signed in, which is what the app shell watches to decide whether
+  // to send the browser to the logon page.
+  client.setQueryData(['me'], { user: { id: 'user-michael', name: 'Michael' } });
   render(
     <QueryClientProvider client={client}>
       <Listening />
@@ -168,7 +171,16 @@ describe('Offline', () => {
 
   describe('losing the connection because the sign-in expired says so instead of going quiet', () => {
     const situations = [
-      { situation: 'Cockpit is healthy, so it is this browser that is refused', why: 'signed-out', reReads: true },
+      { situation: 'Cockpit itself says this browser is not signed in', why: 'signed-out', reReads: true },
+      {
+        // A stopped stream reports no status, so the gate in front of the
+        // deployment and Cockpit's own cannot be told apart from here. Both
+        // therefore have to make it re-read - which is the only way either of
+        // them ever gets said out loud.
+        situation: 'the gate in front of the deployment stopped letting this browser through',
+        why: 'gate-expired',
+        reReads: true,
+      },
       { situation: 'nothing can be reached at all', why: 'offline', reReads: false },
       { situation: 'Cockpit answers but is unwell', why: 'trouble', reReads: false },
     ] as const;
@@ -180,6 +192,10 @@ describe('Offline', () => {
       await refuseTheConnection();
 
       expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(reReads);
+      // Who is signed in as well, because that is what the shell watches: the
+      // snapshot puts the reason on screen, this is what sends the browser to
+      // the logon page when the answer is that nobody is.
+      expect(client.getQueryState(['me'])?.isInvalidated ?? false).toBe(reReads);
     });
   });
 });

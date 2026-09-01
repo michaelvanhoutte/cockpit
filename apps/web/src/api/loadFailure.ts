@@ -29,8 +29,24 @@ export type FailureReason =
    * (functional definition, "Offline / local-first behavior", §10).
    */
   | 'offline'
-  /** The deployment is fine; this browser needs to sign in again. */
+  /**
+   * Cockpit itself said no: this browser is not signed in to the application.
+   * The way on is Cockpit's own logon page.
+   */
   | 'signed-out'
+  /**
+   * The deployment is fine and Cockpit never got the chance to answer - so what
+   * stopped the request is the gate *in front of* the deployment (Cloudflare
+   * Access, docs/deployment.md, "The cost of gating production, stated
+   * plainly"). The way on is back out through that gate, which is a navigation
+   * rather than a page this app can render.
+   *
+   * Kept apart from `signed-out` because the two need opposite moves, and
+   * offering the wrong one is a dead end either way round: Cockpit's logon page
+   * cannot be reached from behind an expired perimeter, and going back out
+   * through a perimeter that is perfectly happy fixes nothing.
+   */
+  | 'gate-expired'
   /** Reached, and unwell. */
   | 'trouble'
   /** The answer did not match what this build of the app understands. */
@@ -93,8 +109,12 @@ export async function diagnose(
 
   const status = error instanceof Error ? STATUS.exec(error.message)?.[1] : undefined;
   if (status) {
-    // A perimeter that answers rather than redirects still means "sign in".
-    return status === '401' || status === '403' ? 'signed-out' : 'trouble';
+    // A 401 is Cockpit's own gate, which answers in the application's format
+    // and is the only thing that does. A 403 is somebody else's - a perimeter
+    // that refuses rather than redirects - and is treated as such.
+    if (status === '401') return 'signed-out';
+    if (status === '403') return 'gate-expired';
+    return 'trouble';
   }
 
   // Nothing came back at all, so ask the world instead of guessing.
@@ -112,8 +132,11 @@ export async function diagnoseConnection(
 ): Promise<FailureReason> {
   if (surroundings.isDefinitelyOffline()) return 'offline';
   switch (await surroundings.reachServer()) {
+    // The deployment answered while our request did not get through at all -
+    // no status, no body, nothing to read. Cockpit's own gate would have
+    // answered with one, so what swallowed the request is in front of it.
     case 'healthy':
-      return 'signed-out';
+      return 'gate-expired';
     case 'unhealthy':
       return 'trouble';
     // Not one byte came back from anywhere. Strictly that is "the connection,
@@ -156,6 +179,19 @@ export function clearSignInAttempt(): void {
   } catch {
     // Nothing to clear if it could never be set.
   }
+}
+
+/**
+ * To Cockpit's own logon page.
+ *
+ * A whole-page navigation rather than a route change, and for a reason: this is
+ * reached from a failure screen that may be rendered anywhere, including
+ * outside the router's own error boundary, and the point of arriving at the
+ * logon page is to be holding nothing of the last visit. Reloading guarantees
+ * that in a way unmounting components does not.
+ */
+export function goToLogonPage(): void {
+  window.location.assign('/signin');
 }
 
 /**

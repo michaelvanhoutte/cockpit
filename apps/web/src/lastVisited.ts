@@ -69,6 +69,28 @@ export function rememberView(
   }
 }
 
+/**
+ * Forgets every workspace's remembered view.
+ *
+ * Signing out has to leave nothing of the person behind, and this is the only
+ * thing about them the app writes outside the query cache. Written as "remove
+ * the keys that are ours" rather than `clear()`, because the storage is the
+ * origin's and clearing it would take anything else living there with it.
+ */
+export function forgetEveryView(store: Storage | undefined): void {
+  try {
+    if (!store) return;
+    const ours: string[] = [];
+    for (let i = 0; i < store.length; i += 1) {
+      const key = store.key(i);
+      if (key?.startsWith(KEY)) ours.push(key);
+    }
+    for (const key of ours) store.removeItem(key);
+  } catch {
+    // A browser that refuses storage is one that remembered nothing to forget.
+  }
+}
+
 /** The browser's own storage, where there is one. */
 export function browserStore(): Storage | undefined {
   try {
