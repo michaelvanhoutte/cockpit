@@ -67,4 +67,48 @@ test.describe('Dashboards', () => {
       await expect(page.getByRole('heading', { name })).toBeVisible();
     });
   });
+
+  test.describe('deleting the dashboard you are on leaves you somewhere that works', () => {
+    test('reaches the settings from the bar, renames one, and lands elsewhere after deleting', async ({
+      page,
+      isMobile,
+    }) => {
+      // Its own workspace: every spec in a run shares one database, and a walk
+      // that deleted a dashboard out of Work would take it from whatever ran
+      // next.
+      const workspace = uniqueTitle('Bookkeeping');
+      await openFirstWorkspace(page);
+      await openSettings(page, isMobile);
+      await page.getByLabel('Name of the new workspace').fill(workspace);
+      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+      await press(page.locator('header').getByRole('link', { name: workspace }), isMobile);
+
+      const doomed = uniqueTitle('Recherche');
+      await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+      await page.getByLabel('Name of the new dashboard').fill(doomed);
+      await page.getByLabel('Name of the new dashboard').press('Enter');
+      await expect(page.getByRole('heading', { name: doomed })).toBeVisible();
+      // The dashboard being deleted is the one being looked at.
+      const itsAddress = page.url();
+
+      // The `...` at the right of the bar is how the settings are reached.
+      await press(dashboardBar(page).getByRole('link', { name: 'Manage dashboards' }), isMobile);
+      const renamed = uniqueTitle('Renamed');
+      await press(page.getByRole('button', { name: `Rename ${doomed}` }), isMobile);
+      await page.getByLabel(`New name for ${doomed}`).fill(renamed);
+      await press(page.getByRole('button', { name: 'Save' }), isMobile);
+      await expect(dashboardBar(page).getByRole('link', { name: renamed })).toBeVisible();
+
+      await press(page.getByRole('button', { name: `Delete ${renamed}` }), isMobile);
+      await expect(page.getByText(`Delete ${renamed}? There is nothing on it.`)).toBeVisible();
+      await press(page.getByRole('button', { name: `Yes, delete ${renamed}` }), isMobile);
+
+      // Somewhere that works: a dashboard that is still there, and no entry in
+      // the bar pointing at the one that has gone.
+      await expect(dashboardBar(page).getByRole('link', { name: renamed })).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      expect(page.url()).not.toBe(itsAddress);
+      await expectNoSidewaysScroll(page);
+    });
+  });
 });
