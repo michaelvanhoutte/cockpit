@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { themeOf } from '@cockpit/shared';
+import type { Workspace } from '@cockpit/shared';
 import {
   WORKSPACE_PALETTE,
   foldName,
@@ -9,6 +11,15 @@ import {
 
 const TENANT_ID = 'tenant-default';
 const AT = '2026-08-12T10:00:00.000Z';
+
+/** A workspace wearing the whole theme its tint belongs to. */
+function colored(
+  workspace: { id: string; tenantId: string; name: string },
+  tint: string,
+): Workspace {
+  const theme = themeOf(tint);
+  return { ...workspace, color: theme.tint, ground: theme.ground, header: theme.header };
+}
 
 /** Colors handed out to `taken` workspaces in a row, starting from none. */
 function handOut(count: number): string[] {
@@ -65,8 +76,11 @@ describe('Workspace management', () => {
     // a list and a name. That both the make and the rename path actually ask
     // it is proved against a real database in tests/integration.
     const live = [
-      { id: 'ws-work', tenantId: TENANT_ID, name: 'Work', color: '#6f62b5' },
-      { id: 'ws-personal', tenantId: TENANT_ID, name: 'Personal', color: '#c06a45' },
+      // The colors are not what this rule is about; they are here because a
+      // workspace carries them, and `themeOf` is what fills them in everywhere
+      // else, so the fixture is not a second opinion about what goes together.
+      colored({ id: 'ws-work', tenantId: TENANT_ID, name: 'Work' }, '#6f62b5'),
+      colored({ id: 'ws-personal', tenantId: TENANT_ID, name: 'Personal' }, '#c06a45'),
     ];
 
     it.each([
@@ -123,7 +137,11 @@ describe('Workspace management', () => {
         // that makes the same is proved through the interface, in
         // tests/integration/http/workspace-management.test.ts.
         foldedName: 'personal',
+        // The whole theme its tint belongs to, not just the tint: a workspace
+        // has all three of its colors from the moment it is made.
         color: '#3f8f78',
+        ground: '#d9ece6',
+        header: '#bcdcd2',
         createdAt: AT,
         deletedAt: null,
       });

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import { eq } from 'drizzle-orm';
+import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
 import { createDb } from '../../../src/db/client.js';
 import { associations, commands, items } from '../../../src/db/schema.js';
@@ -113,6 +114,22 @@ describe('Offline', () => {
           associationId: nextId(),
           kind: 'person',
           label: 'Anna',
+        }),
+      },
+      {
+        // The one row that is about the workspace rather than something in it,
+        // so `makesIt` is set to say there is nothing to arrange - the seeded
+        // workspace is the subject and `targetId` goes unused.
+        situation: 'coloring the workspace',
+        name: 'set_workspace_theme',
+        makesIt: true,
+        change: (_targetId, requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T11:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          color: WORKSPACE_THEMES[3]!.tint,
+          ground: WORKSPACE_THEMES[3]!.ground,
+          header: WORKSPACE_THEMES[3]!.header,
         }),
       },
     ])('$situation', async ({ name, makesIt, change }) => {

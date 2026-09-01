@@ -19,7 +19,16 @@ export async function seedWorkspaces(): Promise<void> {
       '2026-08-12T00:00:00.000Z',
     ),
     env.DB.prepare(
-      'INSERT OR IGNORE INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).bind(WORKSPACE_ID, TENANT_ID, 'Work', 'work', '#6f62b5', '2026-08-12T00:00:01.000Z'),
+      'INSERT OR IGNORE INTO workspaces (id, tenant_id, name, folded_name, color, ground, header, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(
+      WORKSPACE_ID,
+      TENANT_ID,
+      'Work',
+      'work',
+      '#6f62b5',
+      '#e3e1f2',
+      '#d2cdea',
+      '2026-08-12T00:00:01.000Z',
+    ),
   ]);
 }

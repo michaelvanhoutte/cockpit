@@ -35,7 +35,7 @@ vi.mock('../../../src/api/queries', () => ({
             id: 'ws-markup',
             tenantId: 'tenant',
             name: '<img src=x onerror=alert(1)>',
-            color: '#6f62b5',
+            color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea',
           },
         ],
       }),

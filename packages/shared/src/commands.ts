@@ -6,6 +6,7 @@ import {
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
+import { hexColorSchema } from './domain/workspace-themes.js';
 
 /**
  * Mutations are commands, not object PUTs (architecture §4.3).
@@ -60,6 +61,20 @@ export type RenameWorkspaceCommand = z.infer<typeof renameWorkspaceSchema>;
  */
 export const deleteWorkspaceSchema = commandEnvelopeSchema;
 export type DeleteWorkspaceCommand = z.infer<typeof deleteWorkspaceSchema>;
+
+/**
+ * set_workspace_theme — the three colors, not the name of the theme they came
+ * from, because three colors is what a workspace stores. The server still
+ * refuses a triple that is not one of the palette's, which is what keeps
+ * "picked from designed options" true rather than merely intended; the day
+ * mixing your own is wanted, that check relaxes and nothing else moves.
+ */
+export const setWorkspaceThemeSchema = commandEnvelopeSchema.extend({
+  color: hexColorSchema,
+  ground: hexColorSchema,
+  header: hexColorSchema,
+});
+export type SetWorkspaceThemeCommand = z.infer<typeof setWorkspaceThemeSchema>;
 
 /** capture_item — the one command with many front doors (architecture §6.5). */
 export const captureItemSchema = commandEnvelopeSchema.extend({
@@ -119,6 +134,7 @@ export const commandSchemas = {
   create_workspace: createWorkspaceSchema,
   rename_workspace: renameWorkspaceSchema,
   delete_workspace: deleteWorkspaceSchema,
+  set_workspace_theme: setWorkspaceThemeSchema,
   capture_item: captureItemSchema,
   set_status: setStatusSchema,
   snooze_until: snoozeUntilSchema,

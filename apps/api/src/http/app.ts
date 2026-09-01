@@ -13,6 +13,7 @@ import { createDb } from '../db/client.js';
 import { getWorkspace, listAssociationsForWorkspace, listOpenItems, listWorkspaces } from '../db/repo.js';
 import {
   ItemNotFoundError,
+  UnknownThemeError,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
   runCommand,
@@ -39,6 +40,12 @@ app.onError((err, c) => {
   }
   if (err instanceof WorkspaceNameTakenError) {
     return c.json({ error: err.message }, 409);
+  }
+  // A 400 rather than a 409: nothing is in the way, the colors are simply not
+  // on offer. Shaped like the wire schema's own refusals, which is what the
+  // client already knows how to read.
+  if (err instanceof UnknownThemeError) {
+    return c.json({ error: err.message }, 400);
   }
   console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }));
   return c.json({ error: 'internal error' }, 500);
@@ -218,6 +225,15 @@ const routes = app
       return c.json(result, 200);
     },
   )
+  .openapi(commandRoute('set_workspace_theme'), async (c) => {
+    const result = await runCommand(
+      createDb(c.env.DB),
+      DEFAULT_TENANT_ID,
+      'set_workspace_theme',
+      c.req.valid('json'),
+    );
+    return c.json(result, 200);
+  })
   .openapi(commandRoute('delete_workspace'), async (c) => {
     const result = await runCommand(
       createDb(c.env.DB),

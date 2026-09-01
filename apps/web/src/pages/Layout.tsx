@@ -1,8 +1,16 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
 import { workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
+
+/** The default theme in the shape a workspace carries it. */
+const DEFAULT_WORKSPACE_THEME_COLORS = {
+  color: DEFAULT_WORKSPACE_THEME.tint,
+  ground: DEFAULT_WORKSPACE_THEME.ground,
+  header: DEFAULT_WORKSPACE_THEME.header,
+};
 
 /**
  * The app shell: workspace tabs on top (the workspace color identity from the
@@ -15,12 +23,34 @@ export function Layout() {
   const { data } = useQuery(workspacesQuery);
   const params = useParams({ strict: false });
   const active = data?.workspaces.find((w) => w.id === params.workspaceId);
+  /**
+   * The workspace you are in, painted. Only these two move: the ground behind
+   * the panels and the bar across the top, plus the tint on the stripe and the
+   * dots. Cards, rows, controls and text keep the fixed neutral and accent
+   * palette, which is what makes a palette of designed triples enough to keep
+   * everything legible - nothing else can be affected by the choice.
+   *
+   * The shell carries them rather than `:root`, unlike the prototype: this
+   * element covers the viewport, so painting it is enough, and a page that
+   * writes to `document.documentElement` has to remember to clean up after
+   * itself when there is no workspace to be in at all.
+   *
+   * With none - the settings page reached before any workspace exists - it
+   * falls back to the default theme rather than to nothing, so the app is never
+   * unpainted.
+   */
+  const theme = active ?? DEFAULT_WORKSPACE_THEME_COLORS;
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-dvh flex-col" style={{ backgroundColor: theme.ground }}>
       <header
-        className="border-b border-black/10 bg-surface/80 backdrop-blur"
-        style={{ borderTopColor: active?.color, borderTopWidth: 3, borderTopStyle: 'solid' }}
+        className="border-b border-black/10 backdrop-blur"
+        style={{
+          backgroundColor: theme.header,
+          borderTopColor: theme.color,
+          borderTopWidth: 3,
+          borderTopStyle: 'solid',
+        }}
       >
         {/* Full width, not a centred column: the brand and the workspaces sit
             against the left edge and the menu against the right, so the header

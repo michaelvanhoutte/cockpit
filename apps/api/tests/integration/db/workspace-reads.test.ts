@@ -60,7 +60,16 @@ describe('Workspace management', () => {
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
-        workspaces: [{ id: WORKSPACE_ID, tenantId: TENANT_ID, name: 'Work', color: '#6f62b5' }],
+        workspaces: [
+          {
+            id: WORKSPACE_ID,
+            tenantId: TENANT_ID,
+            name: 'Work',
+            color: '#6f62b5',
+            ground: '#e3e1f2',
+            header: '#d2cdea',
+          },
+        ],
       });
     });
   });

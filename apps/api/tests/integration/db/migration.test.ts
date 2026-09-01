@@ -61,9 +61,15 @@ beforeAll(async () => {
       'Michael',
       AT,
     ),
+    // Three workspaces, because the colour backfill has three answers: the
+    // tint that is a theme's, the tint that is nobody's, and - in `ws-work` -
+    // the one the defaults already happen to match.
     env.DB.prepare(
-      'INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).bind('ws-work', TENANT_ID, 'Work', 'work', '#6f62b5', AT),
+      `INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES
+         ('ws-work', ?, 'Work', 'work', '#6f62b5', ?),
+         ('ws-atlas', ?, 'Atlas Copco', 'atlas', '#3a72c8', ?),
+         ('ws-oddity', ?, 'Oddity', 'oddity', '#123456', ?)`,
+    ).bind(TENANT_ID, AT, TENANT_ID, AT, TENANT_ID, AT),
     env.DB.prepare(
       `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen, created_at, updated_at)
        VALUES ('kept', ?, 'ws-work', 'internal', 'Make appointment with Novy', 'task', 0, ?, ?),
@@ -93,7 +99,7 @@ describe('Capture', () => {
       ).toMatchObject({ title: 'Make appointment with Novy' });
 
       expect(await countOf('tenants')).toBe(1);
-      expect(await countOf('workspaces')).toBe(1);
+      expect(await countOf('workspaces')).toBe(3);
       expect(await countOf('commands')).toBe(1);
       expect(
         await env.DB.prepare('SELECT label FROM associations WHERE id = ?')
@@ -160,6 +166,29 @@ describe('Workspace management', () => {
           .bind('ws-work-again', TENANT_ID, 'work', foldName('work'), '#3f8f78', AT)
           .run(),
       ).rejects.toThrow();
+    });
+
+    it.each([
+      {
+        situation: 'a workspace whose colour is one of the palette’s',
+        id: 'ws-atlas',
+        wearing: { color: '#3a72c8', ground: '#d8e5f7', header: '#bed6f2' },
+      },
+      {
+        // Plausible in a database that has been running a while, impossible in
+        // the seed. It keeps its own tint - the one thing about it a person
+        // already recognises in the tabs - and takes the default page, which
+        // leaves it looking slightly wrong rather than not looking at all.
+        situation: 'a workspace whose colour is nobody’s',
+        id: 'ws-oddity',
+        wearing: { color: '#123456', ground: '#e3e1f2', header: '#d2cdea' },
+      },
+    ])('ends up wearing a whole theme: $situation', async ({ id, wearing }) => {
+      expect(
+        await env.DB.prepare('SELECT color, ground, header FROM workspaces WHERE id = ?')
+          .bind(id)
+          .first(),
+      ).toEqual(wearing);
     });
 
     it('still lets a new workspace be made beside it', async () => {
