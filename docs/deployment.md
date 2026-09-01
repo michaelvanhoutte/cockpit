@@ -829,25 +829,28 @@ than to any mail provider, so it survives changing employer or email.
   waits — the browser tier runs as its own `E2E (F3)` job on every pull request
   and on `main`, against its own isolated local stack, never the `pnpm dev`
   pair.
-- **F3 against a deployed preview.** The suite already takes `E2E_BASE_URL` and
-  the `CF-Access-Client-*` header pair, so pointing it at a branch's preview is
+- **F3 against a deployed environment.** The suite already takes `E2E_BASE_URL`
+  and the `CF-Access-Client-*` header pair, so pointing it at one is
   configuration rather than code. What is missing is the credential: Access
   fronts every deployment (secrets and access, §6) and no **service token**
-  exists yet, so an
-  unauthenticated run would test the login page. Creating one (Zero Trust →
-  Access → Service Auth, then a policy on the preview application that accepts
-  it) is owner work, and the preview-deploy job that uses it lands with it.
-  Until then the local pair is the only thing F3 drives, which leaves the
-  service worker, the built bundle and the Worker's own asset routing proven by
-  nothing but a manual look.
+  exists yet, so an unauthenticated run would test the login page. Creating one
+  (Zero Trust → Access → Service Auth, then a policy that accepts it) is owner
+  work. This used to name a branch's preview; §4 removed those, so the only
+  candidate now is staging, which is a different proposition - it accumulates
+  state on purpose, and a suite that asserts what is on screen would be running
+  against whatever is there. Until then the local pair is the only thing F3
+  drives, which leaves the service worker, the built bundle and the Worker's own
+  asset routing proven by nothing but a manual look.
 - **Bundle-size gate** (§7): the budget needs recording as a number before it
   can be enforced as one.
 - **Sentry, the connector watchdog, and the external uptime check** (§9.2): they
   land with the code they observe. `/health` already reports D1 connectivity and
   the production deploy asserts it.
-- **Preview alias cleanup.** Aliases for deleted branches persist. Harmless
-  (each serves an old version of a public showcase app behind Access) and there
-  is no reaping command worth wiring today.
+- **~~Preview alias cleanup.~~** Gone with the previews (§4): there are no
+  aliases left to reap, and `scripts/branch-alias.sh`, which derived them, is
+  deleted. What remains is a one-time tidy rather than a standing task - the
+  `cockpit-preview` Worker and database still exist on Cloudflare, and
+  "Removing the infrastructure" in §4 has the two commands.
 ## 9. Diagnosing a broken environment
 
 The other sections are procedures for when you already know what is wrong. This
