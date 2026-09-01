@@ -9,6 +9,7 @@ import { snapshotQuery, workspacesQuery } from './api/queries';
 import { INBOX, browserStore, rememberView, rememberedIn, viewToOpen } from './lastVisited';
 import { LoadFailure } from './components/LoadFailure';
 import { DashboardPage } from './pages/DashboardPage';
+import { DashboardSettingsPage } from './pages/DashboardSettingsPage';
 import { Layout } from './pages/Layout';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage';
@@ -141,6 +142,21 @@ export const dashboardRoute = createRoute({
   component: DashboardPage,
 });
 
+/**
+ * The dashboards of one workspace, managed. Reached from the `...` at the right
+ * of the bar it governs, and addressed under the workspace for the same reason:
+ * what it acts on is where it sits ("Rename and delete a dashboard from a
+ * dashboard settings page", issue 90).
+ */
+export const dashboardSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/w/$workspaceId/settings/dashboards',
+  beforeLoad: async ({ context, params }) => {
+    await workspaceMustExist(context.queryClient, params.workspaceId);
+  },
+  component: DashboardSettingsPage,
+});
+
 /** Reached from the header's "···" menu; the home of everything per-workspace. */
 const workspaceSettingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -153,6 +169,7 @@ const routeTree = rootRoute.addChildren([
   workspaceRoute,
   inboxRoute,
   dashboardRoute,
+  dashboardSettingsRoute,
   workspaceSettingsRoute,
 ]);
 

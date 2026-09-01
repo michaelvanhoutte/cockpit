@@ -8,7 +8,9 @@ import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations } from './events.js';
 import {
   DashboardNameTakenError,
+  DashboardNotFoundError,
   ItemNotFoundError,
+  LastDashboardError,
   UnknownThemeError,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
@@ -96,10 +98,21 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     try {
       return { status: 'ok', value: work(this.#database()) };
     } catch (error) {
-      if (error instanceof ItemNotFoundError || error instanceof WorkspaceNotFoundError) {
+      if (
+        error instanceof ItemNotFoundError ||
+        error instanceof WorkspaceNotFoundError ||
+        error instanceof DashboardNotFoundError
+      ) {
         return { status: 'missing', what: error.message };
       }
-      if (error instanceof WorkspaceNameTakenError || error instanceof DashboardNameTakenError) {
+      if (
+        error instanceof WorkspaceNameTakenError ||
+        error instanceof DashboardNameTakenError ||
+        // A refusal to say out loud rather than a shape problem: the request is
+        // well formed and names a dashboard that exists, and the answer is that
+        // this one may not go.
+        error instanceof LastDashboardError
+      ) {
         return { status: 'conflict', what: error.message };
       }
       if (error instanceof UnknownThemeError) {

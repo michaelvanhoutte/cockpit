@@ -45,6 +45,17 @@ export function DashboardBar({ workspaceId }: { workspaceId: string }) {
         </Link>
       ))}
       <AddDashboard workspaceId={workspaceId} />
+      {/* The way to what a dashboard has beyond its name. One entry today -
+          renaming and deleting - and where "Panels on a dashboard, with
+          per-screen-size layouts" (issue 33) will put its layouts. */}
+      <Link
+        to="/w/$workspaceId/settings/dashboards"
+        params={{ workspaceId }}
+        aria-label="Manage dashboards"
+        className="ml-auto shrink-0 rounded-md px-2.5 py-1 text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
+      >
+        ···
+      </Link>
     </nav>
   );
 }

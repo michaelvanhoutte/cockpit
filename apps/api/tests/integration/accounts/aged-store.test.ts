@@ -82,6 +82,20 @@ const rowsFor: { table: string; sql: string; params: (name: string) => string[] 
     params: (name) => [name, AT],
   },
   {
+    table: 'dashboards',
+    // Named out loud like the workspace above, and for the same reason: what
+    // the next update meets should be a whole dashboard.
+    //
+    // No case reaches it yet, and that is the point rather than an oversight:
+    // dashboards is the last update in the list, so the table exists only once
+    // everything has been applied and there is no outstanding work left to
+    // meet it. The row is here for the update *after* it, which is exactly what
+    // this list is for.
+    sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+          VALUES ('db-before', ?, 'ws-before', 'Before', 'before', ?)`,
+    params: (name) => [name, AT],
+  },
+  {
     table: 'items',
     sql: `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen, created_at, updated_at)
           VALUES ('it-before', ?, 'ws-before', 'internal', 'Captured before the update', 'task', 0, ?, ?)`,

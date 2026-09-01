@@ -94,6 +94,33 @@ export const addDashboardSchema = commandEnvelopeSchema.extend({
 });
 export type AddDashboardCommand = z.infer<typeof addDashboardSchema>;
 
+/**
+ * rename_dashboard — which dashboard, and what it is now called. The name obeys
+ * exactly the rules adding one does, by carrying the same schema; uniqueness is
+ * decided by the handler and the index behind it, in the scope of the workspace
+ * ("Rename and delete a dashboard from a dashboard settings page", issue 90).
+ *
+ * `dashboardId` is the envelope's plain string rather than a uuid, for the
+ * reason renaming a workspace takes one: it names something that already
+ * exists, and the dashboard every workspace was given when dashboards landed
+ * has an id derived from its workspace's, which is not a uuid.
+ */
+export const renameDashboardSchema = commandEnvelopeSchema.extend({
+  dashboardId: z.string(),
+  name: dashboardNameSchema,
+});
+export type RenameDashboardCommand = z.infer<typeof renameDashboardSchema>;
+
+/**
+ * delete_dashboard — which dashboard. Its panels go with it once there are
+ * panels to go; the actions they showed are keyed to the workspace and are
+ * untouched, so nothing written down is lost by removing a place it was shown.
+ */
+export const deleteDashboardSchema = commandEnvelopeSchema.extend({
+  dashboardId: z.string(),
+});
+export type DeleteDashboardCommand = z.infer<typeof deleteDashboardSchema>;
+
 /** capture_item — the one command with many front doors (architecture §6.5). */
 export const captureItemSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -154,6 +181,8 @@ export const commandSchemas = {
   delete_workspace: deleteWorkspaceSchema,
   set_workspace_theme: setWorkspaceThemeSchema,
   add_dashboard: addDashboardSchema,
+  rename_dashboard: renameDashboardSchema,
+  delete_dashboard: deleteDashboardSchema,
   capture_item: captureItemSchema,
   set_status: setStatusSchema,
   snooze_until: snoozeUntilSchema,

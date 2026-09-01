@@ -50,6 +50,10 @@ const commandSenders = {
     api.v1.commands.set_workspace_theme.$post({ json: p }),
   add_dashboard: (p: CommandPayload<'add_dashboard'>) =>
     api.v1.commands.add_dashboard.$post({ json: p }),
+  rename_dashboard: (p: CommandPayload<'rename_dashboard'>) =>
+    api.v1.commands.rename_dashboard.$post({ json: p }),
+  delete_dashboard: (p: CommandPayload<'delete_dashboard'>) =>
+    api.v1.commands.delete_dashboard.$post({ json: p }),
   capture_item: (p: CommandPayload<'capture_item'>) => api.v1.commands.capture_item.$post({ json: p }),
   set_status: (p: CommandPayload<'set_status'>) => api.v1.commands.set_status.$post({ json: p }),
   snooze_until: (p: CommandPayload<'snooze_until'>) => api.v1.commands.snooze_until.$post({ json: p }),

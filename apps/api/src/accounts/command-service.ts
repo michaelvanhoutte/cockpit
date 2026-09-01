@@ -60,6 +60,27 @@ export class WorkspaceNameTakenError extends Error {
   }
 }
 
+export class DashboardNotFoundError extends Error {
+  constructor(dashboardId: string) {
+    super(`dashboard ${dashboardId} not found`);
+    this.name = 'DashboardNotFoundError';
+  }
+}
+
+/**
+ * The one delete Cockpit refuses, and a deliberate exception rather than an
+ * oversight: deleting the last *workspace* is allowed because the app can offer
+ * to make one, while a workspace with no dashboards has no view at all and
+ * every screen would grow a permanent branch for it ("Rename and delete a
+ * dashboard from a dashboard settings page", issue 90).
+ */
+export class LastDashboardError extends Error {
+  constructor() {
+    super('a workspace keeps at least one dashboard');
+    this.name = 'LastDashboardError';
+  }
+}
+
 /**
  * Its own kind rather than the workspace one, because the message is what a
  * person reads and "a workspace called Research already exists" next to a bar
@@ -166,6 +187,58 @@ export function runCommand<N extends CommandName>(
         tx.insert(dashboards)
           .values(dashboardFromCommand(cmd, tenantId))
           .onConflictDoNothing({ target: dashboards.id })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'rename_dashboard': {
+      const cmd = payload as CommandPayload<'rename_dashboard'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      // One list, two questions: is this dashboard still there, and is the name
+      // free. Live only, so renaming one that is no longer there is a 404
+      // rather than an update that quietly matches no rows.
+      const existing = listDashboards(db, tenantId, cmd.workspaceId);
+      if (!existing.some((d) => d.id === cmd.dashboardId)) {
+        throw new DashboardNotFoundError(cmd.dashboardId);
+      }
+      // The same question adding asks, minus this dashboard's own row: the name
+      // it already has, in any capitalization, collides with nothing.
+      const alreadyCalledThat = dashboardNamed(existing, cmd.name, cmd.dashboardId);
+      if (alreadyCalledThat) throw new DashboardNameTakenError(alreadyCalledThat.name);
+      db.transaction((tx) => {
+        tx.update(dashboards)
+          // `foldedName` alongside `name`, never on its own: it is what the
+          // unique index holds, so a rename writing only the name would leave
+          // the index guarding the old one.
+          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
+          .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.id, cmd.dashboardId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_dashboard': {
+      const cmd = payload as CommandPayload<'delete_dashboard'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      const existing = listDashboards(db, tenantId, cmd.workspaceId);
+      // A dashboard already deleted is not there to delete again, so the same
+      // delete sent twice deletes one dashboard whether the replay carries the
+      // original request id (caught above) or a fresh one (caught here).
+      if (!existing.some((d) => d.id === cmd.dashboardId)) {
+        throw new DashboardNotFoundError(cmd.dashboardId);
+      }
+      // Counted here rather than left to a rule somewhere else: a workspace
+      // with no dashboards has no view at all.
+      if (existing.length === 1) throw new LastDashboardError();
+      db.transaction((tx) => {
+        tx.update(dashboards)
+          .set({ deletedAt: cmd.issuedAt })
+          .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.id, cmd.dashboardId)))
           .run();
         tx.insert(commands).values(commandRow).run();
       });

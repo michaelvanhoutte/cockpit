@@ -108,10 +108,13 @@ describe('Dashboards', () => {
       // every link straight away finds the Inbox alone and passes.
       await screen.findByRole('link', { name: 'Research' });
       const entries = screen.getAllByRole('link');
+      // The Inbox first because it is pinned, then the dashboards in the order
+      // the workspace holds them, and the way to manage them at the end.
       expect(entries.map((entry) => entry.textContent)).toEqual([
         'Inbox',
         'Dashboard 1',
         'Research',
+        '···',
       ]);
       expect(bar).toBeVisible();
     });
