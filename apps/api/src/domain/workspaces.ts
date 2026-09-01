@@ -108,11 +108,8 @@ export function workspaceNamed(
  * order workspaces are listed in is the order they were made in even when a
  * create was queued offline.
  *
- * `slug` is written and read by nothing. It is `NOT NULL` until "Drop the
- * unused workspace slug column" (issue 78) removes it, and the id is what goes
- * in: unique by construction, so it needs no rule of its own and none of the
- * disambiguating logic a name-derived slug would need for a column no longer
- * used for anything.
+ * There was a `slug` here until migration 0006 dropped the column. Nothing
+ * ever read it, and uniqueness moved to the name, where a person can see it.
  */
 export function workspaceFromCommand(
   cmd: CreateWorkspaceCommand,
@@ -120,7 +117,6 @@ export function workspaceFromCommand(
   color: string,
 ): Workspace & {
   foldedName: string;
-  slug: string;
   createdAt: string;
   deletedAt: string | null;
 } {
@@ -129,7 +125,6 @@ export function workspaceFromCommand(
     tenantId,
     name: cmd.name,
     foldedName: foldName(cmd.name),
-    slug: cmd.workspaceId,
     color,
     createdAt: cmd.issuedAt,
     deletedAt: null,

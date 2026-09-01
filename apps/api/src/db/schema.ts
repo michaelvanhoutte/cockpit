@@ -141,22 +141,6 @@ export const workspaces = sqliteTable(
      * next one, which is the loud failure this wants.
      */
     foldedName: text('folded_name').notNull().default(''),
-    /**
-     * Read by nothing - no URL, no CSS selector, no component - and on its way
-     * out with "Drop the unused workspace slug column" (issue 78). Until then
-     * it is written, never read, and holds the workspace's own id.
-     *
-     * It takes two releases, because migrations only roll forward: promoting an
-     * earlier commit runs old code against the new schema (deployment,
-     * "Migrations and rollback"), and every deploy runs the old code against
-     * the new schema for a few seconds anyway. **This is the first of the two.**
-     * Declaring the column here is what put it in the SQL of every read, since
-     * drizzle builds a bare `select()` from every column declared on the table
-     * - so the reads now name the columns they want instead (`workspaceColumns`
-     * in db/repo.ts), and no query mentions this one. The release after this
-     * can drop it without the release before it noticing.
-     */
-    slug: text('slug').notNull(),
     color: text('color').notNull(),
     createdAt: text('created_at').notNull(),
     /**

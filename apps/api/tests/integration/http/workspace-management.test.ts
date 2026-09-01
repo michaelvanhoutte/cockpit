@@ -418,9 +418,9 @@ describe('Workspace management', () => {
       // is not here to be asked, and there is no other way to arrange it.
       const name = aName();
       await env.DB.prepare(
-        'INSERT INTO workspaces (id, tenant_id, name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO workspaces (id, tenant_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)',
       )
-        .bind(nextId(), TENANT_ID, name, nextId(), '#b58a2f', '2026-08-12T10:00:00.000Z')
+        .bind(nextId(), TENANT_ID, name, '#b58a2f', '2026-08-12T10:00:00.000Z')
         .run();
 
       expect((await makeWorkspace(name)).status).toBe(409);

@@ -1,0 +1,82 @@
+-- `workspaces.slug` goes. It was `NOT NULL`, so every insert had to satisfy it,
+-- and it was read by nothing: no URL, no CSS selector, no component. Its unique
+-- index was the only thing keeping two workspaces apart until 0003 moved that
+-- onto the name - where uniqueness belongs, because the name is what a person
+-- types and sees - and 0005 moved it again onto the folded copy of the name.
+-- This is the contract half of that expand-then-contract ("Drop the unused
+-- workspace slug column", issue 78; deployment, "Migrations and rollback").
+--
+-- **Why the release before this one had to exist.** Migrations only roll
+-- forward, so promoting an earlier commit runs old code against the new schema,
+-- and every deploy runs the old code against the new schema for a few seconds
+-- anyway. The column therefore cannot be dropped by the same release that stops
+-- using it. What was not obvious - and what cost this issue an extra release -
+-- is that "stops using it" was not true yet: drizzle builds a bare `select()`'s
+-- field list from every column declared on the table, so every workspace read
+-- was naming this one in its SQL. "Stop every workspace read naming the column
+-- nothing reads" (pull request 101) fixed that and shipped on its own; the reads
+-- now name their four columns and mention this one nowhere. That release is in
+-- production, which is what makes this one safe.
+--
+-- **What the old code does against the dropped column, measured rather than
+-- assumed.** Two things, and the first is a trap worth knowing about:
+--
+--   * A *read* would have survived even without pull request 101, but only by
+--     accident. SQLite reads a double-quoted identifier matching no column as a
+--     string literal, and drizzle quotes every identifier it emits - so
+--     `select ..., "slug", ... from workspaces` returns the text `slug` for
+--     every row instead of failing. Measured both ways against a real D1: the
+--     quoted form comes back as `slug`, and a bare `select slug` raises "no such
+--     column". Nothing should rest on `SQLITE_DQS` staying on, which is why the
+--     reads were fixed rather than left to it.
+--   * A *write* fails, and still does. `INSERT INTO workspaces (..., slug, ...)`
+--     answers "table workspaces has no column named slug", because an insert's
+--     column list gets no such fallback.
+--
+-- So for the seconds between this migration and the new code going live - and
+-- for as long as a rollback to the release before this one lasts - reading and
+-- opening a workspace work, and *making* one answers 500. It fails loudly and
+-- destroys nothing.
+--
+-- **Why that last window is accepted rather than removed.** Closing it needs yet
+-- another release in between, one that stops *writing* the column while it is
+-- still there, and that release cannot be written: the column is `NOT NULL` with
+-- no default, so an insert omitting it fails, and SQLite can neither ALTER a
+-- default onto an existing column nor drop its NOT NULL. Giving it one means
+-- rebuilding `workspaces`, and `items` and `associations` with it, because D1
+-- refuses to drop a table with children under ON DELETE RESTRICT and ignores
+-- `PRAGMA foreign_keys = OFF` (both measured, see 0002). A whole-schema rebuild
+-- to shorten a seconds-long window in which one endpoint returns 500 is the
+-- worse trade.
+--
+-- **If it fails partway through.** Two statements, both pure DDL, neither
+-- touching a row - so neither can fail on the data it finds. Dying between them
+-- leaves the index gone and the column present, which is harmless: nothing reads
+-- either.
+--
+-- **If it runs again.** A migration that did not finish is not recorded as
+-- finished, so the next deploy repeats the whole file. `DROP INDEX IF EXISTS`
+-- tolerates that. `ALTER TABLE ... DROP COLUMN` does not - SQLite has no
+-- `IF EXISTS` for it - so this file carries the caveat 0002 and 0004 carry: if
+-- it ever fails with "no such column: slug", the column is already gone and the
+-- fix is to record this migration as applied, not to change the file. That is
+-- reachable only if D1 applied the statement and lost the record.
+--
+-- **The index.** 0003 already dropped `workspaces_tenant_slug`, so the first
+-- statement does nothing against any database that has run migrations in order.
+-- It is here because SQLite refuses to drop a column an index refers to, and a
+-- file that drops a column should say which index it depended on rather than
+-- leave the next reader to find that out three migrations back.
+--
+-- **Data the new rules reject.** None; this removes a rule rather than adding
+-- one. The other half was confirmed first: the name index 0005 added is present
+-- and holding, because after this there is no other uniqueness constraint on the
+-- table at all.
+--
+-- **What each environment does.** Preview is re-seeded from seed.sql on every
+-- deploy, so that file stops writing `slug` in this same change or every preview
+-- deploy fails on the dropped column. Staging is never seeded and its rows
+-- simply lose a column. Production is seeded once by hand and is not re-seeded
+-- here.
+DROP INDEX IF EXISTS `workspaces_tenant_slug`;--> statement-breakpoint
+ALTER TABLE `workspaces` DROP COLUMN `slug`;
