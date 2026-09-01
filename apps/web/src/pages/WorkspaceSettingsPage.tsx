@@ -141,11 +141,17 @@ export function WorkspaceSettingsPage() {
         },
       },
       {
-        // The list as it was, not a re-read: a refused move has to leave the
-        // screen showing what the account actually holds, and the copy in hand
-        // is that, exactly, without a round trip that could fail as well.
+        // Both, and each covers what the other cannot. The copy in hand goes
+        // back first, because it is the only answer available when the request
+        // never reached the server at all - a re-read would fail the same way
+        // and leave the order showing a move that did not happen. Then a
+        // re-read, because that copy is only right when this was the one move
+        // in flight: two moves made inside one round trip each hold a snapshot
+        // from before themselves, and whichever refusal lands last would
+        // otherwise decide the order. The server is what actually knows.
         onError: () => {
           if (held) queryClient.setQueryData(workspacesQuery.queryKey, held);
+          void queryClient.invalidateQueries({ queryKey: workspacesQuery.queryKey });
         },
       },
     );

@@ -68,16 +68,33 @@ const mockUseCommand = vi.mocked(useCommand);
  * the change a refusal belongs to, which is what the page uses to put the
  * refusal next to the control that asked for it.
  */
-function showPage(answer: { succeeds: boolean; error?: Error; about?: CommandArgs }) {
+function showPage(answer: {
+  succeeds: boolean;
+  error?: Error;
+  about?: CommandArgs;
+  /**
+   * That the answer arrives later, so a case can send a second change while the
+   * first is still in flight - which is the only way to arrange two of them
+   * overlapping, and is what a real change does anyway.
+   */
+  answersLater?: boolean;
+}) {
+  const waiting: ((error: Error) => void)[] = [];
   const mutate = vi.fn(
     (
       _args: CommandArgs,
       options?: { onSuccess?: () => void; onError?: (error: Error) => void },
     ) => {
+      const fail = () => options?.onError?.(answer.error ?? new Error('refused'));
       if (answer.succeeds) options?.onSuccess?.();
-      else options?.onError?.(answer.error ?? new Error('refused'));
+      else if (answer.answersLater) waiting.push(fail);
+      else fail();
     },
   );
+  /** Refuses everything still in flight, oldest first, as the server would. */
+  const refuseEverythingSent = () => {
+    for (const fail of waiting.splice(0)) fail(answer.error ?? new Error('refused'));
+  };
   mockUseCommand.mockReturnValue({
     mutate,
     isPending: false,
@@ -90,7 +107,11 @@ function showPage(answer: { succeeds: boolean; error?: Error; about?: CommandArg
       <WorkspaceSettingsPage />
     </QueryClientProvider>,
   );
-  return { mutate, box: screen.getByLabelText('Name of the new workspace') };
+  return {
+    mutate,
+    refuseEverythingSent,
+    box: screen.getByLabelText('Name of the new workspace'),
+  };
 }
 
 const newWorkspaceButton = () => screen.getByRole('button', { name: 'New workspace' });
@@ -522,6 +543,74 @@ describe('Workspace management', () => {
       expect(within(row).getByRole('alert')).toHaveTextContent(
         'the workspaces changed while they were being put in order',
       );
+    });
+
+    it('puts a move that never reached the server back, without asking the server where it was', async () => {
+      // The half re-reading the list cannot do. A move that failed because
+      // nothing could be reached fails a re-read for the same reason, so the
+      // only answer left is the copy the page was holding before it moved
+      // anything - and without it the order stays showing a move that never
+      // happened.
+      let asked = 0;
+      list.answer = () => {
+        asked += 1;
+        return asked === 1
+          ? Promise.resolve({ workspaces: THREE })
+          : Promise.reject(new TypeError('Failed to fetch'));
+      };
+      const user = userEvent.setup();
+      showPage({
+        succeeds: false,
+        error: new Error('Failed to fetch'),
+        about: {
+          name: 'reorder_workspaces',
+          payload: {
+            commandId: 'c',
+            issuedAt: 'now',
+            workspaceId: 'ws-personal',
+            workspaceIds: ['ws-work', 'ws-personal', 'ws-atlas'],
+          },
+        },
+      });
+
+      await choose(user, 'Personal', 'Move up');
+
+      await expect.poll(onScreen).toEqual(['Work', 'Atlas', 'Personal']);
+      expect(screen.getAllByRole('alert').at(-1)).toHaveTextContent(
+        'That did not reach the server. Try again.',
+      );
+    });
+
+    it('shows what the account holds after two moves made before either was answered', async () => {
+      // The half putting the copy in hand back cannot do. Each move is holding
+      // the order from before *itself*, so the second one's copy already has
+      // the first one's move in it - and whichever refusal happens to land last
+      // would otherwise leave the page showing an order the account never had.
+      // Only asking the server settles it.
+      showThree();
+      const user = userEvent.setup();
+      const { refuseEverythingSent } = showPage({
+        succeeds: false,
+        answersLater: true,
+        error: new CommandRefused(409, 'the workspaces changed while they were being put in order'),
+        about: {
+          name: 'reorder_workspaces',
+          payload: {
+            commandId: 'c',
+            issuedAt: 'now',
+            workspaceId: 'ws-personal',
+            workspaceIds: ['ws-personal', 'ws-work', 'ws-atlas'],
+          },
+        },
+      });
+
+      await choose(user, 'Personal', 'Move up');
+      await choose(user, 'Personal', 'Move up');
+      expect(await onScreen()).toEqual(['Personal', 'Work', 'Atlas']);
+
+      refuseEverythingSent();
+
+      await expect.poll(onScreen).toEqual(['Work', 'Atlas', 'Personal']);
     });
 
     it('says why a colour was refused, next to the workspace it was for', async () => {
