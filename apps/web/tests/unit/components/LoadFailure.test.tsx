@@ -3,7 +3,12 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { workspaceListSchema } from '@cockpit/shared';
 import { LoadFailure } from '../../../src/components/LoadFailure';
-import { signInAgain, type Reach, type Surroundings } from '../../../src/api/loadFailure';
+import {
+  goToLogonPage,
+  signInAgain,
+  type Reach,
+  type Surroundings,
+} from '../../../src/api/loadFailure';
 
 /**
  * F1: every branch here is a decision over facts about the world, and all of
@@ -18,9 +23,11 @@ import { signInAgain, type Reach, type Surroundings } from '../../../src/api/loa
 vi.mock('../../../src/api/loadFailure', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/loadFailure')>()),
   signInAgain: vi.fn(),
+  goToLogonPage: vi.fn(),
 }));
 
 const askedToSignIn = vi.mocked(signInAgain);
+const sentToTheLogonPage = vi.mocked(goToLogonPage);
 
 function world(definitelyOffline: boolean, reach: Reach): Surroundings {
   return {
@@ -63,7 +70,17 @@ describe('Offline', () => {
         headline: "Cockpit can't be reached",
       },
       {
-        situation: 'the deployment is healthy, so it is the sign-in that has run out',
+        // Cockpit's own gate: it answered, in Cockpit's own format, and what it
+        // said was that this browser is nobody.
+        situation: 'Cockpit itself says this browser is not signed in',
+        error: new Error('workspaces failed: 401'),
+        surroundings: world(false, 'healthy'),
+        headline: "You're signed out",
+      },
+      {
+        // Nothing of ours answered at all while the deployment says it is well,
+        // so what swallowed the request is the gate in front of it.
+        situation: 'the deployment is healthy and nothing of Cockpit answered',
         error: refused,
         surroundings: world(false, 'healthy'),
         headline: 'Your sign-in expired',
@@ -154,6 +171,34 @@ describe('Offline', () => {
 });
 
 describe('Sign-in', () => {
+  describe('being signed out of Cockpit offers Cockpit’s own logon page', () => {
+    it('sends you there when you ask, and never by itself', async () => {
+      sentToTheLogonPage.mockClear();
+      askedToSignIn.mockClear();
+      const user = userEvent.setup();
+
+      // `canTakeOver`, so nothing of the person's is on screen - the one case
+      // where the perimeter's sign-in *would* move by itself.
+      render(
+        <LoadFailure
+          error={new Error('workspaces failed: 401')}
+          surroundings={world(false, 'healthy')}
+          canTakeOver
+        />,
+      );
+
+      expect(await screen.findByRole('heading', { name: "You're signed out" })).toBeInTheDocument();
+      expect(sentToTheLogonPage).not.toHaveBeenCalled();
+      expect(askedToSignIn).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+      expect(sentToTheLogonPage).toHaveBeenCalledTimes(1);
+      // Never out through the perimeter: that is a different gate, and going
+      // back through a perfectly happy one fixes nothing.
+      expect(askedToSignIn).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Cockpit only takes over the screen to sign you in when it has nothing to show', () => {
     it('goes straight to signing in, remembering the page, when nothing is on screen', async () => {
       askedToSignIn.mockClear();

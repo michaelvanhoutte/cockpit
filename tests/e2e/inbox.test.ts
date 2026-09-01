@@ -30,7 +30,7 @@ test.describe('Triage', () => {
       // looks, so it needs no workspace of its own - and one more workspace is
       // one more row on the settings page every later spec in the run then
       // pays for.
-      await openFirstWorkspace(page);
+      await openFirstWorkspace(page, isMobile);
 
       const column = page.getByRole('complementary', { name: 'Inbox' });
       const dashboard = page.getByRole('heading', { name: 'Dashboard 1' });

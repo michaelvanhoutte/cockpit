@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
-import { SELF, applyD1Migrations, env } from 'cloudflare:test';
-import { ACCOUNT_NAME, inTheStoreAsItIs, seedRegister, startFromEmpty } from '../seed.js';
+import { applyD1Migrations, env } from 'cloudflare:test';
+import { asUser, inTheStoreAsItIs, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
- * Integration level, through `SELF.fetch`: what these cases are about is that
- * an account is resolved on the real request path - register first, then its
- * own store - and none of that exists below the HTTP entry point ("Enter
- * through the real interface, not around it").
+ * Integration level, through the real Worker: what these cases are about is
+ * that an account is resolved on the real request path - who is signed in,
+ * then the register, then that account's own store - and none of that exists
+ * below the HTTP entry point ("Enter through the real interface, not around
+ * it").
  *
  * The branching in bringing an account up to date is *not* re-proved here. It
  * is decided by a list, a record and an executor with nothing real behind them,
@@ -16,7 +17,7 @@ import { ACCOUNT_NAME, inTheStoreAsItIs, seedRegister, startFromEmpty } from '..
  */
 
 async function fetchWorkspaces() {
-  return SELF.fetch('http://cockpit.test/v1/workspaces');
+  return asUser('http://cockpit.test/v1/workspaces');
 }
 
 beforeEach(async () => {
@@ -36,15 +37,23 @@ describe('Accounts', () => {
       expect(workspaces.map((w) => w.name)).toEqual(['Work', 'Atlas Copco', 'Personal']);
     });
 
-    it('says which account it is, when that account is in no register', async () => {
-      // Nothing seeded: the account the application resolves does not exist.
-      const response = await fetchWorkspaces();
-
-      expect(response.status).toBe(500);
-      expect((await response.json()) as { error: string }).toMatchObject({
-        error: expect.stringContaining(ACCOUNT_NAME),
-      });
-    });
+    /**
+     * There is deliberately no case here for an account that is absent from the
+     * register, and it is gone rather than forgotten.
+     *
+     * The account a request resolves is now the one belonging to whoever signed
+     * in, and a user's account is a foreign key into the register - so a signed-in
+     * request naming an unregistered account is a state the database refuses to
+     * hold. It cannot be arranged through the interface, and a test that reached
+     * around the interface to arrange it would be proving something about a
+     * database no deployment can be in. What replaces it is the constraint that
+     * makes it impossible, in tests/integration/db/constraints.test.ts.
+     *
+     * `openAccount` still checks the register, and the check is worth keeping:
+     * addressing a store by name creates one, so the register is what turns a
+     * name nobody owns into an error rather than an empty account. It is now
+     * defence behind the foreign key rather than the only thing standing there.
+     */
 
     it('never answers with a workspace filed under another account', async () => {
       await seedRegister();

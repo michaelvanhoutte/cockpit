@@ -74,19 +74,27 @@ export function useServerEvents() {
     };
 
     const afterDeath = async () => {
-      // A healthy deployment refusing us means the sign-in went. Re-reading is
-      // how that gets said out loud: the read fails the same way, and the
-      // screen the person already knows explains it. Deliberately not a second
-      // way of announcing it, and deliberately not a navigation — a tab showing
-      // your work keeps showing it (functional definition, "Offline /
-      // local-first behavior").
+      // A healthy deployment refusing us means a sign-in went - Cockpit's own
+      // or the perimeter's. Which one cannot be told apart from here, because
+      // `EventSource` reports that it stopped and never why, so there is no
+      // status to read; both are therefore treated the same way, by re-reading.
       //
-      // It has to be the workspace snapshot. The workspace *list* is read by
-      // Layout, which takes only `data` and no error, so invalidating that
-      // would fail again in silence and change nothing on screen — which is
-      // the very thing this is here to stop.
-      if ((await diagnoseConnection()) === 'signed-out') {
+      // Re-reading is how it gets said out loud: the read fails the same way,
+      // with a status this time, and the screen the person already knows
+      // explains it. Deliberately not a second way of announcing it, and
+      // deliberately not a navigation — a tab showing your work keeps showing
+      // it (functional definition, "Offline / local-first behavior").
+      //
+      // Both keys, because they answer different halves. The snapshot is what a
+      // workspace renders an error for, so it is what puts the reason on
+      // screen; who is signed in is what the shell watches, so it is what sends
+      // the browser to the logon page when the answer is that nobody is. The
+      // workspace *list* is neither: Layout takes only its `data`, so
+      // invalidating that would fail again in silence.
+      const reason = await diagnoseConnection();
+      if (reason === 'signed-out' || reason === 'gate-expired') {
         void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
+        void queryClient.invalidateQueries({ queryKey: ['me'] });
       }
       if (unmounted) return;
       retry = setTimeout(listen, wait);

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
-import { WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import { WORKSPACE_ID, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
  * Integration level: real D1, and requests go through the real Worker
@@ -26,7 +26,7 @@ async function storedIn(table: string, column: string, value: string) {
   );
 }
 async function postChange<N extends CommandName>(name: N, payload: CommandPayload<N>) {
-  return SELF.fetch(`http://cockpit.test/v1/commands/${name}`, {
+  return asUser(`http://cockpit.test/v1/commands/${name}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
@@ -281,7 +281,7 @@ describe('Triage', () => {
     it('is rejected before it reaches the item', async () => {
       const itemId = nextId();
 
-      const response = await SELF.fetch('http://cockpit.test/v1/commands/capture_item', {
+      const response = await asUser('http://cockpit.test/v1/commands/capture_item', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         // Missing the request id the whole replay story depends on. This is a

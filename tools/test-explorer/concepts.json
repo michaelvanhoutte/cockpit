@@ -87,7 +87,8 @@
         "packages/shared/src/ids.ts",
         "packages/shared/src/commands.ts",
         "apps/web/src/api/loadFailure.ts",
-        "apps/web/src/components/LoadFailure.tsx"
+        "apps/web/src/components/LoadFailure.tsx",
+        "apps/web/src/persistence.ts"
       ]
     },
     {
@@ -112,7 +113,9 @@
         "apps/api/src/accounts/probe.ts",
         "apps/api/src/accounts/answer.ts",
         "apps/api/src/accounts/rpc.ts",
-        "apps/api/src/db/schema.ts"
+        "apps/api/src/db/schema.ts",
+        "apps/api/src/auth/register.ts",
+        "apps/api/src/auth/gate.ts"
       ]
     },
     {
@@ -121,7 +124,13 @@
       "sourcePatterns": [
         "apps/web/src/api/loadFailure.ts",
         "apps/web/src/components/LoadFailure.tsx",
-        "apps/api/src/http/app.ts"
+        "apps/api/src/http/app.ts",
+        "apps/api/src/auth/session.ts",
+        "apps/api/src/auth/register.ts",
+        "apps/api/src/auth/gate.ts",
+        "packages/shared/src/api/users.ts",
+        "apps/web/src/pages/LogonPage.tsx",
+        "apps/web/src/session/forget.ts"
       ]
     },
     {

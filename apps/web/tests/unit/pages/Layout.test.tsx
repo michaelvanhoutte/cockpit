@@ -21,11 +21,18 @@ vi.mock('@tanstack/react-router', () => ({
   ),
   Outlet: () => null,
   useParams: () => ({}),
+  useNavigate: () => () => Promise.resolve(),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
 
 vi.mock('../../../src/api/queries', () => ({
+  // Signed in, so the shell renders rather than sending itself to the logon
+  // page - which is what this case needs on screen to look at.
+  meQuery: {
+    queryKey: ['me'],
+    queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
+  },
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () =>
