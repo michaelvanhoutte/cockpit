@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { uuidv7, type Dashboard } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand } from '../api/queries';
+import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
 /**
  * The bar under the workspace tabs: the workspace's Inbox, its dashboards, and
@@ -45,17 +47,26 @@ export function DashboardBar({ workspaceId }: { workspaceId: string }) {
         </Link>
       ))}
       <AddDashboard workspaceId={workspaceId} />
-      {/* The way to what a dashboard has beyond its name. One entry today -
-          renaming and deleting - and where "Panels on a dashboard, with
-          per-screen-size layouts" (issue 33) will put its layouts. */}
-      <Link
-        to="/w/$workspaceId/settings/dashboards"
-        params={{ workspaceId }}
-        aria-label="Manage dashboards"
-        className="ml-auto shrink-0 rounded-md px-2.5 py-1 text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
-      >
-        ···
-      </Link>
+      {/* The way to what a dashboard has beyond its name. This was three dots
+          that navigated - a menu's glyph on a link, so pressing three dots
+          sometimes opened a menu and sometimes left the page. It is a menu now
+          ("Open every menu from the same control", issue 115), which is also
+          where "Panels on a dashboard, with per-screen-size layouts" (issue 33)
+          puts its layouts: one entry today, more later. */}
+      <DropdownMenu.Root>
+        <MenuTrigger label="Dashboard actions" className="ml-auto" />
+        <MenuContent>
+          <DropdownMenu.Item asChild>
+            <Link
+              to="/w/$workspaceId/settings/dashboards"
+              params={{ workspaceId }}
+              className={menuItemClass}
+            >
+              Manage dashboards
+            </Link>
+          </DropdownMenu.Item>
+        </MenuContent>
+      </DropdownMenu.Root>
     </nav>
   );
 }
