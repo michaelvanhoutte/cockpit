@@ -15,6 +15,7 @@ cockpit/
 │   ├── shared/        # THE contract: domain types, Zod schemas, commands, API shapes
 │   ├── connector-sdk/ # the connector SPI (connectors land as packages/connectors/*)
 │   └── config/        # shared tsconfig / prettier
+├── tools/             # workspace packages that serve the build, not the product: the Test Explorer
 ├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
 ├── scripts/           # local dev startup, the browser tier's stack, branch tidying
 ├── .github/           # CI, CodeQL, the three Claude workflows, the two deploy workflows, branch protection
@@ -24,7 +25,7 @@ cockpit/
 
 One Worker per environment serves both the API and the SPA, on one origin (see [docs/deployment.md](docs/deployment.md)). `apps/api` is therefore the deployment, and `apps/web/dist` is its static-asset payload.
 
-Not yet in place (deliberately, in build order): auth (§8.1), the connectors themselves (§6.2), and the task-creator merge (§6.5).
+Not yet in place (deliberately, in build order): app login ("App login: hand-rolled Google OIDC + own sessions" in [docs/architecture.md](docs/architecture.md)), the connectors themselves ("Connectors: plugin-shaped, host-blind"), and the task-creator merge ("Multi-channel capture and the task-creator merge").
 
 ## Environments
 
