@@ -108,8 +108,11 @@ describe('assertPortFree', () => {
 describe('waitForApi', () => {
   const running = { exitCode: null, signalCode: null };
 
-  it('returns once the Worker answers with a database', async () => {
-    await waitForApi(running, 8887, { fetchImpl: async () => ok({ ok: true, db: true }), delayMs: 1 });
+  it('returns once the Worker answers that its data is reachable', async () => {
+    await waitForApi(running, 8887, {
+      fetchImpl: async () => ok({ ok: true, register: true, store: true }),
+      delayMs: 1,
+    });
   });
 
   it('keeps waiting while the Worker is not listening yet', async () => {
@@ -119,22 +122,22 @@ describe('waitForApi', () => {
       fetchImpl: async () => {
         attempts += 1;
         if (attempts < 3) throw new Error('ECONNREFUSED');
-        return ok({ ok: true, db: true });
+        return ok({ ok: true, register: true, store: true });
       },
     });
     assert.equal(attempts, 3, 'connection refused is the expected state for most of this loop');
   });
 
-  it('keeps waiting while the Worker answers but its database does not', async () => {
-    // /health is 200 either way and reports the database in its body, so a
-    // status-only check would start the suite against a Worker with no D1 —
-    // which is the slow part this wait exists for.
+  it('keeps waiting while the Worker answers but its data is not reachable', async () => {
+    // /health is 200 either way and reports reachability in its body, so a
+    // status-only check would start the suite against a Worker whose register
+    // or account store is not up — which is the slow part this wait exists for.
     let attempts = 0;
     await waitForApi(running, 8887, {
       delayMs: 1,
       fetchImpl: async () => {
         attempts += 1;
-        return ok({ ok: attempts >= 2, db: attempts >= 2 });
+        return ok({ ok: attempts >= 2, register: attempts >= 2, store: attempts >= 2 });
       },
     });
     assert.equal(attempts, 2);
@@ -143,7 +146,7 @@ describe('waitForApi', () => {
   it('gives up when the Worker exited instead of coming up', async () => {
     const exited = { exitCode: 1, signalCode: null };
     await assert.rejects(
-      () => waitForApi(exited, 8887, { fetchImpl: async () => ok({ db: true }), delayMs: 1 }),
+      () => waitForApi(exited, 8887, { fetchImpl: async () => ok({ ok: true }), delayMs: 1 }),
       /exited before it was ready \(1\)/,
     );
   });

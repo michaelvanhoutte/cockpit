@@ -105,7 +105,9 @@ jobs:
       - name: Verify health
         # Production sits behind Cloudflare Access like every other environment,
         # but /health is Bypass-policied so this assertion is a real one rather
-        # than "the login page loaded" (docs/deployment.md §6).
+        # than "the login page loaded" (docs/deployment.md, "`/health` must stay
+        # outside the gate"). It covers the register and an account store, not
+        # the register alone — see the same step in deploy-staging.yml.
         run: bash scripts/health-check.sh "https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
 
       - name: Summarise

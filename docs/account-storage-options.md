@@ -56,7 +56,7 @@ Local `workerd` under `wrangler` 4.127.1 and `drizzle-orm` 0.45.2, on Windows 11
 
 Two findings sharpen how it must be built rather than whether:
 
-- **A bad migration takes down every account, one at a time as they wake.** Partitioning the data buys no blast-radius protection, because the *code* is what is shared. Whatever a deploy-time migration gate would have caught, something else must now catch — which is an argument for applying migrations against a scratch object in CI before the deploy, not an argument against the shape.
+- **A bad migration takes down every account, one at a time as they wake.** Partitioning the data buys no blast-radius protection, because the *code* is what is shared. Whatever a deploy-time migration gate would have caught, something else must now catch — which is an argument for applying migrations against a scratch object in CI before the deploy, not an argument against the shape. *(Built 2026-09-01: `apps/api/tests/integration/accounts/aged-store.test.ts` before the deploy, and `/health` reporting on a scratch store after it. The two are not substitutes — the first stops a bad update shipping, the second stops a broken deployment reading as healthy.)*
 - **The failure is opaque.** Drizzle's migrator reports only `DrizzleError: Rollback`; the real SQL error appears nowhere, in the response or the logs. Fixable in a few lines by running the migration set directly, and it must be fixed *before* this ships, because the first time it matters is the first time something goes wrong in production.
 
 Two constraints turned up on the way, both worth knowing before building against this:
@@ -89,7 +89,7 @@ The related, smaller finding beside it: a Durable Object migration cannot be app
 ## What would reverse it
 
 - **Lazy migration turning out worse in production than locally.** Everything measured ran on `workerd` and miniflare, where an object's storage is a file on disk rather than replicated. The shape of the answer should hold; the constant may not. The first deployed schema change is the check.
-- **Rolling migrations proving unmanageable in practice** — an account untouched for months, opened after five schema changes, hitting a combination nothing exercised. Mitigated by migrating a scratch object in CI, and worth watching rather than assuming.
+- **Rolling migrations proving unmanageable in practice** — an account untouched for months, opened after five schema changes, hitting a combination nothing exercised. Mitigated as of 2026-09-01 by `apps/api/tests/integration/accounts/aged-store.test.ts`, which starts a scratch store from *every* point in the change list rather than only the newest, so the long-untouched account is exercised on each run. Still worth watching rather than assuming: the gate practises on fixture rows, and a real account's data is its own shape.
 - **The register needing to join account data.** It must not; if a requirement appears that makes it necessary, that is a bigger reversal than a storage choice and belongs in its own decision.
 
 ## Rejected, and why it is written down

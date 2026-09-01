@@ -1,5 +1,6 @@
 import { abortAllDurableObjects, env, runInDurableObject } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
+import { PROBE_NAME } from '../../src/accounts/probe.js';
 
 /**
  * What a test has to arrange before a request can succeed, what to put back
@@ -39,8 +40,22 @@ function accountStore() {
  */
 export async function startFromEmpty(): Promise<void> {
   await runInDurableObject(accountStore(), (_instance, state) => state.storage.deleteAll());
+  // The store /health practises on is emptied for the same reason and by the
+  // same argument: it is a second store that outlives a case, and one case
+  // deliberately breaks it.
+  await runInDurableObject(storeNamed(PROBE_NAME), (_instance, state) => state.storage.deleteAll());
   await abortAllDurableObjects();
   await env.DB.prepare('DELETE FROM tenants').run();
+}
+
+/** Any store, by the name it is addressed under - the stores no account owns included. */
+export function storeNamed(name: string) {
+  return env.ACCOUNT.get(env.ACCOUNT.idFromName(name));
+}
+
+/** Reads or writes any store directly, without bringing it up to date first. */
+export async function inStoreAsItIs<T>(name: string, work: (sql: SqlStorage) => T): Promise<T> {
+  return runInDurableObject(storeNamed(name), (_instance, state) => work(state.storage.sql));
 }
 
 /**

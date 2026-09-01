@@ -79,10 +79,14 @@ export function assertPortFree(port, what) {
  * and every `/v1` call it made was refused, and the first thing the first spec
  * does is open "/", whose route resolves workspaces before rendering anything.
  *
- * The status alone is not the answer: /health is 200 whether or not D1
- * responds, and reports the database in its body (apps/api/src/http/app.ts).
- * Since bringing D1 up is the slow part this wait exists for, `res.ok` on its
- * own would let the suite start against a Worker whose database is not there.
+ * The status alone is not the answer: /health is 200 whether or not the data is
+ * reachable, and reports that in its body (apps/api/src/http/app.ts). Since
+ * bringing the data layer up is the slow part this wait exists for, `res.ok` on
+ * its own would let the suite start against a Worker whose data is not there.
+ *
+ * The body's `ok` is what is read, rather than one of the two halves beside it:
+ * a spec needs the register *and* an account store, and `ok` is the field that
+ * means both. It also stays right when a third thing is added to that answer.
  *
  * The seams exist for the tests: nothing here should need a real Worker, a real
  * clock, or sixty seconds to prove which branch it takes.
@@ -96,7 +100,7 @@ export async function waitForApi(child, port, options = {}) {
     }
     try {
       const res = await fetchImpl(`http://127.0.0.1:${port}/health`);
-      if (res.ok && (await res.json())?.db === true) return;
+      if (res.ok && (await res.json())?.ok === true) return;
     } catch {
       // Not listening yet, or answering with something that is not JSON.
       // Connection refused is the expected state for most of this loop.

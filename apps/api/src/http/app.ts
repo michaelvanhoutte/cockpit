@@ -19,6 +19,7 @@ import {
   RefusedByAccountError,
   openAccount,
 } from '../accounts/index.js';
+import { checkHealth } from '../accounts/probe.js';
 import { getConnector } from '../connectors/registry.js';
 
 type AppEnv = { Bindings: Env };
@@ -64,13 +65,30 @@ app.onError((err, c) => {
 
 // --- health -----------------------------------------------------------------
 
+/**
+ * `ok` stays the single verdict, because it is the only field anything reads:
+ * scripts/health-check.sh greps for it and apps/web/src/api/loadFailure.ts asks
+ * this endpoint whether a failed request means "sign in again" or "the
+ * deployment is unwell". The two below say which half was unwell, for whoever
+ * reads the answer by hand.
+ *
+ * `db` is gone rather than kept alongside them. It meant "the data is
+ * reachable" when all of it was in D1, and once an account's data moved into
+ * its own store it silently narrowed to the register while still reading like
+ * the whole claim - which is what let a deployment where every request failed
+ * keep answering `{"ok":true,"db":true}`.
+ */
 const healthRoute = createRoute({
   method: 'get',
   path: '/health',
   responses: {
     200: {
-      description: 'Service and database health',
-      content: { 'application/json': { schema: z.object({ ok: z.boolean(), db: z.boolean() }) } },
+      description: 'Whether the register and an account store can both be reached',
+      content: {
+        'application/json': {
+          schema: z.object({ ok: z.boolean(), register: z.boolean(), store: z.boolean() }),
+        },
+      },
     },
   },
 });
@@ -198,14 +216,13 @@ export function worthReporting(stream: { aborted: boolean; closed: boolean }): b
 
 const routes = app
   .openapi(healthRoute, async (c) => {
-    let db = false;
-    try {
-      await c.env.DB.prepare('SELECT 1').first();
-      db = true;
-    } catch {
-      db = false;
+    const { register, store, failure } = await checkHealth(c.env);
+    // The reason goes to the logs and not into the body: this endpoint answers
+    // anyone at all, and why a change would not apply names tables and columns.
+    if (failure) {
+      console.error(JSON.stringify({ level: 'error', message: `unhealthy: ${failure}` }));
     }
-    return c.json({ ok: db, db }, 200);
+    return c.json({ ok: register && store, register, store }, 200);
   })
   .openapi(workspacesRoute, async (c) => {
     const account = await openAccount(c.env, CURRENT_ACCOUNT_NAME);

@@ -37,7 +37,7 @@ export type FailureReason =
   | 'outdated';
 
 export type Reach =
-  /** Answered, and said it and its database are fine. */
+  /** Answered, and said its register and an account store are both fine. */
   | 'healthy'
   /** Answered, but not well: something is up with the deployment itself. */
   | 'unhealthy'

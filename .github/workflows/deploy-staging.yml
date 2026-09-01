@@ -61,6 +61,11 @@ jobs:
 
       - name: Verify health
         # /health is Bypass-policied out of Cloudflare Access on every
-        # environment, so this asserts D1 connectivity for real instead of
-        # settling for "the Access login page loaded" (docs/deployment.md §6).
+        # environment, so this is a real assertion instead of "the Access login
+        # page loaded" (docs/deployment.md, "`/health` must stay outside the
+        # gate"). It covers both halves of where the data is: the register, and
+        # a store belonging to no account that has to open and come up to date.
+        # An update that will not apply fails here rather than in front of a
+        # user — though the gate that stops one being deployed at all is
+        # `pnpm test` above, which is where it is cheap to fix.
         run: bash scripts/health-check.sh "https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
