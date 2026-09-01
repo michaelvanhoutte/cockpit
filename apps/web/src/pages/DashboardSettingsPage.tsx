@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { uuidv7 } from '@cockpit/shared';
@@ -6,7 +6,9 @@ import type { Dashboard } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand } from '../api/queries';
 import { dashboardSettingsRoute } from '../router';
+import { DeleteQuestion } from '../components/DeleteQuestion';
 import { LoadFailure } from '../components/LoadFailure';
+import { RowMenu } from '../components/Menu';
 
 /**
  * Where the dashboards of one workspace are managed: renaming and deleting
@@ -18,6 +20,12 @@ import { LoadFailure } from '../components/LoadFailure';
  * **The Inbox is not in the list.** It is in the bar but it is not a dashboard,
  * so there is nothing here to rename or delete - which is a fact of the schema
  * rather than a case this page has to remember.
+ *
+ * **A row keeps its shape.** What can be done to a dashboard is in its own
+ * menu, renaming happens in the row because it is not destructive, and deleting
+ * asks in a dialog - so the row never rewrites itself under the pointer that is
+ * about to press it ("Ask before deleting in a dialog, from the row's own
+ * menu", issue 116).
  *
  * One `useCommand` for the whole page rather than one per control, so a refusal
  * can only belong to the last thing asked for - and `variables` says which
@@ -34,6 +42,12 @@ export function DashboardSettingsPage() {
   const { data, error, refetch } = useQuery(snapshotQuery(workspaceId));
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  /**
+   * The control the question was opened from, so the focus can go back to it.
+   * A ref rather than state: nothing on screen depends on it, and it is read
+   * only as the question closes.
+   */
+  const askedFrom = useRef<HTMLElement | null>(null);
   const command = useCommand();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -41,6 +55,13 @@ export function DashboardSettingsPage() {
   const dashboards = data?.dashboards ?? [];
   const answered = data !== undefined;
   const listFailed = Boolean(error) && !answered;
+  /**
+   * The dashboard the question is about, read from the list rather than kept
+   * beside the id: one deleted in another tab is gone from the next snapshot,
+   * and a question about a dashboard that is no longer there closes itself
+   * instead of asking about a name nothing holds.
+   */
+  const beingDeleted = dashboards.find((d) => d.id === deleting);
 
   /** Starting one leaves the other, so at most one row is ever asking something. */
   const startRenaming = (dashboard: Dashboard) => {
@@ -48,9 +69,10 @@ export function DashboardSettingsPage() {
     command.reset();
     setRenaming({ id: dashboard.id, name: dashboard.name });
   };
-  const startDeleting = (dashboard: Dashboard) => {
+  const startDeleting = (dashboard: Dashboard, openedFrom: HTMLElement | null) => {
     setRenaming(null);
     command.reset();
+    askedFrom.current = openedFrom;
     setDeleting(dashboard.id);
   };
   const stopAsking = () => {
@@ -135,7 +157,7 @@ export function DashboardSettingsPage() {
       <section className="rounded-lg bg-surface shadow-panel">
         <ul>
           {dashboards.map((dashboard) => (
-            <li key={dashboard.id} className="border-b border-black/5 px-4 py-3 last:border-b-0">
+            <li key={dashboard.id} className="border-b border-black/5 px-4 py-2 last:border-b-0">
               <div className="flex items-center gap-3">
                 {renaming?.id === dashboard.id ? (
                   <form onSubmit={rename} className="flex min-w-0 flex-1 items-center gap-2">
@@ -154,56 +176,54 @@ export function DashboardSettingsPage() {
                       Cancel
                     </button>
                   </form>
-                ) : deleting === dashboard.id ? (
-                  <>
-                    <span className="min-w-0 flex-1 text-sm">
-                      {deleteQuestion(dashboard.name)}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={command.isPending}
-                      onClick={() => confirmDelete(dashboard.id)}
-                      aria-label={`Yes, delete ${dashboard.name}`}
-                      className="shrink-0 rounded-md bg-over px-3 py-1 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-                    >
-                      Delete
-                    </button>
-                    <button type="button" onClick={stopAsking} className={quietButton}>
-                      Cancel
-                    </button>
-                  </>
                 ) : (
                   <>
                     <span className="min-w-0 flex-1 truncate text-sm">{dashboard.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => startRenaming(dashboard)}
-                      aria-label={`Rename ${dashboard.name}`}
-                      className={quietButton}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => startDeleting(dashboard)}
-                      aria-label={`Delete ${dashboard.name}`}
-                      className={quietButton}
-                    >
-                      Delete
-                    </button>
+                    <RowMenu
+                      label={`Actions for ${dashboard.name}`}
+                      entries={[
+                        { label: 'Rename', onSelect: () => startRenaming(dashboard) },
+                        {
+                          label: 'Delete',
+                          destructive: true,
+                          // Offered and then refused is how this read before:
+                          // the server keeps a workspace's last dashboard, so
+                          // the only way to find out was to answer the
+                          // question ("Ask before deleting in a dialog, from
+                          // the row's own menu", issue 116).
+                          unavailable:
+                            dashboards.length === 1
+                              ? 'A workspace keeps at least one dashboard'
+                              : undefined,
+                          onSelect: (openedFrom) => startDeleting(dashboard, openedFrom),
+                        },
+                      ]}
+                    />
                   </>
                 )}
               </div>
-              {(refusalFor('rename_dashboard', dashboard.id) ??
-                refusalFor('delete_dashboard', dashboard.id)) && (
+              {refusalFor('rename_dashboard', dashboard.id) && (
                 <p role="alert" className="pt-2 text-sm text-over">
-                  {refusalFor('rename_dashboard', dashboard.id) ??
-                    refusalFor('delete_dashboard', dashboard.id)}
+                  {refusalFor('rename_dashboard', dashboard.id)}
                 </p>
               )}
             </li>
           ))}
         </ul>
+        {/* One question for the page, not one per row: at most one row can be
+            asking, and the dialog covers the page while it is. */}
+        {beingDeleted && (
+          <DeleteQuestion
+            open
+            question={deleteQuestion(beingDeleted.name)}
+            confirmLabel={`Yes, delete ${beingDeleted.name}`}
+            canConfirm={!command.isPending}
+            refusal={refusalFor('delete_dashboard', beingDeleted.id)}
+            returnFocusTo={askedFrom.current}
+            onCancel={stopAsking}
+            onConfirm={() => confirmDelete(beingDeleted.id)}
+          />
+        )}
         {answered && dashboards.length === 0 && (
           <p className="px-4 py-4 text-sm text-ink-faint">No dashboards yet.</p>
         )}

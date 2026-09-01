@@ -45,7 +45,8 @@
         "apps/web/src/pages/DashboardSettingsPage.tsx",
         "apps/web/src/lastVisited.ts",
         "apps/web/src/router.tsx",
-        "apps/web/src/components/Menu.tsx"
+        "apps/web/src/components/Menu.tsx",
+        "apps/web/src/components/DeleteQuestion.tsx"
       ]
     },
     {
@@ -134,7 +135,8 @@
         "apps/web/src/pages/WorkspaceSettingsPage.tsx",
         "apps/web/src/pages/Layout.tsx",
         "apps/web/src/router.tsx",
-        "apps/web/src/components/Menu.tsx"
+        "apps/web/src/components/Menu.tsx",
+        "apps/web/src/components/DeleteQuestion.tsx"
       ]
     }
   ]

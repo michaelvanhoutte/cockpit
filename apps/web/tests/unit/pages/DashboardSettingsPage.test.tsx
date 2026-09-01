@@ -12,7 +12,9 @@ import { useCommand } from '../../../src/api/queries';
  * anything is sent, what it asks for, and what it does with an answer it does
  * not like. Whether a name is refused, and whether the last dashboard may go,
  * are the server's rules and are proved against a real store in
- * apps/api/tests/integration/http/dashboards.test.ts.
+ * apps/api/tests/integration/http/dashboards.test.ts. What is under test here
+ * is the page saying the last-dashboard rule out loud before anything is
+ * asked for, which is a claim about this screen and not about that rule.
  */
 const held = vi.hoisted(() => ({ dashboards: [] as Dashboard[] }));
 const wentTo = vi.hoisted(() => ({ calls: [] as unknown[] }));
@@ -84,6 +86,17 @@ function showPage(names: string[], answer: { error?: Error } = {}) {
   return { mutate, user: userEvent.setup() };
 }
 
+/**
+ * What a row offers is in the row's own menu, so reaching any of it is two
+ * gestures: open the menu named for the dashboard, then choose the entry named
+ * for the action ("Ask before deleting in a dialog, from the row's own menu",
+ * issue 116).
+ */
+async function choose(user: ReturnType<typeof userEvent.setup>, row: string, entry: string) {
+  await user.click(await screen.findByRole('button', { name: `Actions for ${row}` }));
+  await user.click(await screen.findByRole('menuitem', { name: entry }));
+}
+
 describe('Dashboards', () => {
   describe('the dashboards you can change are the workspace’s, and the Inbox is not one of them', () => {
     it('lists each dashboard by name, and nothing else', async () => {
@@ -94,35 +107,42 @@ describe('Dashboards', () => {
       // The Inbox is in the bar, not in this list: it is not a dashboard, so
       // there is nothing here to rename or delete.
       expect(screen.queryByText('Inbox')).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Delete Inbox' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Actions for Inbox' })).toBeNull();
     });
   });
 
   describe('you are told what deleting a dashboard takes with it before it happens', () => {
     it('names it and says what is on it', async () => {
-      const { user } = showPage(['Research']);
+      const { user } = showPage(['Dashboard 1', 'Research']);
 
-      await user.click(await screen.findByRole('button', { name: 'Delete Research' }));
+      await choose(user, 'Research', 'Delete');
 
       // Panels are what a dashboard holds, and there are none until "Panels on
       // a dashboard, with per-screen-size layouts" (issue 33).
       expect(screen.getByText('Delete Research? There is nothing on it.')).toBeVisible();
     });
 
-    it('sends nothing when the question is cancelled', async () => {
-      const { user, mutate } = showPage(['Research']);
+    it.each([
+      { situation: 'cancelled', answer: 'Cancel' },
+      { situation: 'dismissed with Escape', answer: null },
+    ])('sends nothing when the question is $situation', async ({ answer }) => {
+      const { user, mutate } = showPage(['Dashboard 1', 'Research']);
 
-      await user.click(await screen.findByRole('button', { name: 'Delete Research' }));
-      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      await choose(user, 'Research', 'Delete');
+      if (answer) await user.click(screen.getByRole('button', { name: answer }));
+      else await user.keyboard('{Escape}');
 
       expect(mutate).not.toHaveBeenCalled();
+      // The row is still the row: asking never changed it, so there is nothing
+      // to put back.
       expect(screen.getByText('Research')).toBeVisible();
+      expect(screen.queryByText('Delete Research? There is nothing on it.')).toBeNull();
     });
 
     it('asks to delete it, and leaves the workspace to decide where you land', async () => {
       const { user, mutate } = showPage(['Dashboard 1', 'Research']);
 
-      await user.click(await screen.findByRole('button', { name: 'Delete Research' }));
+      await choose(user, 'Research', 'Delete');
       await user.click(screen.getByRole('button', { name: 'Yes, delete Research' }));
 
       const [asked] = mutate.mock.calls[0]!;
@@ -135,11 +155,71 @@ describe('Dashboards', () => {
     });
   });
 
+  describe('closing the question leaves you on the row you asked from', () => {
+    it.each([
+      { situation: 'cancelled', answer: 'Cancel' },
+      { situation: 'dismissed with Escape', answer: null },
+    ])('$situation', async ({ answer }) => {
+      // The question is opened from an entry in a menu rather than by a
+      // control of its own, so nothing puts the focus back unless this page
+      // does - and in a list of rows, the top of the page is a lost place.
+      const { user } = showPage(['Dashboard 1', 'Research']);
+
+      await choose(user, 'Research', 'Delete');
+      if (answer) await user.click(screen.getByRole('button', { name: answer }));
+      else await user.keyboard('{Escape}');
+
+      expect(screen.getByRole('button', { name: 'Actions for Research' })).toHaveFocus();
+    });
+  });
+
+  describe('a workspace’s last dashboard cannot be deleted, and says so before it is asked for', () => {
+    it('offers the entry, unavailable, with the reason on it', async () => {
+      // Offered and then refused is how this read before: the rule is the
+      // server's, so the only way to find out was to answer the question.
+      const { user, mutate } = showPage(['Dashboard 1']);
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Dashboard 1' }));
+      const entry = await screen.findByRole('menuitem', {
+        name: 'Delete: A workspace keeps at least one dashboard',
+      });
+
+      await user.click(entry);
+
+      expect(screen.queryByText(/Delete Dashboard 1\?/)).toBeNull();
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('can be reached by the keyboard, which is who most needs to hear the reason', async () => {
+      // Marked unavailable rather than disabled: a disabled entry is taken out
+      // of the menu's roving focus, so arrow keys skip it and the reason is
+      // never read out - leaving the people who cannot see it greyed out with
+      // no entry at all, which is worse than the offered-then-refused this
+      // replaced.
+      const { user, mutate } = showPage(['Dashboard 1']);
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Dashboard 1' }));
+      await user.keyboard('{ArrowDown}{ArrowDown}');
+
+      const entry = screen.getByRole('menuitem', {
+        name: 'Delete: A workspace keeps at least one dashboard',
+      });
+      expect(entry).toHaveFocus();
+
+      await user.keyboard('{Enter}');
+
+      expect(mutate).not.toHaveBeenCalled();
+      // Still open: choosing it did nothing, and a menu that closed would read
+      // as having done something.
+      expect(entry).toBeVisible();
+    });
+  });
+
   describe('renaming a dashboard asks for the name you typed, starting from the one it has', () => {
     it('offers the current name and asks for the new one without the blanks around it', async () => {
       const { user, mutate } = showPage(['Research']);
 
-      await user.click(await screen.findByRole('button', { name: 'Rename Research' }));
+      await choose(user, 'Research', 'Rename');
       const box = screen.getByLabelText('New name for Research');
       expect(box).toHaveValue('Research');
       await user.clear(box);
@@ -156,9 +236,9 @@ describe('Dashboards', () => {
   describe('a change that could not happen puts the screen back', () => {
     it.each([
       {
-        situation: 'the last dashboard may not be deleted',
-        error: new CommandRefused(409, 'a workspace keeps at least one dashboard'),
-        says: 'a workspace keeps at least one dashboard',
+        situation: 'the dashboard is no longer there to delete',
+        error: new CommandRefused(404, 'that dashboard is not in this workspace'),
+        says: 'that dashboard is not in this workspace',
       },
       {
         situation: 'the request never reached the server',
@@ -166,14 +246,17 @@ describe('Dashboards', () => {
         says: 'That did not reach the server. Try again.',
       },
     ])('$situation', async ({ error, says }) => {
-      const { user } = showPage(['Research'], { error });
+      const { user } = showPage(['Dashboard 1', 'Research'], { error });
 
-      await user.click(await screen.findByRole('button', { name: 'Delete Research' }));
+      await choose(user, 'Research', 'Delete');
       await user.click(screen.getByRole('button', { name: 'Yes, delete Research' }));
 
       expect(screen.getByRole('alert')).toHaveTextContent(says);
-      // Still there: nothing was deleted, so the row is still the row.
-      expect(screen.getByText(/Delete Research\?/)).toBeVisible();
+      // Said where it was asked for, in a question that is still open: a
+      // dialog that closed and left the message behind on the page would make
+      // a refusal look like a delete that had worked.
+      expect(screen.getByText('Delete Research? There is nothing on it.')).toBeVisible();
+      expect(screen.getByText('Research')).toBeVisible();
     });
   });
 });
