@@ -12,7 +12,12 @@
  * is a workspace that opens on its first dashboard rather than one that throws.
  */
 
-/** What a workspace can be showing: its pinned Inbox, or one of its dashboards. */
+/**
+ * What a workspace can be showing: its Inbox as a screen of its own, or one of
+ * its dashboards. Where there is room the Inbox is a column beside whatever is
+ * showing rather than one of the things that can show, so it is not a view to
+ * come back to there.
+ */
 export type View = { on: 'inbox' } | { on: 'dashboard'; dashboardId: string };
 
 export const INBOX: View = { on: 'inbox' };
@@ -28,6 +33,13 @@ const KEY = 'cockpit.last-visited.';
  * cleared all arrive here as "nothing usable", and all three answer the same
  * way.
  *
+ * **A remembered Inbox is not a view to return to where the Inbox has a column
+ * of its own** ("Show the Inbox beside the dashboards instead of as a tab",
+ * issue 117): it is already on the screen, so returning to it would land you
+ * on a workspace showing the same thing twice. That is why the room is asked
+ * about here rather than left to whoever is opening the workspace - the
+ * decision is one decision.
+ *
  * A workspace with no dashboards at all cannot happen - every workspace is
  * created with one - but answering the Inbox rather than throwing is what keeps
  * that a rule of the data instead of a crash if it is ever broken.
@@ -35,8 +47,9 @@ const KEY = 'cockpit.last-visited.';
 export function viewToOpen(
   remembered: string | null,
   dashboards: readonly { id: string }[],
+  roomForTheInbox = false,
 ): View {
-  if (remembered === 'inbox') return INBOX;
+  if (remembered === 'inbox' && !roomForTheInbox) return INBOX;
   if (remembered && dashboards.some((d) => d.id === remembered)) {
     return { on: 'dashboard', dashboardId: remembered };
   }

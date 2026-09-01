@@ -140,20 +140,28 @@ export async function dragRowOnto(page: Page, row: string, onto: string): Promis
   await page.mouse.up();
 }
 
-/** The bar of views under the workspace tabs: the Inbox, then the dashboards. */
+/**
+ * The bar of views under the workspace tabs: the workspace's dashboards, and
+ * the Inbox before them only on a screen too narrow to hold it beside them
+ * ("Show the Inbox beside the dashboards instead of as a tab", issue 117).
+ */
 export function dashboardBar(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Dashboards' });
 }
 
 /**
- * Opens the first workspace and switches to its Inbox, which is where capture
- * and triage happen. A workspace opens on a dashboard unless it remembers
- * otherwise, so the walks about items say which view they need rather than
- * assuming one.
+ * Opens the first workspace with its Inbox on screen, which is where capture
+ * and triage happen.
+ *
+ * Two shapes, one Inbox ("Show the Inbox beside the dashboards instead of as a
+ * tab", issue 117): on the 1280px project it is a column beside whatever the
+ * workspace opened on, so it is already there; on the 480px one there is no
+ * room for a column, so it is a tab in the bar and has to be switched to. The
+ * projects are the two devices, so which one is running is what says which.
  */
 export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
   await openFirstWorkspace(page, isMobile);
-  await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+  if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
   await expect(captureBox(page)).toBeVisible();
 }
 
@@ -224,6 +232,28 @@ export async function capture(page: Page, title: string, isMobile: boolean): Pro
   await captureBox(page).fill(title);
   await press(page.getByRole('button', { name: 'Capture' }), isMobile);
   await expect(itemRow(page, title)).toBeVisible();
+}
+
+/**
+ * Fails if anything inside the Inbox column spills out of it sideways.
+ *
+ * A second check rather than a nicety: the column scrolls inside itself, so
+ * something too wide for it scrolls *there* and the page stays exactly the
+ * width it was - `expectNoSidewaysScroll` is structurally blind to it. That is
+ * how the capture box pushed its own button out of the panel and was found by
+ * looking rather than by running anything ("Show the Inbox beside the
+ * dashboards instead of as a tab", issue 117).
+ */
+export async function expectNothingSpillsOutOfTheInbox(page: Page): Promise<void> {
+  const column = await page.evaluate(() => {
+    const inbox = document.querySelector('aside[aria-label="Inbox"]');
+    return inbox ? { scrollWidth: inbox.scrollWidth, clientWidth: inbox.clientWidth } : null;
+  });
+  expect(column, 'there is no Inbox column on this screen to measure').not.toBeNull();
+  expect(
+    column!.scrollWidth,
+    `the Inbox spills out of its column: ${column!.scrollWidth}px of content in ${column!.clientWidth}px`,
+  ).toBeLessThanOrEqual(column!.clientWidth);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { workspaceListSchema } from '@cockpit/shared';
 import { LoadFailure } from '../../../src/components/LoadFailure';
@@ -207,7 +207,12 @@ describe('Sign-in', () => {
       render(<LoadFailure error={refused} surroundings={world(false, 'healthy')} canTakeOver />);
 
       expect(await screen.findByText('Signing you back in…')).toBeInTheDocument();
-      expect(askedToSignIn).toHaveBeenCalledWith('/w/ws-work');
+      // Waited for rather than asserted outright: saying so and doing it are
+      // one render and the effect after it, and nothing makes the effect have
+      // run by the moment the words are on screen. Asserted straight, this
+      // passes on a quick machine and fails on a loaded one - which is what it
+      // did, once, on CI under coverage while passing everywhere else.
+      await waitFor(() => expect(askedToSignIn).toHaveBeenCalledWith('/w/ws-work'));
     });
 
     it('asks rather than moves, once a sign-in has already been tried and did not help', async () => {

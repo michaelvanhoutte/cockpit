@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Item, ItemStatus, WorkspaceSnapshot } from '@cockpit/shared';
-import { WorkspacePage } from '../../../src/pages/WorkspacePage';
+import { InboxPanel } from '../../../src/components/InboxPanel';
 
 /**
  * F1: what the Inbox holds is a view over the snapshot evaluated in the
@@ -10,11 +10,13 @@ import { WorkspacePage } from '../../../src/pages/WorkspacePage';
  * prove against a database. Which items the server puts in the snapshot at all
  * (dismissed and tombstoned ones are left out) is proved in
  * apps/api/tests/integration against a real one.
+ *
+ * It is asked of the Inbox itself rather than of a screen, because the Inbox is
+ * rendered in two places now - a column beside the dashboards, and a screen of
+ * its own on a narrow one ("Show the Inbox beside the dashboards instead of as
+ * a tab", issue 117) - and what it holds cannot depend on which. Which of the
+ * two a workspace shows is in tests/unit/router.test.tsx.
  */
-vi.mock('../../../src/router', () => ({
-  inboxRoute: { useParams: () => ({ workspaceId: 'ws-work' }) },
-}));
-
 const held = vi.hoisted(() => ({ items: [] as Item[] }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -65,7 +67,7 @@ async function showWorkspace(items: Item[]) {
   held.items = items;
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <WorkspacePage />
+      <InboxPanel workspaceId="ws-work" />
     </QueryClientProvider>,
   );
   return screen.findByRole('region', { name: 'Inbox' });
