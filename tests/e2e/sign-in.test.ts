@@ -61,7 +61,14 @@ test.describe('Sign-in', () => {
       // Somewhere with something in it, so there is genuinely something to be
       // left behind: opening a workspace is what fills the stored copy and what
       // writes down which view it was on.
-      await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      //
+      // The Inbox is beside the dashboards where there is room for it and a tab
+      // in the bar where there is not ("Show the Inbox beside the dashboards
+      // instead of as a tab", issue 117), so only the narrow one switches to
+      // it; on the wide one it is already on screen.
+      if (isMobile) {
+        await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      }
       await expect(captureBox(page)).toBeVisible();
       await expect
         .poll(async () => (await whatTheBrowserStillHolds(page)).storedQueries.length)
@@ -112,7 +119,11 @@ test.describe('Accounts', () => {
       const mine = page.locator('header').getByRole('link', { name: workspace });
       await expect(mine).toBeVisible();
       await press(mine, isMobile);
-      await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      // Already beside the dashboards on the wide project; a tab to switch to
+      // on the narrow one (issue 117, as above).
+      if (isMobile) {
+        await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      }
       await captureBox(page).fill(thought);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
       await expect(itemRow(page, thought)).toBeVisible();

@@ -17,9 +17,10 @@ import { RowMenu } from '../components/Menu';
  * governs ("Open every menu from the same control", issue 115), so what it acts
  * on is obvious from where it sits rather than from what was last clicked.
  *
- * **The Inbox is not in the list.** It is in the bar but it is not a dashboard,
- * so there is nothing here to rename or delete - which is a fact of the schema
- * rather than a case this page has to remember.
+ * **The Inbox is not in the list.** It is beside this page rather than on it -
+ * a column of its own where there is room, a tab in the bar where there is not
+ * - and it is not a dashboard, so there is nothing here to rename or delete.
+ * That is a fact of the schema rather than a case this page has to remember.
  *
  * **A row keeps its shape.** What can be done to a dashboard is in its own
  * menu, renaming happens in the row because it is not destructive, and deleting

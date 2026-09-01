@@ -23,7 +23,7 @@ describe('Dashboards', () => {
         opens: { on: 'dashboard', dashboardId: 'ws-work-research' },
       },
       {
-        situation: 'the Inbox, which you were last on',
+        situation: 'the Inbox, which you were last on, on a screen too narrow to hold it beside',
         remembered: 'inbox',
         opens: INBOX,
       },
@@ -34,6 +34,23 @@ describe('Dashboards', () => {
       },
     ])('$situation', ({ remembered, opens }) => {
       expect(viewToOpen(remembered, dashboards)).toEqual(opens);
+    });
+
+    it.each([
+      {
+        situation: 'the Inbox, which is on the screen already',
+        remembered: 'inbox',
+        opens: { on: 'dashboard', dashboardId: 'ws-work-dashboard-1' },
+      },
+      {
+        situation: 'a dashboard you were on, which is still a view to return to',
+        remembered: 'ws-work-research',
+        opens: { on: 'dashboard', dashboardId: 'ws-work-research' },
+      },
+    ])('where the Inbox has a column of its own: $situation', ({ remembered, opens }) => {
+      // Returning to the Inbox where it is already beside you would land you on
+      // a workspace showing the same thing twice.
+      expect(viewToOpen(remembered, dashboards, true)).toEqual(opens);
     });
 
     it('opens the Inbox for a workspace with no dashboards at all', () => {

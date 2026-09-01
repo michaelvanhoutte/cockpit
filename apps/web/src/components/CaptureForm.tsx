@@ -30,17 +30,24 @@ export function CaptureForm({ workspaceId }: { workspaceId: string }) {
 
   return (
     <form onSubmit={submit} className="flex gap-2">
+      {/* `min-w-0` is what lets the box be narrower than the twenty characters
+          an input asks for by default. Without it the box refuses to shrink
+          and pushes the button out of the panel instead - which is invisible
+          to the page-level sideways-scroll check, because the Inbox column
+          scrolls inside itself. Found in the browser at 280px, the narrowest
+          the column ever gets ("Show the Inbox beside the dashboards instead
+          of as a tab", issue 117). */}
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Capture a note or to-do…"
         aria-label="Capture a note or to-do"
-        className="flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+        className="min-w-0 flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
       <button
         type="submit"
         disabled={command.isPending}
-        className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+        className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
       >
         Capture
       </button>

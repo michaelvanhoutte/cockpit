@@ -1,73 +1,41 @@
-import { useId } from 'react';
+import { Navigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { inboxRoute } from '../router';
-import { CaptureForm } from '../components/CaptureForm';
-import { LoadFailure } from '../components/LoadFailure';
-import { ItemRow } from '../components/ItemRow';
+import { InboxPanel } from '../components/InboxPanel';
+import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /**
- * The workspace shows one Inbox, holding every item still to deal with, with
- * capture as its first row. Which items that is, is a view over the snapshot
- * evaluated in the client (architecture, "The read model: persisted snapshot,
- * revalidate, push"): the wire carries the workspace's open items and nothing
- * about how they are grouped.
+ * The Inbox as a screen of its own, which is what it is on a phone: below the
+ * breakpoint it is a tab in the bar and this is what the tab opens ("Show the
+ * Inbox beside the dashboards instead of as a tab", issue 117).
  *
- * It narrows back to unprocessed items only when panels exist to hold the rest
- * ("Render actions in panels, backed by one shared action list", issue 36).
+ * **Where there is room, this address is not a screen.** The Inbox is already
+ * on the left of every screen in the workspace, so rendering it here as well
+ * would show it twice; the workspace's own address decides where to go
+ * instead, which is a dashboard. That happens here rather than in the route so
+ * that widening the window on this address is answered too - a route decides
+ * once, on arrival, and a window can be resized long after.
+ *
+ * **Unless there is nowhere else to go**, and that guard is not decoration: the
+ * workspace's address sends you back here when the workspace has no dashboards
+ * (lastVisited.ts), so going there unconditionally would be a redirect loop
+ * rather than a screen. It cannot happen - a workspace is created with a
+ * dashboard and its last one cannot be deleted - and the same "cannot happen"
+ * is why `viewToOpen` answers the Inbox there rather than throwing. Showing the
+ * Inbox twice is a poor screen; bouncing between two addresses is not a screen
+ * at all.
  */
 export function WorkspacePage() {
   const { workspaceId } = inboxRoute.useParams();
-  const { data, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
-  const headingId = useId();
+  const roomForTheInbox = useRoomForTheInbox();
+  // Already in hand: the route this page is under read it on the way in.
+  const { data } = useQuery(snapshotQuery(workspaceId));
+  const somewhereElse = (data?.dashboards.length ?? 0) > 0;
 
-  // Nothing of this workspace to show, so the failure is the whole view.
-  if (error && !data) {
-    return <LoadFailure error={error} onRetry={() => void refetch()} canTakeOver />;
-  }
-  if (isLoading || !data) {
-    return <p className="text-ink-faint">Loading…</p>;
+  if (roomForTheInbox && somewhereElse) {
+    return <Navigate to="/w/$workspaceId" params={{ workspaceId }} replace />;
   }
 
-  // Everything that is still yours to handle. Dismissed items never reach the
-  // client at all — the snapshot leaves them out server-side.
-  const inbox = data.items.filter((i) => i.status !== 'done' && i.status !== 'dismissed');
-
-  return (
-    <div className="flex flex-col gap-6">
-      {/* The stored copy stays on screen behind this: reading what you already
-          have is what the local copy is for (functional definition, "Offline /
-          local-first behavior"), so a failed refresh reports itself instead of
-          blanking the workspace. */}
-      {error && <LoadFailure error={error} onRetry={() => void refetch()} />}
-
-      <section aria-labelledby={headingId} className="rounded-lg bg-surface shadow-panel">
-        <header className="flex items-baseline gap-2 border-b border-black/5 px-4 py-3">
-          <h2 id={headingId} className="text-base font-semibold">
-            Inbox
-          </h2>
-          <span className="text-xs text-ink-faint">still to deal with</span>
-          <span className="ml-auto rounded-full bg-accent-tint px-2 text-xs text-accent-deep">
-            {inbox.length}
-          </span>
-        </header>
-
-        {/* Writing something down and seeing where it landed are the same
-            place: the box is the Inbox's first row. */}
-        <div className="border-b border-black/5 px-4 py-3">
-          <CaptureForm workspaceId={workspaceId} />
-        </div>
-
-        {inbox.length === 0 ? (
-          <p className="px-4 py-4 text-sm text-ink-faint">Nothing to deal with.</p>
-        ) : (
-          <ul>
-            {inbox.map((item) => (
-              <ItemRow key={item.id} item={item} workspaceId={workspaceId} />
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
+  return <InboxPanel workspaceId={workspaceId} />;
 }

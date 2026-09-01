@@ -7,7 +7,9 @@ import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
 import { DashboardBar } from '../components/DashboardBar';
+import { InboxPanel } from '../components/InboxPanel';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
+import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /** The default theme in the shape a workspace carries it. */
 const DEFAULT_WORKSPACE_THEME_COLORS = {
@@ -19,8 +21,14 @@ const DEFAULT_WORKSPACE_THEME_COLORS = {
 /**
  * The app shell: workspace tabs on top (the workspace color identity from the
  * functional definition's container hierarchy), the active workspace below.
- * Dashboards and panels arrive with their own issues; the shell only owns
- * workspace scoping.
+ *
+ * **The Inbox is part of the shell, not part of a page** ("Show the Inbox
+ * beside the dashboards instead of as a tab", issue 117). Inside a workspace,
+ * and where there is room for it, it is a column down the left of every screen
+ * - the dashboards and the dashboard settings page alike - because it is the
+ * thing everything else flows out of rather than one more view to switch to.
+ * The workspaces settings page is reached without a workspace, so it has no
+ * column: there is no Inbox to show.
  */
 export function Layout() {
   useServerEvents();
@@ -28,6 +36,7 @@ export function Layout() {
   const queryClient = useQueryClient();
   const { data } = useQuery(workspacesQuery);
   const params = useParams({ strict: false });
+  const roomForTheInbox = useRoomForTheInbox();
 
   /**
    * Who is signed in - and, when it comes back refused, that nobody is.
@@ -154,9 +163,28 @@ export function Layout() {
         {params.workspaceId && <DashboardBar workspaceId={params.workspaceId} />}
       </header>
       {/* Left-aligned and full width, matching the header: pages get the whole
-          screen instead of a centred column with empty gutters either side. */}
-      <main className="w-full flex-1 overflow-y-auto px-3 py-5">
-        <Outlet />
+          screen instead of a centred column with empty gutters either side.
+
+          Two columns where there is room for two ("Show the Inbox beside the
+          dashboards instead of as a tab", issue 117). Each scrolls on its own,
+          which is the point of the split: a long Inbox never pushes the
+          dashboard off the screen, and a tall dashboard never scrolls the
+          Inbox away. */}
+      <main className="flex w-full min-h-0 flex-1">
+        {params.workspaceId && roomForTheInbox && (
+          <aside
+            aria-label="Inbox"
+            // A fifth of the width, with a floor and a ceiling: 20% of a
+            // 1280px screen is 256px, which an item row cannot hold, and 20%
+            // of a very wide one is more Inbox than anybody asked for.
+            className="w-1/5 min-w-70 max-w-105 shrink-0 overflow-y-auto py-5 pl-3"
+          >
+            <InboxPanel workspaceId={params.workspaceId} />
+          </aside>
+        )}
+        <div className="min-w-0 flex-1 overflow-y-auto px-3 py-5">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

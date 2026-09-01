@@ -212,10 +212,12 @@ export const workspaces = sqliteTable(
  * on a dashboard, with per-screen-size layouts" (issue 33) lands; until then a
  * dashboard is its name and the fact that you can switch to it.
  *
- * The Inbox is not here and never will be. It is a fixed entry at the left of
- * the bar rather than a row of this table, so nothing can rename, delete or
- * move it - which is what "pinned" means, expressed in the schema rather than
- * in a rule somebody has to remember.
+ * The Inbox is not here and never will be. It is a fixture of the screen - a
+ * column beside the dashboards where there is room, a view of its own where
+ * there is not - rather than a row of this table, so nothing can rename,
+ * delete or move it. That is a fact of the schema rather than a rule somebody
+ * has to remember, which is why where it is drawn can change without anything
+ * here changing.
  */
 export const dashboards = sqliteTable(
   'dashboards',
