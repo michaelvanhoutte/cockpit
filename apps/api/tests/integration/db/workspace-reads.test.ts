@@ -12,18 +12,26 @@ import { TENANT_ID, WORKSPACE_ID, seedWorkspaces } from '../seed.js';
  * rather than a feature. Every deploy applies migrations *before* the new code
  * goes live, so for those seconds the release running is the previous one,
  * against a table the next one has already changed; promoting an earlier commit
- * puts it in the same position for as long as the rollback lasts. This is the
- * guarantee the migration that drops `slug` rests on, one release from now
- * ("Drop the unused workspace slug column", issue 78).
+ * puts it in the same position for as long as the rollback lasts. Keeping the
+ * reads down to the columns they need is what makes that survivable, and this
+ * is what says they still are.
+ *
+ * It dropped `slug` until migration 0006 removed that column for good. Now it
+ * drops `folded_name`, which is the remaining column the table carries and no
+ * query reads - only the unique index does, which is why that index has to go
+ * first. Same question, and it will keep being answerable as long as there is
+ * one such column; the day there is not, this file goes rather than being
+ * pointed at a column something reads.
  *
  * **Why it asserts the whole workspace rather than just a status.** Losing a
  * column a query names does not fail the way you would expect, and this is the
  * measurement that settles it. SQLite reads a double-quoted identifier that
  * matches no column as a *string literal*, and drizzle quotes every identifier
- * it emits - so `select ..., "slug", ... from workspaces` against a table
- * without that column returns the text `slug` for every row instead of
- * refusing. Measured against a real D1, both halves: the double-quoted form
- * comes back as `slug`, the bare `select slug` raises "no such column".
+ * it emits - so `select ..., "folded_name", ... from workspaces` against a
+ * table without that column returns the text `folded_name` for every row
+ * instead of refusing. Measured against a real D1, both halves: the
+ * double-quoted form comes back as the column's own name, the bare
+ * `select folded_name` raises "no such column".
  *
  * So a status code proves nothing here - the request answers 200 either way -
  * and only the body shows the difference: a workspace carrying fields it should
@@ -39,8 +47,10 @@ import { TENANT_ID, WORKSPACE_ID, seedWorkspaces } from '../seed.js';
 beforeAll(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await seedWorkspaces();
-  // The state the next release's migration leaves for this one to run against.
-  await env.DB.prepare('ALTER TABLE workspaces DROP COLUMN slug').run();
+  // SQLite refuses to drop a column an index refers to, and this column's only
+  // reader is that index.
+  await env.DB.prepare('DROP INDEX IF EXISTS workspaces_tenant_live_folded_name').run();
+  await env.DB.prepare('ALTER TABLE workspaces DROP COLUMN folded_name').run();
 });
 
 describe('Workspace management', () => {

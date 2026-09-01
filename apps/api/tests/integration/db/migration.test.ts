@@ -124,12 +124,15 @@ describe('Capture', () => {
 
 describe('Workspace management', () => {
   describe('a workspace that was there before an update keeps its name and holds on to it', () => {
-    it('is still called what it was called', async () => {
+    it('is still called what it was called, and still looks the same', async () => {
+      // The colour as well as the name, because an update that drops a column
+      // carries every other one across, and getting one of them wrong is
+      // exactly how that goes wrong quietly.
       expect(
-        await env.DB.prepare('SELECT name FROM workspaces WHERE id = ?').bind('ws-work').first<{
-          name: string;
-        }>(),
-      ).toMatchObject({ name: 'Work' });
+        await env.DB.prepare('SELECT name, color FROM workspaces WHERE id = ?')
+          .bind('ws-work')
+          .first<{ name: string; color: string }>(),
+      ).toMatchObject({ name: 'Work', color: '#6f62b5' });
     });
 
     it('still holds the thoughts that were filed in it', async () => {
@@ -152,9 +155,9 @@ describe('Workspace management', () => {
       // is the half of the update nothing else can see.
       await expect(
         env.DB.prepare(
-          'INSERT INTO workspaces (id, tenant_id, name, folded_name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
         )
-          .bind('ws-work-again', TENANT_ID, 'work', foldName('work'), 'work-again', '#3f8f78', AT)
+          .bind('ws-work-again', TENANT_ID, 'work', foldName('work'), '#3f8f78', AT)
           .run(),
       ).rejects.toThrow();
     });

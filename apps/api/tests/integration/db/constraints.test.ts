@@ -183,9 +183,9 @@ describe('Workspace management', () => {
      */
     async function makeWorkspaceRow(id: string, name: string): Promise<void> {
       await env.DB.prepare(
-        'INSERT INTO workspaces (id, tenant_id, name, folded_name, slug, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
       )
-        .bind(id, TENANT_ID, name, foldName(name), id, '#3f8f78', AT)
+        .bind(id, TENANT_ID, name, foldName(name), '#3f8f78', AT)
         .run();
     }
 
