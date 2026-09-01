@@ -151,7 +151,7 @@ One consequence worth knowing, and it is the action's behaviour rather than eith
 
 **Posting the findings is where the automation stops.** Answering them is manual, and it is a rule rather than a courtesy: reply in each review thread naming the commit that fixed it, then resolve it — see "Review findings" in [CLAUDE.md](CLAUDE.md). Nothing about pushing a fix, or merging, closes a thread, so a pull request whose review still looks untouched is exactly what a fully handled review looks like until someone answers it.
 
-Note the ordering this implies. The review is triggered *by* the push, so it has not run yet at the moment the pull request appears — opening one and calling the work done reliably leaves findings nobody has read. Wait for the checks to settle first (`until ! gh pr checks <number> | grep -q 'pending'; do sleep 30; done`), then answer what came back.
+Note the ordering this implies. The review is triggered *by* the push, so it has not run yet at the moment the pull request appears — opening one and calling the work done reliably leaves findings nobody has read. Worse, it has not necessarily been *created* yet either: `ci.yml` also runs on `push`, so a commit can carry a full set of finished check runs while the pull-request-triggered ones have not been dispatched at all. Wait for the checks to settle first — the command is in "Review findings" in [CLAUDE.md](CLAUDE.md), and lives there alone rather than in both places, because the copy that used to sit here went stale the day that one was fixed — then answer what came back.
 
 ### Checked in — agent configuration
 
