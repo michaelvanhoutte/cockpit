@@ -67,18 +67,28 @@ function aDashboard(name: string): Dashboard {
   };
 }
 
-/** The bar of a workspace holding these dashboards. */
+/**
+ * The bar of a workspace holding these dashboards.
+ *
+ * The mutation is replaced by one that behaves like the real one rather than by
+ * a fixed value: `reset` really clears the error, because "the refusal is not
+ * still there next time" is a claim about what the screen shows afterwards, and
+ * a mock that only recorded the call could not tell that from a screen that
+ * still shows it.
+ */
 function showBar(names: string[], answer: { error?: Error } = {}) {
   held.dashboards = names.map(aDashboard);
   wentTo.calls = [];
+  const asked = { error: answer.error ?? null };
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (!answer.error) options?.onSuccess?.();
   });
-  mockUseCommand.mockReturnValue({
-    mutate,
-    isPending: false,
-    error: answer.error ?? null,
-  } as never);
+  const reset = vi.fn(() => {
+    asked.error = null;
+  });
+  mockUseCommand.mockImplementation(
+    () => ({ mutate, reset, isPending: false, error: asked.error }) as never,
+  );
   const { container } = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <DashboardBar workspaceId="ws-work" />
@@ -157,6 +167,24 @@ describe('Dashboards', () => {
           params: { workspaceId: 'ws-work', dashboardId: asked.payload.dashboardId },
         },
       ]);
+    });
+
+    it('does not still say why the last one was refused, next time the field opens', async () => {
+      // The `+` and the field are two renders of the same component, so a
+      // refusal that is only hidden comes back over a name nobody has typed.
+      const { user } = showBar(['Research'], {
+        error: new CommandRefused(409, 'a dashboard called Research already exists in this workspace'),
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
+      await user.type(screen.getByLabelText('Name of the new dashboard'), 'Research');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+      expect(screen.getByRole('alert')).toBeVisible();
+      await user.keyboard('{Escape}');
+      await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByLabelText('Name of the new dashboard')).toHaveValue('');
     });
 
     it('asks for nothing when the field holds only blanks', async () => {

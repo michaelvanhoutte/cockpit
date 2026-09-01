@@ -47,17 +47,35 @@ const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string)
 };
 
 /**
- * The workspace's snapshot, re-read when the copy in hand is stale.
+ * The workspace's snapshot: re-read when the copy in hand is stale, and the
+ * copy in hand when it cannot be re-read.
  *
- * `fetchQuery`, not `ensureQueryData`: the second answers from the cache
- * whenever there is one, and the moment this matters most - just after adding a
- * dashboard - that cache is the snapshot from before it existed. The route
- * would decide the new dashboard is not there and send you back to the
- * workspace, which is the dashboard you were on before: adding one would look
- * like doing nothing. Adding marks the snapshot stale, and this re-reads it.
+ * `fetchQuery` rather than `ensureQueryData`, because the second answers from
+ * the cache whenever there is one - and the moment this matters most, just
+ * after adding a dashboard, that cache is the snapshot from before it existed.
+ * The route would decide the new dashboard is not there and send you back to
+ * the workspace, which is the dashboard you were on before: adding one would
+ * look like doing nothing.
+ *
+ * But `fetchQuery` alone would trade one failure for a worse one. Past the
+ * fifteen seconds a snapshot stays fresh it awaits the network and *rejects* if
+ * that fails, which would take every navigation on a bad connection - and every
+ * cold open offline - into the router's full-screen error boundary, over a
+ * perfectly good snapshot sitting in the persisted cache. Reading what you
+ * already have is exactly what that cache is for (functional definition,
+ * "Offline / local-first behavior"), so a failed re-read falls back to it and
+ * only a workspace with no stored copy at all reaches the boundary.
  */
-const dashboardsOf = (queryClient: QueryClient, workspaceId: string) =>
-  queryClient.fetchQuery(snapshotQuery(workspaceId));
+const dashboardsOf = async (queryClient: QueryClient, workspaceId: string) => {
+  const query = snapshotQuery(workspaceId);
+  try {
+    return await queryClient.fetchQuery(query);
+  } catch (couldNotReRead) {
+    const stored = queryClient.getQueryData(query.queryKey);
+    if (stored) return stored;
+    throw couldNotReRead;
+  }
+};
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -97,9 +115,12 @@ export const workspaceRoute = createRoute({
 export const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/w/$workspaceId/inbox',
-  beforeLoad: async ({ context, params }) => {
+  beforeLoad: async ({ context, params, preload }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
-    rememberView(browserStore(), params.workspaceId, INBOX);
+    // Not on a preload. `defaultPreload: 'intent'` runs this on hover, and
+    // remembering a view nobody went to would mean brushing past a tab decides
+    // where the workspace opens next time.
+    if (!preload) rememberView(browserStore(), params.workspaceId, INBOX);
   },
   component: WorkspacePage,
 });
@@ -112,16 +133,19 @@ export const inboxRoute = createRoute({
 export const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/w/$workspaceId/d/$dashboardId',
-  beforeLoad: async ({ context, params }) => {
+  beforeLoad: async ({ context, params, preload }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
     const { dashboards } = await dashboardsOf(context.queryClient, params.workspaceId);
     if (!dashboards.some((d) => d.id === params.dashboardId)) {
       throw redirect({ to: '/w/$workspaceId', params: { workspaceId: params.workspaceId } });
     }
-    rememberView(browserStore(), params.workspaceId, {
-      on: 'dashboard',
-      dashboardId: params.dashboardId,
-    });
+    // Not on a preload, for the reason the Inbox above is not.
+    if (!preload) {
+      rememberView(browserStore(), params.workspaceId, {
+        on: 'dashboard',
+        dashboardId: params.dashboardId,
+      });
+    }
   },
   component: DashboardPage,
 });

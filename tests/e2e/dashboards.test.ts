@@ -3,6 +3,7 @@ import {
   dashboardBar,
   expectNoSidewaysScroll,
   openFirstWorkspace,
+  openSettings,
   press,
   uniqueTitle,
 } from './support/app';
@@ -28,7 +29,14 @@ test.describe('Dashboards', () => {
       page,
       isMobile,
     }) => {
+      // Its own workspace, which is what the note above promises: adding to
+      // Work would leave its bar filled for whatever spec ran next.
+      const workspace = uniqueTitle('Bookkeeping');
       await openFirstWorkspace(page);
+      await openSettings(page, isMobile);
+      await page.getByLabel('Name of the new workspace').fill(workspace);
+      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+      await press(page.locator('header').getByRole('link', { name: workspace }), isMobile);
       await expect(dashboardBar(page)).toBeInViewport();
       await expectNoSidewaysScroll(page);
 

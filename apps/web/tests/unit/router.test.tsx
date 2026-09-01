@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import type { Dashboard, Workspace } from '@cockpit/shared';
@@ -163,6 +164,60 @@ describe('Dashboards', () => {
       await havingBeenOn('/w/ws-work/d/ws-work-research');
       // The same workspace, without the dashboard that was remembered.
       await open('/w/ws-work', [work, personal], (id) => dashboardsOf(id).slice(0, 1));
+
+      expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+    });
+
+    it('does not remember a view you only brushed past', async () => {
+      // Links are preloaded on intent, which runs a route's `beforeLoad`
+      // without anybody having gone there. Remembering in it would mean the
+      // mouse passing over a tab decides where the workspace opens next time.
+      //
+      // Preloaded through the router's own API rather than by hovering: a
+      // hover in jsdom never reaches the preload path, so a case that hovered
+      // would pass whether or not the guard was there.
+      await havingBeenOn('/w/ws-work/inbox');
+      readsWorkspaces.mockResolvedValue({ workspaces: [work, personal] });
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const router = createAppRouter(queryClient);
+
+      await router.preloadRoute({
+        to: '/w/$workspaceId/d/$dashboardId',
+        params: { workspaceId: 'ws-work', dashboardId: 'ws-work-research' },
+      });
+
+      await open('/w/ws-work', [work, personal]);
+      expect(await screen.findByLabelText('Capture a note or to-do')).toBeVisible();
+    });
+
+    it('opens from the copy it already has when the workspace cannot be re-read', async () => {
+      // A snapshot older than fifteen seconds is re-read, and offline that read
+      // fails. Reading what you already have is what the stored copy is for, so
+      // this is a workspace that opens rather than an error page.
+      readsWorkspaces.mockResolvedValue({ workspaces: [work, personal] });
+      readsSnapshot.mockRejectedValue(new Error('Failed to fetch'));
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      queryClient.setQueryData(
+        ['snapshot', 'ws-work'],
+        {
+          workspace: work,
+          items: [],
+          dashboards: dashboardsOf('ws-work'),
+          associations: [],
+          generatedAt: '2026-08-31T10:00:00.000Z',
+        },
+        // Older than the fifteen seconds a snapshot stays fresh, which is what
+        // makes the route re-read it at all. A copy stored a moment ago is
+        // answered from the cache and never reaches the network, so the case
+        // would pass whether or not the failed read fell back to it.
+        { updatedAt: Date.now() - 60_000 },
+      );
+      window.history.pushState({}, '', '/w/ws-work');
+      render(
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={createAppRouter(queryClient)} />
+        </QueryClientProvider>,
+      );
 
       expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
     });

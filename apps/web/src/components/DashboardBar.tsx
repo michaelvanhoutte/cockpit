@@ -83,8 +83,7 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
       // fixed rather than typed again.
       {
         onSuccess: () => {
-          setNaming(false);
-          setName('');
+          close();
           // You are put on the dashboard you just made: adding one and then
           // having to find it in the bar is two gestures for what reads as one.
           void navigate({
@@ -106,6 +105,18 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
         ? 'That did not reach the server. Try again.'
         : null;
 
+  /**
+   * Closing the field forgets the refusal with it. `AddDashboard` stays
+   * mounted either way - the `+` and the field are two renders of it - so a
+   * refusal that is only hidden comes back the moment the field is opened
+   * again, over a name nobody has typed yet.
+   */
+  const close = () => {
+    setNaming(false);
+    setName('');
+    command.reset();
+  };
+
   if (!naming) {
     return (
       <button
@@ -120,16 +131,19 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
   }
 
   return (
-    <form onSubmit={submit} className="flex shrink-0 items-center gap-2">
+    <form
+      onSubmit={submit}
+      // Escape on the form rather than on the box: after a refusal the focus is
+      // on Add, and a handler that only listened to the box would leave Escape
+      // doing nothing exactly when there is something to cancel.
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') close();
+      }}
+      className="flex shrink-0 items-center gap-2"
+    >
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            setNaming(false);
-            setName('');
-          }
-        }}
         aria-label="Name of the new dashboard"
         placeholder="Research, Today…"
         maxLength={60}
