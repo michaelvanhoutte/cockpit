@@ -144,9 +144,19 @@ The routing rule lives in `apps/api/wrangler.jsonc`:
 - `not_found_handling: "single-page-application"` returns `index.html` for
   unmatched paths, so client-side routes deep-link.
 
-Those three prefixes are the same ones the service worker refuses to intercept
-(`navigateFallbackDenylist` in `apps/web/vite.config.ts`). **The two lists must
-be kept in sync**; they are the same boundary expressed twice.
+Those three prefixes are also the first three the service worker refuses to
+intercept (`navigateFallbackDenylist` in `apps/web/vite.config.ts`), and **for
+this application's own prefixes the two lists must be kept in sync** — add one
+here and it belongs there.
+
+**They are not the same list, and the difference is load-bearing.** The denylist
+carries a fourth, `/cdn-cgi/`, which must never appear here: it is Cloudflare's,
+and Access answers it at the edge before either the assets or this Worker see
+it. Leaving it out of the denylist is what stopped signing in from ever
+finishing — Access ends a sign-in by redirecting to
+`/cdn-cgi/access/authorized` on this hostname, the cached shell answered that
+navigation, and the cookie was never set. So: same boundary for the three,
+opposite answers for the fourth.
 
 Because `assets.directory` points at `../web/dist`, the web app must be built
 before the API is deployed *or* run with `wrangler dev`. `pnpm build` first.

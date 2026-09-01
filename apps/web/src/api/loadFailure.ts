@@ -166,6 +166,11 @@ export function clearSignInAttempt(): void {
  * to redirect. `/v1/*` is on the service worker's denylist (see
  * `navigateFallbackDenylist` in apps/web/vite.config.ts), so this leaves the
  * browser for real, and the Worker's /v1/relogin sends us back afterwards.
+ *
+ * The same reasoning applies to where Access sends the browser *back* to, and
+ * missing it is what once stopped signing in from finishing at all: the
+ * callback at `/cdn-cgi/access/authorized` is a navigation too, so it has to be
+ * on that denylist for the same reason this path is.
  */
 export function signInAgain(returnTo: string): void {
   try {
