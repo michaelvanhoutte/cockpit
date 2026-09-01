@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
 import { useCommand } from '../api/queries';
+import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
   to_process: 'To process',
@@ -12,9 +13,6 @@ const STATUS_LABEL: Record<ItemStatus, string> = {
   done: 'Done',
   dismissed: 'Dismissed',
 };
-
-const menuItemClass =
-  'cursor-default rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-tint data-[highlighted]:text-accent-deep';
 
 export function ItemRow({ item, workspaceId }: { item: Item; workspaceId: string }) {
   const command = useCommand();
@@ -58,41 +56,31 @@ export function ItemRow({ item, workspaceId }: { item: Item; workspaceId: string
       </span>
 
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger
-          aria-label="Item actions"
-          className="rounded px-2 py-1 text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
-        >
-          ···
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            align="end"
-            className="min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+        <MenuTrigger label="Item actions" />
+        <MenuContent>
+          <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('done')}>
+            Mark done
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('task')}>
+            Make it a task
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('waiting')}>
+            Waiting on someone
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={menuItemClass} onSelect={snoozeOneWeek}>
+            Snooze a week
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={menuItemClass} onSelect={focusToday}>
+            Goal for today
+          </DropdownMenu.Item>
+          <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
+          <DropdownMenu.Item
+            className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
+            onSelect={() => setStatus('dismissed')}
           >
-            <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('done')}>
-              Mark done
-            </DropdownMenu.Item>
-            <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('task')}>
-              Make it a task
-            </DropdownMenu.Item>
-            <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('waiting')}>
-              Waiting on someone
-            </DropdownMenu.Item>
-            <DropdownMenu.Item className={menuItemClass} onSelect={snoozeOneWeek}>
-              Snooze a week
-            </DropdownMenu.Item>
-            <DropdownMenu.Item className={menuItemClass} onSelect={focusToday}>
-              Goal for today
-            </DropdownMenu.Item>
-            <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
-            <DropdownMenu.Item
-              className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
-              onSelect={() => setStatus('dismissed')}
-            >
-              Dismiss
-            </DropdownMenu.Item>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
+            Dismiss
+          </DropdownMenu.Item>
+        </MenuContent>
       </DropdownMenu.Root>
     </li>
   );

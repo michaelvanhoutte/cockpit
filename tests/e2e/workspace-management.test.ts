@@ -10,7 +10,7 @@ import {
 } from './support/app';
 
 /**
- * F3, because none of this exists below a real browser: the "···" menu is
+ * F3, because none of this exists below a real browser: the header's menu is
  * opened by a tap on a 480px screen and by a mouse on a 1280px one, the route
  * it leads to is real navigation, and the new workspace has to turn up in the
  * header of a page that was already open.

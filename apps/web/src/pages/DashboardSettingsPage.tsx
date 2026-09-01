@@ -11,8 +11,9 @@ import { LoadFailure } from '../components/LoadFailure';
 /**
  * Where the dashboards of one workspace are managed: renaming and deleting
  * them ("Rename and delete a dashboard from a dashboard settings page", issue
- * 90). Reached from the `...` at the right of the bar it governs, so what it
- * acts on is obvious from where it sits rather than from what was last clicked.
+ * 90). Reached from "Manage dashboards" in the menu at the right of the bar it
+ * governs ("Open every menu from the same control", issue 115), so what it acts
+ * on is obvious from where it sits rather than from what was last clicked.
  *
  * **The Inbox is not in the list.** It is in the bar but it is not a dashboard,
  * so there is nothing here to rename or delete - which is a fact of the schema

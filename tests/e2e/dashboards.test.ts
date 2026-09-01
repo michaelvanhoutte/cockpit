@@ -91,8 +91,13 @@ test.describe('Dashboards', () => {
       // The dashboard being deleted is the one being looked at.
       const itsAddress = page.url();
 
-      // The `...` at the right of the bar is how the settings are reached.
-      await press(dashboardBar(page).getByRole('link', { name: 'Manage dashboards' }), isMobile);
+      // The menu at the right of the bar is how the settings are reached, and
+      // choosing the entry is what proves it still leads there: the control
+      // opens a menu rather than navigating ("Open every menu from the same
+      // control", issue 115), and no level below this one can see where its
+      // entry goes.
+      await press(dashboardBar(page).getByRole('button', { name: 'Dashboard actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Manage dashboards' }), isMobile);
       const renamed = uniqueTitle('Renamed');
       await press(page.getByRole('button', { name: `Rename ${doomed}` }), isMobile);
       await page.getByLabel(`New name for ${doomed}`).fill(renamed);

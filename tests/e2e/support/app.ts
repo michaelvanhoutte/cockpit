@@ -101,7 +101,7 @@ export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
 }
 
 /**
- * Opens the workspace settings page through the header's "···" menu. Used as
+ * Opens the workspace settings page through the header's menu. Used as
  * arrangement by the walks about renaming and deleting; the walk about
  * *reaching* the settings asserts its own way through those two controls
  * rather than calling this, because a helper that both arranges and asserts is
