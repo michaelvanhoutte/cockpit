@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  chooseRowAction,
   dashboardBar,
   expectNoSidewaysScroll,
   groundOf,
@@ -75,7 +76,7 @@ test.describe('Workspace management', () => {
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
       await expect(page.locator('header').getByRole('link', { name: before })).toBeVisible();
 
-      await press(page.getByRole('button', { name: `Rename ${before}` }), isMobile);
+      await chooseRowAction(page, before, 'Rename', isMobile);
       await page.getByLabel(`New name for ${before}`).fill(after);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
 
@@ -141,13 +142,13 @@ test.describe('Workspace management', () => {
       const itsUrl = page.url();
 
       await openSettings(page, isMobile);
-      await press(page.getByRole('button', { name: `Delete ${name}` }), isMobile);
+      await chooseRowAction(page, name, 'Delete', isMobile);
       // What goes with it, before it goes: nothing was put in this one.
       await expect(page.getByText(`Delete ${name}? There is nothing in it.`)).toBeVisible();
       await press(page.getByRole('button', { name: `Yes, delete ${name}` }), isMobile);
 
       await expect(tab).toHaveCount(0);
-      await expect(page.getByRole('button', { name: `Delete ${name}` })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: `Actions for ${name}` })).toHaveCount(0);
       await expectNoSidewaysScroll(page);
 
       // Going back to where it was is not a dead end: a workspace you can work

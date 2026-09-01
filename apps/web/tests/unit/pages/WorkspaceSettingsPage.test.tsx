@@ -29,8 +29,15 @@ vi.mock('../../../src/api/loadFailure', async (importOriginal) => ({
  */
 const workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' };
 
-/** What the workspace holds, so the confirmation has something to count. */
-const held = vi.hoisted(() => ({ items: [] as { id: string }[] }));
+/**
+ * What the workspace holds, so the confirmation has something to count, and
+ * how that answer arrives - a case that never lets it arrive is how "the
+ * question cannot be answered until it has a count in it" is provable.
+ */
+const held = vi.hoisted(() => ({
+  items: [] as { id: string }[],
+  answer: null as null | (() => Promise<unknown>),
+}));
 
 /**
  * What the list answers with. A case sets this before rendering; the default is
@@ -50,7 +57,7 @@ vi.mock('../../../src/api/queries', () => ({
   },
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () => Promise.resolve({ items: held.items }),
+    queryFn: () => held.answer?.() ?? Promise.resolve({ items: held.items }),
   }),
 }));
 
@@ -82,8 +89,20 @@ function showPage(answer: { succeeds: boolean; error?: Error; about?: CommandArg
 
 const newWorkspaceButton = () => screen.getByRole('button', { name: 'New workspace' });
 
+/**
+ * What a row offers is in the row's own menu, so reaching any of it is two
+ * gestures: open the menu named for the workspace, then choose the entry named
+ * for the action ("Ask before deleting in a dialog, from the row's own menu",
+ * issue 116).
+ */
+async function choose(user: ReturnType<typeof userEvent.setup>, row: string, entry: string) {
+  await user.click(await screen.findByRole('button', { name: `Actions for ${row}` }));
+  await user.click(await screen.findByRole('menuitem', { name: entry }));
+}
+
 beforeEach(() => {
   list.answer = null;
+  held.answer = null;
 });
 
 describe('Workspace management', () => {
@@ -119,7 +138,7 @@ describe('Workspace management', () => {
       const user = userEvent.setup();
       const { mutate } = showPage({ succeeds: true });
 
-      await user.click(await screen.findByRole('button', { name: 'Rename Work' }));
+      await choose(user, 'Work', 'Rename');
       const box = screen.getByLabelText('New name for Work');
       await user.clear(box);
       await user.type(box, '  Bookkeeping  ');
@@ -138,7 +157,7 @@ describe('Workspace management', () => {
       const user = userEvent.setup();
       showPage({ succeeds: true });
 
-      await user.click(await screen.findByRole('button', { name: 'Rename Work' }));
+      await choose(user, 'Work', 'Rename');
 
       expect(screen.getByLabelText('New name for Work')).toHaveValue('Work');
     });
@@ -147,7 +166,7 @@ describe('Workspace management', () => {
       const user = userEvent.setup();
       const { mutate } = showPage({ succeeds: true });
 
-      await user.click(await screen.findByRole('button', { name: 'Rename Work' }));
+      await choose(user, 'Work', 'Rename');
       await user.clear(screen.getByLabelText('New name for Work'));
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -200,24 +219,58 @@ describe('Workspace management', () => {
       const user = userEvent.setup();
       const { mutate } = showPage({ succeeds: true });
 
-      await user.click(await screen.findByRole('button', { name: 'Delete Work' }));
+      await choose(user, 'Work', 'Delete');
 
       expect(await screen.findByText(asks)).toBeVisible();
       // Asked, not done: the question is the whole point of asking it.
       expect(mutate).not.toHaveBeenCalled();
     });
 
-    it('sends nothing when the question is answered no', async () => {
+    it.each([
+      { situation: 'answered no', answer: 'Cancel' },
+      { situation: 'dismissed with Escape', answer: null },
+    ])('sends nothing when the question is $situation', async ({ answer }) => {
       held.items = [{ id: 'item-0' }];
       const user = userEvent.setup();
       const { mutate } = showPage({ succeeds: true });
 
-      await user.click(await screen.findByRole('button', { name: 'Delete Work' }));
+      await choose(user, 'Work', 'Delete');
       await screen.findByText('Delete Work and hide its 1 item?');
-      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      if (answer) await user.click(screen.getByRole('button', { name: answer }));
+      else await user.keyboard('{Escape}');
 
       expect(mutate).not.toHaveBeenCalled();
-      expect(await screen.findByRole('button', { name: 'Delete Work' })).toBeVisible();
+      // The row is still the row, with everything it offered still on it:
+      // asking never took anything off it.
+      expect(screen.queryByText('Delete Work and hide its 1 item?')).toBeNull();
+      expect(await screen.findByRole('button', { name: 'Actions for Work' })).toBeVisible();
+    });
+
+    it('cannot be answered yes until the count it is asking about has arrived', async () => {
+      // "How many" is part of the question: an empty workspace reads as
+      // harmless and a full one does not, so a question with no count in it is
+      // not yet a question anybody can answer.
+      held.answer = () => new Promise(() => {});
+      const user = userEvent.setup();
+      showPage({ succeeds: true });
+
+      await choose(user, 'Work', 'Delete');
+
+      expect(await screen.findByRole('button', { name: 'Yes, delete Work' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    });
+
+    it('can be answered when the count could not be read at all', async () => {
+      // A count that failed is not a reason to trap someone in the dialog.
+      held.answer = () => Promise.reject(new TypeError('Failed to fetch'));
+      const user = userEvent.setup();
+      showPage({ succeeds: true });
+
+      await choose(user, 'Work', 'Delete');
+
+      await expect
+        .poll(() => screen.getByRole('button', { name: 'Yes, delete Work' }))
+        .toBeEnabled();
     });
 
     it('asks for the workspace to be deleted when the question is answered yes', async () => {
@@ -225,7 +278,7 @@ describe('Workspace management', () => {
       const user = userEvent.setup();
       const { mutate } = showPage({ succeeds: true });
 
-      await user.click(await screen.findByRole('button', { name: 'Delete Work' }));
+      await choose(user, 'Work', 'Delete');
       await user.click(await screen.findByRole('button', { name: 'Yes, delete Work' }));
 
       expect(mutate).toHaveBeenCalledTimes(1);
@@ -282,7 +335,7 @@ describe('Workspace management', () => {
         },
       });
 
-      await user.click(await screen.findByRole('button', { name: 'Rename Work' }));
+      await choose(user, 'Work', 'Rename');
       const box = screen.getByLabelText('New name for Work');
       await user.clear(box);
       await user.type(box, 'Personal');
@@ -295,6 +348,28 @@ describe('Workspace management', () => {
         'a workspace called Personal already exists',
       );
       expect(box).toHaveValue('Personal');
+    });
+
+    it('says why a delete was refused in the question that asked for it, which stays open', async () => {
+      // A dialog that closed and left the message behind on the page would
+      // make a refusal look like a delete that had worked.
+      held.items = [];
+      const user = userEvent.setup();
+      showPage({
+        succeeds: false,
+        error: new CommandRefused(404, 'that workspace is not there'),
+        about: {
+          name: 'delete_workspace',
+          payload: { commandId: 'c', issuedAt: 'now', workspaceId: 'ws-work' },
+        },
+      });
+
+      await choose(user, 'Work', 'Delete');
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Work' }));
+
+      expect(screen.getByRole('alert')).toHaveTextContent('that workspace is not there');
+      expect(screen.getByText('Delete Work? There is nothing in it.')).toBeVisible();
+      expect(screen.getByText('Work')).toBeVisible();
     });
 
     it('says why a colour was refused, next to the workspace it was for', async () => {

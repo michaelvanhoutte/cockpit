@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 
 /**
@@ -40,12 +41,19 @@ export function MenuTrigger({ label, className }: { label: string; className?: s
 }
 
 /** The panel a menu opens into, portalled so no bar can clip it. */
-export function MenuContent({ children }: { children: React.ReactNode }) {
+export function MenuContent({
+  children,
+  onCloseAutoFocus,
+}: {
+  children: React.ReactNode;
+  onCloseAutoFocus?: (event: Event) => void;
+}) {
   return (
     <DropdownMenu.Portal>
       <DropdownMenu.Content
         align="end"
         sideOffset={4}
+        onCloseAutoFocus={onCloseAutoFocus}
         className="min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
       >
         {children}
@@ -57,3 +65,83 @@ export function MenuContent({ children }: { children: React.ReactNode }) {
 /** One entry. Exported as a class because entries are `asChild` as often as not. */
 export const menuItemClass =
   'block cursor-default rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-tint data-[highlighted]:text-accent-deep';
+
+/** An entry that deletes something, which is the one kind that is coloured. */
+const destructiveItemClass = `${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`;
+
+/** An entry that cannot be chosen. It stays visible and says why, rather than going. */
+const unavailableItemClass = `${menuItemClass} text-ink-faint data-[highlighted]:bg-transparent data-[highlighted]:text-ink-faint`;
+
+export interface MenuEntry {
+  label: string;
+  onSelect: () => void;
+  /** Why this cannot be chosen. Present means unavailable; it is said, not hidden. */
+  unavailable?: string | undefined;
+  destructive?: boolean | undefined;
+}
+
+/**
+ * The menu a row of a settings page carries, holding what can be done to that
+ * row ("Ask before deleting in a dialog, from the row's own menu", issue 116).
+ *
+ * One component rather than the same dozen lines on each settings page: what
+ * the two pages offer differs, how a row offers it does not.
+ *
+ * The entries are named for the action alone - "Rename", "Delete" - because the
+ * control that opened them is named for the row, so a reader who cannot see the
+ * screen has already been told which one this is.
+ */
+export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
+  const chose = useRef(false);
+
+  return (
+    <DropdownMenu.Root>
+      <MenuTrigger label={label} />
+      <MenuContent
+        onCloseAutoFocus={(event) => {
+          // Choosing an entry opens something that takes the focus itself: the
+          // name field, or the question. Radix puts the focus back on this
+          // control as the menu closes, which would take it straight back off
+          // whatever had just opened - so the restore is skipped exactly when
+          // something else is claiming the focus, and kept when the menu was
+          // simply dismissed.
+          if (!chose.current) return;
+          chose.current = false;
+          event.preventDefault();
+        }}
+      >
+        {entries.map((entry) => (
+          <DropdownMenu.Item
+            key={entry.label}
+            disabled={Boolean(entry.unavailable)}
+            // Said outright rather than left to be assembled out of two
+            // elements: whether a reason on its own line is read as part of
+            // the entry's name is the reader's to decide, and an entry that
+            // cannot be chosen and appears to give no reason is the failure
+            // this exists to prevent.
+            {...(entry.unavailable ? { 'aria-label': `${entry.label}: ${entry.unavailable}` } : {})}
+            className={
+              entry.unavailable
+                ? unavailableItemClass
+                : entry.destructive
+                  ? destructiveItemClass
+                  : menuItemClass
+            }
+            onSelect={() => {
+              chose.current = true;
+              entry.onSelect();
+            }}
+          >
+            {entry.label}
+            {entry.unavailable && (
+              // Inside the entry rather than beside it, so it is part of what
+              // the entry is called: an entry that cannot be chosen and gives
+              // no reason is indistinguishable from one that is broken.
+              <span className="block text-xs">{entry.unavailable}</span>
+            )}
+          </DropdownMenu.Item>
+        ))}
+      </MenuContent>
+    </DropdownMenu.Root>
+  );
+}
