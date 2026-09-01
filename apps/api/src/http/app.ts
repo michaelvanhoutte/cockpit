@@ -409,6 +409,12 @@ const routes = app
     commandRoute('delete_dashboard', { conflict: 'A workspace keeps at least one dashboard' }),
     async (c) => c.json(await change(c, 'delete_dashboard', c.req.valid('json')), 200),
   )
+  .openapi(
+    commandRoute('reorder_workspaces', {
+      conflict: 'The workspaces changed while they were being put in order',
+    }),
+    async (c) => c.json(await change(c, 'reorder_workspaces', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c, 'capture_item', c.req.valid('json')), 200))

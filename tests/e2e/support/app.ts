@@ -83,6 +83,63 @@ export async function openFirstWorkspace(page: Page, isMobile: boolean): Promise
   await signIn(page, MICHAEL, isMobile);
 }
 
+/**
+ * Deletes a workspace from the settings page, answering the question it asks.
+ *
+ * Arrangement, not assertion: the walk about *deleting* one asserts its way
+ * through these same steps rather than calling this, because a helper that both
+ * arranges and asserts is a helper that can make its own test vacuous.
+ *
+ * It exists because a spec that leaves workspaces behind changes the settings
+ * page for every spec after it, in this run and in the other project - the run
+ * shares one database. That is not hypothetical: the walks about ordering need
+ * two workspaces each, and the four they left behind pushed the box for making
+ * a new one off the bottom of a 480px screen, failing the walk that says it is
+ * reachable there. A spec that makes workspaces it does not need afterwards
+ * puts them back.
+ */
+export async function deleteWorkspace(page: Page, name: string, isMobile: boolean): Promise<void> {
+  await chooseRowAction(page, name, 'Delete', isMobile);
+  await press(page.getByRole('button', { name: `Yes, delete ${name}` }), isMobile);
+  await expect(page.getByRole('button', { name: `Actions for ${name}` })).toHaveCount(0);
+}
+
+/**
+ * The workspace tabs across the top, left to right - which is the order this
+ * whole thing is about ("Reorder workspaces", issue 31). Read from the header
+ * rather than from the settings list, because the settings page is where a
+ * workspace is moved and the tabs are where the move is for.
+ */
+export async function workspaceTabs(page: Page): Promise<string[]> {
+  return page.getByRole('navigation', { name: 'Workspaces' }).getByRole('link').allTextContents();
+}
+
+/**
+ * Drags one row of the workspace settings list onto another's place, by its
+ * grip.
+ *
+ * Driven with the mouse under both projects, and that is a limit of the tool
+ * rather than a claim about the product: Playwright's touchscreen can tap and
+ * nothing else, so a finger drag cannot be expressed at all. What the phone
+ * project still gets out of this is the gesture against the 480px layout. The
+ * way to move a workspace with a finger - or a keyboard - is the row's own
+ * menu, and that is walked with `press`, which really does tap.
+ */
+export async function dragRowOnto(page: Page, row: string, onto: string): Promise<void> {
+  const grip = page.getByTitle(`Drag to reorder ${row}`);
+  const target = page.getByRole('listitem').filter({ hasText: onto });
+  const from = await grip.boundingBox();
+  const to = await target.boundingBox();
+  if (!from || !to) throw new Error(`cannot drag ${row} onto ${onto}: one of them is not on screen`);
+
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  // In steps, because a drag is a stream of moves: one jump would leave the
+  // list never having been told where the pointer went.
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+  await page.mouse.up();
+}
+
 /** The bar of views under the workspace tabs: the Inbox, then the dashboards. */
 export function dashboardBar(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Dashboards' });

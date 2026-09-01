@@ -104,7 +104,15 @@ export function Layout() {
               and the full list is on the settings page a click away, so the
               bar would cost a permanent grey slab under the tabs to say
               something the tabs already show by being cut off. */}
-          <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* Named, because it is not the only bar of links in this header: the
+              dashboards of the workspace you are in sit under it, and two
+              unnamed navigations are two identical landmarks to choose between.
+              The name is what says which is which, and it is what the walks
+              reach for when they ask what order the workspaces are in. */}
+          <nav
+            aria-label="Workspaces"
+            className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
             {data?.workspaces.map((ws) => (
               <Link
                 key={ws.id}

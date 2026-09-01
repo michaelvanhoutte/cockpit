@@ -1,13 +1,16 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   chooseRowAction,
   dashboardBar,
+  deleteWorkspace,
+  dragRowOnto,
   expectNoSidewaysScroll,
   groundOf,
   openFirstWorkspace,
   openSettings,
   press,
   uniqueTitle,
+  workspaceTabs,
 } from './support/app';
 
 /**
@@ -83,6 +86,83 @@ test.describe('Workspace management', () => {
       await expect(page.locator('header').getByRole('link', { name: after })).toBeVisible();
       await expect(page.locator('header').getByRole('link', { name: before })).toHaveCount(0);
       await expectNoSidewaysScroll(page);
+    });
+  });
+
+  test.describe('a workspace you move is where you put it in the tabs', () => {
+    /**
+     * F3 for both halves, for different reasons. The menu's half has to be
+     * proved in the *header* - what the settings page sends is settled in
+     * apps/web/tests/unit/pages/WorkspaceSettingsPage.test.tsx, and that the
+     * server keeps the order in apps/api/tests/integration/http - and the
+     * header is a different component on a page that was already open. The
+     * drag exists nowhere below a browser at all: where the pointer is over
+     * the list is measured from the rows' rectangles, and jsdom has no layout
+     * engine to give it any.
+     *
+     * Two workspaces of this walk's own, for the reason every spec here makes
+     * its own: the run shares one database, so a walk that moved a seeded
+     * workspace would reorder the tabs under every other spec.
+     *
+     * And put back afterwards, which the other walks here do not have to do
+     * because they make one workspace rather than two. Four extra rows on the
+     * settings page pushed the box for making a new one off the bottom of a
+     * 480px screen and failed the walk above that says it is reachable there.
+     */
+    async function twoOfMyOwn(page: Page, isMobile: boolean): Promise<[string, string]> {
+      const first = uniqueTitle('Anchor');
+      const second = uniqueTitle('Mover');
+      await openFirstWorkspace(page, isMobile);
+      await openSettings(page, isMobile);
+      for (const name of [first, second]) {
+        await page.getByLabel('Name of the new workspace').fill(name);
+        await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+        await expect(page.locator('header').getByRole('link', { name })).toBeVisible();
+      }
+      // Made one after the other, so the second is after the first - which is
+      // the thing the move is about to change.
+      await expect
+        .poll(async () => {
+          const tabs = await workspaceTabs(page);
+          return tabs.indexOf(second) - tabs.indexOf(first);
+        })
+        .toBe(1);
+      return [first, second];
+    }
+
+    test('moves it in the tabs, from the row’s own menu', async ({ page, isMobile }) => {
+      const [first, second] = await twoOfMyOwn(page, isMobile);
+
+      await chooseRowAction(page, second, 'Move up', isMobile);
+
+      await expect
+        .poll(async () => {
+          const tabs = await workspaceTabs(page);
+          return tabs.indexOf(second) - tabs.indexOf(first);
+        })
+        .toBe(-1);
+      await expectNoSidewaysScroll(page);
+
+      for (const name of [first, second]) await deleteWorkspace(page, name, isMobile);
+    });
+
+    test('moves it in the tabs when its row is dragged over another', async ({
+      page,
+      isMobile,
+    }) => {
+      const [first, second] = await twoOfMyOwn(page, isMobile);
+
+      await dragRowOnto(page, second, first);
+
+      await expect
+        .poll(async () => {
+          const tabs = await workspaceTabs(page);
+          return tabs.indexOf(second) - tabs.indexOf(first);
+        })
+        .toBe(-1);
+      await expectNoSidewaysScroll(page);
+
+      for (const name of [first, second]) await deleteWorkspace(page, name, isMobile);
     });
   });
 

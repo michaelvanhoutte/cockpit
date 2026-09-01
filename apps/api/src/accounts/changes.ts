@@ -24,7 +24,7 @@ import type { Change } from './up-to-date.js';
  * actually ends up with, rather than against the TypeScript that describes it.
  */
 export function accountChanges(accountId: string): readonly Change[] {
-  return [ACCOUNT_SCHEMA, startingWorkspaces(accountId), DASHBOARDS];
+  return [ACCOUNT_SCHEMA, startingWorkspaces(accountId), DASHBOARDS, WORKSPACE_ORDER];
 }
 
 /**
@@ -227,6 +227,70 @@ const DASHBOARDS: Change = {
               SELECT w.id || '-dashboard-1', w.tenant_id, w.id, 'Dashboard 1', 'dashboard 1', w.created_at
                 FROM workspaces w
                WHERE NOT EXISTS (SELECT 1 FROM dashboards d WHERE d.workspace_id = w.id)`,
+    },
+  ],
+};
+
+/**
+ * Where each workspace sits in the tabs ("Reorder workspaces", issue 31): the
+ * column, and a position for every workspace that was there before it.
+ *
+ * **Nothing is dropped and nothing is rebuilt**, so the destructive half of the
+ * checklist is empty. What is left is one `ALTER TABLE` and one backfill, and
+ * the questions worth answering before writing either:
+ *
+ * - **If it fails partway.** A change is applied atomically here - its
+ *   statements and the record that they ran, in one transaction (store.ts), so
+ *   a failure leaves neither the column nor the record and the change is
+ *   retried whole. That atomicity is load-bearing rather than a nicety: SQLite
+ *   has no `ADD COLUMN IF NOT EXISTS`, so a half-applied change that left the
+ *   column behind could never be re-run. The other changes here can lean on
+ *   `IF NOT EXISTS` as well as on the transaction; this one has only the
+ *   transaction.
+ * - **If it runs again.** Only an unfinished one runs again, and an unfinished
+ *   one left no column - but the backfill is idempotent anyway, because it
+ *   computes each position from `created_at` rather than incrementing anything.
+ *   Running it twice writes the same numbers. It runs once per account, before
+ *   anybody can have reordered anything, so it cannot overwrite an order
+ *   somebody chose.
+ * - **Data the new rule rejects.** None. Every existing row gets a position, and
+ *   the rank is total: `created_at` first, then `id`, so two workspaces created
+ *   in the same millisecond still get different numbers rather than sharing one.
+ * - **What each environment does.** All of them do this, and they do it the same
+ *   way - an account applies its outstanding changes inside the first request
+ *   that opens it, whether that account is on a laptop, in preview, in staging
+ *   or in production. There is no per-environment seeding step to differ,
+ *   because nothing outside a store can reach one.
+ * - **The windows it can be interrupted in.** Two, and the second is the reason
+ *   the column is additive rather than a rebuild. *Before it runs*: the account
+ *   is untouched, and the code in front of it is the previous release, which
+ *   orders workspaces by `created_at` and never names this column. *After it
+ *   runs, with the previous release promoted back*: that same code reads a table
+ *   with a column it does not know about, which SQLite is happy with because no
+ *   read names every column (`workspaceColumns` in repo.ts). The order somebody
+ *   chose is ignored until the rollback is rolled forward; nothing fails and
+ *   nothing is lost.
+ */
+const WORKSPACE_ORDER: Change = {
+  name: '0004-workspace-order',
+  statements: [
+    { sql: 'ALTER TABLE `workspaces` ADD COLUMN `position` integer DEFAULT 0 NOT NULL' },
+    {
+      // The order they were made in, which is the order they have been shown in
+      // until now: counting the workspaces of this account that come before
+      // this one gives 0, 1, 2, … with no gaps. `id` breaks a tie on
+      // `created_at` so the count cannot be the same for two rows.
+      //
+      // The unqualified `workspaces` inside the subquery is the row being
+      // updated - the subquery's own copy is aliased `earlier` precisely so
+      // that it is.
+      sql: `UPDATE workspaces
+               SET position = (SELECT COUNT(*)
+                                 FROM workspaces earlier
+                                WHERE earlier.tenant_id = workspaces.tenant_id
+                                  AND (earlier.created_at < workspaces.created_at
+                                       OR (earlier.created_at = workspaces.created_at
+                                           AND earlier.id < workspaces.id)))`,
     },
   ],
 };

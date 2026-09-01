@@ -168,3 +168,48 @@ describe('Accounts', () => {
     );
   });
 });
+
+describe('Workspace management', () => {
+  describe('an account that was already in use keeps its workspaces in the order they were made', () => {
+    /**
+     * Here rather than with the other ordering rules because it is the only one
+     * that needs an account from *before* workspaces could be ordered, and
+     * arranging one is what this file already knows how to do.
+     *
+     * The order itself would survive without this - `created_at` breaks a tie,
+     * so workspaces all sharing a place still come out oldest first. What would
+     * not survive is the next thing that happens to them: a place of one's own
+     * is what the tiebreak is a tiebreak *for*, and an account whose workspaces
+     * all sit at zero is one where the column says nothing and every read is
+     * leaning on the fallback.
+     */
+    const BEFORE_THE_ORDER = updates.findIndex((update) => update.name === '0004-workspace-order');
+
+    it('gives each of them a place of its own, in the order they were made', async () => {
+      const name = 'aged-store-before-the-order';
+      await agedTo(name, BEFORE_THE_ORDER);
+      await fillWithWhatIsAlreadyThere(name);
+
+      // Opening it is what brings it up to date, exactly as the first request
+      // of the day does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql
+            .exec<{ id: string; position: number }>(
+              'SELECT id, position FROM workspaces ORDER BY position',
+            )
+            .toArray(),
+        ),
+      ).toEqual([
+        // The three an account starts with, made one second apart, and then the
+        // one this file adds to every table before the outstanding updates run.
+        { id: 'ws-work', position: 0 },
+        { id: 'ws-atlas', position: 1 },
+        { id: 'ws-personal', position: 2 },
+        { id: 'ws-before', position: 3 },
+      ]);
+    });
+  });
+});

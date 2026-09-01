@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne } from 'drizzle-orm';
+import { and, eq, isNull, max, ne } from 'drizzle-orm';
 import type { Association, Dashboard, Item, Workspace } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { associations, commands, dashboards, items, workspaces } from './schema.js';
@@ -49,13 +49,48 @@ const workspaceColumns = {
 const live = (tenantId: string) =>
   and(eq(workspaces.tenantId, tenantId), isNull(workspaces.deletedAt));
 
+/**
+ * Every live workspace, in the order they sit in the tabs ("Reorder
+ * workspaces", issue 31).
+ *
+ * The order is carried by the array and not by a field of it, which is why
+ * `position` is absent from the columns above and named here instead: nothing
+ * outside this ordering reads it, and a client that had it would only be able
+ * to get it wrong. `created_at` breaks a tie, so two workspaces that somehow
+ * share a position are still in a stable order rather than whichever one
+ * SQLite reaches first.
+ *
+ * `position` is therefore a column this file *reads*, unlike `folded_name`, and
+ * the two-release rule in the comment above applies to it in full: taking it
+ * out from under this ORDER BY is a failed read, not a degraded one. A
+ * qualified `"workspaces"."position"` raises "no such column" rather than
+ * falling back to a string literal the way a bare quoted name does.
+ */
 export function listWorkspaces(db: AccountDb, tenantId: string): Workspace[] {
   return db
     .select(workspaceColumns)
     .from(workspaces)
     .where(live(tenantId))
-    .orderBy(workspaces.createdAt)
+    .orderBy(workspaces.position, workspaces.createdAt)
     .all();
+}
+
+/**
+ * The highest position any of this account's workspaces holds, or null when it
+ * has none at all - so a new one can be put after every workspace there is.
+ *
+ * Deleted workspaces count. They are filtered out of every read, so reusing
+ * their positions would be harmless; not reusing them is one fewer thing to
+ * hold in mind, and it keeps the numbers of an account's workspaces telling the
+ * truth about the order they were in.
+ */
+export function lastWorkspacePosition(db: AccountDb, tenantId: string): number | null {
+  const row = db
+    .select({ highest: max(workspaces.position) })
+    .from(workspaces)
+    .where(eq(workspaces.tenantId, tenantId))
+    .get();
+  return row?.highest ?? null;
 }
 
 export function getWorkspace(
