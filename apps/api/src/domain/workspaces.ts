@@ -56,7 +56,7 @@ export function nextColor(taken: readonly string[]): string {
  * folding: `STRASSE` lowercases to `strasse` while `Straße` stays `straße`, so
  * the two would remain different names. Uppercasing expands `ß` to `SS` first,
  * and the pair folds together. Measured, not assumed - the case table in
- * apps/api/tests/integration/http/workspace-management.test.ts is what pins it.
+ * apps/api/tests/unit/domain/workspaces.test.ts is what pins it.
  *
  * Locale-independent on purpose: `toLocaleLowerCase()` would fold `I` by
  * whatever locale the Worker happens to run under, so the same two names could
