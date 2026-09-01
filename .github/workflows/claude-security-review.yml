@@ -133,8 +133,13 @@ jobs:
 
             Read .github/security-review-instructions.md first and treat it as the definition of what
             counts as a finding in this repository. Post each finding as an inline comment on the line
-            it concerns. Do not post a summary comment: the gate writes one from your verdict after
-            you finish, and a second would just be a duplicate of it.
+            it concerns. Do not post a summary comment of your findings: the gate writes one from your
+            verdict after you finish, and a second would just be a duplicate of it.
+
+            One exception, and it is the important one. If you could not read the whole diff, or a tool
+            you needed was denied, post a comment saying so and naming what you did not cover. The gate
+            reports your verdict and cannot know how much of the diff it covers, so that disclosure has
+            no other way of reaching anyone.
           # Worth being explicit that the instructions are read from the branch
           # under review rather than from the default branch, which means a
           # pull request can weaken the rules it is about to be judged by. That

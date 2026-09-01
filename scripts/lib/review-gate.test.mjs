@@ -225,7 +225,12 @@ describe('summaryComment', () => {
     // "reviewed, found nothing" must not read the same as "never ran".
     const body = summaryComment(decide());
     assert.match(body, /Verdict: NONE/);
-    assert.match(body, /read the diff and found nothing/);
+    assert.match(body, /reported nothing/);
+    // Must not claim the whole diff was read: the gate cannot see how much was
+    // covered, and saying so confidently is the failure the instructions file
+    // calls the one nothing downstream can catch.
+    assert.doesNotMatch(body, /read the diff and found nothing/);
+    assert.match(body, /cannot tell you how much was covered/);
   });
 
   it('states the verdict for findings that do not block', () => {

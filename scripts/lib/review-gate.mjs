@@ -107,8 +107,27 @@ export function markedCommentId(ghOutput, marker = COMMENT_MARKER) {
   return null;
 }
 
+/**
+ * What a verdict means, said only as far as the gate can actually know it.
+ *
+ * "The reviewer read the diff and found nothing" was the first wording, and it
+ * claims something this cannot see. The gate reads one line; it has no idea how
+ * much of the diff that line covers. A review that ran out of room and reported
+ * NONE would have been announced here in the same confident words as a thorough
+ * one - which is the failure the instructions file calls the one nothing
+ * downstream can catch, restated by the thing meant to make it visible.
+ *
+ * So the note says what was reported, and points at where a coverage caveat
+ * would be if there is one: its own comment, which the prompt requires and this
+ * cannot generate.
+ */
 function verdictMeaning(severity) {
-  if (severity === 'NONE') return 'The reviewer read the diff and found nothing to report.';
+  if (severity === 'NONE') {
+    return (
+      'The reviewer reported nothing. If it could not read the whole diff, it says so in a ' +
+      'comment of its own — this note cannot tell you how much was covered.'
+    );
+  }
   if (severity === 'HIGH') return 'This must not merge as it stands.';
   return `Findings at ${severity} do not block the merge; they are for a person to weigh.`;
 }
