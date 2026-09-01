@@ -71,6 +71,24 @@ jobs:
           # compares against history when a rule's origin matters.
           fetch-depth: 0
 
+      # Without this the review never runs at all, and says nothing about why.
+      #
+      # /security-review's own prompt template embeds a shell command,
+      # `git log --no-decorate origin/HEAD...`, which is expanded before the
+      # prompt reaches the model. actions/checkout fetches every remote branch
+      # but never writes the origin/HEAD symbolic ref, so that command fails,
+      # the expansion fails with it, and the session ends having taken zero
+      # turns - while the action still reports conclusion=success. Every run
+      # between this workflow merging and this step being added failed that way.
+      #
+      # set-head writes a local symbolic ref and makes no network call, so this
+      # costs nothing. --auto would ask the remote which branch is default and
+      # need one; the default branch is already in the event payload.
+      - name: Point origin/HEAD at the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: git remote set-head origin "$DEFAULT_BRANCH"
+
       - name: Run the security review
         id: security-review
         uses: anthropics/claude-code-action@v1
