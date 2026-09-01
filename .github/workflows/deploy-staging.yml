@@ -68,4 +68,4 @@ jobs:
         # An update that will not apply fails here rather than in front of a
         # user — though the gate that stops one being deployed at all is
         # `pnpm test` above, which is where it is cheap to fix.
-        run: bash scripts/health-check.sh "https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
+        run: node scripts/health-check.mjs "https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
