@@ -1,6 +1,36 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
-import { fetchSnapshot, fetchWorkspaces, sendCommand } from './client';
+import { fetchMe, fetchSnapshot, fetchUsers, fetchWorkspaces, sendCommand } from './client';
+
+/**
+ * The people to choose from on the logon page.
+ *
+ * No `staleTime`, deliberately, where every other read here has one: this is
+ * the one query that survives a visit ending (`session/forget.ts`), so a stale
+ * copy of it would outlive the sign-out that produced it and could still be on
+ * screen a week later, listing somebody who has since been removed. It paints
+ * from the copy in hand and re-reads behind it, which costs one request on the
+ * one page where there is nothing else to do.
+ */
+export const usersQuery = queryOptions({
+  queryKey: ['users'],
+  queryFn: fetchUsers,
+});
+
+/**
+ * Who Cockpit believes you are.
+ *
+ * This is the app's session check as well as the name in the header, and it is
+ * one query rather than two because they are one question. It is deliberately
+ * *not* awaited before anything paints: the standing rule is never to block
+ * paint on auth (architecture, "Performance budgets and the standing rules"),
+ * so the cached view goes up and this settles behind it.
+ */
+export const meQuery = queryOptions({
+  queryKey: ['me'],
+  queryFn: fetchMe,
+  staleTime: 60_000,
+});
 
 export const workspacesQuery = queryOptions({
   queryKey: ['workspaces'],

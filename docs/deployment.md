@@ -481,8 +481,10 @@ That was backwards, and the owner corrected it: **the showcase is this repositor
 (the decisions, the architecture, the arguments), not a running instance. The
 production instance is the one holding real Gmail, Slack and Notion content pulled
 in by connectors, which makes it the *most* sensitive environment rather than the
-least, and §8.1's app login does not exist yet, so without Access it has no
-authentication whatsoever. Previews, by contrast, hold `seed.sql` fixtures.
+least, and the proof-of-identity half of "App login" (architecture §8.1) does not
+exist yet, so without Access it has no authentication whatsoever - Cockpit's own
+sign-in asks you to pick a name off a list, which anybody reaching the URL could
+do. Previews, by contrast, hold `seed.sql` fixtures.
 
 Each `workers.dev` URL gets its own per-Worker policy, so production and staging
 are gated independently of each other. There is also an account-level
@@ -599,12 +601,19 @@ case above rather than the credentials-omitted one:
 - **Recover in the client**, as above. It removes the dead-end, not the
   interruption: an expired session still costs a round trip through the login.
 - **Set a long Access session duration** (up to one month) so expiry is rare.
-- **Treat this as interim.** It is the perimeter that exists *because* §8.1 has not
-  been built. When the OIDC flow lands, Access on production should be
+- **Treat this as interim.** It is the perimeter that exists *because* the
+  proof-of-identity half of "App login: hand-rolled Google OIDC + own sessions"
+  (architecture §8.1) has not been built. **The trigger is password or OAuth
+  login shipping - it is not signing in.** Cockpit has had its own sign-in,
+  session and request gate since "Sign in by picking a name, each user in their
+  own account" (issue 86), and that changes nothing here: you sign in by clicking
+  a name off a list, which is an identity selector and not an authentication
+  control, so removing Access would leave a deployed environment open to anybody
+  who can reach the URL. When the OIDC flow lands, Access on production should be
   reconsidered rather than left in place by inertia: it would then be a second
   gate in front of the app's own, and the §8.1 rejection reasons (tenancy left
-  unexercised, cannot become customer auth) start applying for real as soon as a
-  second user exists.
+  unexercised, cannot become customer auth) apply for real - the first of them
+  already does, now that there is a second user.
 
 This does **not** reverse §8.1. Access here is a perimeter around a deployment, not
 the application's identity model, and it buys time rather than a design.
@@ -694,10 +703,19 @@ Worker were removed with §4; if you are rebuilding from scratch, there were nev
 two of anything you now need.
 
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy
-workflow: `seed.sql` puts the single account in the register, which the
-application currently has no onboarding flow to create. When onboarding exists,
-this step goes away. **Staging is deliberately never re-seeded**, because
-accumulated old data is the entire point of it.
+workflow: `seed.sql` puts the accounts *and the people who own them* in the
+register, neither of which the application has an onboarding flow to create.
+When onboarding exists, this step goes away. **Staging is deliberately never
+re-seeded**, because accumulated old data is the entire point of it - which
+means a staging database from before "Sign in by picking a name, each user in
+their own account" (issue 86) has the two new tables from the migrations and no
+rows in `users`, and nobody can sign in until the seed is run there once by
+hand.
+
+**No sign-ins are seeded**, and `seed.sql` has no column for a secret to put in
+one. Signing in is choosing a name, which proves nothing - see "App login" in
+[architecture.md](architecture.md) - and Cloudflare Access below is what
+actually authenticates a deployed environment.
 
 **There is no seed step for an account's own data, and there cannot be.** Its
 workspaces, dashboards, items and associations live in a Durable Object that is

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   diagnose,
+  goToLogonPage,
   signInAgain,
   signInAlreadyAttempted,
   type FailureReason,
@@ -27,7 +28,7 @@ interface Props {
 interface Wording {
   headline: string;
   detail: string;
-  action?: 'retry' | 'reload' | 'sign-in';
+  action?: 'retry' | 'reload' | 'logon' | 'relogin';
 }
 
 const WORDING: Record<FailureReason, Wording> = {
@@ -38,9 +39,14 @@ const WORDING: Record<FailureReason, Wording> = {
     action: 'retry',
   },
   'signed-out': {
+    headline: "You're signed out",
+    detail: 'Sign in again to pick up where you left off.',
+    action: 'logon',
+  },
+  'gate-expired': {
     headline: 'Your sign-in expired',
     detail: 'Cockpit itself is fine — this browser just needs to sign in again.',
-    action: 'sign-in',
+    action: 'relogin',
   },
   trouble: {
     headline: 'Cockpit is having trouble',
@@ -73,10 +79,15 @@ export function LoadFailure({ error, onRetry, canTakeOver = false, surroundings 
     };
   }, [error, surroundings]);
 
-  // Nothing of theirs is on screen and it is only a stale sign-in, so go and
-  // fix it rather than asking them to — but at most once per tab, or a cause
-  // that signing in cannot fix would bounce us round forever.
-  const goByItself = reason === 'signed-out' && canTakeOver && !signInAlreadyAttempted();
+  // Nothing of theirs is on screen and it is only a stale perimeter session, so
+  // go and fix it rather than asking them to — but at most once per tab, or a
+  // cause that signing in cannot fix would bounce us round forever.
+  //
+  // Only this reason moves by itself. Being signed out *of Cockpit* is answered
+  // by the router, which sends you to the logon page instead of ever rendering
+  // a failure; if this screen is showing it anyway there is something on screen
+  // worth not throwing away, so it offers the way on rather than taking it.
+  const goByItself = reason === 'gate-expired' && canTakeOver && !signInAlreadyAttempted();
   useEffect(() => {
     if (goByItself) signInAgain(window.location.pathname + window.location.search);
   }, [goByItself]);
@@ -99,7 +110,16 @@ export function LoadFailure({ error, onRetry, canTakeOver = false, surroundings 
     >
       <h2 className="text-base font-semibold text-over">{headline}</h2>
       <p className="mt-1 text-sm text-ink-soft">{detail}</p>
-      {action === 'sign-in' && (
+      {action === 'logon' && (
+        <button
+          type="button"
+          className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white"
+          onClick={goToLogonPage}
+        >
+          Sign in
+        </button>
+      )}
+      {action === 'relogin' && (
         <button
           type="button"
           className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white"

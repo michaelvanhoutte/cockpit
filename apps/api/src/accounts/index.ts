@@ -5,20 +5,6 @@ import type { AccountSnapshot, Answer } from './answer.js';
 
 export type { AccountSnapshot } from './answer.js';
 
-/**
- * The single account this application has. Nobody can choose one yet - signing
- * in is its own piece of work, kept separate from this move on purpose, since a
- * storage change and an authentication change debugged together is two
- * unknowns - so until it lands the name comes from here.
- *
- * What changes when it lands is *this line only*. Everything below already
- * takes the account's name as an argument, looks it up in the register and
- * addresses its store by it, so a session supplying the name instead of a
- * constant changes nothing else - which is the claim the constant in the old
- * `tenancy.ts` made while nothing was in a position to keep it.
- */
-export const CURRENT_ACCOUNT_NAME = 'tenant-default';
-
 /** The account is not in the register, so it has no data and never had any. */
 export class AccountNotInRegisterError extends Error {
   constructor(accountName: string) {
@@ -77,6 +63,12 @@ export interface Account {
 /**
  * Resolves an account to its store: check the register, then address the store
  * by name.
+ *
+ * **The name comes from whoever is signed in** (`src/auth/gate.ts`), which is
+ * what the constant that used to stand here promised would be the only line to
+ * change when signing in landed - and it was. Nothing below moved: this already
+ * took the account's name as an argument, looked it up in the register and
+ * addressed the store by it.
  *
  * There is deliberately no "the store is not configured" failure here.
  * Addressing a store by account name cannot fail - one binding names the whole

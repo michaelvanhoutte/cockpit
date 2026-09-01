@@ -32,7 +32,7 @@ test.describe('Dashboards', () => {
       // Its own workspace, which is what the note above promises: adding to
       // Work would leave its bar filled for whatever spec ran next.
       const workspace = uniqueTitle('Bookkeeping');
-      await openFirstWorkspace(page);
+      await openFirstWorkspace(page, isMobile);
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(workspace);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
@@ -77,7 +77,7 @@ test.describe('Dashboards', () => {
       // that deleted a dashboard out of Work would take it from whatever ran
       // next.
       const workspace = uniqueTitle('Bookkeeping');
-      await openFirstWorkspace(page);
+      await openFirstWorkspace(page, isMobile);
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(workspace);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);

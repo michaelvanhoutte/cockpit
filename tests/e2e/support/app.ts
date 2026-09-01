@@ -7,10 +7,14 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * prove.
  *
  * Every run starts from the same place: scripts/e2e-stack.mjs stamps out a
- * fresh register before the stack comes up, and the account's own store is
- * created empty by the run's first request. Neither is the storage `pnpm dev`
- * uses. So a run cannot be affected by what was clicked yesterday, and cannot
- * leave anything in the storage being developed against.
+ * fresh register before the stack comes up, and each account's own store is
+ * created empty by the first request that opens it. Neither is the storage
+ * `pnpm dev` uses. So a run cannot be affected by what was clicked yesterday,
+ * and cannot leave anything in the storage being developed against.
+ *
+ * Every walk now begins by signing in, because nothing but the logon page works
+ * until you have. Cookies are per browser context and Playwright gives each
+ * test its own, so a walk is never carrying the sign-in of the one before it.
  *
  * What that does NOT give is isolation *within* a run. All the specs, under
  * both projects, share one stack and one database, so an item captured by the
@@ -49,13 +53,34 @@ export function uniqueTitle(label: string): string {
 }
 
 /**
- * Opens the app at "/", which redirects to the first workspace and, inside it,
- * to the view that workspace was last on (router.tsx). Waits for the bar of
- * dashboards, which is what says a workspace is open and usable.
+ * The two people the register is seeded with (apps/api/seed.sql). Each owns an
+ * account of their own, and they share nothing.
  */
-export async function openFirstWorkspace(page: Page): Promise<void> {
-  await page.goto('/');
+export const MICHAEL = 'Michael';
+export const ADA = 'Ada';
+
+/**
+ * Signs in by choosing a name, which is the only way into the app.
+ *
+ * Used as arrangement by every walk about something else - the walk about
+ * signing in itself asserts its way through these steps rather than calling
+ * this, because a helper that both arranges and asserts is a helper that can
+ * make its own test vacuous.
+ */
+export async function signIn(page: Page, name: string, isMobile: boolean): Promise<void> {
+  await page.goto('/signin');
+  await press(page.getByRole('button', { name, exact: true }), isMobile);
   await expect(dashboardBar(page)).toBeVisible();
+}
+
+/**
+ * Signs in as the first person and lands in their first workspace: "/" redirects
+ * there and, inside it, to the view that workspace was last on (router.tsx).
+ * Waits for the bar of dashboards, which is what says a workspace is open and
+ * usable.
+ */
+export async function openFirstWorkspace(page: Page, isMobile: boolean): Promise<void> {
+  await signIn(page, MICHAEL, isMobile);
 }
 
 /** The bar of views under the workspace tabs: the Inbox, then the dashboards. */
@@ -70,7 +95,7 @@ export function dashboardBar(page: Page): Locator {
  * assuming one.
  */
 export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
-  await openFirstWorkspace(page);
+  await openFirstWorkspace(page, isMobile);
   await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
   await expect(captureBox(page)).toBeVisible();
 }
@@ -126,6 +151,43 @@ export async function capture(page: Page, title: string, isMobile: boolean): Pro
   await captureBox(page).fill(title);
   await press(page.getByRole('button', { name: 'Capture' }), isMobile);
   await expect(itemRow(page, title)).toBeVisible();
+}
+
+/**
+ * What this browser is still holding of whoever was signed in: the query keys
+ * in the stored copy of the read model (IndexedDB, written by
+ * `apps/web/src/persistence.ts`) and the keys the app has written to
+ * localStorage.
+ *
+ * Read straight out of the browser rather than off the screen, because that is
+ * where the leak this guards against would live: a screen showing nothing of
+ * the last person can still be sitting on a stored copy the *next* cold open
+ * paints from, a week later. jsdom has no IndexedDB, so nothing below this tier
+ * can look.
+ */
+export async function whatTheBrowserStillHolds(
+  page: Page,
+): Promise<{ storedQueries: string[]; localKeys: string[] }> {
+  return page.evaluate(async () => {
+    const stored = await new Promise<unknown>((resolve) => {
+      const open = indexedDB.open('keyval-store');
+      open.onsuccess = () => {
+        const db = open.result;
+        if (!db.objectStoreNames.contains('keyval')) return resolve(undefined);
+        const read = db.transaction('keyval').objectStore('keyval').get('cockpit-query-cache-v1');
+        read.onsuccess = () => resolve(read.result);
+        read.onerror = () => resolve(undefined);
+      };
+      open.onerror = () => resolve(undefined);
+    });
+    const queries =
+      (stored as { clientState?: { queries?: { queryKey: unknown[] }[] } } | undefined)?.clientState
+        ?.queries ?? [];
+    return {
+      storedQueries: queries.map((q) => JSON.stringify(q.queryKey)),
+      localKeys: Object.keys(localStorage),
+    };
+  });
 }
 
 /**

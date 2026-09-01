@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Link, Outlet, useParams } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
-import { workspacesQuery } from '../api/queries';
+import { NotSignedIn, signOut } from '../api/client';
+import { meQuery, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
 import { DashboardBar } from '../components/DashboardBar';
 
@@ -21,8 +23,41 @@ const DEFAULT_WORKSPACE_THEME_COLORS = {
  */
 export function Layout() {
   useServerEvents();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data } = useQuery(workspacesQuery);
   const params = useParams({ strict: false });
+
+  /**
+   * Who is signed in - and, when it comes back refused, that nobody is.
+   *
+   * **Nothing waits for it.** The screen below paints from the stored copy
+   * first and this settles behind it, which is the standing never-block-paint
+   * rule (architecture, "Performance budgets and the standing rules"): opening
+   * the app on a train should show your work, not a spinner over an
+   * unanswerable question. The cost of that is a moment where a sign-in that
+   * has gone is not known to have gone, and the moment ends here.
+   */
+  const { data: me, error: sessionFailure } = useQuery(meQuery);
+  const signedOut = sessionFailure instanceof NotSignedIn;
+
+  useEffect(() => {
+    if (!signedOut) return;
+    void navigate({ to: '/signin' });
+  }, [signedOut, navigate]);
+
+  const leave = useMutation({
+    mutationFn: signOut,
+    // `onSettled`, not `onSuccess`. Somebody who asked to sign out on a shared
+    // machine has to end up signed out of *this browser* whether or not the
+    // request reached the server - and if it did not, the sign-in it failed to
+    // end expires on its own.
+    //
+    // Emptying what the browser holds is not done here but on the logon page,
+    // which is the one screen with none of this mounted to write it back out
+    // again; the reason is worth reading there before moving it.
+    onSettled: () => navigate({ to: '/signin' }),
+  });
   const active = data?.workspaces.find((w) => w.id === params.workspaceId);
   /**
    * The workspace you are in, painted. Only these two move: the ground behind
@@ -108,6 +143,20 @@ export function Layout() {
                   >
                     Workspaces
                   </Link>
+                </DropdownMenu.Item>
+                {/* Who you are, and the way out. Both in the menu rather than
+                    on the bar: the tabs are the thing you use all day and the
+                    header is already full on a phone, while this is read once
+                    when you wonder whose Cockpit you are looking at. */}
+                <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
+                <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
+                  {me ? `Signed in as ${me.user.name}` : 'Signed in'}
+                </DropdownMenu.Label>
+                <DropdownMenu.Item
+                  onSelect={() => leave.mutate()}
+                  className="block cursor-default rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-tint data-[highlighted]:text-accent-deep"
+                >
+                  Sign out
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>

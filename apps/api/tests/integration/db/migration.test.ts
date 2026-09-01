@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
-import { env, applyD1Migrations, SELF } from 'cloudflare:test';
+import { env, applyD1Migrations } from 'cloudflare:test';
 import { foldName } from '../../../src/domain/names.js';
+import { asUser } from '../seed.js';
 
 /**
  * Integration level: a migration only exists against a real database, and what
@@ -34,7 +35,7 @@ let seq = 0;
 async function makeWorkspace(name: string): Promise<Response> {
   seq += 1;
   const id = `018f0000-0000-7000-8000-${String(seq).padStart(12, '0')}`;
-  return SELF.fetch('http://cockpit.test/v1/commands/create_workspace', {
+  return asUser('http://cockpit.test/v1/commands/create_workspace', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ commandId: id, issuedAt: AT, workspaceId: id, name }),
@@ -87,6 +88,16 @@ beforeAll(async () => {
   ]);
 
   await applyD1Migrations(env.DB, andTheRest());
+
+  // The person who owns that account, added only now: the table they go in is
+  // created by one of the migrations this case is about applying. Everything
+  // reaches the application through a sign-in, so without a user there is
+  // nobody for the last case here to make a workspace as.
+  await env.DB.prepare(
+    'INSERT INTO users (id, name, account_id, role, created_at) VALUES (?, ?, ?, ?, ?)',
+  )
+    .bind('user-michael', 'Michael', TENANT_ID, 'admin', AT)
+    .run();
 });
 
 describe('Capture', () => {

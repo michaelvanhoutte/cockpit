@@ -28,10 +28,14 @@ import { defineConfig, devices } from '@playwright/test';
  *    failures rather than per-feature ones, and until the suite can run against
  *    a deployment they are covered by looking at the preview before promoting.
  *    Running it against a deployment needs an Access service token *and* a way
- *    to keep test data out of real data; the second arrives with user accounts,
- *    when the suite can sign in as its own account. Until then E2E_BASE_URL
- *    starts no server and points the specs at a URL, which is enough to try it
- *    by hand but is deliberately not wired into CI.
+ *    to keep test data out of real data. The second is now possible - accounts
+ *    and sign-in arrived with "Sign in by picking a name, each user in their own
+ *    account" (issue 86), so the suite can have an account of its own - but
+ *    nothing here does it yet: that is "Run the F3 suite against a deployed
+ *    environment, as its own account" (issue 64), which has to provision that
+ *    account and sign in as it. Until then E2E_BASE_URL starts no server and
+ *    points the specs at a URL, which is enough to try it by hand but is
+ *    deliberately not wired into CI.
  * 2. WHICH SCREENS. Every spec runs under both projects, because "the actions
  *    work on that device" is a claim about each device, not about the code.
  *    Both are Chromium — this is a viewport and input matrix, not a browser

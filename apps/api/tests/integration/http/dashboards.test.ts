@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Dashboard } from '@cockpit/shared';
-import { WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import { WORKSPACE_ID, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`SELF.fetch`), because every rule
@@ -30,7 +30,7 @@ async function addDashboard(
   name: string,
   overrides: { commandId?: string; dashboardId?: string } = {},
 ) {
-  return SELF.fetch('http://cockpit.test/v1/commands/add_dashboard', {
+  return asUser('http://cockpit.test/v1/commands/add_dashboard', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -45,7 +45,7 @@ async function addDashboard(
 
 async function makeWorkspace(name: string): Promise<string> {
   const workspaceId = nextId();
-  await SELF.fetch('http://cockpit.test/v1/commands/create_workspace', {
+  await asUser('http://cockpit.test/v1/commands/create_workspace', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -64,7 +64,7 @@ async function renameDashboard(
   name: string,
   overrides: { commandId?: string } = {},
 ) {
-  return SELF.fetch('http://cockpit.test/v1/commands/rename_dashboard', {
+  return asUser('http://cockpit.test/v1/commands/rename_dashboard', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -82,7 +82,7 @@ async function deleteDashboard(
   dashboardId: string,
   overrides: { commandId?: string } = {},
 ) {
-  return SELF.fetch('http://cockpit.test/v1/commands/delete_dashboard', {
+  return asUser('http://cockpit.test/v1/commands/delete_dashboard', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -104,7 +104,7 @@ async function aDashboardIn(workspaceId: string, name = aName()): Promise<string
 
 /** The dashboards of a workspace, as the snapshot answers them. */
 async function dashboardsOf(workspaceId: string): Promise<Dashboard[]> {
-  const res = await SELF.fetch(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
+  const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
   const body = (await res.json()) as { dashboards: Dashboard[] };
   return body.dashboards;
 }
@@ -248,7 +248,7 @@ describe('Dashboards', () => {
       // Nothing is deleted in a fresh account, so this is arranged rather than
       // found: tombstone one, and ask again.
       expect(rows).toEqual([]);
-      await SELF.fetch('http://cockpit.test/v1/commands/delete_workspace', {
+      await asUser('http://cockpit.test/v1/commands/delete_workspace', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -476,7 +476,7 @@ describe('Dashboards', () => {
     ])('$situation', async ({ name, extra }) => {
       const requestId = nextId();
 
-      const response = await SELF.fetch(`http://cockpit.test/v1/commands/${name}`, {
+      const response = await asUser(`http://cockpit.test/v1/commands/${name}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({

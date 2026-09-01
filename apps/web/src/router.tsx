@@ -5,12 +5,14 @@ import {
   createRouter,
   redirect,
 } from '@tanstack/react-router';
+import { NotSignedIn } from './api/client';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { INBOX, browserStore, rememberView, rememberedIn, viewToOpen } from './lastVisited';
 import { LoadFailure } from './components/LoadFailure';
 import { DashboardPage } from './pages/DashboardPage';
 import { DashboardSettingsPage } from './pages/DashboardSettingsPage';
 import { Layout } from './pages/Layout';
+import { LogonPage } from './pages/LogonPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage';
 
@@ -18,9 +20,31 @@ interface RouterContext {
   queryClient: QueryClient;
 }
 
-const rootRoute = createRootRouteWithContext<RouterContext>()({
-  component: Layout,
-});
+/**
+ * Nothing of its own: it renders whichever of the two halves below applies. The
+ * app shell is not here because the logon page must not wear it - a header
+ * showing the last person's workspaces over a screen asking who you are is
+ * exactly the leak this change exists to close.
+ */
+const rootRoute = createRootRouteWithContext<RouterContext>()({});
+
+/**
+ * A read that turns out to need a sign-in sends you to the logon page rather
+ * than to a screen explaining that a read failed.
+ *
+ * This is the *cold* path - no stored copy to paint, so the route genuinely
+ * cannot resolve. When there is a copy the read is answered from it, nothing
+ * throws here, and the sign-in that has gone is noticed behind the painted
+ * screen instead (`pages/Layout.tsx`).
+ */
+async function orTheLogonPage<T>(read: Promise<T>): Promise<T> {
+  try {
+    return await read;
+  } catch (failure) {
+    if (failure instanceof NotSignedIn) throw redirect({ to: '/signin' });
+    throw failure;
+  }
+}
 
 /**
  * Where you go when you have not said which workspace: the first one you have,
@@ -30,7 +54,7 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
  * content is a link to that one.
  */
 const somewhereThatWorks = async (queryClient: QueryClient) => {
-  const { workspaces } = await queryClient.ensureQueryData(workspacesQuery);
+  const { workspaces } = await orTheLogonPage(queryClient.ensureQueryData(workspacesQuery));
   const first = workspaces[0];
   throw first
     ? redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } })
@@ -43,7 +67,7 @@ const somewhereThatWorks = async (queryClient: QueryClient) => {
  * lands you on a workspace that works instead of on a failed snapshot read.
  */
 const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string) => {
-  const { workspaces } = await queryClient.ensureQueryData(workspacesQuery);
+  const { workspaces } = await orTheLogonPage(queryClient.ensureQueryData(workspacesQuery));
   if (!workspaces.some((w) => w.id === workspaceId)) await somewhereThatWorks(queryClient);
 };
 
@@ -67,10 +91,34 @@ const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string)
  * be working, since the add just came back.
  */
 const dashboardsOf = (queryClient: QueryClient, workspaceId: string) =>
-  queryClient.ensureQueryData(snapshotQuery(workspaceId));
+  orTheLogonPage(queryClient.ensureQueryData(snapshotQuery(workspaceId)));
+
+/**
+ * The logon page, and the only address that works before you have signed in.
+ * It hangs off the root rather than off the shell below, so it carries none of
+ * the app's chrome and reads nothing belonging to whoever was here last.
+ */
+const signInRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/signin',
+  component: LogonPage,
+});
+
+/**
+ * Everything you can only see signed in, under the app shell.
+ *
+ * A layout route with no path of its own: it adds the header and the tabs to
+ * every address below it without appearing in any of them, which is what lets
+ * the logon page sit beside them rather than inside them.
+ */
+const appRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: 'app',
+  component: Layout,
+});
 
 const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: '/',
   beforeLoad: ({ context }) => somewhereThatWorks(context.queryClient),
 });
@@ -84,7 +132,7 @@ const indexRoute = createRoute({
  * address always says which view you are on and a dashboard can be linked to.
  */
 export const workspaceRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: '/w/$workspaceId',
   beforeLoad: async ({ context, params }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
@@ -105,7 +153,7 @@ export const workspaceRoute = createRoute({
  * that being on it is what gets remembered.
  */
 export const inboxRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: '/w/$workspaceId/inbox',
   beforeLoad: async ({ context, params, preload }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
@@ -123,7 +171,7 @@ export const inboxRoute = createRoute({
  * goes back to the workspace, which decides where to land all over again.
  */
 export const dashboardRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: '/w/$workspaceId/d/$dashboardId',
   beforeLoad: async ({ context, params, preload }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
@@ -149,7 +197,7 @@ export const dashboardRoute = createRoute({
  * dashboard settings page", issue 90).
  */
 export const dashboardSettingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: '/w/$workspaceId/settings/dashboards',
   beforeLoad: async ({ context, params }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
@@ -159,18 +207,21 @@ export const dashboardSettingsRoute = createRoute({
 
 /** Reached from the header's "···" menu; the home of everything per-workspace. */
 const workspaceSettingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: '/settings/workspaces',
   component: WorkspaceSettingsPage,
 });
 
 const routeTree = rootRoute.addChildren([
-  indexRoute,
-  workspaceRoute,
-  inboxRoute,
-  dashboardRoute,
-  dashboardSettingsRoute,
-  workspaceSettingsRoute,
+  signInRoute,
+  appRoute.addChildren([
+    indexRoute,
+    workspaceRoute,
+    inboxRoute,
+    dashboardRoute,
+    dashboardSettingsRoute,
+    workspaceSettingsRoute,
+  ]),
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {

@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { Workspace } from '@cockpit/shared';
-import { ACCOUNT_NAME, WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  ACCOUNT_NAME,
+  WORKSPACE_ID,
+  asUser,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`SELF.fetch`), because every rule
@@ -28,7 +35,7 @@ function aName(): string {
 }
 
 async function makeWorkspace(name: string, overrides: { workspaceId?: string } = {}) {
-  return SELF.fetch('http://cockpit.test/v1/commands/create_workspace', {
+  return asUser('http://cockpit.test/v1/commands/create_workspace', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -41,7 +48,7 @@ async function makeWorkspace(name: string, overrides: { workspaceId?: string } =
 }
 
 async function renameWorkspace(workspaceId: string, name: string, overrides: { commandId?: string } = {}) {
-  return SELF.fetch('http://cockpit.test/v1/commands/rename_workspace', {
+  return asUser('http://cockpit.test/v1/commands/rename_workspace', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -54,7 +61,7 @@ async function renameWorkspace(workspaceId: string, name: string, overrides: { c
 }
 
 async function deleteWorkspace(workspaceId: string, overrides: { commandId?: string } = {}) {
-  return SELF.fetch('http://cockpit.test/v1/commands/delete_workspace', {
+  return asUser('http://cockpit.test/v1/commands/delete_workspace', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -70,7 +77,7 @@ async function setTheme(
   theme: { tint: string; ground: string; header: string },
   overrides: { commandId?: string } = {},
 ) {
-  return SELF.fetch('http://cockpit.test/v1/commands/set_workspace_theme', {
+  return asUser('http://cockpit.test/v1/commands/set_workspace_theme', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -86,7 +93,7 @@ async function setTheme(
 
 async function captureInto(workspaceId: string, title: string): Promise<string> {
   const itemId = nextId();
-  await SELF.fetch('http://cockpit.test/v1/commands/capture_item', {
+  await asUser('http://cockpit.test/v1/commands/capture_item', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -109,7 +116,7 @@ async function aWorkspace(): Promise<{ id: string; name: string }> {
 }
 
 async function theWorkspaces(): Promise<Workspace[]> {
-  const res = await SELF.fetch('http://cockpit.test/v1/workspaces');
+  const res = await asUser('http://cockpit.test/v1/workspaces');
   const body = (await res.json()) as { workspaces: Workspace[] };
   return body.workspaces;
 }
@@ -146,7 +153,7 @@ describe('Workspace management', () => {
       const name = aName();
       await makeWorkspace(name, { workspaceId });
 
-      const res = await SELF.fetch(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
+      const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
 
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({
@@ -339,7 +346,7 @@ describe('Workspace management', () => {
     });
 
     it('cannot be opened any more', async () => {
-      const res = await SELF.fetch(`http://cockpit.test/v1/workspaces/${deleted.id}/snapshot`);
+      const res = await asUser(`http://cockpit.test/v1/workspaces/${deleted.id}/snapshot`);
       expect(res.status).toBe(404);
     });
 
@@ -363,7 +370,7 @@ describe('Workspace management', () => {
 
     it('leaves the other workspaces and what is in them alone', async () => {
       expect((await theWorkspaces()).map((w) => w.id)).toContain(untouched.id);
-      const res = await SELF.fetch(`http://cockpit.test/v1/workspaces/${untouched.id}/snapshot`);
+      const res = await asUser(`http://cockpit.test/v1/workspaces/${untouched.id}/snapshot`);
       expect(res.status).toBe(200);
       const snapshot = (await res.json()) as { items: { title: string }[] };
       expect(snapshot.items.map((i) => i.title)).toEqual(['A note in the workspace that stays']);
@@ -560,7 +567,7 @@ describe('Workspace management', () => {
       await makeWorkspace(name);
       const refusedRequestId = nextId();
 
-      await SELF.fetch('http://cockpit.test/v1/commands/create_workspace', {
+      await asUser('http://cockpit.test/v1/commands/create_workspace', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
