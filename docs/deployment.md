@@ -161,11 +161,16 @@ before the API is deployed *or* run with `wrangler dev`. `pnpm build` first.
 
 ## 4. Branch environments
 
-**Decided, not yet built.** What is described here replaces the per-push preview
-environment, which stopped being possible when this Worker gained a Durable
-Object. The mechanism it replaces, and why it died, is
-"Preview URLs and Durable Objects are mutually exclusive" below; read that first
-if the *why* matters more than the *what*.
+**Reopened, not built.** This section described a branch environment on request,
+chosen on the understanding that the existing Access application would cover it.
+**That understanding was wrong**, and the correction is large enough to reopen
+the choice rather than adjust the design - see "Gating a branch Worker costs what
+previews did not" below. What is left standing here is the shape of the option;
+what is not is its price.
+
+What it replaces, and why that died, is "Preview URLs and Durable Objects are
+mutually exclusive" below; read that first if the *why* matters more than the
+*what*.
 
 **A branch gets an environment when it is asked for, not on every push.** A
 `workflow_dispatch` deploys the branch as **its own Worker**, named
@@ -178,11 +183,10 @@ Three things make this the shape it is:
   withholds *version* preview URLs from a Worker with a Durable Object, but an
   ordinary Worker with a Durable Object serves on its ordinary `workers.dev`
   route — as production and staging do.
-- **`<alias>-cockpit-preview`, in that order.** It puts the branch on exactly
-  the hostname shape the version preview URLs used, which the existing Access
-  application already covers by wildcard. Named the other way round it would
-  not match, and every branch environment would be public. The alias rules below
-  were built for this arithmetic and still hold.
+- **~~`<alias>-cockpit-preview`, in that order, so the existing Access
+  application covers it by wildcard.~~** Struck: `.workers.dev` does not support
+  wildcard subdomains at all, so no naming makes one application cover them. See
+  below. The name is still a reasonable one; it just buys nothing.
 - **It gets its own account store for free.** Durable Object namespaces are
   per-Worker, so branches stop sharing one — which the per-push model could not
   avoid, and which was a real hazard once a branch could add a change to
@@ -242,6 +246,41 @@ is the register - one row, the same account for every branch. An account's own
 workspaces, items and associations live in a Durable Object namespace, which is
 per-Worker, so branch environments no longer share any of it. The isolation
 §9.1 asked for arrived by another route, for nothing.
+
+### Gating a branch Worker costs what previews did not
+
+**The account-level Access policy does not reach a branch Worker**, and no
+naming or wildcard makes it. Two facts, both from Cloudflare:
+
+- Access on a `workers.dev` URL protects
+  [one Worker's production URL, its preview URLs, or both](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
+  - it is per Worker.
+- [`.workers.dev` does not support wildcard subdomains](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/),
+  so one application cannot stand in front of every branch Worker the way
+  `Cloudflare Workers Preview URLs` stands in front of every preview URL.
+
+That account-level policy covering "every preview, including branches that do
+not exist yet" was a property of **preview URLs specifically**. Losing preview
+URLs loses it, and a branch Worker inherits nothing.
+
+So a branch environment is gated per environment or not at all, which leaves
+three shapes and no free one:
+
+- **Create and delete an Access application per environment from the workflow.**
+  Doable through the API, and it widens the CI token from Workers and D1 to
+  Access. Its failure mode is the one §6 exists to prevent: an application that
+  is not created leaves an unauthenticated instance of this app on the public
+  internet, and nothing about the deploy looks wrong when that happens.
+- **Move branch environments to a custom domain**, where a wildcard application
+  does work and covers them all once. That is the documented answer to exactly
+  this, and it is a bigger, one-time setup: a zone, DNS, and custom-domain
+  routing.
+- **Accept public branch environments.** They hold `seed.sql` fixtures rather
+  than real mail, which is the argument §6 already makes about previews - but §6
+  gates them anyway, and that reversal was the owner's.
+
+This is what reopened §4. It is recorded here rather than in a commit message
+because the cost is the decision.
 
 ### Preview URLs and Durable Objects are mutually exclusive
 
