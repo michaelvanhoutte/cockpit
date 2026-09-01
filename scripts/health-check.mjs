@@ -23,7 +23,7 @@
 // Usage: node scripts/health-check.mjs <base-url>
 //
 
-import { checkUntilHealthy, INTERVAL_MS, WINDOW_MS } from './lib/health.mjs';
+import { checkUntilHealthy, failureReport } from './lib/health.mjs';
 
 const base = process.argv[2];
 if (!base) {
@@ -65,11 +65,7 @@ if (result.ok) {
   const took = result.attempts > 1 ? ` after ${result.attempts} attempts` : '';
   console.log(`healthy${took}: ${result.body}`);
 } else {
-  const waited =
-    result.attempts > 1
-      ? ` Still so after ${result.attempts} attempts over ${Math.round(WINDOW_MS / 1000)}s, asking every ${Math.round(INTERVAL_MS / 1000)}s.`
-      : '';
-  console.log(`::error::${endpoint} ${result.answer.message}${waited}`);
+  console.log(`::error::${endpoint} ${failureReport(result)}`);
   if (result.body) console.log(result.body.split('\n').slice(0, 5).join('\n'));
 }
 

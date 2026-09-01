@@ -51,6 +51,14 @@ export function readAnswer({ status, body }) {
         'gate"). The uptime monitor in architecture\'s Observability section depends on this too.',
     };
   }
+  // Up and failing, or asking to be asked less often. Both are what an edge
+  // that has not caught up with a deploy looks like, and `curl --retry` - which
+  // the check this replaced leaned on - treated exactly this family as
+  // transient. Dropping it would have swapped one first-request-after-a-deploy
+  // race for another.
+  if (status === 429 || status >= 500) {
+    return { state: 'failing', message: `returned ${status}.` };
+  }
   if (status !== 200) {
     return { state: 'error', message: `returned ${status}.` };
   }
@@ -81,6 +89,21 @@ export function readAnswer({ status, body }) {
 }
 
 /**
+ * What to say when the check fails, given how it stopped.
+ *
+ * Here rather than in the runner because it is a claim about what happened, and
+ * the first version of it made two that were not true: it appended "still so
+ * after N attempts over 60s" whenever there had been more than one attempt,
+ * including when the run waited three seconds on one answer and then met a
+ * redirect it would never wait on.
+ */
+export function failureReport({ stopped, attempts, answer }, windowMs = WINDOW_MS, intervalMs = INTERVAL_MS) {
+  if (stopped !== 'window-closed') return answer.message;
+  const seconds = (ms) => Math.round(ms / 1000);
+  return `${answer.message} Still so after ${attempts} attempts over ${seconds(windowMs)}s, asking every ${seconds(intervalMs)}s.`;
+}
+
+/**
  * Whether waiting could change this answer.
  *
  * Only the two that a deployment settling can fix. A redirect and a login page
@@ -88,13 +111,18 @@ export function readAnswer({ status, body }) {
  * only delays saying so.
  */
 export function worthRetrying(state) {
-  return state === 'unhealthy' || state === 'unreachable';
+  return state === 'unhealthy' || state === 'unreachable' || state === 'failing';
 }
 
 /**
  * Asks until the deployment says it is healthy, or until the window closes.
  *
- * @returns {Promise<{ok: boolean, attempts: number, answer: object, body: string}>}
+ * `stopped` says which of the three exits it took, because the attempt count
+ * alone does not: a run can wait on one answer and then meet another it will
+ * not wait on, and reporting that as "still unwell after two attempts over a
+ * minute" claims both a persistence and a duration that never happened.
+ *
+ * @returns {Promise<{ok: boolean, stopped: 'healthy'|'window-closed'|'not-worth-retrying', attempts: number, answer: object, body: string}>}
  */
 export async function checkUntilHealthy(ask, options = {}) {
   const {
@@ -113,11 +141,13 @@ export async function checkUntilHealthy(ask, options = {}) {
     const answer = readAnswer({ status, body });
     onAttempt({ attempt: attempts, status, answer, body });
 
-    if (answer.state === 'healthy') return { ok: true, attempts, answer, body };
-    if (!worthRetrying(answer.state)) return { ok: false, attempts, answer, body };
+    if (answer.state === 'healthy') return { ok: true, stopped: 'healthy', attempts, answer, body };
+    if (!worthRetrying(answer.state)) {
+      return { ok: false, stopped: 'not-worth-retrying', attempts, answer, body };
+    }
     // Checked after the ask, so the window is a limit on waiting rather than on
     // trying: a run that starts with no time left still gets one real answer.
-    if (now() >= deadline) return { ok: false, attempts, answer, body };
+    if (now() >= deadline) return { ok: false, stopped: 'window-closed', attempts, answer, body };
     await sleep(delayMs);
   }
 }

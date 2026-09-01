@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { checkUntilHealthy, readAnswer, worthRetrying } from './health.mjs';
+import { checkUntilHealthy, failureReport, readAnswer, worthRetrying } from './health.mjs';
 
 const healthy = JSON.stringify({ ok: true, register: true, store: true });
 const unwell = JSON.stringify({ ok: false, register: true, store: false });
@@ -45,7 +45,10 @@ describe('readAnswer', () => {
     { situation: 'a login page in front of the Worker', status: 200, body: '<html>Sign in', state: 'not-ours' },
     { situation: 'our JSON without the verdict in it', status: 200, body: '{"db":true}', state: 'not-ours' },
     { situation: 'the gate having swallowed /health', status: 302, body: '', state: 'gated' },
-    { situation: 'a Worker that is up and failing', status: 500, body: 'boom', state: 'error' },
+    { situation: 'a Worker that is up and failing', status: 500, body: 'boom', state: 'failing' },
+    { situation: 'an edge that has not caught up yet', status: 503, body: '', state: 'failing' },
+    { situation: 'being asked to slow down', status: 429, body: '', state: 'failing' },
+    { situation: 'an address that is not ours', status: 404, body: 'nope', state: 'error' },
     { situation: 'nothing coming back at all', status: 0, body: '', state: 'unreachable' },
   ]) {
     it(`reads ${situation} as ${state}`, () => {
@@ -65,9 +68,24 @@ describe('readAnswer', () => {
 describe('worthRetrying', () => {
   it('waits only on what settling could fix', () => {
     assert.deepEqual(
-      ['healthy', 'unhealthy', 'unreachable', 'gated', 'not-ours', 'error'].filter(worthRetrying),
-      ['unhealthy', 'unreachable'],
+      ['healthy', 'unhealthy', 'unreachable', 'failing', 'gated', 'not-ours', 'error'].filter(worthRetrying),
+      ['unhealthy', 'unreachable', 'failing'],
     );
+  });
+});
+
+describe('failureReport', () => {
+  const answer = { message: 'was unwell.' };
+
+  it('says how long it waited, when waiting is what it did', () => {
+    const line = failureReport({ stopped: 'window-closed', attempts: 12, answer }, 60_000, 3_000);
+    assert.equal(line, 'was unwell. Still so after 12 attempts over 60s, asking every 3s.');
+  });
+
+  it('claims no waiting it did not do, when the last answer was one it would not wait on', () => {
+    // Two attempts, because an earlier one was retryable - but the run ended on
+    // an answer it refused to wait on, seconds in rather than a minute.
+    assert.equal(failureReport({ stopped: 'not-worth-retrying', attempts: 2, answer }), 'was unwell.');
   });
 });
 
@@ -122,6 +140,40 @@ describe('checkUntilHealthy', () => {
       onAttempt: ({ attempt, answer }) => seen.push(`${attempt}:${answer.state}`),
     });
     assert.deepEqual(seen, ['1:unreachable', '2:healthy']);
+  });
+
+  it('waits out an edge that has not caught up with the deploy yet', async () => {
+    // curl --retry treated 429 and 5xx as transient, and the check this
+    // replaced inherited that for free. Losing it would swap one
+    // first-request-after-a-deploy race for another.
+    const result = await checkUntilHealthy(
+      answering({ status: 503, body: '' }, { status: 200, body: healthy }),
+      fast(),
+    );
+    assert.equal(result.ok, true);
+    assert.equal(result.attempts, 2);
+  });
+
+  it('says the window closed on it, not that it gave up', async () => {
+    let clock = 0;
+    const result = await checkUntilHealthy(answering({ status: 200, body: unwell }), {
+      ...fast(),
+      windowMs: 30,
+      now: () => (clock += 10),
+    });
+    assert.equal(result.stopped, 'window-closed');
+  });
+
+  it('says it gave up, when the last answer was one waiting cannot fix', async () => {
+    // A mix: unreachable first, so it does wait once, then a redirect, which it
+    // will not wait on. Reporting "still so after 2 attempts over 60s" here
+    // would claim both a persistence and a duration that never happened.
+    const result = await checkUntilHealthy(
+      answering({ status: 0, body: '' }, { status: 302, body: '' }),
+      fast(),
+    );
+    assert.equal(result.stopped, 'not-worth-retrying');
+    assert.equal(result.attempts, 2);
   });
 
   it('still gets one real answer when it starts with no window left', async () => {
