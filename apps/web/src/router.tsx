@@ -157,7 +157,7 @@ export const dashboardSettingsRoute = createRoute({
   component: DashboardSettingsPage,
 });
 
-/** Reached from the header's "···" menu; the home of everything per-workspace. */
+/** Reached from the header's menu; the home of everything per-workspace. */
 const workspaceSettingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/workspaces',
