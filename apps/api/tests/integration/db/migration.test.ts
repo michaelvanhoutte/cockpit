@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
-import { foldName } from '../../../src/domain/workspaces.js';
+import { foldName } from '../../../src/domain/names.js';
 
 /**
  * Integration level: a migration only exists against a real database, and what

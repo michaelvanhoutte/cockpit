@@ -12,7 +12,7 @@ import { WorkspacePage } from '../../../src/pages/WorkspacePage';
  * apps/api/tests/integration against a real one.
  */
 vi.mock('../../../src/router', () => ({
-  workspaceRoute: { useParams: () => ({ workspaceId: 'ws-work' }) },
+  inboxRoute: { useParams: () => ({ workspaceId: 'ws-work' }) },
 }));
 
 const held = vi.hoisted(() => ({ items: [] as Item[] }));
@@ -25,6 +25,7 @@ vi.mock('../../../src/api/queries', () => ({
       Promise.resolve({
         workspace: { id: workspaceId, tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' },
         items: held.items,
+        dashboards: [],
         associations: [],
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),

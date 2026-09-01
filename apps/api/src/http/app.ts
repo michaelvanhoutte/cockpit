@@ -225,6 +225,10 @@ const routes = app
     commandRoute('rename_workspace', { conflict: 'A workspace already has that name' }),
     async (c) => c.json(await change(c.env, 'rename_workspace', c.req.valid('json')), 200),
   )
+  .openapi(
+    commandRoute('add_dashboard', { conflict: 'The workspace already has a dashboard by that name' }),
+    async (c) => c.json(await change(c.env, 'add_dashboard', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c.env, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c.env, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c.env, 'capture_item', c.req.valid('json')), 200))

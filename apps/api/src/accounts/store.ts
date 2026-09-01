@@ -7,13 +7,20 @@ import { accountChanges } from './changes.js';
 import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations } from './events.js';
 import {
+  DashboardNameTakenError,
   ItemNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
   runCommand,
 } from './command-service.js';
-import { getWorkspace, listAssociationsForWorkspace, listOpenItems, listWorkspaces } from './repo.js';
+import {
+  getWorkspace,
+  listAssociationsForWorkspace,
+  listDashboards,
+  listOpenItems,
+  listWorkspaces,
+} from './repo.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
 
 /**
@@ -51,6 +58,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       return {
         workspace,
         items: listOpenItems(db, accountName, workspaceId),
+        dashboards: listDashboards(db, accountName, workspaceId),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
       };
     });
@@ -91,7 +99,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       if (error instanceof ItemNotFoundError || error instanceof WorkspaceNotFoundError) {
         return { status: 'missing', what: error.message };
       }
-      if (error instanceof WorkspaceNameTakenError) {
+      if (error instanceof WorkspaceNameTakenError || error instanceof DashboardNameTakenError) {
         return { status: 'conflict', what: error.message };
       }
       if (error instanceof UnknownThemeError) {

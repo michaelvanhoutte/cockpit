@@ -4,7 +4,7 @@ import {
   expectNoSidewaysScroll,
   inbox,
   itemRow,
-  openFirstWorkspace,
+  openInbox,
   press,
   uniqueTitle,
 } from './support/app';
@@ -23,7 +23,7 @@ test.describe('Capture', () => {
       page,
       isMobile,
     }) => {
-      await openFirstWorkspace(page);
+      await openInbox(page, isMobile);
       await expectNoSidewaysScroll(page);
 
       // Reachable, not merely present: an element rendered off the edge of a

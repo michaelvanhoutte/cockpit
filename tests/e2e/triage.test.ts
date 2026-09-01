@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { capture, itemRow, openFirstWorkspace, press, uniqueTitle } from './support/app';
+import { capture, itemRow, openInbox, press, uniqueTitle } from './support/app';
 
 /**
  * F3, and specifically on both projects, because the way this action is
@@ -16,7 +16,7 @@ import { capture, itemRow, openFirstWorkspace, press, uniqueTitle } from './supp
 test.describe('Triage', () => {
   test.describe('dismissing an item takes it out of the inbox, by touch as by mouse', () => {
     test('leaves the inbox once dismissed', async ({ page, isMobile }) => {
-      await openFirstWorkspace(page);
+      await openInbox(page, isMobile);
       const thought = uniqueTitle('Ignore me');
       await capture(page, thought, isMobile);
 

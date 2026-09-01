@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  dashboardBar,
   expectNoSidewaysScroll,
   groundOf,
   openFirstWorkspace,
@@ -57,7 +58,10 @@ test.describe('Workspace management', () => {
       await expectNoSidewaysScroll(page);
 
       await press(tab, isMobile);
-      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+      // Open, on a view of itself: a workspace opens on the view it was last
+      // on, and a new one has never been opened, so that is its first
+      // dashboard ("Add and switch dashboards", issue 32).
+      await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
     });
   });
 
@@ -106,7 +110,7 @@ test.describe('Workspace management', () => {
       const row = page.getByRole('listitem').filter({ hasText: mine });
       await press(row.getByRole('button', { name: `Olive for ${mine}` }), isMobile);
       await press(page.locator('header').getByRole('link', { name: mine }), isMobile);
-      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+      await expect(dashboardBar(page)).toBeVisible();
 
       // Repainted, without a reload anywhere in the walk.
       const olive = await groundOf(page);
@@ -114,7 +118,7 @@ test.describe('Workspace management', () => {
 
       // And switching away takes the colour with it.
       await press(page.locator('header').getByRole('link', { name: 'Work' }), isMobile);
-      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+      await expect(dashboardBar(page)).toBeVisible();
       expect(await groundOf(page)).toBe(firstGround);
     });
   });
@@ -133,7 +137,7 @@ test.describe('Workspace management', () => {
       // Look at it, so what is deleted is the workspace being viewed.
       const tab = page.locator('header').getByRole('link', { name });
       await press(tab, isMobile);
-      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+      await expect(dashboardBar(page)).toBeVisible();
       const itsUrl = page.url();
 
       await openSettings(page, isMobile);
@@ -149,7 +153,7 @@ test.describe('Workspace management', () => {
       // Going back to where it was is not a dead end: a workspace you can work
       // in, not a failed read of one that is gone.
       await page.goto(itsUrl);
-      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+      await expect(dashboardBar(page)).toBeVisible();
       expect(page.url()).not.toBe(itsUrl);
     });
   });

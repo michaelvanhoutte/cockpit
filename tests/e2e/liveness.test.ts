@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { itemRow, openFirstWorkspace, uniqueTitle } from './support/app';
+import { itemRow, openInbox, uniqueTitle } from './support/app';
 
 /**
  * F3, and one walk: what nothing below can prove is that a *real* EventSource,
@@ -15,7 +15,7 @@ import { itemRow, openFirstWorkspace, uniqueTitle } from './support/app';
  */
 test.describe('Offline', () => {
   test.describe('a change made elsewhere reaches a tab nobody has touched, even after the connection was refused', () => {
-    test('shows the new item without anyone returning to the tab', async ({ page }) => {
+    test('shows the new item without anyone returning to the tab', async ({ page, isMobile }) => {
       const attempts: string[] = [];
       page.on('request', (r) => {
         if (r.url().includes('/v1/events')) attempts.push(r.url());
@@ -27,7 +27,7 @@ test.describe('Offline', () => {
         route.fulfill({ status: 503, contentType: 'text/plain', body: 'refused' }),
       );
 
-      await openFirstWorkspace(page);
+      await openInbox(page, isMobile);
       await expect.poll(() => attempts.length).toBeGreaterThanOrEqual(1);
 
       // Let the replacement through for real. Interception is dropped rather
@@ -42,7 +42,9 @@ test.describe('Offline', () => {
       // made, so the change has to come after the replacement is up.
       await page.waitForTimeout(1_500);
 
-      const workspaceId = new URL(page.url()).pathname.split('/').pop()!;
+      // `/w/<workspace>/inbox`: the workspace is the segment after `/w/`, not
+      // the last one, which now says which view of it is open.
+      const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
       const title = uniqueTitle('Arrived while nobody looked');
       const sent = await page.request.post('/v1/commands/capture_item', {
         data: {

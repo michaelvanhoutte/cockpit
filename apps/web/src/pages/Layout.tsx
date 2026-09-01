@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
 import { workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
+import { DashboardBar } from '../components/DashboardBar';
 
 /** The default theme in the shape a workspace carries it. */
 const DEFAULT_WORKSPACE_THEME_COLORS = {
@@ -112,6 +113,10 @@ export function Layout() {
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
         </div>
+        {/* The dashboards of the workspace you are in, directly under its tab.
+            Only where there is a workspace to have them: the settings page is
+            reached without one. */}
+        {params.workspaceId && <DashboardBar workspaceId={params.workspaceId} />}
       </header>
       {/* Left-aligned and full width, matching the header: pages get the whole
           screen instead of a centred column with empty gutters either side. */}

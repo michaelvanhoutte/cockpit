@@ -49,11 +49,29 @@ export function uniqueTitle(label: string): string {
 }
 
 /**
- * Opens the app at "/", which redirects to the first workspace (router.tsx),
- * and waits for it to be usable rather than merely loaded.
+ * Opens the app at "/", which redirects to the first workspace and, inside it,
+ * to the view that workspace was last on (router.tsx). Waits for the bar of
+ * dashboards, which is what says a workspace is open and usable.
  */
 export async function openFirstWorkspace(page: Page): Promise<void> {
   await page.goto('/');
+  await expect(dashboardBar(page)).toBeVisible();
+}
+
+/** The bar of views under the workspace tabs: the Inbox, then the dashboards. */
+export function dashboardBar(page: Page): Locator {
+  return page.getByRole('navigation', { name: 'Dashboards' });
+}
+
+/**
+ * Opens the first workspace and switches to its Inbox, which is where capture
+ * and triage happen. A workspace opens on a dashboard unless it remembers
+ * otherwise, so the walks about items say which view they need rather than
+ * assuming one.
+ */
+export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
+  await openFirstWorkspace(page);
+  await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
   await expect(captureBox(page)).toBeVisible();
 }
 

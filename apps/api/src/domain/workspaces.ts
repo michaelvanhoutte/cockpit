@@ -1,5 +1,6 @@
 import { DEFAULT_WORKSPACE_THEME, WORKSPACE_THEMES, themeOf } from '@cockpit/shared';
 import type { CreateWorkspaceCommand, Workspace } from '@cockpit/shared';
+import { foldName, namedTheSame } from './names.js';
 
 /**
  * Pure handlers for workspaces (architecture, "Hono + Zod on Cloudflare
@@ -35,59 +36,16 @@ export function nextColor(taken: readonly string[]): string {
 }
 
 /**
- * The name with its case folded away, which is what the unique index holds and
- * the only thing that decides whether two workspaces share a name ("Workspace
- * names are only case-insensitive in ASCII", issue 91).
- *
- * Upper-then-lower, not `toLowerCase()` alone, because lowercasing is not case
- * folding: `STRASSE` lowercases to `strasse` while `Straße` stays `straße`, so
- * the two would remain different names. Uppercasing expands `ß` to `SS` first,
- * and the pair folds together. Measured, not assumed - the case table in
- * apps/api/tests/unit/domain/workspaces.test.ts is what pins it.
- *
- * Locale-independent on purpose: `toLocaleLowerCase()` would fold `I` by
- * whatever locale the Worker happens to run under, so the same two names could
- * be the same name in one deployment and not in another.
- *
- * What it deliberately does not do is normalize Unicode composition, so `é` as
- * one code point and `e` plus a combining accent still count as two names.
- * That is a real second way two names can look identical; it needs its own
- * decision about which normal form, and folding case is the half that bites.
- *
- * Dashboards get the same rule when "Add and switch dashboards" (issue 32)
- * lands, and share this function rather than growing a second one.
- */
-export function foldName(name: string): string {
-  return name.trim().toUpperCase().toLowerCase();
-}
-
-/**
- * The live workspace already going by this name, or undefined.
- *
- * **One function, both writers.** Creating a workspace and renaming one are
- * the two places a name is given, and they answer "is it taken?" here rather
- * than each folding and comparing for itself - which is what stops them
- * drifting apart. The unique index is the lock behind this, refusing what a
- * race gets past.
- *
- * It folds the names on the way past rather than reading `folded_name`,
- * because a row can hold a name whose folded copy is missing or stale: the
- * code serving requests during the deploy that introduced the column wrote no
- * folded name, and migration 0005's backfill could only fold the ASCII part of
- * what it found.
- *
- * `except` is the workspace doing the asking, and it is what makes renaming
- * `Personal` to `PERSONAL` work. The only row the new name folds onto is the
- * workspace itself, and a plain "is this name taken?" finds that row and
- * refuses a rename that collides with nothing.
+ * The live workspace already going by this name, or undefined. The scope is
+ * every live workspace of the account, which is what makes a workspace name
+ * unique across it; `namedTheSame` in names.ts carries the rest.
  */
 export function workspaceNamed(
   live: readonly Workspace[],
   name: string,
   except?: string,
 ): Workspace | undefined {
-  const folded = foldName(name);
-  return live.find((w) => w.id !== except && foldName(w.name) === folded);
+  return namedTheSame(live, name, except);
 }
 
 /**

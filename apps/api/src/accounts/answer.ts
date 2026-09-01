@@ -1,9 +1,11 @@
-import type { Association, Item, Workspace } from '@cockpit/shared';
+import type { Association, Dashboard, Item, Workspace } from '@cockpit/shared';
 
 /** The full read model for one workspace, as the store answers it. */
 export interface AccountSnapshot {
   workspace: Workspace;
   items: Item[];
+  /** The workspace's dashboards, oldest first: the bar under the tabs. */
+  dashboards: Dashboard[];
   associations: Association[];
 }
 
