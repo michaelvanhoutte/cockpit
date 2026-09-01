@@ -32,9 +32,16 @@
 -- reads rather than trusting this column, so it refuses the second one the
 -- next time somebody types it (src/http/command-service.ts).
 --
--- The one thing here that can fail on data is narrower: two rows already
--- holding the empty-string default, written by old code between 0004 and this
--- file. The new index refuses the pair, this migration fails, the deploy fails,
+-- **So, unlike 0003, nothing here can fail on the data it finds.** The same
+-- argument covers the empty-string rows old code writes between 0004 and this
+-- file: the old index is live until the last statement below, so every live row
+-- in a tenant already has a distinct `lower(name)`, and the backfill gives each
+-- of them exactly that. Two of them cannot come out equal.
+--
+-- What is left is a race of milliseconds rather than a state of the data: two
+-- workspaces created by old code *between* the backfill and the `CREATE`, which
+-- take the default and are both still `''` when the index is built. If that
+-- ever happens the index is refused, this migration fails, the deploy fails,
 -- and the old code keeps running against a database that is otherwise
 -- untouched - which is the intended outcome. The fix is one rename by hand,
 -- then redeploy.
