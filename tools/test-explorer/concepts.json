@@ -46,6 +46,7 @@
         "apps/web/src/components/DashboardBar.tsx",
         "apps/web/src/pages/DashboardPage.tsx",
         "apps/web/src/pages/DashboardSettingsPage.tsx",
+        "apps/web/src/components/PanelBoard.tsx",
         "apps/web/src/lastVisited.ts",
         "apps/web/src/router.tsx",
         "apps/web/src/components/Menu.tsx",
@@ -56,7 +57,25 @@
     {
       "key": "Panels",
       "label": "Panels",
-      "sourcePatterns": []
+      "sourcePatterns": [
+        "apps/api/src/domain/panels.ts",
+        "apps/api/src/domain/names.ts",
+        "apps/api/src/accounts/command-service.ts",
+        "apps/api/src/accounts/repo.ts",
+        "apps/api/src/accounts/changes.ts",
+        "apps/api/src/accounts/schema.ts",
+        "packages/shared/src/commands.ts",
+        "packages/shared/src/domain/panel.ts",
+        "apps/web/src/panels/arrangement.ts",
+        "apps/web/src/panels/chosenLayout.ts",
+        "apps/web/src/panels/useScreenWidth.ts",
+        "apps/web/src/components/PanelBoard.tsx",
+        "apps/web/src/components/PanelCard.tsx",
+        "apps/web/src/components/LayoutQuestion.tsx",
+        "apps/web/src/pages/DashboardPage.tsx",
+        "apps/web/src/components/Menu.tsx",
+        "apps/web/src/components/DeleteQuestion.tsx"
+      ]
     },
     {
       "key": "Focus",
