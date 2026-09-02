@@ -106,3 +106,63 @@ describe('Triage', () => {
     });
   });
 });
+
+describe('Triage', () => {
+  describe('an Inbox row says how it is being handled in a color and in a word, and how long it has waited', () => {
+    /** One row, rendered on its own, with the mark at its head. */
+    function markOn(item: Partial<Item>): string {
+      mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+      const { container, unmount } = render(
+        <ItemRow item={anItem(item)} workspaceId="ws-work" />,
+      );
+      const mark = container.querySelector('li > span[aria-hidden="true"]');
+      const className = mark?.className ?? '';
+      unmount();
+      return className;
+    }
+
+    // Every status an item can be in while it is still yours to deal with;
+    // done and dismissed never reach a list this renders.
+    const open: ItemStatus[] = [
+      'to_process',
+      'task',
+      'waiting',
+      'snoozed',
+      'delegated',
+      'reference',
+    ];
+
+    it('gives no two of them the same mark, so the list can be read without being read', () => {
+      const marks = open.map((status) => markOn({ status }));
+
+      expect(marks.every((mark) => mark !== '')).toBe(true);
+      expect(new Set(marks).size).toBe(open.length);
+    });
+
+    it('says the status in words too, so the color is never the only thing carrying it', () => {
+      mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+      render(<ItemRow item={anItem({ status: 'waiting' })} workspaceId="ws-work" />);
+
+      expect(screen.getByText('Waiting')).toBeInTheDocument();
+    });
+
+    it.each([
+      { situation: 'has been sitting for days', createdAt: '2026-08-12T10:00:00.000Z', shows: '14d' },
+      { situation: 'was captured this morning', createdAt: '2026-08-26T08:00:00.000Z', shows: null },
+    ])('an item that $situation', ({ createdAt, shows }) => {
+      // The row reads the clock, so the clock is what the test replaces - the
+      // arithmetic itself is proved without one in tests/unit/waited.test.ts.
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-08-26T10:00:00.000Z'));
+      try {
+        mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+        render(<ItemRow item={anItem({ createdAt })} workspaceId="ws-work" />);
+
+        if (shows) expect(screen.getByText(shows)).toBeInTheDocument();
+        else expect(screen.queryByTitle(/^Waiting /)).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+});

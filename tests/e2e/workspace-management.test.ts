@@ -7,6 +7,7 @@ import {
   openFirstWorkspace,
   openSettings,
   press,
+  tabOnIsWhollyInView,
   uniqueTitle,
 } from './support/app';
 
@@ -93,7 +94,7 @@ test.describe('Workspace management', () => {
     }) => {
       // F3 for the reason the whole rule is F3: "the page is a different
       // colour" is a computed style, and there is no computed style without a
-      // browser. Everything below it - which three colours a theme is, what the
+      // browser. Everything below it - which four colours a theme is, what the
       // picker asks for, what the server stores - is settled at its own level.
       const mine = uniqueTitle('Repainted');
       await openFirstWorkspace(page, isMobile);
@@ -164,6 +165,50 @@ test.describe('Workspace management', () => {
       await page.goto(itsUrl);
       await expect(dashboardBar(page)).toBeVisible();
       expect(page.url()).not.toBe(itsUrl);
+    });
+  });
+});
+
+test.describe('Workspace management', () => {
+  test.describe('the tab strip stays inside the screen however many workspaces there are', () => {
+    test('keeps the page from scrolling sideways and the tab you are on from being cut off', async ({
+      page,
+      isMobile,
+    }) => {
+      /*
+       * F3 because both halves are measurements of a real viewport: a page
+       * that widened and a tab scrolled out of its strip are both geometry,
+       * and jsdom has neither layout nor `scrollIntoView` to produce them.
+       * The 480px project is where this actually bites.
+       *
+       * It caught a real one. The tab was brought into view before the webfont
+       * had swapped in, so every tab then grew and the current one ended up
+       * fifty-one pixels past the edge - clipped mid-word, with every unit
+       * test still green.
+       */
+      await openFirstWorkspace(page, isMobile);
+      await openSettings(page, isMobile);
+
+      // Enough of them that the strip has to scroll on a phone. They are made
+      // rather than assumed: every spec in a run shares one database, so how
+      // many workspaces already exist is whatever ran before.
+      const names = [0, 1, 2].map((n) => uniqueTitle(`Crowding the strip ${n}`));
+      for (const name of names) {
+        await page.getByLabel('Name of the new workspace').fill(name);
+        await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+        await expect(page.locator('header').getByRole('link', { name })).toBeVisible();
+      }
+
+      // The last one made is the last one in the strip, which is the one most
+      // likely to be outside it.
+      const last = names[names.length - 1]!;
+      await press(page.locator('header').getByRole('link', { name: last }), isMobile);
+      await expect(dashboardBar(page)).toBeVisible();
+
+      await expectNoSidewaysScroll(page);
+      // Polled: the tab is brought into view again once the font has landed,
+      // and how long that takes is not something to assert against once.
+      await expect.poll(() => tabOnIsWhollyInView(page)).toBe(true);
     });
   });
 });

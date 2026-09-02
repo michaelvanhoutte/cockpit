@@ -106,7 +106,7 @@ function showBar(names: string[], answer: { error?: Error } = {}) {
   );
   const { container } = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <DashboardBar workspaceId="ws-work" />
+      <DashboardBar workspaceId="ws-work" bar="#dbd7ee" ground="#e3e1f2" />
     </QueryClientProvider>,
   );
   return { mutate, container, user: userEvent.setup() };
@@ -263,6 +263,26 @@ describe('Dashboards', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(says);
       // Still there to be corrected, rather than typed again from nothing.
       expect(box).toHaveValue('Research');
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  describe('the strip carries the workspace’s colors, so a tab has something to meet above and below', () => {
+    /*
+     * F1 reaches the wiring and stops there. Which tab is the current one is
+     * the router's `.active` class, which the mock above does not apply and
+     * a jsdom tree has no styles to resolve anyway - so that a *selected* tab
+     * ends up filled is proved at the viewport, in tests/e2e. What can be
+     * wrong here, and is what this holds, is the strip being handed the wrong
+     * two colors or handing them on under the wrong names.
+     */
+    it('is filled with its own color and offers the page’s for whichever tab is current', () => {
+      const { container } = showBar(['Dashboard 1']);
+
+      const strip = container.querySelector('nav[aria-label="Dashboards"]') as HTMLElement;
+      expect(strip.style.backgroundColor).toBe('rgb(219, 215, 238)');
+      expect(strip.style.getPropertyValue('--tab-on')).toBe('#e3e1f2');
     });
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,15 +22,37 @@ import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
  * revalidate, push"), so switching workspace changes this bar without a second
  * call of its own to keep in step.
  */
-export function DashboardBar({ workspaceId }: { workspaceId: string }) {
+export function DashboardBar({
+  workspaceId,
+  bar,
+  ground,
+}: {
+  workspaceId: string;
+  /** The strip's own color: the workspace tab above it is filled with this too. */
+  bar: string;
+  /** The page's color, which the tab you are on is filled with so it meets it. */
+  ground: string;
+}) {
   const { data } = useQuery(snapshotQuery(workspaceId));
   const dashboards = data?.dashboards ?? [];
   const roomForTheInbox = useRoomForTheInbox();
 
+  /*
+   * Rounded at the top only, and filled with the page's color when it is the
+   * one you are on, so the tab runs into the page under it with no line
+   * between them. The color arrives as a custom property rather than as a
+   * class because it is the workspace's and only known at runtime, and it goes
+   * through `.active` rather than through a comparison here so the router
+   * stays the one thing that decides which tab is current.
+   */
+  const tabClass =
+    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-ink-soft hover:bg-black/5 [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink';
+
   return (
     <nav
       aria-label="Dashboards"
-      className="flex w-full items-center gap-1 overflow-x-auto border-t border-black/5 px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="flex w-full items-end gap-1 overflow-x-auto px-3 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      style={{ backgroundColor: bar, '--tab-on': ground } as CSSProperties}
     >
       {/* Only where the Inbox is not already on screen. Where there is room it
           is a column beside the dashboards rather than one of them ("Show the
@@ -41,7 +63,7 @@ export function DashboardBar({ workspaceId }: { workspaceId: string }) {
         <Link
           to="/w/$workspaceId/inbox"
           params={{ workspaceId }}
-          className="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-sm text-ink-soft hover:bg-accent-tint [&.active]:bg-accent-tint [&.active]:font-medium [&.active]:text-accent-deep"
+          className={tabClass}
         >
           Inbox
         </Link>
@@ -51,7 +73,7 @@ export function DashboardBar({ workspaceId }: { workspaceId: string }) {
           key={dashboard.id}
           to="/w/$workspaceId/d/$dashboardId"
           params={{ workspaceId, dashboardId: dashboard.id }}
-          className="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-sm text-ink-soft hover:bg-accent-tint [&.active]:bg-accent-tint [&.active]:font-medium [&.active]:text-accent-deep"
+          className={tabClass}
         >
           {dashboard.name}
         </Link>
@@ -64,7 +86,7 @@ export function DashboardBar({ workspaceId }: { workspaceId: string }) {
           where "Panels on a dashboard, with per-screen-size layouts" (issue 33)
           puts its layouts: one entry today, more later. */}
       <DropdownMenu.Root>
-        <MenuTrigger label="Dashboard actions" className="ml-auto" />
+        <MenuTrigger label="Dashboard actions" className="mb-1 ml-auto" />
         <MenuContent>
           <DropdownMenu.Item asChild>
             <Link
@@ -167,7 +189,7 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
         type="button"
         onClick={() => setNaming(true)}
         aria-label="Add a dashboard"
-        className="shrink-0 rounded-md px-2.5 py-1 text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
+        className="mb-1 shrink-0 rounded-md px-2.5 py-1 text-sm text-ink-faint hover:bg-black/5 hover:text-ink"
       >
         +
       </button>
@@ -183,7 +205,7 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
       onKeyDown={(e) => {
         if (e.key === 'Escape') close();
       }}
-      className="flex shrink-0 items-center gap-2"
+      className="mb-1 flex shrink-0 items-center gap-2"
     >
       <input
         value={name}
@@ -197,7 +219,7 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
       <button
         type="submit"
         disabled={command.isPending}
-        className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+        className="milled shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep disabled:opacity-50"
       >
         Add
       </button>

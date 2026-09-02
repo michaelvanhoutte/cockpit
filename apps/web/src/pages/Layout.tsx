@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,6 +14,7 @@ import { useRoomForTheInbox } from '../roomForTheInbox';
 /** The default theme in the shape a workspace carries it. */
 const DEFAULT_WORKSPACE_THEME_COLORS = {
   color: DEFAULT_WORKSPACE_THEME.tint,
+  bar: DEFAULT_WORKSPACE_THEME.bar,
   ground: DEFAULT_WORKSPACE_THEME.ground,
   header: DEFAULT_WORKSPACE_THEME.header,
 };
@@ -68,13 +69,57 @@ export function Layout() {
     // again; the reason is worth reading there before moving it.
     onSettled: () => navigate({ to: '/signin' }),
   });
+  /**
+   * The tab you are on, brought into view.
+   *
+   * The strip scrolls within itself rather than widening the page, so with
+   * enough workspaces the one you are on can be outside the visible part of
+   * it - and a tab joined to the strip below leaves a notch behind when it
+   * scrolls away, which reads as broken rather than as cut off.
+   *
+   * **A callback ref rather than an effect on the workspace id.** The id
+   * settles from the address before the workspace list has arrived, so an
+   * effect keyed on it runs while there are no tabs at all and finds a null
+   * ref; the tabs then appear and nothing scrolls. This fires when the node
+   * itself mounts, which is the moment there is something to scroll to. The
+   * browser found that: the tab was cut off at the edge of the strip with
+   * seven workspaces, and every unit test passed, because jsdom has no
+   * `scrollIntoView` to call in the first place.
+   *
+   * **And again once the font has landed.** Inter is loaded rather than
+   * assumed, so between first paint and the swap every tab is measured in the
+   * fallback face and then gets wider. A scroll computed before that lands
+   * short by exactly however much the strip grew - fifty-one pixels, with
+   * seven workspaces, which left the tab clipped at the edge in precisely the
+   * way this exists to prevent. The first call is what makes it right when the
+   * font is already cached; the second is what makes it right the first time.
+   *
+   * Both are optional-called and the promise is guarded: this is a
+   * real-viewport behaviour, covered end to end, and neither `scrollIntoView`
+   * nor `document.fonts` exists in jsdom.
+   */
+  const bringIntoView = useCallback((tab: HTMLAnchorElement | null) => {
+    if (!tab) return;
+    const bring = () => tab.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    bring();
+    void document.fonts?.ready.then(bring).catch(() => undefined);
+  }, []);
+
   const active = data?.workspaces.find((w) => w.id === params.workspaceId);
   /**
-   * The workspace you are in, painted. Only these two move: the ground behind
-   * the panels and the bar across the top, plus the tint on the stripe and the
-   * dots. Cards, rows, controls and text keep the fixed neutral and accent
-   * palette, which is what makes a palette of designed triples enough to keep
-   * everything legible - nothing else can be affected by the choice.
+   * The workspace you are in, painted. Only the three surfaces move - the bar
+   * across the top, the strip the dashboard tabs sit on, and the ground behind
+   * the panels - plus the tint on the stripe, the dots and the selected tab.
+   * Cards, rows, controls and text keep the fixed neutral and accent palette,
+   * which is what makes a palette of designed sets enough to keep everything
+   * legible - nothing else can be affected by the choice.
+   *
+   * The three run deepest at the top to lightest at the bottom, and the two tab
+   * strips sit at the steps between them: a selected workspace tab is filled
+   * with `bar` and meets the strip below it, a selected dashboard tab is filled
+   * with `ground` and meets the page. That is what makes the container
+   * hierarchy legible as depth rather than as two rows of pills on one fill
+   * ("Modernise the app shell", issue 125).
    *
    * The shell carries them rather than `:root`, unlike the prototype: this
    * element covers the viewport, so painting it is enough, and a page that
@@ -88,9 +133,11 @@ export function Layout() {
   const theme = active ?? DEFAULT_WORKSPACE_THEME_COLORS;
 
   return (
-    <div className="flex h-dvh flex-col" style={{ backgroundColor: theme.ground }}>
+    <div className="ground-wash flex h-dvh flex-col" style={{ backgroundColor: theme.ground }}>
+      {/* No bottom border: the strip below ends in the selected dashboard tab,
+          which is filled with the ground and has to meet the page without a
+          line drawn between them. */}
       <header
-        className="border-b border-black/10 backdrop-blur"
         style={{
           backgroundColor: theme.header,
           borderTopColor: theme.color,
@@ -100,9 +147,13 @@ export function Layout() {
       >
         {/* Full width, not a centred column: the brand and the workspaces sit
             against the left edge and the menu against the right, so the header
-            is a bar across the screen rather than a strip down the middle. */}
-        <div className="flex w-full items-center gap-4 px-3 py-2">
-          <span className="shrink-0 text-lg font-semibold tracking-tight">Cockpit</span>
+            is a bar across the screen rather than a strip down the middle.
+
+            `items-end` rather than `items-center`, because the tabs are not
+            pills floating on the bar any more - they stand on its bottom edge
+            so the selected one can run into the strip underneath. */}
+        <div className="flex w-full items-end gap-4 px-3 pt-2">
+          <span className="shrink-0 pb-2 text-lg font-semibold tracking-tight">Cockpit</span>
           {/* Scrolls within itself rather than widening the page. Until
               workspaces could be made, three of them fit any screen and this
               was a plain row; the fourth one pushed a 480px phone to 571px and
@@ -113,21 +164,36 @@ export function Layout() {
               and the full list is on the settings page a click away, so the
               bar would cost a permanent grey slab under the tabs to say
               something the tabs already show by being cut off. */}
-          <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {data?.workspaces.map((ws) => (
-              <Link
-                key={ws.id}
-                to="/w/$workspaceId"
-                params={{ workspaceId: ws.id }}
-                className="shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint [&.active]:bg-accent-tint [&.active]:font-medium [&.active]:text-accent-deep"
-              >
-                <span
-                  className="mr-1.5 inline-block size-2 rounded-full align-middle"
-                  style={{ backgroundColor: ws.color }}
-                />
-                {ws.name}
-              </Link>
-            ))}
+          <nav
+            aria-label="Workspaces"
+            className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {data?.workspaces.map((ws) => {
+              const here = ws.id === params.workspaceId;
+              return (
+                <Link
+                  key={ws.id}
+                  ref={here ? bringIntoView : undefined}
+                  to="/w/$workspaceId"
+                  params={{ workspaceId: ws.id }}
+                  // Rounded at the top only and square at the bottom, because
+                  // the bottom is not an edge: the one you are on is filled
+                  // with its own bar color and the strip below it is that same
+                  // color, so the two are one surface and a rounded corner
+                  // there would draw a seam across it.
+                  className={`shrink-0 whitespace-nowrap rounded-t-lg px-3 pt-1.5 pb-2 text-sm ${
+                    here ? 'font-medium text-ink' : 'text-ink-soft hover:bg-black/5'
+                  }`}
+                  style={here ? { backgroundColor: ws.bar } : undefined}
+                >
+                  <span
+                    className="mr-1.5 inline-block size-2 rounded-full align-middle"
+                    style={{ backgroundColor: ws.color }}
+                  />
+                  {ws.name}
+                </Link>
+              );
+            })}
           </nav>
 
           {/* The same control as every other menu in the app (components/
@@ -157,10 +223,13 @@ export function Layout() {
             </MenuContent>
           </DropdownMenu.Root>
         </div>
-        {/* The dashboards of the workspace you are in, directly under its tab.
+        {/* The dashboards of the workspace you are in, directly under its tab
+            and on the same color, so the tab and this strip are one surface.
             Only where there is a workspace to have them: the settings page is
-            reached without one. */}
-        {params.workspaceId && <DashboardBar workspaceId={params.workspaceId} />}
+            reached without one, and there is then nothing for a tab to join. */}
+        {params.workspaceId && (
+          <DashboardBar workspaceId={params.workspaceId} bar={theme.bar} ground={theme.ground} />
+        )}
       </header>
       {/* Left-aligned and full width, matching the header: pages get the whole
           screen instead of a centred column with empty gutters either side.

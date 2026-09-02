@@ -51,7 +51,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
             Inbox
           </h2>
           <span className="text-xs text-ink-faint">still to deal with</span>
-          <span className="ml-auto rounded-full bg-accent-tint px-2 text-xs text-accent-deep">
+          <span className="ml-auto rounded-full bg-accent-tint px-2 text-xs tabular-nums text-accent-deep">
             {inbox.length}
           </span>
         </header>
