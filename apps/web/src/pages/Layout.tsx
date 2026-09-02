@@ -98,11 +98,22 @@ export function Layout() {
    * real-viewport behaviour, covered end to end, and neither `scrollIntoView`
    * nor `document.fonts` exists in jsdom.
    */
-  const bringIntoView = useCallback((tab: HTMLAnchorElement | null) => {
-    if (!tab) return;
-    const bring = () => tab.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  const bringIntoView = useCallback((tab: HTMLAnchorElement) => {
+    // Still the tab you are on when the font finally lands. Without this the
+    // second pass scrolls to whichever tab was current when it was registered:
+    // switch workspace inside that window - a few hundred milliseconds, and
+    // the stored copy paints instantly - and the strip jumps back to the tab
+    // you just left. The cleanup runs when this stops being the current tab,
+    // which is exactly when the pending pass should stop meaning anything.
+    let current = true;
+    const bring = () => {
+      if (current) tab.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    };
     bring();
     void document.fonts?.ready.then(bring).catch(() => undefined);
+    return () => {
+      current = false;
+    };
   }, []);
 
   const active = data?.workspaces.find((w) => w.id === params.workspaceId);
