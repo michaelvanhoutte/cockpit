@@ -50,6 +50,21 @@ export function useUndo(): (change: Undoable) => void {
 const noteNothing = () => {};
 
 /**
+ * The mounted bar's way of emptying itself, so signing out can reach it.
+ *
+ * A module-level handle rather than another context, because the caller is
+ * `session/forget.ts` - which runs outside React, from the one screen that has
+ * none of the app mounted. Null when no bar is mounted, which is most of the
+ * time on that screen.
+ */
+let forgetWhenTheVisitEnds: (() => void) | null = null;
+
+/** Empties the bar, if one is mounted. Called when a visit ends. */
+export function forgetWhatJustHappened(): void {
+  forgetWhenTheVisitEnds?.();
+}
+
+/**
  * The bar, and what it is holding. Wraps the shell, so a change made in the
  * Inbox column and one made on a panel are both offered back in the same place.
  */
@@ -63,13 +78,17 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
    */
   const goesAt = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const forget = useCallback(() => {
-    if (goesAt.current) clearTimeout(goesAt.current);
+  const forgetNow = useCallback(() => {
     goesAt.current = null;
     setHeld(null);
     setFailure(null);
     setUndoing(false);
   }, []);
+
+  const forget = useCallback(() => {
+    if (goesAt.current) clearTimeout(goesAt.current);
+    forgetNow();
+  }, [forgetNow]);
 
   const remember = useCallback(
     (change: Undoable) => {
@@ -77,31 +96,47 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
       setHeld(change);
       setFailure(null);
       setUndoing(false);
-      goesAt.current = setTimeout(() => {
-        goesAt.current = null;
-        setHeld(null);
-        setFailure(null);
-      }, THE_BAR_LASTS_MS);
+      goesAt.current = setTimeout(forgetNow, THE_BAR_LASTS_MS);
     },
-    [],
+    [forgetNow],
   );
 
-  // Nothing left running when the shell goes, which is what a sign-out does.
-  useEffect(() => () => void (goesAt.current && clearTimeout(goesAt.current)), []);
+  /**
+   * **Signing out takes the bar with it.** It is mounted above the router, so
+   * it outlives the navigation to the logon page - and what it is holding is
+   * one of the previous person's item titles, on the screen the next person
+   * signs in from. `session/forget.ts` empties the three other places this
+   * browser holds anything about them; this is the fourth, and it is reached
+   * the same way rather than by moving the bar inside a screen.
+   */
+  useEffect(() => {
+    forgetWhenTheVisitEnds = forget;
+    return () => {
+      if (forgetWhenTheVisitEnds === forget) forgetWhenTheVisitEnds = null;
+      if (goesAt.current) clearTimeout(goesAt.current);
+    };
+  }, [forget]);
 
   const putItBack = async () => {
     if (!held || undoing) return;
+    // **The clock stops while the undo is in flight.** Without this the bar can
+    // reach ten seconds mid-request and unmount, and the failure that arrives a
+    // moment later is written to something nothing is drawing - so a slow undo
+    // that did not work looks exactly like one that did.
+    if (goesAt.current) clearTimeout(goesAt.current);
+    goesAt.current = null;
     setUndoing(true);
     setFailure(null);
     try {
       await held.undo();
       forget();
     } catch (error) {
-      // Said, and the bar stays until its own time is up. Not retried and not
+      // Said, and given its own full time to be read. Not retried and not
       // cleared: what the server has is what the item is, and offering the same
       // undo again would be offering to guess a second time.
       setFailure(error instanceof Error ? error.message : 'that could not be put back');
       setUndoing(false);
+      goesAt.current = setTimeout(forgetNow, THE_BAR_LASTS_MS);
     }
   };
 

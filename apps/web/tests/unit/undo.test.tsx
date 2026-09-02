@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { THE_BAR_LASTS_MS, UndoWhatJustHappened, useUndo } from '../../src/undo';
+import {
+  THE_BAR_LASTS_MS,
+  UndoWhatJustHappened,
+  forgetWhatJustHappened,
+  useUndo,
+} from '../../src/undo';
 
 /**
  * F1: the bar's own behaviour - what it offers, what pressing it runs, and when
@@ -142,6 +147,35 @@ describe('Triage', () => {
   });
 
   describe('an undo that fails says so and leaves the item where the server has it', () => {
+    it('waits for the answer rather than going while one is still coming', async () => {
+      // The bar would otherwise reach its ten seconds mid-request and unmount,
+      // and the failure arriving a moment later would be written to something
+      // nothing is drawing - a slow undo that did not work looking exactly like
+      // one that did.
+      let refuse: (why: Error) => void = () => {};
+      show([
+        {
+          label: 'Dismiss',
+          what: 'first',
+          undo: () => new Promise((_resolve, reject) => (refuse = reject)),
+        },
+      ]);
+      await press('Dismiss');
+
+      await press('Undo');
+      act(() => vi.advanceTimersByTime(THE_BAR_LASTS_MS * 2));
+      expect(bar()).toHaveTextContent('first');
+
+      await act(async () => refuse(new Error('that item is no longer there')));
+
+      expect(bar()).toHaveTextContent('that item is no longer there');
+      // And what went wrong gets its own full time to be read.
+      act(() => vi.advanceTimersByTime(THE_BAR_LASTS_MS - 1));
+      expect(bar()).not.toBeNull();
+      act(() => vi.advanceTimersByTime(1));
+      expect(bar()).toBeNull();
+    });
+
     it('replaces what it was offering with what went wrong', async () => {
       show([
         {
@@ -155,6 +189,25 @@ describe('Triage', () => {
       await press('Undo');
 
       expect(bar()).toHaveTextContent('that item is no longer there');
+    });
+  });
+});
+
+describe('Sign-in', () => {
+  describe('signing out leaves nothing of the person on screen', () => {
+    it('takes the offer of an undo with it, title and all', async () => {
+      // The bar is mounted above the router, so it outlives the navigation to
+      // the logon page - and what it is holding is one of the previous
+      // person's item titles, on the screen the next person signs in from.
+      show([
+        { label: 'Dismiss', what: '“Reply to Bart” dismissed', undo: () => Promise.resolve() },
+      ]);
+      await press('Dismiss');
+      expect(bar()).toHaveTextContent('“Reply to Bart” dismissed');
+
+      act(() => forgetWhatJustHappened());
+
+      expect(bar()).toBeNull();
     });
   });
 });
