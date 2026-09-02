@@ -76,11 +76,16 @@ function aRow({
  * jsdom cannot say anything about at all. The rules themselves are
  * tests/unit/swipe.test.ts and the gesture is tests/e2e/triage.test.ts.
  */
-function swipe({ dx, dy = 0, pointerType = 'touch' }: { dx: number; dy?: number; pointerType?: string }) {
+function swipe({
+  dx,
+  dy = 0,
+  pointerType = 'touch',
+  pointerId = 1,
+}: { dx: number; dy?: number; pointerType?: string; pointerId?: number }) {
   const row = screen.getByRole('listitem');
-  fireEvent.pointerDown(row, { pointerType, clientX: 0, clientY: 0 });
-  fireEvent.pointerMove(row, { pointerType, clientX: dx, clientY: dy });
-  fireEvent.pointerUp(row, { pointerType, clientX: dx, clientY: dy });
+  fireEvent.pointerDown(row, { pointerType, pointerId, clientX: 0, clientY: 0 });
+  fireEvent.pointerMove(row, { pointerType, pointerId, clientX: dx, clientY: dy });
+  fireEvent.pointerUp(row, { pointerType, pointerId, clientX: dx, clientY: dy });
 }
 
 const past = SWIPE_THRESHOLD_PX + 10;
@@ -141,6 +146,48 @@ describe('Triage', () => {
 
       expect(mutate).not.toHaveBeenCalled();
       expect(asked).not.toHaveBeenCalled();
+    });
+
+    describe('the swipe belongs to the finger that started it', () => {
+      // A finger resting on the row mid-swipe used to overwrite where the
+      // gesture began, and the release was then measured from the wrong place.
+      // Two halves hold it: the second finger is not taken for the first, and
+      // only the finger that started can end it.
+      const down = (row: HTMLElement, pointerId: number, clientX: number) =>
+        fireEvent.pointerDown(row, { pointerType: 'touch', pointerId, clientX, clientY: 0 });
+      const move = (row: HTMLElement, pointerId: number, clientX: number) =>
+        fireEvent.pointerMove(row, { pointerType: 'touch', pointerId, clientX, clientY: 0 });
+      const up = (row: HTMLElement, pointerId: number, clientX: number) =>
+        fireEvent.pointerUp(row, { pointerType: 'touch', pointerId, clientX, clientY: 0 });
+
+      it('carries on when a second finger lands on the row', () => {
+        const { mutate } = aRow();
+        const row = screen.getByRole('listitem');
+
+        down(row, 1, 0);
+        move(row, 1, -past);
+        down(row, 2, 300);
+        up(row, 1, -past);
+
+        expect(mutate).toHaveBeenCalledTimes(1);
+        expect(mutate.mock.calls[0]![0].payload.status).toBe('dismissed');
+      });
+
+      it('is not ended by a finger that was not making it', () => {
+        const asked = vi.fn();
+        const { mutate } = aRow({ onMoveTo: asked });
+        const row = screen.getByRole('listitem');
+
+        down(row, 1, 0);
+        down(row, 2, 300);
+        // The second finger lifts far from where the first went down, which is
+        // the whole distance a swipe rightward would need - so without the
+        // check this opens the picker for a gesture nobody made.
+        up(row, 2, 300);
+
+        expect(asked).not.toHaveBeenCalled();
+        expect(mutate).not.toHaveBeenCalled();
+      });
     });
 
     it('leaves a mouse alone, because a desktop row is dragged rather than swiped', () => {

@@ -126,13 +126,19 @@ export function ItemRow({
     command.mutate({ name: 'set_focus', payload: { ...envelope(), horizon: 'today' } });
 
   /**
-   * Where the swipe started, and how far it has come.
+   * Which finger is swiping, where it started, and how far it has come.
    *
    * The start is a ref because nothing on screen depends on it; the distance is
    * state because the row is drawn at it. Null start means no gesture is
    * running, which is what a mouse and a released finger both leave behind.
+   *
+   * **The pointer id is what makes a second finger harmless.** Without it a
+   * finger resting on the row mid-swipe overwrote where the gesture began, and
+   * the first finger's release was then measured from the second one's
+   * position - so a swipe that had barely moved reported the gap between the
+   * two fingers and, past the threshold, dismissed an item nobody swiped.
    */
-  const from = useRef<{ x: number; y: number } | null>(null);
+  const from = useRef<{ pointer: number; x: number; y: number } | null>(null);
   const [gone, setGone] = useState(0);
 
   /**
@@ -150,19 +156,22 @@ export function ItemRow({
   const swipe = {
     onPointerDown: (event: React.PointerEvent) => {
       if (event.pointerType !== 'touch') return;
-      from.current = { x: event.clientX, y: event.clientY };
+      // One finger swipes; a second one landing on the row is ignored rather
+      // than taken for the first.
+      if (from.current) return;
+      from.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY };
       setGone(0);
     },
     onPointerMove: (event: React.PointerEvent) => {
       const start = from.current;
-      if (!start) return;
+      if (!start || event.pointerId !== start.pointer) return;
       setGone(howFarItHasGone(event.clientX - start.x, event.clientY - start.y));
     },
     onPointerUp: (event: React.PointerEvent) => {
       const start = from.current;
+      if (!start || event.pointerId !== start.pointer) return;
       from.current = null;
       setGone(0);
-      if (!start) return;
       const meant = whatTheSwipeMeant(event.clientX - start.x, event.clientY - start.y);
       if (meant === 'dismiss') dismiss();
       // The same picker the menu's Move to… opens, so filing is one gesture on
@@ -171,7 +180,8 @@ export function ItemRow({
     },
     // A gesture the browser took over - a scroll it decided was a scroll after
     // all - is not a swipe that stopped short, it is no swipe at all.
-    onPointerCancel: () => {
+    onPointerCancel: (event: React.PointerEvent) => {
+      if (from.current && event.pointerId !== from.current.pointer) return;
       from.current = null;
       setGone(0);
     },
