@@ -308,33 +308,8 @@ prove useful.
 
 ### Recommended hybrid
 
-Webhooks should be the primary mechanism, but a **periodic
-reconciliation query** is worth adding eventually.
-
-That gives us:
-
-``` text
-Webhooks                     Periodic reconciliation
-   │                                  │
-   └──────────────┬───────────────────┘
-                  ↓
-          Notion synchronization
-                  ↓
-          Our action/follow-up inbox
-```
-
-Webhooks provide low-latency updates, while periodic querying protects
-against missed events, deployment downtime, interpretation bugs, or
-synchronization drift.
+Webhooks should be the primary mechanism for low-latency updates, with a **periodic reconciliation query** worth adding behind them eventually as protection against missed events, deployment downtime, interpretation bugs and synchronization drift. (Superseded — see "Revised selected approach" above, which makes reconciliation the primary read path.)
 
 ## Important limitation
 
-This solution does **not** provide API access to the Notion Inbox
-itself.
-
-Instead, we are effectively building our own actionable view by
-interpreting Notion objects and changes. Structured database tasks with
-an Assignee property should be relatively reliable. Reconstructing every
-type of notification that Notion itself places in its Inbox---especially
-arbitrary mentions or inline action items---may require additional
-investigation and may not be fully possible through the public API.
+This gives **no API access to the Notion Inbox itself**: it builds our own actionable view by interpreting Notion objects and changes. Structured database tasks with an Assignee property should be reliable; reconstructing every notification Notion itself places in its Inbox — arbitrary mentions, inline action items — may not be fully possible through the public API.

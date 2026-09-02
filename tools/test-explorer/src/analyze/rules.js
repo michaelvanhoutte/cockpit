@@ -182,7 +182,8 @@ function directChildDescribes(body) {
 /**
  * Collects it/test/it.each/test.each calls (real) and it.todo/test.todo calls (todo), anywhere
  * under a node, each as a `{ text, file, line }` — the case's own description and location, not
- * just a count, so the report can show what a case actually says (docs/test-explorer-spec.md §2d).
+ * just a count, so the report can show what a case actually says (docs/test-explorer-spec.md,
+ * "How the built tool got its current shape" (§2b)).
  *
  * `it.each(table)(name, fn)` is two chained calls, not one: the outer call's callee is itself a
  * CallExpression (`it.each(table)`), whose own callee is the `it.each` property access. Matching
@@ -281,7 +282,7 @@ function collectCases(node, relFile, source) {
  * Turns `it.each(table)(template, fn)` into one real case per row, `template`'s own `$key`/`%s`-style
  * placeholders substituted with that row's actual value where it's statically known — this is what
  * makes a case display as "without a request id" rather than the raw template text "$situation"
- * (docs/test-explorer-spec.md §2f). Every element of `table` becomes one case regardless of whether
+ * (docs/test-explorer-spec.md, "How the built tool got its current shape" (§2b)). Every element of `table` becomes one case regardless of whether
  * its own values are literal — the row *count* is always known once `table` is a real array literal;
  * only the substitution degrades (an unresolvable property is left as its literal `$key` token) when a
  * value can't be. If `table` isn't an array literal at all (built from a variable, a function call, a

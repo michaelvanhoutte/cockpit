@@ -2,9 +2,9 @@
 
 **Status: decided.** One Durable Object per account, adopted when multiple users land.
 
-The two things the argument turned on were measured rather than assumed, by a throwaway proof — one Worker, one Durable Object class, four migration sets, a few accounts seeded with thousands of items. That proof is deliberately **not kept**: it was a local experiment whose only lasting product is this document, and a copy of it in the repository would rot into a second, staler account of the same decision. The numbers below are the record, with the conditions they were taken under, and the method that produced them is described where it matters for reading them.
+The two things the argument turned on were measured rather than assumed, by a throwaway proof — one Worker, one Durable Object class, four migration sets, a few accounts seeded with thousands of items. That proof is deliberately **not kept**, because a copy in the repository would rot into a second, staler account of the same decision. The numbers below are the record, with the conditions they were taken under.
 
-Multiple-user support forces a question deferred since the first migration. Every row has carried a `tenant_id` since then, on the rule from the functional definition's "personal-first, SaaS-ready" decision: assume one account today, never hard-code that assumption. The column has never been exercised — there has only ever been one account, resolved from a constant in `apps/api/src/tenancy.ts`. Deciding what that constant becomes is deciding this.
+Multiple-user support forces a question deferred since the first migration. Every row has carried a `tenant_id` on the "personal-first, SaaS-ready" rule — assume one account today, never hard-code that assumption — and the column has never been exercised, there having only ever been one account resolved from a constant in `apps/api/src/tenancy.ts`. Deciding what that constant becomes is deciding this.
 
 ## What forces the question
 
@@ -80,9 +80,9 @@ Two things this decision does *not* change:
 
 ## A cost the proof did not find
 
-**Preview URLs stop existing.** Cloudflare does not generate them for a Worker that implements a Durable Object ([preview URLs](https://developers.cloudflare.com/workers/configuration/previews/): "Preview URLs are not generated for Workers that implement a Durable Object"), and every preview here is a *version of one Worker*, so the moment `cockpit-preview` gained the account store its per-branch URLs began answering with Cloudflare's placeholder page.
+**Preview URLs stop existing.** Cloudflare does not generate them for a Worker that implements a Durable Object ([preview URLs](https://developers.cloudflare.com/workers/configuration/previews/)), and every preview here was a *version of one Worker*, so the moment `cockpit-preview` gained the account store its per-branch URLs began answering with a placeholder page.
 
-It is recorded here rather than only in the deployment document because it belongs to this decision and not to that mechanism, and because it is the one cost the proof missed: the proof measured an object, not a deployment, so the question never came up. It does not reverse the decision — a per-branch URL for a personal application is a convenience, and staging still deploys for real — but it was not on the ledger when the decision was taken, and anyone reading this to make the same choice should have it on theirs. It cost more than the URLs in the end: the account-level Access policy that gated every preview for free was a property of preview URLs specifically, so nothing cheap gates a replacement either. The preview environment was removed rather than rebuilt; see "No branch environments" in [deployment.md](deployment.md).
+It belongs to this decision rather than to that mechanism, and it is the one cost the proof missed — the proof measured an object, not a deployment. It does not reverse the decision, a per-branch URL being a convenience while staging still deploys for real, but it was not on the ledger when the decision was taken. It cost more than the URLs: the account-level Access policy that gated every preview for free was a property of preview URLs specifically, so nothing cheap gates a replacement either, and the preview environment was removed rather than rebuilt — see "No branch environments" in [deployment.md](deployment.md).
 
 The related, smaller finding beside it: a Durable Object migration cannot be applied by `wrangler versions upload` at all, so a *new* class has to reach each Worker through one non-versioned `wrangler deploy` before any version carrying it will upload.
 

@@ -196,11 +196,9 @@ Three handling requirements the POC surfaced, none of them blocking:
 
 Still unvalidated: semantic retrieval, and whether §"Synchronization strategy" holds up under Slack's prohibition on background polling.
 
-The main reason is data minimization.
+### Why this one: data minimization
 
-With the Events API, detecting a human user's mentions requires subscribing to general message events. Our infrastructure would therefore receive potentially large amounts of company conversation data that has nothing to do with the follow-up inbox.
-
-Real-time Search allows us to ask Slack specifically for the information relevant to the authenticated user:
+Detecting a human user's mentions through the Events API requires subscribing to general message events, so our infrastructure would receive large amounts of company conversation that has nothing to do with the follow-up inbox. Real-time Search asks Slack only for what concerns the authenticated user:
 
 ```text
 Slack
@@ -217,13 +215,11 @@ Follow-up service
      Follow-up inbox
 ```
 
-This provides a substantially cleaner permission and security model for deployment inside organizations.
+That is a substantially cleaner permission and security model for deployment inside organizations.
 
 ### Synchronization strategy
 
-Because Slack does not position Real-time Search as a continuous polling API, the initial implementation should avoid aggressive background synchronization.
-
-A reasonable first version is:
+Slack does not position Real-time Search as a continuous polling API, so the first version avoids background synchronization entirely:
 
 ```text
 User opens / refreshes follow-up inbox
