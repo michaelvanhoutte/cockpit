@@ -249,7 +249,8 @@ always a root and always last.
 itself.** Own counts alone were the rule until rows existed that hold other rows; such a
 row has no test filed against its own name, so it read as an untested part of the product
 and collapsing it hid everything underneath. Files and branches are totalled by identity
-rather than summed, because one source file belongs to several areas (§5) and `Menu.tsx`
+rather than summed, because one source file belongs to several areas ("The area registry"
+below) and `Menu.tsx`
 under both Dashboards and Panels is one file nothing runs. A level that is n/a in every
 node of a subtree stays n/a: summing "unknown" as zero would report an unmeasured subtree
 as a clean one.
@@ -316,9 +317,11 @@ A describe's outer text resolves to an area by exact match on `key`. A source fi
 resolves to **every** area whose patterns it matches, which is expected rather than an
 error (§2a); a file matching none falls into `infrastructure`.
 
-**Empty patterns are legal.** `Focus`, `Connector management` and `User management` are
-declared ahead of the code that will own them and hold their rows at zero until it lands;
-every other area owns real patterns, added with the work that created it. `Menus`,
+**Empty patterns are legal**, for two different reasons. `Focus`, `Connector management`
+and `User management` are declared ahead of the code that will own them and hold their
+rows at zero until it lands; `Workspaces`, `Inbox` and `Across the app` own nothing
+because they exist to hold other rows. Every remaining area owns real patterns, added
+with the work that created it. `Menus`,
 `Deleting`, `Ordering` and `Live updates` name the parts shared between features, and
 their rows start with real files and no rules — which is the report saying that a shared
 component is proven only through the features using it, one level too high.
