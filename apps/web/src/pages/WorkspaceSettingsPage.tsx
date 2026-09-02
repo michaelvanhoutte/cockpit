@@ -544,7 +544,7 @@ export function WorkspaceSettingsPage() {
             {/*
               `canTakeOver`: there is no stored copy of this list behind the
               message, so this may own the view and send the browser through
-              sign-in. The page below it still works - making a workspace is
+              sign-in. The box above it still works - making a workspace is
               how an account with none gets its first - so the message sits in
               the list rather than replacing the page.
             */}
