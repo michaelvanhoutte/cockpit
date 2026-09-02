@@ -81,13 +81,30 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       # Traces and screenshots are kept on failure only (playwright.config.ts),
-      # so this uploads nothing on a green run.
+      # so this uploads nothing of Playwright's on a green run.
+      #
+      # Wrangler's own log goes with them, and it is the half that matters when
+      # the *stack* is what failed rather than a test. `wrangler dev` exited 1
+      # mid-run on `main` at bc840bb, printing an empty error and taking Vite
+      # down with it, so twenty-six tests failed with a connection refused and
+      # every screenshot kept was of the same blank page. Wrangler had written
+      # the reason to disk — outside the repository, on a runner that was then
+      # deleted. `scripts/e2e-stack.mjs` now points it here instead.
       - name: Upload failure artefacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-failures
-          path: test-results/
+          path: |
+            test-results/
+            apps/api/.wrangler/logs-e2e/
+          # A failure produces one of these or the other, rarely both: a test
+          # that failed against a healthy stack leaves screenshots and a log
+          # nobody needs, and a stack that died leaves a log and screenshots of
+          # the same blank page. Missing is therefore normal, and the default
+          # `warn` would put a warning on a job that is already red for a
+          # reason it is not about to explain.
+          if-no-files-found: ignore
           retention-days: 7
 
   build:
