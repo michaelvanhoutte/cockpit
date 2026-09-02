@@ -145,7 +145,9 @@ describe('Panels', () => {
     it('offers the way to add one either way', async () => {
       showBoard({ panels: [] });
 
-      expect(screen.getByText('Nothing on this dashboard yet. Panels are what go here.')).toBeVisible();
+      // Matched on the opening clause, so rewording the rest of the sentence
+      // does not break the walk that only cares that the empty state is there.
+      expect(screen.getByText(/A dashboard holds the panels you want in view/)).toBeVisible();
       expect(screen.getByRole('button', { name: 'Add a panel' })).toBeVisible();
     });
   });

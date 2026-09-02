@@ -76,7 +76,7 @@ async function deleteWorkspace(workspaceId: string, overrides: { commandId?: str
 
 async function setTheme(
   workspaceId: string,
-  theme: { tint: string; ground: string; header: string },
+  theme: { tint: string; bar: string; ground: string; header: string },
   overrides: { commandId?: string } = {},
 ) {
   return asUser('http://cockpit.test/v1/commands/set_workspace_theme', {
@@ -87,6 +87,7 @@ async function setTheme(
       issuedAt: '2026-08-12T12:00:00.000Z',
       workspaceId,
       color: theme.tint,
+      bar: theme.bar,
       ground: theme.ground,
       header: theme.header,
     }),
@@ -602,10 +603,15 @@ describe('Workspace management', () => {
     /** The theme a workspace is wearing, as the workspace list gives it back. */
     async function coloursOf(workspaceId: string) {
       const workspace = (await theWorkspaces()).find((w) => w.id === workspaceId);
-      return { color: workspace?.color, ground: workspace?.ground, header: workspace?.header };
+      return {
+        color: workspace?.color,
+        bar: workspace?.bar,
+        ground: workspace?.ground,
+        header: workspace?.header,
+      };
     }
 
-    it('comes back in all three of them, not just the one on the dot', async () => {
+    it('comes back in all four of them, not just the one on the dot', async () => {
       const subject = await aWorkspace();
       const chosen = WORKSPACE_THEMES[4]!;
 
@@ -613,6 +619,7 @@ describe('Workspace management', () => {
 
       expect(await coloursOf(subject.id)).toEqual({
         color: chosen.tint,
+        bar: chosen.bar,
         ground: chosen.ground,
         header: chosen.header,
       });
@@ -651,6 +658,7 @@ describe('Workspace management', () => {
 
       const response = await setTheme(subject.id, {
         tint: WORKSPACE_THEMES[1]!.tint,
+        bar: WORKSPACE_THEMES[1]!.bar,
         ground: WORKSPACE_THEMES[2]!.ground,
         header: WORKSPACE_THEMES[3]!.header,
       });

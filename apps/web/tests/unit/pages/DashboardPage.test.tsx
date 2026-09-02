@@ -67,7 +67,7 @@ describe('Panels', () => {
       );
 
       expect(
-        await screen.findByText('Nothing on this dashboard yet. Panels are what go here.'),
+        await screen.findByText(/A dashboard holds the panels you want in view/),
       ).toBeVisible();
     });
   });

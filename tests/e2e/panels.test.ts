@@ -114,7 +114,7 @@ test.describe('Panels', () => {
     }) => {
       await ownDashboard(page, isMobile);
       await expect(
-        page.getByText('Nothing on this dashboard yet. Panels are what go here.'),
+        page.getByText(/A dashboard holds the panels you want in view/),
       ).toBeVisible();
 
       const falcon = uniqueTitle('Project Falcon');

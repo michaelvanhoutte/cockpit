@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@cockpit/shared": "workspace:*",
+    "@fontsource-variable/inter": "^5.3.0",
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-dropdown-menu": "^2.1.24",
     "@tanstack/react-query": "^5.101.4",

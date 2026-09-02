@@ -60,6 +60,23 @@ The first screen is the logon page listing the two people the seed creates: pick
 
 Skip it and the first run fails for that reason rather than for anything you changed, which does not look like a missing install: a package whose dependencies were never linked reports its runner missing (`'vitest' is not recognized`), and the giveaway is the line above it — `Scope: 6 of 7 workspace projects` against a repository that now has seven.
 
+### Resetting local data
+
+A store records which schema changes it has applied **by name**, so one built on another branch can be out of step with the change list on this one — which switching worktrees is enough to do. The symptom is the app failing to open, with the API log naming the change:
+
+```
+account tenant-default could not be brought up to date:
+change 0005-workspace-bar failed: duplicate column name: bar
+```
+
+Nothing is corrupt: the change was applied under a name the code no longer uses, so it runs a second time against a table that already has the column. Drop the account stores and let them rebuild — local data only, and `pnpm dev` recreates them on the next request.
+
+```bash
+rm -rf apps/api/.wrangler/state/v3/do
+```
+
+Never fix it by renaming the change back to what the store recorded; that trades one stale ledger for another.
+
 ### Tidying up branches
 
 ```bash

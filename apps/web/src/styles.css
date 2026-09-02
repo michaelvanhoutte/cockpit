@@ -1,13 +1,22 @@
 @import 'tailwindcss';
 
+/* Inter, loaded rather than merely named. The stack below asked for it from
+   the start and nothing ever fetched it, so every screen has been rendering in
+   whatever `system-ui` happens to be - which is most of why the app read as a
+   wireframe of itself ("Modernise the app shell", issue 125). Self-hosted via
+   the package rather than linked from Google's CDN: the app is an installed
+   PWA that has to paint from cache on a train, and a webfont on a third-party
+   origin is a network request in front of first paint. */
+@import '@fontsource-variable/inter';
+
 /*
  * Design tokens carried over from the prototype (poc/prototype/styles.css):
  * the Nocturne palette in its light tint. Panels, rows, and controls keep the
- * fixed neutral/accent palette; only the page ground recolors per workspace,
- * driven by the workspace's color at runtime.
+ * fixed neutral/accent palette; only the chrome recolors per workspace, driven
+ * by the workspace's colors at runtime.
  */
 @theme {
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-sans: 'Inter Variable', 'Inter', system-ui, sans-serif;
 
   --color-ink: #292b31;
   --color-ink-soft: #595d6c;
@@ -21,15 +30,79 @@
   --color-due: #c98a4b;
   --color-over: #bf5d55;
 
+  /*
+   * What an item is doing, as a color. The dot on a row is the scannable half
+   * of the status and the word beside it is the readable half: color alone
+   * cannot separate six statuses, and cannot be read at all by a screen
+   * reader, so neither is on its own.
+   *
+   * The hues are the palette's own rather than new ones - teal, cyan and the
+   * accent are workspace tints, and `due` is already the app's amber - so the
+   * rows stay in the same world as everything else.
+   */
+  --color-status-to-process: #6f62b5;
+  --color-status-task: #3f8f78;
+  --color-status-waiting: #c98a4b;
+  --color-status-delegated: #4f8fa8;
+  --color-status-snoozed: #a9adc0;
+  --color-status-reference: #b0b3c2;
+
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 14px;
 
-  --shadow-panel: 0 0 0 1px color-mix(in srgb, #6f62b5 14%, #d3d6e2);
+  /*
+   * Elevation, as a scale rather than as one ring. A panel used to be outlined
+   * on the ground with a single hairline, which reads as a drawing of a panel
+   * rather than as a panel: nothing advanced, nothing receded, and every
+   * surface sat at the same depth as the page.
+   *
+   * Both keep the ring - it is what holds an edge against a tinted ground that
+   * a shadow alone goes muddy on - and add the two-layer drop underneath it: a
+   * tight contact shadow, then a wide soft one.
+   */
+  --shadow-panel: 0 0 0 1px color-mix(in srgb, #6f62b5 14%, #d3d6e2), 0 1px 2px rgb(41 43 49 / 0.05),
+    0 6px 16px rgb(41 43 49 / 0.07);
+  --shadow-raised: 0 0 0 1px color-mix(in srgb, #6f62b5 20%, #c3c6d4), 0 2px 4px rgb(41 43 49 / 0.07),
+    0 12px 28px rgb(41 43 49 / 0.11);
 }
 
 body {
   @apply bg-ground text-ink font-sans antialiased;
   font-size: 15px;
   line-height: 1.55;
+}
+
+/*
+ * A control that reads as a surface rather than as a filled rectangle: a very
+ * faint vertical gradient over whatever background color it already has, and a
+ * one-pixel highlight along its top edge where light would catch it.
+ *
+ * Deliberately additive - it paints `background-image` and leaves
+ * `background-color` to the utility class beside it - so a button keeps being
+ * colored by Tailwind and this only adds the material. At 8% and 30% it is
+ * meant to be felt rather than seen; anything stronger is the 2014 gradient
+ * button this is not.
+ */
+@utility milled {
+  background-image: linear-gradient(rgb(255 255 255 / 0.18), rgb(255 255 255 / 0));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3);
+}
+
+/*
+ * The page behind the panels: the workspace's ground, with a low-contrast wash
+ * down it so the canvas is lit rather than flat. The ground color itself is
+ * set inline per workspace, so this only darkens it and never states a hue.
+ *
+ * **Top to bottom, with no stop, and at eight percent.** It was five percent
+ * faded out by forty percent of the height, which is a quarter of the effect
+ * the mockup was approved on and put all of it where the content sits: the
+ * panels cover the top of the page, so the only ground you actually see is the
+ * margins and the empty area below - and the ramp had already run out by the
+ * time it got there. Running the whole height puts the shift where the ground
+ * is, and eight percent of the ink colour is about fifteen values of grey from
+ * top to bottom, which is what the mockup's own swatch measured.
+ */
+@utility ground-wash {
+  background-image: linear-gradient(rgb(41 43 49 / 0.08), rgb(41 43 49 / 0));
 }

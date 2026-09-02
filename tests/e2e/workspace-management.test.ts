@@ -9,6 +9,7 @@ import {
   openFirstWorkspace,
   openSettings,
   press,
+  tabOnIsWhollyInView,
   uniqueTitle,
   workspaceTabs,
 } from './support/app';
@@ -185,7 +186,7 @@ test.describe('Workspace management', () => {
     }) => {
       // F3 for the reason the whole rule is F3: "the page is a different
       // colour" is a computed style, and there is no computed style without a
-      // browser. Everything below it - which three colours a theme is, what the
+      // browser. Everything below it - which four colours a theme is, what the
       // picker asks for, what the server stores - is settled at its own level.
       const mine = uniqueTitle('Repainted');
       await openFirstWorkspace(page, isMobile);
@@ -256,6 +257,63 @@ test.describe('Workspace management', () => {
       await page.goto(itsUrl);
       await expect(dashboardBar(page)).toBeVisible();
       expect(page.url()).not.toBe(itsUrl);
+    });
+  });
+});
+
+test.describe('Workspace management', () => {
+  test.describe('the tab strip stays inside the screen however many workspaces there are', () => {
+    test('keeps the page from scrolling sideways and the tab you are on from being cut off', async ({
+      page,
+      isMobile,
+    }) => {
+      /*
+       * F3 because both halves are measurements of a real viewport: a page
+       * that widened and a tab scrolled out of its strip are both geometry,
+       * and jsdom has neither layout nor `scrollIntoView` to produce them.
+       * The 480px project is where this actually bites.
+       *
+       * **What it holds, and what it does not.** Take the bringing-into-view
+       * away and this goes red, so the rule itself is covered. It does *not*
+       * cover the second half of how the shell does it - the pass once the
+       * webfont has landed - and that was checked rather than assumed:
+       * removing `document.fonts.ready` leaves this green. By the time this
+       * walk switches workspace the font is long cached, so the race it exists
+       * for cannot happen here; reproducing it needs a cold first paint
+       * straight onto a workspace, which is where it was found by hand. Worth
+       * knowing before trusting this to catch a regression in that line.
+       */
+      await openFirstWorkspace(page, isMobile);
+      await openSettings(page, isMobile);
+
+      // Enough of them that the strip has to scroll on a phone. They are made
+      // rather than assumed: every spec in a run shares one database, so how
+      // many workspaces already exist is whatever ran before.
+      const names = [0, 1, 2].map((n) => uniqueTitle(`Crowding the strip ${n}`));
+      for (const name of names) {
+        await page.getByLabel('Name of the new workspace').fill(name);
+        await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+        await expect(page.locator('header').getByRole('link', { name })).toBeVisible();
+      }
+
+      // The last one made is the last one in the strip, which is the one most
+      // likely to be outside it.
+      const last = names[names.length - 1]!;
+      await press(page.locator('header').getByRole('link', { name: last }), isMobile);
+      await expect(dashboardBar(page)).toBeVisible();
+
+      await expectNoSidewaysScroll(page);
+      // Polled: the tab is brought into view again once the font has landed,
+      // and how long that takes is not something to assert against once.
+      await expect.poll(() => tabOnIsWhollyInView(page)).toBe(true);
+
+      // Put back, the way the reordering walks put theirs back. This is the
+      // only walk that makes several at once, and every spec in a run shares
+      // one database: three left behind lengthen the settings page for every
+      // walk after this one, which is how this first went red - a later walk
+      // on a phone found its own form pushed below the fold.
+      await openSettings(page, isMobile);
+      for (const name of names) await deleteWorkspace(page, name, isMobile);
     });
   });
 });

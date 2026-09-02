@@ -136,6 +136,7 @@ describe('Offline', () => {
           issuedAt: '2026-08-12T11:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           color: WORKSPACE_THEMES[3]!.tint,
+          bar: WORKSPACE_THEMES[3]!.bar,
           ground: WORKSPACE_THEMES[3]!.ground,
           header: WORKSPACE_THEMES[3]!.header,
         }),

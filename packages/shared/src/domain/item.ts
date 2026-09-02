@@ -127,15 +127,16 @@ export const workspaceSchema = z.object({
    */
   name: z.string(),
   /**
-   * The Workspace's three colors (functional definition, "Container
-   * hierarchy"): `color` is the saturated tint on the tab dot and the header
-   * stripe, `ground` is the page behind the panels, and `header` is the bar
-   * across the top. They are chosen together, from the fixed palette in
+   * The Workspace's four colors (functional definition, "Container
+   * hierarchy"): `color` is the saturated tint on the tab dot and the selected
+   * tab, `header` is the bar across the top, `bar` is the strip the dashboard
+   * tabs sit on one step lighter than it, and `ground` is the page behind the
+   * panels. They are chosen together, from the fixed palette in
    * domain/workspace-themes.ts.
    *
-   * All three are stored, rather than the name of a theme: the palette is then
+   * All four are stored, rather than the name of a theme: the palette is then
    * a picker rather than a storage format, so letting somebody mix their own
-   * colors later is a second writer of the same three fields rather than a
+   * colors later is a second writer of the same four fields rather than a
    * migration.
    *
    * Deliberately the permissive `z.string()` and not `hexColorSchema`, for the
@@ -144,6 +145,7 @@ export const workspaceSchema = z.object({
    * blanking the screen it appears on. The rules belong on the way in.
    */
   color: z.string(),
+  bar: z.string(),
   ground: z.string(),
   header: z.string(),
 });

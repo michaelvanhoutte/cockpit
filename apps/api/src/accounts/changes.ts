@@ -14,6 +14,27 @@ import type { Change } from './up-to-date.js';
  * not - which is two schemas in production and no way to tell them apart. Add
  * the next change instead.
  *
+ * **Renaming one is editing it, and the name is the only thing a store keys
+ * on.** A store records what it has applied by name and compares by name, so a
+ * rename makes an applied change look unapplied and it runs a second time -
+ * `duplicate column name`, and the account cannot be opened at all. Renaming is
+ * therefore safe only against stores that never applied the old name, and
+ * "shipped" for this rule means *applied anywhere*, not *deployed*: a
+ * developer's own store counts, and is the one you are most likely to forget
+ * because you filled it yourself an hour earlier. That is exactly how
+ * `0005-workspace-bar` broke the machine it was written on.
+ *
+ * **And it bought nothing.** It was renumbered from `0004` because
+ * `0004-workspace-order` merged first and two `0004`s read badly - but a
+ * shared number is not a fault. Names are compared whole, so both applied in
+ * list order and nothing was skipped; the collision was untidy, and untidy is
+ * not worth an edit that can stop an account opening. **A duplicate *name* is
+ * the fault worth acting on** - the second change then looks applied and never
+ * runs - and that is what tests/unit/accounts/changes.test.ts holds. Where a
+ * rename is genuinely unavoidable, the cost is that everyone carrying the old
+ * name resets their local stores (readme, "Resetting local data"); it is never
+ * paid a second time by renaming back.
+ *
  * **The SQL is written out, not generated.** drizzle-kit generates against a
  * database it can connect to, and there is no such thing for a Durable Object
  * that is created on demand; it also cannot emit STRICT (see `schema.ts`), so
@@ -24,7 +45,14 @@ import type { Change } from './up-to-date.js';
  * actually ends up with, rather than against the TypeScript that describes it.
  */
 export function accountChanges(accountId: string): readonly Change[] {
-  return [ACCOUNT_SCHEMA, startingWorkspaces(accountId), DASHBOARDS, WORKSPACE_ORDER, PANELS];
+  return [
+    ACCOUNT_SCHEMA,
+    startingWorkspaces(accountId),
+    DASHBOARDS,
+    WORKSPACE_ORDER,
+    PANELS,
+    WORKSPACE_BAR,
+  ];
 }
 
 /**
@@ -230,7 +258,6 @@ const DASHBOARDS: Change = {
     },
   ],
 };
-
 /**
  * Where each workspace sits in the tabs ("Reorder workspaces", issue 31): the
  * column, and a position for every workspace that was there before it.
@@ -395,6 +422,87 @@ const PANELS: Change = {
     },
     {
       sql: 'CREATE INDEX IF NOT EXISTS `panel_placements_tenant_layout` ON `panel_placements` (`tenant_id`,`layout_id`)',
+    },
+  ],
+};
+
+
+/**
+ * The fourth workspace color: the strip the dashboard tabs sit on, one step
+ * lighter than the header above it ("Modernise the app shell: a fourth
+ * workspace colour, connected tabs, and Inbox rows you can read at a glance",
+ * issue 125).
+ *
+ * **The mapping below is written out and frozen, not built from the palette.**
+ * A shipped change that read `WORKSPACE_THEMES` would change meaning the day
+ * somebody tunes a color, which is the "never edit a change that has shipped"
+ * rule arriving by the back door: the accounts that already applied it would
+ * keep the old value and the ones that had not would get the new one, with
+ * nothing to tell them apart. These are the eight bars as of this change, and
+ * they stay these eight whatever the palette does next.
+ *
+ * **Nothing is rebuilt and nothing is dropped**, so the destructive half of the
+ * checklist is empty: one added column and one update of rows that are already
+ * there.
+ *
+ * **Interrupted, or run again.** A change is applied atomically here - its
+ * statements and the record that they ran, together (up-to-date.ts) - so a
+ * change that fails partway leaves nothing of itself behind and is retried
+ * whole. That matters more here than it did for the dashboards change, because
+ * SQLite has no `ADD COLUMN IF NOT EXISTS` and there is no guard to write: a
+ * re-run over a store that somehow already had the column would fail loudly.
+ * That is the outcome to want rather than one to paper over - it means the
+ * ledger and the schema disagree, which is a thing to find out about.
+ *
+ * **No data is rejected, and the update cannot write a NULL.** `ADD COLUMN`
+ * gives every existing row the default, which is only the right bar for the
+ * first theme; the update then corrects the rest. A workspace whose color is
+ * not one of the palette's tints matches no arm and `ELSE bar` writes it back
+ * to itself, so it keeps the default rather than being emptied or refused -
+ * the same fallback `themeOf` makes, and the same call "Choose a workspace's
+ * colors from a palette" (issue 79) made for the same reason: an unfamiliar
+ * color is one thing that looks slightly wrong, not a corrupt row.
+ */
+const WORKSPACE_BAR: Change = {
+  // `0005`, and it should have been `0004`. "Reorder workspaces" (issue 31)
+  // merged with that number while this was being built, and this was renumbered
+  // so the two would not read as one - which fixed nothing, because names are
+  // compared whole and two `0004`s apply perfectly well (see the header).
+  //
+  // What it cost was real: a store recording `0004-workspace-bar` does not
+  // recognise `0005-workspace-bar`, so it runs again and fails with `duplicate
+  // column name: bar`, and the account cannot be opened. That happened to the
+  // machine this was written on.
+  //
+  // It stays `0005` now for the same reason it should never have moved: this
+  // name has been applied and recorded, and renaming it back would break the
+  // stores that carry it. Anyone still holding the old one resets (readme,
+  // "Resetting local data").
+  //
+  // **And it sits beside `0005-panels`, deliberately.** That change merged
+  // while this branch was open, taking the number the same way
+  // `0004-workspace-order` did - so the situation that caused all of the above
+  // arrived a second time, and this time nothing was renamed. Both apply, in
+  // list order, and no store notices. That is the rule working rather than an
+  // oversight, and it is written here because the next person to see two
+  // `0005`s will reach for the tidy fix.
+  name: '0005-workspace-bar',
+  statements: [
+    {
+      sql: "ALTER TABLE `workspaces` ADD COLUMN `bar` text DEFAULT '#dbd7ee' NOT NULL",
+    },
+    {
+      sql: `UPDATE workspaces SET bar = CASE color
+              WHEN '#6f62b5' THEN '#dbd7ee'
+              WHEN '#3a72c8' THEN '#cbdef5'
+              WHEN '#c06a45' THEN '#eedcc4'
+              WHEN '#3f8f78' THEN '#cbe4dc'
+              WHEN '#a8548c' THEN '#edd3e4'
+              WHEN '#b58a2f' THEN '#eee2c2'
+              WHEN '#4f8fa8' THEN '#cde2eb'
+              WHEN '#7d8f3f' THEN '#dde4c6'
+              ELSE bar
+            END`,
     },
   ],
 };

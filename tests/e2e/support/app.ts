@@ -343,3 +343,33 @@ export async function expectNoSidewaysScroll(page: Page): Promise<void> {
     `page scrolls sideways: content is ${overflow.scrollWidth}px wide in a ${overflow.clientWidth}px viewport`,
   ).toBeLessThanOrEqual(overflow.clientWidth);
 }
+
+/**
+ * Whether the workspace tab you are on is wholly inside the strip that holds
+ * it, rather than cut off at one end of it.
+ *
+ * The strip scrolls within itself instead of widening the page, so with enough
+ * workspaces the one you are on can sit outside the part of it you can see -
+ * and because the tab you are on is filled and joined to the strip below it, a
+ * tab that is half out of view leaves an orphaned notch, which reads as broken
+ * rather than as cut off.
+ *
+ * The current tab is found by being the filled one, which is what "the tab you
+ * are on" means here; every other tab is transparent.
+ */
+export async function tabOnIsWhollyInView(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const strip = document.querySelector('nav[aria-label="Workspaces"]');
+    if (!strip) return false;
+    const on = [...strip.querySelectorAll('a')].find(
+      (tab) => getComputedStyle(tab).backgroundColor !== 'rgba(0, 0, 0, 0)',
+    );
+    if (!on) return false;
+    const held = strip.getBoundingClientRect();
+    const tab = on.getBoundingClientRect();
+    // A pixel of slack each way: these are fractional at a device pixel ratio
+    // that is not a whole number, and being a fifth of a pixel proud of the
+    // edge is not being cut off.
+    return tab.left >= held.left - 1 && tab.right <= held.right + 1;
+  });
+}

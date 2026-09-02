@@ -280,9 +280,10 @@ export function WorkspaceSettingsPage() {
         commandId: uuidv7(),
         issuedAt: new Date().toISOString(),
         workspaceId,
-        // All three, because all three are what a workspace stores. The server
+        // All four, because all four are what a workspace stores. The server
         // still checks they are a theme from the palette.
         color: theme.tint,
+        bar: theme.bar,
         ground: theme.ground,
         header: theme.header,
       },
@@ -472,11 +473,14 @@ export function WorkspaceSettingsPage() {
                 )}
               </div>
               {/* The palette, as a row of swatches. Each one shows the whole
-                  theme rather than a dot: the ground it paints the page in,
-                  with the tint sitting on it, so what you are choosing is what
-                  you will see. Hidden while the row is being renamed, because
-                  that is the one thing that takes the row over; the question
-                  before a delete no longer does. */}
+                  theme rather than a dot, and shows it stacked the way the
+                  screen stacks it: the header across the top, the bar the
+                  dashboard tabs sit on under it, and the ground filling the
+                  rest, with the tint on the ground. So what you are choosing
+                  looks like what you will get, including which way up it goes.
+                  Hidden while the row is being renamed, because that is the one
+                  thing that takes the row over; the question before a delete no
+                  longer does. */}
               {renaming?.id !== ws.id && (
                 <div className="flex flex-wrap gap-1.5 pt-2 pl-6">
                   {WORKSPACE_THEMES.map((theme) => (
@@ -488,15 +492,17 @@ export function WorkspaceSettingsPage() {
                       aria-label={`${theme.name} for ${ws.name}`}
                       aria-pressed={ws.color === theme.tint}
                       title={theme.name}
-                      className={`size-6 rounded-md border disabled:opacity-50 ${
+                      className={`flex size-6 flex-col justify-end overflow-hidden rounded-md border disabled:opacity-50 ${
                         ws.color === theme.tint
                           ? 'border-ink ring-2 ring-ink/20'
                           : 'border-black/10 hover:border-black/30'
                       }`}
-                      style={{ backgroundColor: theme.ground }}
+                      style={{
+                        backgroundImage: `linear-gradient(${theme.header} 0 30%, ${theme.bar} 30% 50%, ${theme.ground} 50% 100%)`,
+                      }}
                     >
                       <span
-                        className="mx-auto block size-2.5 rounded-full"
+                        className="mx-auto mb-1 block size-2 rounded-full"
                         style={{ backgroundColor: theme.tint }}
                       />
                     </button>

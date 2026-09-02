@@ -42,12 +42,12 @@ export function CaptureForm({ workspaceId }: { workspaceId: string }) {
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Capture a note or to-do…"
         aria-label="Capture a note or to-do"
-        className="min-w-0 flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+        className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
       <button
         type="submit"
         disabled={command.isPending}
-        className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+        className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
       >
         Capture
       </button>

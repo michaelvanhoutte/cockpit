@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
 import { useCommand } from '../api/queries';
+import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
@@ -14,8 +15,31 @@ const STATUS_LABEL: Record<ItemStatus, string> = {
   dismissed: 'Dismissed',
 };
 
+/**
+ * The same status as a color, for the dot at the head of the row.
+ *
+ * **The dot does not replace the word, it goes beside it.** Six statuses are
+ * more than color can separate reliably, and a color cannot be read out at all,
+ * so the dot is what makes the list scannable and the word is what makes it
+ * legible. Either alone would be the wrong half.
+ *
+ * `done` and `dismissed` are here because the record is total, not because they
+ * are ever drawn: neither reaches a list this renders.
+ */
+const STATUS_DOT: Record<ItemStatus, string> = {
+  to_process: 'bg-status-to-process',
+  task: 'bg-status-task',
+  waiting: 'bg-status-waiting',
+  snoozed: 'bg-status-snoozed',
+  delegated: 'bg-status-delegated',
+  reference: 'bg-status-reference',
+  done: 'bg-status-task',
+  dismissed: 'bg-status-snoozed',
+};
+
 export function ItemRow({ item, workspaceId }: { item: Item; workspaceId: string }) {
   const command = useCommand();
+  const waited = waitedSince(item.createdAt, Date.now());
 
   const envelope = () => ({
     commandId: uuidv7(),
@@ -36,7 +60,17 @@ export function ItemRow({ item, workspaceId }: { item: Item; workspaceId: string
     command.mutate({ name: 'set_focus', payload: { ...envelope(), horizon: 'today' } });
 
   return (
-    <li className="flex items-center gap-2 border-b border-black/5 px-4 py-2.5 last:border-b-0 hover:bg-accent-tint/40">
+    // `gap-1.5` rather than `gap-2`: the row gained a mark at its head and an
+    // age at its tail, and the Inbox column is a fifth of the screen, so the
+    // space between them is space the title does not get.
+    <li className="flex items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 hover:bg-accent-tint/40">
+      {/* What the row is doing, before anything is read. Decorative on purpose:
+          the word it stands for is on the line below, so announcing the color
+          as well would say the status twice. */}
+      <span
+        aria-hidden="true"
+        className={`mt-0.5 size-2 shrink-0 self-start rounded-full ${STATUS_DOT[item.status]}`}
+      />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm">{item.nextAction ?? item.title}</span>
         {/* Where it came from and what it is now, on one line under the title.
@@ -59,6 +93,15 @@ export function ItemRow({ item, workspaceId }: { item: Item; workspaceId: string
       {item.focusHorizon && (
         <span className="shrink-0 rounded bg-accent-deep px-1.5 text-xs font-semibold uppercase text-white">
           {item.focusHorizon[0]}
+        </span>
+      )}
+
+      {/* How long it has waited. Tabular figures so the column does not shuffle
+          sideways as the numbers change under it, and `title` because `14d` is
+          short enough to be worth spelling out on hover. */}
+      {waited && (
+        <span className="shrink-0 text-xs tabular-nums text-ink-faint" title={`Waiting ${waited}`}>
+          {waited}
         </span>
       )}
 

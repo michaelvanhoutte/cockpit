@@ -617,17 +617,19 @@ export function runCommand<N extends CommandName>(
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
-      // The three colors are stored, but only the palette's combinations may be
+      // The four colors are stored, but only the palette's combinations may be
       // stored: that is what "picked from designed options" means once there is
       // a wire format a caller can put anything into, and it is how the
       // legibility half of the decision is actually kept rather than intended.
       // The day mixing your own is wanted, this check is what relaxes.
-      if (!isPaletteTheme({ tint: cmd.color, ground: cmd.ground, header: cmd.header })) {
+      if (
+        !isPaletteTheme({ tint: cmd.color, bar: cmd.bar, ground: cmd.ground, header: cmd.header })
+      ) {
         throw new UnknownThemeError();
       }
       db.transaction((tx) => {
         tx.update(workspaces)
-          .set({ color: cmd.color, ground: cmd.ground, header: cmd.header })
+          .set({ color: cmd.color, bar: cmd.bar, ground: cmd.ground, header: cmd.header })
           .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId)))
           .run();
         tx.insert(commands).values(commandRow).run();

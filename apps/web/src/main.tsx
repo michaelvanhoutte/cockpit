@@ -29,7 +29,24 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister, maxAge: CACHE_MAX_AGE_MS, buster: 'v1' }}
+      // `v2` because a workspace gained a fourth colour ("Modernise the app
+      // shell", issue 125), and a stored copy written before it has three.
+      //
+      // **The buster has to move whenever the shape of what is stored does.**
+      // What is restored here is never re-validated - the schemas parse
+      // responses on the way in from the network (api/client.ts), not the copy
+      // read back out of IndexedDB - so a stale shape is not rejected, it is
+      // rendered. Three-colour workspaces paint a shell with no bar: the tab
+      // you are on stops being filled and stops joining the strip, and the
+      // strip itself has no colour at all. Revalidation fixes it a moment
+      // later online, and never fixes it offline, which is the case the stored
+      // copy exists for in the first place.
+      //
+      // The cost is that everyone's stored copy is dropped once on the deploy
+      // that ships this, and the first open after it has to reach the network.
+      // That is the right way round: a cold open is a moment, a shell painted
+      // from a shape the code no longer expects is a week.
+      persistOptions={{ persister, maxAge: CACHE_MAX_AGE_MS, buster: 'v2' }}
     >
       <RouterProvider router={router} />
     </PersistQueryClientProvider>

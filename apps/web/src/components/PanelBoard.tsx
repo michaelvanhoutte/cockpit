@@ -326,7 +326,13 @@ export function PanelBoard({
   return (
     <div ref={measure} className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="mr-auto min-w-0 truncate text-base font-semibold">{dashboard.name}</h2>
+        {/* The name, for whoever is not looking at the screen. It used to be a
+            heading here as well as the tab above, which said the same thing
+            twice a centimetre apart ("Modernise the app shell", issue 125) -
+            and the tab is the one that says *which of several*, so the tab is
+            the one that stays. The controls after this keep their place by the
+            `mr-auto` moving onto the first of them. */}
+        <h2 className="sr-only">{dashboard.name}</h2>
 
         {naming === null ? (
           <button
@@ -335,7 +341,7 @@ export function PanelBoard({
               command.reset();
               setNaming('');
             }}
-            className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep"
+            className="milled ml-auto shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep"
           >
             Add a panel
           </button>
@@ -352,7 +358,7 @@ export function PanelBoard({
                 command.reset();
               }
             }}
-            className="flex shrink-0 items-center gap-2"
+            className="ml-auto flex shrink-0 items-center gap-2"
           >
             <input
               value={naming}
@@ -436,9 +442,15 @@ export function PanelBoard({
       )}
 
       {panels.length === 0 ? (
-        <section className="rounded-lg bg-surface px-4 py-10 text-center shadow-panel">
-          <p className="text-sm text-ink-faint">
-            Nothing on this dashboard yet. Panels are what go here.
+        // An invitation rather than an apology: it says what a dashboard is for
+        // instead of reporting that this one is empty ("Modernise the app
+        // shell", issue 125). No control of its own - Add panel is already in
+        // the bar above, and a second way to press the same thing is a second
+        // thing to keep in step.
+        <section className="rounded-lg bg-surface px-4 py-14 text-center shadow-panel">
+          <p className="mx-auto max-w-md text-sm text-ink-faint">
+            A dashboard holds the panels you want in view — a slice of your work, kept where you can
+            see it. This one has none yet.
           </p>
         </section>
       ) : (

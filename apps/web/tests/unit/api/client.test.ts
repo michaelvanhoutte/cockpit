@@ -16,7 +16,7 @@ const workspace = {
   id: 'ws-work',
   tenantId: 'tenant',
   name: 'Work',
-  color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea',
+  color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea',
 };
 
 function answersWith(body: unknown) {

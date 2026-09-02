@@ -90,7 +90,7 @@ export function workspaceNamed(
  * ever read it, and uniqueness moved to the name, where a person can see it.
  *
  * The whole theme goes in, not just the tint it was handed: a new workspace has
- * all three of its colors from the moment it exists, so it is never a workspace
+ * all four of its colors from the moment it exists, so it is never a workspace
  * wearing somebody else's page.
  *
  * `position` arrives the way `color` does, for the same reason: it is a function
@@ -115,6 +115,7 @@ export function workspaceFromCommand(
     name: cmd.name,
     foldedName: foldName(cmd.name),
     color,
+    bar: theme.bar,
     ground: theme.ground,
     header: theme.header,
     position,

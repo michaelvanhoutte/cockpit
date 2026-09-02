@@ -27,7 +27,7 @@ vi.mock('../../../src/api/loadFailure', async (importOriginal) => ({
  * apps/api/tests/integration/http/workspace-management.test.ts; repeating them
  * here would prove nothing twice.
  */
-const workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' };
+const workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
 
 /**
  * What the workspace holds, so the confirmation has something to count, and
@@ -52,7 +52,7 @@ vi.mock('../../../src/api/queries', () => ({
     queryFn: () =>
       list.answer?.() ??
       Promise.resolve({
-        workspaces: [{ id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' }],
+        workspaces: [{ id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' }],
       }),
   },
   snapshotQuery: (workspaceId: string) => ({
@@ -245,10 +245,11 @@ describe('Workspace management', () => {
   });
 
   describe('choosing a colour for a workspace asks for the whole theme, for that workspace', () => {
-    it('asks for all three of its colours, not the one on the swatch', async () => {
-      // Three, because three is what a workspace stores: the dot, the page and
-      // the bar. A picker that sent only the tint would leave the page it is
-      // meant to change behind.
+    it('asks for all four of its colours, not the one on the swatch', async () => {
+      // Four, because four is what a workspace stores: the tint on the dot, the
+      // header across the top, the strip the dashboard tabs sit on, and the
+      // page behind the panels. A picker that sent only the tint would leave
+      // the page it is meant to change behind.
       const user = userEvent.setup();
       const { mutate } = showPage({ succeeds: true });
       const chosen = WORKSPACE_THEMES[4]!;
@@ -260,6 +261,7 @@ describe('Workspace management', () => {
         payload: expect.objectContaining({
           workspaceId: 'ws-work',
           color: chosen.tint,
+          bar: chosen.bar,
           ground: chosen.ground,
           header: chosen.header,
         }),
@@ -648,6 +650,7 @@ describe('Workspace management', () => {
             issuedAt: 'now',
             workspaceId: 'ws-work',
             color: chosen.tint,
+            bar: chosen.bar,
             ground: chosen.ground,
             header: chosen.header,
           },
