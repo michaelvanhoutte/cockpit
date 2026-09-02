@@ -371,7 +371,8 @@ lands**, which is the same moment "App login" becomes urgent; the two belong
 together.
 
 The account-level `Cloudflare Workers Preview URLs` policy is left in place. It
-covers preview URLs, of which there are none (§4), so it does nothing today and
+covers preview URLs, of which there are none ("No branch environments"), so it
+does nothing today and
 would gate a preview Worker if one ever came back.
 
 ### `/health` answers without a sign-in

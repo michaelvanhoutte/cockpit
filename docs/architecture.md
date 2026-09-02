@@ -252,7 +252,7 @@ Two standing rules follow: **never block paint on auth** (paint the cached snaps
 
 ## 8. Security
 
-- **App login per §8.1**; no passwords stored, ever. The session, cookie and request gate are built; the proof of identity in front of them is a logon page you sign in at by choosing a name — an identity selector, not an authentication control — and nothing else authenticates a deployed environment until that changes.
+- **App login per "App login: hand-rolled Google OIDC + own sessions" (§8.1)**; no passwords stored, ever. The session, cookie and request gate are built; the proof of identity in front of them is a logon page you sign in at by choosing a name — an identity selector, not an authentication control — and nothing else authenticates a deployed environment until that changes.
 - **Source tokens encrypted at rest** (application-level encryption for connected-account OAuth tokens).
 - **Workspace scoping enforced server-side** on every query via `tenant_id` plus workspace filters; the UI's scoping is presentation, not protection. The account those filters carry is resolved from the session on every request, never from anything the client sends.
 - **Message content sent to the AI provider is an explicit, documented flow** (which fields, which provider, retention posture) — the single most sensitive thing this product does.
