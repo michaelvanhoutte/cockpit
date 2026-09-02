@@ -372,8 +372,13 @@ together.
 
 The account-level `Cloudflare Workers Preview URLs` policy is left in place. It
 covers preview URLs, of which there are none ("No branch environments"), so it
-does nothing today and
-would gate a preview Worker if one ever came back.
+does nothing today and would gate a preview Worker if one ever came back.
+
+**Putting a perimeter back is a dashboard job, and its recipe left with this
+file.** It was exact and fiddly — one application, two path-scoped destinations,
+a Bypass policy, and three traps that each cost a wrong turn — and it now exists
+only in the diff that removed it: pull request 139, "Remove Cloudflare Access
+from staging and production". Read it there rather than rediscovering it.
 
 ### `/health` answers without a sign-in
 
