@@ -58,6 +58,34 @@ const TEMPLATE_DIR = '.wrangler/state-e2e-template';
 const RUN_DIR = '.wrangler/state-e2e';
 const STAMP = 'cockpit-e2e-template.sha256';
 
+/**
+ * Where Wrangler writes the log that says why it fell over.
+ *
+ * It writes one either way; the point of naming it is that the default is
+ * `~/.config/.wrangler/logs`, which is outside the repository — so on a CI
+ * runner it goes with the machine and the one record of what happened is
+ * thrown away with it. Named here, `.github/workflows/ci.yml` can keep it
+ * beside the Playwright artefacts on a failed run.
+ *
+ * That is not a hypothetical. `wrangler dev` exited 1 twenty-three seconds into
+ * the run on `main` at bc840bb, printing an empty `✘ [ERROR]` and taking the
+ * rest of the stack down with it (`supervise` in lib/processes.mjs), so
+ * twenty-six tests failed with a connection refused and every screenshot the
+ * job did keep was of the same blank page. The reason existed, in this file,
+ * on a runner that was then deleted.
+ *
+ * Absolute, unlike `--persist-to` above. Both are resolved against Wrangler's
+ * own cwd, which is apps/api; `--persist-to` is written relative because that
+ * is exactly where its directory belongs, while this one has to agree with a
+ * path written in a workflow file at the root, and a relative value would make
+ * the two look unrelated.
+ *
+ * A directory, not a file: Wrangler treats the value as a directory unless it
+ * ends in `.log`, and names each run's file inside it. It prunes its own old
+ * files, so this does not grow without end.
+ */
+const LOG_DIR = join(apiDir, '.wrangler/logs-e2e');
+
 async function ensureTemplate(digest) {
   const stamp = join(apiDir, TEMPLATE_DIR, STAMP);
   if (templateIsCurrent(stamp, digest)) return;
@@ -116,6 +144,7 @@ const api = start(
   'test api',
   '36',
   root,
+  { WRANGLER_LOG_PATH: LOG_DIR },
 );
 
 try {
