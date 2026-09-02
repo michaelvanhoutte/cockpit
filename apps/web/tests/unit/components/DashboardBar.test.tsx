@@ -65,6 +65,8 @@ vi.mock('../../../src/api/queries', () => ({
         },
         items: [],
         dashboards: held.dashboards,
+        panels: [],
+        layouts: [],
         associations: [],
         generatedAt: '2026-09-01T09:00:00.000Z',
       } as WorkspaceSnapshot),

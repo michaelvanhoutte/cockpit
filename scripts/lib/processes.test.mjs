@@ -20,7 +20,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { stopPlan, supervise } from './processes.mjs';
+import { halvesToRun, stopPlan, supervise } from './processes.mjs';
 
 /** A ChildProcess as far as these functions are concerned. */
 function fakeChild({ exitCode = null, signalCode = null } = {}) {
@@ -136,5 +136,32 @@ describe('supervise', () => {
 
     assert.deepEqual(stopped, [first, second], 'a second exit must not re-signal what is already stopping');
     exitCodeAfterShutdown();
+  });
+});
+
+describe('halvesToRun', () => {
+  it('runs both when nothing is asked for', () => {
+    assert.deepEqual(halvesToRun(['node', 'dev.mjs']), { api: true, web: true, only: null });
+  });
+
+  it('runs the one half that was asked for', () => {
+    assert.deepEqual(halvesToRun(['node', 'dev.mjs', '--only', 'api']), {
+      api: true,
+      web: false,
+      only: 'api',
+    });
+    assert.deepEqual(halvesToRun(['node', 'dev.mjs', '--only', 'web']), {
+      api: false,
+      web: true,
+      only: 'web',
+    });
+  });
+
+  it('refuses a word that is neither, rather than falling back to both', () => {
+    // Falling back would start the very pair the caller was trying not to -
+    // which in a worktree is the collision the ports work exists to prevent.
+    for (const argv of [['--only', 'banana'], ['--only']]) {
+      assert.throws(() => halvesToRun(argv), /--only takes/);
+    }
   });
 });

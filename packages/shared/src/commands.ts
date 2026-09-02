@@ -7,12 +7,14 @@ import {
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
+import { panelNameSchema, placementInputSchema } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
 /**
- * Mutations are commands, not object PUTs (architecture §4.3).
- * Every command carries a client-generated command ID (idempotent retries)
- * and the client timestamp (last-write-wins conflict resolution).
+ * Mutations are commands, not object PUTs (architecture, "Mutations are
+ * commands, not object PUTs"). Every command carries a client-generated command
+ * ID (idempotent retries) and the client timestamp (last-write-wins conflict
+ * resolution).
  */
 export const commandEnvelopeSchema = z.object({
   commandId: z.uuid(),
@@ -160,16 +162,117 @@ export const renameDashboardSchema = commandEnvelopeSchema.extend({
 export type RenameDashboardCommand = z.infer<typeof renameDashboardSchema>;
 
 /**
- * delete_dashboard — which dashboard. Its panels go with it once there are
- * panels to go; the actions they showed are keyed to the workspace and are
- * untouched, so nothing written down is lost by removing a place it was shown.
+ * delete_dashboard — which dashboard. Its panels go with it; the actions they
+ * showed are keyed to the workspace and are untouched, so nothing written down
+ * is lost by removing a place it was shown.
  */
 export const deleteDashboardSchema = commandEnvelopeSchema.extend({
   dashboardId: z.string(),
 });
 export type DeleteDashboardCommand = z.infer<typeof deleteDashboardSchema>;
 
-/** capture_item — the one command with many front doors (architecture §6.5). */
+/**
+ * add_panel — which dashboard it goes on, the new panel's id (client-generated
+ * like every other user-created id), and its title.
+ *
+ * The title obeys the rules a dashboard's name obeys, by carrying the same
+ * schema. Uniqueness is decided by the handler and the index behind it, in the
+ * scope of the *dashboard* rather than the workspace, so two dashboards of one
+ * workspace may each have a Reading list ("Panels on a dashboard, with
+ * per-screen-size layouts", issue 33).
+ *
+ * Where it lands is not here. A new panel is appended to every layout the
+ * dashboard has, which is the handler's job because only the store knows what
+ * those layouts are - and the client's copy of them can be stale.
+ */
+export const addPanelSchema = commandEnvelopeSchema.extend({
+  dashboardId: z.string(),
+  panelId: z.uuid(),
+  name: panelNameSchema,
+});
+export type AddPanelCommand = z.infer<typeof addPanelSchema>;
+
+/**
+ * rename_panel — which panel, and what it is now called. Every panel is created
+ * by a client, so unlike a dashboard's this id really is a uuid.
+ */
+export const renamePanelSchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+  name: panelNameSchema,
+});
+export type RenamePanelCommand = z.infer<typeof renamePanelSchema>;
+
+/**
+ * delete_panel — which panel. It leaves every layout of its dashboard with it,
+ * because a layout is a list of where the panels are and one that named a panel
+ * nobody can see would be a hole nothing could fill.
+ */
+export const deletePanelSchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+});
+export type DeletePanelCommand = z.infer<typeof deletePanelSchema>;
+
+/**
+ * save_layout — one arrangement of a dashboard's panels, whole.
+ *
+ * **One command for every way an arrangement changes**, rather than one per
+ * gesture: dragging a panel past another, dragging its corner, and pressing
+ * "Fit to this screen" all end with the same answer to the same question - here
+ * is where these panels go now. Splitting them would be three commands writing
+ * the same rows, and three chances for them to disagree.
+ *
+ * **It is an upsert, and that is what makes the issue's question answerable.**
+ * A `layoutId` the dashboard already has changes that layout; a fresh one
+ * defines a new layout for `screenWidth`. Those are exactly the two answers the
+ * app asks for when an arrangement is changed on a screen the layout was not
+ * made for, so the choice is carried by which id is sent rather than by a mode
+ * flag.
+ *
+ * **`screenWidth` is only read when the layout is created.** A layout records
+ * the width it was made at ("Panels on a dashboard, with per-screen-size
+ * layouts", issue 33), so changing one from another screen must not quietly
+ * move it to that screen - that is what defining a new layout is for.
+ *
+ * The order of `placements` is the order the panels are drawn in. Nothing else
+ * carries it, which is why this is a list rather than a map.
+ */
+export const saveLayoutSchema = commandEnvelopeSchema.extend({
+  dashboardId: z.string(),
+  layoutId: z.uuid(),
+  /**
+   * The width of the screen this arrangement was made on, in CSS pixels.
+   * Bounded so a layout can never record a width no screen has: the automatic
+   * choice is "the layout whose width is closest to this screen", and one
+   * absurd entry would win it everywhere or nowhere.
+   */
+  screenWidth: z.number().int().min(1).max(100_000),
+  placements: z
+    .array(placementInputSchema)
+    // One entry per panel. Two entries for one panel is not an arrangement at
+    // all - the panel would have two places - and the row it writes has the
+    // panel in its key, so the second would silently replace the first.
+    .refine((placements) => new Set(placements.map((p) => p.panelId)).size === placements.length, {
+      message: 'a panel appears once in a layout',
+    }),
+});
+export type SaveLayoutCommand = z.infer<typeof saveLayoutSchema>;
+
+/**
+ * delete_layout — which layout. The panels stay exactly where they are; what
+ * goes is one way of arranging them, and the dashboard falls back to the
+ * closest remaining layout ("Panels on a dashboard, with per-screen-size
+ * layouts", issue 33) or, with none left, to an arrangement made for the screen
+ * it is being drawn on.
+ */
+export const deleteLayoutSchema = commandEnvelopeSchema.extend({
+  layoutId: z.uuid(),
+});
+export type DeleteLayoutCommand = z.infer<typeof deleteLayoutSchema>;
+
+/**
+ * capture_item — the one command with many front doors (architecture,
+ * "Multi-channel capture and the task-creator merge").
+ */
 export const captureItemSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   title: z.string().min(1),
@@ -232,6 +335,11 @@ export const commandSchemas = {
   add_dashboard: addDashboardSchema,
   rename_dashboard: renameDashboardSchema,
   delete_dashboard: deleteDashboardSchema,
+  add_panel: addPanelSchema,
+  rename_panel: renamePanelSchema,
+  delete_panel: deletePanelSchema,
+  save_layout: saveLayoutSchema,
+  delete_layout: deleteLayoutSchema,
   capture_item: captureItemSchema,
   set_status: setStatusSchema,
   snooze_until: snoozeUntilSchema,

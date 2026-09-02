@@ -28,6 +28,8 @@ vi.mock('../../../src/api/queries', () => ({
         workspace: { id: workspaceId, tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
         items: held.items,
         dashboards: [],
+        panels: [],
+        layouts: [],
         associations: [],
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),

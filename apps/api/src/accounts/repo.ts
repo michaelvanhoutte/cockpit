@@ -1,7 +1,17 @@
-import { and, eq, isNull, max, ne } from 'drizzle-orm';
-import type { Association, Dashboard, Item, Workspace } from '@cockpit/shared';
+import { and, asc, eq, inArray, isNull, max, ne } from 'drizzle-orm';
+import type { Association, Dashboard, Item, Layout, Panel, Workspace } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import { associations, commands, dashboards, items, workspaces } from './schema.js';
+import type { PlacementRow } from '../domain/panels.js';
+import {
+  associations,
+  commands,
+  dashboards,
+  items,
+  layouts,
+  panelPlacements,
+  panels,
+  workspaces,
+} from './schema.js';
 
 /**
  * Repositories: the only place queries live. Every query filters on tenant_id
@@ -142,6 +152,226 @@ export function listDashboards(
     )
     .orderBy(dashboards.createdAt)
     .all();
+}
+
+/** One live dashboard of one workspace, or null - the check every panel change starts from. */
+export function getDashboard(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  dashboardId: string,
+): Dashboard | null {
+  return (
+    db
+      .select(dashboardColumns)
+      .from(dashboards)
+      .where(
+        and(
+          eq(dashboards.tenantId, tenantId),
+          eq(dashboards.workspaceId, workspaceId),
+          eq(dashboards.id, dashboardId),
+          isNull(dashboards.deletedAt),
+        ),
+      )
+      .get() ?? null
+  );
+}
+
+/**
+ * The columns a panel is read by, named one by one for the reason the workspace
+ * and dashboard ones are: a bare `select()` names every column of the table,
+ * which makes dropping one a two-release job. `folded_name` is deliberately not
+ * among them - nothing outside the index reads it.
+ */
+const panelColumns = {
+  id: panels.id,
+  tenantId: panels.tenantId,
+  dashboardId: panels.dashboardId,
+  name: panels.name,
+};
+
+/**
+ * A dashboard's panels, oldest first, which is the order they are drawn in
+ * before the dashboard has a layout. Tombstoned ones are left out the way
+ * tombstoned dashboards are.
+ */
+export function listPanels(db: AccountDb, tenantId: string, dashboardId: string): Panel[] {
+  return db
+    .select(panelColumns)
+    .from(panels)
+    .where(
+      and(
+        eq(panels.tenantId, tenantId),
+        eq(panels.dashboardId, dashboardId),
+        isNull(panels.deletedAt),
+      ),
+    )
+    .orderBy(panels.createdAt)
+    .all();
+}
+
+/** One live panel, wherever it sits. Its `dashboardId` is what the changes to it scope by. */
+export function getPanel(db: AccountDb, tenantId: string, panelId: string): Panel | null {
+  return (
+    db
+      .select(panelColumns)
+      .from(panels)
+      .where(and(eq(panels.tenantId, tenantId), eq(panels.id, panelId), isNull(panels.deletedAt)))
+      .get() ?? null
+  );
+}
+
+/**
+ * Every live panel of every live dashboard of one workspace, oldest first.
+ *
+ * The workspace rather than the dashboard, because that is the scope of the
+ * snapshot: the client switches between a workspace's dashboards without a
+ * round trip (architecture, "The read model: persisted snapshot, revalidate,
+ * push"), so all of them arrive together or switching would go to the network.
+ *
+ * The join is on the dashboard's tombstone as well as the panel's. A panel of a
+ * deleted dashboard is not on any screen there is, and leaving it in would let
+ * the dashboard settings page count panels nobody can reach.
+ */
+export function listPanelsInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): Panel[] {
+  return db
+    .select(panelColumns)
+    .from(panels)
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(panels.tenantId, tenantId),
+        eq(dashboards.workspaceId, workspaceId),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(panels.createdAt)
+    .all();
+}
+
+/** One layout, or null. Layouts are deleted rather than tombstoned, so there is nothing to filter. */
+export function getLayout(
+  db: AccountDb,
+  tenantId: string,
+  layoutId: string,
+): { id: string; dashboardId: string; screenWidth: number } | null {
+  return (
+    db
+      .select({
+        id: layouts.id,
+        dashboardId: layouts.dashboardId,
+        screenWidth: layouts.screenWidth,
+      })
+      .from(layouts)
+      .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, layoutId)))
+      .get() ?? null
+  );
+}
+
+/** The ids of one dashboard's layouts, which is all a new panel needs to reach every one of them. */
+export function listLayoutIds(db: AccountDb, tenantId: string, dashboardId: string): string[] {
+  return db
+    .select({ id: layouts.id })
+    .from(layouts)
+    .where(and(eq(layouts.tenantId, tenantId), eq(layouts.dashboardId, dashboardId)))
+    .orderBy(layouts.createdAt)
+    .all()
+    .map((row) => row.id);
+}
+
+/** One layout's arrangement, in the order it is drawn in. */
+export function listPlacements(db: AccountDb, tenantId: string, layoutId: string): PlacementRow[] {
+  return db
+    .select({
+      tenantId: panelPlacements.tenantId,
+      layoutId: panelPlacements.layoutId,
+      panelId: panelPlacements.panelId,
+      position: panelPlacements.position,
+      columnSpan: panelPlacements.columnSpan,
+      rowSpan: panelPlacements.rowSpan,
+    })
+    .from(panelPlacements)
+    .where(and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, layoutId)))
+    // The panel id as a second key, so two rows that somehow share a position
+    // still come back in the same order twice rather than in whichever order
+    // the table happens to hand them over.
+    .orderBy(asc(panelPlacements.position), asc(panelPlacements.panelId))
+    .all();
+}
+
+/**
+ * Every layout of every live dashboard of one workspace, each carrying its own
+ * arrangement.
+ *
+ * Two queries rather than one join, and assembled here: a join would repeat
+ * every layout once per placement and the rows would have to be regrouped
+ * anyway, and this way a workspace whose dashboards have no layouts at all -
+ * which is every workspace until somebody drags something - costs one query and
+ * stops.
+ */
+export function listLayoutsInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): Layout[] {
+  const found = db
+    .select({
+      id: layouts.id,
+      tenantId: layouts.tenantId,
+      dashboardId: layouts.dashboardId,
+      screenWidth: layouts.screenWidth,
+    })
+    .from(layouts)
+    .innerJoin(dashboards, eq(layouts.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(layouts.tenantId, tenantId),
+        eq(dashboards.workspaceId, workspaceId),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(layouts.screenWidth)
+    .all();
+  if (found.length === 0) return [];
+
+  // No filter on the panels being live, deliberately: deleting a panel takes
+  // its placements with it in the same transaction (command-service.ts), so a
+  // placement naming a deleted panel is not a state this store can be in. A
+  // second filter here would be a branch nothing can reach, and the screen
+  // drawing these already drops a placement whose panel is not in the snapshot
+  // it holds - which is the case that really happens, in a browser looking at a
+  // copy from before the delete.
+  const arrangements = db
+    .select({
+      layoutId: panelPlacements.layoutId,
+      panelId: panelPlacements.panelId,
+      columns: panelPlacements.columnSpan,
+      rows: panelPlacements.rowSpan,
+    })
+    .from(panelPlacements)
+    .where(
+      and(
+        eq(panelPlacements.tenantId, tenantId),
+        inArray(
+          panelPlacements.layoutId,
+          found.map((layout) => layout.id),
+        ),
+      ),
+    )
+    .orderBy(asc(panelPlacements.position), asc(panelPlacements.panelId))
+    .all();
+
+  return found.map((layout) => ({
+    ...layout,
+    placements: arrangements
+      .filter((placement) => placement.layoutId === layout.id)
+      .map(({ panelId, columns, rows }) => ({ panelId, columns, rows })),
+  }));
 }
 
 /** Open items: tombstoned rows stay in the store but never in the snapshot. */

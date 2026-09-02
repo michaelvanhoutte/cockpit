@@ -50,18 +50,13 @@ export function templateIsCurrent(stampPath, digest) {
  * because only a bind distinguishes "free" from "listening but not answering
  * yet".
  */
-export function assertPortFree(port, what) {
+export function assertPortFree(port, what, advice) {
   return new Promise((resolve, reject) => {
     const probe = createServer();
     probe.once('error', (error) =>
       reject(
         error.code === 'EADDRINUSE'
-          ? new Error(
-              `port ${port} is already in use, so the ${what} cannot start there. ` +
-                `Something — most likely a stack left behind by an interrupted run — is holding it. ` +
-                `Stop that first: this suite will not run against a server it did not start, because ` +
-                `its database would not be the fresh one.`,
-            )
+          ? new Error(`port ${port} is already in use, so the ${what} cannot start there. ${advice()}`)
           : error,
       ),
     );
@@ -69,6 +64,8 @@ export function assertPortFree(port, what) {
     probe.listen(port, '127.0.0.1');
   });
 }
+
+
 
 /**
  * Waits until the Worker actually answers, and this is load-bearing rather than

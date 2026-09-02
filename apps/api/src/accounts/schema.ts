@@ -1,9 +1,19 @@
-import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  check,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import {
   associationKindSchema,
   focusHorizonSchema,
+  GRID_COLUMNS,
   itemStatusSchema,
+  MAX_PANEL_ROWS,
   prioritySchema,
   sourceSchema,
 } from '@cockpit/shared';
@@ -11,8 +21,8 @@ import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from
 
 /**
  * The tables inside one account's store (architecture, "One store per account,
- * and `tenant_id` stays"): its workspaces, dashboards, items, associations and
- * change log.
+ * and `tenant_id` stays"): its workspaces, dashboards, panels, layouts, items,
+ * associations and change log.
  * They live in the account's own Durable Object, never in D1, which holds only
  * the register of which accounts exist (src/db/schema.ts).
  *
@@ -44,11 +54,12 @@ import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from
  *   cannot express it, so every statement in `changes.ts` carries it by hand.
  * - **CHECK constraints for every closed set**, built from the same Zod enums
  *   the wire contract uses, so the two cannot drift.
- * - **Foreign keys**, ON DELETE RESTRICT throughout, because nothing in this
- *   model is ever hard-deleted; deleting a workspace ("Rename and delete a
- *   workspace", issue 77) has to decide what happens to its items explicitly
- *   rather than inheriting a silent cascade - which is why it tombstones the
- *   workspace and leaves them where they are.
+ * - **Foreign keys**, ON DELETE RESTRICT throughout, so that removing anything
+ *   has to decide what happens to what points at it rather than inheriting a
+ *   silent cascade: deleting a workspace ("Rename and delete a workspace",
+ *   issue 77) tombstones it and leaves its items where they are, and deleting a
+ *   layout ("Panels on a dashboard, with per-screen-size layouts", issue 33)
+ *   says out loud that its placements go first.
  *
  * `tenant_id` carries no foreign key here, and cannot: the register it would
  * point at is in D1, and SQLite has no way to reference a table in another
@@ -136,7 +147,8 @@ export const workspaces = sqliteTable(
      * tell apart in the tabs ("Workspace names are only case-insensitive in
      * ASCII", issue 91). Folding happens in the application, where the whole of
      * Unicode is available; `foldName` in src/domain/names.ts is the one
-     * function that does it, for this table and for dashboards alike.
+     * function that does it, for this table, for dashboards and for panels
+     * alike.
      *
      * `NOT NULL DEFAULT ''` matches the D1 copy, where the default was
      * load-bearing across the deploy that added it. A store creates the column
@@ -242,9 +254,10 @@ export const workspaces = sqliteTable(
 
 /**
  * A dashboard: a named view inside a workspace, switched between like tabs
- * (functional definition, "Container hierarchy"). It holds panels once "Panels
- * on a dashboard, with per-screen-size layouts" (issue 33) lands; until then a
- * dashboard is its name and the fact that you can switch to it.
+ * (functional definition, "Container hierarchy"). It holds panels, arranged by
+ * one layout per screen size ("Panels on a dashboard, with per-screen-size
+ * layouts", issue 33); both hang off this table rather than off the workspace,
+ * because a panel belongs to the view it was put on.
  *
  * The Inbox is not here and never will be. It is a fixture of the screen - a
  * column beside the dashboards where there is room, a view of its own where
@@ -298,6 +311,145 @@ export const dashboards = sqliteTable(
     index('dashboards_tenant_workspace').on(t.tenantId, t.workspaceId),
     check('dashboards_created_at_is_timestamp', isTimestamp('created_at')),
     check('dashboards_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
+/**
+ * A panel: a movable, resizable, titled box on one dashboard (functional
+ * definition, "Container hierarchy"). What it *shows* is configuration it grows
+ * later; today a panel is its title and its place on the grid ("Panels on a
+ * dashboard, with per-screen-size layouts", issue 33).
+ *
+ * Tombstoned rather than deleted, like a workspace and a dashboard, and for the
+ * same reason: the title is something a person wrote, and the partial index
+ * below is what gives it back to the dashboard once the panel has gone.
+ */
+export const panels = sqliteTable(
+  'panels',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    dashboardId: text('dashboard_id')
+      .notNull()
+      .references(() => dashboards.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    /**
+     * The title with its case folded away, exactly as a workspace and a
+     * dashboard carry one and for exactly the same reason: SQL's `lower()`
+     * folds `A`-`Z` and nothing else. `foldName` in src/domain/names.ts is the
+     * one function that folds, for all three tables.
+     */
+    foldedName: text('folded_name').notNull(),
+    createdAt: text('created_at').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    /**
+     * Unique within the *dashboard*, which is one level further down than the
+     * dashboards index: two dashboards of one workspace may each have a Reading
+     * list, and neither knows about the other's. Partial on the tombstone like
+     * the other two, so a deleted panel gives its title back.
+     */
+    uniqueIndex('panels_dashboard_live_folded_name')
+      .on(t.tenantId, t.dashboardId, t.foldedName)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index('panels_tenant_dashboard').on(t.tenantId, t.dashboardId),
+    check('panels_created_at_is_timestamp', isTimestamp('created_at')),
+    check('panels_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
+/**
+ * A layout: one arrangement of a dashboard's panels, and the screen width it
+ * was made at.
+ *
+ * **`screen_width` is a width, not a breakpoint.** The issue asks for arbitrary
+ * widths on purpose, so there is no fixed set of sizes to belong to and the
+ * question "which layout is this screen's" is answered by distance rather than
+ * by membership.
+ *
+ * **Deleted for real, not tombstoned**, which is the one place this store
+ * departs from "tombstones, not deletes" and is deliberate. A tombstone exists
+ * to keep a record of something that happened; a layout records nothing that
+ * happened, only how a screen was once arranged. Keeping it would mean
+ * filtering it out of every read, and would leave its id able to bring it back
+ * - `save_layout` is an upsert, and an upsert onto a tombstone is a resurrection
+ * nobody asked for. Its placements go first, which is what the RESTRICT below
+ * makes explicit rather than silent.
+ */
+export const layouts = sqliteTable(
+  'layouts',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    dashboardId: text('dashboard_id')
+      .notNull()
+      .references(() => dashboards.id, { onDelete: 'restrict' }),
+    screenWidth: integer('screen_width').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    index('layouts_tenant_dashboard').on(t.tenantId, t.dashboardId),
+    // Bounded, because the automatic choice is "the layout closest to this
+    // screen": one absurd width would win that comparison everywhere or never.
+    check('layouts_screen_width_is_a_width', sql.raw('screen_width BETWEEN 1 AND 100000')),
+    check('layouts_created_at_is_timestamp', isTimestamp('created_at')),
+  ],
+);
+
+/**
+ * Where one panel sits in one layout.
+ *
+ * **`position` is the whole of the arrangement, and there are no coordinates.**
+ * Panels flow left to right and wrap, so what a layout stores is an order and a
+ * size each - which is exactly what the issue describes: dragging one panel
+ * past another reorders them, and the automatic rearrangement "keeps the
+ * existing panel order and fills them left to right". A grid of free
+ * coordinates would also permit holes, and a hole is a thing no gesture in the
+ * issue can make.
+ *
+ * **A composite primary key**, where every other table here has a
+ * client-generated id. The convention is about entities somebody creates and
+ * can name; this row is the relationship between two of those, it has no
+ * identity of its own, and `(layout_id, panel_id)` is the thing that must be
+ * unique anyway - a panel appears once in a layout. Giving it a second,
+ * generated key would mean guarding that with an index as well.
+ *
+ * **Deleted for real, like the layouts they belong to**, and like an
+ * association, which is the other row here that is a link rather than a record.
+ */
+export const panelPlacements = sqliteTable(
+  'panel_placements',
+  {
+    tenantId: text('tenant_id').notNull(),
+    layoutId: text('layout_id')
+      .notNull()
+      .references(() => layouts.id, { onDelete: 'restrict' }),
+    panelId: text('panel_id')
+      .notNull()
+      .references(() => panels.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    /**
+     * `column_span` and `row_span`, not `columns` and `rows`: `ROWS` is a
+     * keyword in SQLite's window-function grammar, and a column that only works
+     * while every statement remembers to quote it is a trap for the next
+     * hand-written one - and every statement in changes.ts is hand-written.
+     */
+    columnSpan: integer('column_span').notNull(),
+    rowSpan: integer('row_span').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.layoutId, t.panelId] }),
+    index('panel_placements_tenant_layout').on(t.tenantId, t.layoutId),
+    // The same bounds the wire contract puts on a placement, built from the
+    // same constants, so the two cannot drift into disagreeing about how wide
+    // the grid is.
+    check(
+      'panel_placements_column_span_fits_the_grid',
+      sql.raw(`column_span BETWEEN 1 AND ${GRID_COLUMNS}`),
+    ),
+    check('panel_placements_row_span_fits_the_grid', sql.raw(`row_span BETWEEN 1 AND ${MAX_PANEL_ROWS}`)),
+    check('panel_placements_position_is_an_order', sql.raw('position >= 0')),
   ],
 );
 

@@ -43,7 +43,7 @@ costs, is "No branch environments" in [docs/deployment.md](docs/deployment.md).
 
 ## Run it
 
-Prerequisites: Node ≥ 22 (pnpm comes via corepack).
+Prerequisites: Node ≥ 22.12 (pnpm comes via corepack).
 
 ```bash
 corepack enable pnpm
@@ -51,11 +51,13 @@ pnpm install
 pnpm dev
 ```
 
-That is the whole thing. `pnpm dev` applies the local D1 migrations, seeds the database, builds `apps/web/dist` if it has never been built (Wrangler refuses to start without it), then runs the API on <http://localhost:8787> and the web app on <http://localhost:5173> together, output prefixed per process. Ctrl+C stops both, and either one exiting takes the other down rather than leaving half an app looking healthy.
+That is the whole thing. `pnpm dev` applies the local D1 migrations, seeds the database, builds `apps/web/dist` if it has never been built (Wrangler refuses to start without it), then runs the API and the web app together, output prefixed per process. It prints both addresses as it starts — in the primary checkout the API is on <http://localhost:8787> and the web app on <http://localhost:5173>. Ctrl+C stops both, and either one exiting takes the other down rather than leaving half an app looking healthy.
+
+**In a git worktree the ports are different, and that is the point.** Several worktrees of this repository are often open at once, one per piece of work, and every one of them wants to run `pnpm dev`. Nothing else about them collides — each has its own database under `apps/api/.wrangler` — so only the ports had to move. A linked worktree gets a pair derived from its own path (`scripts/lib/ports.mjs`), the same pair every time it is started, so a tab stays valid and the browser keeps the stored copy it painted from; the primary checkout keeps the two above, which is what the rest of this file names. The browser tier's own two ports move the same way, so two worktrees can run `pnpm test:e2e` at the same time as well. Read the address off the line `pnpm dev` prints, or set `COCKPIT_DEV_WEB_PORT` and `COCKPIT_DEV_API_PORT` to pin them.
 
 The first screen is the logon page, listing the two people the seed creates: pick one and you are in their account. There is no password, deliberately and temporarily — see "App login" in [docs/architecture.md](docs/architecture.md) for why that is an identity selector rather than an authentication control, and why Cloudflare Access still stands in front of every deployed environment.
 
-Every setup step is idempotent, so it is safe to re-run and there is no one-time setup to remember or skip. `pnpm dev:api` and `pnpm dev:web` run one half alone; `pnpm build` when a real production build is wanted rather than the placeholder `dist`.
+Every setup step is idempotent, so it is safe to re-run and there is no one-time setup to remember or skip. `pnpm dev:api` and `pnpm dev:web` run one half alone, on the same ports and skipping the setup steps; `pnpm build` when a real production build is wanted rather than the placeholder `dist`.
 
 **It stays one command deliberately.** The testing strategy's definition of done requires that the application be started and the changed behaviour actually exercised before anything is claimed to work — green unit tests are never evidence that the app runs. Four commands across two terminals is the friction that quietly turns "start the app" into "the tests passed", so the friction is removed rather than documented.
 
@@ -137,7 +139,7 @@ For a live-reloading loop while writing a test, run vitest directly instead of t
 **Nothing has to be running first, and nothing you have running will be disturbed.** Every tier brings its own world:
 
 - `apps/api`'s integration tests get a fresh, real D1 instance per test file from the Workers pool (`@cloudflare/vitest-pool-workers`), gone when the run ends. An account's own data lives in a real Durable Object rather than in D1, and there is one of those per account name rather than one per test file, so the cases that touch it empty it themselves between them (`tests/integration/seed.ts`).
-- The browser tier starts a **second copy of the whole application** — its own Wrangler on :8887, its own Vite on :5273, its own state directory — and throws the storage away afterwards. Your `pnpm dev` on :5173/:8787 keeps running throughout, untouched: run the suite while you are clicking around and neither notices the other.
+- The browser tier starts a **second copy of the whole application** — its own Wrangler, its own Vite, its own state directory, on two more ports of this checkout's own (:8887 and :5273 in the primary checkout, derived in a worktree) — and throws the storage away afterwards. Your `pnpm dev` keeps running throughout, untouched: run the suite while you are clicking around and neither notices the other.
 
 That storage is rebuilt before every run, so a run always starts from the same place and can never be made to pass or fail by something you did in the browser yesterday — but the two halves get there differently. The **register** is rebuilt by copying a template (about 220KB, 5 milliseconds) rather than by running migrations and the seed, which costs about seven seconds and is nearly all process startup; the template itself is rebuilt only when a migration or `seed.sql` changes, keyed by their contents, so there is no stale-template failure to remember. **Each account's own store** is not in that template at all — a Durable Object is not something `wrangler` can write to from outside — so each run starts them empty and the first request that opens one creates it, brings it up to date and gives it the workspaces an account starts with. Same place every time, arrived at from the other end. A whole run costs about 7 seconds warm, about 18 the first time, when the template and possibly `apps/web/dist` have to be built.
 
@@ -232,7 +234,7 @@ This lives in repository settings, so a fresh fork gets none of it. The deployme
 
 None of this arrives with `pnpm install`, and all of it is per-developer:
 
-- **Node ≥ 22 with corepack** (`corepack enable pnpm`), so the pnpm version comes from `package.json` rather than from whatever is on your PATH.
+- **Node ≥ 22.12 with corepack** (`corepack enable pnpm`), so the pnpm version comes from `package.json` rather than from whatever is on your PATH. The .12 is `playwright.config.ts` requiring an ES module from the CommonJS Playwright transpiles it to, which that release unflagged.
 - **`gh`, authenticated** (`gh auth login`). The `github-issue` skill files issues with it, the branch-protection command above needs it, and it is how pull requests get opened and merged.
 - **Commit attribution.** Commits authored with an address GitHub cannot link are orphaned — no profile, no contribution graph. This repository has history in exactly that state. Use **your own** noreply address, which GitHub shows you under Settings → Emails, rather than the one in `docs/deployment.md`, which is the owner's:
 

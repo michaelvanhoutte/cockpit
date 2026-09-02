@@ -16,7 +16,8 @@ import {
 } from '@cockpit/shared';
 
 /**
- * The typed client (architecture §5.5): Hono's `hc` infers the whole surface
+ * The typed client (architecture, "How the client talks to the backend"):
+ * Hono's `hc` infers the whole surface
  * from the API's route chain, and responses are additionally runtime-validated
  * with the same shared Zod schemas the server serializes from.
  */
@@ -116,6 +117,14 @@ const commandSenders = {
     api.v1.commands.rename_dashboard.$post({ json: p }),
   delete_dashboard: (p: CommandPayload<'delete_dashboard'>) =>
     api.v1.commands.delete_dashboard.$post({ json: p }),
+  add_panel: (p: CommandPayload<'add_panel'>) => api.v1.commands.add_panel.$post({ json: p }),
+  rename_panel: (p: CommandPayload<'rename_panel'>) =>
+    api.v1.commands.rename_panel.$post({ json: p }),
+  delete_panel: (p: CommandPayload<'delete_panel'>) =>
+    api.v1.commands.delete_panel.$post({ json: p }),
+  save_layout: (p: CommandPayload<'save_layout'>) => api.v1.commands.save_layout.$post({ json: p }),
+  delete_layout: (p: CommandPayload<'delete_layout'>) =>
+    api.v1.commands.delete_layout.$post({ json: p }),
   capture_item: (p: CommandPayload<'capture_item'>) => api.v1.commands.capture_item.$post({ json: p }),
   set_status: (p: CommandPayload<'set_status'>) => api.v1.commands.set_status.$post({ json: p }),
   snooze_until: (p: CommandPayload<'snooze_until'>) => api.v1.commands.snooze_until.$post({ json: p }),

@@ -3,13 +3,16 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// Dev serves web and API on one origin (vite proxies to wrangler on :8787),
-// mirroring production where both live on the same Cloudflare zone. No CORS.
+// Dev serves web and API on one origin (vite proxies to wrangler), mirroring
+// production where both live on the same Cloudflare zone. No CORS.
 //
-// The origin is overridable because the browser tests run a second, isolated
-// copy of the stack on other ports against a throwaway database
-// (scripts/e2e-stack.mjs), and it has to reach *its* Wrangler rather than the
-// one `pnpm dev` may also be running.
+// The origin is overridable, and both callers rely on it. The browser tests run
+// a second, isolated copy of the stack on other ports against a throwaway
+// database (scripts/e2e-stack.mjs), and `pnpm dev` in a git worktree runs on a
+// pair of ports derived from that worktree's path (scripts/lib/ports.mjs) - so
+// in neither case is the default right, and each passes the address of the
+// Wrangler it just started. The default is the primary checkout's, which is
+// what `pnpm dev:web` alone gets.
 const apiProxy = {
   target: process.env.COCKPIT_API_ORIGIN ?? 'http://127.0.0.1:8787',
   changeOrigin: true,

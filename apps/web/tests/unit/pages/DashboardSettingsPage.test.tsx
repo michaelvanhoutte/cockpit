@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Dashboard, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { DashboardSettingsPage } from '../../../src/pages/DashboardSettingsPage';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand } from '../../../src/api/queries';
@@ -16,7 +16,7 @@ import { useCommand } from '../../../src/api/queries';
  * is the page saying the last-dashboard rule out loud before anything is
  * asked for, which is a claim about this screen and not about that rule.
  */
-const held = vi.hoisted(() => ({ dashboards: [] as Dashboard[] }));
+const held = vi.hoisted(() => ({ dashboards: [] as Dashboard[], panels: [] as Panel[] }));
 const wentTo = vi.hoisted(() => ({ calls: [] as unknown[] }));
 
 vi.mock('@tanstack/react-router', () => ({
@@ -46,6 +46,8 @@ vi.mock('../../../src/api/queries', () => ({
         },
         items: [],
         dashboards: held.dashboards,
+        panels: held.panels,
+        layouts: [],
         associations: [],
         generatedAt: '2026-09-01T09:00:00.000Z',
       } as WorkspaceSnapshot),
@@ -64,8 +66,16 @@ function aDashboard(name: string): Dashboard {
 }
 
 /** The page, listing these dashboards, with a `useCommand` that answers. */
-function showPage(names: string[], answer: { error?: Error } = {}) {
+function showPage(names: string[], answer: { error?: Error; panelsOnEach?: number } = {}) {
   held.dashboards = names.map(aDashboard);
+  held.panels = held.dashboards.flatMap((dashboard) =>
+    Array.from({ length: answer.panelsOnEach ?? 0 }, (_, at) => ({
+      id: `${dashboard.id}-panel-${at}`,
+      tenantId: 'tenant',
+      dashboardId: dashboard.id,
+      name: `Panel ${at}`,
+    })),
+  );
   wentTo.calls = [];
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (!answer.error) options?.onSuccess?.();
@@ -113,14 +123,20 @@ describe('Dashboards', () => {
   });
 
   describe('you are told what deleting a dashboard takes with it before it happens', () => {
-    it('names it and says what is on it', async () => {
-      const { user } = showPage(['Dashboard 1', 'Research']);
+    it.each([
+      { situation: 'nothing on it', panelsOnEach: 0, says: 'Delete Research? There is nothing on it.' },
+      { situation: 'one panel', panelsOnEach: 1, says: 'Delete Research? Its one panel goes with it.' },
+      { situation: 'several panels', panelsOnEach: 3, says: 'Delete Research? Its 3 panels go with it.' },
+    ])('names it and says it has $situation', async ({ panelsOnEach, says }) => {
+      // Panels are what a dashboard holds ("Panels on a dashboard, with
+      // per-screen-size layouts", issue 33), and the count is the whole of the
+      // answer - counted for this dashboard, not for the workspace, which is
+      // what the other dashboard in the list is here to catch.
+      const { user } = showPage(['Dashboard 1', 'Research'], { panelsOnEach });
 
       await choose(user, 'Research', 'Delete');
 
-      // Panels are what a dashboard holds, and there are none until "Panels on
-      // a dashboard, with per-screen-size layouts" (issue 33).
-      expect(screen.getByText('Delete Research? There is nothing on it.')).toBeVisible();
+      expect(screen.getByText(says)).toBeVisible();
     });
 
     it.each([
@@ -137,7 +153,7 @@ describe('Dashboards', () => {
       // The row is still the row: asking never changed it, so there is nothing
       // to put back.
       expect(screen.getByText('Research')).toBeVisible();
-      expect(screen.queryByText('Delete Research? There is nothing on it.')).toBeNull();
+      expect(screen.queryByText(/^Delete Research\?/)).toBeNull();
     });
 
     it('asks to delete it, and leaves the workspace to decide where you land', async () => {

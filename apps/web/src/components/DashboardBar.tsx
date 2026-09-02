@@ -82,9 +82,14 @@ export function DashboardBar({
       {/* The way to what a dashboard has beyond its name. This was three dots
           that navigated - a menu's glyph on a link, so pressing three dots
           sometimes opened a menu and sometimes left the page. It is a menu now
-          ("Open every menu from the same control", issue 115), which is also
-          where "Panels on a dashboard, with per-screen-size layouts" (issue 33)
-          puts its layouts: one entry today, more later. */}
+          ("Open every menu from the same control", issue 115).
+
+          This is the bar's menu, and it holds what is true of the whole bar:
+          one entry today, more later. Layouts were expected here and are not -
+          they went into the dashboard's own header beside the panels they
+          arrange ("Panels on a dashboard, with per-screen-size layouts", issue
+          33), because this bar is also drawn on the Inbox, where there is no
+          dashboard to have a layout. */}
       <DropdownMenu.Root>
         <MenuTrigger label="Dashboard actions" className="mb-1 ml-auto" />
         <MenuContent>

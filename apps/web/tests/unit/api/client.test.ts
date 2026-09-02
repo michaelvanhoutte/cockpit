@@ -60,6 +60,8 @@ describe('Sign-in', () => {
         workspace,
         items: [],
         dashboards: [],
+        panels: [],
+        layouts: [],
         associations: [],
         generatedAt: '2026-08-31T10:00:00.000Z',
       });
