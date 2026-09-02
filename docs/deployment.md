@@ -583,8 +583,8 @@ one. Signing in is choosing a name, which proves nothing, and Cloudflare Access 
 what actually authenticates a deployed environment.
 
 **There is no seed step for an account's own data, and there cannot be.** Its
-workspaces, dashboards, items and associations live in a Durable Object created by
-the first request that opens it, and `wrangler d1 execute` speaks only to D1. So
+workspaces, dashboards, panels, layouts, items and associations live in a Durable
+Object created by the first request that opens it, and `wrangler d1 execute` speaks only to D1. So
 the three workspaces an account starts with are its first change instead
 (`apps/api/src/accounts/changes.ts`), applied inside whichever request opens the
 account first. Same temporary bootstrap, in the only place that can hold it.

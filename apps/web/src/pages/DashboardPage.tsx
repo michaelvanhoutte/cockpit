@@ -2,14 +2,17 @@ import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { dashboardRoute } from '../router';
 import { LoadFailure } from '../components/LoadFailure';
+import { PanelBoard } from '../components/PanelBoard';
 
 /**
- * One dashboard of a workspace ("Add and switch dashboards", issue 32).
+ * One dashboard of a workspace ("Add and switch dashboards", issue 32), holding
+ * its panels ("Panels on a dashboard, with per-screen-size layouts", issue 33).
  *
- * It holds nothing until "Panels on a dashboard, with per-screen-size layouts"
- * (issue 33) lands, so every dashboard is empty today and says so. That is
- * expected: the message is what makes switching visibly do something from the
- * day the bar ships, rather than moving between screens that look identical.
+ * The panels and the layouts arranging them come out of the workspace's
+ * snapshot, which this page is reading anyway (architecture, "The read model:
+ * persisted snapshot, revalidate, push") - so switching dashboards changes what
+ * is drawn without a call of its own to keep in step, and a dashboard opens
+ * from the copy in hand.
  */
 export function DashboardPage() {
   const { workspaceId, dashboardId } = dashboardRoute.useParams();
@@ -25,15 +28,28 @@ export function DashboardPage() {
   const dashboard = data.dashboards.find((d) => d.id === dashboardId);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       {error && <LoadFailure error={error} onRetry={() => void refetch()} />}
 
-      <section className="rounded-lg bg-surface px-4 py-10 text-center shadow-panel">
-        <h2 className="text-base font-semibold">{dashboard?.name ?? 'Dashboard'}</h2>
-        <p className="mt-2 text-sm text-ink-faint">
-          Nothing on this dashboard yet. Panels are what go here.
-        </p>
-      </section>
+      {dashboard && (
+        // Keyed by the dashboard, so switching to another one starts clean: the
+        // half-typed panel name, the open question and any arrangement not yet
+        // saved all belong to the dashboard being left.
+        <PanelBoard
+          key={dashboard.id}
+          workspaceId={workspaceId}
+          dashboard={dashboard}
+          // `?? []` because a snapshot can be older than these two fields.
+          // The stored copy is rehydrated from IndexedDB without being parsed
+          // again (main.tsx), so somebody who had Cockpit open before this
+          // landed opens it afterwards holding a snapshot with no `panels` at
+          // all - and reading through it would be a blank screen rather than an
+          // empty dashboard, worst of all while offline, where no answer is
+          // coming to repair it.
+          panels={(data.panels ?? []).filter((panel) => panel.dashboardId === dashboard.id)}
+          layouts={data.layouts ?? []}
+        />
+      )}
     </div>
   );
 }

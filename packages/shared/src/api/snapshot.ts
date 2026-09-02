@@ -5,11 +5,12 @@ import {
   itemSchema,
   workspaceSchema,
 } from '../domain/item.js';
+import { layoutSchema, panelSchema } from '../domain/panel.js';
 
 /**
- * The read model (architecture §5.2): one snapshot call per workspace.
- * The client derives every panel locally from this; there are no
- * fine-grained item resources.
+ * The read model (architecture, "The read model: persisted snapshot,
+ * revalidate, push"): one snapshot call per workspace. The client derives every
+ * panel locally from this; there are no fine-grained item resources.
  */
 export const workspaceSnapshotSchema = z.object({
   workspace: workspaceSchema,
@@ -22,6 +23,20 @@ export const workspaceSnapshotSchema = z.object({
    * dashboards", issue 32).
    */
   dashboards: z.array(dashboardSchema),
+  /**
+   * Every panel of every dashboard of this workspace, oldest first, and every
+   * layout that arranges them ("Panels on a dashboard, with per-screen-size
+   * layouts", issue 33).
+   *
+   * All of the workspace's dashboards rather than only the one being looked at,
+   * because the snapshot is the workspace's read model and the client switches
+   * between dashboards without a round trip (architecture, "The read model:
+   * persisted snapshot, revalidate, push"). It is also what lets a dashboard's
+   * settings page say how many panels deleting one takes with it, from the same
+   * copy the bar is drawn from.
+   */
+  panels: z.array(panelSchema),
+  layouts: z.array(layoutSchema),
   associations: z.array(associationSchema),
   generatedAt: z.iso.datetime(),
 });

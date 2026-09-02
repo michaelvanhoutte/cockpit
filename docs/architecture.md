@@ -84,7 +84,7 @@ These conventions are enforced by the schema, not by the callers that happen to 
 
 #### One store per account, and `tenant_id` stays
 
-**Status: built.** An account's workspaces, dashboards, items, associations and change log live in that account's own store; the register — which accounts exist — stays in D1. `apps/api/src/accounts/` is the only place either is read or written.
+**Status: built.** An account's workspaces, dashboards, panels, layouts, items, associations and change log live in that account's own store; the register — which accounts exist — stays in D1. `apps/api/src/accounts/` is the only place either is read or written.
 
 **A tenant is an account, not a Workspace.** Workspaces are the privacy boundary *inside* one account's data. One store per Workspace would break the Workspace switcher and every future cross-Workspace view.
 
@@ -124,6 +124,7 @@ The server is authoritative; the client keeps a persisted cache purely for speed
 - On load the client paints **immediately from a snapshot in IndexedDB** (TanStack Query cache persistence), then revalidates in the background. Cold open makes zero blocking network requests.
 - The working set is kilobytes, so the snapshot is **one API call per workspace**, not a replication protocol.
 - **Panel rules evaluate client-side** against the snapshot, so reconfiguring, dragging, filtering and grouping stay inside the §7 interaction budget with no round trip.
+- **Which layout a dashboard is drawn with is decided client-side too**, from that same snapshot, which carries every panel and every layout of the workspace: switching dashboard, resizing the window and picking a layout by hand all reflow without a request (functional definition, "Layouts: one arrangement per screen size"). Only *changing* an arrangement is a write, and it is one command carrying the whole arrangement rather than one per gesture.
 - **Liveness via SSE**, since phone and desktop are commonly open at once: the API pushes invalidation events and the client also revalidates on focus. SSE over WebSockets because the channel is strictly server-to-client and SSE is plain HTTP — simpler to run, proxy and test. An idle SSE stream on Workers costs essentially nothing; a Durable Object is the designated upgrade path if connection churn ever bites.
 
   **`EventSource` reconnects natively — but only from some failures, and not the ones that matter.** Measured 2026-08-31 against the built app: a *dropped* connection retries every three seconds indefinitely, while a connection *answered* badly (a redirect to sign-in, a `503`) is abandoned after one attempt, permanently and silently. So the browser handles the failure that would heal anyway and gives up on the two that need handling. `apps/web/src/api/useServerEvents.ts` therefore replaces a permanently-closed stream itself, backing off 3s→60s, and asks the ungated `/health` first so an expired sign-in surfaces through the same screen a failed read uses rather than being announced twice.

@@ -13,7 +13,7 @@ pnpm dev
 
 ## Writing
 
-**Say it once, in as few sentences as it takes.** Documents, issues, commit messages, pull request bodies and review replies are all read by agents on a context budget, so length is a cost paid on every future read. Commit messages are in that list because the squash-merge message is the trunk's permanent record: it says what changed and why it was worth changing, not everything considered on the way.
+**Say it once, in as few sentences as it takes.** Documents, issues, pull request bodies and review replies are all read by agents on a context budget, so length is a cost paid on every future read.
 
 - **A rule and its reason fit in one or two sentences.** Keep the reason — a rule without one gets argued with — but a clause is usually enough.
 - **Name the incident, don't retell it.** "One issue was built whole after it had already merged" carries the same warning as the paragraph reconstructing it. Keep the story only where it is the evidence, and keep it to a sentence.
@@ -21,18 +21,6 @@ pnpm dev
 - **Parallel cases are a table or a list**, not prose that walks through each one.
 - **Start at the point.** Delete "it is worth noting that", "the requirement is therefore twofold", "worth writing down, because".
 - **Cut what the reader can see.** Don't describe the code, the diff or the diagram that follows; say what it means.
-
-**Shortening prose somebody already wrote is a different job, and it is where meaning gets lost.** All twenty-one findings on the pull request that added these rules were one species: a sentence cut as padding was carrying something. Before deleting a sentence, ask what it does — these five are the ones that were missed, every time inside a sentence that read like filler:
-
-| What it was doing | What its loss looked like |
-|---|---|
-| A quantifier — *all of the following*, *when they exist*, *only* | a binding checklist reading as description; a conditional claim reading as unconditional, contradicting a sibling document |
-| A definition | the only place *reached* was pinned down, leaving a rule ambiguous between "due today" and "past due" |
-| The target of a cross-reference | two documents citing an argument that no longer exists anywhere |
-| A command, as opposed to the reason for it | a rollback runbook whose first-choice option said why but not what to run |
-| A modal — *should*, *eventually* | a superseded proposal reading as the current decision |
-
-**Renaming or renumbering a section takes its citations with it, and they are not all in documents.** Collapsing nine sections into one silently broke references in five `.js` and `.json` files that the change never opened, because the sweep looked at markdown links and `§` references inside markdown only. Grep the whole repository for the old number and the old name, source and fixtures included.
 
 ## Scoping new work
 
@@ -78,8 +66,6 @@ Run it from inside the repository, in the background, and carry on with somethin
 **Settled means the list of checks stopped changing, not that the ones it saw are done.** `ci.yml` triggers on `push` as well as `pull_request`, while the review workflows and CodeQL trigger only on `pull_request`, so the ordinary sequence — push, `ci.yml` finishes, `gh pr create`, start waiting — reaches a commit with a complete set of *completed* runs and no `claude-review` yet. The loop above therefore compares the whole `name:status` list against the previous poll, which costs at least two polls.
 
 **A finding is not handled until its own review thread says so**, because GitHub never resolves one by itself — a push only adds an *Outdated* badge. Reply naming the commit that fixed it and what changed, then resolve; where the fix did not land or was declined on purpose, reply saying which and leave the thread open. Never resolve without a reply, and never on the strength of a commit message rather than the committed code. All ten findings on "Make the database enforce the schema conventions, not just the callers" (pull request 69) were fixed, pushed, and still read as unanswered: the pull request is the audit trail, not the session. `gh pr view` does not show thread state — query `reviewThreads` for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
-
-**Enumerate the threads yourself; a notification's count is not the review's count.** The desktop app announced four new comments on the pull request that added these rules, and the review had left twenty-two. Working from the notification would have shipped eighteen findings unread, including the only one that reached outside the documents. Query `reviewThreads` and work the unresolved list to empty, whatever a notification said.
 
 **Read what `main` has gained before finishing, not only what it has changed.** The rule above landed twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it.
 

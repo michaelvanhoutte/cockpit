@@ -86,14 +86,35 @@ const rowsFor: { table: string; sql: string; params: (name: string) => string[] 
     // Named out loud like the workspace above, and for the same reason: what
     // the next update meets should be a whole dashboard.
     //
-    // No case reaches it yet, and that is the point rather than an oversight:
-    // dashboards is the last update in the list, so the table exists only once
-    // everything has been applied and there is no outstanding work left to
-    // meet it. The row is here for the update *after* it, which is exactly what
-    // this list is for.
+    // Reached as of the update that adds panels, which is what this row was
+    // put here for: a panel points at a dashboard, so the dashboard has to be
+    // there for the panels update to meet a full table rather than an empty
+    // one.
     sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
           VALUES ('db-before', ?, 'ws-before', 'Before', 'before', ?)`,
     params: (name) => [name, AT],
+  },
+  {
+    table: 'panels',
+    // Named out loud like the rows above, for the same reason: what the next
+    // update meets should be a whole panel.
+    sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
+          VALUES ('pn-before', ?, 'db-before', 'Before', 'before', ?)`,
+    params: (name) => [name, AT],
+  },
+  {
+    table: 'layouts',
+    sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_width, created_at)
+          VALUES ('ly-before', ?, 'db-before', 1280, ?)`,
+    params: (name) => [name, AT],
+  },
+  {
+    table: 'panel_placements',
+    // After both of the above, which is the whole reason this is a list: the
+    // placement points at the layout and the panel written just now.
+    sql: `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, position, column_span, row_span)
+          VALUES (?, 'ly-before', 'pn-before', 0, 4, 3)`,
+    params: (name) => [name],
   },
   {
     table: 'items',

@@ -415,6 +415,17 @@ const routes = app
     }),
     async (c) => c.json(await change(c, 'reorder_workspaces', c.req.valid('json')), 200),
   )
+  .openapi(
+    commandRoute('add_panel', { conflict: 'The dashboard already has a panel by that name' }),
+    async (c) => c.json(await change(c, 'add_panel', c.req.valid('json')), 200),
+  )
+  .openapi(
+    commandRoute('rename_panel', { conflict: 'The dashboard already has a panel by that name' }),
+    async (c) => c.json(await change(c, 'rename_panel', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('delete_panel'), async (c) => c.json(await change(c, 'delete_panel', c.req.valid('json')), 200))
+  .openapi(commandRoute('save_layout'), async (c) => c.json(await change(c, 'save_layout', c.req.valid('json')), 200))
+  .openapi(commandRoute('delete_layout'), async (c) => c.json(await change(c, 'delete_layout', c.req.valid('json')), 200))
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c, 'capture_item', c.req.valid('json')), 200))
