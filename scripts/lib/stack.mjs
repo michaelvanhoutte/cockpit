@@ -50,24 +50,35 @@ export function templateIsCurrent(stampPath, digest) {
  * because only a bind distinguishes "free" from "listening but not answering
  * yet".
  */
-export function assertPortFree(port, what) {
+export function assertPortFree(port, what, advice = whatTheSuiteSays) {
   return new Promise((resolve, reject) => {
     const probe = createServer();
     probe.once('error', (error) =>
       reject(
         error.code === 'EADDRINUSE'
-          ? new Error(
-              `port ${port} is already in use, so the ${what} cannot start there. ` +
-                `Something — most likely a stack left behind by an interrupted run — is holding it. ` +
-                `Stop that first: this suite will not run against a server it did not start, because ` +
-                `its database would not be the fresh one.`,
-            )
+          ? new Error(`port ${port} is already in use, so the ${what} cannot start there. ${advice()}`)
           : error,
       ),
     );
     probe.once('listening', () => probe.close(() => resolve()));
     probe.listen(port, '127.0.0.1');
   });
+}
+
+/**
+ * What to do about it, for the browser suite - which is the caller this check
+ * was written for, so it is the default rather than something every call has to
+ * pass. `pnpm dev` passes its own, because the answer there is different: it
+ * *may* run against a server it did not start, it simply cannot bind twice, and
+ * the second thing it can be is another worktree sharing this one's slot
+ * (scripts/lib/ports.mjs).
+ */
+function whatTheSuiteSays() {
+  return (
+    `Something — most likely a stack left behind by an interrupted run — is holding it. ` +
+    `Stop that first: this suite will not run against a server it did not start, because ` +
+    `its database would not be the fresh one.`
+  );
 }
 
 /**

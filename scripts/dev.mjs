@@ -19,11 +19,27 @@
 //      brings itself up to date on the first request that opens it.
 //   2. Builds apps/web/dist if it is missing. Wrangler refuses to start when
 //      the assets directory in wrangler.jsonc does not exist. Only existence
-//      matters here — the SPA is served by Vite on :5173 during development,
+//      matters here — the SPA is served by Vite during development,
 //      so a stale dist is fine and rebuilding it on every start is not worth
 //      the wait. `pnpm build` when a real one is needed.
 //   3. Runs the API and the web dev server together, output prefixed per
 //      process, either one exiting or Ctrl+C bringing down both.
+//
+// **Which ports depends on the checkout** (scripts/lib/ports.mjs). Several git
+// worktrees of this repository are usually open at once, one per piece of work,
+// and every one of them wants to run this. Nothing else about them collides -
+// each has its own database under apps/api/.wrangler - so only the ports had to
+// move: the primary checkout keeps :5173 and :8787, the ones the readme names,
+// and a linked worktree gets a pair derived from its own path, the same pair
+// every time. The line below prints whichever this is.
+//
+// The two ports are checked *before* the migrations rather than left to the
+// servers to discover, for two reasons. A port held by a server an interrupted
+// run left behind is the common case, and finding out after a minute of
+// migrating and building is a minute spent on an answer that was available
+// immediately. And Vite, left to itself, moves to the next free port and says
+// so quietly - which would leave the address printed below serving nothing and
+// the API proxy pointing at another worktree's Wrangler.
 //
 // This database is yours: what you capture while clicking around stays until
 // you delete apps/api/.wrangler. The browser tests deliberately do not touch
@@ -41,28 +57,87 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { paint, run, start, supervise } from './lib/processes.mjs';
+import { halvesToRun, paint, run, start, supervise } from './lib/processes.mjs';
+import { howToFreeThePort, isLinkedWorktree, portsFor } from './lib/ports.mjs';
+import { assertPortFree } from './lib/stack.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Which halves to run, and on which ports. `pnpm dev:api` and `pnpm dev:web`
+ * pass `--only` and get one half each; they skip the migrations, the seed and
+ * the build below, as they always have, being for restarting one half of a
+ * stack that is already set up.
+ *
+ * Both decisions live in scripts/lib, where they are asserted without starting
+ * anything: this file is orchestration only.
+ */
+let running;
+let ports;
 try {
-  await run(['--filter', '@cockpit/api', 'db:migrate:local'], 'applying migrations', root);
-  await run(['--filter', '@cockpit/api', 'db:seed:local'], 'seeding', root);
+  running = halvesToRun(process.argv);
+  ports = portsFor(root, { linked: isLinkedWorktree(root), env: process.env });
+} catch (error) {
+  console.error(paint('31', `\n${error.message}`));
+  process.exit(1);
+}
+const { only } = running;
 
-  if (!existsSync(join(root, 'apps/web/dist/index.html'))) {
-    console.log(paint('2', '  apps/web/dist is missing; Wrangler needs it to start'));
-    await run(['build'], 'building', root);
+try {
+  if (running.api) {
+    await assertPortFree(ports.devApi, 'API', () => howToFreeThePort('devApi', ports.devApi));
+  }
+  if (running.web) {
+    await assertPortFree(ports.devWeb, 'web server', () => howToFreeThePort('devWeb', ports.devWeb));
+  }
+
+  if (only === null) {
+    await run(['--filter', '@cockpit/api', 'db:migrate:local'], 'applying migrations', root);
+    await run(['--filter', '@cockpit/api', 'db:seed:local'], 'seeding', root);
+
+    if (!existsSync(join(root, 'apps/web/dist/index.html'))) {
+      console.log(paint('2', '  apps/web/dist is missing; Wrangler needs it to start'));
+      await run(['build'], 'building', root);
+    }
   }
 } catch (error) {
   console.error(paint('31', `\n${error.message}`));
   process.exit(1);
 }
 
-console.log(
-  `\n${paint('36', 'api')} http://localhost:8787   ${paint('35', 'web')} http://localhost:5173   (Ctrl+C to stop both)\n`,
-);
+const addresses = [
+  running.api ? `${paint('36', 'api')} http://localhost:${ports.devApi}` : null,
+  running.web ? `${paint('35', 'web')} http://localhost:${ports.devWeb}` : null,
+].filter(Boolean);
+console.log(`\n${addresses.join('   ')}   (Ctrl+C to stop)\n`);
 
-supervise([
-  start(['--filter', '@cockpit/api', 'dev'], 'api', '36', root),
-  start(['--filter', '@cockpit/web', 'dev'], 'web', '35', root),
-]);
+const halves = [];
+if (running.api) {
+  halves.push(
+    start(
+      ['--filter', '@cockpit/api', 'exec', 'wrangler', 'dev', '--port', String(ports.devApi)],
+      'api',
+      '36',
+      root,
+    ),
+  );
+}
+if (running.web) {
+  // `--strictPort` so a busy port fails rather than quietly moving to another
+  // one, which would leave the address printed above serving nothing. And
+  // COCKPIT_API_ORIGIN so this Vite proxies to *this* worktree's Wrangler
+  // rather than to whichever checkout happens to hold the default port - which
+  // is the whole reason `pnpm dev:web` comes through this file rather than
+  // running `vite` directly.
+  halves.push(
+    start(
+      ['--filter', '@cockpit/web', 'exec', 'vite', '--port', String(ports.devWeb), '--strictPort'],
+      'web',
+      '35',
+      root,
+      { COCKPIT_API_ORIGIN: `http://127.0.0.1:${ports.devApi}` },
+    ),
+  );
+}
+
+supervise(halves);

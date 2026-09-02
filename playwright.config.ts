@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { isLinkedWorktree, portsFor } from './scripts/lib/ports.mjs';
+
 /**
  * F3, the end-to-end tier — the level definitions and the directory
  * conventions of docs/testing-strategy.md (§2, §9). Lives at the repo root
@@ -17,8 +19,7 @@ import { defineConfig, devices } from '@playwright/test';
  * 1. WHAT IT RUNS AGAINST. Its own stack, on its own ports, against storage
  *    rebuilt before every run (scripts/e2e-stack.mjs) — never the one
  *    `pnpm dev` uses. So a run starts from the same place every time and
- *    cannot disturb, or be disturbed by, the app you are clicking through on
- *    :5173.
+ *    cannot disturb, or be disturbed by, the app you are clicking through.
  *    Same one-origin shape as production either way: Vite proxies /v1, /health
  *    and /ingress to the Worker, so the browser sees a single origin.
  *
@@ -44,8 +45,18 @@ import { defineConfig, devices } from '@playwright/test';
  *    not in a third project.
  */
 
-// Must agree with scripts/e2e-stack.mjs's WEB_PORT.
-const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:5273';
+// Asked of the same function scripts/e2e-stack.mjs asks, rather than holding a
+// copy of the number: the port depends on which checkout this is
+// (scripts/lib/ports.mjs), so a written-down one could only be right for the
+// primary checkout and would silently point every worktree's run at a server
+// that is not the one it just started.
+// `__dirname`, not `import.meta.url`: Playwright transpiles this config to
+// CommonJS - the root package.json declares no `"type": "module"` - so
+// `import.meta` is a syntax error here however the file is written. This is the
+// repo root, since the config lives at it.
+const root = __dirname;
+const ports = portsFor(root, { linked: isLinkedWorktree(root), env: process.env });
+const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${ports.e2eWeb}`;
 const drivingLocalStack = !process.env.E2E_BASE_URL;
 const usingAccessToken = !!(process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET);
 

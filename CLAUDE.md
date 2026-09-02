@@ -9,7 +9,9 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` applies the local D1 migrations, seeds the database, builds the SPA if it has never been built, then runs the API on <http://localhost:8787> and the web app on <http://localhost:5173> together. It is safe to re-run — every setup step is idempotent — and Ctrl+C stops both halves. Use `pnpm dev:api` or `pnpm dev:web` to run one alone.
+`pnpm dev` applies the local D1 migrations, seeds the database, builds the SPA if it has never been built, then runs the API and the web app together, printing both addresses. It is safe to re-run — every setup step is idempotent — and Ctrl+C stops both halves. Use `pnpm dev:api` or `pnpm dev:web` to run one alone.
+
+**The ports depend on the checkout, so read them off what `pnpm dev` prints.** The primary checkout keeps <http://localhost:8787> and <http://localhost:5173>; a linked worktree gets a pair derived from its own path, the same pair every time, so several worktrees can each run the app at once (`scripts/lib/ports.mjs`). The browser tier's two ports move the same way. Never write one of these numbers into a document or a test as though it were fixed — ask `portsFor` instead, which is what `playwright.config.ts` does.
 
 `pnpm build`, `pnpm typecheck` and `pnpm test` run across every package.
 

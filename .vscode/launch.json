@@ -4,6 +4,11 @@
     {
       // Launches a debug Chrome against the running vite dev server.
       // Breakpoints land in the original .tsx sources via source maps.
+      //
+      // The primary checkout's port. A launch configuration cannot ask
+      // scripts/lib/ports.mjs what this worktree derived, so in a worktree
+      // either change the number here to the one `pnpm dev` printed, or pin it
+      // with COCKPIT_DEV_WEB_PORT.
       "name": "Debug web (Chrome)",
       "type": "chrome",
       "request": "launch",
