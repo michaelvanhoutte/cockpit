@@ -63,10 +63,16 @@ export const panelNameSchema = workspaceNameSchema;
  * rule existed should still render rather than blanking the dashboard it sits
  * on.
  *
- * What a Panel *shows* is not here. It is configuration a Panel will grow with
- * "Render actions in panels, backed by one shared action list" (issue 36), and
- * the issue this file is for leaves it out on purpose: a Panel today is a box
- * with a title and a place on the grid.
+ * **What a Panel holds is not here either**, and that is deliberate rather than
+ * unfinished: a Panel holds the Items filed into it ("Panels hold the items
+ * filed into them, and the Inbox holds the rest", issue 36), and a filing is
+ * its own shape (`filingSchema` below) because an Item can be filed on several
+ * Panels at once. A Panel that carried its own list would carry the same Item
+ * once per Panel.
+ *
+ * A rule for what *arrives* in a Panel without being filed is configuration it
+ * does not have yet ("Panel configuration: connections and free-text
+ * description", issue 35).
  */
 export const panelSchema = z.object({
   id: z.string(),
