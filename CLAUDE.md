@@ -45,7 +45,7 @@ The three tools named here come from the desktop app, so a terminal, scheduled o
 
 **Rename the session when its scope moves**, with `set_session_title`. The sidebar is how eight open threads are told apart, and a title naming work that has since been deferred sends the reader into the wrong one.
 
-**`/where` prints this session's position** for a reader who has lost the thread. It answers from context, calls nothing and changes nothing.
+**`/where` prints this session's position** for a reader who has lost the thread, following the constraints in `.claude/commands/where.md`.
 
 ## Tests
 
