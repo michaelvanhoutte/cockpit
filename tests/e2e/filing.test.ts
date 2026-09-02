@@ -307,3 +307,138 @@ test.describe('Panels', () => {
     });
   });
 });
+
+/**
+ * F3, and it can be nowhere else: scrolling and dragging both only exist in a
+ * browser, and "the dashboard changed under the drag" is a claim about a real
+ * page. How fast a drag near an edge scrolls, and how long a rest has to last,
+ * are apps/web/tests/unit/scrollWhileDragging.test.ts; that the bar reaches
+ * those rules is apps/web/tests/unit/components/DashboardBar.test.tsx.
+ *
+ * Desktop only, like the other drag walks.
+ */
+test.describe('Panels', () => {
+  test.describe('a drag resting on a dashboard’s name switches to it', () => {
+    test('drops the item on a panel of the dashboard it switched to, and stays there', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'the Inbox and the dashboards are not on one screen here');
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
+
+      // A second dashboard, with a panel of its own, and back to the first.
+      const elsewhere = uniqueTitle('Research');
+      await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+      await page.getByLabel('Name of the new dashboard').fill(elsewhere);
+      await page.getByLabel('Name of the new dashboard').press('Enter');
+      // Waited for: adding a dashboard switches to it, and the board is keyed
+      // by dashboard, so the panel form that was on screen is replaced.
+      await expect(page.getByRole('heading', { name: elsewhere, level: 2 })).toBeVisible();
+      const toRead = uniqueTitle('To read');
+      await press(page.getByRole('button', { name: 'Add a panel' }), isMobile);
+      await page.getByLabel('Name of the new panel').fill(toRead);
+      await page.getByLabel('Name of the new panel').press('Enter');
+      await expect(page.getByRole('region', { name: toRead })).toBeVisible();
+      await press(dashboardBar(page).getByRole('link', { name: dashboard }), isMobile);
+      await expect(page.getByRole('region', { name: panel })).toBeVisible();
+
+      const title = uniqueTitle('Goes to the other dashboard');
+      await captureBox(page).fill(title);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(itemRow(page, title)).toBeVisible();
+
+      // Picked up on this dashboard, held over the other one's name until the
+      // page changes under it, and let go on a panel that was not on screen
+      // when the drag began.
+      const row = itemRow(page, title);
+      const tab = dashboardBar(page).getByRole('link', { name: elsewhere });
+      // Scrolled to before it is measured, which is what `dragRowOnto` records:
+      // the bar scrolls sideways once a workspace has a few dashboards, and
+      // `boundingBox` reports where a tab is without scrolling to it — so a tab
+      // off the end is measured at a coordinate the mouse cannot reach and the
+      // drag silently does nothing. Every walk in this file adds a dashboard to
+      // the same account, so by the end of a run there are several.
+      await tab.scrollIntoViewIfNeeded();
+      await row.scrollIntoViewIfNeeded();
+      const from = await row.boundingBox();
+      const over = await tab.boundingBox();
+      if (!from || !over) throw new Error('the row or the tab is not on screen');
+      const viewport = page.viewportSize();
+      if (viewport && (over.x < 0 || over.x + over.width > viewport.width)) {
+        throw new Error(
+          `the ${elsewhere} tab is at ${over.x}px of a ${viewport.width}px screen, so the mouse cannot reach it`,
+        );
+      }
+
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(over.x + over.width / 2, over.y + over.height / 2, { steps: 8 });
+      // Held there. `dragover` keeps firing while a drag is still, and the dwell
+      // is what tells a pause from a pointer crossing the bar on its way.
+      for (let held = 0; held < 12; held += 1) {
+        await page.mouse.move(over.x + over.width / 2, over.y + over.height / 2 + (held % 2));
+        await page.waitForTimeout(100);
+      }
+
+      await expect(page.getByRole('region', { name: toRead })).toBeVisible();
+      const target = await page.getByRole('region', { name: toRead }).boundingBox();
+      if (!target) throw new Error('the other dashboard’s panel is not on screen');
+      await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 });
+      await page.mouse.up();
+
+      // On the panel it was dropped on — and that dashboard is the one still
+      // open, because it is where you just put something.
+      await expect.poll(() => itemsOn(page, toRead)).toEqual([title]);
+      await expect(page.getByRole('heading', { name: elsewhere, level: 2 })).toBeVisible();
+    });
+  });
+});
+
+/**
+ * F3, and it can be nowhere else: this is a claim about a page that actually
+ * scrolls. jsdom has no layout engine and runs no animation frames, so the
+ * level below can prove how fast a pointer near an edge *should* scroll
+ * (apps/web/tests/unit/scrollWhileDragging.test.ts) and nothing about whether
+ * anything moves.
+ *
+ * Desktop only: the phone has no drag.
+ */
+test.describe('Panels', () => {
+  test.describe('a drag near an edge scrolls what is under it', () => {
+    test('scrolls the Inbox while a row is held at its bottom edge', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'there is no drag on a touchscreen');
+      await signIn(page, ADA, isMobile);
+
+      // Enough rows that the column has somewhere to scroll to. Sixteen is
+      // about twice what a 720px screen shows.
+      const first = uniqueTitle('The first of many');
+      for (let made = 0; made < 16; made += 1) {
+        await captureBox(page).fill(made === 0 ? first : uniqueTitle(`Filler ${made}`));
+        await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      }
+      const column = page.getByRole('complementary', { name: 'Inbox' });
+      await expect
+        .poll(() => column.evaluate((box) => box.scrollHeight > box.clientHeight))
+        .toBe(true);
+
+      const row = itemRow(page, first);
+      const from = await row.boundingBox();
+      const over = await column.boundingBox();
+      if (!from || !over) throw new Error('the row or the column is not on screen');
+
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+      await page.mouse.down();
+      // Held at the bottom edge. The moves are what keep the drag reporting
+      // where it is; the scrolling itself is a frame loop, which is why this
+      // waits rather than expecting one move to have done it.
+      for (let held = 0; held < 10; held += 1) {
+        await page.mouse.move(over.x + over.width / 2, over.y + over.height - 4 + (held % 2));
+        await page.waitForTimeout(60);
+      }
+      const scrolled = await column.evaluate((box) => box.scrollTop);
+      await page.mouse.up();
+
+      expect(scrolled, 'the Inbox did not scroll while a row was held at its edge').toBeGreaterThan(0);
+    });
+  });
+});

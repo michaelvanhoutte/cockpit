@@ -1,11 +1,13 @@
-import { useState, type CSSProperties } from 'react';
+import { useRef, useState, type CSSProperties } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { uuidv7, type Dashboard } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand } from '../api/queries';
+import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { useRoomForTheInbox } from '../roomForTheInbox';
+import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
 /**
@@ -26,8 +28,15 @@ export function DashboardBar({
   workspaceId,
   tint,
   ground,
+  openDashboardId = null,
 }: {
   workspaceId: string;
+  /**
+   * The dashboard being looked at, so resting a drag on its own tab is not a
+   * switch ("Scroll while dragging, and switch dashboards by resting on one",
+   * issue 143).
+   */
+  openDashboardId?: string | null;
   /** The workspace's saturated colour, marking the tab you are on. */
   tint: string;
   /** The page's color, which the tab you are on is filled with so it meets it. */
@@ -36,6 +45,52 @@ export function DashboardBar({
   const { data } = useQuery(snapshotQuery(workspaceId));
   const dashboards = data?.dashboards ?? [];
   const roomForTheInbox = useRoomForTheInbox();
+  const navigate = useNavigate();
+
+  /**
+   * Which dashboard's name a drag is resting on, and since when.
+   *
+   * A ref: nothing on screen depends on it, and it changes on every `dragover`
+   * - which fires several times a second - so holding it in state would redraw
+   * the whole bar under a drag for nothing.
+   */
+  const restingOn = useRef<{ dashboardId: string; since: number } | null>(null);
+
+  /**
+   * A drag held over a dashboard's name switches to it, so a row can be
+   * dropped on a panel that is not on the screen it started from ("Scroll while
+   * dragging, and switch dashboards by resting on one", issue 143).
+   *
+   * **Decided on the drag events themselves rather than on a timer**, because
+   * `dragover` keeps firing while a drag is held still - which is exactly the
+   * gesture this is about - so a timer would be a second clock saying the same
+   * thing.
+   */
+  const restOn = (event: React.DragEvent, dashboardId: string) => {
+    // Only a row of ours. A panel is dragged between panels and never over this
+    // bar on purpose.
+    if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+    // Which makes the bar somewhere a drag can be held at all: without it the
+    // browser refuses the pointer and the drag reads as leaving the window.
+    event.preventDefault();
+    const now = Date.now();
+    if (restingOn.current?.dashboardId !== dashboardId) {
+      restingOn.current = { dashboardId, since: now };
+      return;
+    }
+    const switchTo = dashboardToSwitchTo(restingOn.current, now, openDashboardId);
+    if (!switchTo) return;
+    restingOn.current = null;
+    void navigate({
+      to: '/w/$workspaceId/d/$dashboardId',
+      params: { workspaceId, dashboardId: switchTo },
+    });
+  };
+
+  /** Leaving a name starts the dwell over rather than counting the two together. */
+  const leftIt = () => {
+    restingOn.current = null;
+  };
 
   /*
    * Rounded at the top only, and filled with the page's color when it is the
@@ -88,6 +143,9 @@ export function DashboardBar({
           key={dashboard.id}
           to="/w/$workspaceId/d/$dashboardId"
           params={{ workspaceId, dashboardId: dashboard.id }}
+          onDragOver={(event) => restOn(event, dashboard.id)}
+          onDragLeave={leftIt}
+          onDrop={leftIt}
           className={tabClass}
         >
           {dashboard.name}
