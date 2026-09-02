@@ -1,5 +1,4 @@
 import { hc } from 'hono/client';
-import { clearSignInAttempt } from './loadFailure';
 import type { AppType } from '@cockpit/api';
 import {
   signedInSchema,
@@ -29,8 +28,8 @@ export const api = hc<AppType>('/');
  * A separate type rather than a status to read off the message, because two
  * different things have to react to it: the router, which sends you to the
  * logon page instead of to a failed read, and the failure screen, which offers
- * Cockpit's own sign-in rather than the perimeter's. The message keeps the
- * `failed: 401` shape every other refusal has, so `diagnose` still reads it.
+ * the way back in. The message keeps the `failed: 401` shape every other
+ * refusal has, so `diagnose` still reads it.
  */
 export class NotSignedIn extends Error {
   constructor(message: string) {
@@ -90,12 +89,6 @@ export async function fetchSnapshot(workspaceId: string): Promise<WorkspaceSnaps
     param: { workspaceId },
   });
   if (!res.ok) throw refusal('snapshot', res.status);
-  // Reaching a workspace is what proves we are back in, so this is where the
-  // one-attempt-per-tab guard is forgotten. Deliberately not on the workspace
-  // list: Layout reads that on every route and it succeeds even while the
-  // snapshot is being refused, which would clear the guard immediately before
-  // it is consulted and turn one sign-in attempt into an endless round trip.
-  clearSignInAttempt();
   return workspaceSnapshotSchema.parse(await res.json());
 }
 

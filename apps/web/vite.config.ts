@@ -24,25 +24,19 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      // `crossorigin="use-credentials"` on <link rel="manifest">. Without it the
-      // manifest is the one request the browser makes with credentials omitted,
-      // so Cloudflare Access (deployment.md, "All three environments are gated
-      // with Cloudflare Access") sees no session cookie, 302s it to the login
-      // page on another origin, and the browser rejects that cross-origin
-      // redirect with a CORS error. Every other request carries the cookie and
-      // is unaffected, which is what makes it look like a CORS bug rather than
-      // an auth one. Nothing to undo when Access goes away: same-origin
-      // requests need no CORS headers, so this is inert without a gate.
+      // `crossorigin="use-credentials"` on <link rel="manifest">, which is
+      // **inert today and kept as a trap marker**. Static assets are served
+      // before the Worker (`run_worker_first` in apps/api/wrangler.jsonc), so
+      // nothing gates the manifest and a same-origin request needs no CORS
+      // headers either way.
       //
-      // Deliberately untested, which the testing skill requires saying out loud
-      // rather than leaving as a gap. No tier can reproduce the bug: F3 runs
-      // Vite's dev server, where this plugin injects no manifest link at all,
-      // and an F3 run against a deployment ("Run the F3 suite against a
-      // deployed environment, as its own account", issue #64) authenticates with
-      // CF-Access-Client-Id/Secret *headers*, which Playwright sends on every
-      // request including this one — so it would pass with or without the fix.
-      // The bug is specifically about cookies being omitted. Proving it needs a
-      // real browser session against a gated deployment, which is a human step.
+      // What it records: the manifest is the one request a browser makes with
+      // credentials omitted, so anything put in front of this app that answers
+      // an unauthenticated request with a redirect elsewhere gets rejected by
+      // the browser as a cross-origin redirect with no
+      // `Access-Control-Allow-Origin` — surfacing as a CORS error, which is
+      // what made it cost a day to diagnose behind the perimeter that used to
+      // sit here. Removing this line would put that back.
       useCredentials: true,
       // The service worker serves the cached app shell so cold open makes
       // zero blocking network requests (architecture, "The read model"); API
@@ -53,24 +47,17 @@ export default defineConfig({
         // this service's own: they are requests for data, and a cached page is
         // not an answer to one.
         //
-        // `/cdn-cgi/` is **Cloudflare's, not ours**, and it is here because
-        // leaving it out broke signing in. Access completes a sign-in by
-        // redirecting the browser to `/cdn-cgi/access/authorized?...` on this
-        // hostname; that is a navigation, so the shell answered it from cache
-        // and the request never left the browser. The cookie was therefore
-        // never set, the app rendered its own "Not Found" over Cloudflare's
-        // callback URL, and every API call kept being redirected to the login
-        // page - which looks like the app being broken rather than a sign-in
-        // that never finished. The origin was always doing the right thing:
-        // asked directly, `/cdn-cgi/access/authorized` is answered by Access
-        // itself and never reaches this application at all.
+        // `/cdn-cgi/` is **Cloudflare's, not ours**: the edge answers it before
+        // assets or the Worker see it, so a cached page is never the right
+        // answer for one. Leaving it out once broke signing in outright — the
+        // shell answered Cloudflare's own callback navigation from cache, the
+        // request never left the browser, and the app rendered its own "Not
+        // Found" over a URL that was never ours to serve.
         //
         // Deliberately untested, which the testing skill requires saying out
-        // loud rather than leaving as a gap - the same gap, for the same
-        // reason, as `useCredentials` above. No tier can reach it: F3 runs
-        // Vite's dev server, where this plugin registers no service worker at
-        // all, and reproducing it needs a real browser holding a real service
-        // worker in front of a gated deployment. That is a human step.
+        // loud rather than leaving as a gap. F3 runs Vite's dev server, where
+        // this plugin registers no service worker at all, so reaching it needs
+        // a real browser holding a real service worker against a deployment.
         //
         // Note this list is **not** the same as `run_worker_first` in
         // apps/api/wrangler.jsonc, though the first three entries match it.

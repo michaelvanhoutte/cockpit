@@ -44,7 +44,7 @@ describe('readAnswer', () => {
     { situation: 'a deployment that says it is not', status: 200, body: unwell, state: 'unhealthy' },
     { situation: 'a login page in front of the Worker', status: 200, body: '<html>Sign in', state: 'not-ours' },
     { situation: 'our JSON without the verdict in it', status: 200, body: '{"db":true}', state: 'not-ours' },
-    { situation: 'the gate having swallowed /health', status: 302, body: '', state: 'gated' },
+    { situation: 'something sending /health somewhere else', status: 302, body: '', state: 'redirected' },
     { situation: 'a Worker that is up and failing', status: 500, body: 'boom', state: 'failing' },
     { situation: 'an edge that has not caught up yet', status: 503, body: '', state: 'failing' },
     { situation: 'being asked to slow down', status: 429, body: '', state: 'failing' },
@@ -56,8 +56,11 @@ describe('readAnswer', () => {
     });
   }
 
-  it('names the Bypass policy when the gate has swallowed /health', () => {
-    assert.match(readAnswer({ status: 302, body: '' }).message, /Bypass policy scoped to the \/health path/);
+  it('says what the rule is when something sends /health somewhere else', () => {
+    assert.match(
+      readAnswer({ status: 302, body: '' }).message,
+      /must answer anyone without a sign-in/,
+    );
   });
 
   it('sends the reader to the logs, since the body never carries the reason', () => {
@@ -68,7 +71,7 @@ describe('readAnswer', () => {
 describe('worthRetrying', () => {
   it('waits only on what settling could fix', () => {
     assert.deepEqual(
-      ['healthy', 'unhealthy', 'unreachable', 'failing', 'gated', 'not-ours', 'error'].filter(worthRetrying),
+      ['healthy', 'unhealthy', 'unreachable', 'failing', 'redirected', 'not-ours', 'error'].filter(worthRetrying),
       ['unhealthy', 'unreachable', 'failing'],
     );
   });
@@ -120,7 +123,7 @@ describe('checkUntilHealthy', () => {
     assert.equal(result.body, unwell, 'the last body is quoted, so the failure says what it saw');
   });
 
-  it('gives a broken perimeter back at once rather than waiting on it', async () => {
+  it('gives a redirected /health back at once rather than waiting on it', async () => {
     let asked = 0;
     const result = await checkUntilHealthy(
       async () => {
@@ -130,7 +133,7 @@ describe('checkUntilHealthy', () => {
       fast(),
     );
     assert.equal(result.ok, false);
-    assert.equal(asked, 1, 'waiting cannot put a Bypass policy back');
+    assert.equal(asked, 1, 'waiting cannot move whatever is standing in front of /health');
   });
 
   it('reports every attempt, so a slow deployment does not read as an immediate one', async () => {

@@ -256,7 +256,7 @@ export function createAppRouter(queryClient: QueryClient) {
     // identical. This boundary is only reached when there is no stored copy to
     // paint from, so it may take the screen over.
     defaultErrorComponent: ({ error, reset }) => (
-      <LoadFailure error={error} onRetry={reset} canTakeOver />
+      <LoadFailure error={error} onRetry={reset} />
     ),
   });
 }

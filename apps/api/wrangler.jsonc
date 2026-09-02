@@ -17,8 +17,8 @@
   // (navigateFallbackDenylist in apps/web/vite.config.ts) — add a prefix to one
   // list and it belongs in the other. That list carries a fourth, `/cdn-cgi/`,
   // which deliberately does **not** belong here: it is Cloudflare's own, and
-  // Access answers it at the edge before assets or this Worker see it. So the
-  // two lists agree about this application's prefixes and about nothing else.
+  // the edge answers it before assets or this Worker see it. So the two lists
+  // agree about this application's prefixes and about nothing else.
   //
   // `assets` and `observability` are *inheritable* config keys, so the staging
   // environment below gets them for free. `d1_databases` (and `vars`, `queues`,

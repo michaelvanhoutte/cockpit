@@ -11,14 +11,12 @@
 // lives in its own store, so a check on the register alone would pass this
 // assertion while every real request to the deployment failed.
 //
-// /health must stay reachable *without* Cloudflare Access, because two things
-// depend on reaching it unauthenticated: this post-deploy check, and the
-// external uptime monitor that is the only observability layer not running on
-// the app's own code. docs/deployment.md's "`/health` must stay outside the
-// gate" records the Bypass policy that keeps it open. If Access ever does gate
-// it, this receives an HTML login page instead of JSON - a configuration error
-// with a specific fix, so it is detected and named rather than surfacing as a
-// mysterious failed promotion.
+// /health must answer *without* a sign-in, because two things depend on
+// reaching it unauthenticated: this post-deploy check, and the external uptime
+// monitor that is the only observability layer not running on the app's own
+// code (docs/deployment.md, "`/health` answers without a sign-in"). If anything
+// is ever put in front of it, this receives a page instead of JSON - so that is
+// detected and named rather than surfacing as a mysterious failed promotion.
 //
 // Usage: node scripts/health-check.mjs <base-url>
 //

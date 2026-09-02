@@ -9,12 +9,11 @@ import { recogniseSession, SIGN_IN_LIFETIME_MS } from './session.js';
  * signed in.
  *
  * **It refuses in the application's own format and never with a web page.**
- * That is the point of building this rather than leaning on the perimeter: a
- * gate that answers a background revalidation or a live-updates stream with
- * HTML produces a failure which does not read like a sign-in problem at all,
- * and the cost of that is recorded in docs/architecture.md ("App login") and
- * paid for real behind Cloudflare Access today. A `401` with `{ "error": ... }`
- * is something the client can act on.
+ * That is the point of building this rather than leaning on a perimeter in
+ * front of the deployment: a gate that answers a background revalidation or a
+ * live-updates stream with HTML produces a failure which does not read like a
+ * sign-in problem at all. A `401` with `{ "error": ... }` is something the
+ * client can act on.
  */
 
 /** What the gate leaves on the request for the routes behind it. */
@@ -43,21 +42,11 @@ export const SESSION_COOKIE = 'cockpit_session';
  *   through - which is why it carries names only and nothing else about a
  *   person.
  * - `/v1/sign-in` is how you stop being nobody.
- * - `/v1/relogin` belongs to the *perimeter*, not to this gate: it is the
- *   navigation the client makes so that Cloudflare Access can challenge it and
- *   hand the browser back (docs/deployment.md, "The cost of gating production").
- *   Requiring Cockpit's own sign-in for it would mean the two gates could
- *   deadlock on each other.
  *
  * Exact matches, not prefixes. `/v1/users` opening `/v1/users/anything` would
  * be a hole nobody chose.
  */
-export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
-  '/health',
-  '/v1/users',
-  '/v1/sign-in',
-  '/v1/relogin',
-];
+export const PATHS_OUTSIDE_THE_GATE: readonly string[] = ['/health', '/v1/users', '/v1/sign-in'];
 
 /**
  * The one prefix outside the gate, and the only thing here that is not an exact

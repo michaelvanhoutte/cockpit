@@ -103,11 +103,10 @@ jobs:
           command: deploy --env=""
 
       - name: Verify health
-        # Production sits behind Cloudflare Access like every other environment,
-        # but /health is Bypass-policied so this assertion is a real one rather
-        # than "the login page loaded" (docs/deployment.md, "`/health` must stay
-        # outside the gate"). It covers the register and an account store, not
-        # the register alone — see the same step in deploy-staging.yml.
+        # /health answers without a sign-in (docs/deployment.md, "`/health`
+        # answers without a sign-in"), so this assertion is a real one. It
+        # covers the register and an account store, not the register alone —
+        # see the same step in deploy-staging.yml.
         run: node scripts/health-check.mjs "https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev"
 
       - name: Summarise

@@ -14,10 +14,10 @@ import { forgetEverything } from '../session/forget';
  * **A passwordless list of names is an identity selector, not an
  * authentication control**, and it is worth reading that here rather than only
  * in the architecture document, because this screen is the thing that would be
- * mistaken for one. Everything behind it is real - a real session, a real
- * cookie, a real gate on every request - so when Google sign-in arrives it
- * replaces this screen and nothing else. Until then Cloudflare Access stays in
- * front of every deployed environment.
+ * mistaken for one — and on a deployed environment it is the only thing there.
+ * Everything behind it is real - a real session, a real cookie, a real gate on
+ * every request - so when Google sign-in arrives it replaces this screen and
+ * nothing else.
  *
  * It paints in the default theme rather than in a workspace's: there is no
  * workspace yet, and there must not be one, because the whole point of this
