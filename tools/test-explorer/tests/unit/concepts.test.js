@@ -170,10 +170,19 @@ describe('annotateTree', () => {
     expect(find('Top').subtree.filesNothingRuns).toBe(1);
   });
 
-  it('counts a branch gap by its file and line, for the same reason', () => {
-    const shared = [{ file: 'apps/web/src/components/Menu.tsx', line: 12 }];
+  it("counts a shared file's branch gaps once, and both gaps on a line that holds two", () => {
+    // The file is what belongs to two areas; the line is not. An if/else with
+    // neither path taken is two gaps on one line (coverage.js keys an entry by
+    // line alone, so they are indistinguishable), and counting by file:line
+    // would collapse them — making the row's total smaller than its own count.
+    const shared = [
+      { file: 'apps/web/src/components/Menu.tsx', line: 12 },
+      { file: 'apps/web/src/components/Menu.tsx', line: 12 },
+    ];
     const { find } = chain({ branches: [[], shared, shared] });
-    expect(find('Top').subtree.branchesNothingTakes).toBe(1);
+    expect(find('Top').subtree.branchesNothingTakes).toBe(2);
+    // Never smaller than the row's own count, which is what a rollup means.
+    expect(find('Middle').subtree.branchesNothingTakes).toBeGreaterThanOrEqual(find('Middle').branchesNothingTakes.length);
   });
 
   it('keeps a level that is n/a all the way down as n/a, rather than totalling it as zero', () => {

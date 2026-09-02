@@ -196,11 +196,24 @@ function annotate(node, ancestorLabels) {
   const files = new Set();
   for (const n of inSubtree) for (const f of n.filesNothingRuns) files.add(f.file);
 
+  // Branch gaps are counted once per *file*, not once per file:line. The file
+  // is what can belong to two areas beneath this row and must not be counted
+  // twice; a line is not, and one line genuinely holds two gaps when an
+  // if/else or an `a || b` has both paths uncovered (coverage.js keys an entry
+  // by line alone, so those two are indistinguishable by key). Collapsing them
+  // would let a row's total print smaller than its own count.
   const measured = inSubtree.filter((n) => n.branchesNothingTakes !== null);
-  const branches = new Set();
-  for (const n of measured) for (const b of n.branchesNothingTakes) branches.add(`${b.file}:${b.line}`);
+  const gapsPerFile = new Map();
+  for (const n of measured) {
+    const own = new Map();
+    for (const b of n.branchesNothingTakes) own.set(b.file, (own.get(b.file) ?? 0) + 1);
+    // The same file's gaps are the same list wherever it appears, so this is a
+    // one-per-file record rather than a sum; max only guards a disagreement.
+    for (const [file, count] of own) gapsPerFile.set(file, Math.max(gapsPerFile.get(file) ?? 0, count));
+  }
+  const branchTotal = [...gapsPerFile.values()].reduce((a, b) => a + b, 0);
 
-  node.subtree = { counts, filesNothingRuns: files.size, branchesNothingTakes: measured.length ? branches.size : null };
+  node.subtree = { counts, filesNothingRuns: files.size, branchesNothingTakes: measured.length ? branchTotal : null };
   return inSubtree;
 }
 
