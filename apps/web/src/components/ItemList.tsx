@@ -57,9 +57,9 @@ export function ItemList({
    * putting it back means ("Undo what just happened", issue 144). Read before
    * the move, because afterwards it is gone.
    *
-   * One panel, because nothing files an item onto two yet; the day *Add to…*
-   * lands (#142) this becomes the list of them and the inverse becomes several
-   * changes rather than one.
+   * One panel, because nothing files an item onto two yet; the day "Ask whether
+   * to move an item to a panel or add it to one" (issue 142) lands, this becomes
+   * the list of them and the inverse becomes several changes rather than one.
    */
   const whereItIs = (item: Item): { panelId: string | null; order: string[] } => {
     const filings = data?.filings ?? [];

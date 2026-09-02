@@ -78,8 +78,9 @@ export function ItemRow({
    * what just happened", issue 144).
    *
    * It is the one gesture here that takes an item off every list at once, and
-   * on a phone it is a swipe (#145) - the easiest thing to do by accident and
-   * the hardest to see the result of. The inverse is the status it had, which
+   * on a phone it is a swipe ("Swipe an inbox row right to file it, left to
+   * dismiss it", issue 145) - the easiest thing to do by accident and the
+   * hardest to see the result of. The inverse is the status it had, which
    * is read from the row rather than from the server, because the row is what
    * was on screen when the choice was made.
    */

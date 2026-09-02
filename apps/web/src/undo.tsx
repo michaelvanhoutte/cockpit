@@ -13,8 +13,10 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
  * **The change carries its own inverse.** What is remembered here is a sentence
  * and a function, not an item and a description of what happened to it - so
  * nothing in this file knows what an item, a panel or a status is, and a later
- * gesture (#141, #142) adds itself by remembering its own inverse rather than
- * by teaching this file a new case.
+ * gesture - "Drag an item into a panel, and drop it where you want it" (issue
+ * 141), "Ask whether to move an item to a panel or add it to one" (issue 142) -
+ * adds itself by remembering its own inverse rather than by teaching this file a
+ * new case.
  *
  * **Only the last change**, deliberately. A stack is what a document editor
  * needs; what an accident needs is one step back, offered where you are looking
