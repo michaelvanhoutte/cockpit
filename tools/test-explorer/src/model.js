@@ -17,9 +17,9 @@
  *
  * Amended after first use (docs/test-explorer-spec.md, "How the built tool got
  * its current shape" (§2b)): areas are a
- * **tree**, not a flat list — a big area like Dashboards will have real
- * sub-areas (drag-drop, resizing, ...), and a parent's own rule counts are
- * not meant to look like the whole subtree's. Columns are the actual six
+ * **tree**, not a flat list — they nest the way the product does, a Workspace
+ * holding an Inbox and Dashboards and a Dashboard holding Panels, and a row's
+ * own rule counts are not the whole subtree's (it carries both). Columns are the actual six
  * testing-strategy levels plus Contract, not the coarser backend/frontend/
  * browser grouping the first version collapsed them into.
  *

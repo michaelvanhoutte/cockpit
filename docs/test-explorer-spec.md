@@ -83,12 +83,13 @@ the reason:
 
 **Rows and columns**
 
-- **Rows are a tree**, because a big area will grow real sub-areas. An entry may carry
+- **Rows are a tree**, because the product is one. An entry may carry
   `"parent": "<key>"` (§5) and `buildTree` turns the flat registry into a tree, with
   cycle detection so a looping parent chain becomes roots with a warning rather than
-  silently vanishing. Nothing nests today: a demonstration nesting was added to prove
-  the UI renders and then removed, because an invented row in a registry whose whole
-  point is deriving structure from what exists cuts against the tool.
+  silently vanishing. A demonstration nesting was added here to prove the UI renders and
+  then removed, because an invented row in a registry whose whole point is deriving
+  structure from what exists cuts against the tool. What nests now is derived: the
+  functional definition's own container hierarchy (see "Rows: a tree of feature areas").
 - **Per-node applicability is not guessed.** Rendering "leaves never get F3" as n/a
   would be a return to the state-inference model §2 dropped. Real counts ship, honestly
   zero, with the tree supplying the context.

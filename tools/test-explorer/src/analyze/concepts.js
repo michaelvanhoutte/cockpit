@@ -97,9 +97,10 @@ export function withInfrastructure(concepts) {
 
 /**
  * Turns the flat registry into a tree via each entry's optional `parent` key
- * (docs/test-explorer-spec.md, "How the built tool got its current shape" (§2b)) — a real feature area too big for one row
- * (Dashboards: drag-drop, resizing, ...) gets children this way instead of
- * the describe convention itself needing to encode nesting.
+ * (docs/test-explorer-spec.md, "The area registry") — the rows nest the way the
+ * product does, a Workspace holding an Inbox and Dashboards, without the
+ * describe convention having to encode any of it: a reorganisation is a line in
+ * the registry rather than a rename across test code.
  *
  * `makeNode(concept)` builds the per-node payload (counts, rules, etc.) —
  * kept as a callback so this function stays pure tree-shaping and the caller
