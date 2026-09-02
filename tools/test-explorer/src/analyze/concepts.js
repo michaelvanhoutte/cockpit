@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { INFRASTRUCTURE_KEY, INFRASTRUCTURE_LABEL, LEVEL_IDS } from '../model.js';
+import { countBranchGaps, INFRASTRUCTURE_KEY, INFRASTRUCTURE_LABEL, LEVEL_IDS } from '../model.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -162,11 +162,11 @@ export function buildTree(concepts, makeNode) {
  * carries both: `counts` stays its own (the Rules tab lists exactly those),
  * and `subtree` is what it plus everything under it holds.
  *
- * Files and branches are counted by identity, not summed. One source file
+ * Files and branches are counted once per file, not summed. One source file
  * legitimately belongs to several areas ("The area registry" in
  * docs/test-explorer-spec.md), and `Menu.tsx` under both Dashboards and Panels
- * is one file nothing runs, not two — the same reason `summarise` in model.js
- * deduplicates for the masthead.
+ * is one file nothing runs, not two. Branches go through `countBranchGaps` in
+ * model.js, which the masthead's totals share so the two cannot drift.
  *
  * A level that is `null` is n/a rather than zero, so a total ignores the nulls
  * and stays null only when every node in the subtree is n/a: summing "unknown"
@@ -196,24 +196,16 @@ function annotate(node, ancestorLabels) {
   const files = new Set();
   for (const n of inSubtree) for (const f of n.filesNothingRuns) files.add(f.file);
 
-  // Branch gaps are counted once per *file*, not once per file:line. The file
-  // is what can belong to two areas beneath this row and must not be counted
-  // twice; a line is not, and one line genuinely holds two gaps when an
-  // if/else or an `a || b` has both paths uncovered (coverage.js keys an entry
-  // by line alone, so those two are indistinguishable by key). Collapsing them
-  // would let a row's total print smaller than its own count.
+  // Counted once per file by `countBranchGaps`, which the masthead's totals
+  // also use — the two must agree, or the page total prints smaller than a row
+  // beneath it.
   const measured = inSubtree.filter((n) => n.branchesNothingTakes !== null);
-  const gapsPerFile = new Map();
-  for (const n of measured) {
-    const own = new Map();
-    for (const b of n.branchesNothingTakes) own.set(b.file, (own.get(b.file) ?? 0) + 1);
-    // The same file's gaps are the same list wherever it appears, so this is a
-    // one-per-file record rather than a sum; max only guards a disagreement.
-    for (const [file, count] of own) gapsPerFile.set(file, Math.max(gapsPerFile.get(file) ?? 0, count));
-  }
-  const branchTotal = [...gapsPerFile.values()].reduce((a, b) => a + b, 0);
 
-  node.subtree = { counts, filesNothingRuns: files.size, branchesNothingTakes: measured.length ? branchTotal : null };
+  node.subtree = {
+    counts,
+    filesNothingRuns: files.size,
+    branchesNothingTakes: measured.length ? countBranchGaps(measured) : null,
+  };
   return inSubtree;
 }
 

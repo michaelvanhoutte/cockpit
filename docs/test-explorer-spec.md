@@ -173,7 +173,9 @@ the reason:
 - `branchesNotTaken` only caught branches where *every* path was untaken, missing an
   `if` with no `else` tested on the taken side.
 - `summarise()` double-counted files shared between areas: the masthead read 29 files
-  against a true 21. Deduplicated by path, and by `file:line` for branches.
+  against a true 21. Deduplicated by path, and by `file:line` for branches — branches moved
+  again later, to one count per file, because a line can hold two uncovered paths and
+  `file:line` lost the second (see "Rows: a tree of feature areas").
 - `branchesNotTaken` returned `[]` for a file with no coverage data at all,
   indistinguishable from a measured zero. It returns `null` now and the run collects one
   named warning — the same "a missing measurement must never look like a clean one"
@@ -248,10 +250,13 @@ always a root and always last.
 **A row carries two numbers per column: its own, and its whole subtree's including
 itself.** Own counts alone were the rule until rows existed that hold other rows; such a
 row has no test filed against its own name, so it read as an untested part of the product
-and collapsing it hid everything underneath. Files and branches are totalled by identity
+and collapsing it hid everything underneath. Files and branches are counted once per file
 rather than summed, because one source file belongs to several areas ("The area registry"
-below) and `Menu.tsx`
-under both Dashboards and Panels is one file nothing runs. A level that is n/a in every
+below) and `Menu.tsx` under both Dashboards and Panels is one file nothing runs. The file
+is the identity and the line is not: an `if/else` with neither path taken is two gaps on
+one line, and counting by `file:line` would lose the second and let a row's total print
+smaller than its own count. The masthead's totals count the same way, so a page total is
+never smaller than a row beneath it. A level that is n/a in every
 node of a subtree stays n/a: summing "unknown" as zero would report an unmeasured subtree
 as a clean one.
 

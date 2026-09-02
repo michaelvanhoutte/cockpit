@@ -57,8 +57,10 @@ the first place to look.
   name shows everything.
 - **A row that holds other rows shows two numbers**: its own, then its whole subtree's in
   brackets, so collapsing one never reads as an untested part of the product. Files and
-  branches are counted by identity, not summed — one file backing two areas under the same
-  row is one gap. Collapse all / expand all are in the first column's header.
+  branches are counted once per file rather than summed, so a file backing two areas under
+  the same row is counted once — while two uncovered paths on one line stay two gaps. The
+  masthead's totals use the same counting, so a page total is never smaller than a row
+  beneath it. Collapse all / expand all are in the first column's header.
 - **No checkmark next to a case.** This tool never runs the suite, so it has no pass/fail
   fact to show. Only "not written yet" (a `.todo`) gets a mark, which the AST does know.
 - **A `.each` case shows its template with real values substituted** where they are
