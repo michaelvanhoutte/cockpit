@@ -713,6 +713,54 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
+    case 'add_item_to_panel': {
+      const cmd = payload as CommandPayload<'add_item_to_panel'>;
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item || item.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+
+      const stale = orderIsNotOfThePanel(listFilingsOnPanel(db, tenantId, panel.id), {
+        ...cmd,
+        panelId: panel.id,
+      });
+      if (stale) throw new PanelOrderStaleError(stale);
+
+      const rows = filingRows(tenantId, { ...cmd, panelId: panel.id });
+      db.transaction((tx) => {
+        // Only this panel's rows. **The whole difference from a move is the
+        // delete that is not here**: the panels the item was already on keep
+        // it, which is what makes one item on several panels a thing at all.
+        tx.delete(panelItems)
+          .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.id)))
+          .run();
+        if (rows.length > 0) tx.insert(panelItems).values(rows).run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'remove_item_from_panel': {
+      const cmd = payload as CommandPayload<'remove_item_from_panel'>;
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item || item.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+
+      db.transaction((tx) => {
+        // One row. What is left keeps the places it had: a gap in the numbering
+        // is not a hole anybody can see, and renumbering would be an
+        // arrangement nobody asked for.
+        tx.delete(panelItems)
+          .where(
+            and(
+              eq(panelItems.tenantId, tenantId),
+              eq(panelItems.panelId, panel.id),
+              eq(panelItems.itemId, cmd.itemId),
+            ),
+          )
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'associate': {
       const cmd = payload as CommandPayload<'associate'>;
       const existing = getItem(db, tenantId, cmd.itemId);

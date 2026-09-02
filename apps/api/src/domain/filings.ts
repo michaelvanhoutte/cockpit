@@ -1,4 +1,4 @@
-import type { Filing, MoveItemToPanelCommand } from '@cockpit/shared';
+import type { Filing } from '@cockpit/shared';
 
 /**
  * Pure handlers for filing an item on a panel (architecture, "Hono + Zod on
@@ -8,6 +8,22 @@ import type { Filing, MoveItemToPanelCommand } from '@cockpit/shared';
  * ("Panels hold the items filed into them, and the Inbox holds the rest",
  * issue 36). The Inbox is the absence of one.
  */
+
+/**
+ * What both functions below need of a change: which item, which panel it is
+ * landing on, and the panel's whole order afterwards.
+ *
+ * Written out rather than naming a command, because moving an item to a panel
+ * and adding it to one differ only in what happens to the panels it was already
+ * on ("Ask whether to move an item to a panel or add it to one", issue 142) -
+ * and neither of those functions is about that half.
+ */
+export interface Arriving {
+  itemId: string;
+  panelId: string | null;
+  order: readonly string[];
+  issuedAt: string;
+}
 
 export interface FilingRow {
   tenantId: string;
@@ -29,10 +45,7 @@ export interface FilingRow {
  * `createdAt` is the client's own timestamp, like every other command, so a
  * filing made offline records when it was made rather than when it arrived.
  */
-export function filingRows(
-  tenantId: string,
-  cmd: MoveItemToPanelCommand,
-): FilingRow[] {
+export function filingRows(tenantId: string, cmd: Arriving): FilingRow[] {
   if (cmd.panelId === null) return [];
   const panelId = cmd.panelId;
   return cmd.order.map((itemId, position) => ({
@@ -62,10 +75,7 @@ export function filingRows(
  * Returned rather than thrown so the caller decides what it means, the way
  * `panelsNotOn` does.
  */
-export function orderIsNotOfThePanel(
-  held: readonly Filing[],
-  cmd: MoveItemToPanelCommand,
-): string | null {
+export function orderIsNotOfThePanel(held: readonly Filing[], cmd: Arriving): string | null {
   if (cmd.panelId === null) return null;
   const expected = new Set(held.map((filing) => filing.itemId));
   expected.add(cmd.itemId);

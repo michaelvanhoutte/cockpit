@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
@@ -127,6 +127,39 @@ function aPanel(id: string, dashboardId: string, name: string): Panel {
 }
 
 const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+
+/**
+ * The box a drop is handled on: the rows and the empty message both sit inside
+ * it, so it is one parent up from whichever of them is drawn.
+ */
+function theListBox(): HTMLElement {
+  const rows = screen.queryByRole('list');
+  return (rows ?? screen.getByText('Nothing to deal with.')).parentElement!;
+}
+
+/**
+ * A row let go over the list.
+ *
+ * The snapshot has to have settled first: what a list can file is read from it,
+ * and a drop against a list that has not read one yet finds no item and does
+ * nothing at all - which reads exactly like the drop being refused.
+ *
+ * **The place cannot be aimed at here.** jsdom reports every rectangle as zero
+ * and does not carry a pointer position through a drop event, so which gap a
+ * position picks out is tests/unit/dropAt.test.ts's rule and the browser walk's.
+ */
+async function dropOnto(itemId: string, clientY = 1) {
+  await act(async () => {});
+  await act(async () => {});
+  const dataTransfer = {
+    types: [ITEM_BEING_DRAGGED],
+    getData: (type: string) => (type === ITEM_BEING_DRAGGED ? itemId : ''),
+    setData: vi.fn(),
+    dropEffect: '',
+  };
+  fireEvent.dragOver(theListBox(), { dataTransfer, clientY });
+  fireEvent.drop(theListBox(), { dataTransfer, clientY });
+}
 
 async function showList({
   items = [BART],
@@ -461,22 +494,7 @@ describe('Panels', () => {
      * is that a drop reaches the right command with the right panel and the
      * right items in it, which is the wiring.
      */
-    async function dropOnTheList(itemId: string, clientY = 1) {
-      const dataTransfer = {
-        types: [ITEM_BEING_DRAGGED],
-        getData: (type: string) => (type === ITEM_BEING_DRAGGED ? itemId : ''),
-        setData: vi.fn(),
-        dropEffect: '',
-      };
-      fireEvent.dragOver(theList(), { dataTransfer, clientY });
-      fireEvent.drop(theList(), { dataTransfer, clientY });
-    }
-
-    /** The list, which is a box around the rows whether or not there are any. */
-    function theList(): HTMLElement {
-      const rows = screen.queryByRole('list');
-      return (rows ?? screen.getByText('Nothing to deal with.')).parentElement!;
-    }
+    const dropOnTheList = dropOnto;
 
     it('files an item dropped onto a panel, naming that panel and the order', async () => {
       const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
@@ -524,7 +542,7 @@ describe('Panels', () => {
 
       // A panel being dragged by its header across the list on its way
       // somewhere else.
-      fireEvent.drop(theList(), {
+      fireEvent.drop(theListBox(), {
         dataTransfer: { types: ['text/plain'], getData: () => 'a panel', setData: vi.fn() },
         clientY: 1,
       });
@@ -667,6 +685,165 @@ describe('Panels', () => {
 
       expect(screen.queryByRole('menuitem', { name: /^Move up/ })).toBeNull();
       expect(screen.queryByRole('menuitem', { name: /^Move down/ })).toBeNull();
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a drop from one panel onto another asks which it is, and sends what was chosen', () => {
+    /** An item already filed on another panel, dropped onto this one. */
+    async function dropFromAnotherPanel() {
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
+      const user = await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      await dropOnto(BART.id);
+      return user;
+    }
+
+    it('asks, naming the item and the panel it was dropped on', async () => {
+      await dropFromAnotherPanel();
+
+      const question = await screen.findByRole('alertdialog');
+      expect(question).toHaveTextContent('Move “Reply to Bart” to Falcon, or add it there as well?');
+      expect(held.mutate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { answer: 'Move it here', sends: 'move_item_to_panel' },
+      { answer: 'Add it here as well', sends: 'add_item_to_panel' },
+    ])('sends $sends when the answer is “$answer”', async ({ answer, sends }) => {
+      const user = await dropFromAnotherPanel();
+
+      await user.click(await screen.findByRole('button', { name: answer }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: sends,
+          payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('sends nothing when the question is cancelled, and leaves the item where it was', async () => {
+      const user = await dropFromAnotherPanel();
+
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+      expect(held.mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+    });
+
+    it.each([
+      {
+        situation: 'a row arriving from the Inbox, which is what is filed nowhere',
+        filings: [] as { panelId: string; itemId: string; position: number }[],
+        drawn: [] as Item[],
+      },
+      {
+        situation: 'a row already on this panel, which is being reordered',
+        filings: [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }],
+        drawn: [BART],
+      },
+    ])('does not ask about $situation', async ({ filings, drawn }) => {
+      held.filings = filings;
+      await showList({ items: drawn, openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      await dropOnto(BART.id);
+
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      // A reorder that lands where it started sends nothing; a row from the
+      // Inbox is filed. Either way, no question.
+      if (drawn.length === 0) {
+        expect(held.mutate).toHaveBeenCalledWith(
+          expect.objectContaining({ name: 'move_item_to_panel' }),
+          expect.anything(),
+        );
+      }
+    });
+  });
+
+  describe('a row on a panel can be shown on another as well, or taken off this one', () => {
+    async function aRowOnAPanel() {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      return showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+    }
+
+    it('offers both on a panel, and neither in the Inbox', async () => {
+      const user = await aRowOnAPanel();
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      expect(await screen.findByRole('menuitem', { name: 'Add to…' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Remove from this panel' })).toBeVisible();
+
+      cleanup();
+      held.filings = [];
+      const inbox = await showList({ openDashboardId: null, panelId: null });
+      await inbox.click(screen.getByRole('button', { name: 'Item actions' }));
+
+      expect(screen.queryByRole('menuitem', { name: 'Add to…' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'Remove from this panel' })).toBeNull();
+    });
+
+    it('opens the picker for adding, without the Inbox in it', async () => {
+      const user = await aRowOnAPanel();
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Add to…' }));
+
+      const picker = await screen.findByRole('dialog');
+      expect(picker).toHaveTextContent('Also show “Reply to Bart” on');
+      // Nothing can be added to the Inbox: it is what is filed nowhere.
+      expect(within(picker).queryByRole('button', { name: /^Inbox/ })).toBeNull();
+
+      await user.click(within(picker).getByRole('button', { name: 'Anna' }));
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'add_item_to_panel',
+          payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-anna' }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('takes it off this panel, naming this panel and no other', async () => {
+      const user = await aRowOnAPanel();
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Remove from this panel' }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'remove_item_from_panel',
+          payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
+        }),
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('what just happened can be put back, until the offer runs out', () => {
+    it.each([
+      { situation: 'adding it to a panel', entry: 'Add to…', undoes: 'remove_item_from_panel' },
+      {
+        situation: 'taking it off a panel',
+        entry: 'Remove from this panel',
+        undoes: 'add_item_to_panel',
+      },
+    ])('offers the way back after $situation', async ({ entry, undoes }) => {
+      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      const user = await showList({
+        items: [BART],
+        openDashboardId: TODAY.id,
+        panelId: 'p-falcon',
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: entry }));
+      if (entry === 'Add to…') {
+        await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Anna' }));
+      }
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(held.send).toHaveBeenCalledWith(expect.objectContaining({ name: undoes }));
     });
   });
 });

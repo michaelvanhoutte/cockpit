@@ -27,6 +27,7 @@ import type { Dashboard, Panel } from '@cockpit/shared';
  */
 export function MoveToPicker({
   itemTitle,
+  adding = false,
   dashboards,
   panels,
   openDashboardId,
@@ -40,6 +41,16 @@ export function MoveToPicker({
 }: {
   /** What is being moved, so the question says which row it was asked from. */
   itemTitle: string;
+  /**
+   * That this is showing the Item somewhere *as well* rather than moving it
+   * ("Ask whether to move an item to a panel or add it to one", issue 142).
+   *
+   * The same picker either way, because the question it answers is the same
+   * one - which panel - and two pickers would be two lists of the same panels
+   * to keep in step. What changes is the sentence at the top and the Inbox,
+   * which is not a place anything can be added to: it is what is filed nowhere.
+   */
+  adding?: boolean;
   dashboards: readonly Dashboard[];
   /** Every panel of the workspace, whichever dashboard it is on. */
   panels: readonly Panel[];
@@ -84,7 +95,9 @@ export function MoveToPicker({
           }}
           className="fixed left-1/2 top-1/2 flex max-h-[min(32rem,calc(100vh-2rem))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
         >
-          <Dialog.Title className="text-base font-semibold">Move “{itemTitle}” to</Dialog.Title>
+          <Dialog.Title className="text-base font-semibold">
+            {adding ? `Also show “${itemTitle}” on` : `Move “${itemTitle}” to`}
+          </Dialog.Title>
 
           {refusal && (
             <p role="alert" className="pt-3 text-sm text-over">
@@ -96,12 +109,16 @@ export function MoveToPicker({
               six dashboards of panels is a list longer than any screen, and a
               dialog taller than the window has a Cancel nobody can reach. */}
           <div className="-mx-1 mt-4 min-h-0 flex-1 overflow-y-auto px-1">
-            <Target
-              label="Inbox"
-              hint="still to deal with"
-              busy={busy}
-              onPick={() => onPick(null)}
-            />
+            {/* Not a target when adding: the Inbox is what is filed nowhere,
+                so there is nothing to add an item to. */}
+            {!adding && (
+              <Target
+                label="Inbox"
+                hint="still to deal with"
+                busy={busy}
+                onPick={() => onPick(null)}
+              />
+            )}
 
             {recentPanels.length > 0 && (
               <Group title="Recent">

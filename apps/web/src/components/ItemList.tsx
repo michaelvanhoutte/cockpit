@@ -9,6 +9,7 @@ import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
+import { MoveOrAddQuestion } from './MoveOrAddQuestion';
 import { MoveToPicker } from './MoveToPicker';
 
 /**
@@ -60,6 +61,8 @@ export function ItemList({
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const [moving, setMoving] = useState<Item | null>(null);
+  /** The item being added to a second panel from its menu, if any. */
+  const [adding, setAdding] = useState<Item | null>(null);
   const openedFrom = useRef<HTMLElement | null>(null);
 
   /**
@@ -146,10 +149,103 @@ export function ItemList({
   };
 
   /**
+   * The same item on one more panel, leaving the panels it is on alone.
+   *
+   * Everything except the command is what a move does, including the undo -
+   * whose inverse is simply taking it off again, since nothing else changed.
+   */
+  const add = (item: Item, panelId: string, atAmongDrawn: number) => {
+    const held = filedOrderOnPanel(data?.filings ?? [], panelId);
+    const drawn = itemsOnPanel(data?.items ?? [], data?.filings ?? [], panelId).map((i) => i.id);
+    const order = orderWithItemAt(held, item.id, placeAmongHeld(held, drawn, item.id, atAmongDrawn));
+
+    command.mutate(
+      {
+        name: 'add_item_to_panel',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: item.id,
+          panelId,
+          order,
+        },
+      },
+      {
+        onSuccess: () => {
+          rememberRecentPanel(browserStore(), workspaceId, panelId);
+          setAsking(null);
+          setAdding(null);
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” added to ${nameOf(panelId)}`,
+            undo: () =>
+              send({
+                name: 'remove_item_from_panel',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  panelId,
+                },
+              }),
+          });
+        },
+      },
+    );
+  };
+
+  /**
+   * This panel stops showing the item; every other panel holding it carries on,
+   * and one that was its only panel leaves it back in the Inbox.
+   */
+  const removeFromHere = (item: Item, panelId: string) => {
+    const before = filedOrderOnPanel(data?.filings ?? [], panelId);
+    command.mutate(
+      {
+        name: 'remove_item_from_panel',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: item.id,
+          panelId,
+        },
+      },
+      {
+        onSuccess: () =>
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” removed from ${nameOf(panelId)}`,
+            // Back on, in the order the panel was in - which still names it,
+            // because that order was read before it was taken off.
+            undo: () =>
+              send({
+                name: 'add_item_to_panel',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  panelId,
+                  order: before,
+                },
+              }),
+          }),
+      },
+    );
+  };
+
+  /**
    * Which gap a dragged row is currently over, or null when nothing is being
    * dragged across this list. Drawn as a line between two rows.
    */
   const [landingAt, setLandingAt] = useState<number | null>(null);
+  /**
+   * A row let go over this panel that is on a panel already, waiting for the
+   * answer to which of the two was meant ("Ask whether to move an item to a
+   * panel or add it to one", issue 142).
+   */
+  const [asking, setAsking] = useState<{ item: Item; at: number } | null>(null);
   const rows = useRef<HTMLUListElement>(null);
 
   /**
@@ -202,7 +298,19 @@ export function ItemList({
 
 
     const moving = items.find((item) => item.id === itemId) ?? data?.items.find((i) => i.id === itemId);
-    if (moving) move(moving, panelId, gap);
+    if (!moving) return;
+
+    // **Asked only when both answers are possible.** A row already on this
+    // panel is being reordered; a row that is on no panel at all came from the
+    // Inbox, and there is no answer that leaves it there - the Inbox is what is
+    // filed nowhere. What is left is a row arriving from another panel, where
+    // moving it and adding it are two different things somebody has to mean.
+    const onAPanelAlready = (data?.filings ?? []).some((filing) => filing.itemId === itemId);
+    if (panelId && wasAt === -1 && onAPanelAlready) {
+      setAsking({ item: moving, at: gap });
+      return;
+    }
+    move(moving, panelId, gap);
   };
 
   /** What a target is called, for the sentence the undo bar says. */
@@ -305,6 +413,12 @@ export function ItemList({
                           of: items.length,
                           onMove: (places: number) => move(item, panelId, at + places),
                         },
+                        onAddTo: (from: HTMLElement | null) => {
+                          openedFrom.current = from;
+                          command.reset();
+                          setAdding(item);
+                        },
+                        onRemoveFromHere: () => removeFromHere(item, panelId),
                       }
                     : {})}
                 />
@@ -314,6 +428,41 @@ export function ItemList({
           </ul>
         )}
       </div>
+
+      {asking && panelId && (
+        <MoveOrAddQuestion
+          open
+          itemTitle={asking.item.nextAction ?? asking.item.title}
+          panelName={nameOf(panelId)}
+          onMove={() => {
+            move(asking.item, panelId, asking.at);
+            setAsking(null);
+          }}
+          onAdd={() => add(asking.item, panelId, asking.at)}
+          onCancel={() => setAsking(null)}
+          refusal={command.error instanceof CommandRefused ? command.error.message : null}
+          busy={command.isPending}
+        />
+      )}
+
+      {adding && (
+        <MoveToPicker
+          itemTitle={adding.nextAction ?? adding.title}
+          adding
+          dashboards={data?.dashboards ?? []}
+          panels={data?.panels ?? []}
+          openDashboardId={openDashboardId}
+          recent={recentPanelsIn(browserStore(), workspaceId)}
+          open
+          onPick={(pickedPanelId) => {
+            if (pickedPanelId) add(adding, pickedPanelId, 0);
+          }}
+          onCancel={() => setAdding(null)}
+          refusal={refusal}
+          busy={command.isPending}
+          returnFocusTo={openedFrom.current}
+        />
+      )}
 
       {moving && (
         <MoveToPicker
