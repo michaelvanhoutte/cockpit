@@ -22,11 +22,18 @@ import type { Change } from './up-to-date.js';
  * "shipped" for this rule means *applied anywhere*, not *deployed*: a
  * developer's own store counts, and is the one you are most likely to forget
  * because you filled it yourself an hour earlier. That is exactly how
- * `0005-workspace-bar` broke the machine it was written on. If a rename is
- * genuinely right - it was here, because the number collided with a change
- * that had already merged - it is still right, and the cost is that anyone
- * carrying the old name resets their local stores (readme, "Resetting local
- * data") rather than the rename being undone.
+ * `0005-workspace-bar` broke the machine it was written on.
+ *
+ * **And it bought nothing.** It was renumbered from `0004` because
+ * `0004-workspace-order` merged first and two `0004`s read badly - but a
+ * shared number is not a fault. Names are compared whole, so both applied in
+ * list order and nothing was skipped; the collision was untidy, and untidy is
+ * not worth an edit that can stop an account opening. **A duplicate *name* is
+ * the fault worth acting on** - the second change then looks applied and never
+ * runs - and that is what tests/unit/accounts/changes.test.ts holds. Where a
+ * rename is genuinely unavoidable, the cost is that everyone carrying the old
+ * name resets their local stores (readme, "Resetting local data"); it is never
+ * paid a second time by renaming back.
  *
  * **The SQL is written out, not generated.** drizzle-kit generates against a
  * database it can connect to, and there is no such thing for a Durable Object
@@ -352,19 +359,20 @@ const WORKSPACE_ORDER: Change = {
  * color is one thing that looks slightly wrong, not a corrupt row.
  */
 const WORKSPACE_BAR: Change = {
-  // `0005`, not `0004`: "Reorder workspaces" (issue 31) took that number while
-  // this was being built, and it has shipped. Renumbering *this* one is the
-  // safe direction for every environment, because it was never merged and so
-  // no deployed store has it under either name.
+  // `0005`, and it should have been `0004`. "Reorder workspaces" (issue 31)
+  // merged with that number while this was being built, and this was renumbered
+  // so the two would not read as one - which fixed nothing, because names are
+  // compared whole and two `0004`s apply perfectly well (see the header).
   //
-  // **It was not free, and the cost lands on whoever ran this branch before
-  // the rename.** A store records what it has applied by name, so one that
-  // recorded `0004-workspace-bar` does not recognise `0005-workspace-bar` and
-  // tries to add a column it already has: `duplicate column name: bar`, and
-  // the account fails to open. That is what happened on the machine this was
-  // built on, and the fix there is to drop the local store and let it rebuild
-  // (readme, "Resetting local data") - never to rename this back, which would
-  // trade one stale ledger for another.
+  // What it cost was real: a store recording `0004-workspace-bar` does not
+  // recognise `0005-workspace-bar`, so it runs again and fails with `duplicate
+  // column name: bar`, and the account cannot be opened. That happened to the
+  // machine this was written on.
+  //
+  // It stays `0005` now for the same reason it should never have moved: this
+  // name has been applied and recorded, and renaming it back would break the
+  // stores that carry it. Anyone still holding the old one resets (readme,
+  // "Resetting local data").
   name: '0005-workspace-bar',
   statements: [
     {

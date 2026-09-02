@@ -4,51 +4,36 @@ import { accountChanges } from '../../../src/accounts/changes.js';
 /**
  * The shape of the change list itself, rather than what any change does.
  *
- * **This exists because two branches appended to it at once.** "Modernise the
- * app shell" (issue 125) and "Reorder workspaces" (issue 31) were built beside
- * each other and both added a change called `0004-…`; git merged the two
- * definitions cleanly, because they are separate constants that do not touch,
- * and the collision was left for a person to notice in review. A store keys on
- * the name, so a duplicate is not cosmetic - it means the second change is
- * skipped forever on any account that applied the first.
+ * **One rule, because only one of them guards anything.** A store decides what
+ * to apply by comparing full names (up-to-date.ts), so two changes with the
+ * *same* name are a real fault: whichever is recorded first makes the other
+ * look applied, and the second's statements never run on any account that got
+ * there first - silently, and forever.
  *
- * It was noticed, and renaming was the fix. What it cost is the reason this
- * file exists: a rename makes an applied change look unapplied, so it runs
- * again and the account cannot be opened at all (`duplicate column name`).
- * Catching the collision here, in CI, is what stops the renaming being needed
- * once the number has been carried into anybody's store.
+ * **A shared ordinal is not that fault**, which is worth writing down because
+ * this file was first drafted as though it were. `0004-workspace-order` and
+ * `0004-workspace-bar` are different names, so both apply, in list order, and
+ * nothing is skipped: the duplicated number is untidy and nothing more. A test
+ * for it would go red on a harmless condition, and the obvious way to green it
+ * is to renumber one - which is the one genuinely dangerous edit here, because
+ * a renamed change looks unapplied to every store that already ran it and
+ * fails on the second attempt (`duplicate column name`). That is not a
+ * hypothetical: it is what renumbering this branch's change did to the machine
+ * it was written on. A check that pushes towards it is worse than no check.
+ *
+ * So the rename rule lives where it can be read before the edit is made - in
+ * changes.ts's own header, and in the readme's "Resetting local data" for
+ * whoever meets the failure - and CI holds only the fault it can actually
+ * catch.
  */
 describe('Accounts', () => {
-  describe('every schema change an account applies is named once, in order', () => {
+  describe('no two schema changes an account applies share a name', () => {
     // L1: the list is a value. Whether each change *works* is proved against a
     // real store in tests/integration/accounts.
-    const names = accountChanges('any-account-would-do').map((change) => change.name);
+    it('gives every change a name of its own, so none can be mistaken for another', () => {
+      const names = accountChanges('any-account-would-do').map((change) => change.name);
 
-    it('gives no two changes the same name, so none can be mistaken for another', () => {
-      expect(new Set(names).size).toBe(names.length);
-    });
-
-    it('numbers them from the front with no gaps and no repeats', () => {
-      // The ordinal is what a reader sorts by, and two branches appending at
-      // once is exactly how it stops being sortable.
-      expect(names.map((name) => name.slice(0, 4))).toEqual(
-        names.map((_, i) => String(i + 1).padStart(4, '0')),
-      );
-    });
-
-    it('writes every name in one shape, so the ordinal above can always be read', () => {
-      // Four digits, then lower-case words: `0006-2fa` and `0006-Workspace-Bar`
-      // are both refused, and so is anything without a four-digit head, which
-      // is what the ordinal case slices blindly.
-      //
-      // It does *not* police whether a name says what the change does -
-      // `0006-issue-131` matches this happily. No pattern can make that
-      // judgement and this one does not pretend to; it is a review question.
-      // The name of this case says shape for that reason, having first said
-      // something the assertion could not hold.
-      for (const name of names) {
-        expect(name, name).toMatch(/^\d{4}-[a-z][a-z0-9-]*$/);
-      }
+      expect(new Set(names).size, names.join(', ')).toBe(names.length);
     });
   });
 });
