@@ -48,7 +48,15 @@ test.describe('Workspace management', () => {
       await press(page.getByRole('menuitem', { name: 'Workspaces' }), isMobile);
 
       const box = page.getByLabel('Name of the new workspace');
-      await expect(box).toBeInViewport();
+      // All of it, rather than any of it. `toBeInViewport()` on its own passes
+      // on a single visible pixel, and that is what it was doing: ten
+      // workspaces on the 480px project put the box 1001px down a 1040px
+      // viewport, on screen by 39 pixels and by nothing anyone chose. How many
+      // workspaces are there when this runs is decided by whatever ran before
+      // it - the run shares one database - so the box is now above the list
+      // rather than after it (WorkspaceSettingsPage.tsx) and this can ask for
+      // the whole control.
+      await expect(box).toBeInViewport({ ratio: 1 });
       await expectNoSidewaysScroll(page);
 
       const name = uniqueTitle('Bookkeeping');
@@ -106,8 +114,12 @@ test.describe('Workspace management', () => {
      *
      * And put back afterwards, which the other walks here do not have to do
      * because they make one workspace rather than two. Four extra rows on the
-     * settings page pushed the box for making a new one off the bottom of a
-     * 480px screen and failed the walk above that says it is reachable there.
+     * settings page once pushed the box for making a new one off the bottom of
+     * a 480px screen and failed the walk above that says it is reachable there;
+     * the box sits above the list now, so that is no longer what this is
+     * guarding. What it guards is this walk itself: the two rows it drags are
+     * the last two, so every row another spec leaves behind pushes the pair it
+     * has to reach further down a 480px screen.
      */
     async function twoOfMyOwn(page: Page, isMobile: boolean): Promise<[string, string]> {
       const first = uniqueTitle('Anchor');

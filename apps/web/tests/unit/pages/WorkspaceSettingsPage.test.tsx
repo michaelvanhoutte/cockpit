@@ -181,6 +181,28 @@ describe('Workspace management', () => {
     });
   });
 
+  describe('the box for making a workspace comes before the list of them', () => {
+    /**
+     * The order of the two, which is what stops the way to make a workspace
+     * moving down the page as the account fills up. F1 owns exactly this much
+     * of it: jsdom has no layout engine and reports every width and height as
+     * zero, so "and is therefore on screen" cannot be asked here at all and is
+     * asserted on a real 480px screen in tests/e2e/workspace-management.test.ts.
+     * What that walk cannot do is guarantee a long list - the F3 run shares one
+     * database, so how many workspaces it sees depends on what ran before it -
+     * which is why the order is pinned down here instead, where three of them
+     * can be arranged and the answer cannot drift.
+     */
+    it('is before them in the page, with three workspaces listed', async () => {
+      showThree();
+      const { box } = showPage({ succeeds: true });
+      await onScreen();
+
+      const list = screen.getByRole('list');
+      expect(box.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  });
+
   describe('renaming a workspace asks for the name you typed, for that workspace', () => {
     it('asks for the name without the blanks around it, then closes the box', async () => {
       const user = userEvent.setup();
