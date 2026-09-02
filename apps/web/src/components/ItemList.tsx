@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useCommand } from '../api/queries';
 import { CommandRefused } from '../api/client';
-import { itemsOnPanel, orderWithItemAt } from '../filing';
+import { filedOrderOnPanel, orderWithItemAt } from '../filing';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import { ItemRow } from './ItemRow';
@@ -54,10 +54,14 @@ export function ItemList({
     // carries: a whole arrangement rather than a position, so two moves
     // arriving out of turn cannot compose into an order nobody asked for. The
     // Inbox has no order - it is by age - so moving there sends none.
+    //
+    // Built from what the panel *holds* rather than from what it draws: a
+    // filing outlives its item being finished, and an order that left those out
+    // would be refused by a panel that has ever held one.
     const order =
       panelId === null
         ? []
-        : orderWithItemAt(itemsOnPanel(data?.items ?? [], data?.filings ?? [], panelId), item.id, 0);
+        : orderWithItemAt(filedOrderOnPanel(data?.filings ?? [], panelId), item.id, 0);
 
     command.mutate(
       {

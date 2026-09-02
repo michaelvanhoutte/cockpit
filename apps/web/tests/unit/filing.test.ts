@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Filing, Item, ItemStatus } from '@cockpit/shared';
-import { itemsInTheInbox, itemsOnPanel, orderWithItemAt } from '../../src/filing';
+import {
+  filedOrderOnPanel,
+  itemsInTheInbox,
+  itemsOnPanel,
+  orderWithItemAt,
+} from '../../src/filing';
 
 /**
  * F1: what a panel holds and what the Inbox holds are views over the snapshot
@@ -121,13 +126,31 @@ describe('Panels', () => {
       },
       { situation: 'before the start', held: ['a'], at: -3, order: ['moved', 'a'] },
     ])('$situation', ({ held: heldIds, at, order }) => {
-      expect(orderWithItemAt(heldIds.map((id) => anItem(id)), 'moved', at)).toEqual(order);
+      expect(orderWithItemAt(heldIds, 'moved', at)).toEqual(order);
     });
 
     it('names an item once when it is moved within the panel it is already on', () => {
-      const held = [anItem('a'), anItem('moved'), anItem('b')];
+      expect(orderWithItemAt(['a', 'moved', 'b'], 'moved', 2)).toEqual(['a', 'b', 'moved']);
+    });
 
-      expect(orderWithItemAt(held, 'moved', 2)).toEqual(['a', 'b', 'moved']);
+    it('names the items the panel holds but does not draw, so the move is not refused', () => {
+      // A filing outlives its item being finished or dismissed, and the panel
+      // is still holding it. An order built from what is drawn would leave it
+      // out, and every move onto that panel would be refused from then on.
+      const filings = [filed('falcon', 'finished', 0), filed('falcon', 'b', 1)];
+
+      expect(filedOrderOnPanel(filings, 'falcon')).toEqual(['finished', 'b']);
+      expect(orderWithItemAt(filedOrderOnPanel(filings, 'falcon'), 'moved', 0)).toEqual([
+        'moved',
+        'finished',
+        'b',
+      ]);
+    });
+
+    it('reads only the panel being moved to', () => {
+      const filings = [filed('falcon', 'a', 0), filed('anna', 'b', 0)];
+
+      expect(filedOrderOnPanel(filings, 'falcon')).toEqual(['a']);
     });
   });
 });

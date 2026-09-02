@@ -207,6 +207,28 @@ describe('Panels', () => {
       );
     });
 
+    it('names the items the panel holds but does not draw, so the move is not refused', async () => {
+      // The regression: the order was built from what the panel *draws*, which
+      // leaves out an item that has been finished while its filing stays. The
+      // server compares against every filing, so a panel that had ever held a
+      // completed item refused everything filed onto it afterwards, for good.
+      const finished = anItem('11111111-1111-7111-8111-000000000003', 'Already handled');
+      finished.status = 'done';
+      held.items = [BART, finished];
+      held.filings = [{ panelId: 'p-falcon', itemId: finished.id, position: 0 }];
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ order: [BART.id, finished.id] }),
+        }),
+        expect.anything(),
+      );
+    });
+
     it('sends no order when it is being put back in the Inbox, which has none', async () => {
       const user = await showList({ openDashboardId: TODAY.id });
 

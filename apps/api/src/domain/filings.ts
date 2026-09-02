@@ -70,12 +70,17 @@ export function orderIsNotOfThePanel(
   const expected = new Set(held.map((filing) => filing.itemId));
   expected.add(cmd.itemId);
 
-  const stranger = cmd.order.find((itemId) => !expected.has(itemId));
-  if (stranger) return `the order names ${stranger}, which is not on this panel`;
+  // One comparison rather than two, because leaving an item out and naming one
+  // that is not there are the same fault seen from either end - the list is not
+  // this panel's - and they had the same answer.
+  //
+  // No id in the sentence. What comes back here is shown to the person who made
+  // the move, and an item id tells them nothing and suggests nothing to do;
+  // what they need to know is that the panel changed underneath them. The
+  // shape check on the command has already ruled out a repeated id, so counting
+  // is enough to make this a comparison of sets.
+  const sameItems =
+    cmd.order.length === expected.size && cmd.order.every((itemId) => expected.has(itemId));
 
-  const sent = new Set(cmd.order);
-  const missing = [...expected].find((itemId) => !sent.has(itemId));
-  if (missing) return `the order leaves out ${missing}, which is on this panel`;
-
-  return null;
+  return sameItems ? null : 'this panel changed while you were looking at it: try the move again';
 }

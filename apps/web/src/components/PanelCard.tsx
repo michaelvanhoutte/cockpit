@@ -167,18 +167,21 @@ export function PanelCard({
       {/* No padding of its own: a row carries its own, so a list inside a panel
           reads exactly as it does in the Inbox. */}
       <div className="min-h-0 flex-1 overflow-auto">
-        {refusal ? (
+        {/* Above the list rather than instead of it. Refusing a rename says
+            nothing about what the panel holds, and hiding the items while
+            somebody decides what else to call it takes away the thing they are
+            naming. */}
+        {refusal && (
           <p role="alert" className="px-3 py-3 text-sm text-over">
             {refusal}
           </p>
-        ) : (
-          <ItemList
-            workspaceId={workspaceId}
-            items={items}
-            openDashboardId={panel.dashboardId}
-            emptyMessage="Nothing filed here yet."
-          />
         )}
+        <ItemList
+          workspaceId={workspaceId}
+          items={items}
+          openDashboardId={panel.dashboardId}
+          emptyMessage="Nothing filed here yet."
+        />
       </div>
 
       <ResizeGrip
