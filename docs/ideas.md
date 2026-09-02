@@ -1,8 +1,8 @@
 # Ideas Backlog
 
-Raw feature ideas for Cockpit, captured as voice/WhatsApp notes between 17 and 25 August 2026 and grouped here by theme. This is a **capture list, not a plan**: nothing here is decided, sized, or scheduled, and no issues have been created for any of it. Items that contradict each other or that overlap with the [functional definition](functional-definition.md) are kept as written, because the wording is the record of what was actually wanted.
+Raw feature ideas, captured as voice and WhatsApp notes between 17 and 25 August 2026 and grouped by theme. A **capture list, not a plan**: nothing here is decided, sized or scheduled. Contradictions and overlaps with the [functional definition](functional-definition.md) are kept as written, because the wording is the record of what was wanted.
 
-Where an idea affects an existing decision, the relevant section is referenced. Terminology follows the functional definition: Workspace → Dashboard → Panel, Item, Association. A few of these notes have since been taken up in their own documents ([routing-learning.md](routing-learning.md), [coverage-reporting-options.md](coverage-reporting-options.md)); those are marked where they appear, and the note is kept so the origin of the requirement stays visible.
+Terminology follows the functional definition. Notes since taken up in their own documents are marked where they appear, and kept so the origin of the requirement stays visible.
 
 ---
 
@@ -41,8 +41,8 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 - **Age colouring.** Commands that have not been used recently are coloured differently.
 - **Command history UI.**
 - **Authentication skill.** Add a skill for commands that states which method is used to authenticate with each target system (Linear, Jira, Notion, ...) when authentication is needed.
-- **Commands run as durable background jobs.** The idea for making these commands work efficiently: configure a Command button that appends text to the `ideas.md` file of the Cockpit project, then simply drag an action or a note onto it and have it asynchronously start an operation that appends the information to that file. I can carry on immediately as a user and be confident my information is not lost, so it has to be designed in a durable way (the job survives a crash or a restart, not just an in-memory queue).
-- **Async task UI.** A UI that shows all asynchronous tasks that were launched and what their status is, with enough detail to troubleshoot a failed one and to retry it. (Related to the command history UI above and to the operations items in §7.)
+- **Commands run as durable background jobs.** Example: a Command button that appends text to this project's `ideas.md`. Dropping a note on it starts the operation asynchronously so I can carry on immediately, which means the job must survive a crash or a restart rather than sitting in an in-memory queue.
+- **Async task UI** showing every launched asynchronous task and its status, with enough detail to troubleshoot a failure and retry it. (Related to the command history UI above and §7.)
 
 ## 4. Chat
 
@@ -61,9 +61,9 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 
 ## 7. Platform, users and operations
 
-- ~~**Multiple users, staged.** Start without authentication: the logon page simply shows a list of users to choose from and you log on by clicking a name, no password at all. Add OAuth and password support afterwards.~~ *(Taken up by "Sign in by picking a name, each user in their own account" (issue 86): the logon page, a real session behind it, and each user in an account of their own. What is left of the idea is its second half - OAuth and password support - which is "App login" in [architecture.md](architecture.md) and the trigger for reconsidering Cloudflare Access. The two entries below it are still open.)*
-- **Admin section for user management.** As soon as there are multiple users, an admin section (its own pages) to manage every user on the system: delete a user, reset a password, and the rest of the day-to-day user administration. *(Still open, and now the nearest thing to due: there are multiple users, and adding one is a hand-written row in the register.)*
-- ~~**Roles from the start.** Introduce a role concept (e.g. *User* vs *Admin*) together with multiple-user support, so the role logic is part of the code from the beginning instead of being retrofitted later.~~ *(Done, in the sense the idea asked for: every user carries a role of `user` or `admin` as of issue 86. Nothing enforces it, because there is no admin-only page yet - the admin section above is what brings the first gate and the first test of it.)*
+- ~~**Multiple users, staged.** Start without authentication: pick a name off the logon page, no password. Add OAuth and password support afterwards.~~ *(Taken up by "Sign in by picking a name, each user in their own account" (issue 86). What is left is the second half — OAuth and password support — which is "App login" in [architecture.md](architecture.md) and the trigger for reconsidering Cloudflare Access.)*
+- **Admin section for user management**: its own pages to delete a user, reset a password, and the rest of day-to-day administration. *(Still open, and the nearest thing to due: adding a user is a hand-written row in the register.)*
+- ~~**Roles from the start**, so role logic is in the code from the beginning rather than retrofitted.~~ *(Done as asked: every user carries `user` or `admin` since issue 86. Nothing enforces it, because there is no admin-only page yet — the admin section above brings the first gate.)*
 - **Multi-tenancy.**
 - **Audit trail.**
 - **Backup.**
@@ -93,7 +93,7 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 
 ## 10. Development process
 
-- **A skill to create issues.** *(Implemented: [.claude/skills/github-issue/SKILL.md](../.claude/skills/github-issue/SKILL.md), which files an already-scoped piece of work. The sharpening and sizing it used to do live in [.claude/skills/scoping/SKILL.md](../.claude/skills/scoping/SKILL.md) instead, so they trigger on any new work starting - not only on the decision to file a GitHub issue.)*
-- **Issues must be small enough** that you can control what is tested. *(Enforced by `scoping` as a vertical-slice size gate, before it's decided whether the work becomes an issue at all.)*
-- **Issues cannot be the long-term link.** The durable link has to be to *features*, because features change while issues are closed and left behind. *(The statement list `scoping` produces says explicitly that it stops being the reference once building starts; the source becomes the truth from then on, per testing-strategy.md.)*
-- **Migrate the glossary/ADR layout?** mattpocock-skills' `domain-modeling` (`CONTEXT.md` + `docs/adr/`) came up while building the issue-creation skill. `functional-definition.md`'s glossary (§4, §14) maps closely onto `CONTEXT.md`'s format - close to a rename. `architecture.md`'s decisions are a different matter: they live as prose sections inside one narrative document (e.g. "5.3 The local-first decision, recorded"), and splitting those into individual `docs/adr/NNNN-slug.md` files is a real decomposition, not a mechanical move. Deferred - not part of the issue-creation skill, and worth deciding on its own footing.
+- **A skill to create issues.** *(Implemented: [github-issue](../.claude/skills/github-issue/SKILL.md) files an already-scoped piece of work; the sharpening and sizing live in [scoping](../.claude/skills/scoping/SKILL.md) so they trigger on any new work starting.)*
+- **Issues must be small enough** that you can control what is tested. *(Enforced by `scoping` as a vertical-slice size gate.)*
+- **Issues cannot be the long-term link.** The durable link is to *features*, because features change while issues are closed and left behind. *(The statement list says explicitly that it stops being the reference once building starts.)*
+- **Migrate the glossary/ADR layout?** mattpocock-skills' `domain-modeling` (`CONTEXT.md` + `docs/adr/`) came up while building the issue-creation skill. The functional definition's glossary maps closely onto `CONTEXT.md` — close to a rename. The architecture's decisions are a different matter: they live as prose sections inside one narrative document, so splitting them into `docs/adr/NNNN-slug.md` files is a real decomposition. Deferred, and worth deciding on its own footing.
