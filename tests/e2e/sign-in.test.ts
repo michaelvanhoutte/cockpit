@@ -108,10 +108,12 @@ test.describe('Accounts', () => {
       const thought = uniqueTitle('Reconcile the quarter');
 
       // Made in Ada's account rather than in Michael's, and the direction
-      // matters: every other spec in the run works in Michael's, and a
-      // workspace left behind there is one more tab pushing the settings page
-      // below the fold on a 480px phone. Which way round the walk goes proves
-      // the same thing either way; this way it costs nobody else anything.
+      // matters: every other spec in the run works in Michael's, and this walk
+      // has no way to take back the workspace it makes - it ends signed in as
+      // somebody else. One more permanent row on the settings list is one more
+      // row the ordering walks have to drag past on a 480px phone. Which way
+      // round the walk goes proves the same thing either way; this way it costs
+      // nobody else anything.
       await signIn(page, ADA, isMobile);
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(workspace);

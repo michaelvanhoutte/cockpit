@@ -92,11 +92,14 @@ export async function openFirstWorkspace(page: Page, isMobile: boolean): Promise
  *
  * It exists because a spec that leaves workspaces behind changes the settings
  * page for every spec after it, in this run and in the other project - the run
- * shares one database. That is not hypothetical: the walks about ordering need
- * two workspaces each, and the four they left behind pushed the box for making
- * a new one off the bottom of a 480px screen, failing the walk that says it is
- * reachable there. A spec that makes workspaces it does not need afterwards
- * puts them back.
+ * shares one database. What that used to break was the box for making a
+ * workspace: the four the ordering walks left behind pushed it off the bottom
+ * of a 480px screen and failed the walk that says it is reachable there. That
+ * particular one is gone - the box is above the list now, so where it sits no
+ * longer depends on how long the list is - but the ordering walks still put
+ * their workspaces back, because what they drag is the last two rows and every
+ * row left behind pushes those two further down the page. A spec that makes
+ * workspaces it does not need afterwards puts them back.
  */
 export async function deleteWorkspace(page: Page, name: string, isMobile: boolean): Promise<void> {
   await chooseRowAction(page, name, 'Delete', isMobile);
@@ -128,9 +131,40 @@ export async function workspaceTabs(page: Page): Promise<string[]> {
 export async function dragRowOnto(page: Page, row: string, onto: string): Promise<void> {
   const grip = page.getByTitle(`Drag to reorder ${row}`);
   const target = page.getByRole('listitem').filter({ hasText: onto });
+  // Scrolled to before it is measured, which is what a person does before
+  // dragging a row they cannot see. Everything else in these walks is a
+  // Playwright action, and those scroll to what they act on; a drag is two
+  // rectangles and a stream of mouse moves, and `boundingBox` reports where an
+  // element is relative to the viewport without scrolling to it. So a row below
+  // the fold is measured at a coordinate the mouse cannot be moved to, and the
+  // drag silently does nothing - the rows this walk drags are the two it just
+  // made, which are the last two in the list.
+  //
+  // It went unnoticed for as long as it did because the box for making a
+  // workspace used to sit below the list: pressing New workspace scrolled the
+  // page to the bottom, which happened to leave the newest rows on screen.
+  // Moving that box above the list took the accident away and the drag stopped
+  // moving anything, while every assertion about where the rows ended up went
+  // on being asked of a list nothing had touched.
+  await grip.scrollIntoViewIfNeeded();
+  await target.scrollIntoViewIfNeeded();
   const from = await grip.boundingBox();
   const to = await target.boundingBox();
   if (!from || !to) throw new Error(`cannot drag ${row} onto ${onto}: one of them is not on screen`);
+  // Said plainly rather than left as a drag that quietly moved nothing. Two
+  // adjacent rows fit on both projects' screens; if that ever stops being true
+  // the walk needs a drag that scrolls as it goes, which the page does not do.
+  const viewport = page.viewportSize();
+  for (const [what, box] of [
+    [row, from],
+    [onto, to],
+  ] as const) {
+    if (viewport && (box.y < 0 || box.y + box.height > viewport.height)) {
+      throw new Error(
+        `cannot drag ${row} onto ${onto}: ${what} is at ${box.y}px of a ${viewport.height}px screen, so the mouse cannot reach it`,
+      );
+    }
+  }
 
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();

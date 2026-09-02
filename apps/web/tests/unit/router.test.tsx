@@ -170,7 +170,7 @@ describe('Workspace management', () => {
       // The invitation is the box you type the name into, not a screen whose
       // only content is a link to it.
       expect(await screen.findByLabelText('Name of the new workspace')).toBeVisible();
-      expect(screen.getByText('No workspaces yet. Make your first one below.')).toBeVisible();
+      expect(screen.getByText('No workspaces yet. Make your first one above.')).toBeVisible();
     });
   });
 });

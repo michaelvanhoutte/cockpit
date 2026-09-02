@@ -27,6 +27,12 @@ import { RowMenu } from '../components/Menu';
  * chosen rather than the entry disappearing. Both produce the same whole order
  * through `reorder.ts`, so the two cannot disagree about what a move is.
  *
+ * **The box for making one is above the list, not after it.** The list grows
+ * without a ceiling and the box does not move with it, so how far down the page
+ * the way to make a workspace sits stopped depending on how many you already
+ * have. It also puts it where it is needed most: the account the empty-list
+ * message is talking to is the one that has to reach it first.
+ *
  * A new workspace is still handed a color rather than asked for one, so it is
  * distinguishable in the tabs from the moment it exists; the swatches are for
  * changing it afterwards.
@@ -328,6 +334,39 @@ export function WorkspaceSettingsPage() {
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-semibold tracking-tight">Workspaces</h1>
 
+      {/* Above the list, not after it. The list has no ceiling - it is every
+          workspace the account has ever made - so a box below it is a control
+          whose reachability depends on how much you already own, and it is the
+          one control on this page an account with nothing needs most. It sat
+          below until a 480px screen with ten workspaces put it 1001px down a
+          1040px viewport: on screen by 39 pixels, which is under half a row.
+          Nothing about that was visible in what the page renders, only in where
+          it ended up. */}
+      <form onSubmit={create} className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Work, Personal, a customer…"
+            aria-label="Name of the new workspace"
+            maxLength={60}
+            className="flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+          />
+          <button
+            type="submit"
+            disabled={command.isPending}
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+          >
+            New workspace
+          </button>
+        </div>
+        {refusalFor('create_workspace') && (
+          <p role="alert" className="text-sm text-over">
+            {refusalFor('create_workspace')}
+          </p>
+        )}
+      </form>
+
       <section className="rounded-lg bg-surface shadow-panel">
         <ul ref={listRef}>
           {shown.map((ws, index) => (
@@ -505,7 +544,7 @@ export function WorkspaceSettingsPage() {
             {/*
               `canTakeOver`: there is no stored copy of this list behind the
               message, so this may own the view and send the browser through
-              sign-in. The page below it still works - making a workspace is
+              sign-in. The box above it still works - making a workspace is
               how an account with none gets its first - so the message sits in
               the list rather than replacing the page.
             */}
@@ -514,35 +553,10 @@ export function WorkspaceSettingsPage() {
         )}
         {answered && workspaces.length === 0 && (
           <p className="px-4 py-4 text-sm text-ink-faint">
-            No workspaces yet. Make your first one below.
+            No workspaces yet. Make your first one above.
           </p>
         )}
       </section>
-
-      <form onSubmit={create} className="flex flex-col gap-2">
-        <div className="flex gap-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Work, Personal, a customer…"
-            aria-label="Name of the new workspace"
-            maxLength={60}
-            className="flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-          />
-          <button
-            type="submit"
-            disabled={command.isPending}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
-          >
-            New workspace
-          </button>
-        </div>
-        {refusalFor('create_workspace') && (
-          <p role="alert" className="text-sm text-over">
-            {refusalFor('create_workspace')}
-          </p>
-        )}
-      </form>
     </div>
   );
 }
