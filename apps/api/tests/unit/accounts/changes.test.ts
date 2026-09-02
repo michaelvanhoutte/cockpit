@@ -36,9 +36,16 @@ describe('Accounts', () => {
       );
     });
 
-    it('names every change for what it does, not for the issue that wanted it', () => {
-      // A store carries these names forever, and an issue number ages out of
-      // meaning long before the schema does.
+    it('writes every name in one shape, so the ordinal above can always be read', () => {
+      // Four digits, then lower-case words: `0006-2fa` and `0006-Workspace-Bar`
+      // are both refused, and so is anything without a four-digit head, which
+      // is what the ordinal case slices blindly.
+      //
+      // It does *not* police whether a name says what the change does -
+      // `0006-issue-131` matches this happily. No pattern can make that
+      // judgement and this one does not pretend to; it is a review question.
+      // The name of this case says shape for that reason, having first said
+      // something the assertion could not hold.
       for (const name of names) {
         expect(name, name).toMatch(/^\d{4}-[a-z][a-z0-9-]*$/);
       }
