@@ -308,7 +308,7 @@ prove useful.
 
 ### Recommended hybrid
 
-Webhooks are the primary mechanism for low-latency updates, with a **periodic reconciliation query** behind them as protection against missed events, deployment downtime, interpretation bugs and synchronization drift.
+Webhooks should be the primary mechanism for low-latency updates, with a **periodic reconciliation query** worth adding behind them eventually as protection against missed events, deployment downtime, interpretation bugs and synchronization drift. (Superseded — see "Revised selected approach" above, which makes reconciliation the primary read path.)
 
 ## Important limitation
 

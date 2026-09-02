@@ -424,6 +424,9 @@ tools/test-explorer/package.json
 every ordinary build. The root gains `test:explorer`, `test:explorer:check` and
 `test:coverage` (`pnpm -r test:coverage`).
 
+CI (`.github/workflows/ci.yml`) gains one job, independent of `test`, `typecheck`
+and `build` — it needs neither their success nor their output:
+
 ```yaml
   test-explorer:
     name: Test Explorer

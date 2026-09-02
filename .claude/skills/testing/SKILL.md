@@ -152,6 +152,8 @@ Tests are for confidence, not for covering everything. Cut a case only when it h
 
 ## Definition of done - non-negotiable
 
+Do not claim something works until **all** of these hold:
+
 1. **Fast tiers (L1, L2, F1, F2) run in full and pass.** No selection.
 2. **Slow tiers (L3, F3): every test covering the capabilities touched.** Select by capability, include when in doubt. "I selected too narrowly" is never a valid explanation for a broken merge.
 3. **The application was actually started and the changed behaviour exercised.** Green unit and integration tests are never evidence that the app runs — this exists to prevent an all-green suite over an app that crashes on startup. Use the F3 suite where one covers it, otherwise start the app and drive it in the browser.

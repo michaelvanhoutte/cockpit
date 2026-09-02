@@ -184,7 +184,7 @@ Any Item can be flagged with a **Focus horizon**: **Today, This Week, This Month
 
 ### 7.1 Deadline color states
 
-Independently of Focus horizons, an Item can carry a hard **due date**, and cards are color-coded by proximity: neutral while there is time, **orange** once the deadline is reached, **red** once passed, in every Panel the item appears in. A "This Week" focus flag anchors to end-of-week while a due date is a specific date, but both feed the same treatment.
+Independently of Focus horizons, an Item can carry a hard **due date**, and cards are color-coded by proximity: neutral while there is time, **orange** once the deadline is reached (due today, or within a set threshold), **red** once passed, in every Panel the item appears in. A "This Week" focus flag anchors to end-of-week while a due date is a specific date, but both feed the same treatment.
 
 ## 8. AI layer: executive summaries and highlights
 

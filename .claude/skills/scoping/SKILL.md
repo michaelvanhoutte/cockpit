@@ -35,7 +35,7 @@ If the request doesn't fit, split it into units in dependency order, each declar
 
 ### 4. Enumerate the failure modes when state cannot be put back
 
-**Skip this step unless the work changes stored data or its shape** — a migration, a backfill, a script that rewrites or deletes rows. Most work is safe to get wrong once, because a wrong query just returns wrong rows until somebody fixes it. This kind is not: get it wrong and the data it touched is gone. The test is whether running it twice, or running only half of it, could leave data nobody can get back.
+**Skip this step unless the work changes state it cannot put back** — a migration, a backfill, a script that rewrites or deletes rows, a secret rotation, a one-way call into somebody else's system. Most work is safe to get wrong once, because a wrong query just returns wrong rows until somebody fixes it. This kind is not: get it wrong and what it touched is gone. The test is whether running it twice, or running only half of it, could leave something nobody can put back.
 
 **What this step produces:** one line answering each question below. They go in the issue under **Failure modes**, and later as a header comment on the thing itself, so it gets built to satisfy them rather than discovering them one at a time. They are asked now because they cost minutes while the change is still an idea, and a review round each once it is code.
 

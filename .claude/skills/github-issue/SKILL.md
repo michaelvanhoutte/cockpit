@@ -18,7 +18,7 @@ Sharpening, sizing, failure modes and the statement list belong to the [scoping]
 - **Cut anything the builder will discover in the first ten minutes.** Speculation about where a bug lives belongs in the issue only where it saves real time, and then as a list of candidates, not prose.
 - **Open questions are bullets, one or two sentences each.**
 
-A 400-word issue is normal. Past 800 words, something in it is being explained twice.
+A 400-word issue is normal, and past 800 words something is being explained twice. That budget counts the prose; the **Test cases** section is a statement list whose length is governed by the pruning criterion in `statement-lists.md`, not by a word count, and it is never trimmed to meet this rule.
 
 ## Process
 
@@ -39,8 +39,9 @@ can (schema, state machine) - trimmed to the decision, noted as coming from a pr
 ## Failure modes
 
 [One line per question from scoping's "Enumerate the failure modes when state cannot be put
-back" step. Omit the section entirely where the work does not change stored data; where it
-does, an issue that drops it makes whoever builds this redo the expensive part of scoping.]
+back" step. Omit the section entirely where the work changes nothing it cannot put back;
+where it does, an issue that drops it makes whoever builds this redo the expensive part of
+scoping.]
 
 ## Blocked by
 

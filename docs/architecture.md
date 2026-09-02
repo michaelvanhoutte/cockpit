@@ -65,7 +65,7 @@ cockpit/
 Cheap now, expensive to retrofit, so binding from the first migration:
 
 - **`tenant_id` on every row**, non-null. It stays because it is what makes a request that reached the wrong store match no row instead of somebody else's ("One store per account, and `tenant_id` stays", below). Workspace scoping is enforced in queries server-side, never only in the UI.
-- **Client-generated IDs** (UUIDv7/ULID) for user-created entities, so creating an item never waits on the server for an identity — which the capture path (§5.4) and any future offline work depend on.
+- **Client-generated IDs** (UUIDv7/ULID) for user-created entities, so creating an item never waits on the server for an identity — which the capture path (§5.4) and any future offline work depend on. Server-generated rows use the same format.
 - **Per-field `updated_at` semantics via command timestamps** (§4.3), giving last-write-wins per field, which is all a single-user-multi-device system needs.
 - **Tombstones, not deletes**, for Items, matching the functional definition's reconciliation model.
 - **Source-owned vs app-owned fields are separate column groups**, so re-syncs overwrite source-owned columns unconditionally and never touch app-owned ones.
@@ -281,14 +281,14 @@ Two things ship as data with no behaviour, deliberately: a **role** on each user
 
 **Decision: Cloudflare, all of it.** The Worker plus static assets, with D1 (§4.1), Queues and Cron Triggers. The platform is already proven in this household (www.conselit.be and the task-creator worker), the workload shape fits (request-driven API, scheduled sync, cheap SSE streams, no long-CPU work), the tiers price a single-user app at essentially zero, and there is one vendor and zero servers to patch. Stated honestly: local dev and CI run on `wrangler`/miniflare, which executes the real runtime and real SQLite but *emulates* Queues and cron, and platform limits (CPU time, subrequest counts) are a new class of constraint that L3 tests and nightly runs must respect.
 
-Note the reach: this re-derived the backend framework, the job infrastructure (pg-boss → Queues + Cron, §6.3) and the database itself (Postgres → D1, §4.1). A hosting choice is never just a hosting choice.
+Note the reach: this re-derived the backend framework (Fastify → Hono, since Fastify assumes a Node server process), the job infrastructure (pg-boss → Queues + Cron, §6.3) and the database itself (Postgres → D1, §4.1). A hosting choice is never just a hosting choice.
 
 ### 9.1 CI/CD
 
 GitHub Actions, structured to make the testing strategy and the budgets mechanical:
 
 - **Per branch** (triggered on `push`, so draft PRs and branchless pushes are gated too): lint, typecheck, the connector-boundary import rules; the fast tiers in full, one job per tier so a misplaced test is visible; bundle-size gate; build. Per-branch **preview deployments were removed**: Cloudflare withholds version preview URLs from a Worker that implements a Durable Object, and gating a replacement cost more per branch than previews got for free (deployment, "No branch environments").
-- **On merge to `main`:** the same gate, plus the full suite including L3/F3 against a wrangler-run stack and performance timing checks; then migrate and deploy to **staging**.
+- **On merge to `main`:** the same gate, plus (when they exist) the full suite including L3/F3 against a wrangler-run stack and performance timing checks; then migrate and deploy to **staging**.
 - **On every pull request against `main`, and on `main` itself:** CodeQL over the application sources *and* the workflow files (§8). High-severity alerts turn the check red; the rest land in the Security tab. Which parts are repository settings rather than files is in the bootstrap runbook in [deployment.md](deployment.md).
 - **Production is a promotion, not a merge:** an explicit `workflow_dispatch` run pinned to a commit, which migrates and then deploys via `wrangler deploy`.
 - **Scheduled (nightly):** `test:contract` against real third parties; failures create priority work to re-record fixtures.

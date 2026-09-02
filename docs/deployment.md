@@ -233,9 +233,9 @@ Three shapes remain and none is free:
 - **Move branch environments to a custom domain**, where one wildcard application
   covers them all. The documented answer, and a bigger one-time setup: a zone, DNS
   and custom-domain routing.
-- **Accept public branch environments.** They hold `seed.sql` fixtures, which is
-  the argument §6 already makes about previews — but §6 gates them anyway, and
-  that reversal was the owner's.
+- **Accept public branch environments.** They hold `seed.sql` fixtures rather than
+  real mail, which was the argument for leaving previews ungated — but §6 gates
+  them anyway, and that reversal was the owner's.
 
 This is what reopened §4, and it is recorded here rather than in a commit message
 because the cost is the decision.
@@ -275,7 +275,9 @@ preview or a gradual deployment.
 The same held for account data, more sharply: every preview version ran under the
 one preview Worker, sharing its Durable Object namespace and therefore the *same*
 account store, so a branch adding a change to `apps/api/src/accounts/changes.ts`
-applied it to the store every other branch was reading.
+applied it to the store every other branch was reading. That part does not come
+back with a returning branch environment: a Worker per branch has its own Durable
+Object namespace, so such a change would reach nothing but that branch's own store.
 
 **What is genuinely given up:** two branch environments with incompatible
 migrations to the *register* will collide, because a migration applied by one is
@@ -343,7 +345,7 @@ destructive migrations make fatal.
 
 Rollback, in order of preference:
 
-1. **Re-promote the previous commit.** Fast, touches no data, safe because of expand-contract.
+1. **Re-promote the previous commit.** Run *Promote to production* with the previous `sha`. Fast, touches no data, safe because of expand-contract.
 2. **Redeploy the previous Worker version** without git: `wrangler versions list` then `wrangler versions deploy <id>`. Use when the commit that shipped is not obvious.
 3. **Revert the commit** on `main`, let staging pick it up, then promote. The slowest, and right when the bad change should also leave the trunk.
 4. **D1 Time Travel** for data — 30 days of point-in-time recovery, so there is no separate backup to build: `wrangler d1 time-travel restore cockpit --timestamp <iso8601>`.
@@ -521,7 +523,8 @@ Recorded rather than fixed, both deliberately:
 
    Note the distinction that makes it safe to defer: validating the JWT as a
    *gate* is defence in depth, whereas reading its email claim to decide *who the
-   user is* is the path that was rejected. Only the first is deferred.
+   user is* would make Access the application's identity model, which "App login"
+   settles against. Only the first is deferred; the second should not be built.
 
 2. **Access on a `workers.dev` URL does not cover a custom domain.** If one is
    ever attached to production, the app becomes publicly reachable on the new

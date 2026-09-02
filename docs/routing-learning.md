@@ -46,7 +46,7 @@ Consequences:
 
 - "When should the system classify?" stops being hard: as often as it usefully can, because a proposal commits nothing.
 - Background recomputation can never destroy a human decision, so recomputation and triage run concurrently without coordination.
-- Proposals do not populate panels. A card appears in a panel only once its routing is settled, which answers the functional definition's auto-tagging decision as suggest-and-confirm; flipping to auto-apply later is a default filter change, not an architectural one.
+- Proposals do not populate panels. A card appears in a Project or Person panel only once its routing is settled — the Inbox is the exception by definition, being the panel of items still to process — which answers the functional definition's auto-tagging decision as suggest-and-confirm; flipping to auto-apply later is a default filter change, not an architectural one.
 - This adds a third group to the schema's source-owned versus app-owned split: system-proposed values, overwritable by background jobs until a human touches them, never after.
 
 ## 6. The decision moments
