@@ -142,12 +142,14 @@
         "apps/api/src/accounts/command-service.ts",
         "apps/api/src/accounts/repo.ts",
         "apps/api/src/accounts/schema.ts",
+        "apps/api/src/accounts/changes.ts",
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/item.ts",
         "packages/shared/src/domain/workspace-themes.ts",
         "apps/web/src/pages/WorkspaceSettingsPage.tsx",
         "apps/web/src/pages/Layout.tsx",
         "apps/web/src/router.tsx",
+        "apps/web/src/reorder.ts",
         "apps/web/src/components/Menu.tsx",
         "apps/web/src/components/DeleteQuestion.tsx"
       ]

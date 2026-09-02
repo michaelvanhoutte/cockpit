@@ -96,6 +96,19 @@ export interface MenuEntry {
    * loses their place in a list.
    */
   onSelect: (openedFrom: HTMLElement | null) => void;
+  /**
+   * That choosing it opens nothing, so the focus belongs back on the control
+   * the menu was opened from.
+   *
+   * The default is the opposite because most entries open something - a name
+   * field, a question - and putting the focus back would take it straight off
+   * whatever had just opened. An entry that only *does* a thing has nowhere
+   * else for the focus to go, and dropping it to the top of the page is how a
+   * keyboard user loses their place in the list - which is worst for exactly
+   * the entry that wants choosing several times in a row ("Reorder
+   * workspaces", issue 31).
+   */
+  keepsFocus?: boolean | undefined;
   /** Why this cannot be chosen. Present means unavailable; it is said, not hidden. */
   unavailable?: string | undefined;
   destructive?: boolean | undefined;
@@ -121,14 +134,16 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
       <MenuTrigger label={label} ref={trigger} />
       <MenuContent
         onCloseAutoFocus={(event) => {
-          // Choosing an entry opens something that takes the focus itself: the
-          // name field, or the question. Radix puts the focus back on this
-          // control as the menu closes, which would take it straight back off
-          // whatever had just opened - so the restore is skipped exactly when
-          // something else is claiming the focus, and kept when the menu was
-          // simply dismissed.
-          if (!chose.current) return;
+          // Choosing an entry usually opens something that takes the focus
+          // itself: the name field, or the question. Radix puts the focus back
+          // on this control as the menu closes, which would take it straight
+          // back off whatever had just opened - so the restore is skipped
+          // exactly when something else is claiming the focus, and kept when
+          // the menu was simply dismissed, or when the entry chosen opens
+          // nothing and said so (`keepsFocus`).
+          const claimed = chose.current;
           chose.current = false;
+          if (!claimed) return;
           event.preventDefault();
         }}
       >
@@ -159,7 +174,7 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
                 event.preventDefault();
                 return;
               }
-              chose.current = true;
+              chose.current = !entry.keepsFocus;
               entry.onSelect(trigger.current);
             }}
           >

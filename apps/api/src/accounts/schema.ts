@@ -171,6 +171,32 @@ export const workspaces = sqliteTable(
     bar: text('bar').notNull().default('#dbd7ee'),
     ground: text('ground').notNull().default('#e3e1f2'),
     header: text('header').notNull().default('#d2cdea'),
+    /**
+     * Where this workspace sits in the tabs, left to right ("Reorder
+     * workspaces", issue 31). Lower is further left; `created_at` breaks a tie,
+     * so the order every read produces is total whatever is in the column.
+     *
+     * **A number rather than a chain of "after this one".** The whole order is
+     * rewritten by every move (`reorder_workspaces` in packages/shared's
+     * commands.ts), so the numbers are dense and start at zero after one; there
+     * is nothing to keep consistent between rows, and a row that somehow gets a
+     * duplicate is one pair of tabs in an arbitrary but stable order rather
+     * than a list that cannot be sorted at all.
+     *
+     * **Tombstoned workspaces keep theirs**, unread, because every read filters
+     * them out anyway and dropping the value would be work for nothing.
+     * A new workspace takes one past the highest there is, deleted rows
+     * included, so nothing has to reason about a number coming back.
+     *
+     * `NOT NULL DEFAULT 0` because the column was added to a table that already
+     * had rows in it (change `0004-workspace-order` in changes.ts), which SQLite
+     * allows only with a default; the same change then gives every existing row
+     * its real position. The default is what a workspace written by an older
+     * version during a deploy would get - first in the tabs, which is wrong but
+     * is one workspace in an unexpected place rather than a row that cannot be
+     * written.
+     */
+    position: integer('position').notNull().default(0),
     createdAt: text('created_at').notNull(),
     /**
      * Tombstone, written by "Rename and delete a workspace" (issue 77) and

@@ -64,6 +64,53 @@ export const deleteWorkspaceSchema = commandEnvelopeSchema;
 export type DeleteWorkspaceCommand = z.infer<typeof deleteWorkspaceSchema>;
 
 /**
+ * reorder_workspaces — the whole order, not the move that produced it.
+ *
+ * **The payload is every live workspace in the order they should be in.** A
+ * "move this one before that one" would be smaller, and it is the wrong unit
+ * for two reasons. Commands carry the client's clock and are resolved
+ * last-write-wins (architecture, "Mutations are commands, not object PUTs"), and
+ * a whole order is a value that rule can be applied to while a relative move is
+ * not - two moves arriving out of turn compose into an order nobody asked for.
+ * And it makes the staleness visible: a list that no longer names the same
+ * workspaces the account has is refused, where a relative move would quietly
+ * succeed against a list the person was not looking at.
+ *
+ * The envelope's `workspaceId` is the one that was moved. It is not redundant
+ * with the list: it is what the change announces itself on, and it is what the
+ * audit trail reads as afterwards - "the whole order changed" says nothing
+ * about what somebody did.
+ *
+ * The ids are the envelope's plain strings, not uuids, for the reason renaming
+ * takes one: they name workspaces that already exist, and the ones an account
+ * starts with predate client-generated ids.
+ */
+export const reorderWorkspacesSchema = commandEnvelopeSchema
+  .extend({
+    workspaceIds: z.array(z.string().min(1)).min(1),
+  })
+  /**
+   * A list naming the same workspace twice has no order in it - two positions
+   * for one workspace, and one of the account's workspaces necessarily left
+   * out. Refused as a shape rather than checked against the database, because
+   * it is wrong on its own terms whatever the account holds.
+   */
+  .refine((cmd) => new Set(cmd.workspaceIds).size === cmd.workspaceIds.length, {
+    message: 'a workspace can only be in one place in the order',
+    path: ['workspaceIds'],
+  })
+  /**
+   * The workspace that moved has to be one of the workspaces being ordered.
+   * Same reason: an order that does not contain the thing it claims to have
+   * moved is not a smaller change, it is an inconsistent one.
+   */
+  .refine((cmd) => cmd.workspaceIds.includes(cmd.workspaceId), {
+    message: 'the workspace that moved is not in the order',
+    path: ['workspaceIds'],
+  });
+export type ReorderWorkspacesCommand = z.infer<typeof reorderWorkspacesSchema>;
+
+/**
  * set_workspace_theme — the four colors, not the name of the theme they came
  * from, because four colors is what a workspace stores. The server still
  * refuses a set that is not one of the palette's, which is what keeps "picked
@@ -180,6 +227,7 @@ export const commandSchemas = {
   create_workspace: createWorkspaceSchema,
   rename_workspace: renameWorkspaceSchema,
   delete_workspace: deleteWorkspaceSchema,
+  reorder_workspaces: reorderWorkspacesSchema,
   set_workspace_theme: setWorkspaceThemeSchema,
   add_dashboard: addDashboardSchema,
   rename_dashboard: renameDashboardSchema,

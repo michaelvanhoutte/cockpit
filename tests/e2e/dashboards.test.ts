@@ -53,7 +53,10 @@ test.describe('Dashboards', () => {
       const tab = dashboardBar(page).getByRole('link', { name });
       await expect(tab).toBeVisible();
       await expect(page.getByRole('heading', { name })).toBeVisible();
-      await expect(page.getByText('Nothing on this dashboard yet. Panels are what go here.')).toBeVisible();
+      // What the screen is for, rather than a report that it is empty
+      // ("Modernise the app shell", issue 125). Matched on the opening clause
+      // so the walk is not re-broken by the sentence being reworded around it.
+      await expect(page.getByText(/A dashboard holds the panels you want in view/)).toBeVisible();
       await expectNoSidewaysScroll(page);
 
       // The Inbox is on screen either way, which is what says the bar holds

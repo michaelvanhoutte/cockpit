@@ -4,6 +4,8 @@ import type { Workspace } from '@cockpit/shared';
 import {
   WORKSPACE_PALETTE,
   nextColor,
+  nextPosition,
+  ordersExactly,
   workspaceFromCommand,
   workspaceNamed,
 } from '../../../src/domain/workspaces.js';
@@ -112,6 +114,7 @@ describe('Workspace management', () => {
         { commandId: 'c', issuedAt: AT, workspaceId: 'ws-new', name: 'Personal' },
         TENANT_ID,
         '#3f8f78',
+        3,
       );
       expect(workspace).toEqual({
         id: 'ws-new',
@@ -129,9 +132,89 @@ describe('Workspace management', () => {
         bar: '#cbe4dc',
         ground: '#d9ece6',
         header: '#bcdcd2',
+        // Where it sits in the tabs, handed to it the way the color is: both
+        // are answers about every workspace the account has, which only the
+        // caller with the account in front of it can give.
+        position: 3,
         createdAt: AT,
         deletedAt: null,
       });
+    });
+  });
+
+  describe('a workspace you make goes to the end of the tabs, after all the others', () => {
+    // L1: where a new workspace goes is arithmetic over what the account
+    // already holds. That the account is what gets asked - and that a deleted
+    // workspace does not give its place away - is proved against a real
+    // database in tests/integration/http/workspace-management.test.ts.
+    it.each([
+      { situation: 'the first workspace of a brand new account', highest: null, goes: 0 },
+      { situation: 'one more beside the three an account starts with', highest: 2, goes: 3 },
+      { situation: 'one made after several were deleted', highest: 9, goes: 10 },
+    ])('$situation is put at $goes', ({ highest, goes }) => {
+      expect(nextPosition(highest)).toBe(goes);
+    });
+  });
+
+  describe('an order is only accepted when it is an order of the workspaces you have', () => {
+    /**
+     * L1: whether a list is an order of these workspaces is a pure decision
+     * over a list and a set of ids, and two of the rows below cannot be driven
+     * at it through the interface at all - the wire schema refuses a repeated
+     * id before a handler sees it. That the decision is reached, refuses with a
+     * 409 and stores nothing is proved against a real database in
+     * tests/integration/http/workspace-management.test.ts.
+     */
+    const live = [
+      colored({ id: 'ws-work', tenantId: TENANT_ID, name: 'Work' }, WORKSPACE_PALETTE[0]!),
+      colored({ id: 'ws-atlas', tenantId: TENANT_ID, name: 'Atlas Copco' }, WORKSPACE_PALETTE[1]!),
+      colored({ id: 'ws-personal', tenantId: TENANT_ID, name: 'Personal' }, WORKSPACE_PALETTE[2]!),
+    ];
+
+    it.each([
+      {
+        situation: 'the workspaces you have, in a different order',
+        order: ['ws-personal', 'ws-work', 'ws-atlas'],
+        accepted: true,
+      },
+      {
+        situation: 'the workspaces you have, in the order they are already in',
+        order: ['ws-work', 'ws-atlas', 'ws-personal'],
+        accepted: true,
+      },
+      {
+        situation: 'an order made before somebody else added a workspace',
+        order: ['ws-personal', 'ws-work'],
+        accepted: false,
+      },
+      {
+        situation: 'an order made before somebody else deleted a workspace',
+        order: ['ws-personal', 'ws-work', 'ws-atlas', 'ws-gone'],
+        accepted: false,
+      },
+      {
+        situation: 'an order naming a workspace of somebody else’s account',
+        order: ['ws-personal', 'ws-work', 'ws-somebody-else'],
+        accepted: false,
+      },
+      {
+        situation: 'an order with the same workspace in two places',
+        order: ['ws-work', 'ws-work', 'ws-atlas'],
+        accepted: false,
+      },
+      {
+        situation: 'an order with the same workspace in two places and one missing',
+        order: ['ws-work', 'ws-work', 'ws-atlas', 'ws-personal'],
+        accepted: false,
+      },
+      { situation: 'no order at all', order: [], accepted: false },
+    ])('$situation', ({ order, accepted }) => {
+      expect(ordersExactly(live, order)).toBe(accepted);
+    });
+
+    it('is an order of nothing when there are no workspaces to order', () => {
+      expect(ordersExactly([], [])).toBe(true);
+      expect(ordersExactly([], ['ws-work'])).toBe(false);
     });
   });
 });
