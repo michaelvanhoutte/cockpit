@@ -11,6 +11,9 @@ import {
   DashboardNotFoundError,
   ItemNotFoundError,
   LastDashboardError,
+  LayoutNotFoundError,
+  PanelNameTakenError,
+  PanelNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
@@ -21,7 +24,9 @@ import {
   getWorkspace,
   listAssociationsForWorkspace,
   listDashboards,
+  listLayoutsInWorkspace,
   listOpenItems,
+  listPanelsInWorkspace,
   listWorkspaces,
 } from './repo.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
@@ -62,6 +67,8 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         workspace,
         items: listOpenItems(db, accountName, workspaceId),
         dashboards: listDashboards(db, accountName, workspaceId),
+        panels: listPanelsInWorkspace(db, accountName, workspaceId),
+        layouts: listLayoutsInWorkspace(db, accountName, workspaceId),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
       };
     });
@@ -102,13 +109,16 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       if (
         error instanceof ItemNotFoundError ||
         error instanceof WorkspaceNotFoundError ||
-        error instanceof DashboardNotFoundError
+        error instanceof DashboardNotFoundError ||
+        error instanceof PanelNotFoundError ||
+        error instanceof LayoutNotFoundError
       ) {
         return { status: 'missing', what: error.message };
       }
       if (
         error instanceof WorkspaceNameTakenError ||
         error instanceof DashboardNameTakenError ||
+        error instanceof PanelNameTakenError ||
         // A refusal to say out loud rather than a shape problem: the request is
         // well formed and names a dashboard that exists, and the answer is that
         // this one may not go.

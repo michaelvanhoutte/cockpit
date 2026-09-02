@@ -68,6 +68,8 @@ async function open(
           workspace,
           items: [],
           dashboards: boards(workspace.id),
+          panels: [],
+          layouts: [],
           associations: [],
           generatedAt: '2026-08-31T10:00:00.000Z',
         })
@@ -366,6 +368,8 @@ describe('Dashboards', () => {
           workspace: work,
           items: [],
           dashboards: dashboardsOf('ws-work'),
+          panels: [],
+          layouts: [],
           associations: [],
           generatedAt: '2026-08-31T10:00:00.000Z',
         },
@@ -427,6 +431,8 @@ describe('Sign-in', () => {
         workspace: work,
         items: [],
         dashboards: dashboardsOf('ws-work'),
+        panels: [],
+        layouts: [],
         associations: [],
         generatedAt: '2026-08-31T10:00:00.000Z',
       });

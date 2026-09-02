@@ -24,7 +24,7 @@ import type { Change } from './up-to-date.js';
  * actually ends up with, rather than against the TypeScript that describes it.
  */
 export function accountChanges(accountId: string): readonly Change[] {
-  return [ACCOUNT_SCHEMA, startingWorkspaces(accountId), DASHBOARDS, WORKSPACE_ORDER];
+  return [ACCOUNT_SCHEMA, startingWorkspaces(accountId), DASHBOARDS, WORKSPACE_ORDER, PANELS];
 }
 
 /**
@@ -291,6 +291,110 @@ const WORKSPACE_ORDER: Change = {
                                   AND (earlier.created_at < workspaces.created_at
                                        OR (earlier.created_at = workspaces.created_at
                                            AND earlier.id < workspaces.id)))`,
+    },
+  ],
+};
+
+/**
+ * Panels, the layouts that arrange them, and the placements that say where each
+ * panel sits in each layout ("Panels on a dashboard, with per-screen-size
+ * layouts", issue 33).
+ *
+ * **Three empty tables and their indexes, and nothing else.** Nothing is
+ * rebuilt, nothing is dropped, and there is no backfill: a dashboard with no
+ * panels is a dashboard that shows none, which is exactly what every existing
+ * dashboard already shows. That is what makes the failure-mode checklist for a
+ * change that cannot put state back (the `scoping` skill) short here rather
+ * than absent - the questions were asked, and the answers are:
+ *
+ * - **Interrupted partway.** A change is applied atomically (up-to-date.ts):
+ *   its statements and the record that they ran commit together, so a failure
+ *   leaves nothing of itself behind and the whole change is retried next time
+ *   somebody opens the account.
+ * - **Run again.** Every statement is `IF NOT EXISTS`, so a retry over tables
+ *   that are somehow already there is a no-op. No rows are written, so there is
+ *   nothing a second run could double.
+ * - **Data the new rules reject.** None can exist: the tables are created
+ *   empty by this change, so the first row any of these constraints ever sees
+ *   is one the command handlers wrote.
+ * - **What each environment does.** Nothing environment-specific: no seed and
+ *   no backfill, so preview (re-seeded every deploy), staging (deliberately
+ *   never) and production (seeded once by hand) all get the same three empty
+ *   tables. Every account applies this the next time it is opened, which is the
+ *   price the account storage decision records.
+ * - **The windows it can be interrupted in.** Two, and both are safe. Before
+ *   the tables exist, the code running is the code that never reads them.
+ *   After, an account is brought up to date *before* any work in the same
+ *   request (store.ts), so there is no moment where the new code meets the old
+ *   schema.
+ *
+ * The one thing worth saying out loud about the shape: `panel_placements` has a
+ * composite primary key rather than an id of its own, and no `deleted_at`. The
+ * reasons are on the tables in `schema.ts`, which is what queries are written
+ * against; this file is only how they are actually created.
+ */
+const PANELS: Change = {
+  name: '0005-panels',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`panels\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`dashboard_id\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`folded_name\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	FOREIGN KEY (\`dashboard_id\`) REFERENCES \`dashboards\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "panels_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))),
+	CONSTRAINT "panels_deleted_at_is_timestamp" CHECK(deleted_at IS NULL OR (datetime(deleted_at) IS NOT NULL AND substr(deleted_at, 11, 1) = 'T' AND substr(deleted_at, -1) = 'Z' AND length(deleted_at) >= 20 AND date(deleted_at) = substr(deleted_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `panels_dashboard_live_folded_name` ON `panels` (`tenant_id`,`dashboard_id`,`folded_name`) WHERE "deleted_at" IS NULL',
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `panels_tenant_dashboard` ON `panels` (`tenant_id`,`dashboard_id`)',
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`layouts\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`dashboard_id\` text NOT NULL,
+	\`screen_width\` integer NOT NULL,
+	\`created_at\` text NOT NULL,
+	FOREIGN KEY (\`dashboard_id\`) REFERENCES \`dashboards\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "layouts_screen_width_is_a_width" CHECK(screen_width BETWEEN 1 AND 100000),
+	CONSTRAINT "layouts_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `layouts_tenant_dashboard` ON `layouts` (`tenant_id`,`dashboard_id`)',
+    },
+    {
+      // The spans are written out as numbers rather than interpolated from the
+      // shared constants the way schema.ts builds them: a change that has
+      // shipped may never be edited, and a constant that later moves would
+      // rewrite this statement for the accounts that have not applied it yet -
+      // two schemas in production, and no way to tell them apart. The
+      // constraints test is what notices if the two ever stop agreeing.
+      sql: `CREATE TABLE IF NOT EXISTS \`panel_placements\` (
+	\`tenant_id\` text NOT NULL,
+	\`layout_id\` text NOT NULL,
+	\`panel_id\` text NOT NULL,
+	\`position\` integer NOT NULL,
+	\`column_span\` integer NOT NULL,
+	\`row_span\` integer NOT NULL,
+	PRIMARY KEY(\`layout_id\`, \`panel_id\`),
+	FOREIGN KEY (\`layout_id\`) REFERENCES \`layouts\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`panel_id\`) REFERENCES \`panels\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "panel_placements_column_span_fits_the_grid" CHECK(column_span BETWEEN 1 AND 12),
+	CONSTRAINT "panel_placements_row_span_fits_the_grid" CHECK(row_span BETWEEN 1 AND 8),
+	CONSTRAINT "panel_placements_position_is_an_order" CHECK(position >= 0)
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `panel_placements_tenant_layout` ON `panel_placements` (`tenant_id`,`layout_id`)',
     },
   ],
 };

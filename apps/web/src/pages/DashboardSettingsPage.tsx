@@ -54,6 +54,7 @@ export function DashboardSettingsPage() {
   const queryClient = useQueryClient();
 
   const dashboards = data?.dashboards ?? [];
+  const panels = data?.panels ?? [];
   const answered = data !== undefined;
   const listFailed = Boolean(error) && !answered;
   /**
@@ -216,7 +217,10 @@ export function DashboardSettingsPage() {
         {beingDeleted && (
           <DeleteQuestion
             open
-            question={deleteQuestion(beingDeleted.name)}
+            question={deleteQuestion(
+              beingDeleted.name,
+              panels.filter((panel) => panel.dashboardId === beingDeleted.id).length,
+            )}
             confirmLabel={`Yes, delete ${beingDeleted.name}`}
             canConfirm={!command.isPending}
             refusal={refusalFor('delete_dashboard', beingDeleted.id)}
@@ -241,11 +245,16 @@ export function DashboardSettingsPage() {
 /**
  * What deleting takes with it, in the words a person would use.
  *
- * Panels are what a dashboard holds, and there are none until "Panels on a
- * dashboard, with per-screen-size layouts" (issue 33) lands - so every
- * dashboard says the same thing today, and this is where the count goes when
- * there is one to give.
+ * Panels are what a dashboard holds ("Panels on a dashboard, with
+ * per-screen-size layouts", issue 33), so the count is the whole of the answer
+ * and a dashboard with none says so rather than saying "0 panels".
+ *
+ * The count is never missing the way a workspace's item count can be. It comes
+ * from the same snapshot the list of dashboards is drawn from, so a row on
+ * screen always has its panels in hand and there is nothing to wait for.
  */
-function deleteQuestion(name: string): string {
-  return `Delete ${name}? There is nothing on it.`;
+function deleteQuestion(name: string, panels: number): string {
+  if (panels === 0) return `Delete ${name}? There is nothing on it.`;
+  if (panels === 1) return `Delete ${name}? Its one panel goes with it.`;
+  return `Delete ${name}? Its ${panels} panels go with it.`;
 }

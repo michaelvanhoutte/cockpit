@@ -1,13 +1,28 @@
 import { and, eq } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import { associations, commands, dashboards, items, workspaces } from './schema.js';
+import {
+  associations,
+  commands,
+  dashboards,
+  items,
+  layouts,
+  panelPlacements,
+  panels,
+  workspaces,
+} from './schema.js';
 import {
   commandAlreadyApplied,
+  getDashboard,
   getItem,
+  getLayout,
+  getPanel,
   getWorkspace,
   lastWorkspacePosition,
   listDashboards,
+  listLayoutIds,
+  listPanels,
+  listPlacements,
   listWorkspaces,
 } from './repo.js';
 import { isPaletteTheme } from '@cockpit/shared';
@@ -17,6 +32,13 @@ import {
   dashboardNamed,
   firstDashboardFor,
 } from '../domain/dashboards.js';
+import {
+  appendedPlacement,
+  panelFromCommand,
+  panelNamed,
+  panelsNotOn,
+  placementRows,
+} from '../domain/panels.js';
 import {
   nextColor,
   nextPosition,
@@ -114,6 +136,81 @@ export class DashboardNameTakenError extends Error {
     super(`a dashboard called ${name} already exists in this workspace`);
     this.name = 'DashboardNameTakenError';
   }
+}
+
+/**
+ * A panel that is not on the dashboard the change is about - deleted a moment
+ * ago, belonging to another dashboard, or never real. One kind for all three,
+ * because the answer to the person is the same sentence.
+ */
+export class PanelNotFoundError extends Error {
+  constructor(panelId: string) {
+    super(`panel ${panelId} is not on this dashboard`);
+    this.name = 'PanelNotFoundError';
+  }
+}
+
+/**
+ * Its own kind rather than the dashboard one, for the reason that one is not
+ * the workspace one: the message is what a person reads, and it has to name the
+ * thing that is actually in the way.
+ */
+export class PanelNameTakenError extends Error {
+  constructor(name: string) {
+    super(`a panel called ${name} is already on this dashboard`);
+    this.name = 'PanelNameTakenError';
+  }
+}
+
+/** A layout that is not this dashboard's - gone, or never this dashboard's to begin with. */
+export class LayoutNotFoundError extends Error {
+  constructor(layoutId: string) {
+    super(`layout ${layoutId} is not on this dashboard`);
+    this.name = 'LayoutNotFoundError';
+  }
+}
+
+/**
+ * The dashboard a panel change is about, or the refusal that ends it.
+ *
+ * Both steps are here rather than repeated in each handler, and both are
+ * load-bearing. The workspace is checked first because it is what the envelope
+ * names and the answer for an unknown one is about the workspace; the dashboard
+ * is then looked up *inside* that workspace, so a request naming a real
+ * dashboard of a different workspace is a 404 rather than a change applied
+ * somewhere the caller was not looking.
+ */
+function dashboardTheChangeIsAbout(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  dashboardId: string,
+) {
+  if (!getWorkspace(db, tenantId, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+  const dashboard = getDashboard(db, tenantId, workspaceId, dashboardId);
+  if (!dashboard) throw new DashboardNotFoundError(dashboardId);
+  return dashboard;
+}
+
+/**
+ * The panel a change names, checked all the way up: it is live, its dashboard
+ * is live, and that dashboard is in the workspace the envelope names. A panel
+ * is addressed by its own id alone, so without the last step a change could
+ * reach across the account into a workspace the caller never opened.
+ */
+function panelTheChangeIsAbout(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  panelId: string,
+) {
+  if (!getWorkspace(db, tenantId, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+  const panel = getPanel(db, tenantId, panelId);
+  if (!panel) throw new PanelNotFoundError(panelId);
+  if (!getDashboard(db, tenantId, workspaceId, panel.dashboardId)) {
+    throw new PanelNotFoundError(panelId);
+  }
+  return panel;
 }
 
 /**
@@ -267,10 +364,178 @@ export function runCommand<N extends CommandName>(
       // Counted here rather than left to a rule somewhere else: a workspace
       // with no dashboards has no view at all.
       if (existing.length === 1) throw new LastDashboardError();
+      // Its panels and layouts go with it, and no statement here touches them:
+      // every read of either joins to a live dashboard (repo.ts), so
+      // tombstoning this one takes them off every screen at once. That is
+      // "tombstones, not deletes" doing its job rather than being worked
+      // around - restoring the dashboard by hand would bring them all back.
       db.transaction((tx) => {
         tx.update(dashboards)
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.id, cmd.dashboardId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'add_panel': {
+      const cmd = payload as CommandPayload<'add_panel'>;
+      const dashboard = dashboardTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.dashboardId);
+      // Scoped to this dashboard, which is one level further down than a
+      // dashboard name: two dashboards of one workspace may each have a
+      // Reading list.
+      const alreadyCalledThat = panelNamed(listPanels(db, tenantId, dashboard.id), cmd.name);
+      if (alreadyCalledThat) throw new PanelNameTakenError(alreadyCalledThat.name);
+      // Every layout of the dashboard gets the new panel, appended, so that
+      // adding one on a laptop does not leave it missing from the phone layout
+      // until somebody rearranges that too. Read here rather than sent by the
+      // client because the client's copy of the layouts can be stale - the same
+      // reason a new workspace's colour is picked here.
+      const layoutIds = listLayoutIds(db, tenantId, dashboard.id);
+      const appended = layoutIds.map((layoutId) =>
+        appendedPlacement(tenantId, layoutId, cmd.panelId, listPlacements(db, tenantId, layoutId)),
+      );
+      db.transaction((tx) => {
+        // Named at the primary key for the reason a workspace's insert is: a
+        // replayed add whose request id was lost carries the same panel id, so
+        // it must be a no-op rather than a second panel - and a *name*
+        // collision has to raise, which a bare onConflictDoNothing would
+        // swallow now that this table has a second unique index.
+        tx.insert(panels)
+          .values(panelFromCommand(cmd, tenantId))
+          .onConflictDoNothing({ target: panels.id })
+          .run();
+        for (const placement of appended) {
+          tx.insert(panelPlacements)
+            .values(placement)
+            .onConflictDoNothing({
+              target: [panelPlacements.layoutId, panelPlacements.panelId],
+            })
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'rename_panel': {
+      const cmd = payload as CommandPayload<'rename_panel'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // The same question adding asks, minus this panel's own row: the title it
+      // already has, in any capitalization, collides with nothing.
+      const alreadyCalledThat = panelNamed(
+        listPanels(db, tenantId, panel.dashboardId),
+        cmd.name,
+        panel.id,
+      );
+      if (alreadyCalledThat) throw new PanelNameTakenError(alreadyCalledThat.name);
+      db.transaction((tx) => {
+        tx.update(panels)
+          // `foldedName` alongside `name`, never on its own: it is what the
+          // unique index holds, so a rename writing only the title would leave
+          // the index guarding the old one.
+          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_panel': {
+      const cmd = payload as CommandPayload<'delete_panel'>;
+      // A panel already deleted is not there to delete again, so the same
+      // delete sent twice deletes one panel whether the replay carries the
+      // original request id (caught at the top) or a fresh one (caught here).
+      panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // A dashboard may end up with no panels at all. The last *dashboard* of a
+      // workspace is the one thing the app refuses to delete, because a
+      // workspace with no dashboard has no view; a dashboard with no panels is
+      // a dashboard you can put one on.
+      db.transaction((tx) => {
+        // Out of every layout of the dashboard, in one statement: a layout is a
+        // list of where the panels are, and one naming a panel nobody can see
+        // would be a hole no gesture could fill. Deleted rather than
+        // tombstoned, like the layouts they belong to - the reason is on
+        // `panelPlacements` in schema.ts.
+        tx.delete(panelPlacements)
+          .where(and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.panelId, cmd.panelId)))
+          .run();
+        tx.update(panels)
+          .set({ deletedAt: cmd.issuedAt })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'save_layout': {
+      const cmd = payload as CommandPayload<'save_layout'>;
+      const dashboard = dashboardTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.dashboardId);
+      // An arrangement may only name panels that are on the dashboard it
+      // arranges. Checked here rather than left to the foreign key, which would
+      // surface a caller's mistake as a 500 and could not tell a panel of
+      // another dashboard from one that never existed.
+      const stranger = panelsNotOn(listPanels(db, tenantId, dashboard.id), cmd)[0];
+      if (stranger) throw new PanelNotFoundError(stranger);
+      // An upsert, which is what carries the issue's question: a layout id the
+      // dashboard already has changes that layout, and a fresh one defines a
+      // new layout for this screen width.
+      const held = getLayout(db, tenantId, cmd.layoutId);
+      if (held && held.dashboardId !== dashboard.id) throw new LayoutNotFoundError(cmd.layoutId);
+      const rows = placementRows(tenantId, cmd.layoutId, cmd.placements);
+      db.transaction((tx) => {
+        tx.insert(layouts)
+          .values({
+            id: cmd.layoutId,
+            tenantId,
+            dashboardId: dashboard.id,
+            screenWidth: cmd.screenWidth,
+            createdAt: cmd.issuedAt,
+          })
+          // `DoNothing` is what records the width once and once only, and it is
+          // the whole of that rule rather than a guard on a branch: a layout
+          // records the width it was *created* at, so changing one from another
+          // screen has to leave that alone - defining a new layout is the other
+          // answer to the question, and it carries a new id. Named at the
+          // primary key rather than bare, so a collision on anything else would
+          // still raise.
+          .onConflictDoNothing({ target: layouts.id })
+          .run();
+        // Replaced whole rather than merged: an arrangement is an answer to
+        // "where do these panels go now", so a panel left out of it has no
+        // place in this layout and its old row must not survive.
+        tx.delete(panelPlacements)
+          .where(
+            and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, cmd.layoutId)),
+          )
+          .run();
+        if (rows.length > 0) tx.insert(panelPlacements).values(rows).run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_layout': {
+      const cmd = payload as CommandPayload<'delete_layout'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      const held = getLayout(db, tenantId, cmd.layoutId);
+      // Deleted rather than tombstoned, so the same delete sent twice with a
+      // fresh request id finds nothing the second time.
+      if (!held) throw new LayoutNotFoundError(cmd.layoutId);
+      if (!getDashboard(db, tenantId, cmd.workspaceId, held.dashboardId)) {
+        throw new LayoutNotFoundError(cmd.layoutId);
+      }
+      db.transaction((tx) => {
+        // Its placements first, which is what ON DELETE RESTRICT is for: what
+        // happens to the rows pointing at this one is said here rather than
+        // inherited from a cascade nobody wrote.
+        tx.delete(panelPlacements)
+          .where(
+            and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, cmd.layoutId)),
+          )
+          .run();
+        tx.delete(layouts)
+          .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, cmd.layoutId)))
           .run();
         tx.insert(commands).values(commandRow).run();
       });
