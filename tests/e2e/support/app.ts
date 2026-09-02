@@ -373,3 +373,51 @@ export async function tabOnIsWhollyInView(page: Page): Promise<boolean> {
     return tab.left >= held.left - 1 && tab.right <= held.right + 1;
   });
 }
+
+/**
+ * A finger down on a row, across it, and off — a real touch, not a synthetic
+ * event.
+ *
+ * **Driven through CDP because Playwright cannot express a finger drag**: its
+ * touchscreen taps and does nothing else, which is the limit recorded on
+ * `dragRowOnto` above. `Input.dispatchTouchEvent` puts the touch in at the
+ * browser's own input layer, so `touch-action`, the pointer events React sees
+ * and the scrolling this gesture has to coexist with are all the real ones.
+ * Driving `dispatchEvent` from `page.evaluate` would prove only that a handler
+ * is attached, which the level below already does.
+ *
+ * Moved in steps, because a swipe is a stream of touches: one jump would leave
+ * the row never having been told where the finger went.
+ *
+ * **Do not follow one of these with `press`.** Playwright's own touch input
+ * stops landing for the rest of the page's life once a CDP touch has been
+ * dispatched to it - measured: after a swipe, `tap()` on a button does nothing
+ * while `click()` on the same button works. It is the two input paths
+ * disagreeing, not the page: assert what the swipe did and end the walk there.
+ */
+export async function swipeRow(page: Page, title: string, across: number): Promise<void> {
+  const row = itemRow(page, title);
+  await row.scrollIntoViewIfNeeded();
+  const box = await row.boundingBox();
+  if (!box) throw new Error(`cannot swipe ${title}: it is not on screen`);
+  // Off-centre horizontally, so a swipe that has to travel a long way starts
+  // with room to travel in: from the middle, a leftward swipe on a 480px screen
+  // has 240px and a rightward one has 240px, which is enough for both.
+  const y = box.y + box.height / 2;
+  const from = box.x + box.width / 2;
+
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const touch = (x: number) => [{ x, y, radiusX: 8, radiusY: 8, force: 1 }];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: touch(from) });
+    for (let step = 1; step <= 8; step += 1) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: touch(from + (across * step) / 8),
+      });
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await cdp.detach();
+  }
+}

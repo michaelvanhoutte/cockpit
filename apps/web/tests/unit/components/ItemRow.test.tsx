@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Item, ItemStatus } from '@cockpit/shared';
 import { ItemRow } from '../../../src/components/ItemRow';
+import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
 import { UndoWhatJustHappened } from '../../../src/undo';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 
@@ -44,7 +45,15 @@ function anItem(overrides: Partial<Item> = {}): Item {
  * `settles` runs the caller's `onSuccess`, which is what a change that really
  * landed does - and what the offer of an undo waits for.
  */
-function aRow({ settles = false, item = anItem() }: { settles?: boolean; item?: Item } = {}) {
+function aRow({
+  settles = false,
+  onMoveTo,
+  item = anItem(),
+}: {
+  settles?: boolean;
+  onMoveTo?: (from: HTMLElement | null) => void;
+  item?: Item;
+} = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
   });
@@ -53,11 +62,28 @@ function aRow({ settles = false, item = anItem() }: { settles?: boolean; item?: 
   mockUseSendCommand.mockReturnValue(send);
   render(
     <UndoWhatJustHappened>
-      <ItemRow item={item} workspaceId="ws-work" />
+      <ItemRow item={item} workspaceId="ws-work" {...(onMoveTo ? { onMoveTo } : {})} />
     </UndoWhatJustHappened>,
   );
   return { mutate, send };
 }
+
+/**
+ * A finger down, across and off the row.
+ *
+ * Synthetic events, so what this proves is that the handlers are attached and
+ * hand their numbers to the right decision - not that a thumb can do it, which
+ * jsdom cannot say anything about at all. The rules themselves are
+ * tests/unit/swipe.test.ts and the gesture is tests/e2e/triage.test.ts.
+ */
+function swipe({ dx, dy = 0, pointerType = 'touch' }: { dx: number; dy?: number; pointerType?: string }) {
+  const row = screen.getByRole('listitem');
+  fireEvent.pointerDown(row, { pointerType, clientX: 0, clientY: 0 });
+  fireEvent.pointerMove(row, { pointerType, clientX: dx, clientY: dy });
+  fireEvent.pointerUp(row, { pointerType, clientX: dx, clientY: dy });
+}
+
+const past = SWIPE_THRESHOLD_PX + 10;
 
 async function choose(user: ReturnType<typeof userEvent.setup>, option: string) {
   await user.click(screen.getByLabelText('Item actions'));
@@ -82,6 +108,49 @@ describe('Triage', () => {
       expect(asked.name).toBe('set_status');
       expect(asked.payload.status).toBe(status);
       expect(asked.payload.itemId).toBe('item-1');
+    });
+  });
+
+  describe('a swipe that acts sends its change; one that stops short puts the row back', () => {
+    it('dismisses on a swipe left that went far enough', () => {
+      const { mutate } = aRow();
+
+      swipe({ dx: -past });
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate.mock.calls[0]![0].payload.status).toBe('dismissed');
+    });
+
+    it('opens the same picker Move to… opens, on a swipe right', () => {
+      const asked = vi.fn();
+      aRow({ onMoveTo: asked });
+
+      swipe({ dx: past });
+
+      expect(asked).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      { situation: 'stopped short of the threshold', dx: SWIPE_THRESHOLD_PX - 10, dy: 0 },
+      { situation: 'went mostly downwards', dx: past, dy: past + 1 },
+    ])('sends nothing when it $situation', ({ dx, dy }) => {
+      const asked = vi.fn();
+      const { mutate } = aRow({ onMoveTo: asked });
+
+      swipe({ dx, dy });
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(asked).not.toHaveBeenCalled();
+    });
+
+    it('leaves a mouse alone, because a desktop row is dragged rather than swiped', () => {
+      const asked = vi.fn();
+      const { mutate } = aRow({ onMoveTo: asked });
+
+      swipe({ dx: -past, pointerType: 'mouse' });
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(asked).not.toHaveBeenCalled();
     });
   });
 

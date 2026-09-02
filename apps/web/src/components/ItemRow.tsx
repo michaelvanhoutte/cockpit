@@ -1,7 +1,8 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
 import { useCommand, useSendCommand, type CommandArgs } from '../api/queries';
+import { howFarItHasGone, SWIPE_THRESHOLD_PX, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
@@ -124,11 +125,76 @@ export function ItemRow({
   const focusToday = () =>
     command.mutate({ name: 'set_focus', payload: { ...envelope(), horizon: 'today' } });
 
+  /**
+   * Where the swipe started, and how far it has come.
+   *
+   * The start is a ref because nothing on screen depends on it; the distance is
+   * state because the row is drawn at it. Null start means no gesture is
+   * running, which is what a mouse and a released finger both leave behind.
+   */
+  const from = useRef<{ x: number; y: number } | null>(null);
+  const [gone, setGone] = useState(0);
+
+  /**
+   * The swipes ("Swipe an inbox row right to file it, left to dismiss it",
+   * issue 145). Touch only, and `pointerType` is the whole of that check: a
+   * desktop row is dragged into a panel instead, and a mouse drag that both
+   * selected text and dismissed an item would be two gestures wearing one
+   * movement.
+   *
+   * `touch-action: pan-y` below is what makes the two coexist. The browser
+   * keeps vertical panning - the list still scrolls under the same finger - and
+   * hands the horizontal component here, so neither has to be guessed at from
+   * coordinates alone.
+   */
+  const swipe = {
+    onPointerDown: (event: React.PointerEvent) => {
+      if (event.pointerType !== 'touch') return;
+      from.current = { x: event.clientX, y: event.clientY };
+      setGone(0);
+    },
+    onPointerMove: (event: React.PointerEvent) => {
+      const start = from.current;
+      if (!start) return;
+      setGone(howFarItHasGone(event.clientX - start.x, event.clientY - start.y));
+    },
+    onPointerUp: (event: React.PointerEvent) => {
+      const start = from.current;
+      from.current = null;
+      setGone(0);
+      if (!start) return;
+      const meant = whatTheSwipeMeant(event.clientX - start.x, event.clientY - start.y);
+      if (meant === 'dismiss') dismiss();
+      // The same picker the menu's Move to… opens, so filing is one gesture on
+      // a phone and the same question either way.
+      if (meant === 'file') onMoveTo?.(null);
+    },
+    // A gesture the browser took over - a scroll it decided was a scroll after
+    // all - is not a swipe that stopped short, it is no swipe at all.
+    onPointerCancel: () => {
+      from.current = null;
+      setGone(0);
+    },
+  };
+
+  /** Past the point where letting go would do something. */
+  const wouldAct = Math.abs(gone) >= SWIPE_THRESHOLD_PX;
+
   return (
     // `gap-1.5` rather than `gap-2`: the row gained a mark at its head and an
     // age at its tail, and the Inbox column is a fifth of the screen, so the
     // space between them is space the title does not get.
-    <li className="flex items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 hover:bg-accent-tint/40">
+    <li
+      {...swipe}
+      style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
+      // `touch-action: pan-y` leaves vertical scrolling to the browser and
+      // gives this the horizontal component; `select-none` stops a long press
+      // turning the row into selected text mid-swipe. Both only matter while a
+      // finger is on it, and neither costs a mouse anything.
+      className={`flex touch-pan-y select-none items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 hover:bg-accent-tint/40 ${
+        wouldAct ? (gone > 0 ? 'bg-accent-tint' : 'bg-over/15') : ''
+      }`}
+    >
       {/* What the row is doing, before anything is read. Decorative on purpose:
           the word it stands for is on the line below, so announcing the color
           as well would say the status twice. */}

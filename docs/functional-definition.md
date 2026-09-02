@@ -114,7 +114,7 @@ Processing an Item means one or more of:
 
 Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stays reachable through the Panels holding it, through its associations, and through an optional "All items" view.
 
-**Gestures:** swipe left = delete/dismiss; swipe right = file into a box (candidate meaning, §5.2). On desktop the same actions are buttons, keyboard shortcuts and drag-into-panel.
+**Gestures** ("Swipe an inbox row right to file it, left to dismiss it", issue 145): **swipe left dismisses, swipe right opens the picker** — the same picker **Move to…** opens, so filing is one gesture on a phone and the same question either way. One meaning per direction, in every list rather than only the Inbox: the same swipe cannot mean two things depending on which list it is in, so removing an Item from one Panel stays in the menu. A swipe that stops short puts the row back, and one that is mostly vertical is the list scrolling and does nothing at all. **A swipe is a touch gesture**: on a desktop the same actions are the menu, and a Panel is reached by dragging the row into it.
 
 **Open question:** does "delete" mean delete only here, or also archive/delete in Gmail/Slack? See §12 — the single biggest behavioral decision.
 

@@ -84,7 +84,8 @@
         "apps/web/src/filing.ts",
         "apps/web/src/components/ItemList.tsx",
         "apps/web/src/components/MoveToPicker.tsx",
-        "apps/web/src/undo.tsx"
+        "apps/web/src/undo.tsx",
+        "apps/web/src/swipe.ts"
       ]
     },
     {
