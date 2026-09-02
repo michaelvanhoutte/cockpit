@@ -109,7 +109,22 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  * @property {BranchRef[] | null} branchesNothingTakes
  *   null when no coverage data was found for this run (see Model.coverageAvailable), not when the
  *   count is genuinely zero — those are different facts and must not render the same way.
+ * @property {Subtree} subtree        What this node and everything under it holds. A row that exists
+ *                                      to hold other rows has nothing filed against its own name, so
+ *                                      its own counts read as an untested part of the product and
+ *                                      collapsing it hides the rest; the page shows both numbers.
+ * @property {string[]} path          The labels of this node's ancestors, outermost first; empty at a
+ *                                      root. What the detail panel prints above the area's name.
  * @property {TreeNode[]} children
+ *
+ * @typedef {Object} Subtree
+ * @property {Record<string, number|null>} counts  Same keys as `counts`; null only when every node in
+ *                                                   the subtree is n/a at that level, never a sum that
+ *                                                   treated n/a as zero.
+ * @property {number} filesNothingRuns             Counted by file, not summed: one file may belong to
+ *                                                   several areas under the same row and is one gap.
+ * @property {number | null} branchesNothingTakes  Counted by file:line, same reason; null when nothing
+ *                                                   in the subtree has coverage data.
  *
  * @typedef {Object} Model
  * @property {string} commit

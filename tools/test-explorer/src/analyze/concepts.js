@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { INFRASTRUCTURE_KEY, INFRASTRUCTURE_LABEL } from '../model.js';
+import { INFRASTRUCTURE_KEY, INFRASTRUCTURE_LABEL, LEVEL_IDS } from '../model.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -150,6 +150,58 @@ export function buildTree(concepts, makeNode) {
   }
 
   return { tree: roots, warnings };
+}
+
+/**
+ * Gives every node what its whole subtree holds, and where it sits.
+ *
+ * A row that holds other rows has nothing filed against its own name — no test
+ * says `describe('Workspaces')` — so on its own numbers it reads as an
+ * untested part of the product on the page whose job is to say what is
+ * untested, and collapsing it hides everything underneath. Each row therefore
+ * carries both: `counts` stays its own (the Rules tab lists exactly those),
+ * and `subtree` is what it plus everything under it holds.
+ *
+ * Files and branches are counted by identity, not summed. One source file
+ * legitimately belongs to several areas ("The area registry" in
+ * docs/test-explorer-spec.md), and `Menu.tsx` under both Dashboards and Panels
+ * is one file nothing runs, not two — the same reason `summarise` in model.js
+ * deduplicates for the masthead.
+ *
+ * A level that is `null` is n/a rather than zero, so a total ignores the nulls
+ * and stays null only when every node in the subtree is n/a: summing "unknown"
+ * as zero is what would let the page report a gap that nobody has measured as
+ * no gap at all.
+ *
+ * @param {object[]} tree root nodes, each already carrying counts/rules/gaps
+ * @returns {object[]} the same tree, annotated in place
+ */
+export function annotateTree(tree) {
+  for (const root of tree) annotate(root, []);
+  return tree;
+}
+
+/** Returns every node in this one's subtree, itself included, so its parent can total them. */
+function annotate(node, ancestorLabels) {
+  node.path = ancestorLabels;
+  const below = node.children.flatMap((child) => annotate(child, [...ancestorLabels, node.label]));
+
+  const inSubtree = [node, ...below];
+  const counts = {};
+  for (const id of LEVEL_IDS) {
+    const known = inSubtree.map((n) => n.counts[id]).filter((c) => c !== null);
+    counts[id] = known.length ? known.reduce((a, b) => a + b, 0) : null;
+  }
+
+  const files = new Set();
+  for (const n of inSubtree) for (const f of n.filesNothingRuns) files.add(f.file);
+
+  const measured = inSubtree.filter((n) => n.branchesNothingTakes !== null);
+  const branches = new Set();
+  for (const n of measured) for (const b of n.branchesNothingTakes) branches.add(`${b.file}:${b.line}`);
+
+  node.subtree = { counts, filesNothingRuns: files.size, branchesNothingTakes: measured.length ? branches.size : null };
+  return inSubtree;
 }
 
 /**

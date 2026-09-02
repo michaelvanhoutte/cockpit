@@ -41,6 +41,21 @@
     selected = key;
   }
 
+  // Collapsed to the roots is the shape of the product on one screen; expanded
+  // is every area. Both are one click, so neither is a trek through twisties.
+  function setAllOpen(isOpen) {
+    Object.keys(BY_KEY).forEach(function (key) {
+      open[key] = isOpen;
+    });
+    render();
+  }
+  document.getElementById('collapse-all').addEventListener('click', function () {
+    setAllOpen(false);
+  });
+  document.getElementById('expand-all').addEventListener('click', function () {
+    setAllOpen(true);
+  });
+
   // ---- tree --------------------------------------------------------------
   function render() {
     rowsEl.textContent = '';
@@ -52,7 +67,9 @@
 
         var nameTd = document.createElement('td');
         var nameWrap = el('span', 'namewrap');
-        nameWrap.style.paddingLeft = depth * 18 + 'px';
+        // A guide per level rather than one wide indent: past two levels,
+        // depth read off blank space is depth being measured by eye.
+        for (var g = 0; g < depth; g++) nameWrap.appendChild(el('span', 'guide'));
 
         var hasKids = node.children.length > 0;
         var twisty = el('span', 'twisty' + (hasKids ? (open[node.key] !== false ? ' open' : '') : ' leaf'), hasKids ? '▶' : '');
@@ -79,7 +96,7 @@
 
         LEVELS.forEach(function (l) {
           var td = el('td', 'c clickable');
-          td.appendChild(countPill(node.counts[l.id], false));
+          td.appendChild(cell(node.counts[l.id], node.subtree.counts[l.id], hasKids, false));
           td.title = 'Show ' + l.label + ' rules for ' + node.label;
           td.addEventListener('click', function () {
             selectNode(node.key);
@@ -92,7 +109,7 @@
         });
 
         var filesTd = el('td', 'c clickable');
-        filesTd.appendChild(countPill(node.filesNothingRuns.length, true));
+        filesTd.appendChild(cell(node.filesNothingRuns.length, node.subtree.filesNothingRuns, hasKids, true));
         filesTd.title = 'Show files nothing runs for ' + node.label;
         filesTd.addEventListener('click', function () {
           selectNode(node.key);
@@ -104,9 +121,13 @@
 
         var branchesTd = el('td', 'c clickable');
         if (node.branchesNothingTakes === null) {
+          // Unknown, never 0: no coverage was run, so nothing was measured.
           branchesTd.appendChild(el('span', 'pill na', 'unknown'));
+          if (hasKids && node.subtree.branchesNothingTakes !== null) {
+            branchesTd.appendChild(el('span', 'subtotal', '(' + node.subtree.branchesNothingTakes + ')'));
+          }
         } else {
-          branchesTd.appendChild(countPill(node.branchesNothingTakes.length, true));
+          branchesTd.appendChild(cell(node.branchesNothingTakes.length, node.subtree.branchesNothingTakes, hasKids, true));
         }
         branchesTd.title = 'Show branches nothing takes for ' + node.label;
         branchesTd.addEventListener('click', function () {
@@ -122,6 +143,22 @@
         if (hasKids && open[node.key] !== false) walk(node.children, depth + 1);
       });
     })(MODEL.tree, 0);
+  }
+
+  /**
+   * A row's own number, and — where it holds other rows — what the whole
+   * subtree holds, beside it and visibly secondary. A holding row has nothing
+   * filed against its own name, so its own number alone reads as an untested
+   * part of the product, and collapsing it would hide everything under it.
+   */
+  function cell(own, subtree, hasKids, badWhenNonzero) {
+    var wrap = el('span', 'cellwrap');
+    wrap.appendChild(countPill(own, badWhenNonzero));
+    // No bracket when there is no number to put in it: a level that is n/a in
+    // every row beneath this one is n/a, and "(unknown)" beside it would read
+    // as something nobody has measured yet.
+    if (hasKids && subtree !== null) wrap.appendChild(el('span', 'subtotal', '(' + subtree + ')'));
+    return wrap;
   }
 
   function countPill(n, badWhenNonzero) {
@@ -149,6 +186,10 @@
     }
 
     var head = el('div', 'panelhead');
+    // Where it sits, above what it is called: a name alone ('Panels') doesn't
+    // say which part of the product it belongs to, and the indentation that
+    // says so in the tree is gone by the time you're reading the panel.
+    if (node.path.length) head.appendChild(el('div', 'p-path', node.path.join(' › ')));
     head.appendChild(el('div', 'p-name', node.label));
     // One prompt for everything this node is missing, not one button per gap —
     // the tab labels below already say how many files/branches there are, so

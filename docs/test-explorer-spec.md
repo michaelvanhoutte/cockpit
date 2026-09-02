@@ -236,12 +236,23 @@ naming a feature area, so a rule's area is read from that text directly.
 
 A checked-in **area registry** (§5) lists every feature area: a key equal to its display
 label, the source-file glob patterns it owns, and an optional `parent` nesting it under
-another entry. `Capture`, `Triage`, `Offline`, `Associations`, `Dashboards`, `Panels`,
-`Focus`, `Connector management` and `User management` are the nine root areas seeded
-from testing-strategy's example list; `Sign-in`, `Workspace management` and `Accounts`
-were added since, each on the day the product grew a behaviour the earlier areas had no
-word for. Nothing restricts the registry to those, or to being flat. Backend plumbing no
-area owns lives under an implicit `infrastructure` bucket, always a root and always last.
+another entry. The areas were seeded from testing-strategy's example list and have grown
+since, each on the day the product grew a behaviour the earlier ones had no word for;
+testing-strategy's "Tests are named in the product's language" holds the current list, so
+it is written down once. The rows nest the way the product does — the functional
+definition's "Container hierarchy", a Workspace holding an Inbox and Dashboards, a
+Dashboard holding Panels — which is derived from the product rather than invented for the
+page. Backend plumbing no area owns lives under an implicit `infrastructure` bucket,
+always a root and always last.
+
+**A row carries two numbers per column: its own, and its whole subtree's including
+itself.** Own counts alone were the rule until rows existed that hold other rows; such a
+row has no test filed against its own name, so it read as an untested part of the product
+and collapsing it hid everything underneath. Files and branches are totalled by identity
+rather than summed, because one source file belongs to several areas (§5) and `Menu.tsx`
+under both Dashboards and Panels is one file nothing runs. A level that is n/a in every
+node of a subtree stays n/a: summing "unknown" as zero would report an unmeasured subtree
+as a clean one.
 
 ### 4.2 Columns
 
@@ -297,20 +308,20 @@ the content is areas, not dotted concepts):
 
 ...plus an optional `"parent": "<key>"`, which is the only thing that turns the flat list
 into a tree — nesting is a registry decision, never something a `describe` name has to
-encode. No entry uses it yet, because nothing has grown a real sub-area in tests; the day
-`Dashboards` gets a drag-drop test, the fix is one line here rather than a rename in
-test code.
+encode, so a reorganisation is a line here rather than a rename across test code.
+`Workspaces`, `Inbox` and `Across the app` exist only to hold other rows and own no
+patterns of their own.
 
 A describe's outer text resolves to an area by exact match on `key`. A source file
 resolves to **every** area whose patterns it matches, which is expected rather than an
 error (§2a); a file matching none falls into `infrastructure`.
 
-**Seeded with:** `Capture`, `Triage`, `Associations` and `Offline` have real source
-patterns (`Offline` also owning `packages/shared/src/ids.ts` for client-side ID
-generation), as do `Sign-in`, `Workspace management` and `Accounts`, each added with the
-work that created them. `Dashboards`, `Panels`, `Focus`, `Connector management` and
-`User management` are declared with empty `sourcePatterns` until code exists to match
-them, which is legal and just holds the row at zero.
+**Empty patterns are legal.** `Focus`, `Connector management` and `User management` are
+declared ahead of the code that will own them and hold their rows at zero until it lands;
+every other area owns real patterns, added with the work that created it. `Menus`,
+`Deleting`, `Ordering` and `Live updates` name the parts shared between features, and
+their rows start with real files and no rules — which is the report saying that a shared
+component is proven only through the features using it, one level too high.
 
 A describe naming an unregistered area is a build error at `--check-concepts` time. A
 `parent` naming an absent or cyclical key is a warning and renders as a root instead, so
