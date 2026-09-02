@@ -79,7 +79,7 @@ describe('analyze (end to end against a fixture repo)', () => {
     expect(capture.counts.F1).toBe(0);
 
     // The rule and its case each carry their own location and a source-context window, not just
-    // a case count — docs/test-explorer-spec.md §2d.
+    // a case count — docs/test-explorer-spec.md, "How the built tool got its current shape" (§2b).
     expect(rule.cases).toHaveLength(1);
     expect(rule.cases[0].text).toBe('returns 1');
     expect(rule.cases[0].context.some((l) => l.line === rule.cases[0].line && l.text.includes("it('returns 1'"))).toBe(true);

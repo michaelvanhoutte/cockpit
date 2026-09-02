@@ -1,8 +1,8 @@
-# Statement list for issue #36 (experiment)
+# Statement list for "Render actions in panels, backed by one shared action list" (issue 36) — experiment
 
 **Status:** experiment, not a decision. Delete when the experiment is done. The method
-that produced it is in `testing-decisions-wip.md`, section "How a statement list is
-generated".
+that produced it is in
+[.claude/skills/testing/references/statement-lists.md](../.claude/skills/testing/references/statement-lists.md).
 
 ## How to review
 

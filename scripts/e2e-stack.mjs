@@ -6,9 +6,12 @@
 // It is a *second*, throwaway copy of the application, deliberately not the one
 // `pnpm dev` runs:
 //
-//   - Its own ports (5273/8887, against dev's 5173/8787), so a test run and the
+//   - Its own ports, against the ones `pnpm dev` uses, so a test run and the
 //     app you are clicking through can be open at the same time and neither
-//     notices the other.
+//     notices the other. Which ports depends on the checkout
+//     (scripts/lib/ports.mjs): the primary one gets :5273 and :8887, a linked
+//     worktree a pair of its own, so two worktrees can run this suite at the
+//     same time as well.
 //   - Its own state directory, restored to a known state before every run. The
 //     tests therefore start from the same place, every time, and may assert
 //     what is on screen rather than only that their own row appeared.
@@ -44,14 +47,21 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { paint, run, start, stop, supervise } from './lib/processes.mjs';
+import { howToFreeThePort, isLinkedWorktree, portsFor } from './lib/ports.mjs';
 import { assertPortFree, schemaDigest, templateIsCurrent, waitForApi } from './lib/stack.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const apiDir = join(root, 'apps/api');
 
-/** Kept in one place because playwright.config.ts has to agree with them. */
-export const WEB_PORT = 5273;
-export const API_PORT = 8887;
+/**
+ * Derived rather than written down, and exported because playwright.config.ts
+ * has to reach the same answer - which it now does by asking the same function
+ * rather than by holding a copy of the number that somebody has to remember to
+ * keep in step.
+ */
+const ports = portsFor(root, { linked: isLinkedWorktree(root), env: process.env });
+export const WEB_PORT = ports.e2eWeb;
+export const API_PORT = ports.e2eApi;
 
 // Relative, because wrangler resolves --persist-to against its own cwd (apps/api).
 const TEMPLATE_DIR = '.wrangler/state-e2e-template';
@@ -107,6 +117,23 @@ async function ensureTemplate(digest) {
   writeFileSync(stamp, `${digest}\n`);
 }
 
+/**
+ * Why this suite in particular will not simply use the port.
+ *
+ * `pnpm dev` may perfectly well run against a server somebody else started; it
+ * only cannot bind twice. This suite may not, and that is the sentence worth
+ * keeping: its whole premise is a database rebuilt on the way up, and a server
+ * it did not start is holding one it did not build. The rest - which is what to
+ * actually do about it - is the same answer everywhere, so it comes from the
+ * same place.
+ */
+function refusing(which, port) {
+  return (
+    `This suite will not run against a server it did not start, because its database ` +
+    `would not be the fresh one. ${howToFreeThePort(which, port)}`
+  );
+}
+
 /** Stamp the template out as this run's database. The 5ms half of the trade. */
 function freshDatabase() {
   rmSync(join(apiDir, RUN_DIR), { recursive: true, force: true });
@@ -121,8 +148,8 @@ try {
   // the storage out from under the process we are about to refuse to run
   // against, and would spend a possibly minutes-long build before noticing the
   // conflict at all.
-  await assertPortFree(API_PORT, 'test API');
-  await assertPortFree(WEB_PORT, 'test web server');
+  await assertPortFree(API_PORT, 'test API', () => refusing('e2eApi', API_PORT));
+  await assertPortFree(WEB_PORT, 'test web server', () => refusing('e2eWeb', WEB_PORT));
 
   await ensureTemplate(schemaDigest(apiDir));
   freshDatabase();
@@ -152,7 +179,7 @@ try {
 } catch (error) {
   console.error(paint('31', `\n${error.message}`));
   // stop(), not api.kill(): on Windows the child here is a shell, and signalling
-  // it would leave Wrangler holding :8887 — which the port check above would
+  // it would leave Wrangler holding the API port — which the check above would
   // then refuse to start against on every later run.
   stop(api);
   process.exit(1);

@@ -5,9 +5,20 @@ description: Cockpit's process for turning an already-scoped piece of work into 
 
 # Filing a GitHub issue
 
-Issues are how work gets sized and handed to an agent for one sitting. Per [docs/ideas.md](../../../docs/ideas.md), they must be small enough to control what gets tested, but they are not the long-term record - once an issue is built, the source (code, tests, the feature's own docs) is what stays true, per [docs/testing-strategy.md](../../../docs/testing-strategy.md).
+Issues size work for one sitting. They are not the long-term record: once an issue is built, the source — code, tests, the feature's own docs — is what stays true, per [docs/testing-strategy.md](../../../docs/testing-strategy.md).
 
-Sharpening the requirements, sizing the vertical slice, enumerating the failure modes where state cannot be put back, and generating the statement list are not part of this skill - they belong to any new piece of work, filed or not, and live in the [scoping](../scoping/SKILL.md) skill. If that hasn't run yet for this work, run it first. This skill only covers what's specific to the GitHub artifact: the body template and publishing.
+Sharpening, sizing, failure modes and the statement list belong to the [scoping](../scoping/SKILL.md) skill and are not repeated here. This skill covers only the body template and publishing.
+
+## Length
+
+**An issue is a brief, not an essay.** Whoever builds it reads it inside a context budget, so every sentence that does not change what gets built is a cost paid on every read. Follow the "Writing" rules in [CLAUDE.md](../../../CLAUDE.md), and specifically:
+
+- **Problem and What to build: three or four sentences each.** State the behaviour and the reason it is wanted. Evidence — a log count, a failing run, a measurement — is one sentence with the number in it, not a reconstruction of how it was found.
+- **Give a rejected explanation one line.** "Not the `writeSSE` calls: Hono's `StreamingApi.write()` discards write errors." The reader needs the conclusion and the fact behind it, not the investigation.
+- **Cut anything the builder will discover in the first ten minutes.** Speculation about where a bug lives belongs in the issue only where it saves real time, and then as a list of candidates, not prose.
+- **Open questions are bullets, one or two sentences each.**
+
+A 400-word issue is normal, and past 800 words something is being explained twice. That budget counts the prose; the **Test cases** section is a statement list whose length is governed by the pruning criterion in `statement-lists.md`, not by a word count, and it is never trimmed to meet this rule.
 
 ## Process
 
@@ -27,11 +38,10 @@ can (schema, state machine) - trimmed to the decision, noted as coming from a pr
 
 ## Failure modes
 
-[only where the work changes state it cannot put back - the answers from scoping's "Enumerate the failure modes when state cannot be put back" step:
-what must hold if it fails partway, if it runs again, when it meets data the new rules
-reject, what each environment actually does, and in every window it can be interrupted.
-Omit this section entirely for work that does not. The analysis is the expensive part of
-scoping such work; an issue that drops it makes whoever builds this redo it.]
+[One line per question from scoping's "Enumerate the failure modes when state cannot be put
+back" step. Omit the section entirely where the work changes nothing it cannot put back;
+where it does, an issue that drops it makes whoever builds this redo the expensive part of
+scoping.]
 
 ## Blocked by
 
@@ -39,7 +49,8 @@ Issue numbers this depends on, or "None."
 
 ## Test cases
 
-[the statement list scoping produced, with the framing line from scoping's "Generate the statement list" step]
+[the statement list scoping produced, with the framing line from scoping's "Generate the
+statement list" step]
 
 ## Out of scope / open questions
 

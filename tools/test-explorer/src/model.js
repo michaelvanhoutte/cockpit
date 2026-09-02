@@ -15,14 +15,15 @@
  * is measurement — counts of what exists, plus real coverage gaps — which is
  * what this model carries.
  *
- * Amended after first use (docs/test-explorer-spec.md §2c): areas are a
+ * Amended after first use (docs/test-explorer-spec.md, "How the built tool got
+ * its current shape" (§2b)): areas are a
  * **tree**, not a flat list — a big area like Dashboards will have real
  * sub-areas (drag-drop, resizing, ...), and a parent's own rule counts are
  * not meant to look like the whole subtree's. Columns are the actual six
  * testing-strategy levels plus Contract, not the coarser backend/frontend/
  * browser grouping the first version collapsed them into.
  *
- * Amended again after second use (docs/test-explorer-spec.md §2d): a rule
+ * Amended again after second use (same section): a rule
  * used to carry only case *counts*; it now carries each case's own text and
  * location, because "3 cases" doesn't answer "what exactly is tested" the
  * way the printed case name does. Every file:line anywhere in the model

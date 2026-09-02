@@ -1,6 +1,6 @@
 # Cockpit
 
-Unified Inbox & Dashboards. One Cloudflare Worker (`apps/api`) serves the Hono API, SSE and the built SPA (`apps/web`) as static assets on a single origin; `packages/shared` is the contract between them. Node >= 22, pnpm workspace.
+Unified Inbox & Dashboards. One Cloudflare Worker (`apps/api`) serves the Hono API, SSE and the built SPA (`apps/web`) as static assets on a single origin; `packages/shared` is the contract between them. Node >= 22.12, pnpm workspace.
 
 ## Run it
 
@@ -9,15 +9,26 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` applies the local D1 migrations, seeds the database, builds the SPA if it has never been built, then runs the API on <http://localhost:8787> and the web app on <http://localhost:5173> together. It is safe to re-run — every setup step is idempotent — and Ctrl+C stops both halves. Use `pnpm dev:api` or `pnpm dev:web` to run one alone.
+`pnpm dev` applies the local D1 migrations, seeds the database, builds the SPA if it has never been built, then runs the API and the web app together, printing both addresses. Every step is idempotent, so re-running is safe; Ctrl+C stops both halves. `pnpm dev:api` and `pnpm dev:web` run one alone. `pnpm build`, `pnpm typecheck` and `pnpm test` run across every package.
 
-`pnpm build`, `pnpm typecheck` and `pnpm test` run across every package.
+**The ports depend on the checkout, so read them off what `pnpm dev` prints.** The primary checkout keeps <http://localhost:8787> and <http://localhost:5173>; a linked worktree gets a pair derived from its own path, the same pair every time, so several worktrees can each run the app at once (`scripts/lib/ports.mjs`). The browser tier's two ports move the same way. Never write one of these numbers into a document or a test as though it were fixed — ask `portsFor` instead, which is what `playwright.config.ts` does.
+
+## Writing
+
+**Say it once, in as few sentences as it takes.** Documents, issues, pull request bodies and review replies are all read by agents on a context budget, so length is a cost paid on every future read.
+
+- **A rule and its reason fit in one or two sentences.** Keep the reason — a rule without one gets argued with — but a clause is usually enough.
+- **Name the incident, don't retell it.** "One issue was built whole after it had already merged" carries the same warning as the paragraph reconstructing it. Keep the story only where it is the evidence, and keep it to a sentence.
+- **Say it in one place.** A point made in the introduction is not repeated in the section, and a rule stated in a skill is referenced from here rather than restated. The one exception is a rule that has to hold in a session which never loads that skill — this file is in context always, a skill only once something triggers it — and a restatement claiming that exception says so where it stands.
+- **Parallel cases are a table or a list**, not prose that walks through each one.
+- **Start at the point.** Delete "it is worth noting that", "the requirement is therefore twofold", "worth writing down, because".
+- **Cut what the reader can see.** Don't describe the code, the diff or the diagram that follows; say what it means.
 
 ## Scoping new work
 
-**Before writing code for any new feature or fix, run the `scoping` skill in `.claude/skills/scoping/`** — sharpening fuzzy requirements, sizing the work as a vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and generating its statement list. This applies whether the work is going straight into this session or being filed as a GitHub issue first; filing is not what triggers it.
+**Before writing code for any new feature or fix, run the `scoping` skill in `.claude/skills/scoping/`** — sharpening requirements, sizing the vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and generating the statement list. Starting the work triggers it, not the decision to file an issue.
 
-**Check the issue is still open, and unclaimed, at the moment you start it.** Several sessions work this repository at once: during one five-issue run `main` gained thirteen commits from other sessions, including one that took an issue explicitly held back from that run. "Rename and delete a workspace" (issue 77) was built whole — nine hundred lines, its tests, its browser pass — and only then found to have merged hours earlier as pull request 97. None of it was salvageable, because the version already on `main` was not worse: the three bugs the browser pass had found were all absent from it. Fetching `main` is not this check, and neither is having read the issue an hour ago — it can be closed by work that merged before your branch point, and by work that merges while you read it.
+**Check the issue is still open, and unclaimed, at the moment you start it.** Several sessions work this repository at once: "Rename and delete a workspace" (issue 77) was built whole — nine hundred lines, tests and a browser pass — and only then found to have merged hours earlier as pull request 97, with none of it salvageable. Fetching `main` is not this check, and neither is having read the issue an hour ago: it can be closed by work that merged before your branch point, or while you read it.
 
 ```bash
 gh issue view <number> --json state,title,assignees
@@ -26,18 +37,18 @@ gh pr list --state all --search <number> --json number,title,state
 
 ## Tests
 
-**Follow the `testing` skill in `.claude/skills/testing/` before writing, moving or reviewing any test.** It triggers on its own and restates every binding rule, so there is no need to open the strategy document to write a test. `docs/testing-strategy.md` holds the reasoning and is the authoritative version of record; open it to change a rule or to settle something the skill does not decide.
+**Follow the `testing` skill in `.claude/skills/testing/` before writing, moving or reviewing any test.** It restates every binding rule, so there is no need to open the strategy document to write a test. `docs/testing-strategy.md` holds the reasoning and is the version of record; open it to change a rule or to settle something the skill does not decide.
 
-The two rules that get skipped most, repeated here because they are the ones that cost the most:
+The two rules that get skipped most, restated here rather than referenced because this file is in context in every session and the skill is not:
 
 - **Test at the lowest level that can prove the behaviour**, and escalate only for what that level physically cannot verify. Never re-prove lower-level coverage higher up the pyramid.
-- **Nothing is "working" until the application has been started and the changed behaviour exercised.** Green unit and integration tests are never evidence that the app runs — start it with `pnpm dev` and drive the change in the browser. This is why the command above has to stay one command.
+- **Nothing is "working" until the application has been started and the changed behaviour exercised.** Green unit and integration tests are not evidence that the app runs — start it with `pnpm dev` and drive the change in the browser. This is why that command has to stay one command.
 
 ## Review findings
 
-**Run the review yourself before pushing — `/code-review`, not only `/security-review`.** The two are not interchangeable, and running the cheaper one reads, from the transcript, exactly like having reviewed. Across the five pull requests of one run, every one of the twenty findings that came back — eighteen review threads and two more raised in a comment — was a code-review finding: an offline read that hung instead of failing, a route preload writing state on hover, a test that could no longer fail. The security review found nothing on any of them, correctly, and that silence read as a review having happened. `/code-review` reads the same diff the pull request's reviewer will, and it runs now, where a remote round costs a push, a fresh CI run and fourteen minutes of waiting. Five of the eight findings in the first round on "Recover from an expired sign-in instead of failing silently" (pull request 71) were a single mechanical rule — a section cited by its number — that takes no judgement to find. Two rounds on that change spent twenty-eight minutes waiting to be told things a local pass says immediately.
+**Run `/code-review` yourself before pushing, not only `/security-review`.** Across five pull requests of one run, all twenty findings were code-review findings and the security review correctly found nothing — silence that read, from the transcript, like a review had happened. A local pass runs now; a remote round costs a push, a CI run and fourteen minutes.
 
-**Opening the pull request is not the end of the task — the review runs after the push.** So a session that reports back the moment the pull request exists is handing over a job it has not finished, and "CI was still pending when I looked" is not a status: it is a note saying nobody looked again. Wait for the checks to settle before reporting done, then work the findings to the end of the rule below. Waiting is one command, and it costs nothing but wall clock:
+**Opening the pull request is not the end of the task — the review runs after the push.** "CI was still pending when I looked" is not a status; it is a note saying nobody looked again. "Create a workspace from a settings page" (pull request 81) was opened while `claude-review` was still pending and reported done in the same breath, and the one finding it went on to raise sat unanswered until somebody noticed by hand. Wait for the checks to settle, then work the findings to the end of the rule below.
 
 ```bash
 sha=$(git rev-parse HEAD); before=
@@ -50,19 +61,15 @@ done
 gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '.check_runs[] | [.name, .conclusion] | @tsv'
 ```
 
-Run it from inside the repository — `git rev-parse` needs the working directory, and so does gh's `{owner}/{repo}`. Run it in the background and carry on with something else; do not poll it by hand and do not finish the turn on a pending check. This is what happened on "Create a workspace from a settings page" (pull request 81): the pull request was opened while `claude-review` was still pending, reported as done in the same breath, and the one finding it went on to raise sat unanswered until it was noticed by hand — and it was a mechanical one, a section cited by its number, which is the same rule the two rounds on pull request 71 were spent on.
+Run it from inside the repository, in the background, and carry on with something else — `git rev-parse` and gh's `{owner}/{repo}` both need the working directory. Do not poll it by hand and do not finish the turn on a pending check.
 
-**Wait on the commit you pushed, which is why that command names a SHA.** A waiter that asks "are this pull request's checks still pending?" answers about whatever GitHub currently calls the head, and for the seconds around a push that is still the *previous* commit — whose checks are long finished and green. It returns immediately, reporting a pass that belongs to code you have replaced. That happened twice in one run, and the second time the green it reported was one command away from being merged on.
+**Wait on the commit you pushed, which is why that command names a SHA.** For the seconds around a push, GitHub's head is still the *previous* commit, whose checks are long green — so a waiter that asks "are this pull request's checks pending?" returns immediately, reporting a pass that belongs to code you have replaced. That happened twice in one run, and once was one command away from being merged on.
 
-**Settled means the list of checks stopped changing, not that the checks it happened to see are done.** Check runs are not registered together: `ci.yml` triggers on `push` as well as on `pull_request`, while the two review workflows and CodeQL trigger only on `pull_request`, so the ordinary sequence — push, `ci.yml` starts and finishes, `gh pr create`, start waiting — reaches a commit that has a full set of *completed* runs and no `claude-review` yet. A waiter that asks only "is anything pending?" answers green there, on the exact failure this section exists to prevent. So the loop above compares the whole `name:status` list against the previous poll and settles only when it is non-empty, unchanged, and completed throughout; it therefore always costs at least two polls, which is the price of the guarantee.
+**Settled means the list of checks stopped changing, not that the ones it saw are done.** `ci.yml` triggers on `push` as well as `pull_request`, while the review workflows and CodeQL trigger only on `pull_request`, so the ordinary sequence — push, `ci.yml` finishes, `gh pr create`, start waiting — reaches a commit with a complete set of *completed* runs and no `claude-review` yet. The loop above therefore compares the whole `name:status` list against the previous poll, which costs at least two polls.
 
-**A finding is not handled until its own review thread says so.** Fixing the code and pushing is half the job: GitHub never resolves a thread by itself. A push only adds an *Outdated* badge, and only when the lines the comment was anchored to have left the diff; merging changes nothing either. So for every thread, reply naming the commit that fixed it and what changed, then resolve it. Where the fix did not land, or the finding was declined on purpose, reply saying which and leave the thread open. Never resolve a thread without a reply, and never resolve one whose fix has not been checked against the committed code rather than against the commit message that claims it.
+**A finding is not handled until its own review thread says so**, because GitHub never resolves one by itself — a push only adds an *Outdated* badge. Reply naming the commit that fixed it and what changed, then resolve; where the fix did not land or was declined on purpose, reply saying which and leave the thread open. Never resolve without a reply, and never on the strength of a commit message rather than the committed code. All ten findings on "Make the database enforce the schema conventions, not just the callers" (pull request 69) were fixed, pushed, and still read as unanswered: the pull request is the audit trail, not the session. `gh pr view` does not show thread state — query `reviewThreads` for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
 
-The pull request is the audit trail; the session that produced the fix is not. All ten findings on "Make the database enforce the schema conventions, not just the callers" (pull request 69) had been fixed and pushed, and all ten still read as open and unanswered — from the pull request alone there was no evidence that any of the review had been handled, and the reasonable conclusion was that something had broken.
-
-`gh pr view` does not show thread state at all. Query `reviewThreads` on the pull request for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
-
-**Read what `main` has gained before finishing, not only what it has changed.** Merging it in is routine; noticing that its *instructions* moved is not. The rule above landed on `main` twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it — every finding fixed and pushed, every thread still unanswered.
+**Read what `main` has gained before finishing, not only what it has changed.** The rule above landed twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it.
 
 ## Where things are decided
 
@@ -76,14 +83,14 @@ The pull request is the audit trail; the session that produced the fix is not. A
 
 Options documents (`docs/*-options.md`) record integration research. `poc/` holds proofs of concept and is outside the workspace, so it never runs in CI.
 
-**Cite a section by its name, never by its number alone.** "The bootstrap runbook (deployment §7)" tells the reader what is being pointed at; "deployment §7" makes them go and look it up before they can even judge whether it is relevant, and in conversation it says nothing at all. The numbers are useful as locators inside the documents, which cross-reference each other constantly — they are not a shorthand anyone can read. The same applies to issue numbers: name the issue, then give the number.
+**Cite a section by its name, never by its number alone**, and name an issue before giving its number. The numbers are locators inside documents that cross-reference each other; they tell a reader nothing on their own, and in conversation they say nothing at all.
 
-**When you add or change a rule, apply it across the whole change mechanically.** Search for every instance rather than judging them one at a time. Four of the thirteen review findings on the pull request that added the rule above were that same rule, broken elsewhere in the same change — each one survived because it was looked at individually and seemed defensible, and one sweep missed a whole class because grepping for `§` structurally cannot find the issue numbers the rule also covers. The same holds when a fact stops being true: search for the *claim*, not the file you happen to have open. "The browser tier runs against the `pnpm dev` pair" was corrected three times, in three files, before anyone searched for the sentence itself.
+**When you add or change a rule, apply it across the whole change mechanically** by searching for every instance. Four of the thirteen findings on the pull request that added the rule above were that same rule broken elsewhere in the same change, and one sweep missed a whole class because grepping for `§` cannot find issue numbers. The same holds when a fact stops being true: search for the *claim*, not the file you happen to have open — "the browser tier runs against the `pnpm dev` pair" was corrected in three files before anyone searched for the sentence.
 
-**Counts and enumerations are claims as much as sentences are.** Adding a tenth feature area left the same “nine areas” claim standing in three places across two documents. Review found the pair in the file it happened to be reading; the third, the registry's own comment, surfaced only from searching for the sentence.
+**Counts and enumerations are claims as much as sentences are.** A tenth feature area left the same "nine areas" claim standing in three places across two documents; the third only surfaced from searching for the sentence.
 
-**Write file content with `Write` and `Edit`, and keep the shell for commands.** A heredoc into a script into a TypeScript string is three layers of escaping, and `\r\n`, a lone backslash and a null byte survive none of them. Two source files were mangled that way in one session, both badly enough that `grep` reported them as binary, and the script written to repair the second was broken by the same escaping on its own Windows path. The file tools take content exactly as written.
+**Write file content with `Write` and `Edit`, and keep the shell for commands.** A heredoc into a script into a TypeScript string is three layers of escaping that `\r\n`, a lone backslash and a null byte survive none of — two source files were mangled that way in one session, badly enough that `grep` called them binary.
 
-**Editing a file through the shell is the same rule, and it fails more quietly.** A scripted edit that half-applies leaves a file that still compiles and still passes: one such edit duplicated a four-line guard in `apps/api/src/accounts/command-service.ts`, and all forty tests in the file went on passing — it was found by reading the file, not by running anything. `Edit` fails loudly instead, because it refuses when its `old_string` does not match.
+**Editing a file through the shell is the same rule, and it fails more quietly.** A half-applied scripted edit duplicated a four-line guard in `apps/api/src/accounts/command-service.ts` and all forty tests in the file went on passing; `Edit` refuses instead when its `old_string` does not match.
 
-**Never run a command that discards uncommitted work to get out of a shell problem.** `git checkout <ref> -- .`, `git restore .` and `git reset --hard` take the whole working tree with them and there is nothing to recover from: the work was never committed, so no reflog holds it. The paragraphs above this one were written twice, because the first set was wiped by a `git checkout origin/main -- .` prefixed onto an unrelated command purely to fix which directory it ran in. Commit first, or change directory — a `cd` costs nothing and destroys nothing.
+**Never run a command that discards uncommitted work to get out of a shell problem.** `git checkout <ref> -- .`, `git restore .` and `git reset --hard` take the whole working tree, and nothing was committed to recover from — an earlier version of these paragraphs was lost to a `git checkout origin/main -- .` prefixed onto an unrelated command purely to fix which directory it ran in. Commit first, or `cd`.

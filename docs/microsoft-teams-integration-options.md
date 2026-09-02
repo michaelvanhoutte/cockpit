@@ -103,29 +103,14 @@ Subscribe to:
 
 ## Selected approach
 
-Use an **event-driven, user-scoped integration** rather than polling the entire Teams environment.
+**Graph change notifications, event-driven and user-scoped**, rather than polling the Teams environment.
 
-### Direct messages / chats
+- **DMs and chats:** one user-level subscription to `/users/{user-id}/chats/getAllMessages`, filtering the incoming messages for the ones still needing attention.
+- **Channel @mentions:** a subscription per monitored channel (`/teams/{team-id}/channels/{channel-id}/messages`), keeping a message only when its structured `mentions` collection names the current user. Every message in the selected channel arrives, but its history is never re-polled.
+- **Saved messages:** not integrated, there being no supported Graph API for the user's Saved list.
+- **Tenant-wide subscriptions:** deliberately avoided, their permission and data scope being unnecessarily broad for a personal integration.
 
-Use a user-level Graph change-notification subscription:
-
-`/users/{user-id}/chats/getAllMessages`
-
-Process incoming chat messages for that user and maintain the information needed to determine which messages still require attention.
-
-### Channel mentions
-
-For channels that should be monitored, create channel-level subscriptions:
-
-`/teams/{team-id}/channels/{channel-id}/messages`
-
-For each incoming message, inspect the structured `mentions` collection and retain it only when the mentioned user ID matches the current user.
-
-This means we receive all new messages **within the selected channel**, but we do not have to poll its complete message history repeatedly.
-
-### Saved messages
-
-Do not integrate Saved messages for now. Teams exposes the functionality in the client, but we found no supported Graph API for retrieving the user's Saved list.
+The main thing to validate before implementation is Microsoft's licensing and tenant-consent impact for the user-level subscription model.
 
 ## Resulting architecture
 
@@ -153,17 +138,6 @@ Microsoft Teams
                      v
                Follow-up inbox
 ```
-
-## Conclusion
-
-The preferred Teams integration is **Graph change notifications**, not broad polling.
-
-- **DMs/chats:** user-level `/users/{user-id}/chats/getAllMessages` subscription.
-- **Channel @mentions:** subscriptions to relevant channels + filtering on `chatMessage.mentions`.
-- **Saved messages:** currently unavailable through the supported Graph API.
-- **Tenant-wide subscriptions:** deliberately avoided because their permission and data scope is unnecessarily broad for a personal integration.
-
-The main item to validate before implementation is the exact Microsoft licensing/billing and tenant-consent impact of the selected user-level subscription model.
 
 ## References
 

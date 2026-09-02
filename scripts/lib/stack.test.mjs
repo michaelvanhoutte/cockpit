@@ -84,7 +84,7 @@ describe('templateIsCurrent', () => {
 
 describe('assertPortFree', () => {
   it('resolves when nothing is listening', async () => {
-    await assertPortFree(0, 'test API');
+    await assertPortFree(0, 'test API', () => 'do something about it');
   });
 
   it('rejects when something is listening, saying what to do about it', async () => {
@@ -93,10 +93,13 @@ describe('assertPortFree', () => {
     const { port } = held.address();
 
     await assert.rejects(
-      () => assertPortFree(port, 'test API'),
+      () => assertPortFree(port, 'test API', () => 'stop it, or use another port'),
       (error) => {
         assert.match(error.message, /already in use/);
-        assert.match(error.message, /will not run against a server it did not start/);
+        // The advice comes from the caller: what to do about a taken port is
+        // different for the suite and for `pnpm dev`, and this check knows
+        // about neither.
+        assert.match(error.message, /stop it, or use another port/);
         return true;
       },
     );
