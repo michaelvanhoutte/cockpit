@@ -156,6 +156,13 @@ export function ItemRow({
   const swipe = {
     onPointerDown: (event: React.PointerEvent) => {
       if (event.pointerType !== 'touch') return;
+      // A touch that starts on a control belongs to that control. The menu
+      // opens on pointerdown and the same event bubbles up here, so without
+      // this, tapping the three dots both opened the menu and began a swipe -
+      // and the release then landed on a menu entry in a portal outside this
+      // row, so no pointerup ever arrived to end it and the row stayed shifted
+      // sideways.
+      if ((event.target as Element).closest('button')) return;
       // One finger swipes; a second one landing on the row is ignored rather
       // than taken for the first.
       if (from.current) return;
@@ -198,10 +205,12 @@ export function ItemRow({
       {...swipe}
       style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
       // `touch-action: pan-y` leaves vertical scrolling to the browser and
-      // gives this the horizontal component; `select-none` stops a long press
-      // turning the row into selected text mid-swipe. Both only matter while a
-      // finger is on it, and neither costs a mouse anything.
-      className={`flex touch-pan-y select-none items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 hover:bg-accent-tint/40 ${
+      // gives this the horizontal component. `select-none` stops a long press
+      // turning the row into selected text mid-swipe, and is
+      // `pointer-coarse:` rather than plain: a mouse never swipes, and taking
+      // selection off a row for everyone would mean a title that cannot be
+      // copied to pay for a gesture only a finger makes.
+      className={`flex touch-pan-y items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
         wouldAct ? (gone > 0 ? 'bg-accent-tint' : 'bg-over/15') : ''
       }`}
     >

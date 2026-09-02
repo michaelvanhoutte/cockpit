@@ -135,14 +135,14 @@ describe('Triage', () => {
       expect(asked).toHaveBeenCalledTimes(1);
     });
 
-    it.each([
-      { situation: 'stopped short of the threshold', dx: SWIPE_THRESHOLD_PX - 10, dy: 0 },
-      { situation: 'went mostly downwards', dx: past, dy: past + 1 },
-    ])('sends nothing when it $situation', ({ dx, dy }) => {
+    it('sends nothing when the gesture meant nothing', () => {
+      // One case, not one per way of meaning nothing: they are the same branch
+      // here, and which distances mean nothing is
+      // apps/web/tests/unit/swipe.test.ts's rule rather than this one's.
       const asked = vi.fn();
       const { mutate } = aRow({ onMoveTo: asked });
 
-      swipe({ dx, dy });
+      swipe({ dx: SWIPE_THRESHOLD_PX - 10 });
 
       expect(mutate).not.toHaveBeenCalled();
       expect(asked).not.toHaveBeenCalled();
@@ -171,6 +171,31 @@ describe('Triage', () => {
 
         expect(mutate).toHaveBeenCalledTimes(1);
         expect(mutate.mock.calls[0]![0].payload.status).toBe('dismissed');
+      });
+
+      it('is not started by a touch that landed on a control', () => {
+        // The menu opens on pointerdown and the same event bubbles up to the
+        // row, so tapping the three dots both opened the menu and began a
+        // swipe - and the release then landed on a menu entry in a portal
+        // outside this row, so nothing ever ended it.
+        const asked = vi.fn();
+        const { mutate } = aRow({ onMoveTo: asked });
+        const menu = screen.getByLabelText('Item actions');
+        // Held before the press: opening the menu takes the row out of the
+        // accessibility tree, which is Radix doing its job rather than
+        // anything this case is about.
+        const row = screen.getByRole('listitem');
+
+        fireEvent.pointerDown(menu, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+        fireEvent.pointerUp(row, {
+          pointerType: 'touch',
+          pointerId: 1,
+          clientX: -past,
+          clientY: 0,
+        });
+
+        expect(mutate).not.toHaveBeenCalled();
+        expect(asked).not.toHaveBeenCalled();
       });
 
       it('is not ended by a finger that was not making it', () => {
