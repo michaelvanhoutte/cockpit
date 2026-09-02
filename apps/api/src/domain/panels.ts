@@ -105,11 +105,13 @@ export function appendedPlacement(
     tenantId,
     layoutId,
     panelId,
-    // Past the end of what is there, so it is drawn last. `length` rather than
-    // `last.position + 1`: the positions of a layout read back are 0..n-1 by
-    // construction, and counting is the answer that stays right if one is ever
-    // not.
-    position: existing.length,
+    // Past the end of what is there, so it is drawn last. One past the last
+    // *position* rather than the count of rows, because the two part company
+    // the moment a panel is deleted: deleting one removes its placement without
+    // renumbering the survivors, so five panels minus two leaves three rows
+    // holding positions 0, 3 and 4 - and counting would put the newcomer at 3,
+    // beside a panel already there rather than after all of them.
+    position: (last?.position ?? -1) + 1,
     columnSpan: last?.columnSpan ?? DEFAULT_PANEL_SIZE.columns,
     rowSpan: last?.rowSpan ?? DEFAULT_PANEL_SIZE.rows,
   };

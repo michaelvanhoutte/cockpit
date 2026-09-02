@@ -43,6 +43,21 @@ describe('Panels', () => {
       });
     });
 
+    it('goes after the last place, not after the count, once a panel has been deleted', () => {
+      // Deleting a panel takes its placement without renumbering the ones left,
+      // so three rows can hold positions 0, 3 and 4. Counting them would put
+      // the newcomer at 3, beside a panel already there rather than after them
+      // all - and the rows are ordered by position, so it would be drawn in the
+      // middle of a dashboard it was appended to.
+      const appended = appendedPlacement('tenant', 'wide', 'new', [
+        placement('a', 4, 3, 0),
+        placement('d', 4, 3, 3),
+        placement('e', 4, 3, 4),
+      ]);
+
+      expect(appended.position).toBe(5);
+    });
+
     it('falls back to the ordinary size when the layout holds nothing to copy', () => {
       const appended = appendedPlacement('tenant', 'wide', 'new', []);
 

@@ -30,6 +30,9 @@ export interface PanelCardProps {
   placement: PanelPlacement;
   /** "Move left" on a screen with panels side by side, "Move up" on one without. */
   sideBySide: boolean;
+  /** Where this panel is in the arrangement, so the ends can say they are ends. */
+  at: number;
+  of: number;
   /** True while this panel is the one being renamed, which happens in its own header. */
   renaming: string | null;
   onRenamingChange: (name: string) => void;
@@ -54,6 +57,8 @@ export function PanelCard({
   panel,
   placement,
   sideBySide,
+  at,
+  of,
   renaming,
   onRenamingChange,
   onStartRenaming,
@@ -144,7 +149,7 @@ export function PanelCard({
               label={`Actions for ${panel.name}`}
               entries={[
                 { label: 'Rename', onSelect: onStartRenaming },
-                ...movesFor(placement, sideBySide, onMove),
+                ...movesFor({ at, of, sideBySide }, onMove),
                 ...resizesFor(placement, onResize),
                 { label: 'Delete', destructive: true, onSelect: onDelete },
               ]}
@@ -178,16 +183,40 @@ export function PanelCard({
  * Moving, in the words the screen makes true. Panels flow left to right and
  * wrap, so on a screen only one panel wide they are stacked and "Move left"
  * would name a direction nothing goes in.
+ *
+ * The ends are said out loud rather than silently doing nothing, exactly as the
+ * ends of a resize are: an entry that can be chosen and changes nothing is
+ * indistinguishable from one that is broken. It also keeps a no-op out of the
+ * board, where a change that moves nothing would still record a layout for this
+ * screen out of a gesture that did not arrange anything.
+ *
+ * `keepsFocus`, because these open nothing and are the entries most likely to
+ * be chosen several times in a row - dropping the focus to the top of the page
+ * between two presses of "Move left" is losing your place in the dashboard.
  */
 function movesFor(
-  placement: PanelPlacement,
-  sideBySide: boolean,
+  where: { at: number; of: number; sideBySide: boolean },
   onMove: (places: number) => void,
 ) {
+  const first = where.at === 0;
+  const last = where.at === where.of - 1;
   return [
-    { label: sideBySide ? 'Move left' : 'Move up', places: -1 },
-    { label: sideBySide ? 'Move right' : 'Move down', places: 1 },
-  ].map(({ label, places }) => ({ label, onSelect: () => onMove(places) }));
+    {
+      label: where.sideBySide ? 'Move left' : 'Move up',
+      places: -1,
+      unavailable: first ? `This panel is already ${where.sideBySide ? 'first' : 'at the top'}` : undefined,
+    },
+    {
+      label: where.sideBySide ? 'Move right' : 'Move down',
+      places: 1,
+      unavailable: last ? `This panel is already ${where.sideBySide ? 'last' : 'at the bottom'}` : undefined,
+    },
+  ].map(({ label, places, unavailable }) => ({
+    label,
+    unavailable,
+    keepsFocus: true,
+    onSelect: () => onMove(places),
+  }));
 }
 
 /**
@@ -196,27 +225,35 @@ function movesFor(
  * indistinguishable from one that is broken ("Ask before deleting in a dialog,
  * from the row's own menu", issue 116, which is where the unavailable-with-a-
  * reason entry comes from).
+ *
+ * `keepsFocus` for the reason moving carries it: a resize opens nothing, and
+ * these are entries somebody presses three times in a row to get a panel to the
+ * size they want.
  */
 function resizesFor(placement: PanelPlacement, onResize: (size: { columns?: number; rows?: number }) => void) {
   return [
     {
       label: 'Wider',
+      keepsFocus: true,
       unavailable:
         placement.columns >= GRID_COLUMNS ? 'This panel is already the full width' : undefined,
       onSelect: () => onResize({ columns: placement.columns + 1 }),
     },
     {
       label: 'Narrower',
+      keepsFocus: true,
       unavailable: placement.columns <= 1 ? 'This panel is already as narrow as it goes' : undefined,
       onSelect: () => onResize({ columns: placement.columns - 1 }),
     },
     {
       label: 'Taller',
+      keepsFocus: true,
       unavailable: placement.rows >= MAX_PANEL_ROWS ? 'This panel is already as tall as it goes' : undefined,
       onSelect: () => onResize({ rows: placement.rows + 1 }),
     },
     {
       label: 'Shorter',
+      keepsFocus: true,
       unavailable: placement.rows <= 1 ? 'This panel is already as short as it goes' : undefined,
       onSelect: () => onResize({ rows: placement.rows - 1 }),
     },

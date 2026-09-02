@@ -88,6 +88,13 @@ export function PanelBoard({
   const [draft, setDraft] = useState<PanelPlacement[] | null>(null);
   /** The arrangement waiting on the question of which layout to keep it in. */
   const [asking, setAsking] = useState<PanelPlacement[] | null>(null);
+  /**
+   * The last arrangement actually sent, which is not the same as the last one
+   * drawn: a corner still being dragged is drawn every pointer move and sent
+   * only when the hand stops. Comparing a new gesture against what is *drawn*
+   * would make the release of that drag look like no change at all and drop it.
+   */
+  const sent = useRef<PanelPlacement[] | null>(null);
   const [naming, setNaming] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -134,6 +141,7 @@ export function PanelBoard({
     await queryClient.refetchQueries({ queryKey: ['snapshot', workspaceId] });
     setDraft(null);
     setAsking(null);
+    sent.current = null;
   };
 
   const saveArrangement = (
@@ -158,8 +166,20 @@ export function PanelBoard({
           })),
         },
       },
-      { onSuccess: () => void settle() },
+      {
+        onSuccess: () => {
+          // A layout picked by hand is drawn ahead of the closest one, so a
+          // new layout made while one is picked would be saved and then not
+          // drawn: the board would go back to the old one and the change would
+          // read as having reverted. Repointed rather than cleared, because
+          // "make a layout for this screen" is a request to be on it - and
+          // `deleteLayout` below does the same bookkeeping the other way.
+          if (chosen && chosen !== layoutId) chooseFor(layoutId);
+          void settle();
+        },
+      },
     );
+    sent.current = [...placements];
   };
 
   /**
@@ -192,20 +212,23 @@ export function PanelBoard({
    * A new layout is made silently when there is none, because "change the
    * layout you are on" is not an answer when you are not on one.
    */
-  const propose = (next: PanelPlacement[], from: HTMLElement | null = null) => {
-    // Against what is *shown*, which is the arrangement not yet stored where
-    // there is one: a second gesture made before the first has been re-read is
-    // a change from where the panels are now, not from where the snapshot in
-    // hand still has them - and comparing against the snapshot would drop a
-    // drag that put a panel back exactly where it started.
+  const propose = (
+    next: PanelPlacement[],
+    { from = null, record = false }: { from?: HTMLElement | null; record?: boolean } = {},
+  ) => {
+    // Against what has been *sent* - or the store, where nothing has - rather
+    // than against what is drawn. Three cases have to come out right, and only
+    // this comparison gets all three: a corner drag is drawn on every pointer
+    // move and sent once at the end, so measuring its release against what is
+    // drawn would make it look like no change; a gesture that puts a panel back
+    // where the snapshot has it still has to be sent when an earlier one moved
+    // it; and a gesture that really changes nothing must send nothing.
     //
-    // Only when there is a layout, though. Without that half, "Fit to this
-    // screen" on a dashboard that has never been arranged would do nothing at
-    // all and say nothing: what it computes is exactly what such a dashboard is
-    // already drawn with (arrangement.ts), so the change would be invisible
-    // while the *point* of pressing it - recording a layout for this screen -
-    // had not happened.
-    if (drawnWith && sameArrangement(next, shown)) return;
+    // `record` is the exception, and it is "Fit to this screen" on a dashboard
+    // that has no layout: what it computes is exactly what such a dashboard is
+    // already drawn with (arrangement.ts), so nothing moves - and the point of
+    // pressing it, recording a layout for this screen, has still not happened.
+    if (!record && sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
     setDraft(next);
     askedFrom.current = from;
@@ -357,7 +380,12 @@ export function PanelBoard({
         <button
           type="button"
           disabled={shown.length === 0}
-          onClick={(e) => propose(fittedToScreen(shown, acrossWidth), e.currentTarget)}
+          onClick={(e) =>
+            propose(fittedToScreen(shown, acrossWidth), {
+              from: e.currentTarget,
+              record: !drawnWith,
+            })
+          }
           className="shrink-0 rounded-md border border-black/10 px-2.5 py-1 text-xs hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
         >
           Fit to this screen
@@ -426,7 +454,7 @@ export function PanelBoard({
             gap: PANEL_GAP,
           }}
         >
-          {shown.map((placement) => {
+          {shown.map((placement, at) => {
             const panel = panels.find((one) => one.id === placement.panelId);
             if (!panel) return null;
             return (
@@ -435,6 +463,8 @@ export function PanelBoard({
                 panel={panel}
                 placement={placement}
                 sideBySide={sideBySide}
+                at={at}
+                of={shown.length}
                 renaming={renaming?.id === panel.id ? renaming.name : null}
                 onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
                 onStartRenaming={() => {

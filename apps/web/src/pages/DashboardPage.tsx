@@ -39,8 +39,15 @@ export function DashboardPage() {
           key={dashboard.id}
           workspaceId={workspaceId}
           dashboard={dashboard}
-          panels={data.panels.filter((panel) => panel.dashboardId === dashboard.id)}
-          layouts={data.layouts}
+          // `?? []` because a snapshot can be older than these two fields.
+          // The stored copy is rehydrated from IndexedDB without being parsed
+          // again (main.tsx), so somebody who had Cockpit open before this
+          // landed opens it afterwards holding a snapshot with no `panels` at
+          // all - and reading through it would be a blank screen rather than an
+          // empty dashboard, worst of all while offline, where no answer is
+          // coming to repair it.
+          panels={(data.panels ?? []).filter((panel) => panel.dashboardId === dashboard.id)}
+          layouts={data.layouts ?? []}
         />
       )}
     </div>

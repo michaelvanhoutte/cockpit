@@ -208,10 +208,18 @@ test.describe('Panels', () => {
     // the walk above drives on both projects.
     test.skip(({ isMobile }) => !!isMobile, 'these two are pointer gestures');
 
-    test('takes the size the corner was dragged to', async ({ page, isMobile }) => {
+    test('takes the size the corner was dragged to, and still has it after a reload', async ({
+      page,
+      isMobile,
+    }) => {
       await ownDashboard(page, isMobile);
       const falcon = uniqueTitle('Project Falcon');
       await addPanel(page, falcon, isMobile);
+      // Arranged first, so the drag happens on a dashboard that already has a
+      // layout - which is the case a resize can be dropped in, and the one a
+      // freshly made dashboard does not reach.
+      await press(page.getByRole('button', { name: 'Fit to this screen' }), isMobile);
+      await expectLayouts(page, 1, isMobile);
       const panel = page.getByRole('region', { name: falcon });
       const before = (await panel.boundingBox())!;
 
@@ -230,6 +238,15 @@ test.describe('Panels', () => {
       );
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+
+      // Reloaded, because a resize that is only drawn survives every check on
+      // the screen it was made on and is gone the next time the dashboard is
+      // opened - which is the way it goes wrong, silently and later.
+      await page.reload();
+      await expect(panel).toBeVisible();
+      await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThan(
+        before.width + 100,
+      );
     });
 
     test('moves it past the panel it was dropped on', async ({ page, isMobile }) => {

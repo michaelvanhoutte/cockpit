@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Layout, Panel } from '@cockpit/shared';
@@ -98,6 +98,31 @@ function showBoard({
 async function choose(user: ReturnType<typeof userEvent.setup>, panel: string, entry: string) {
   await user.click(await screen.findByRole('button', { name: `Actions for ${panel}` }));
   await user.click(await screen.findByRole('menuitem', { name: entry }));
+}
+
+/**
+ * Drags a panel's corner to the right and lets go.
+ *
+ * The two halves of the browser the grip needs are stood in for here, and only
+ * those: jsdom implements no pointer capture and no layout, so a grip pressed
+ * in it captures nothing and measures a panel zero pixels wide. What is under
+ * test is the board's half - that letting go of a drag is *sent*, where every
+ * move before it was only drawn - so the size the corner lands on is left to
+ * the browser tier, which is the only place a real one exists.
+ */
+function dragTheCornerOf(panelName: string) {
+  const panel = screen.getByRole('region', { name: panelName });
+  const grip = panel.querySelector('[data-resize-grip]') as HTMLElement;
+  // A panel 300px across at whatever it spans, with its corner at the origin.
+  panel.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, width: 300, height: 240 }) as DOMRect;
+  grip.setPointerCapture = () => undefined;
+  grip.hasPointerCapture = () => true;
+  grip.releasePointerCapture = () => undefined;
+
+  fireEvent.pointerDown(grip, { pointerId: 1, clientX: 300, clientY: 240 });
+  fireEvent.pointerMove(grip, { pointerId: 1, clientX: 600, clientY: 240 });
+  fireEvent.pointerUp(grip, { pointerId: 1, clientX: 600, clientY: 240 });
 }
 
 /** The arrangement the last save_layout carried, as panel ids in order. */
@@ -199,6 +224,34 @@ describe('Panels', () => {
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('save_layout');
       expect(sentOrder(mutate)).toEqual(order);
+    });
+
+    it('leaves the focus on the panel’s own menu, which is where the next move is chosen', async () => {
+      // Moving and resizing open nothing, so there is nowhere else for the
+      // focus to go - and these are the entries somebody presses three times in
+      // a row. Dropped to the top of the page between two presses is losing
+      // your place on the dashboard.
+      const { user } = showBoard();
+
+      await choose(user, 'To read', 'Move left');
+
+      expect(screen.getByRole('button', { name: 'Actions for To read' })).toHaveFocus();
+    });
+
+    it.each([
+      { situation: 'the first panel cannot move earlier', panel: 'Project Falcon', entry: 'Move left: This panel is already first' },
+      { situation: 'the last panel cannot move later', panel: 'To read', entry: 'Move right: This panel is already last' },
+    ])('says so rather than doing nothing when $situation', async ({ panel, entry }) => {
+      // Offered and chosen and nothing happens is indistinguishable from
+      // broken - and on a dashboard with no layout it is worse than nothing,
+      // because a change that moves no panel would still record a layout for
+      // this screen out of a gesture that arranged nothing.
+      const { user, mutate } = showBoard();
+
+      await user.click(await screen.findByRole('button', { name: `Actions for ${panel}` }));
+      await user.click(await screen.findByRole('menuitem', { name: entry }));
+
+      expect(mutate).not.toHaveBeenCalled();
     });
 
     it('names the move after the direction the screen actually goes in', async () => {
@@ -304,6 +357,23 @@ describe('Panels', () => {
       expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
     });
 
+    it('draws the layout it just made, even when another was picked by hand', async () => {
+      // A layout picked by hand is drawn ahead of the closest one, so a new
+      // layout saved while one is picked would be saved and then not drawn: the
+      // board goes back to the old one and the change reads as having reverted.
+      const { user, mutate } = showBoard({
+        layouts: [aLayout('phone', 480, ['falcon', 'reading']), aLayout('wide', 2560, ['reading', 'falcon'])],
+      });
+      await user.click(screen.getByRole('button', { name: 'Layouts' }));
+      await user.click(screen.getByRole('menuitemradio', { name: /Made for 2560 px/ }));
+
+      await choose(user, 'Project Falcon', 'Move left');
+      await user.click(screen.getByRole('button', { name: 'Make a layout for this screen' }));
+
+      const [asked] = mutate.mock.calls.at(-1)!;
+      expect(localStorage.getItem('cockpit.layout.today')).toBe(asked.payload.layoutId);
+    });
+
     it.each([
       { situation: 'cancelled', answer: 'Cancel' },
       { situation: 'dismissed with Escape', answer: null },
@@ -365,6 +435,24 @@ describe('Panels', () => {
 
       expect(mutate).toHaveBeenCalledTimes(2);
       expect(sentOrder(mutate)).toEqual(['falcon', 'reading']);
+    });
+
+    it('sends the size a corner was dragged to, which was only drawn while the hand moved', async () => {
+      // Every pointer move draws the new size without sending it, so by the
+      // time the hand stops the board is already showing what letting go is
+      // about to send. Measured against what is *drawn*, that release looks
+      // like no change at all and the resize is silently never stored - it
+      // survives on screen and is gone on the next reload.
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        settles: false,
+      });
+
+      dragTheCornerOf('Project Falcon');
+
+      const [asked] = mutate.mock.calls.at(-1)!;
+      expect(asked.name).toBe('save_layout');
+      expect(asked.payload.placements[0].columns).toBeGreaterThan(4);
     });
 
     it('sends nothing when the layout in use already holds this arrangement', async () => {
