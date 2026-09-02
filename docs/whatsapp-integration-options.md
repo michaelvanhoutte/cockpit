@@ -207,33 +207,11 @@ messages                 │ Platform / Cloud API    │
                          └─────────────────────────┘
 ```
 
-This gives us the best combination of:
-
--   keeping the existing phone number;
--   continuing to use WhatsApp normally from the phone;
--   receiving supported incoming messages programmatically;
--   using official Meta APIs and webhooks;
--   avoiding fragile WhatsApp Web automation.
+This keeps the existing phone number and normal phone use, receives supported incoming messages programmatically through official Meta APIs and webhooks, and avoids fragile WhatsApp Web automation.
 
 ## Important Limitation: Groups
 
-The main remaining gap is **normal WhatsApp group conversations**.
-
-Coexistence does not expose existing normal group chats through the
-Cloud API. Consequently, a message such as:
-
-> "Michael, can you take care of this tomorrow?"
-
-sent in an existing family, friends or work WhatsApp group cannot be
-captured by this architecture through an official webhook.
-
-The official WhatsApp Groups API does not remove this limitation because
-it concerns groups created/managed through the Business Platform rather
-than providing general API access to the user's existing WhatsApp
-groups.
-
-For now, we accept this limitation rather than introducing an unofficial
-WhatsApp Web integration.
+Coexistence does not expose existing normal group chats through the Cloud API, so *"Michael, can you take care of this tomorrow?"* sent in a family or work group cannot be captured through an official webhook. The official WhatsApp Groups API does not help: it covers groups created through the Business Platform, not general access to existing groups. Accepted rather than introducing an unofficial WhatsApp Web integration.
 
 ## Decision Summary
 
@@ -259,15 +237,4 @@ WhatsApp Web integration.
   Cloud API**                                                         
   ----------------------------------------------------------------------------------
 
-## Final Decision
-
-Use **WhatsApp Business App + Coexistence + WhatsApp Cloud
-API/webhooks** on the existing phone number.
-
-The loss of API access to normal group conversations is accepted as a
-known limitation. We prefer that limitation over relying on an
-unofficial WhatsApp Web automation layer.
-
-The next implementation step is to validate Coexistence
-eligibility/onboarding for the account and configure the Cloud API
-webhook endpoint.
+The next implementation step is to validate Coexistence eligibility and onboarding for the account, then configure the Cloud API webhook endpoint.

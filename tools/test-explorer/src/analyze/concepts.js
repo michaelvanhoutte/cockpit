@@ -97,7 +97,7 @@ export function withInfrastructure(concepts) {
 
 /**
  * Turns the flat registry into a tree via each entry's optional `parent` key
- * (docs/test-explorer-spec.md §2c) — a real feature area too big for one row
+ * (docs/test-explorer-spec.md, "How the built tool got its current shape" (§2b)) — a real feature area too big for one row
  * (Dashboards: drag-drop, resizing, ...) gets children this way instead of
  * the describe convention itself needing to encode nesting.
  *

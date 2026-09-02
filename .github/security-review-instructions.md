@@ -1,16 +1,16 @@
 # What a security review of this repository looks for
 
-Appended to the `/security-review` run in `.github/workflows/claude-security-review.yml`. It exists as a file rather than as a string inside the workflow because it is prose that will grow, and prose inside a YAML scalar inside a shell quote is three layers of escaping.
+Appended to the `/security-review` run in `.github/workflows/claude-security-review.yml`. A file rather than a string in the workflow, because prose inside a YAML scalar inside a shell quote is three layers of escaping.
 
-CodeQL already runs on every pull request and models injection, taint and workflow misuse. **Do not spend this run re-deriving what CodeQL finds.** What CodeQL cannot model is everything below: rules this project decided on, written down in [docs/architecture.md](../docs/architecture.md), which are invisible to a scanner because breaking them looks like ordinary code.
+CodeQL already runs on every pull request and models injection, taint and workflow misuse. **Do not spend this run re-deriving what CodeQL finds.** What it cannot model is everything below: rules this project decided on in [docs/architecture.md](../docs/architecture.md), invisible to a scanner because breaking them looks like ordinary code.
 
 ## The ingress hardening template
 
-Every webhook ingress route follows the template inherited from the task-creator project and recorded in the architecture under "`capture_item` is one command with many front doors". A new or changed route under `/ingress/` that is missing any of these is a finding:
+Every webhook ingress route follows the template recorded in the architecture under "`capture_item` is one command with many front doors". A new or changed route under `/ingress/` missing any of these is a finding:
 
 - **A shared secret** in the path or headers, so the endpoint is not merely obscure.
-- **Signature verification** against the source's own scheme, done before the payload is parsed or trusted. The architecture puts this on the connector, since it knows its source's scheme — a route that verifies nothing because "the connector will do it" and a connector that verifies nothing because "the route did it" is the failure to look for.
-- **An idempotency key** taken from the source's own message identifier, so redelivery does not double-capture. The architecture names `MessageSid` for the SMS channel; every source has an equivalent, and inventing one locally (a hash of the body, a timestamp) is not the same thing.
+- **Signature verification** against the source's own scheme, before the payload is parsed or trusted. The architecture puts this on the connector, so the failure to look for is a route that verifies nothing because "the connector will do it" and a connector that verifies nothing because "the route did it".
+- **An idempotency key** taken from the source's own message identifier, so redelivery does not double-capture. Inventing one locally (a hash of the body, a timestamp) is not the same thing.
 - **A daily cap**, so a source that goes wrong cannot run up unbounded work.
 
 Report which of the four is missing, not "this webhook is insecure".
