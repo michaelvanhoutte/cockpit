@@ -91,9 +91,10 @@ function move(
 
 /**
  * Files an item onto a panel by writing the row, which no command can do twice
- * for one item until *Add to…* lands (#142). Used only to arrange an item on
- * two panels — the shape the table is for, and the one a read path can get
- * wrong while every single-panel case passes.
+ * for one item until "Ask whether to move an item to a panel or add it to one"
+ * (issue 142) lands. Used only to arrange an item on two panels — the shape the
+ * table is for, and the one a read path can get wrong while every single-panel
+ * case passes.
  */
 async function alsoFileOn(panelId: string, itemId: string, position: number): Promise<void> {
   await inTheStore((sql) =>
