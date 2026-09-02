@@ -254,9 +254,9 @@ The seven columns are `model.js`'s `LEVELS`, in testing-strategy's own order:
 | L3 | `apps/*/tests/system/` (no folder exists yet) | count, or `n/a` for every row while the workspace has one backend service |
 | F1 | `apps/web/tests/unit/` | count |
 | F2 | `apps/web/tests/service/` | count |
-| F3 | `tests/e2e/` at the repo root | count (Playwright spells the same structure `test.describe`; see §6.2) |
+| F3 | `tests/e2e/` at the repo root | count (Playwright spells the same structure `test.describe`; see "Rule extraction", §6.2) |
 | Contract | `packages/connectors/*/tests/contract/` | count, or `n/a` for any area with no connector package |
-| Files nothing runs | — | source files matching this area's patterns that no test file imports directly — a real limitation for HTTP-driven integration tests, see §2a |
+| Files nothing runs | — | source files matching this area's patterns that no test file imports directly — a real limitation for HTTP-driven integration tests, see "A convention change that landed mid-build", §2a |
 | Branches nothing takes | — | merged branch coverage (§6.3) restricted to this area's files |
 
 No percentage anywhere, including as a secondary number: once one exists it becomes the
@@ -483,7 +483,7 @@ read-only fixture, then re-validated against the real merge (`0897f91`), which i
 11. First-use feedback: tree rows, real levels, hyperlinks, commit link, readable gaps.
 12. Second-look feedback: tabbed panel, case-level detail, inline source viewer.
 
-Rounds 11–12 and the later feedback and review rounds are summarised in §2b.
+Rounds 11–12 and the later feedback and review rounds are summarised in "How the built tool got its current shape" (§2b).
 
 ## 10. Explicitly out of scope
 

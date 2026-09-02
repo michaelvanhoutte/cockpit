@@ -307,7 +307,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Priority** — low / normal / high importance, independent of the Focus horizon.
 - **Next action** — the short, always-editable label describing what to actually do about an Item.
 - **Focus horizon** — Today / This Week / This Month / This Quarter, date-anchored so it escalates to overdue.
-- **Triage / process** — assigning associations and a status so an Item leaves the To-Process inbox. (Interim: until Panels hold Items, a triaged Item stays in the Inbox showing its new status — see §5.)
+- **Triage / process** — assigning associations and a status so an Item leaves the To-Process inbox. (Interim: until Panels hold Items, a triaged Item stays in the Inbox showing its new status — see the interim note in "The Inbox and the triage flow" (§5).)
 - **User** — a person who uses this Cockpit. Each User owns one Account, which is what makes two Users' work separate. A User has a **Role**.
 - **Role** — *user* or *admin*. Carried today and enforced nowhere; the first admin-only part of the app brings the check with it.
 - **Sign in** — saying which User you are. Today by choosing a name on the **logon page**, which proves nothing and is meant not to; passwords and Google sign-in replace that step later. A sign-in lasts a set time, renews while used, and expires on its own, and Cockpit says so rather than failing at you.

@@ -99,9 +99,9 @@ If step 2 reveals a failure the tests missed, add the missing test before finish
 
 ## 7. Run-time budget (hard gates)
 
-- **The combined fast tiers must complete in under 5 minutes locally**, L1 + F1 alone in seconds. A hard gate, because §6 requires running them in full on every change and that only survives if the run stays cheap. **Exceeding the budget makes restoring it priority work** — push tests down the pyramid, delete redundant ones, parallelize — never resolved by skipping runs.
+- **The combined fast tiers must complete in under 5 minutes locally**, L1 + F1 alone in seconds. A hard gate, because "Definition of done for agents" (§6) requires running them in full on every change and that only survives if the run stays cheap. **Exceeding the budget makes restoring it priority work** — push tests down the pyramid, delete redundant ones, parallelize — never resolved by skipping runs.
 - Keep L3/F3 few and thin. Before adding one, ask what it proves that nothing below can; if the answer is nothing, do not add it.
-- Slow-tier tests must be organized by capability so the selective runs §6 allows are actually possible.
+- Slow-tier tests must be organized by capability so the selective runs "Definition of done for agents" (§6) allows are actually possible.
 
 ## 8. Flakiness policy
 

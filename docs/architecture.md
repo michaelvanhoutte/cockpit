@@ -214,7 +214,7 @@ The dependency rule is one-directional: `domain` imports nothing from the other 
 
 **Decision: Cron Triggers** for schedules (sync cadences, reconciliation, nightly contract runs) and **Cloudflare Queues** for deferred work (AI enrichment on ingest, webhook-triggered pulls), both consumed by the same Worker.
 
-- An earlier draft chose pg-boss, which assumes an always-on Node process polling Postgres; no such process exists on Workers, so §9 re-derives this decision too. The workload — dozens of jobs per minute at worst — is far below where heavier infrastructure earns its cost.
+- An earlier draft chose pg-boss, which assumes an always-on Node process polling Postgres; no such process exists on Workers, so the hosting decision ("Hosting, CI/CD, and observability", §9) re-derives this one too. The workload — dozens of jobs per minute at worst — is far below where heavier infrastructure earns its cost.
 - **Job handlers are plain functions in `jobs/` calling `domain/`; the queue is an adapter**, so nothing in domain logic imports a Cloudflare API.
 - One caveat inherited honestly: pg-boss offered enqueue-in-the-same-transaction, Queues do not. Handlers are idempotent (§4.3), so at-least-once delivery plus retries is sufficient and no exactly-once machinery is built.
 
