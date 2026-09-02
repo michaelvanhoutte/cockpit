@@ -12,7 +12,7 @@ import { persister } from '../persistence';
  * and the only screen with none of the app mounted to write what it removes
  * straight back out again (the reason is in `pages/LogonPage.tsx`). It is the
  * whole of "nothing of what you were looking at is left on screen or in the
- * browser's cache for whoever signs in next". There are three places to reach,
+ * browser's cache for whoever signs in next". There are four places to reach,
  * and missing any one of them leaves a leak that only shows up when a second
  * person uses the same browser:
  *

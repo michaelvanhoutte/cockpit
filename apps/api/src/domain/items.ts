@@ -72,7 +72,19 @@ export function applySetStatus(item: Item, cmd: SetStatusCommand): Item | null {
 
 export function applySnoozeUntil(item: Item, cmd: SnoozeUntilCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
-  return { ...item, status: 'snoozed', snoozedUntil: cmd.until, updatedAt: cmd.issuedAt };
+  return {
+    ...item,
+    status: 'snoozed',
+    snoozedUntil: cmd.until,
+    // Snoozing lifts a dismissal, for the same reason every other status does
+    // (`applySetStatus`): an item hidden until a date is not one that has been
+    // got rid of. It is also the only way back for a *snoozed* item that was
+    // dismissed - putting only its status back would lose the date it was
+    // waiting for, so undoing that dismissal comes through here rather than
+    // through a status.
+    deletedAt: null,
+    updatedAt: cmd.issuedAt,
+  };
 }
 
 export function applySetFocus(item: Item, cmd: SetFocusCommand): Item | null {

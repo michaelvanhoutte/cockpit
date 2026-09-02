@@ -90,6 +90,30 @@ describe('Triage', () => {
   });
 
   describe('snoozing an item sets when it comes back', () => {
+    it('brings back an item that was dismissed while it was snoozed', () => {
+      // The only way back for a snoozed item: putting only its status back
+      // would lose the date it was waiting for, so undoing that dismissal
+      // comes through here - and it has to lift the dismissal too, or the item
+      // stays out of every list with a wake date nothing will ever act on.
+      const dismissed = applySetStatus(anItem({ status: 'snoozed' }), {
+        ...request,
+        issuedAt: LATER,
+        itemId: 'x',
+        status: 'dismissed',
+      })!;
+
+      const back = applySnoozeUntil(dismissed, {
+        ...request,
+        issuedAt: '2026-08-31T12:00:00.000Z',
+        itemId: 'x',
+        until: '2026-09-08T08:00:00.000Z',
+      });
+
+      expect(back?.deletedAt).toBeNull();
+      expect(back?.status).toBe('snoozed');
+      expect(back?.snoozedUntil).toBe('2026-09-08T08:00:00.000Z');
+    });
+
     it('stores the status and the wake date together', () => {
       const updated = applySnoozeUntil(anItem(), {
         ...request,
