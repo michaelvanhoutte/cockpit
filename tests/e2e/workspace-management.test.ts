@@ -181,10 +181,15 @@ test.describe('Workspace management', () => {
        * and jsdom has neither layout nor `scrollIntoView` to produce them.
        * The 480px project is where this actually bites.
        *
-       * It caught a real one. The tab was brought into view before the webfont
-       * had swapped in, so every tab then grew and the current one ended up
-       * fifty-one pixels past the edge - clipped mid-word, with every unit
-       * test still green.
+       * **What it holds, and what it does not.** Take the bringing-into-view
+       * away and this goes red, so the rule itself is covered. It does *not*
+       * cover the second half of how the shell does it - the pass once the
+       * webfont has landed - and that was checked rather than assumed:
+       * removing `document.fonts.ready` leaves this green. By the time this
+       * walk switches workspace the font is long cached, so the race it exists
+       * for cannot happen here; reproducing it needs a cold first paint
+       * straight onto a workspace, which is where it was found by hand. Worth
+       * knowing before trusting this to catch a regression in that line.
        */
       await openFirstWorkspace(page, isMobile);
       await openSettings(page, isMobile);
