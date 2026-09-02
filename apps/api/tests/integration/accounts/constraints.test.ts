@@ -119,7 +119,8 @@ describe('Capture', () => {
           .exec<{ name: string; strict: number }>(
             `SELECT name, strict FROM pragma_table_list
               WHERE schema = 'main'
-                AND name IN ('workspaces', 'dashboards', 'items', 'associations', 'commands')
+                AND name IN ('workspaces', 'dashboards', 'panels', 'layouts',
+                             'panel_placements', 'items', 'associations', 'commands')
               ORDER BY name`,
           )
           .toArray(),
@@ -130,6 +131,9 @@ describe('Capture', () => {
         'commands',
         'dashboards',
         'items',
+        'layouts',
+        'panel_placements',
+        'panels',
         'workspaces',
       ]);
       expect(tables.filter((t) => t.strict !== 1)).toEqual([]);
@@ -139,19 +143,23 @@ describe('Capture', () => {
       // SQLite accepts a FOREIGN KEY naming a table that does not exist and
       // only complains on the first write, so a typo in the hand-written DDL
       // would otherwise sit there until somebody captured something.
-      const targets = await inTheStore((sql) =>
-        sql
-          .exec<{ target: string }>(
-            `SELECT "table" AS target FROM pragma_foreign_key_list('items')
-             UNION SELECT "table" FROM pragma_foreign_key_list('associations')
-             UNION SELECT "table" FROM pragma_foreign_key_list('dashboards')
-             ORDER BY target`,
-          )
-          .toArray()
-          .map((r) => r.target),
-      );
+      // One query per table, gathered here rather than UNIONed in SQL: SQLite
+      // caps a compound SELECT at a handful of terms and answers "too many
+      // terms in compound SELECT" once there are more tables than that - which
+      // there now are.
+      const targets = await inTheStore((sql) => {
+        const found = new Set<string>();
+        for (const table of ['items', 'associations', 'dashboards', 'panels', 'layouts', 'panel_placements']) {
+          for (const row of sql
+            .exec<{ target: string }>(`SELECT "table" AS target FROM pragma_foreign_key_list(?)`, table)
+            .toArray()) {
+            found.add(row.target);
+          }
+        }
+        return [...found].sort();
+      });
 
-      expect(targets).toEqual(['items', 'workspaces']);
+      expect(targets).toEqual(['dashboards', 'items', 'layouts', 'panels', 'workspaces']);
     });
   });
 });
@@ -248,6 +256,176 @@ describe('Associations', () => {
       const itemId = nextId();
       await fileItem({ id: itemId });
       await expect(linkItem({ item_id: itemId, kind: 'sandwich' })).rejects.toThrow();
+    });
+  });
+});
+
+describe('Panels', () => {
+  /** The dashboard every workspace is created with, which is what panels hang off. */
+  const DASHBOARD_ID = `${WORKSPACE_ID}-dashboard-1`;
+
+  async function putPanel(overrides: Record<string, unknown> = {}): Promise<void> {
+    const row = {
+      id: nextId(),
+      tenant_id: ACCOUNT_NAME,
+      dashboard_id: DASHBOARD_ID,
+      name: 'Project Falcon',
+      folded_name: 'project falcon',
+      created_at: AT,
+      ...overrides,
+    };
+    const columns = Object.keys(row);
+    await inTheStore((sql) => {
+      sql.exec(
+        `INSERT INTO panels (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+        ...Object.values(row),
+      );
+    });
+  }
+
+  async function putLayout(overrides: Record<string, unknown> = {}): Promise<void> {
+    const row = {
+      id: nextId(),
+      tenant_id: ACCOUNT_NAME,
+      dashboard_id: DASHBOARD_ID,
+      screen_width: 1280,
+      created_at: AT,
+      ...overrides,
+    };
+    const columns = Object.keys(row);
+    await inTheStore((sql) => {
+      sql.exec(
+        `INSERT INTO layouts (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+        ...Object.values(row),
+      );
+    });
+  }
+
+  async function putPlacement(overrides: Record<string, unknown> = {}): Promise<void> {
+    const row = {
+      tenant_id: ACCOUNT_NAME,
+      layout_id: 'placeholder',
+      panel_id: 'placeholder',
+      position: 0,
+      column_span: 4,
+      row_span: 3,
+      ...overrides,
+    };
+    const columns = Object.keys(row);
+    await inTheStore((sql) => {
+      sql.exec(
+        `INSERT INTO panel_placements (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+        ...Object.values(row),
+      );
+    });
+  }
+
+  describe('two panels of one dashboard never go by the same name', () => {
+    it.each([
+      { situation: 'the same name', folded: 'project falcon' },
+      { situation: 'the same name in another case', folded: 'project falcon' },
+    ])('is refused $situation', async ({ folded }) => {
+      // The handlers ask first and answer with a message, so nothing invalid
+      // reaches here through the interface - which is exactly why this is
+      // checked against the store itself ("The database is the second lock").
+      // It has to *refuse* rather than quietly drop the row, or two adds racing
+      // past the check would both report success having written one panel.
+      await putPanel();
+      await expect(putPanel({ folded_name: folded })).rejects.toThrow();
+    });
+
+    it('is allowed on another dashboard, which is what makes the scope the dashboard', async () => {
+      const elsewhere = nextId();
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+           VALUES (?, ?, ?, 'Research', 'research', ?)`,
+          elsewhere,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          AT,
+        );
+      });
+      await putPanel();
+
+      await expect(putPanel({ dashboard_id: elsewhere })).resolves.toBeUndefined();
+    });
+
+    it('is allowed once the panel holding the name is gone', async () => {
+      const doomed = nextId();
+      await putPanel({ id: doomed });
+      await inTheStore((sql) => {
+        sql.exec('UPDATE panels SET deleted_at = ? WHERE id = ?', AT, doomed);
+      });
+
+      await expect(putPanel()).resolves.toBeUndefined();
+    });
+  });
+
+  describe('a panel always sits on a dashboard that exists', () => {
+    it('is refused against a dashboard that was never created', async () => {
+      await expect(putPanel({ dashboard_id: 'db-nope' })).rejects.toThrow();
+    });
+  });
+
+  describe('an arrangement only ever holds a place the grid can draw', () => {
+    it.each([
+      { situation: 'a panel wider than the grid', override: { column_span: 13 } },
+      { situation: 'a panel of no width at all', override: { column_span: 0 } },
+      { situation: 'a panel taller than anything could show', override: { row_span: 9 } },
+      { situation: 'a panel of no height at all', override: { row_span: 0 } },
+      { situation: 'a place before the first one', override: { position: -1 } },
+      { situation: 'a screen of no width', override: { screenWidth: 0 } },
+      { situation: 'a screen wider than any screen', override: { screenWidth: 100_001 } },
+    ])('refuses $situation', async ({ override }) => {
+      const { screenWidth, ...placement } = override as Record<string, number>;
+      const layoutId = nextId();
+      const panelId = nextId();
+      if (screenWidth !== undefined) {
+        await expect(putLayout({ id: layoutId, screen_width: screenWidth })).rejects.toThrow();
+        return;
+      }
+      await putLayout({ id: layoutId });
+      await putPanel({ id: panelId });
+
+      await expect(
+        putPlacement({ layout_id: layoutId, panel_id: panelId, ...placement }),
+      ).rejects.toThrow();
+    });
+
+    it('is stored when the panel and the layout are both real', async () => {
+      const layoutId = nextId();
+      const panelId = nextId();
+      await putLayout({ id: layoutId });
+      await putPanel({ id: panelId });
+
+      await expect(
+        putPlacement({ layout_id: layoutId, panel_id: panelId }),
+      ).resolves.toBeUndefined();
+    });
+
+    it.each([
+      { situation: 'the layout was never made', which: 'layout' },
+      { situation: 'the panel was never added', which: 'panel' },
+    ])('is refused when $situation', async ({ which }) => {
+      const layoutId = nextId();
+      const panelId = nextId();
+      if (which !== 'layout') await putLayout({ id: layoutId });
+      if (which !== 'panel') await putPanel({ id: panelId });
+
+      await expect(putPlacement({ layout_id: layoutId, panel_id: panelId })).rejects.toThrow();
+    });
+
+    it('refuses to put one panel in two places in the same layout', async () => {
+      const layoutId = nextId();
+      const panelId = nextId();
+      await putLayout({ id: layoutId });
+      await putPanel({ id: panelId });
+      await putPlacement({ layout_id: layoutId, panel_id: panelId });
+
+      await expect(
+        putPlacement({ layout_id: layoutId, panel_id: panelId, position: 1 }),
+      ).rejects.toThrow();
     });
   });
 });

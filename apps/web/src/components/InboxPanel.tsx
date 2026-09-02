@@ -18,8 +18,9 @@ import { ItemRow } from './ItemRow';
  * where there is not. Nothing here knows which - what changes is the width it
  * is given.
  *
- * It narrows back to unprocessed items only when panels exist to hold the rest
- * ("Render actions in panels, backed by one shared action list", issue 36).
+ * It narrows back to unprocessed items only when panels hold items - a panel is
+ * a box with a title until then ("Render actions in panels, backed by one
+ * shared action list", issue 36).
  */
 export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   const { data, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
