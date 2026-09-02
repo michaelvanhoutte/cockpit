@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import { CommandRefused } from '../api/client';
+import { ITEM_BEING_DRAGGED, placeAfterMoving, whereItWouldLand } from '../dropAt';
 import { filedOrderOnPanel, orderWithItemAt } from '../filing';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
@@ -36,6 +37,7 @@ export function ItemList({
   workspaceId,
   items,
   openDashboardId,
+  panelId = null,
   /** What the list says when it holds nothing. */
   emptyMessage,
 }: {
@@ -43,6 +45,14 @@ export function ItemList({
   items: readonly Item[];
   /** The dashboard being looked at, which the picker offers first. Null in the Inbox. */
   openDashboardId: string | null;
+  /**
+   * The panel this list is the contents of, or null for the Inbox.
+   *
+   * It is what a row dropped here is filed onto, and what says whether the list
+   * has an order at all: the Inbox is by age, so a drop there is a move with no
+   * place in it.
+   */
+  panelId?: string | null;
   emptyMessage: string;
 }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
@@ -67,7 +77,7 @@ export function ItemList({
     return { panelId, order: panelId ? filedOrderOnPanel(filings, panelId) : [] };
   };
 
-  const move = (item: Item, panelId: string | null) => {
+  const move = (item: Item, panelId: string | null, at = 0) => {
     const before = whereItIs(item);
     // The order the target panel is in afterwards, which is what the command
     // carries: a whole arrangement rather than a position, so two moves
@@ -80,7 +90,7 @@ export function ItemList({
     const order =
       panelId === null
         ? []
-        : orderWithItemAt(filedOrderOnPanel(data?.filings ?? [], panelId), item.id, 0);
+        : orderWithItemAt(filedOrderOnPanel(data?.filings ?? [], panelId), item.id, at);
 
     command.mutate(
       {
@@ -123,6 +133,58 @@ export function ItemList({
     );
   };
 
+  /**
+   * Which gap a dragged row is currently over, or null when nothing is being
+   * dragged across this list. Drawn as a line between two rows.
+   */
+  const [landingAt, setLandingAt] = useState<number | null>(null);
+  const rows = useRef<HTMLUListElement>(null);
+
+  /**
+   * The gap under the pointer, measured from the rows as they are drawn.
+   *
+   * Measured here rather than from the item list, because what a person is
+   * aiming at is a place on the screen: a row that has scrolled, or one drawn
+   * shorter than its neighbours, is where it looks like it is and not where an
+   * index would put it.
+   */
+  const gapUnder = (y: number): number => {
+    // The rows themselves, not the line drawn between them: a landing line is
+    // a child of the same list, and counting it would move the midpoints under
+    // the pointer as the line follows it about.
+    const drawn = [...(rows.current?.querySelectorAll('[data-item-row]') ?? [])].map((row) => {
+      const box = row.getBoundingClientRect();
+      return box.top + box.height / 2;
+    });
+    return whereItWouldLand(drawn, y);
+  };
+
+  /**
+   * A row let go over this list.
+   *
+   * The order sent is the panel's whole arrangement with the item put in the
+   * gap it was dropped in - and `placeAfterMoving` is what makes a row dragged
+   * *downwards* land where it was let go rather than one short, because taking
+   * it out of its old place shifts every gap below that place up by one.
+   */
+  const drop = (event: React.DragEvent) => {
+    const itemId = event.dataTransfer.getData(ITEM_BEING_DRAGGED);
+    setLandingAt(null);
+    if (!itemId) return;
+
+    const filings = data?.filings ?? [];
+    const held = panelId ? filedOrderOnPanel(filings, panelId) : [];
+    const wasAt = held.indexOf(itemId);
+    const gap = placeAfterMoving(gapUnder(event.clientY), wasAt === -1 ? null : wasAt);
+
+    // Dropped exactly where it started changes nothing, and sending it would
+    // put a change in the undo bar that undoes to the same place.
+    if (panelId && wasAt !== -1 && orderWithItemAt(held, itemId, gap).join() === held.join()) return;
+
+    const moving = items.find((item) => item.id === itemId) ?? data?.items.find((i) => i.id === itemId);
+    if (moving) move(moving, panelId, gap);
+  };
+
   /** What a target is called, for the sentence the undo bar says. */
   const nameOf = (panelId: string | null) =>
     panelId ? (data?.panels.find((panel) => panel.id === panelId)?.name ?? 'a panel') : 'the Inbox';
@@ -135,24 +197,67 @@ export function ItemList({
 
   return (
     <>
-      {items.length === 0 ? (
-        <p className="px-4 py-4 text-sm text-ink-faint">{emptyMessage}</p>
-      ) : (
-        <ul>
-          {items.map((item) => (
-            <ItemRow
-              key={item.id}
-              item={item}
-              workspaceId={workspaceId}
-              onMoveTo={(from) => {
-                openedFrom.current = from;
-                command.reset();
-                setMoving(item);
-              }}
-            />
-          ))}
-        </ul>
-      )}
+      <div
+        onDragOver={(event) => {
+          // Only a row of ours. A panel dragged by its header crosses lists on
+          // its way to another panel, and a list that offered it a place would
+          // file a panel into itself.
+          if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+          // Both, and both are load-bearing: preventing the default is what
+          // makes this a place a drop can happen at all, and stopping the
+          // propagation is what keeps the panel underneath from taking the drop
+          // as a panel being reordered.
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = 'move';
+          setLandingAt(gapUnder(event.clientY));
+        }}
+        // Only when the pointer has left this list rather than moved onto a row
+        // inside it, which fires the same event.
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setLandingAt(null);
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          drop(event);
+        }}
+      >
+        {items.length === 0 ? (
+          <p className="px-4 py-4 text-sm text-ink-faint">
+            {emptyMessage}
+            {landingAt !== null && <Landing />}
+          </p>
+        ) : (
+          <ul ref={rows}>
+            {items.map((item, at) => (
+              <Fragment key={item.id}>
+                {landingAt === at && <Landing />}
+                <ItemRow
+                  item={item}
+                  workspaceId={workspaceId}
+                  onMoveTo={(from) => {
+                    openedFrom.current = from;
+                    command.reset();
+                    setMoving(item);
+                  }}
+                  {...(panelId
+                    ? {
+                        ordering: {
+                          at,
+                          of: items.length,
+                          onMove: (places: number) => move(item, panelId, at + places),
+                        },
+                      }
+                    : {})}
+                />
+              </Fragment>
+            ))}
+            {landingAt === items.length && <Landing />}
+          </ul>
+        )}
+      </div>
 
       {moving && (
         <MoveToPicker
@@ -171,4 +276,16 @@ export function ItemList({
       )}
     </>
   );
+}
+
+/**
+ * The line showing where a dragged row would land.
+ *
+ * A row of the same list rather than something laid over it, because a list
+ * holds rows - and `aria-hidden` because it says nothing a pointer user cannot
+ * see and there is no drag for anyone else: Move up and Move down in the row's
+ * own menu are what a keyboard has instead.
+ */
+function Landing() {
+  return <li aria-hidden="true" className="h-0.5 list-none bg-accent" />;
 }

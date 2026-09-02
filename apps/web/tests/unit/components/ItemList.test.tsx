@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
+import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { ItemList } from '../../../src/components/ItemList';
 import { UndoWhatJustHappened } from '../../../src/undo';
 
@@ -100,7 +101,8 @@ const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
 async function showList({
   items = [BART],
   openDashboardId = null as string | null,
-}: { items?: Item[]; openDashboardId?: string | null } = {}) {
+  panelId = null as string | null,
+}: { items?: Item[]; openDashboardId?: string | null; panelId?: string | null } = {}) {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <UndoWhatJustHappened>
@@ -108,6 +110,7 @@ async function showList({
           workspaceId="ws-work"
           items={items}
           openDashboardId={openDashboardId}
+          panelId={panelId}
           emptyMessage="Nothing to deal with."
         />
       </UndoWhatJustHappened>
@@ -359,6 +362,164 @@ describe('Panels', () => {
       await showList({ items: [] });
 
       expect(await screen.findByText('Nothing to deal with.')).toBeVisible();
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a dropped row is sent to the panel it was dropped on, in the place it was dropped', () => {
+    /**
+     * A row let go over the list, at a gap.
+     *
+     * **The place cannot be aimed at here.** jsdom reports every rectangle as
+     * zero, so every row's middle is the same, and it does not carry a pointer
+     * position through a drop event either. Which gap a position picks out is
+     * tests/unit/dropAt.test.ts's rule and the browser walk's; what this asks
+     * is that a drop reaches the right command with the right panel and the
+     * right items in it, which is the wiring.
+     */
+    async function dropOnTheList(itemId: string, clientY = 1) {
+      // The snapshot has to have settled: what a list can file is read from it,
+      // and a drop against a list that has not read one yet finds no item.
+      await act(async () => {});
+      const dataTransfer = {
+        types: [ITEM_BEING_DRAGGED],
+        getData: (type: string) => (type === ITEM_BEING_DRAGGED ? itemId : ''),
+        setData: vi.fn(),
+        dropEffect: '',
+      };
+      fireEvent.dragOver(theList(), { dataTransfer, clientY });
+      fireEvent.drop(theList(), { dataTransfer, clientY });
+    }
+
+    /** The list, which is a box around the rows whether or not there are any. */
+    function theList(): HTMLElement {
+      const rows = screen.queryByRole('list');
+      return (rows ?? screen.getByText('Nothing to deal with.')).parentElement!;
+    }
+
+    it('files an item dropped onto a panel, naming that panel and the order', async () => {
+      const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
+      held.items = [BART, other];
+      held.filings = [{ panelId: 'p-falcon', itemId: other.id, position: 0 }];
+      await showList({ items: [other], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await dropOnTheList(BART.id);
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({
+            itemId: BART.id,
+            panelId: 'p-falcon',
+            // Both of them, in one order. *Which* order is not asked here:
+            // jsdom has no layout engine and does not carry a pointer position
+            // through a drop event either, so the place a drop picks out
+            // belongs to tests/unit/dropAt.test.ts and to the browser walk.
+            order: expect.arrayContaining([BART.id, other.id]),
+          }),
+        }),
+        expect.anything(),
+      );
+      expect(held.mutate.mock.calls[0]![0].payload.order).toHaveLength(2);
+    });
+
+    it('takes an item off every panel when it is dropped on the Inbox', async () => {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      await showList({ items: [], openDashboardId: null, panelId: null });
+
+      await dropOnTheList(BART.id);
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ panelId: null, order: [] }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('sends nothing for a drop that is not one of our rows', async () => {
+      await showList({ openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      await act(async () => {});
+
+      // A panel being dragged by its header across the list on its way
+      // somewhere else.
+      fireEvent.drop(theList(), {
+        dataTransfer: { types: ['text/plain'], getData: () => 'a panel', setData: vi.fn() },
+        clientY: 1,
+      });
+
+      expect(held.mutate).not.toHaveBeenCalled();
+    });
+
+    it('sends nothing when a row is dropped exactly where it started', async () => {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await dropOnTheList(BART.id);
+
+      expect(held.mutate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('moving a row a step sends the same order a drag would', () => {
+    it.each([
+      { situation: 'down from the first', row: 'Reply to Bart', entry: 'Move down' },
+      { situation: 'up from the last', row: 'Renew the domain', entry: 'Move up' },
+    ])('$situation', async ({ row, entry }) => {
+      const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
+      held.items = [BART, other];
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-falcon', itemId: other.id, position: 1 },
+      ];
+      const user = await showList({
+        items: [BART, other],
+        openDashboardId: TODAY.id,
+        panelId: 'p-falcon',
+      });
+
+      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes(row))!;
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: entry }));
+
+      // Either way round, the two swap.
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ order: [other.id, BART.id] }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it.each([
+      { situation: 'the first row cannot go up', row: 'Reply to Bart', entry: 'Move up' },
+      { situation: 'the last row cannot go down', row: 'Renew the domain', entry: 'Move down' },
+    ])('$situation', async ({ row, entry }) => {
+      const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
+      held.items = [BART, other];
+      const user = await showList({
+        items: [BART, other],
+        openDashboardId: TODAY.id,
+        panelId: 'p-falcon',
+      });
+
+      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes(row))!;
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      // Said out loud rather than gone, and choosing it does nothing.
+      const said = await screen.findByRole('menuitem', { name: new RegExp(`^${entry}: `) });
+      await user.click(said);
+
+      expect(held.mutate).not.toHaveBeenCalled();
+    });
+
+    it('does not offer the moves in the Inbox, which is by age', async () => {
+      const user = await showList({ openDashboardId: null, panelId: null });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+
+      expect(screen.queryByRole('menuitem', { name: /^Move up/ })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /^Move down/ })).toBeNull();
     });
   });
 });

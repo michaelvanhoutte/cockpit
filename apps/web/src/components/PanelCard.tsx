@@ -181,6 +181,7 @@ export function PanelCard({
           workspaceId={workspaceId}
           items={items}
           openDashboardId={panel.dashboardId}
+          panelId={panel.id}
           emptyMessage="Nothing filed here yet."
         />
       </div>

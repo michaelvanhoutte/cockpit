@@ -3,8 +3,10 @@ import {
   ADA,
   captureBox,
   dashboardBar,
+  dragItemOnto,
   inbox,
   itemRow,
+  itemsOn,
   press,
   signIn,
   uniqueTitle,
@@ -168,6 +170,85 @@ test.describe('Triage', () => {
       await goToTheDashboard(page, dashboard, isMobile);
       await expect(page.getByRole('region', { name: panel }).getByText(title)).toHaveCount(0);
       await expect(offer).toHaveCount(0);
+    });
+  });
+});
+
+/**
+ * F3, and it can be nowhere else: a drag only exists in a browser, and where a
+ * drop lands is a claim about where the rows actually are on the screen. jsdom
+ * has no layout engine and does not carry a pointer position through a drop
+ * event, so the level below can prove which gap a *position* picks out
+ * (apps/web/tests/unit/dropAt.test.ts) and that a drop reaches the right
+ * command (apps/web/tests/unit/components/ItemList.test.tsx), and nothing about
+ * aiming.
+ */
+test.describe('Panels', () => {
+  test.describe('a dropped row is sent to the panel it was dropped on, in the place it was dropped', () => {
+    test('drops an item between two rows, and where it was let go is where it lands', async ({
+      page,
+      isMobile,
+    }) => {
+      // Desktop only, and not because of the input: on a 480px screen the Inbox
+      // and the dashboard are two screens, so there is nowhere to drag *from*.
+      // The phone files an item by swiping it right, which is issue 145's walk.
+      test.skip(isMobile, 'the Inbox and the dashboard are not on one screen here');
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
+      const first = uniqueTitle('Renew the domain');
+      const second = uniqueTitle('Read the routing paper');
+      const arriving = uniqueTitle('Reply to Bart');
+
+      await goToTheInbox(page, isMobile);
+      for (const title of [first, second, arriving]) {
+        await captureBox(page).fill(title);
+        await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+        await expect(itemRow(page, title)).toBeVisible();
+      }
+      await fileOnto(page, first, panel, isMobile);
+      await fileOnto(page, second, panel, isMobile);
+      await goToTheDashboard(page, dashboard, isMobile);
+      // Filed one at a time from the menu, so each lands on top of the one
+      // before: the panel reads second, first.
+      await expect.poll(() => itemsOn(page, panel)).toEqual([second, first]);
+
+      // Onto the bottom half of the first row, which is the gap between them.
+      await goToTheInbox(page, isMobile);
+      await dragItemOnto(page, arriving, { title: second, half: 'bottom' });
+
+      await goToTheDashboard(page, dashboard, isMobile);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([second, arriving, first]);
+      await goToTheInbox(page, isMobile);
+      await expect(inbox(page).getByText(arriving)).toHaveCount(0);
+    });
+
+    test('reorders a panel when a row is dropped inside the panel it is already on', async ({
+      page,
+      isMobile,
+    }) => {
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
+      const first = uniqueTitle('Renew the domain');
+      const second = uniqueTitle('Read the routing paper');
+      const third = uniqueTitle('Chase the invoice');
+
+      await goToTheInbox(page, isMobile);
+      for (const title of [first, second, third]) {
+        await captureBox(page).fill(title);
+        await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+        await expect(itemRow(page, title)).toBeVisible();
+      }
+      for (const title of [first, second, third]) await fileOnto(page, title, panel, isMobile);
+      await goToTheDashboard(page, dashboard, isMobile);
+      // Each filed from the menu lands on top of the one before.
+      await expect.poll(() => itemsOn(page, panel)).toEqual([third, second, first]);
+
+      // **Three rows, not two, and that is the point.** Moving the top row down
+      // past one row is where taking it out of its old place shifts the gaps
+      // below: with two rows the answer is the same either way, because a place
+      // past the end is clamped to the end, so a walk over two rows passes just
+      // as well when the shift is not made at all.
+      await dragItemOnto(page, third, { title: second, half: 'bottom' });
+
+      await expect.poll(() => itemsOn(page, panel)).toEqual([second, third, first]);
     });
   });
 });

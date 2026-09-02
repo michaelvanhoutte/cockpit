@@ -421,3 +421,60 @@ export async function swipeRow(page: Page, title: string, across: number): Promi
     await cdp.detach();
   }
 }
+
+/**
+ * Drags one item row and lets it go over another row, above or below its
+ * middle — which is what decides the gap it lands in.
+ *
+ * **The mouse, under both projects, and that is a limit of the tool rather than
+ * a claim about the product**: Playwright's touchscreen cannot express a drag
+ * at all (see `dragRowOnto`), and the browser's own drag-and-drop is a mouse
+ * gesture anyway — a row is swiped on a phone, not dragged. The phone project
+ * still gets the gesture against a 480px layout.
+ *
+ * Both rows are scrolled to and measured before the mouse moves, for the reason
+ * `dragRowOnto` records: `boundingBox` reports a position without scrolling to
+ * it, so a row below the fold is measured at a coordinate the mouse cannot
+ * reach and the drag silently does nothing.
+ */
+export async function dragItemOnto(
+  page: Page,
+  title: string,
+  onto: { title: string; half: 'top' | 'bottom' },
+): Promise<void> {
+  const dragged = itemRow(page, title);
+  const target = itemRow(page, onto.title);
+  await dragged.scrollIntoViewIfNeeded();
+  await target.scrollIntoViewIfNeeded();
+  const from = await dragged.boundingBox();
+  const to = await target.boundingBox();
+  if (!from || !to) throw new Error(`cannot drag ${title} onto ${onto.title}: one is not on screen`);
+
+  // A quarter into the half being aimed at, so the pointer is unambiguously one
+  // side of the row's middle. Relative to the target, which is what `dragTo`
+  // takes.
+  const y = onto.half === 'top' ? to.height / 4 : (to.height * 3) / 4;
+
+  // `dragTo` rather than a stream of mouse moves, and the difference is not
+  // cosmetic: the panel drag above works with the mouse because it is measured
+  // in mouse events, while this is the browser's own drag-and-drop, which
+  // Chromium only enters through the protocol `dragTo` speaks. Driven by hand
+  // it produced no drop at all - the row was picked up and nothing arrived.
+  await dragged.dragTo(target, { targetPosition: { x: to.width / 2, y } });
+}
+
+/**
+ * The titles a panel is showing, top to bottom.
+ *
+ * **Assert on it with `expect.poll`, never on one call of it.** It reads the
+ * DOM once, and what a panel shows arrives a moment after the change that moved
+ * something into it - the command is sent, the snapshot re-read, and only then
+ * is the list redrawn. A bare `expect(await itemsOn(...))` measures the list as
+ * it was before any of that and fails while the product is working.
+ */
+export async function itemsOn(page: Page, panel: string): Promise<string[]> {
+  return page
+    .getByRole('region', { name: panel })
+    .getByRole('listitem')
+    .evaluateAll((rows) => rows.map((row) => row.querySelector('span > span')?.textContent ?? ''));
+}
