@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { placeAfterMoving, whereItWouldLand } from '../../src/dropAt';
+import { placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../../src/dropAt';
 
 /**
  * F1, and this is where the arithmetic lives rather than in the handler that
@@ -46,6 +46,41 @@ describe('Panels', () => {
       { situation: 'arriving from another list, at the end', from: null, gap: 4, place: 4 },
     ])('$situation', ({ from, gap, place }) => {
       expect(placeAfterMoving(gap, from)).toBe(place);
+    });
+  });
+
+  describe('a place among the rows a panel draws is a place in the order it holds', () => {
+    // A panel holding a finished item draws fewer rows than it holds: the
+    // filing outlives the item being finished, so the two lists differ.
+    const held = ['finished', 'a', 'b'];
+    const drawn = ['a', 'b'];
+
+    it.each([
+      { situation: 'above the first row it draws', place: 0, held: 1 },
+      { situation: 'between the two rows it draws', place: 1, held: 2 },
+      { situation: 'past the last row it draws', place: 2, held: 3 },
+    ])('an arriving item $situation', ({ place, held: expected }) => {
+      expect(placeAmongHeld(held, drawn, 'arriving', place)).toBe(expected);
+    });
+
+    it.each([
+      // Above `a`, which is where the top of the *drawn* list is - not above
+      // the finished row, which is not on the screen and which nobody moved
+      // anything past.
+      { situation: 'to the top', place: 0, held: 1 },
+      { situation: 'to the end', place: 1, held: 2 },
+    ])('a row already drawn, moved $situation', ({ place, held: expected }) => {
+      // `b` is taken out of both lists before it is put back, so the places are
+      // counted among what is left.
+      expect(placeAmongHeld(held, drawn, 'b', place)).toBe(expected);
+    });
+
+    it('lands last when the panel draws nothing at all', () => {
+      expect(placeAmongHeld(['finished'], [], 'arriving', 0)).toBe(1);
+    });
+
+    it('lands last rather than nowhere when the two lists have come apart', () => {
+      expect(placeAmongHeld(['a'], ['a', 'a stranger'], 'arriving', 1)).toBe(1);
     });
   });
 });

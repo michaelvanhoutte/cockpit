@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import { CommandRefused } from '../api/client';
-import { ITEM_BEING_DRAGGED, placeAfterMoving, whereItWouldLand } from '../dropAt';
-import { filedOrderOnPanel, orderWithItemAt } from '../filing';
+import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
+import { filedOrderOnPanel, itemsOnPanel, orderWithItemAt } from '../filing';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import { useUndo } from '../undo';
@@ -77,7 +77,15 @@ export function ItemList({
     return { panelId, order: panelId ? filedOrderOnPanel(filings, panelId) : [] };
   };
 
-  const move = (item: Item, panelId: string | null, at = 0) => {
+  /**
+   * Files an item, at a place counted among the rows the target panel *draws*.
+   *
+   * Drawn rather than held, because that is what every caller has: a menu move
+   * knows which row it is, and a drop knows which gap it was let go over. The
+   * mapping to the order the panel holds is `placeAmongHeld`, and it is not the
+   * same list - a filing outlives its item being finished.
+   */
+  const move = (item: Item, panelId: string | null, atAmongDrawn = 0) => {
     const before = whereItIs(item);
     // The order the target panel is in afterwards, which is what the command
     // carries: a whole arrangement rather than a position, so two moves
@@ -90,7 +98,11 @@ export function ItemList({
     const order =
       panelId === null
         ? []
-        : orderWithItemAt(filedOrderOnPanel(data?.filings ?? [], panelId), item.id, at);
+        : (() => {
+            const held = filedOrderOnPanel(data?.filings ?? [], panelId);
+            const drawn = itemsOnPanel(data?.items ?? [], data?.filings ?? [], panelId).map((i) => i.id);
+            return orderWithItemAt(held, item.id, placeAmongHeld(held, drawn, item.id, atAmongDrawn));
+          })();
 
     command.mutate(
       {
@@ -172,14 +184,16 @@ export function ItemList({
     setLandingAt(null);
     if (!itemId) return;
 
-    const filings = data?.filings ?? [];
-    const held = panelId ? filedOrderOnPanel(filings, panelId) : [];
-    const wasAt = held.indexOf(itemId);
+    // Counted among the rows on the screen, which is where the pointer was, and
+    // compared against the row's place among those same rows. The mapping into
+    // the order the panel *holds* happens inside `move`.
+    const drawn = items.map((item) => item.id);
+    const wasAt = drawn.indexOf(itemId);
     const gap = placeAfterMoving(gapUnder(event.clientY), wasAt === -1 ? null : wasAt);
 
     // Dropped exactly where it started changes nothing, and sending it would
     // put a change in the undo bar that undoes to the same place.
-    if (panelId && wasAt !== -1 && orderWithItemAt(held, itemId, gap).join() === held.join()) return;
+    if (wasAt !== -1 && gap === wasAt) return;
 
     const moving = items.find((item) => item.id === itemId) ?? data?.items.find((i) => i.id === itemId);
     if (moving) move(moving, panelId, gap);
@@ -225,10 +239,17 @@ export function ItemList({
         }}
       >
         {items.length === 0 ? (
-          <p className="px-4 py-4 text-sm text-ink-faint">
-            {emptyMessage}
-            {landingAt !== null && <Landing />}
-          </p>
+          // The line is a row, so an empty list still needs a list to put it
+          // in: an `li` inside the `p` is markup the browser rewrites, closing
+          // the paragraph before it and drawing the line somewhere else.
+          <>
+            <p className="px-4 py-4 text-sm text-ink-faint">{emptyMessage}</p>
+            {landingAt !== null && (
+              <ul>
+                <Landing />
+              </ul>
+            )}
+          </>
         ) : (
           <ul ref={rows}>
             {items.map((item, at) => (

@@ -49,3 +49,36 @@ export function placeAfterMoving(gap: number, movingFrom: number | null): number
   if (movingFrom === null || gap <= movingFrom) return gap;
   return gap - 1;
 }
+
+/**
+ * The place in the order a panel *holds* that puts an item where it was aimed
+ * among the rows the panel *draws*.
+ *
+ * **The two are not the same list, and using one for the other is silently
+ * wrong.** A filing outlives its item being finished (filing.ts), so a panel
+ * holding [finished, a, b] draws [a, b] - and "second among the rows I can see"
+ * is third in what the panel holds. Counting in one and applying in the other
+ * made Move down on the first visible row change the stored order and nothing
+ * on the screen.
+ *
+ * It works by anchor rather than by arithmetic: the item goes immediately
+ * before the drawn row it was dropped above, wherever that row happens to sit
+ * in the held order, and last when it was dropped past the final one.
+ *
+ * `placeAmongDrawn` is already the place among the drawn rows *after* the item
+ * has been taken out of them, which is what `placeAfterMoving` computes.
+ */
+export function placeAmongHeld(
+  held: readonly string[],
+  drawn: readonly string[],
+  itemId: string,
+  placeAmongDrawn: number,
+): number {
+  const withoutIt = held.filter((id) => id !== itemId);
+  const anchor = drawn.filter((id) => id !== itemId)[placeAmongDrawn];
+  if (anchor === undefined) return withoutIt.length;
+  const at = withoutIt.indexOf(anchor);
+  // An anchor the panel does not hold cannot place anything, which can only
+  // happen if the two lists have come apart; last is the harmless answer.
+  return at === -1 ? withoutIt.length : at;
+}

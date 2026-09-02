@@ -230,12 +230,19 @@ describe('Panels', () => {
       const dialog = await openThePicker(user);
       await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
 
+      // Both of them named. Which comes first is not the claim: a row the panel
+      // does not draw has no place on the screen for anything to be moved above
+      // or below, so where it sits among the held order says nothing a person
+      // could see.
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
-          payload: expect.objectContaining({ order: [BART.id, finished.id] }),
+          payload: expect.objectContaining({
+            order: expect.arrayContaining([BART.id, finished.id]),
+          }),
         }),
         expect.anything(),
       );
+      expect(held.mutate.mock.calls[0]![0].payload.order).toHaveLength(2);
     });
 
     it('sends no order when it is being put back in the Inbox, which has none', async () => {
@@ -511,6 +518,42 @@ describe('Panels', () => {
       await user.click(said);
 
       expect(held.mutate).not.toHaveBeenCalled();
+    });
+
+    it('counts the rows the panel draws, not the ones it only holds', async () => {
+      // A filing outlives its item being finished, so a panel can hold a row it
+      // does not draw. Counting a move among the held order instead of the
+      // drawn one made Move down on the first visible row rewrite the stored
+      // order and change nothing on the screen.
+      const finished = anItem('11111111-1111-7111-8111-000000000007', 'Already handled');
+      finished.status = 'done';
+      const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
+      held.items = [finished, BART, other];
+      held.filings = [
+        { panelId: 'p-falcon', itemId: finished.id, position: 0 },
+        { panelId: 'p-falcon', itemId: BART.id, position: 1 },
+        { panelId: 'p-falcon', itemId: other.id, position: 2 },
+      ];
+      const user = await showList({
+        items: [BART, other],
+        openDashboardId: TODAY.id,
+        panelId: 'p-falcon',
+      });
+
+      const theRow = screen
+        .getAllByRole('listitem')
+        .find((li) => li.textContent?.includes('Reply to Bart'))!;
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Move down' }));
+
+      // Past the row below it on the screen, and the row nobody can see stays
+      // where it was.
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ order: [finished.id, other.id, BART.id] }),
+        }),
+        expect.anything(),
+      );
     });
 
     it('does not offer the moves in the Inbox, which is by age', async () => {
