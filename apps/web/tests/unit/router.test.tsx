@@ -33,8 +33,8 @@ const readsUsers = vi.mocked(fetchUsers);
 
 const SIGNED_IN = { user: { id: 'user-michael', name: 'Michael' } };
 
-const work: Workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' };
-const personal: Workspace = { id: 'ws-personal', tenantId: 'tenant', name: 'Personal', color: '#c06a45', ground: '#f2e5d4', header: '#ead2b3' };
+const work: Workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
+const personal: Workspace = { id: 'ws-personal', tenantId: 'tenant', name: 'Personal', color: '#c06a45', bar: '#eedcc4', ground: '#f2e5d4', header: '#ead2b3' };
 
 /**
  * The dashboards a workspace has. Every workspace has at least one - it is

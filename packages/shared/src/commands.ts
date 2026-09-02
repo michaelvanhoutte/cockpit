@@ -64,14 +64,15 @@ export const deleteWorkspaceSchema = commandEnvelopeSchema;
 export type DeleteWorkspaceCommand = z.infer<typeof deleteWorkspaceSchema>;
 
 /**
- * set_workspace_theme — the three colors, not the name of the theme they came
- * from, because three colors is what a workspace stores. The server still
- * refuses a triple that is not one of the palette's, which is what keeps
- * "picked from designed options" true rather than merely intended; the day
- * mixing your own is wanted, that check relaxes and nothing else moves.
+ * set_workspace_theme — the four colors, not the name of the theme they came
+ * from, because four colors is what a workspace stores. The server still
+ * refuses a set that is not one of the palette's, which is what keeps "picked
+ * from designed options" true rather than merely intended; the day mixing your
+ * own is wanted, that check relaxes and nothing else moves.
  */
 export const setWorkspaceThemeSchema = commandEnvelopeSchema.extend({
   color: hexColorSchema,
+  bar: hexColorSchema,
   ground: hexColorSchema,
   header: hexColorSchema,
 });

@@ -41,6 +41,7 @@ const workspaceColumns = {
   tenantId: workspaces.tenantId,
   name: workspaces.name,
   color: workspaces.color,
+  bar: workspaces.bar,
   ground: workspaces.ground,
   header: workspaces.header,
 };

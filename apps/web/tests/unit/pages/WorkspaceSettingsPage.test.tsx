@@ -27,7 +27,7 @@ vi.mock('../../../src/api/loadFailure', async (importOriginal) => ({
  * apps/api/tests/integration/http/workspace-management.test.ts; repeating them
  * here would prove nothing twice.
  */
-const workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' };
+const workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
 
 /**
  * What the workspace holds, so the confirmation has something to count, and
@@ -52,7 +52,7 @@ vi.mock('../../../src/api/queries', () => ({
     queryFn: () =>
       list.answer?.() ??
       Promise.resolve({
-        workspaces: [{ id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' }],
+        workspaces: [{ id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' }],
       }),
   },
   snapshotQuery: (workspaceId: string) => ({
@@ -385,6 +385,7 @@ describe('Workspace management', () => {
             issuedAt: 'now',
             workspaceId: 'ws-work',
             color: chosen.tint,
+            bar: chosen.bar,
             ground: chosen.ground,
             header: chosen.header,
           },

@@ -24,7 +24,7 @@ import type { Change } from './up-to-date.js';
  * actually ends up with, rather than against the TypeScript that describes it.
  */
 export function accountChanges(accountId: string): readonly Change[] {
-  return [ACCOUNT_SCHEMA, startingWorkspaces(accountId), DASHBOARDS];
+  return [ACCOUNT_SCHEMA, startingWorkspaces(accountId), DASHBOARDS, WORKSPACE_BAR];
 }
 
 /**
@@ -227,6 +227,64 @@ const DASHBOARDS: Change = {
               SELECT w.id || '-dashboard-1', w.tenant_id, w.id, 'Dashboard 1', 'dashboard 1', w.created_at
                 FROM workspaces w
                WHERE NOT EXISTS (SELECT 1 FROM dashboards d WHERE d.workspace_id = w.id)`,
+    },
+  ],
+};
+
+/**
+ * The fourth workspace color: the strip the dashboard tabs sit on, one step
+ * lighter than the header above it ("Modernise the app shell: a fourth
+ * workspace colour, connected tabs, and Inbox rows you can read at a glance",
+ * issue 125).
+ *
+ * **The mapping below is written out and frozen, not built from the palette.**
+ * A shipped change that read `WORKSPACE_THEMES` would change meaning the day
+ * somebody tunes a color, which is the "never edit a change that has shipped"
+ * rule arriving by the back door: the accounts that already applied it would
+ * keep the old value and the ones that had not would get the new one, with
+ * nothing to tell them apart. These are the eight bars as of this change, and
+ * they stay these eight whatever the palette does next.
+ *
+ * **Nothing is rebuilt and nothing is dropped**, so the destructive half of the
+ * checklist is empty: one added column and one update of rows that are already
+ * there.
+ *
+ * **Interrupted, or run again.** A change is applied atomically here - its
+ * statements and the record that they ran, together (up-to-date.ts) - so a
+ * change that fails partway leaves nothing of itself behind and is retried
+ * whole. That matters more here than it did for the dashboards change, because
+ * SQLite has no `ADD COLUMN IF NOT EXISTS` and there is no guard to write: a
+ * re-run over a store that somehow already had the column would fail loudly.
+ * That is the outcome to want rather than one to paper over - it means the
+ * ledger and the schema disagree, which is a thing to find out about.
+ *
+ * **No data is rejected, and the update cannot write a NULL.** `ADD COLUMN`
+ * gives every existing row the default, which is only the right bar for the
+ * first theme; the update then corrects the rest. A workspace whose color is
+ * not one of the palette's tints matches no arm and `ELSE bar` writes it back
+ * to itself, so it keeps the default rather than being emptied or refused -
+ * the same fallback `themeOf` makes, and the same call "Choose a workspace's
+ * colors from a palette" (issue 79) made for the same reason: an unfamiliar
+ * color is one thing that looks slightly wrong, not a corrupt row.
+ */
+const WORKSPACE_BAR: Change = {
+  name: '0004-workspace-bar',
+  statements: [
+    {
+      sql: "ALTER TABLE `workspaces` ADD COLUMN `bar` text DEFAULT '#dbd7ee' NOT NULL",
+    },
+    {
+      sql: `UPDATE workspaces SET bar = CASE color
+              WHEN '#6f62b5' THEN '#dbd7ee'
+              WHEN '#3a72c8' THEN '#cbdef5'
+              WHEN '#c06a45' THEN '#eedcc4'
+              WHEN '#3f8f78' THEN '#cbe4dc'
+              WHEN '#a8548c' THEN '#edd3e4'
+              WHEN '#b58a2f' THEN '#eee2c2'
+              WHEN '#4f8fa8' THEN '#cde2eb'
+              WHEN '#7d8f3f' THEN '#dde4c6'
+              ELSE bar
+            END`,
     },
   ],
 };

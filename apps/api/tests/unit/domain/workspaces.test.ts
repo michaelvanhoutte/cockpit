@@ -17,7 +17,13 @@ function colored(
   tint: string,
 ): Workspace {
   const theme = themeOf(tint);
-  return { ...workspace, color: theme.tint, ground: theme.ground, header: theme.header };
+  return {
+    ...workspace,
+    color: theme.tint,
+    bar: theme.bar,
+    ground: theme.ground,
+    header: theme.header,
+  };
 }
 
 /** Colors handed out to `taken` workspaces in a row, starting from none. */
@@ -118,8 +124,9 @@ describe('Workspace management', () => {
         // tests/integration/http/workspace-management.test.ts.
         foldedName: 'personal',
         // The whole theme its tint belongs to, not just the tint: a workspace
-        // has all three of its colors from the moment it is made.
+        // has all four of its colors from the moment it is made.
         color: '#3f8f78',
+        bar: '#cbe4dc',
         ground: '#d9ece6',
         header: '#bcdcd2',
         createdAt: AT,

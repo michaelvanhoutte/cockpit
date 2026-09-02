@@ -16,30 +16,46 @@ import { z } from 'zod';
 export const hexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/, 'a color is #rrggbb, lower case');
 
 /**
- * One workspace theme: three colors designed together.
+ * One workspace theme: four colors designed together, and a stepped set rather
+ * than four independent choices.
  *
- * - `tint` is the saturated one, for the tab dot and the header stripe.
- * - `ground` is the page behind the panels.
- * - `header` is the bar across the top, the same hue one step deeper.
+ * - `tint` is the saturated one, for the tab dot and the selected tab.
+ * - `header` is the bar across the top, the deepest of the three surfaces.
+ * - `bar` is the strip the dashboard tabs sit on, one step lighter than
+ *   `header`.
+ * - `ground` is the page behind the panels, the lightest.
  *
- * Three rather than one because that is what actually makes a workspace
+ * The three surfaces run deepest at the top of the screen to lightest at the
+ * bottom, and the two tab strips sit at the steps between them: the selected
+ * workspace tab is filled with `bar` and joins the strip below it, and the
+ * selected dashboard tab is filled with `ground` and joins the page. That is
+ * what makes the container hierarchy legible as depth rather than as two rows
+ * of pills on one fill (functional definition, "Container hierarchy").
+ *
+ * Four rather than one because that is what actually makes a workspace
  * recognisable at a glance, and one is all the app had: the tint drove a dot
  * and a three-pixel border, and every workspace shared a page. The prototype
- * themed all three and hard-coded them per workspace in `poc/prototype/
+ * themed three of them and hard-coded them per workspace in `poc/prototype/
  * styles.css`, which is exactly why a workspace you made yourself could not be
  * themed at all.
+ *
+ * **`bar` is stored like the other three rather than mixed from them at render
+ * time.** It is a midpoint today, so computing it would work; storing it keeps
+ * an entry tunable by hand, and keeps a free color picker later a second writer
+ * of the same four fields rather than a migration.
  */
 export const workspaceThemeSchema = z.object({
   name: z.string(),
   tint: hexColorSchema,
+  bar: hexColorSchema,
   ground: hexColorSchema,
   header: hexColorSchema,
 });
 export type WorkspaceTheme = z.infer<typeof workspaceThemeSchema>;
 
 /**
- * The palette. Designed triples rather than a free color wheel, which is how
- * the legibility half of the functional definition's open decision "Workspace
+ * The palette. Designed sets rather than a free color wheel, which is how the
+ * legibility half of the functional definition's open decision "Workspace
  * colors" is kept: you pick, but only from combinations that were checked
  * together. Nothing else in the app recolors - cards, rows, controls and text
  * keep the fixed neutral and accent palette - so no choice here can make
@@ -52,19 +68,24 @@ export type WorkspaceTheme = z.infer<typeof workspaceThemeSchema>;
  * continue the same shape - the tints already in use, each given a ground and a
  * header at the lightness the first three sit at, in its own hue.
  *
+ * Every `bar` is the midpoint of its own theme's `header` and `ground`, which
+ * is what "one step lighter" means when the two ends were the designed pair.
+ * They are written out rather than computed for the reason the schema gives:
+ * an entry stays tunable by hand without the others moving.
+ *
  * The order is the order colors are handed out to new workspaces, so a
  * workspace is distinguishable from the moment it exists without anybody being
  * asked.
  */
 export const WORKSPACE_THEMES: readonly WorkspaceTheme[] = [
-  { name: 'Violet', tint: '#6f62b5', ground: '#e3e1f2', header: '#d2cdea' },
-  { name: 'Blue', tint: '#3a72c8', ground: '#d8e5f7', header: '#bed6f2' },
-  { name: 'Terracotta', tint: '#c06a45', ground: '#f2e5d4', header: '#ead2b3' },
-  { name: 'Teal', tint: '#3f8f78', ground: '#d9ece6', header: '#bcdcd2' },
-  { name: 'Magenta', tint: '#a8548c', ground: '#f2dfec', header: '#e8c6dc' },
-  { name: 'Amber', tint: '#b58a2f', ground: '#f2e9d3', header: '#e9dab0' },
-  { name: 'Cyan', tint: '#4f8fa8', ground: '#dbeaf0', header: '#bfdae5' },
-  { name: 'Olive', tint: '#7d8f3f', ground: '#e6ebd6', header: '#d3dcb6' },
+  { name: 'Violet', tint: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
+  { name: 'Blue', tint: '#3a72c8', bar: '#cbdef5', ground: '#d8e5f7', header: '#bed6f2' },
+  { name: 'Terracotta', tint: '#c06a45', bar: '#eedcc4', ground: '#f2e5d4', header: '#ead2b3' },
+  { name: 'Teal', tint: '#3f8f78', bar: '#cbe4dc', ground: '#d9ece6', header: '#bcdcd2' },
+  { name: 'Magenta', tint: '#a8548c', bar: '#edd3e4', ground: '#f2dfec', header: '#e8c6dc' },
+  { name: 'Amber', tint: '#b58a2f', bar: '#eee2c2', ground: '#f2e9d3', header: '#e9dab0' },
+  { name: 'Cyan', tint: '#4f8fa8', bar: '#cde2eb', ground: '#dbeaf0', header: '#bfdae5' },
+  { name: 'Olive', tint: '#7d8f3f', bar: '#dde4c6', ground: '#e6ebd6', header: '#d3dcb6' },
 ] as const;
 
 /**
@@ -91,11 +112,17 @@ export function themeOf(tint: string): WorkspaceTheme {
   return WORKSPACE_THEMES.find((theme) => theme.tint === tint) ?? DEFAULT_WORKSPACE_THEME;
 }
 
-/** Whether these three colors are a theme from the palette, exactly. */
-export function isPaletteTheme(colors: { tint: string; ground: string; header: string }): boolean {
+/** Whether these four colors are a theme from the palette, exactly. */
+export function isPaletteTheme(colors: {
+  tint: string;
+  bar: string;
+  ground: string;
+  header: string;
+}): boolean {
   return WORKSPACE_THEMES.some(
     (theme) =>
       theme.tint === colors.tint &&
+      theme.bar === colors.bar &&
       theme.ground === colors.ground &&
       theme.header === colors.header,
   );

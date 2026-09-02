@@ -145,22 +145,30 @@ export const workspaces = sqliteTable(
      */
     foldedName: text('folded_name').notNull().default(''),
     /**
-     * The workspace's three colors, chosen together from the palette in
+     * The workspace's four colors, chosen together from the palette in
      * `@cockpit/shared`'s domain/workspace-themes.ts: `color` is the saturated
-     * tint on the tab dot and the header stripe, `ground` is the page behind
-     * the panels, `header` is the bar across the top.
+     * tint on the tab dot and the selected tab, `header` is the bar across the
+     * top, `bar` is the strip the dashboard tabs sit on one step lighter than
+     * it, and `ground` is the page behind the panels.
      *
-     * All three are stored rather than the name of a theme, so the palette is a
+     * All four are stored rather than the name of a theme, so the palette is a
      * picker and not a storage format - mixing your own colors later writes the
-     * same three columns instead of needing a migration.
+     * same four columns instead of needing a migration.
      *
      * The defaults are the first theme's, and they are what a workspace whose
      * tint is not in the palette keeps: an unfamiliar color is one thing that
      * looks slightly wrong, not a corrupt row. (The D1 copy needed them for a
      * second reason this store does not have - old code writing rows across a
      * deploy that had added the columns.)
+     *
+     * **None of them carries a format CHECK**, and `bar` follows the two it
+     * joins rather than introducing one for itself. A CHECK cannot be added to
+     * an existing table in SQLite, so constraining only the new column would
+     * mean rebuilding the table to make three columns disagree about their own
+     * rules. Worth revisiting for all four together if it is ever wanted.
      */
     color: text('color').notNull(),
+    bar: text('bar').notNull().default('#dbd7ee'),
     ground: text('ground').notNull().default('#e3e1f2'),
     header: text('header').notNull().default('#d2cdea'),
     createdAt: text('created_at').notNull(),
