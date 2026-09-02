@@ -181,7 +181,7 @@ describe('Workspace management', () => {
     });
   });
 
-  describe('the box for making a workspace comes before the list of them', () => {
+  describe('the way to make a workspace stays where it is however many you have', () => {
     /**
      * The order of the two, which is what stops the way to make a workspace
      * moving down the page as the account fills up. F1 owns exactly this much
@@ -193,7 +193,7 @@ describe('Workspace management', () => {
      * which is why the order is pinned down here instead, where three of them
      * can be arranged and the answer cannot drift.
      */
-    it('is before them in the page, with three workspaces listed', async () => {
+    it('puts the box before the list of them', async () => {
       showThree();
       const { box } = showPage({ succeeds: true });
       await onScreen();
