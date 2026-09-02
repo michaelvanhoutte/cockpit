@@ -1,6 +1,6 @@
 # Cockpit
 
-Unified Inbox & Dashboards. One Cloudflare Worker (`apps/api`) serves the Hono API, SSE and the built SPA (`apps/web`) as static assets on a single origin; `packages/shared` is the contract between them. Node >= 22, pnpm workspace.
+Unified Inbox & Dashboards. One Cloudflare Worker (`apps/api`) serves the Hono API, SSE and the built SPA (`apps/web`) as static assets on a single origin; `packages/shared` is the contract between them. Node >= 22.12, pnpm workspace.
 
 ## Run it
 
@@ -9,7 +9,9 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` applies the local D1 migrations, seeds the database, builds the SPA if it has never been built, then runs the API on <http://localhost:8787> and the web app on <http://localhost:5173> together. Every step is idempotent, so re-running is safe; Ctrl+C stops both halves. `pnpm dev:api` and `pnpm dev:web` run one alone. `pnpm build`, `pnpm typecheck` and `pnpm test` run across every package.
+`pnpm dev` applies the local D1 migrations, seeds the database, builds the SPA if it has never been built, then runs the API and the web app together, printing both addresses. Every step is idempotent, so re-running is safe; Ctrl+C stops both halves. `pnpm dev:api` and `pnpm dev:web` run one alone. `pnpm build`, `pnpm typecheck` and `pnpm test` run across every package.
+
+**The ports depend on the checkout, so read them off what `pnpm dev` prints.** The primary checkout keeps <http://localhost:8787> and <http://localhost:5173>; a linked worktree gets a pair derived from its own path, the same pair every time, so several worktrees can each run the app at once (`scripts/lib/ports.mjs`). The browser tier's two ports move the same way. Never write one of these numbers into a document or a test as though it were fixed — ask `portsFor` instead, which is what `playwright.config.ts` does.
 
 ## Writing
 

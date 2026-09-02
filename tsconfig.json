@@ -5,7 +5,19 @@
   "extends": "@cockpit/config/tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["node"]
+    "types": ["node"],
+    // playwright.config.ts imports scripts/lib/ports.mjs, so that the port the
+    // suite dials is asked of the same function the stack asks rather than
+    // written down twice. `allowJs` is what lets the types be *inferred* from
+    // it; the alternative is a hand-written .d.mts saying the same thing, which
+    // is the copy this import exists to avoid.
+    //
+    // Without `checkJs`, deliberately: nothing else under scripts/ is
+    // type-checked - they are plain Node scripts covered by
+    // `node --test scripts/lib/*.test.mjs` - and turning it on for the one file
+    // an import happens to reach would leave it the only annotated script in
+    // the directory.
+    "allowJs": true
   },
-  "include": ["tests/e2e", "playwright.config.ts"]
+  "include": ["tests/e2e", "playwright.config.ts", "scripts/lib/ports.mjs"]
 }

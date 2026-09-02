@@ -168,3 +168,25 @@ export function supervise(children, stopChild = stop) {
 
   return shutdown;
 }
+
+/**
+ * Which halves of the stack a command line asks for.
+ *
+ * `pnpm dev` runs both; `pnpm dev:api` and `pnpm dev:web` pass `--only` and get
+ * one. They come through the same script rather than running `wrangler dev` and
+ * `vite` directly because those two bind whatever port they default to, which
+ * in a git worktree belongs to another checkout (scripts/lib/ports.mjs).
+ *
+ * A word that is neither is refused rather than quietly treated as "both": a
+ * typo would otherwise start the very pair the caller was trying not to.
+ */
+export function halvesToRun(argv) {
+  const asked = argv.indexOf('--only');
+  if (asked === -1) return { api: true, web: true, only: null };
+
+  const only = argv[asked + 1] ?? '';
+  if (only !== 'api' && only !== 'web') {
+    throw new Error(`--only takes "api" or "web", not ${JSON.stringify(only)}.`);
+  }
+  return { api: only === 'api', web: only === 'web', only };
+}
