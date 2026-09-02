@@ -429,6 +429,12 @@ const routes = app
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c, 'capture_item', c.req.valid('json')), 200))
+  .openapi(
+    commandRoute('move_item_to_panel', {
+      conflict: 'The order sent is not the order of that panel any more',
+    }),
+    async (c) => c.json(await change(c, 'move_item_to_panel', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_status'), async (c) => c.json(await change(c, 'set_status', c.req.valid('json')), 200))
   .openapi(commandRoute('snooze_until'), async (c) => c.json(await change(c, 'snooze_until', c.req.valid('json')), 200))
   .openapi(commandRoute('associate'), async (c) => c.json(await change(c, 'associate', c.req.valid('json')), 200))

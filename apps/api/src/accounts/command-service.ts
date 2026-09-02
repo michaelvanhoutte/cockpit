@@ -7,6 +7,7 @@ import {
   dashboards,
   items,
   layouts,
+  panelItems,
   panelPlacements,
   panels,
   workspaces,
@@ -20,6 +21,7 @@ import {
   getWorkspace,
   lastWorkspacePosition,
   listDashboards,
+  listFilingsOnPanel,
   listLayoutIds,
   listPanels,
   listPlacements,
@@ -32,6 +34,7 @@ import {
   dashboardNamed,
   firstDashboardFor,
 } from '../domain/dashboards.js';
+import { filingRows, orderIsNotOfThePanel } from '../domain/filings.js';
 import {
   appendedPlacement,
   panelFromCommand,
@@ -167,6 +170,19 @@ export class LayoutNotFoundError extends Error {
   constructor(layoutId: string) {
     super(`layout ${layoutId} is not on this dashboard`);
     this.name = 'LayoutNotFoundError';
+  }
+}
+
+/**
+ * An order that is not this panel's arrangement - it leaves out an item the
+ * panel holds, or names one that is not on it. A conflict rather than a shape
+ * problem: the request is well formed and every id in it is real, and what has
+ * collided is a list against a panel that has moved on.
+ */
+export class PanelOrderStaleError extends Error {
+  constructor(why: string) {
+    super(why);
+    this.name = 'PanelOrderStaleError';
   }
 }
 
@@ -649,6 +665,50 @@ export function runCommand<N extends CommandName>(
       db.transaction((tx) => {
         // A retried capture whose command ID was lost still may not duplicate the item.
         tx.insert(items).values(item).onConflictDoNothing().run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'move_item_to_panel': {
+      const cmd = payload as CommandPayload<'move_item_to_panel'>;
+      // The item first, because it is what the change is about, and checked
+      // against the workspace the envelope names: an item is addressed by its
+      // own id alone, so without that a move could reach across the account
+      // into a workspace the caller never opened. The same reasoning
+      // `panelTheChangeIsAbout` carries, one level along.
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item || item.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      // A null panel is the Inbox, which is not a panel and so is nothing to
+      // look up: the item comes off everything and, being filed nowhere, is
+      // back in the Inbox.
+      const panel = cmd.panelId ? panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId) : null;
+
+      // Checked against what the panel actually holds rather than left to the
+      // foreign key, which could not tell an item of another workspace from one
+      // that was moved off a moment ago - and would surface either as a 500.
+      const stale = panel
+        ? orderIsNotOfThePanel(listFilingsOnPanel(db, tenantId, panel.id), cmd)
+        : null;
+      if (stale) throw new PanelOrderStaleError(stale);
+
+      const rows = filingRows(tenantId, cmd);
+      db.transaction((tx) => {
+        // Off everything first, which is what makes this a move rather than an
+        // add: the item's own rows go, wherever they were, and the target
+        // panel's arrangement is then written whole. A reorder is the same two
+        // steps over one panel, which is why it is the same command.
+        tx.delete(panelItems)
+          .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, cmd.itemId)))
+          .run();
+        if (panel) {
+          // Replaced whole rather than merged, for the reason a layout's
+          // placements are: an order is the answer to "where do these items go
+          // now", so a row not in it must not survive.
+          tx.delete(panelItems)
+            .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.id)))
+            .run();
+          if (rows.length > 0) tx.insert(panelItems).values(rows).run();
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;

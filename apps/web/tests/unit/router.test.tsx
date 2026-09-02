@@ -71,6 +71,7 @@ async function open(
           panels: [],
           layouts: [],
           associations: [],
+          filings: [],
           generatedAt: '2026-08-31T10:00:00.000Z',
         })
       : Promise.reject(new Error(`snapshot failed: 404`));
@@ -371,6 +372,7 @@ describe('Dashboards', () => {
           panels: [],
           layouts: [],
           associations: [],
+          filings: [],
           generatedAt: '2026-08-31T10:00:00.000Z',
         },
         // Older than the fifteen seconds a snapshot stays fresh, which is what
@@ -434,6 +436,7 @@ describe('Sign-in', () => {
         panels: [],
         layouts: [],
         associations: [],
+        filings: [],
         generatedAt: '2026-08-31T10:00:00.000Z',
       });
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

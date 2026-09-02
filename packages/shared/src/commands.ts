@@ -281,6 +281,61 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 
+/**
+ * move_item_to_panel — where an Item lives now, and the order of the Panel it
+ * lands on ("Panels hold the items filed into them, and the Inbox holds the
+ * rest", issue 36).
+ *
+ * **One command for every way a Panel's contents change**, rather than one per
+ * gesture: filing an Item from the Inbox, moving it between Panels, sending it
+ * back to the Inbox and reordering it inside the Panel it is already on are all
+ * the same answer to the same question - where do these Items go now. Splitting
+ * them would be several commands writing the same rows, and several chances for
+ * them to disagree. `save_layout` is the same call for the same reason.
+ *
+ * **A null `panelId` is the Inbox**, which is not a Panel but the absence of
+ * one: the Item is taken off every Panel it was on and, being filed nowhere, is
+ * in the Inbox again. Nothing has to name the Inbox for that to work.
+ *
+ * **`order` is the target Panel's whole order afterwards, not this Item's
+ * position.** Commands carry the client's clock and are resolved
+ * last-write-wins (architecture, "Mutations are commands, not object PUTs"), and
+ * a whole order is a value that rule can be applied to while "put it third" is
+ * not - two of those arriving out of turn compose into an order nobody asked
+ * for. It is the same call `reorder_workspaces` makes, and it makes staleness
+ * visible the same way: an order that no longer names the Panel's Items is
+ * refused rather than quietly written.
+ */
+export const moveItemToPanelSchema = commandEnvelopeSchema
+  .extend({
+    itemId: z.uuid(),
+    /** The Panel it lands on, or null for the Inbox. */
+    panelId: z.uuid().nullable(),
+    /** Every Item on that Panel afterwards, in order. Empty for the Inbox. */
+    order: z.array(z.uuid()),
+  })
+  /**
+   * An order naming one Item twice has no order in it - two positions for one
+   * Item, and one of the Panel's Items necessarily left out. Refused as a shape
+   * rather than checked against the store, because it is wrong on its own terms
+   * whatever the Panel holds.
+   */
+  .refine((cmd) => new Set(cmd.order).size === cmd.order.length, {
+    message: 'an item can only be in one place in the order',
+    path: ['order'],
+  })
+  /**
+   * The Item that moved has to be in the order of the Panel it moved to, and
+   * has to be absent from an order for the Inbox - which has no order at all,
+   * being by age. Either way an order that does not contain the thing it claims
+   * to have moved is not a smaller change, it is an inconsistent one.
+   */
+  .refine((cmd) => (cmd.panelId === null ? cmd.order.length === 0 : cmd.order.includes(cmd.itemId)), {
+    message: 'the item that moved is not in the order of the panel it moved to',
+    path: ['order'],
+  });
+export type MoveItemToPanelCommand = z.infer<typeof moveItemToPanelSchema>;
+
 export const setStatusSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   status: itemStatusSchema,
@@ -341,6 +396,7 @@ export const commandSchemas = {
   save_layout: saveLayoutSchema,
   delete_layout: deleteLayoutSchema,
   capture_item: captureItemSchema,
+  move_item_to_panel: moveItemToPanelSchema,
   set_status: setStatusSchema,
   snooze_until: snoozeUntilSchema,
   associate: associateSchema,

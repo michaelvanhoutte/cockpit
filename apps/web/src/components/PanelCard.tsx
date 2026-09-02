@@ -1,17 +1,17 @@
 import { useRef } from 'react';
 import { GRID_COLUMNS, MAX_PANEL_ROWS } from '@cockpit/shared';
-import type { Panel, PanelPlacement } from '@cockpit/shared';
+import type { Item, Panel, PanelPlacement } from '@cockpit/shared';
+import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 
 /**
  * One panel on a dashboard: a titled box you can move, resize and rename in
  * place ("Panels on a dashboard, with per-screen-size layouts", issue 33).
  *
- * **What it shows comes later.** A panel is a saved, filtered view of items
- * (functional definition, "What a Panel shows"), and that configuration is
- * deliberately out of scope here - so every panel says the same thing inside,
- * the way every dashboard said the same thing before panels landed. The box,
- * its title, its place and its size are the whole of it today.
+ * **It holds the items filed into it**, in the order they were filed into
+ * ("Panels hold the items filed into them, and the Inbox holds the rest", issue
+ * 36). What it shows is still only that - a rule for what *arrives* in a panel
+ * on its own is configuration it does not have yet (#35).
  *
  * **Everything a pointer can do here, the menu can do too.** Dragging the
  * header reorders and dragging the corner resizes, and neither exists for a
@@ -27,6 +27,10 @@ export const PANEL_GAP = 12;
 
 export interface PanelCardProps {
   panel: Panel;
+  /** Which workspace's items these are, which every change to one has to name. */
+  workspaceId: string;
+  /** What is filed on this panel, in order. */
+  items: readonly Item[];
   placement: PanelPlacement;
   /** "Move left" on a screen with panels side by side, "Move up" on one without. */
   sideBySide: boolean;
@@ -55,6 +59,8 @@ export interface PanelCardProps {
 
 export function PanelCard({
   panel,
+  workspaceId,
+  items,
   placement,
   sideBySide,
   at,
@@ -158,13 +164,20 @@ export function PanelCard({
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
+      {/* No padding of its own: a row carries its own, so a list inside a panel
+          reads exactly as it does in the Inbox. */}
+      <div className="min-h-0 flex-1 overflow-auto">
         {refusal ? (
-          <p role="alert" className="text-sm text-over">
+          <p role="alert" className="px-3 py-3 text-sm text-over">
             {refusal}
           </p>
         ) : (
-          <p className="text-sm text-ink-faint">What this panel shows is set up later.</p>
+          <ItemList
+            workspaceId={workspaceId}
+            items={items}
+            openDashboardId={panel.dashboardId}
+            emptyMessage="Nothing filed here yet."
+          />
         )}
       </div>
 

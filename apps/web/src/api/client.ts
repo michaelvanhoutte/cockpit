@@ -126,6 +126,8 @@ const commandSenders = {
   delete_layout: (p: CommandPayload<'delete_layout'>) =>
     api.v1.commands.delete_layout.$post({ json: p }),
   capture_item: (p: CommandPayload<'capture_item'>) => api.v1.commands.capture_item.$post({ json: p }),
+  move_item_to_panel: (p: CommandPayload<'move_item_to_panel'>) =>
+    api.v1.commands.move_item_to_panel.$post({ json: p }),
   set_status: (p: CommandPayload<'set_status'>) => api.v1.commands.set_status.$post({ json: p }),
   snooze_until: (p: CommandPayload<'snooze_until'>) => api.v1.commands.snooze_until.$post({ json: p }),
   associate: (p: CommandPayload<'associate'>) => api.v1.commands.associate.$post({ json: p }),

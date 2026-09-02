@@ -52,6 +52,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     WORKSPACE_ORDER,
     PANELS,
     WORKSPACE_BAR,
+    PANEL_ITEMS,
   ];
 }
 
@@ -503,6 +504,55 @@ const WORKSPACE_BAR: Change = {
               WHEN '#7d8f3f' THEN '#dde4c6'
               ELSE bar
             END`,
+    },
+  ],
+};
+
+/**
+ * The table that lets a panel hold items ("Panels hold the items filed into
+ * them, and the Inbox holds the rest", issue 36). The reasons for its shape are
+ * on `panelItems` in `schema.ts`, which is what queries are written against;
+ * this is only how it is created.
+ *
+ * **Nothing is rebuilt, nothing is dropped and no existing row is written**, so
+ * the destructive half of the checklist is empty. One new table, and the app
+ * looks exactly as it did until something is filed - every open item is filed
+ * nowhere on the day this lands, which is the definition of being in the Inbox.
+ *
+ * **Interrupted, or run again.** A change is applied atomically (up-to-date.ts)
+ * - its statements and the record that they ran, together - so one that fails
+ * partway leaves nothing of itself behind and is retried whole. `IF NOT EXISTS`
+ * on all three statements makes a re-run over a store that somehow already had
+ * the table a no-op rather than a failure, which is what every other schema
+ * statement here does.
+ */
+const PANEL_ITEMS: Change = {
+  name: '0006-panel-items',
+  statements: [
+    {
+      // The position bound is written out as a number rather than built from a
+      // shared constant, for the reason the placement spans above are: a change
+      // that has shipped may never be edited, and a constant that later moved
+      // would rewrite this statement for the accounts that had not applied it
+      // yet. The constraints test is what notices if the two stop agreeing.
+      sql: `CREATE TABLE IF NOT EXISTS \`panel_items\` (
+	\`tenant_id\` text NOT NULL,
+	\`panel_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`position\` integer NOT NULL,
+	\`created_at\` text NOT NULL,
+	PRIMARY KEY(\`panel_id\`, \`item_id\`),
+	FOREIGN KEY (\`panel_id\`) REFERENCES \`panels\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "panel_items_position_is_an_order" CHECK(position >= 0),
+	CONSTRAINT "panel_items_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `panel_items_tenant_panel` ON `panel_items` (`tenant_id`,`panel_id`)',
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `panel_items_tenant_item` ON `panel_items` (`tenant_id`,`item_id`)',
     },
   ],
 };

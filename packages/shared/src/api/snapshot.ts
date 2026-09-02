@@ -5,7 +5,7 @@ import {
   itemSchema,
   workspaceSchema,
 } from '../domain/item.js';
-import { layoutSchema, panelSchema } from '../domain/panel.js';
+import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
 
 /**
  * The read model (architecture, "The read model: persisted snapshot,
@@ -37,6 +37,21 @@ export const workspaceSnapshotSchema = z.object({
    */
   panels: z.array(panelSchema),
   layouts: z.array(layoutSchema),
+  /**
+   * Which Items are filed on which of those Panels, and in what order
+   * ("Panels hold the items filed into them, and the Inbox holds the rest",
+   * issue 36).
+   *
+   * A flat list rather than items nested under each panel, because an Item can
+   * be filed on several Panels and nesting would send it once per Panel. What a
+   * Panel holds and what the Inbox holds are both derived from this in the
+   * client, the way every other panel-shaped view already is.
+   *
+   * Filings of deleted Panels are left out server-side, like the Panels
+   * themselves, so an Item whose only Panel has gone is back in the Inbox
+   * without the client knowing anything about deletion.
+   */
+  filings: z.array(filingSchema),
   associations: z.array(associationSchema),
   generatedAt: z.iso.datetime(),
 });
