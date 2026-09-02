@@ -14,6 +14,20 @@ import type { Change } from './up-to-date.js';
  * not - which is two schemas in production and no way to tell them apart. Add
  * the next change instead.
  *
+ * **Renaming one is editing it, and the name is the only thing a store keys
+ * on.** A store records what it has applied by name and compares by name, so a
+ * rename makes an applied change look unapplied and it runs a second time -
+ * `duplicate column name`, and the account cannot be opened at all. Renaming is
+ * therefore safe only against stores that never applied the old name, and
+ * "shipped" for this rule means *applied anywhere*, not *deployed*: a
+ * developer's own store counts, and is the one you are most likely to forget
+ * because you filled it yourself an hour earlier. That is exactly how
+ * `0005-workspace-bar` broke the machine it was written on. If a rename is
+ * genuinely right - it was here, because the number collided with a change
+ * that had already merged - it is still right, and the cost is that anyone
+ * carrying the old name resets their local stores (readme, "Resetting local
+ * data") rather than the rename being undone.
+ *
  * **The SQL is written out, not generated.** drizzle-kit generates against a
  * database it can connect to, and there is no such thing for a Durable Object
  * that is created on demand; it also cannot emit STRICT (see `schema.ts`), so
@@ -340,8 +354,17 @@ const WORKSPACE_ORDER: Change = {
 const WORKSPACE_BAR: Change = {
   // `0005`, not `0004`: "Reorder workspaces" (issue 31) took that number while
   // this was being built, and it has shipped. Renumbering *this* one is the
-  // safe direction - it has never been applied to a store anywhere, so no
-  // account has recorded it under the old name.
+  // safe direction for every environment, because it was never merged and so
+  // no deployed store has it under either name.
+  //
+  // **It was not free, and the cost lands on whoever ran this branch before
+  // the rename.** A store records what it has applied by name, so one that
+  // recorded `0004-workspace-bar` does not recognise `0005-workspace-bar` and
+  // tries to add a column it already has: `duplicate column name: bar`, and
+  // the account fails to open. That is what happened on the machine this was
+  // built on, and the fix there is to drop the local store and let it rebuild
+  // (readme, "Resetting local data") - never to rename this back, which would
+  // trade one stale ledger for another.
   name: '0005-workspace-bar',
   statements: [
     {

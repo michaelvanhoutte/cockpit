@@ -63,6 +63,29 @@ Every setup step is idempotent, so it is safe to re-run and there is no one-time
 
 Skip it and the first run fails for that reason rather than for anything you changed, which is worth recognising because it does not look like a missing install. A package whose dependencies were never linked reports its test runner missing (`'vitest' is not recognized`), and the giveaway is above it: pnpm prints how many workspace projects it is running over, so `Scope: 6 of 7 workspace projects` against a repository that now has seven is the install being a package behind.
 
+### Resetting local data
+
+An account's data lives in a Durable Object, and a store records which schema changes it has applied **by name**. So a store built on one branch can be out of step with the change list on another, and switching between them is enough to do it — which this repository does constantly, one worktree per piece of work.
+
+The symptom is that the app fails to open and the API log names the change:
+
+```
+account tenant-default could not be brought up to date:
+change 0005-workspace-bar failed: duplicate column name: bar
+```
+
+That is a store which applied the change under a name the code no longer uses: the ledger has no row for the current name, so it runs again against a table that already has the column. Nothing is corrupt and nothing is at risk — the store is simply ahead of a list that has been renumbered underneath it.
+
+Drop the local stores and let them rebuild:
+
+```bash
+rm -rf apps/api/.wrangler/state/v3/do
+```
+
+`pnpm dev` recreates them on the next request, with the workspaces the change list starts an account with. **It is local data only** — the account stores on your machine, not D1's register, which `pnpm dev` migrates and seeds anyway. Anything captured while developing is gone, which is the point of it being development data.
+
+Never fix this by renaming the change back to what the store recorded. That trades one stale ledger for another, and the next person to switch branches meets the same wall from the other side.
+
 ### Tidying up branches
 
 ```bash
