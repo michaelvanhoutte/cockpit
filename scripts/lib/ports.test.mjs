@@ -56,7 +56,7 @@ describe('portsFor', () => {
   it('takes a port named by hand over the one it would derive', () => {
     const ports = portsFor(A_WORKTREE, {
       linked: true,
-      env: { [OVERRIDES.devWeb]: '4321' },
+      env: { [OVERRIDES.devWeb.variable]: '4321' },
     });
 
     assert.equal(ports.devWeb, 4321);
@@ -69,7 +69,7 @@ describe('portsFor', () => {
     // module exists to prevent, arrived at silently.
     for (const value of ['banana', '0', '70000', '5173.5']) {
       assert.throws(
-        () => portsFor(A_WORKTREE, { linked: true, env: { [OVERRIDES.devWeb]: value } }),
+        () => portsFor(A_WORKTREE, { linked: true, env: { [OVERRIDES.devWeb.variable]: value } }),
         /not a port number/,
         value,
       );
@@ -122,9 +122,19 @@ describe('howToFreeThePort', () => {
   it('says how to give this checkout a port of its own, and does not repeat the complaint', () => {
     const said = howToFreeThePort('devWeb', 5307);
 
-    assert.match(said, /COCKPIT_DEV_WEB_PORT=5308/);
+    assert.match(said, /COCKPIT_DEV_WEB_PORT=5308 pnpm dev/);
     // The caller has already said which port is in use; saying it again reads
     // as two problems rather than one.
     assert.doesNotMatch(said, /5307 is already in use/);
+  });
+
+  it('names the command the port belongs to, not always the one that runs the app', () => {
+    // The browser suite's ports refuse too, and telling somebody to set
+    // COCKPIT_E2E_API_PORT and then run `pnpm dev` is advice that cannot work:
+    // that command ignores the variable and does nothing for the `pnpm
+    // test:e2e` run that actually failed.
+    assert.match(howToFreeThePort('e2eApi', 10007), /COCKPIT_E2E_API_PORT=10008 pnpm test:e2e/);
+    assert.match(howToFreeThePort('e2eWeb', 6407), /COCKPIT_E2E_WEB_PORT=6408 pnpm test:e2e/);
+    assert.match(howToFreeThePort('devApi', 9007), /COCKPIT_DEV_API_PORT=9008 pnpm dev/);
   });
 });

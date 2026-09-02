@@ -67,12 +67,20 @@ export const BANDS = Object.freeze({
 /** How many worktrees can be told apart before two share a slot. */
 export const SLOTS = 512;
 
-/** The environment variable that overrides each port, by name. */
+/**
+ * How to pin each port by hand: the variable that sets it, and the command it
+ * belongs to.
+ *
+ * The command is here rather than assumed, because it is not the same for all
+ * four and advice naming the wrong one cannot work: setting
+ * COCKPIT_E2E_API_PORT and then running `pnpm dev` changes nothing about the
+ * `pnpm test:e2e` run that just refused to start.
+ */
 export const OVERRIDES = Object.freeze({
-  devWeb: 'COCKPIT_DEV_WEB_PORT',
-  devApi: 'COCKPIT_DEV_API_PORT',
-  e2eWeb: 'COCKPIT_E2E_WEB_PORT',
-  e2eApi: 'COCKPIT_E2E_API_PORT',
+  devWeb: { variable: 'COCKPIT_DEV_WEB_PORT', command: 'pnpm dev' },
+  devApi: { variable: 'COCKPIT_DEV_API_PORT', command: 'pnpm dev' },
+  e2eWeb: { variable: 'COCKPIT_E2E_WEB_PORT', command: 'pnpm test:e2e' },
+  e2eApi: { variable: 'COCKPIT_E2E_API_PORT', command: 'pnpm test:e2e' },
 });
 
 /**
@@ -130,7 +138,7 @@ export function isLinkedWorktree(root, { look = statSync } = {}) {
 export function portsFor(root, { linked = false, env = {} } = {}) {
   const slot = slotFor(root);
   const port = (which) =>
-    asked(env[OVERRIDES[which]], OVERRIDES[which]) ??
+    asked(env[OVERRIDES[which].variable], OVERRIDES[which].variable) ??
     (linked ? BANDS[which] + slot : DOCUMENTED_PORTS[which]);
   // Written out rather than built by a loop over BANDS, so the shape is a shape
   // rather than a bag: playwright.config.ts reads `.e2eWeb` off this and a
@@ -168,9 +176,10 @@ function asked(value, name) {
  * to give this one a port of its own for good.
  */
 export function howToFreeThePort(which, port) {
+  const { variable, command } = OVERRIDES[which];
   return (
     `Either something is still holding it - most likely a server left behind by an ` +
     `interrupted run - or this checkout shares a slot with another worktree. Stop the ` +
-    `first, or give this one a port of its own: ${OVERRIDES[which]}=${port + 1} pnpm dev.`
+    `first, or give this one a port of its own: ${variable}=${port + 1} ${command}.`
   );
 }

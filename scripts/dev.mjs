@@ -51,7 +51,8 @@
 // Node rather than bash, unlike the other scripts here: those run in CI on
 // Ubuntu, this one runs on whatever the developer is using, and on Windows a
 // bash script invoked through a pnpm script depends on which shell pnpm picks.
-// Node is already a hard requirement (>=22) and needs no dependency to do this.
+// Node is already a hard requirement (the version package.json's `engines`
+// asks for) and needs no dependency to do this.
 
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
