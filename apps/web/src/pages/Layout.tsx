@@ -144,7 +144,7 @@ export function Layout() {
   const theme = active ?? DEFAULT_WORKSPACE_THEME_COLORS;
 
   return (
-    <div className="ground-wash flex h-dvh flex-col" style={{ backgroundColor: theme.ground }}>
+    <div className="flex h-dvh flex-col" style={{ backgroundColor: theme.ground }}>
       {/* No bottom border: the strip below ends in the selected dashboard tab,
           which is filled with the ground and has to meet the page without a
           line drawn between them. */}
@@ -255,7 +255,18 @@ export function Layout() {
           which is the point of the split: a long Inbox never pushes the
           dashboard off the screen, and a tall dashboard never scrolls the
           Inbox away. */}
-      <main className="flex w-full min-h-0 flex-1">
+      {/* The wash is here rather than on the shell, which is where it started
+          and where it could not be seen. Measured on the running app: the ramp
+          ran from the top of the shell, so its strongest fifth was behind the
+          opaque header and what was left began at four percent and faded to
+          nothing across four hundred pixels - about seven values of grey, split
+          up by the panels sitting on it. Present in the stylesheet, invisible
+          on the screen.
+
+          This element begins where the ground first becomes visible, and does
+          not scroll itself - its two columns do - so the wash stays put over a
+          moving page rather than sliding with it. */}
+      <main className="ground-wash flex w-full min-h-0 flex-1">
         {params.workspaceId && roomForTheInbox && (
           <aside
             aria-label="Inbox"
