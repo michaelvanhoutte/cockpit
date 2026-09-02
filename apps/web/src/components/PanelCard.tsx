@@ -10,8 +10,9 @@ import { RowMenu } from './Menu';
  *
  * **It holds the items filed into it**, in the order they were filed into
  * ("Panels hold the items filed into them, and the Inbox holds the rest", issue
- * 36). What it shows is still only that - a rule for what *arrives* in a panel
- * on its own is configuration it does not have yet (#35).
+ * 36). What it shows is still only that - a rule for what *arrives* in a panel on
+ * its own is configuration it does not have yet ("Panel configuration:
+ * connections and free-text description", issue 35).
  *
  * **Everything a pointer can do here, the menu can do too.** Dragging the
  * header reorders and dragging the corner resizes, and neither exists for a

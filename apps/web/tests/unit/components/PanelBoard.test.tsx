@@ -616,15 +616,19 @@ function panelOrderOnScreen(): string[] {
 }
 
 describe('Panels', () => {
-  describe('a panel draws exactly the items filed on it, in the order they were filed into', () => {
-    it('draws each panel’s own, in position order, and says so when one has none', async () => {
+  describe('a dashboard draws each panel with the items filed on it', () => {
+    it('hands each panel the items filed on it, and says so when one has none', async () => {
       const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
       const domain = anItem('11111111-1111-7111-8111-000000000002', 'Renew the domain');
+      // Already in position order: that a panel *sorts* by position is
+      // apps/web/tests/unit/filing.test.ts's rule, and re-proving it here would
+      // be the same calculation twice. What is asked here is that the board
+      // hands each panel its own items at all.
       showBoard({
         items: [bart, domain],
         filings: [
-          { panelId: 'falcon', itemId: domain.id, position: 1 },
           { panelId: 'falcon', itemId: bart.id, position: 0 },
+          { panelId: 'falcon', itemId: domain.id, position: 1 },
         ],
       });
 
