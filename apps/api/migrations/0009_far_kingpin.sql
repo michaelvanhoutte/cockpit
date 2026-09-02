@@ -15,11 +15,11 @@
 -- admin-only page brings the check and the first test of it.
 --
 -- **There is no secret column, and there will not be one.** A passwordless list
--- of names is an identity selector, not an authentication control, which is why
--- Cloudflare Access stays in front of every deployed environment (architecture,
--- "App login: hand-rolled Google OIDC + own sessions"; deployment, "The cost of
--- gating production, stated plainly"). Google sign-in adds what it needs to
--- `users` when it lands and drops none of this.
+-- of names is an identity selector, not an authentication control (architecture,
+-- "App login: hand-rolled Google OIDC + own sessions"). Cloudflare Access still
+-- stood in front of every deployed environment when this was written, and has
+-- since been removed. Google sign-in adds what it needs to `users` when it lands
+-- and drops none of this.
 --
 -- **STRICT and the CHECKs by hand**, as every migration in this directory does:
 -- drizzle-kit cannot emit STRICT, so it is added after generating and
