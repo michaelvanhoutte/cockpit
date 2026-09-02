@@ -58,8 +58,14 @@ export function applySetStatus(item: Item, cmd: SetStatusCommand): Item | null {
     status: cmd.status,
     // Leaving the snoozed state always clears the snooze date.
     snoozedUntil: cmd.status === 'snoozed' ? item.snoozedUntil : null,
-    // Dismissal is the soft delete of the triage flow: tombstone, never erase.
-    deletedAt: cmd.status === 'dismissed' ? cmd.issuedAt : item.deletedAt,
+    // Dismissal is the soft delete of the triage flow: tombstone, never erase -
+    // and **any other status lifts the tombstone**, which is what makes a
+    // dismissal reversible ("Undo what just happened", issue 144). It read
+    // `item.deletedAt` before, so a dismissed item stayed out of every list
+    // whatever it was given afterwards: nothing was destroyed and nothing could
+    // be brought back either. Dismissal is the only thing that writes this
+    // column, so clearing it here cannot lose a tombstone somebody else set.
+    deletedAt: cmd.status === 'dismissed' ? cmd.issuedAt : null,
     updatedAt: cmd.issuedAt,
   };
 }

@@ -1,4 +1,6 @@
+import { useCallback } from 'react';
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
 import { fetchMe, fetchSnapshot, fetchUsers, fetchWorkspaces, sendCommand } from './client';
 
@@ -68,43 +70,74 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<CommandName>([
   'set_workspace_theme',
 ]);
 
+/**
+ * Sends one change and re-reads what it touched, without a mutation's state
+ * around it - the same two steps `useCommand` takes, for the callers that need
+ * neither `isPending` nor `error` on a control.
+ *
+ * It exists for undo ("Undo what just happened", issue 144), where the change is
+ * sent from a bar in the shell long after the row that made the original change
+ * has left the screen. A mutation belongs to the component that holds it, and
+ * the whole point of an undo is that it outlives one.
+ */
+export function useSendCommand(): (args: CommandArgs) => Promise<void> {
+  const queryClient = useQueryClient();
+  return useCallback(
+    async (args: CommandArgs) => {
+      await sendCommand(args.name, args.payload as never);
+      await afterChanging(queryClient, args);
+    },
+    [queryClient],
+  );
+}
+
+/**
+ * What has to be re-read once a change has landed, and **not finished until it
+ * has been**. One function, so the two senders above cannot come to disagree
+ * about it.
+ *
+ * The waiting is the part worth explaining. A change used to be done the moment
+ * the server accepted it, with the re-read left running behind it — which is
+ * fine for a change that carries only its own fields, and wrong for the filing
+ * commands, which carry the panel's *whole order* and have it checked against
+ * what the server holds. Filing two items onto one panel one after the other
+ * then sent the second order from a snapshot that did not have the first item
+ * in it yet, and the server correctly refused it as an order that is not the
+ * panel's. It only ever lost the race on a slow machine, which is exactly the
+ * kind of bug that reaches somebody else's laptop first.
+ *
+ * So every change waits, rather than the filing ones waiting and the rest not:
+ * the cost is that a control stays busy until the list behind it agrees, which
+ * is the moment the change is really done.
+ */
+function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
+  if (args.name === 'delete_workspace') {
+    // Dropped, not re-read. There is nothing to revalidate: the snapshot of a
+    // deleted workspace is a 404 for good, so invalidating it would fetch one
+    // on every delete. And the copy has to go rather than merely go stale - the
+    // cache is persisted for a week (main.tsx), so leaving it there means a
+    // deleted workspace's items can still be painted from it.
+    queryClient.removeQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
+    return;
+  }
+
+  const reread = [queryClient.invalidateQueries({ queryKey: ['snapshot', args.payload.workspaceId] })];
+  // Only the changes that alter which workspaces there are, so triaging an item
+  // does not refetch the list on every click.
+  if (CHANGES_THE_WORKSPACE_LIST.has(args.name)) {
+    reread.push(queryClient.invalidateQueries({ queryKey: ['workspaces'] }));
+  }
+  return Promise.all(reread);
+}
+
 export function useCommand() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (args: CommandArgs) => sendCommand(args.name, args.payload as never),
-    // **Returned, so the change is not finished until what it changed has been
-    // read again.** React Query waits on what this returns before the caller's
-    // own `onSuccess` runs and before `isPending` drops.
-    //
-    // That matters because filing an item onto a panel sends the panel's
-    // *whole order*, which the server checks against the order it holds. With
-    // the re-read left running behind, filing a second item straight after the
-    // first built its order from a workspace that did not have the first item
-    // in it yet, and was refused. It is a race, and it was only ever lost on a
-    // machine slow enough to lose it.
-    //
-    // The cost is that a control stays busy until the list behind it agrees,
-    // which is the moment the change is really done.
-    onSuccess: (_result, args) => {
-      if (args.name === 'delete_workspace') {
-        // Dropped, not re-read. There is nothing to revalidate: the snapshot of
-        // a deleted workspace is a 404 for good, so invalidating it would fetch
-        // one on every delete. And the copy has to go rather than merely go
-        // stale - the cache is persisted for a week (main.tsx), so leaving it
-        // there means a deleted workspace's items can still be painted from it.
-        queryClient.removeQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
-        return;
-      }
-
-      const reread = [
-        queryClient.invalidateQueries({ queryKey: ['snapshot', args.payload.workspaceId] }),
-      ];
-      // Only the changes that alter which workspaces there are, so triaging an
-      // item does not refetch the list on every click.
-      if (CHANGES_THE_WORKSPACE_LIST.has(args.name)) {
-        reread.push(queryClient.invalidateQueries({ queryKey: ['workspaces'] }));
-      }
-      return Promise.all(reread);
-    },
+    // Returned rather than called and dropped, because React Query waits on
+    // what a mutation's own `onSuccess` returns: the caller's `onSuccess` then
+    // runs on a snapshot that already has this change in it, and `isPending`
+    // covers the re-read.
+    onSuccess: (_result, args) => afterChanging(queryClient, args),
   });
 }

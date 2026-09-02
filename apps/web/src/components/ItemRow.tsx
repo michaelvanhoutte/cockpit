@@ -1,7 +1,8 @@
 import { useRef } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
-import { useCommand } from '../api/queries';
+import { useCommand, useSendCommand } from '../api/queries';
+import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
@@ -55,6 +56,8 @@ export function ItemRow({
   onMoveTo?: (openedFrom: HTMLElement | null) => void;
 }) {
   const command = useCommand();
+  const send = useSendCommand();
+  const offerToUndo = useUndo();
   const waited = waitedSince(item.createdAt, Date.now());
   const trigger = useRef<HTMLButtonElement>(null);
   /** True while the entry just chosen is opening something that wants the focus. */
@@ -69,6 +72,40 @@ export function ItemRow({
 
   const setStatus = (status: ItemStatus) =>
     command.mutate({ name: 'set_status', payload: { ...envelope(), status } });
+
+  /**
+   * Dismissing, with the way back offered for as long as the bar lasts ("Undo
+   * what just happened", issue 144).
+   *
+   * It is the one gesture here that takes an item off every list at once, and
+   * on a phone it is a swipe (#145) - the easiest thing to do by accident and
+   * the hardest to see the result of. The inverse is the status it had, which
+   * is read from the row rather than from the server, because the row is what
+   * was on screen when the choice was made.
+   */
+  const dismiss = () => {
+    const was = item.status;
+    command.mutate(
+      { name: 'set_status', payload: { ...envelope(), status: 'dismissed' } },
+      {
+        onSuccess: () =>
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” dismissed`,
+            undo: () =>
+              send({
+                name: 'set_status',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  status: was,
+                },
+              }),
+          }),
+      },
+    );
+  };
 
   const snoozeOneWeek = () => {
     const until = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -166,7 +203,7 @@ export function ItemRow({
           <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
           <DropdownMenu.Item
             className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
-            onSelect={() => setStatus('dismissed')}
+            onSelect={dismiss}
           >
             Dismiss
           </DropdownMenu.Item>

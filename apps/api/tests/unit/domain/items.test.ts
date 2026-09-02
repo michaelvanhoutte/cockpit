@@ -62,6 +62,31 @@ describe('Triage', () => {
       });
       expect(updated?.deletedAt).toBe(LATER);
     });
+
+    it.each([
+      { situation: 'put back where it was', status: 'to_process' as const },
+      { situation: 'made a task instead', status: 'task' as const },
+      { situation: 'finished rather than dismissed', status: 'done' as const },
+    ])('comes back when it is $situation', ({ status }) => {
+      const dismissed = applySetStatus(anItem(), {
+        ...request,
+        issuedAt: LATER,
+        itemId: 'x',
+        status: 'dismissed',
+      })!;
+
+      const back = applySetStatus(dismissed, {
+        ...request,
+        issuedAt: '2026-08-31T12:00:00.000Z',
+        itemId: 'x',
+        status,
+      });
+
+      // Nothing was erased, so what has to go is the record that it was
+      // dismissed - without which a dismissal could never be undone.
+      expect(back?.deletedAt).toBeNull();
+      expect(back?.status).toBe(status);
+    });
   });
 
   describe('snoozing an item sets when it comes back', () => {

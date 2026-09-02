@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { uuidv7, type Item } from '@cockpit/shared';
-import { snapshotQuery, useCommand } from '../api/queries';
+import { snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import { CommandRefused } from '../api/client';
 import { filedOrderOnPanel, orderWithItemAt } from '../filing';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
+import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
 import { MoveToPicker } from './MoveToPicker';
 
@@ -46,10 +47,28 @@ export function ItemList({
 }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
   const command = useCommand();
+  const send = useSendCommand();
+  const offerToUndo = useUndo();
   const [moving, setMoving] = useState<Item | null>(null);
   const openedFrom = useRef<HTMLElement | null>(null);
 
+  /**
+   * Where the item is now, and the whole order of the panel holding it - what
+   * putting it back means ("Undo what just happened", issue 144). Read before
+   * the move, because afterwards it is gone.
+   *
+   * One panel, because nothing files an item onto two yet; the day *Add to…*
+   * lands (#142) this becomes the list of them and the inverse becomes several
+   * changes rather than one.
+   */
+  const whereItIs = (item: Item): { panelId: string | null; order: string[] } => {
+    const filings = data?.filings ?? [];
+    const panelId = filings.find((filing) => filing.itemId === item.id)?.panelId ?? null;
+    return { panelId, order: panelId ? filedOrderOnPanel(filings, panelId) : [] };
+  };
+
   const move = (item: Item, panelId: string | null) => {
+    const before = whereItIs(item);
     // The order the target panel is in afterwards, which is what the command
     // carries: a whole arrangement rather than a position, so two moves
     // arriving out of turn cannot compose into an order nobody asked for. The
@@ -81,10 +100,32 @@ export function ItemList({
           // for is not a panel you have been filing into.
           if (panelId) rememberRecentPanel(browserStore(), workspaceId, panelId);
           setMoving(null);
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” moved to ${nameOf(panelId)}`,
+            // The same command, with the panel and the order it was in before.
+            // The order named the item then and does again, so the panel it is
+            // put back on is exactly the panel it left.
+            undo: () =>
+              send({
+                name: 'move_item_to_panel',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  panelId: before.panelId,
+                  order: before.order,
+                },
+              }),
+          });
         },
       },
     );
   };
+
+  /** What a target is called, for the sentence the undo bar says. */
+  const nameOf = (panelId: string | null) =>
+    panelId ? (data?.panels.find((panel) => panel.id === panelId)?.name ?? 'a panel') : 'the Inbox';
 
   // Only this list's own refusal, and only for the item still being moved: one
   // `useCommand` is shared by every row here, so without the second half a
