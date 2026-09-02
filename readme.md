@@ -43,7 +43,7 @@ costs, is "No branch environments" in [docs/deployment.md](docs/deployment.md).
 
 ## Run it
 
-Prerequisites: Node ≥ 22 (pnpm comes via corepack).
+Prerequisites: Node ≥ 22.12 (pnpm comes via corepack).
 
 ```bash
 corepack enable pnpm
@@ -211,7 +211,7 @@ This lives in repository settings, so a fresh fork gets none of it. The deployme
 
 None of this arrives with `pnpm install`, and all of it is per-developer:
 
-- **Node ≥ 22 with corepack** (`corepack enable pnpm`), so the pnpm version comes from `package.json` rather than from whatever is on your PATH.
+- **Node ≥ 22.12 with corepack** (`corepack enable pnpm`), so the pnpm version comes from `package.json` rather than from whatever is on your PATH. The .12 is `playwright.config.ts` requiring an ES module from the CommonJS Playwright transpiles it to, which that release unflagged.
 - **`gh`, authenticated** (`gh auth login`). The `github-issue` skill files issues with it, the branch-protection command above needs it, and it is how pull requests get opened and merged.
 - **Commit attribution.** Commits authored with an address GitHub cannot link are orphaned — no profile, no contribution graph. This repository has history in exactly that state. Use **your own** noreply address, which GitHub shows you under Settings → Emails, rather than the one in `docs/deployment.md`, which is the owner's:
 

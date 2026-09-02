@@ -117,6 +117,23 @@ async function ensureTemplate(digest) {
   writeFileSync(stamp, `${digest}\n`);
 }
 
+/**
+ * Why this suite in particular will not simply use the port.
+ *
+ * `pnpm dev` may perfectly well run against a server somebody else started; it
+ * only cannot bind twice. This suite may not, and that is the sentence worth
+ * keeping: its whole premise is a database rebuilt on the way up, and a server
+ * it did not start is holding one it did not build. The rest - which is what to
+ * actually do about it - is the same answer everywhere, so it comes from the
+ * same place.
+ */
+function refusing(which, port) {
+  return (
+    `This suite will not run against a server it did not start, because its database ` +
+    `would not be the fresh one. ${howToFreeThePort(which, port)}`
+  );
+}
+
 /** Stamp the template out as this run's database. The 5ms half of the trade. */
 function freshDatabase() {
   rmSync(join(apiDir, RUN_DIR), { recursive: true, force: true });
@@ -131,8 +148,8 @@ try {
   // the storage out from under the process we are about to refuse to run
   // against, and would spend a possibly minutes-long build before noticing the
   // conflict at all.
-  await assertPortFree(API_PORT, 'test API', () => howToFreeThePort('e2eApi', API_PORT));
-  await assertPortFree(WEB_PORT, 'test web server', () => howToFreeThePort('e2eWeb', WEB_PORT));
+  await assertPortFree(API_PORT, 'test API', () => refusing('e2eApi', API_PORT));
+  await assertPortFree(WEB_PORT, 'test web server', () => refusing('e2eWeb', WEB_PORT));
 
   await ensureTemplate(schemaDigest(apiDir));
   freshDatabase();

@@ -54,6 +54,11 @@ import { isLinkedWorktree, portsFor } from './scripts/lib/ports.mjs';
 // CommonJS - the root package.json declares no `"type": "module"` - so
 // `import.meta` is a syntax error here however the file is written. This is the
 // repo root, since the config lives at it.
+//
+// The same transpiling is why the import above needs Node 22.12 or newer, which
+// is what the root package.json's `engines` now asks for: requiring an ES module
+// from CommonJS was unflagged in that release, and this config is the one place
+// in the repository that does it.
 const root = __dirname;
 const ports = portsFor(root, { linked: isLinkedWorktree(root), env: process.env });
 const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${ports.e2eWeb}`;
