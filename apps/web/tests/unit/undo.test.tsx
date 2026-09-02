@@ -176,6 +176,25 @@ describe('Triage', () => {
       expect(bar()).toBeNull();
     });
 
+    it('says nothing about a change made while it was still coming', async () => {
+      // Dismiss one item, press Undo on a slow connection, dismiss another: the
+      // first answer used to arrive and clear the *second* one's way back.
+      let settle: () => void = () => {};
+      show([
+        { label: 'Dismiss', what: 'first', undo: () => new Promise<void>((r) => (settle = r)) },
+        { label: 'Move', what: 'second', undo: () => Promise.resolve() },
+      ]);
+      await press('Dismiss');
+      await press('Undo');
+
+      await press('Move');
+      expect(bar()).toHaveTextContent('second');
+
+      await act(async () => settle());
+
+      expect(bar()).toHaveTextContent('second');
+    });
+
     it('replaces what it was offering with what went wrong', async () => {
       show([
         {

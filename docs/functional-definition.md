@@ -110,7 +110,7 @@ Processing an Item means one or more of:
 - **Associate it** — tag it to a Person, Project and/or Topic, which is what puts it in the right panels.
 - **Set a status** — *Done*, *Waiting on someone*, *Scheduled/Snoozed until a date*, *Delegated*, *Reference/Archive*, or *Convert to Task* with a due date.
 - **File it on a Panel** — which is what takes it out of the Inbox, and the one thing that does. Every Item's own menu carries **Move to…**, opening a picker of every Panel in the Workspace with the Dashboard you are on first, the three Panels most recently filed into above it, and the Inbox among the targets.
-- **Delete/Dismiss** — which is reversible for as long as the bar offering it is on screen ("Undo what just happened", issue 144). Dismissal is a tombstone rather than an erasure, and giving the Item any other status lifts it, so putting it back is the same change made the other way.
+- **Delete/Dismiss** — which is reversible for as long as the bar offering it is on screen ("Undo what just happened", issue 144). A dismissed Item is kept rather than erased, and giving it any other status brings it back, so putting it back is the same change made the other way.
 
 Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stays reachable through the Panels holding it, through its associations, and through an optional "All items" view.
 

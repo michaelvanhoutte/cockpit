@@ -44,7 +44,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
  * `settles` runs the caller's `onSuccess`, which is what a change that really
  * landed does - and what the offer of an undo waits for.
  */
-function aRow({ settles = false }: { settles?: boolean } = {}) {
+function aRow({ settles = false, item = anItem() }: { settles?: boolean; item?: Item } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
   });
@@ -53,7 +53,7 @@ function aRow({ settles = false }: { settles?: boolean } = {}) {
   mockUseSendCommand.mockReturnValue(send);
   render(
     <UndoWhatJustHappened>
-      <ItemRow item={anItem()} workspaceId="ws-work" />
+      <ItemRow item={item} workspaceId="ws-work" />
     </UndoWhatJustHappened>,
   );
   return { mutate, send };
@@ -102,6 +102,30 @@ describe('Triage', () => {
         expect.objectContaining({
           name: 'set_status',
           payload: expect.objectContaining({ itemId: 'item-1', status: 'to_process' }),
+        }),
+      );
+    });
+
+    it('offers a snoozed item back with the date it was waiting for', async () => {
+      // Leaving the snoozed state clears the wake date, which dismissing does -
+      // so putting only the status back would return a snoozed item with
+      // nothing to wake it, and the date would be gone for good.
+      const user = userEvent.setup();
+      const { send } = aRow({
+        settles: true,
+        item: anItem({ status: 'snoozed', snoozedUntil: '2026-09-08T08:00:00.000Z' }),
+      });
+
+      await choose(user, 'Dismiss');
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'snooze_until',
+          payload: expect.objectContaining({
+            itemId: 'item-1',
+            until: '2026-09-08T08:00:00.000Z',
+          }),
         }),
       );
     });

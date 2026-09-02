@@ -135,3 +135,39 @@ test.describe('Panels', () => {
     });
   });
 });
+
+/**
+ * F3, and here rather than beside the other undo walk because putting an item
+ * back where it came from needs a panel to have moved it to, and this file is
+ * where a dashboard with one is arranged.
+ *
+ * Undoing a move is the second thing the bar can put back, and it is a
+ * different inverse from undoing a dismissal: a status against a panel and an
+ * order. What the inverse *is* belongs to
+ * apps/web/tests/unit/components/ItemList.test.tsx; what is only true here is
+ * that pressing Undo really does return the item to the list it left.
+ */
+test.describe('Triage', () => {
+  test.describe('what just happened can be put back, until the offer runs out', () => {
+    test('brings an item back out of the panel it was filed onto', async ({ page, isMobile }) => {
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
+      const title = uniqueTitle('Filed by mistake');
+
+      await goToTheInbox(page, isMobile);
+      await captureBox(page).fill(title);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await fileOnto(page, title, panel, isMobile);
+      await expect(inbox(page).getByText(title)).toHaveCount(0);
+
+      const offer = page.getByRole('status');
+      await expect(offer).toContainText(panel);
+      await press(offer.getByRole('button', { name: 'Undo' }), isMobile);
+
+      // Back in the Inbox, off the panel, and the offer gone with it.
+      await expect(inbox(page).getByText(title)).toBeVisible();
+      await goToTheDashboard(page, dashboard, isMobile);
+      await expect(page.getByRole('region', { name: panel }).getByText(title)).toHaveCount(0);
+      await expect(offer).toHaveCount(0);
+    });
+  });
+});

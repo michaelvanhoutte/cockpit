@@ -72,6 +72,16 @@ export function forgetWhatJustHappened(): void {
  */
 export function UndoWhatJustHappened({ children }: { children: React.ReactNode }) {
   const [held, setHeld] = useState<Undoable | null>(null);
+  /**
+   * Which change is on offer, counted rather than compared.
+   *
+   * An undo is awaited, and anything can happen while it is in flight -
+   * including another change being made, which replaces what the bar offers.
+   * Without this, the late answer's `forget()` would clear the *new* offer:
+   * dismiss one item, press Undo on a slow connection, dismiss another, and the
+   * second one's way back disappears the moment the first one lands.
+   */
+  const offer = useRef(0);
   const [failure, setFailure] = useState<string | null>(null);
   const [undoing, setUndoing] = useState(false);
   /**
@@ -81,6 +91,7 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
   const goesAt = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const forgetNow = useCallback(() => {
+    offer.current += 1;
     goesAt.current = null;
     setHeld(null);
     setFailure(null);
@@ -95,6 +106,7 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
   const remember = useCallback(
     (change: Undoable) => {
       if (goesAt.current) clearTimeout(goesAt.current);
+      offer.current += 1;
       setHeld(change);
       setFailure(null);
       setUndoing(false);
@@ -129,10 +141,15 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
     goesAt.current = null;
     setUndoing(true);
     setFailure(null);
+    // Which offer this answer belongs to. Anything that lands after another
+    // change has been made says nothing about the bar any more.
+    const answering = offer.current;
     try {
       await held.undo();
+      if (offer.current !== answering) return;
       forget();
     } catch (error) {
+      if (offer.current !== answering) return;
       // Said, and given its own full time to be read. Not retried and not
       // cleared: what the server has is what the item is, and offering the same
       // undo again would be offering to guess a second time.
