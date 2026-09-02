@@ -44,6 +44,8 @@ The two rules that get skipped most, restated here rather than referenced becaus
 - **Test at the lowest level that can prove the behaviour**, and escalate only for what that level physically cannot verify. Never re-prove lower-level coverage higher up the pyramid.
 - **Nothing is "working" until the application has been started and the changed behaviour exercised.** Green unit and integration tests are not evidence that the app runs — start it with `pnpm dev` and drive the change in the browser. This is why that command has to stay one command.
 
+**Write that walk down in the pull request, since you have already driven it.** What to open, what to click, what should happen: recording the path costs nothing once the browser pass is done, and saves the next person rediscovering it. Four of the ten pull requests merged on 2 September 2026 waited over two hours between their last commit and their merge, two of them over five, on that pass being repeated by hand. Keep it to what a reader would not guess, and where a change has no product surface to drive, say that instead.
+
 ## Review findings
 
 **Run `/code-review` yourself before pushing, not only `/security-review`.** Across five pull requests of one run, all twenty findings were code-review findings and the security review correctly found nothing — silence that read, from the transcript, like a review had happened. A local pass runs now; a remote round costs a push, a CI run and fourteen minutes.
