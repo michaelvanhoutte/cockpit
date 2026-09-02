@@ -33,9 +33,9 @@ export const SESSION_COOKIE = 'cockpit_session';
  * reason rather than by omission:
  *
  * - `/health` is deliberately outside every gate, including this one
- *   (docs/deployment.md, "`/health` must stay outside the gate"): the client
- *   asks it precisely when its requests are being refused, to tell an expired
- *   sign-in apart from a deployment that is unwell, and the uptime monitor and
+ *   (docs/deployment.md, "`/health` answers without a sign-in"): the client asks
+ *   it precisely when its requests are getting nowhere, to tell a dead
+ *   connection from a deployment that is answering, and the uptime monitor and
  *   the post-deploy assertion both read it.
  * - `/v1/users` is the logon page's list of names. It is what you read while
  *   you are still nobody, so it cannot be behind the thing it exists to get you
