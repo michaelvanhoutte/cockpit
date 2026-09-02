@@ -35,6 +35,18 @@ gh issue view <number> --json state,title,assignees
 gh pr list --state all --search <number> --json number,title,state
 ```
 
+## Working in parallel
+
+The three tools named here come from the desktop app, so a terminal, scheduled or remote session has none of them: take the fallback where a rule gives one, and skip the rule where it does not.
+
+**A finding outside the issue's statement list becomes a chip, not a commit.** Call `spawn_task` with enough for a fresh session to act on — file paths, the symptom, what you were doing — then carry on with the scope you were given. Fix it inline only where the current work cannot be proven without it, and say so in the pull request body. Without `spawn_task`, open a bare issue naming the symptom: it is a pointer rather than a brief, so the `github-issue` skill and the scoping it presumes do not apply.
+
+**Mark a chapter at each phase boundary** — scoping settled, implementation done, review findings in, browser pass done. `mark_chapter` puts a divider in the transcript and an entry in the table of contents, which is what lets a long thread be re-entered without scrolling it. Three to eight in a session, not one per tool call.
+
+**Rename the session when its scope moves**, with `set_session_title`. The sidebar is how eight open threads are told apart, and a title naming work that has since been deferred sends the reader into the wrong one.
+
+**`/where` prints this session's position** for a reader who has lost the thread, following the constraints in `.claude/commands/where.md`.
+
 ## Tests
 
 **Follow the `testing` skill in `.claude/skills/testing/` before writing, moving or reviewing any test.** It restates every binding rule, so there is no need to open the strategy document to write a test. `docs/testing-strategy.md` holds the reasoning and is the version of record; open it to change a rule or to settle something the skill does not decide.
