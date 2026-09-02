@@ -239,14 +239,34 @@ export function Layout() {
             </MenuContent>
           </DropdownMenu.Root>
         </div>
-        {/* The dashboards of the workspace you are in, directly under its tab
-            and on the same color, so the tab and this strip are one surface.
-            Only where there is a workspace to have them: the settings page is
-            reached without one, and there is then nothing for a tab to join. */}
-        {params.workspaceId && (
-          <DashboardBar workspaceId={params.workspaceId} bar={theme.bar} ground={theme.ground} />
-        )}
       </header>
+      {/* The workspace's own band, under its tab and on the same color, so the
+          tab and this strip are one surface. Full width, because that is what
+          the selected workspace tab joins onto and because the band belongs to
+          the workspace rather than to either column under it.
+
+          **The dashboard tabs inside it start where the dashboard starts.**
+          They used to run from the left edge, which put them above the Inbox -
+          and the Inbox is the workspace's, identical on every dashboard, so
+          tabs sitting over it said they governed something they do not. The
+          spacer is the Inbox's own width, so the two line up however wide the
+          column is; with no room for the Inbox there is no column to miss, and
+          no spacer.
+
+          Only where there is a workspace to have dashboards: the settings page
+          is reached without one, and there is then nothing for a tab to join. */}
+      {params.workspaceId && (
+        <div className="flex w-full" style={{ backgroundColor: theme.bar }}>
+          {roomForTheInbox && (
+            <div aria-hidden="true" className="w-1/5 min-w-70 max-w-105 shrink-0" />
+          )}
+          <DashboardBar
+            workspaceId={params.workspaceId}
+            tint={theme.color}
+            ground={theme.ground}
+          />
+        </div>
+      )}
       {/* Left-aligned and full width, matching the header: pages get the whole
           screen instead of a centred column with empty gutters either side.
 

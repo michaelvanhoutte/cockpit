@@ -44,8 +44,8 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
 
 vi.mock('../../../src/components/DashboardBar', () => ({
-  DashboardBar: ({ bar, ground }: { bar: string; ground: string }) => (
-    <div data-testid="dashboard-strip" data-bar={bar} data-ground={ground} />
+  DashboardBar: ({ tint, ground }: { tint: string; ground: string }) => (
+    <div data-testid="dashboard-strip" data-tint={tint} data-ground={ground} />
   ),
 }));
 
@@ -133,8 +133,13 @@ describe('Workspace management', () => {
 
       const { container } = await theShell();
 
+      // The band is the shell's own now, so the colour the workspace tab joins
+      // onto is read from it rather than from the tabs inside it.
+      const band = within(container).getByTestId('dashboard-strip').parentElement!;
+      expect(filledWith(band)).toBe(rgb(BLUE.bar));
+
       const strip = within(container).getByTestId('dashboard-strip');
-      expect(strip.dataset.bar).toBe(BLUE.bar);
+      expect(strip.dataset.tint).toBe(BLUE.tint);
       expect(strip.dataset.ground).toBe(BLUE.ground);
     });
 

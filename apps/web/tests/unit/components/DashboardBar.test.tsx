@@ -108,7 +108,7 @@ function showBar(names: string[], answer: { error?: Error } = {}) {
   );
   const { container } = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <DashboardBar workspaceId="ws-work" bar="#dbd7ee" ground="#e3e1f2" />
+      <DashboardBar workspaceId="ws-work" tint="#6f62b5" ground="#e3e1f2" />
     </QueryClientProvider>,
   );
   return { mutate, container, user: userEvent.setup() };
@@ -279,12 +279,15 @@ describe('Dashboards', () => {
      * wrong here, and is what this holds, is the strip being handed the wrong
      * two colors or handing them on under the wrong names.
      */
-    it('is filled with its own color and offers the page’s for whichever tab is current', () => {
+    it('offers the page’s colour and the workspace’s mark for whichever tab is current', () => {
       const { container } = showBar(['Dashboard 1']);
 
       const strip = container.querySelector('nav[aria-label="Dashboards"]') as HTMLElement;
-      expect(strip.style.backgroundColor).toBe('rgb(219, 215, 238)');
+      // No background of its own any more: the band around it is painted by
+      // the shell, so the tabs can be inset past the Inbox without a seam.
+      expect(strip.style.backgroundColor).toBe('');
       expect(strip.style.getPropertyValue('--tab-on')).toBe('#e3e1f2');
+      expect(strip.style.getPropertyValue('--tab-mark')).toBe('#6f62b5');
     });
   });
 });

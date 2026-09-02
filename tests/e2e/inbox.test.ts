@@ -33,7 +33,14 @@ test.describe('Triage', () => {
       await openFirstWorkspace(page, isMobile);
 
       const column = page.getByRole('complementary', { name: 'Inbox' });
-      const dashboard = page.getByRole('heading', { name: 'Dashboard 1' });
+      // The tab you are on, not the dashboard's heading. The heading was the
+      // anchor until the name stopped being drawn twice - once in the tab and
+      // again over the board a centimetre below it ("Modernise the app shell",
+      // issue 125) - and a heading only a screen reader can reach is in no
+      // viewport. The tab is the visible thing that says which dashboard this
+      // is, and it sits in the dashboard's own column, so it answers the same
+      // question this walk was asking.
+      const dashboard = dashboardBar(page).getByRole('link', { name: 'Dashboard 1' });
 
       if (isMobile) {
         // No room for a column, so the Inbox is what it was: a tab at the left

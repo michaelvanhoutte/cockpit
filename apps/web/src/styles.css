@@ -92,9 +92,17 @@ body {
 /*
  * The page behind the panels: the workspace's ground, with a low-contrast wash
  * down it so the canvas is lit rather than flat. The ground color itself is
- * set inline per workspace, so this only darkens the top of it by a few
- * percent and leaves the bottom alone.
+ * set inline per workspace, so this only darkens it and never states a hue.
+ *
+ * **Top to bottom, with no stop, and at eight percent.** It was five percent
+ * faded out by forty percent of the height, which is a quarter of the effect
+ * the mockup was approved on and put all of it where the content sits: the
+ * panels cover the top of the page, so the only ground you actually see is the
+ * margins and the empty area below - and the ramp had already run out by the
+ * time it got there. Running the whole height puts the shift where the ground
+ * is, and eight percent of the ink colour is about fifteen values of grey from
+ * top to bottom, which is what the mockup's own swatch measured.
  */
 @utility ground-wash {
-  background-image: linear-gradient(rgb(41 43 49 / 0.05), rgb(41 43 49 / 0) 40%);
+  background-image: linear-gradient(rgb(41 43 49 / 0.08), rgb(41 43 49 / 0));
 }

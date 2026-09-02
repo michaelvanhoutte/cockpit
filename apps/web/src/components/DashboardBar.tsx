@@ -24,12 +24,12 @@ import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
  */
 export function DashboardBar({
   workspaceId,
-  bar,
+  tint,
   ground,
 }: {
   workspaceId: string;
-  /** The strip's own color: the workspace tab above it is filled with this too. */
-  bar: string;
+  /** The workspace's saturated colour, marking the tab you are on. */
+  tint: string;
   /** The page's color, which the tab you are on is filled with so it meets it. */
   ground: string;
 }) {
@@ -45,14 +45,29 @@ export function DashboardBar({
    * through `.active` rather than through a comparison here so the router
    * stays the one thing that decides which tab is current.
    */
+  /*
+   * **The fill alone was not enough to say which one you are on.** The strip
+   * and the page are one step apart by design, which is eight values of grey -
+   * plenty to make a joined tab read as joined, and not nearly enough to make
+   * it read as *selected* when you are looking for it. So the tab you are on
+   * also carries the workspace's own colour along its top edge, which is the
+   * one saturated thing on this bar and cannot be mistaken for a shade.
+   *
+   * It is an inset shadow rather than a border so the tab does not change
+   * height when it becomes the current one, which would shuffle the whole
+   * strip by two pixels on every switch.
+   */
   const tabClass =
-    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-ink-soft hover:bg-black/5 [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink';
+    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-ink-soft hover:bg-black/5 [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-[inset_0_2px_0_0_var(--tab-mark)]';
 
   return (
     <nav
       aria-label="Dashboards"
-      className="flex w-full items-end gap-1 overflow-x-auto px-3 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      style={{ backgroundColor: bar, '--tab-on': ground } as CSSProperties}
+      // No background of its own: the band around it is the workspace's, and is
+      // painted by the shell so the tabs can be inset from the left without a
+      // seam showing where this element starts.
+      className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto px-3 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      style={{ '--tab-on': ground, '--tab-mark': tint } as CSSProperties}
     >
       {/* Only where the Inbox is not already on screen. Where there is room it
           is a column beside the dashboards rather than one of them ("Show the
