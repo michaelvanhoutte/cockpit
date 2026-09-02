@@ -223,10 +223,11 @@ describe('Workspace management', () => {
   });
 
   describe('choosing a colour for a workspace asks for the whole theme, for that workspace', () => {
-    it('asks for all three of its colours, not the one on the swatch', async () => {
-      // Three, because three is what a workspace stores: the dot, the page and
-      // the bar. A picker that sent only the tint would leave the page it is
-      // meant to change behind.
+    it('asks for all four of its colours, not the one on the swatch', async () => {
+      // Four, because four is what a workspace stores: the tint on the dot, the
+      // header across the top, the strip the dashboard tabs sit on, and the
+      // page behind the panels. A picker that sent only the tint would leave
+      // the page it is meant to change behind.
       const user = userEvent.setup();
       const { mutate } = showPage({ succeeds: true });
       const chosen = WORKSPACE_THEMES[4]!;
@@ -238,6 +239,7 @@ describe('Workspace management', () => {
         payload: expect.objectContaining({
           workspaceId: 'ws-work',
           color: chosen.tint,
+          bar: chosen.bar,
           ground: chosen.ground,
           header: chosen.header,
         }),
