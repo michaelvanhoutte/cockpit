@@ -3,12 +3,12 @@
   "private": true,
   "packageManager": "pnpm@10.21.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dev:api": "pnpm --filter @cockpit/api dev",
-    "dev:web": "pnpm --filter @cockpit/web dev",
+    "dev:api": "node scripts/dev.mjs --only api",
+    "dev:web": "node scripts/dev.mjs --only web",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
     "test": "pnpm -r test",
