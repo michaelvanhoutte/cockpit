@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildTree, matchingConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from '../../src/analyze/concepts.js';
-import { INFRASTRUCTURE_KEY, INFRASTRUCTURE_LABEL } from '../../src/model.js';
+import { annotateTree, buildTree, matchingConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from '../../src/analyze/concepts.js';
+import { INFRASTRUCTURE_KEY, INFRASTRUCTURE_LABEL, LEVEL_IDS } from '../../src/model.js';
 
 const CONCEPTS = [
   { key: 'Capture', label: 'Capture', sourcePatterns: ['apps/api/src/domain/items.ts', 'apps/web/src/item/**'] },
@@ -106,6 +106,101 @@ describe('buildTree', () => {
     const { tree, warnings } = buildTree(concepts, makeNode);
     expect(tree.map((n) => n.key).sort()).toEqual(['A', 'B']);
     expect(warnings.length).toBeGreaterThan(0);
+  });
+});
+
+describe('annotateTree', () => {
+  /**
+   * A three-level chain — a row holding a row holding a row — which is the
+   * shape the registry actually has now (Workspaces > Inbox > Triage) and the
+   * one where "total everything beneath" and "total the row below" differ.
+   */
+  function chain({ own = [1, 3, 4], files = [[], [], []], branches = [[], [], []] } = {}) {
+    const concepts = [
+      { key: 'Top', label: 'Top' },
+      { key: 'Middle', label: 'Middle', parent: 'Top' },
+      { key: 'Leaf', label: 'Leaf', parent: 'Middle' },
+    ];
+    const at = (key) => concepts.findIndex((c) => c.key === key);
+    const { tree } = buildTree(concepts, (c) => {
+      const i = at(c.key);
+      const counts = {};
+      // L1 carries the numbers under test; every other level is n/a everywhere,
+      // which is the "the whole subtree is n/a" case in its own right.
+      for (const id of LEVEL_IDS) counts[id] = id === 'L1' ? own[i] : null;
+      return {
+        key: c.key,
+        label: c.label,
+        counts,
+        rules: [],
+        filesNothingRuns: files[i].map((file) => ({ file, line: 1, context: [] })),
+        branchesNothingTakes: branches[i] === null ? null : branches[i].map((b) => ({ file: b.file, line: b.line, context: [] })),
+      };
+    });
+    annotateTree(tree);
+    const find = (key) => [...walk(tree)].find((n) => n.key === key);
+    return { tree, find };
+  }
+
+  function* walk(nodes) {
+    for (const n of nodes) {
+      yield n;
+      yield* walk(n.children);
+    }
+  }
+
+  it('totals everything beneath a row, not only the row below it', () => {
+    const { find } = chain();
+    // Stopping one level down would make Top read 4 (its own 1 plus Middle's 3)
+    // and lose the Leaf's 4 entirely.
+    expect(find('Top').subtree.counts.L1).toBe(8);
+    expect(find('Middle').subtree.counts.L1).toBe(7);
+    expect(find('Leaf').subtree.counts.L1).toBe(4);
+  });
+
+  it('leaves a row its own count as well, which is what the Rules tab lists', () => {
+    const { find } = chain();
+    expect(find('Top').counts.L1).toBe(1);
+  });
+
+  it('counts a file belonging to two rows beneath it once, not once per row', () => {
+    // One source file legitimately backs several areas, so a plain sum would
+    // report one untested file as two.
+    const { find } = chain({ files: [[], ['apps/web/src/components/Menu.tsx'], ['apps/web/src/components/Menu.tsx']] });
+    expect(find('Top').subtree.filesNothingRuns).toBe(1);
+  });
+
+  it("counts a shared file's branch gaps once, and both gaps on a line that holds two", () => {
+    // The file is what belongs to two areas; the line is not. An if/else with
+    // neither path taken is two gaps on one line (coverage.js keys an entry by
+    // line alone, so they are indistinguishable), and counting by file:line
+    // would collapse them — making the row's total smaller than its own count.
+    const shared = [
+      { file: 'apps/web/src/components/Menu.tsx', line: 12 },
+      { file: 'apps/web/src/components/Menu.tsx', line: 12 },
+    ];
+    const { find } = chain({ branches: [[], shared, shared] });
+    expect(find('Top').subtree.branchesNothingTakes).toBe(2);
+    // Never smaller than the row's own count, which is what a rollup means.
+    expect(find('Middle').subtree.branchesNothingTakes).toBeGreaterThanOrEqual(find('Middle').branchesNothingTakes.length);
+  });
+
+  it('keeps a level that is n/a all the way down as n/a, rather than totalling it as zero', () => {
+    const { find } = chain();
+    expect(find('Top').subtree.counts.L3).toBeNull();
+  });
+
+  it('reads unknown for branches when nothing beneath the row was measured', () => {
+    // No coverage run at all: every node's branches are null. Adding those up
+    // as zero would report an unmeasured subtree as one with no gaps.
+    const { find } = chain({ branches: [null, null, null] });
+    expect(find('Top').subtree.branchesNothingTakes).toBeNull();
+  });
+
+  it('gives every row the ancestors it sits under, outermost first, and a root none', () => {
+    const { find } = chain();
+    expect(find('Leaf').path).toEqual(['Top', 'Middle']);
+    expect(find('Top').path).toEqual([]);
   });
 });
 

@@ -45,8 +45,9 @@ export function renderHtml(model, { repoRelPrefix }) {
     <p class="eyebrow">Cockpit &middot; generated test model</p>
     <h1>Which parts of the product own which tests</h1>
     <p class="standfirst">
-      Rows are feature areas &mdash; the parts a person would name if asked what the app does &mdash; and can
-      nest (a big area like Dashboards can have sub-areas of its own). Columns are counts, never
+      Rows are feature areas &mdash; the parts a person would name if asked what the app does &mdash; nested the
+      way the product is (a Workspace holds an Inbox and Dashboards; a Dashboard holds Panels). A row that holds
+      other rows shows its own count first and its whole subtree's in brackets. Columns are counts, never
       percentages &mdash; a count only tells you where to look relative to another row.
     </p>
     <div class="runmeta">
@@ -82,7 +83,13 @@ export function renderHtml(model, { repoRelPrefix }) {
         <table id="matrix">
           <thead>
             <tr>
-              <th>Concept</th>
+              <th>
+                Concept
+                <span class="treecontrols">
+                  <button type="button" id="collapse-all">Collapse all</button>
+                  <button type="button" id="expand-all">Expand all</button>
+                </span>
+              </th>
               ${LEVELS.map((l) => `<th class="c" title="Click a count to see just ${esc(l.name)} (${esc(l.label)}) rules — ${esc(l.description)}">${esc(l.label)}</th>`).join('')}
               <th class="c" title="Click a count to open this tab — source files this area owns that no test imports">Files nothing runs</th>
               <th class="c" title="Click a count to open this tab — branches in this area's files that real coverage shows are never taken">Branches nothing takes</th>

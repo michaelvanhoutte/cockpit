@@ -297,6 +297,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Dashboard** — a switchable named view inside a Workspace, holding a layout of Panels.
 - **Panel** — a movable, resizable, titled box on a Dashboard displaying a filtered set of Items. Its title is unique within its Dashboard.
 - **Layout** — one arrangement of a Dashboard's Panels — their order and each one's size — together with the screen width it was made at. A Dashboard can have several, so it reads well on a phone and on a 4K screen; the app draws it with the one closest to the screen in front of you unless you pick another.
+- **Inbox** — the one place in a Workspace holding what has arrived and not been dealt with. Beside the Dashboards rather than one of them, and never renamed or deleted.
 - **Item** — the single object everything is stored as, whether it arrived from a source or was created in the app. **Action** and **Thought** are *types* of Item, not separate objects.
 - **Action** — an Item representing something to do. One source Item can produce several.
 - **Thought** — an Item created in the app as a note or idea, with no source behind it.
@@ -312,5 +313,12 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Role** — *user* or *admin*. Carried today and enforced nowhere; the first admin-only part of the app brings the check with it.
 - **Sign in** — saying which User you are. Today by choosing a name on the **logon page**, which proves nothing and is meant not to; passwords and Google sign-in replace that step later. A sign-in lasts a set time, renews while used, and expires on its own, and Cockpit says so rather than failing at you.
 - **Sign out** — ending a sign-in deliberately. Cockpit forgets it and the browser is left holding nothing of what you were looking at.
+
+Four things the app does in the same way wherever it does them, named here because a shared behaviour with no word is one nobody can say is tested (`tools/test-explorer/concepts.json`):
+
+- **Menu** — the control a row's actions open from, three dots wherever it appears. An action that cannot be taken stays in the menu, unavailable, saying why, rather than disappearing.
+- **Deleting** — asking before anything goes, in a dialog naming what is going and what goes with it, offering Cancel and Delete in that fixed order. Escape and Cancel are the two ways to say no.
+- **Ordering** — putting rows in the order you choose, by dragging one or by moving it a step at a time from its own menu; the two are the same move.
+- **Live updates** — a change made in one place reaching everywhere else it is shown, without a reload.
 
 This glossary is binding on anything written to be read as a description of the product, test names included (see `docs/testing-strategy.md`, "Tests are named in the product's language"). Words that live only in `docs/architecture.md` — command, envelope, tombstone, idempotency, last-write-wins — are implementation and stay there.

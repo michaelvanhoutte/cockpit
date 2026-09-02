@@ -17,9 +17,9 @@
  *
  * Amended after first use (docs/test-explorer-spec.md, "How the built tool got
  * its current shape" (§2b)): areas are a
- * **tree**, not a flat list — a big area like Dashboards will have real
- * sub-areas (drag-drop, resizing, ...), and a parent's own rule counts are
- * not meant to look like the whole subtree's. Columns are the actual six
+ * **tree**, not a flat list — they nest the way the product does, a Workspace
+ * holding an Inbox and Dashboards and a Dashboard holding Panels, and a row's
+ * own rule counts are not the whole subtree's (it carries both). Columns are the actual six
  * testing-strategy levels plus Contract, not the coarser backend/frontend/
  * browser grouping the first version collapsed them into.
  *
@@ -109,7 +109,23 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  * @property {BranchRef[] | null} branchesNothingTakes
  *   null when no coverage data was found for this run (see Model.coverageAvailable), not when the
  *   count is genuinely zero — those are different facts and must not render the same way.
+ * @property {Subtree} subtree        What this node and everything under it holds. A row that exists
+ *                                      to hold other rows has nothing filed against its own name, so
+ *                                      its own counts read as an untested part of the product and
+ *                                      collapsing it hides the rest; the page shows both numbers.
+ * @property {string[]} path          The labels of this node's ancestors, outermost first; empty at a
+ *                                      root. What the detail panel prints above the area's name.
  * @property {TreeNode[]} children
+ *
+ * @typedef {Object} Subtree
+ * @property {Record<string, number|null>} counts  Same keys as `counts`; null only when every node in
+ *                                                   the subtree is n/a at that level, never a sum that
+ *                                                   treated n/a as zero.
+ * @property {number} filesNothingRuns             Counted by file, not summed: one file may belong to
+ *                                                   several areas under the same row and is one gap.
+ * @property {number | null} branchesNothingTakes  Counted once per file by `countBranchGaps`, not by
+ *                                                   file:line — one line can hold two uncovered paths;
+ *                                                   null when nothing in the subtree has coverage data.
  *
  * @typedef {Object} Model
  * @property {string} commit
@@ -129,24 +145,54 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  */
 
 /**
- * Totals across every node in the tree, for the page header. Deduplicated by
- * file (and by file:line for branches): concepts.json deliberately allows one
- * source file to belong to more than one feature area (docs/test-explorer-spec.md
- * §2a/§5 — a file backing both Capture and Triage is expected, not an overlap
- * error), so a plain sum over every node would count that file's gap once per
- * area it belongs to. The masthead reports how many real files/branches are
- * untested, not how many (node, gap) pairs exist.
+ * How many branch gaps a set of nodes holds between them, counted once per
+ * **file**. concepts.json deliberately lets one source file belong to several
+ * areas ("The area registry" in docs/test-explorer-spec.md), so a plain sum
+ * counts that file's gaps once per area it belongs to.
+ *
+ * The file is the identity, not `file:line`: a line genuinely holds two gaps
+ * when an `if/else` or an `a || b` has both paths uncovered, and
+ * `analyze/coverage.js` keys an entry by line alone, so collapsing by line
+ * loses the second. A file's gaps are the same list wherever the file appears,
+ * so this records one count per file rather than adding them up; the max only
+ * guards a disagreement.
+ *
+ * Shared by the masthead's totals and by each row's own subtree total
+ * (`analyze/concepts.js`), which must agree — a page total printing smaller
+ * than a row beneath it is the same defect either of them can have alone.
+ *
+ * @param {Iterable<{ branchesNothingTakes: BranchRef[] | null }>} nodes
+ */
+export function countBranchGaps(nodes) {
+  const perFile = new Map();
+  for (const node of nodes) {
+    const own = new Map();
+    for (const b of node.branchesNothingTakes ?? []) own.set(b.file, (own.get(b.file) ?? 0) + 1);
+    for (const [file, count] of own) perFile.set(file, Math.max(perFile.get(file) ?? 0, count));
+  }
+  let total = 0;
+  for (const count of perFile.values()) total += count;
+  return total;
+}
+
+/**
+ * Totals across every node in the tree, for the page header. Files are counted
+ * once each and branches by `countBranchGaps`, for the reason given there: the
+ * masthead reports how many real files and branches are untested, not how many
+ * (node, gap) pairs exist.
  */
 export function summarise(model) {
   let rules = 0;
   const files = new Set();
-  const branches = new Set();
   for (const node of walkTree(model.tree)) {
     rules += node.rules.length;
     for (const f of node.filesNothingRuns) files.add(f.file);
-    for (const b of node.branchesNothingTakes ?? []) branches.add(`${b.file}:${b.line}`);
   }
-  return { rules, filesNothingRuns: files.size, branchesNothingTakes: branches.size };
+  return {
+    rules,
+    filesNothingRuns: files.size,
+    branchesNothingTakes: countBranchGaps(walkTree(model.tree)),
+  };
 }
 
 /** Depth-first walk over every node in a tree, parents before children. */

@@ -36,9 +36,11 @@ Two different questions, easy to conflate:
 
 **Which rows exist** comes entirely from [`concepts.json`](./concepts.json), the
 checked-in area registry, not from test files. An entry can be declared with empty
-`sourcePatterns` *ahead of* any code that will back it (`Dashboards`, `Panels`, `Focus`
-are exactly this today), and can carry `"parent": "<key>"` to nest under another entry.
-Both are registry decisions, unconnected to whether any test exists.
+`sourcePatterns` *ahead of* any code that will back it (`Focus`, `Connector management`
+and `User management` are exactly this today), and can carry `"parent": "<key>"` to nest
+under another entry — which is what makes the rows read as the product's own containment,
+a Workspace holding an Inbox and Dashboards, a Dashboard holding Panels. Both are
+registry decisions, unconnected to whether any test exists.
 
 **What populates a row** — every count, rule, case and coverage gap — is derived from
 what is really in the repository: real `describe`/`it` blocks, real import graphs, real
@@ -53,6 +55,12 @@ the first place to look.
 - **Every count is its own click target**, not just the row: a level's count opens that
   concept's Rules tab filtered to that level; a gap count jumps to its tab; the concept's
   name shows everything.
+- **A row that holds other rows shows two numbers**: its own, then its whole subtree's in
+  brackets, so collapsing one never reads as an untested part of the product. Files and
+  branches are counted once per file rather than summed, so a file backing two areas under
+  the same row is counted once — while two uncovered paths on one line stay two gaps. The
+  masthead's totals use the same counting, so a page total is never smaller than a row
+  beneath it. Collapse all / expand all are in the first column's header.
 - **No checkmark next to a case.** This tool never runs the suite, so it has no pass/fail
   fact to show. Only "not written yet" (a `.todo`) gets a mark, which the AST does know.
 - **A `.each` case shows its template with real values substituted** where they are

@@ -9,7 +9,7 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { LEVEL_IDS } from '../model.js';
-import { buildTree, loadConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from './concepts.js';
+import { annotateTree, buildTree, loadConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from './concepts.js';
 import { extractRules, levelForTestFile } from './rules.js';
 import { parseFile, resolveImport } from './ast.js';
 import { workspacePackages, packageName, packageEntry, sourceFiles, testFiles } from './workspace.js';
@@ -195,6 +195,7 @@ export function analyze(repo) {
   }
 
   const { tree, warnings: treeWarnings } = buildTree(withInfra, makeNode);
+  annotateTree(tree);
   warnings.push(...treeWarnings);
 
   if (uninstrumentedFiles.size) {
