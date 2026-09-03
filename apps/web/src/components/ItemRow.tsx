@@ -1,7 +1,8 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
 import { useCommand, useSendCommand, type CommandArgs } from '../api/queries';
+import { howFarItHasGone, SWIPE_THRESHOLD_PX, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
@@ -124,11 +125,95 @@ export function ItemRow({
   const focusToday = () =>
     command.mutate({ name: 'set_focus', payload: { ...envelope(), horizon: 'today' } });
 
+  /**
+   * Which finger is swiping, where it started, and how far it has come.
+   *
+   * The start is a ref because nothing on screen depends on it; the distance is
+   * state because the row is drawn at it. Null start means no gesture is
+   * running, which is what a mouse and a released finger both leave behind.
+   *
+   * **The pointer id is what makes a second finger harmless.** Without it a
+   * finger resting on the row mid-swipe overwrote where the gesture began, and
+   * the first finger's release was then measured from the second one's
+   * position - so a swipe that had barely moved reported the gap between the
+   * two fingers and, past the threshold, dismissed an item nobody swiped.
+   */
+  const from = useRef<{ pointer: number; x: number; y: number } | null>(null);
+  const [gone, setGone] = useState(0);
+
+  /**
+   * The swipes ("Swipe an inbox row right to file it, left to dismiss it",
+   * issue 145). Touch only, and `pointerType` is the whole of that check: a
+   * desktop row is dragged into a panel instead, and a mouse drag that both
+   * selected text and dismissed an item would be two gestures wearing one
+   * movement.
+   *
+   * `touch-action: pan-y` below is what makes the two coexist. The browser
+   * keeps vertical panning - the list still scrolls under the same finger - and
+   * hands the horizontal component here, so neither has to be guessed at from
+   * coordinates alone.
+   */
+  const swipe = {
+    onPointerDown: (event: React.PointerEvent) => {
+      if (event.pointerType !== 'touch') return;
+      // A touch that starts on a control belongs to that control. The menu
+      // opens on pointerdown and the same event bubbles up here, so without
+      // this, tapping the three dots both opened the menu and began a swipe -
+      // and the release then landed on a menu entry in a portal outside this
+      // row, so no pointerup ever arrived to end it and the row stayed shifted
+      // sideways.
+      if ((event.target as Element).closest('button')) return;
+      // One finger swipes; a second one landing on the row is ignored rather
+      // than taken for the first.
+      if (from.current) return;
+      from.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY };
+      setGone(0);
+    },
+    onPointerMove: (event: React.PointerEvent) => {
+      const start = from.current;
+      if (!start || event.pointerId !== start.pointer) return;
+      setGone(howFarItHasGone(event.clientX - start.x, event.clientY - start.y));
+    },
+    onPointerUp: (event: React.PointerEvent) => {
+      const start = from.current;
+      if (!start || event.pointerId !== start.pointer) return;
+      from.current = null;
+      setGone(0);
+      const meant = whatTheSwipeMeant(event.clientX - start.x, event.clientY - start.y);
+      if (meant === 'dismiss') dismiss();
+      // The same picker the menu's Move to… opens, so filing is one gesture on
+      // a phone and the same question either way.
+      if (meant === 'file') onMoveTo?.(null);
+    },
+    // A gesture the browser took over - a scroll it decided was a scroll after
+    // all - is not a swipe that stopped short, it is no swipe at all.
+    onPointerCancel: (event: React.PointerEvent) => {
+      if (from.current && event.pointerId !== from.current.pointer) return;
+      from.current = null;
+      setGone(0);
+    },
+  };
+
+  /** Past the point where letting go would do something. */
+  const wouldAct = Math.abs(gone) >= SWIPE_THRESHOLD_PX;
+
   return (
     // `gap-1.5` rather than `gap-2`: the row gained a mark at its head and an
     // age at its tail, and the Inbox column is a fifth of the screen, so the
     // space between them is space the title does not get.
-    <li className="flex items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 hover:bg-accent-tint/40">
+    <li
+      {...swipe}
+      style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
+      // `touch-action: pan-y` leaves vertical scrolling to the browser and
+      // gives this the horizontal component. `select-none` stops a long press
+      // turning the row into selected text mid-swipe, and is
+      // `pointer-coarse:` rather than plain: a mouse never swipes, and taking
+      // selection off a row for everyone would mean a title that cannot be
+      // copied to pay for a gesture only a finger makes.
+      className={`flex touch-pan-y items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
+        wouldAct ? (gone > 0 ? 'bg-accent-tint' : 'bg-over/15') : ''
+      }`}
+    >
       {/* What the row is doing, before anything is read. Decorative on purpose:
           the word it stands for is on the line below, so announcing the color
           as well would say the status twice. */}

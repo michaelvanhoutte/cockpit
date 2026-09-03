@@ -114,7 +114,7 @@ Processing an Item means one or more of:
 
 Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stays reachable through the Panels holding it, through its associations, and through an optional "All items" view.
 
-**Gestures:** swipe left = delete/dismiss; swipe right = file into a box (candidate meaning, §5.2). On desktop the same actions are buttons, keyboard shortcuts and drag-into-panel.
+**Gestures** ("Swipe an inbox row right to file it, left to dismiss it", issue 145): **swipe left dismisses, swipe right opens the picker** — the same picker **Move to…** opens, so filing is one gesture on a phone and the same question either way. One meaning per direction, in every list rather than only the Inbox: the same swipe cannot mean two things depending on which list it is in, so removing an Item from one Panel stays in the menu. A swipe that stops short puts the row back, and one that is mostly vertical is the list scrolling and does nothing at all. **A swipe is a touch gesture**: on a desktop the same actions are the menu, and a Panel is reached by dragging the row into it.
 
 **Open question:** does "delete" mean delete only here, or also archive/delete in Gmail/Slack? See §12 — the single biggest behavioral decision.
 
@@ -130,9 +130,11 @@ The reframing that makes this tractable: **"in the Inbox" and "shown in a box" a
 
 **Recommended lean (a hybrid).** Inbox by default for anything with no matching rule, plus per-source/per-channel routing rules so obvious and actively-saved items land directly in a box, optionally marked "unseen". Decision still open.
 
-### 5.2 Swipe-right — options to keep in mind (undecided)
+### 5.2 Swipe-right — settled
 
-Swipe-left = delete. Candidates for swipe-right, to be tested rather than decided now: **file into a box** (a picker, or repeat the last-used box — best if Model A dominates); **quick process sheet** (associations and status in one gesture); **snooze / defer**; **mark done**. They are not exclusive: a short swipe could file while a long swipe handles snooze or done. Prototype on the phone before locking in.
+**Swipe-right opens the picker**, the same one **Move to…** opens ("Swipe an inbox row right to file it, left to dismiss it", issue 145). Filing is what an Inbox row most often needs and the picker is where the decision already lives, so a phone gets to it in one gesture rather than three taps.
+
+**One meaning per direction, at one distance.** The other candidates — a quick process sheet, snooze, done — were going to be told apart by how far the swipe went, and that is what the gesture cannot spare: it is already competing with the list scrolling under the same thumb, so the difference between a short swipe and a long one is not a difference a hand can be relied on to make. They stay in the row's menu, where there is no threshold to miss.
 
 ## 6. Dashboards and Panels
 
@@ -260,11 +262,11 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 ## 12. Open decisions (need your call — recommendations included)
 
-*Decisions #3, #15, #16 and #17 concern the iteration 2 inbox and its panels and can stay open until that phase. The rest touch the shared model and are best decided before or during iteration 1.*
+*Decisions #15, #16 and #17 concern the iteration 2 inbox and its panels and can stay open until that phase. The rest touch the shared model and are best decided before or during iteration 1.*
 
 1. **One-way vs two-way sync.** Should archiving or marking done here change the source? *Recommendation: read-only in v1, two-way sync opt-in per connector later.* Highest-impact decision.
 2. **Inbox-first vs direct routing (§5.1).** *Recommendation: hybrid — inbox by default, per-source rules for the obvious cases, with an "unseen" marker on auto-routed cards.*
-3. **Swipe-right meaning (§5.2).** *Recommendation: short swipe-right files into a box; long swipe or button for snooze/done. Prototype on phone first.*
+3. ~~**Swipe-right meaning.**~~ *Settled: it opens the picker, and there is no short-versus-long split — see "Swipe-right — settled".*
 4. **Tasks — separate object or Item status?** *Recommendation: Item with a "task" status plus due date, so all panels share one model.*
 5. **Auto-tagging trust level.** Applied automatically with undo, or suggested for confirmation? *Recommendation: suggest-and-confirm in v1; auto-apply once trusted.*
 6. **AI location vs offline.** *Recommendation: generate on sync in the cloud, cache the result so it reads offline.*
@@ -285,7 +287,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 **Iteration 1 — follow-up tracking:** Workspaces, Dashboards and Panels (move/resize/title) with plain-English rule configuration (§6.2); the Item model with associations; read-only Gmail/Slack/Notion connectors limited to flagged and assigned items; fast capture of internal notes (issue 2, §2); Project, Person, Topic, Focus and Highlights panels; the four Focus horizons with overdue escalation; per-item AI summaries, next-action labels and suggested tags; local-first offline viewing with queued actions; source reconciliation (§10.1).
 
-**Iteration 2 — unified inbox:** the same connectors widened to the full stream; the To-Process triage inbox with swipe-left delete and assign/status (§5); reading and replying in the app; flag-for-follow-up feeding the iteration 1 dashboards; notification-class email routing (#15); Payments due and Reading digest panels.
+**Iteration 2 — unified inbox:** the same connectors widened to the full stream; the triage inbox with its swipes and filing (§5); reading and replying in the app; flag-for-follow-up feeding the iteration 1 dashboards; notification-class email routing (#15); Payments due and Reading digest panels.
 
 **Later:** two-way sync beyond replies; Linear and Calendar; Chrome and YouTube; Kanban and calendar panels; end-of-period roll-up reminders; multi-user billing and onboarding.
 
