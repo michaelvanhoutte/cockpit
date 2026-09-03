@@ -1,11 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, WorkspaceSnapshot } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand } from '../../../src/api/queries';
+import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
+import { DWELL_MS } from '../../../src/switchWhileDragging';
 
 /**
  * F1: what is under test is the bar's own behaviour - what it shows, what it
@@ -94,7 +96,10 @@ function aDashboard(name: string): Dashboard {
  * a mock that only recorded the call could not tell that from a screen that
  * still shows it.
  */
-function showBar(names: string[], answer: { error?: Error } = {}) {
+function showBar(
+  names: string[],
+  answer: { error?: Error; openDashboardId?: string | null } = {},
+) {
   held.dashboards = names.map(aDashboard);
   wentTo.calls = [];
   const asked = { error: answer.error ?? null };
@@ -109,7 +114,12 @@ function showBar(names: string[], answer: { error?: Error } = {}) {
   );
   const { container } = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <DashboardBar workspaceId="ws-work" tint="#6f62b5" ground="#e3e1f2" />
+      <DashboardBar
+        workspaceId="ws-work"
+        tint="#6f62b5"
+        ground="#e3e1f2"
+        openDashboardId={answer.openDashboardId ?? null}
+      />
     </QueryClientProvider>,
   );
   return { mutate, container, user: userEvent.setup() };
@@ -289,6 +299,90 @@ describe('Dashboards', () => {
       expect(strip.style.backgroundColor).toBe('');
       expect(strip.style.getPropertyValue('--tab-on')).toBe('#e3e1f2');
       expect(strip.style.getPropertyValue('--tab-mark')).toBe('#6f62b5');
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a drag resting on a dashboard’s name switches to it', () => {
+    /**
+     * A row of ours held over a tab.
+     *
+     * Two `dragover`s, because the first is what starts the dwell and the
+     * second is what can end it — which is the browser's own behaviour, since
+     * `dragover` keeps firing while a drag is held still. jsdom has no clock of
+     * its own here, so `since` is moved rather than time: the rule about *how
+     * long* is tests/unit/switchWhileDragging.test.ts.
+     */
+    function restOn(name: string, forMs: number) {
+      const tab = screen.getByRole('link', { name });
+      const dataTransfer = { types: [ITEM_BEING_DRAGGED] };
+      const at = Date.now();
+      vi.setSystemTime(at);
+      fireEvent.dragOver(tab, { dataTransfer });
+      vi.setSystemTime(at + forMs);
+      fireEvent.dragOver(tab, { dataTransfer });
+      return tab;
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('goes to it once the drag has been held there long enough', async () => {
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-dashboard 1' });
+      await screen.findByRole('link', { name: 'Research' });
+
+      restOn('Research', DWELL_MS);
+
+      expect(wentTo.calls).toEqual([
+        expect.objectContaining({ params: { workspaceId: 'ws-work', dashboardId: 'ws-work-research' } }),
+      ]);
+    });
+
+    it('starts the dwell over when the drag leaves and comes back', async () => {
+      // Not a case about *how long*, which is the pure function's own table:
+      // this is the half the bar owns, that leaving a name forgets what it was
+      // resting on rather than the two rests being added together.
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-dashboard 1' });
+      const tab = await screen.findByRole('link', { name: 'Research' });
+
+      restOn('Research', DWELL_MS - 1);
+      fireEvent.dragLeave(tab);
+      restOn('Research', DWELL_MS - 1);
+
+      expect(wentTo.calls).toEqual([]);
+    });
+
+    it('does not let the browser take a row let go on a name', async () => {
+      // `dragover` is prevented to make a tab somewhere a drag can be *held*,
+      // which also makes it somewhere a drop can happen — so without preventing
+      // the drop too, the browser follows the text on the transfer as a link
+      // and leaves the workspace.
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-dashboard 1' });
+      const tab = await screen.findByRole('link', { name: 'Research' });
+
+      const dropped = fireEvent.drop(tab, { dataTransfer: { types: [ITEM_BEING_DRAGGED] } });
+
+      // `fireEvent` answers false when the default was prevented.
+      expect(dropped).toBe(false);
+    });
+
+    it('leaves a drag that is not one of our rows alone', async () => {
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-dashboard 1' });
+      const tab = await screen.findByRole('link', { name: 'Research' });
+
+      // A panel being dragged by its header across the bar on its way
+      // somewhere else.
+      const dataTransfer = { types: ['text/plain'] };
+      fireEvent.dragOver(tab, { dataTransfer });
+      fireEvent.dragOver(tab, { dataTransfer });
+
+      expect(wentTo.calls).toEqual([]);
     });
   });
 });

@@ -264,6 +264,7 @@ export function Layout() {
             workspaceId={params.workspaceId}
             tint={theme.color}
             ground={theme.ground}
+            openDashboardId={params.dashboardId ?? null}
           />
         </div>
       )}
