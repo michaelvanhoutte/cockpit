@@ -324,7 +324,14 @@ export function ItemList({
           recent={recentPanelsIn(browserStore(), workspaceId)}
           open
           onPick={(panelId) => move(moving, panelId)}
-          onCancel={() => setMoving(null)}
+          onCancel={() => {
+            // Reset as well as close: a refusal outlives the dialog it was
+            // shown in, and the list says one of its own now - so cancelling
+            // after a refused move used to leave the message stuck above the
+            // rows with nothing to explain it.
+            command.reset();
+            setMoving(null);
+          }}
           refusal={refusal}
           busy={command.isPending}
           returnFocusTo={openedFrom.current}

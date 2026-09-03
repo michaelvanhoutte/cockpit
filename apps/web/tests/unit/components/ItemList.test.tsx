@@ -25,12 +25,13 @@ const held = vi.hoisted(() => ({
   send: vi.fn(() => Promise.resolve()),
   error: null as Error | null,
   variables: undefined as { payload?: { itemId?: string } } | undefined,
+  reset: vi.fn(),
 }));
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({
     mutate: held.mutate,
-    reset: vi.fn(),
+    reset: held.reset,
     isPending: false,
     error: held.error,
     // What the real mutation carries: the last change asked for. A refusal is
@@ -157,6 +158,7 @@ beforeEach(() => {
   ];
   held.error = null;
   held.variables = { payload: { itemId: BART.id } };
+  held.reset = vi.fn();
   held.mutate = vi.fn();
   held.send = vi.fn(() => Promise.resolve());
   localStorage.clear();
@@ -282,6 +284,23 @@ describe('Panels', () => {
       expect(JSON.parse(localStorage.getItem('cockpit.recent-panels.ws-work') ?? '[]')).toEqual([
         'p-falcon',
       ]);
+    });
+
+    it('takes the refusal away with the question it was shown on', async () => {
+      // A refusal outlives the dialog it was shown in, and the list says one of
+      // its own now — so cancelling used to leave the message stuck above the
+      // rows with nothing to explain it.
+      held.error = new CommandRefused(409, 'this panel changed while you were looking at it');
+      const reset = vi.fn(() => {
+        held.error = null;
+      });
+      held.reset = reset;
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      expect(reset).toHaveBeenCalled();
     });
 
     it('sends nothing when the question is cancelled', async () => {
