@@ -352,13 +352,18 @@ test.describe('Panels', () => {
       // when the drag began.
       const row = itemRow(page, title);
       const tab = dashboardBar(page).getByRole('link', { name: elsewhere });
-      // Scrolled to before it is measured, which is what `dragRowOnto` records:
-      // the bar scrolls sideways once a workspace has a few dashboards, and
-      // `boundingBox` reports where a tab is without scrolling to it — so a tab
-      // off the end is measured at a coordinate the mouse cannot reach and the
-      // drag silently does nothing. Every walk in this file adds a dashboard to
-      // the same account, so by the end of a run there are several.
-      await tab.scrollIntoViewIfNeeded();
+      // Scrolled to the middle of the bar before it is measured, which is what
+      // `dragRowOnto` records one half of: the bar scrolls sideways once a
+      // workspace has a few dashboards, and `boundingBox` reports where a tab is
+      // without scrolling to it — so a tab off the end is measured at a
+      // coordinate the mouse cannot reach and the drag silently does nothing.
+      // Every walk in this file adds a dashboard to the same account, so by the
+      // end of a run there are several.
+      //
+      // `scrollIntoViewIfNeeded` is not enough: a tab that is *partly* visible
+      // is already "in view" by that test, and a tab ending past the right edge
+      // is exactly that. Centring it puts the whole of it where a mouse can go.
+      await tab.evaluate((el) => el.scrollIntoView({ inline: 'center', block: 'nearest' }));
       await row.scrollIntoViewIfNeeded();
       const from = await row.boundingBox();
       const over = await tab.boundingBox();
