@@ -344,19 +344,10 @@ describe('Panels', () => {
       ]);
     });
 
-    it.each([
-      { situation: 'the drag has not been there long enough', name: 'Research', held: DWELL_MS - 1 },
-      { situation: 'it is the dashboard already open', name: 'Dashboard 1', held: DWELL_MS * 3 },
-    ])('stays put when $situation', async ({ name, held: forMs }) => {
-      showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-dashboard 1' });
-      await screen.findByRole('link', { name });
-
-      restOn(name, forMs);
-
-      expect(wentTo.calls).toEqual([]);
-    });
-
     it('starts the dwell over when the drag leaves and comes back', async () => {
+      // Not a case about *how long*, which is the pure function's own table:
+      // this is the half the bar owns, that leaving a name forgets what it was
+      // resting on rather than the two rests being added together.
       showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-dashboard 1' });
       const tab = await screen.findByRole('link', { name: 'Research' });
 
