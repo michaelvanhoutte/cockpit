@@ -298,9 +298,12 @@ describe('Panels', () => {
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
+      // Counted from *after* the picker opened: opening it resets too, so a
+      // bare "was it called" passes whether cancelling clears anything or not.
+      const beforeCancelling = reset.mock.calls.length;
       await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
-      expect(reset).toHaveBeenCalled();
+      expect(reset.mock.calls.length).toBeGreaterThan(beforeCancelling);
     });
 
     it('sends nothing when the question is cancelled', async () => {
