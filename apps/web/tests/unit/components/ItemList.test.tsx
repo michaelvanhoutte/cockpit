@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { ItemList } from '../../../src/components/ItemList';
+import { UndoWhatJustHappened } from '../../../src/undo';
 
 /**
  * F1: the picker and what choosing in it sends. What a move then does to a
@@ -20,6 +21,7 @@ const held = vi.hoisted(() => ({
   dashboards: [] as Dashboard[],
   panels: [] as Panel[],
   mutate: vi.fn(),
+  send: vi.fn(() => Promise.resolve()),
   error: null as Error | null,
 }));
 
@@ -30,6 +32,7 @@ vi.mock('../../../src/api/queries', () => ({
     isPending: false,
     error: held.error,
   }),
+  useSendCommand: () => held.send,
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
@@ -100,12 +103,14 @@ async function showList({
 }: { items?: Item[]; openDashboardId?: string | null } = {}) {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <ItemList
-        workspaceId="ws-work"
-        items={items}
-        openDashboardId={openDashboardId}
-        emptyMessage="Nothing to deal with."
-      />
+      <UndoWhatJustHappened>
+        <ItemList
+          workspaceId="ws-work"
+          items={items}
+          openDashboardId={openDashboardId}
+          emptyMessage="Nothing to deal with."
+        />
+      </UndoWhatJustHappened>
     </QueryClientProvider>,
   );
   return userEvent.setup();
@@ -137,6 +142,7 @@ beforeEach(() => {
   ];
   held.error = null;
   held.mutate = vi.fn();
+  held.send = vi.fn(() => Promise.resolve());
   localStorage.clear();
 });
 
@@ -263,6 +269,74 @@ describe('Panels', () => {
 
       expect(held.mutate).not.toHaveBeenCalled();
       expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  describe('what just happened can be put back, until the offer runs out', () => {
+    /** A move that really landed, which is what the offer of an undo waits for. */
+    function movesFor(item: string) {
+      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      return item;
+    }
+
+    it.each([
+      {
+        situation: 'filed out of the Inbox',
+        filings: [] as { panelId: string; itemId: string; position: number }[],
+        putBack: { panelId: null, order: [] as string[] },
+      },
+      {
+        situation: 'moved from another panel',
+        filings: [{ panelId: 'p-anna', itemId: BART.id, position: 1 }],
+        putBack: { panelId: 'p-anna', order: [BART.id] },
+      },
+    ])('offers it back to where it was, $situation', async ({ filings, putBack }) => {
+      held.filings = filings;
+      movesFor(BART.id);
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+      expect(screen.getByRole('status')).toHaveTextContent('“Reply to Bart” moved to Falcon');
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({ itemId: BART.id, ...putBack }),
+        }),
+      );
+    });
+
+    it('puts it back in the order the panel it left was in, not at the top of it', async () => {
+      const other = anItem('11111111-1111-7111-8111-000000000004', 'Renew the domain');
+      held.items = [BART, other];
+      held.filings = [
+        { panelId: 'p-anna', itemId: other.id, position: 0 },
+        { panelId: 'p-anna', itemId: BART.id, position: 1 },
+      ];
+      movesFor(BART.id);
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ panelId: 'p-anna', order: [other.id, BART.id] }),
+        }),
+      );
+    });
+
+    it('says the Inbox by name when that is where it went', async () => {
+      movesFor(BART.id);
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: /^Inbox/ }));
+
+      expect(screen.getByRole('status')).toHaveTextContent('“Reply to Bart” moved to the Inbox');
     });
   });
 

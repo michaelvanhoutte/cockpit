@@ -3,11 +3,13 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Item, ItemStatus } from '@cockpit/shared';
 import { ItemRow } from '../../../src/components/ItemRow';
-import { useCommand } from '../../../src/api/queries';
+import { UndoWhatJustHappened } from '../../../src/undo';
+import { useCommand, useSendCommand } from '../../../src/api/queries';
 
-vi.mock('../../../src/api/queries', () => ({ useCommand: vi.fn() }));
+vi.mock('../../../src/api/queries', () => ({ useCommand: vi.fn(), useSendCommand: vi.fn() }));
 
 const mockUseCommand = vi.mocked(useCommand);
+const mockUseSendCommand = vi.mocked(useSendCommand);
 
 function anItem(overrides: Partial<Item> = {}): Item {
   return {
@@ -36,12 +38,25 @@ function anItem(overrides: Partial<Item> = {}): Item {
   };
 }
 
-/** Renders one row and hands back the changes it asks for. */
-function aRow() {
-  const mutate = vi.fn();
+/**
+ * Renders one row and hands back the changes it asks for.
+ *
+ * `settles` runs the caller's `onSuccess`, which is what a change that really
+ * landed does - and what the offer of an undo waits for.
+ */
+function aRow({ settles = false, item = anItem() }: { settles?: boolean; item?: Item } = {}) {
+  const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
+    if (settles) options?.onSuccess?.();
+  });
+  const send = vi.fn(() => Promise.resolve());
   mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
-  render(<ItemRow item={anItem()} workspaceId="ws-work" />);
-  return mutate;
+  mockUseSendCommand.mockReturnValue(send);
+  render(
+    <UndoWhatJustHappened>
+      <ItemRow item={item} workspaceId="ws-work" />
+    </UndoWhatJustHappened>,
+  );
+  return { mutate, send };
 }
 
 async function choose(user: ReturnType<typeof userEvent.setup>, option: string) {
@@ -58,7 +73,7 @@ describe('Triage', () => {
       { option: 'Dismiss', status: 'dismissed' },
     ])('$option', async ({ option, status }) => {
       const user = userEvent.setup();
-      const mutate = aRow();
+      const { mutate } = aRow();
 
       await choose(user, option);
 
@@ -70,10 +85,65 @@ describe('Triage', () => {
     });
   });
 
+  describe('what just happened can be put back, until the offer runs out', () => {
+    it('offers a dismissal back, and takes the status the row had', async () => {
+      const user = userEvent.setup();
+      const { send } = aRow({ settles: true });
+
+      await choose(user, 'Dismiss');
+      expect(screen.getByRole('status')).toHaveTextContent(
+        '“Make appointment with Novy” dismissed',
+      );
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      // The status it had before, read off the row rather than guessed: an
+      // item dismissed while it was Waiting comes back Waiting.
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_status',
+          payload: expect.objectContaining({ itemId: 'item-1', status: 'to_process' }),
+        }),
+      );
+    });
+
+    it('offers a snoozed item back with the date it was waiting for', async () => {
+      // Leaving the snoozed state clears the wake date, which dismissing does -
+      // so putting only the status back would return a snoozed item with
+      // nothing to wake it, and the date would be gone for good.
+      const user = userEvent.setup();
+      const { send } = aRow({
+        settles: true,
+        item: anItem({ status: 'snoozed', snoozedUntil: '2026-09-08T08:00:00.000Z' }),
+      });
+
+      await choose(user, 'Dismiss');
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'snooze_until',
+          payload: expect.objectContaining({
+            itemId: 'item-1',
+            until: '2026-09-08T08:00:00.000Z',
+          }),
+        }),
+      );
+    });
+
+    it('offers nothing back while the dismissal is still in flight', async () => {
+      const user = userEvent.setup();
+      aRow({ settles: false });
+
+      await choose(user, 'Dismiss');
+
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+  });
+
   describe('snoozing a row asks for it back one week later', () => {
     it('sets the wake date a week on from when it was asked', async () => {
       const user = userEvent.setup();
-      const mutate = aRow();
+      const { mutate } = aRow();
 
       await choose(user, 'Snooze a week');
 
@@ -94,7 +164,7 @@ describe('Triage', () => {
   describe("a row can be made a goal for today", () => {
     it("sets the focus horizon on that row's own item", async () => {
       const user = userEvent.setup();
-      const mutate = aRow();
+      const { mutate } = aRow();
 
       await choose(user, 'Goal for today');
 
@@ -112,6 +182,7 @@ describe('Triage', () => {
     /** One row, rendered on its own, with the mark at its head. */
     function markOn(item: Partial<Item>): string {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+      mockUseSendCommand.mockReturnValue(vi.fn(() => Promise.resolve()));
       const { container, unmount } = render(
         <ItemRow item={anItem(item)} workspaceId="ws-work" />,
       );

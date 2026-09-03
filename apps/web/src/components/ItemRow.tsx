@@ -1,7 +1,8 @@
 import { useRef } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
-import { useCommand } from '../api/queries';
+import { useCommand, useSendCommand, type CommandArgs } from '../api/queries';
+import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
@@ -55,6 +56,8 @@ export function ItemRow({
   onMoveTo?: (openedFrom: HTMLElement | null) => void;
 }) {
   const command = useCommand();
+  const send = useSendCommand();
+  const offerToUndo = useUndo();
   const waited = waitedSince(item.createdAt, Date.now());
   const trigger = useRef<HTMLButtonElement>(null);
   /** True while the entry just chosen is opening something that wants the focus. */
@@ -69,6 +72,49 @@ export function ItemRow({
 
   const setStatus = (status: ItemStatus) =>
     command.mutate({ name: 'set_status', payload: { ...envelope(), status } });
+
+  /**
+   * Dismissing, with the way back offered for as long as the bar lasts ("Undo
+   * what just happened", issue 144).
+   *
+   * It is the one gesture here that takes an item off every list at once, and
+   * on a phone it is a swipe ("Swipe an inbox row right to file it, left to
+   * dismiss it", issue 145) - the easiest thing to do by accident and the
+   * hardest to see the result of. The inverse is the state it was in, which is
+   * read from the row rather than from the server, because the row is what was
+   * on screen when the choice was made.
+   *
+   * **A snoozed item goes back with its date**, and that is why the inverse is
+   * not always a status. Leaving the snoozed state clears the wake date, which
+   * dismissing does - so putting the status back alone would return a snoozed
+   * item with nothing to wake it, and the date it was waiting for would be gone
+   * for good. `snooze_until` sets both, which is exactly what undoing it means.
+   */
+  const dismiss = () => {
+    const wasSnoozedUntil = item.status === 'snoozed' ? item.snoozedUntil : null;
+    const was = item.status;
+    const putItBack = (): CommandArgs => {
+      const envelopeBack = {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        itemId: item.id,
+      };
+      return wasSnoozedUntil
+        ? { name: 'snooze_until', payload: { ...envelopeBack, until: wasSnoozedUntil } }
+        : { name: 'set_status', payload: { ...envelopeBack, status: was } };
+    };
+    command.mutate(
+      { name: 'set_status', payload: { ...envelope(), status: 'dismissed' } },
+      {
+        onSuccess: () =>
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” dismissed`,
+            undo: () => send(putItBack()),
+          }),
+      },
+    );
+  };
 
   const snoozeOneWeek = () => {
     const until = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -166,7 +212,7 @@ export function ItemRow({
           <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
           <DropdownMenu.Item
             className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
-            onSelect={() => setStatus('dismissed')}
+            onSelect={dismiss}
           >
             Dismiss
           </DropdownMenu.Item>

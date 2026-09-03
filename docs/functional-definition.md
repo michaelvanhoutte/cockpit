@@ -110,7 +110,7 @@ Processing an Item means one or more of:
 - **Associate it** — tag it to a Person, Project and/or Topic, which is what puts it in the right panels.
 - **Set a status** — *Done*, *Waiting on someone*, *Scheduled/Snoozed until a date*, *Delegated*, *Reference/Archive*, or *Convert to Task* with a due date.
 - **File it on a Panel** — which is what takes it out of the Inbox, and the one thing that does. Every Item's own menu carries **Move to…**, opening a picker of every Panel in the Workspace with the Dashboard you are on first, the three Panels most recently filed into above it, and the Inbox among the targets.
-- **Delete/Dismiss.**
+- **Delete/Dismiss** — which is reversible for as long as the bar offering it is on screen ("Undo what just happened", issue 144). A dismissed Item is kept rather than erased, and giving it any other status brings it back, so putting it back is the same change made the other way.
 
 Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stays reachable through the Panels holding it, through its associations, and through an optional "All items" view.
 
@@ -308,6 +308,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Next action** — the short, always-editable label describing what to actually do about an Item.
 - **Focus horizon** — Today / This Week / This Month / This Quarter, date-anchored so it escalates to overdue.
 - **Triage / process** — dealing with what arrived: giving an Item a status, associating it, and filing it where it belongs.
+- **Undo** — putting back what the last change took away, offered briefly after it and never afterwards. One step, not a stack: what an accident needs is a way back, offered where you are looking.
 - **Filing** — putting an Item on a Panel. An Item can be filed on several Panels at once, which is why one thing to do can appear on *Project Falcon* and on *Anna*; one filed nowhere is in the Inbox. Each filing carries its own place in that Panel's order, so an Item can be first on one Panel and fifth on another.
 - **Offline** — working from the local copy when the connection is not there. Cockpit opens, shows what it already holds, and takes what you capture and triage; those changes queue and go up on reconnect. Nothing new arrives from a source until the connection is back, and what the copy shows is said to be as old as it is rather than presented as current ("Offline / local-first behavior", §10).
 - **User** — a person who uses this Cockpit. Each User owns one Account, which is what makes two Users' work separate. A User has a **Role**.

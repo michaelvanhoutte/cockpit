@@ -20,7 +20,8 @@ import { InboxPanel } from '../../../src/components/InboxPanel';
 const held = vi.hoisted(() => ({ items: [] as Item[], filings: [] as Filing[] }));
 
 vi.mock('../../../src/api/queries', () => ({
-  useCommand: () => ({ mutate: vi.fn(), isPending: false }),
+  useCommand: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
+  useSendCommand: () => vi.fn(() => Promise.resolve()),
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>

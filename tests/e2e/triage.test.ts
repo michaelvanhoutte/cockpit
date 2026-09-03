@@ -27,3 +27,38 @@ test.describe('Triage', () => {
     });
   });
 });
+
+/**
+ * F3, because an undo is a thing that appears, is pressed, and goes: what the
+ * bar offers and when it stops offering it is settled without a browser in
+ * apps/web/tests/unit/undo.test.tsx, and which change is sent in
+ * apps/web/tests/unit/components/ItemRow.test.tsx. What is only true here is
+ * that the offer is reachable from the row the change was made on, and that the
+ * item really comes back.
+ *
+ * Both projects, for the reason dismissing is walked on both: a bar pinned to
+ * the bottom of the screen is where a phone's own controls are.
+ */
+test.describe('Triage', () => {
+  test.describe('what just happened can be put back, until the offer runs out', () => {
+    test('brings back an item dismissed by mistake', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Dismissed by mistake');
+      await capture(page, thought, isMobile);
+
+      await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Dismiss' }), isMobile);
+      await expect(itemRow(page, thought)).toHaveCount(0);
+
+      const offer = page.getByRole('status');
+      await expect(offer).toContainText(thought);
+      await press(offer.getByRole('button', { name: 'Undo' }), isMobile);
+
+      // Back in the Inbox, with the status it had — and the offer gone, because
+      // an undo cannot itself be undone.
+      await expect(itemRow(page, thought)).toBeVisible();
+      await expect(itemRow(page, thought).getByText('To process')).toBeVisible();
+      await expect(offer).toHaveCount(0);
+    });
+  });
+});
