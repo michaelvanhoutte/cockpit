@@ -66,7 +66,13 @@ export function MoveToPicker({
     .filter((panel): panel is Panel => panel !== undefined);
 
   return (
-    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
+    // **Not closeable while a choice is in flight.** Cancelling resets the
+    // change that is still running, so a move that goes on to happen loses the
+    // handling that follows it - the panel is not remembered as a recent one
+    // and no way back is offered. Escape and a press outside come through here
+    // as well as the button, which is why the guard is on the root rather than
+    // only on the control.
+    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
         <Dialog.Content
@@ -130,7 +136,10 @@ export function MoveToPicker({
           </div>
 
           <div className="flex justify-end pt-4">
-            <Dialog.Close className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
+            <Dialog.Close
+              disabled={busy}
+              className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+            >
               Cancel
             </Dialog.Close>
           </div>

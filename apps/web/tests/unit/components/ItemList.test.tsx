@@ -25,23 +25,46 @@ const held = vi.hoisted(() => ({
   send: vi.fn(() => Promise.resolve()),
   error: null as Error | null,
   variables: undefined as { payload?: { itemId?: string } } | undefined,
-  reset: vi.fn(),
+  /** What the next change is refused with, if anything. */
+  refuses: null as Error | null,
+  /** That a change is still going, which is what stops a question being closed. */
+  pending: false,
 }));
 
-vi.mock('../../../src/api/queries', () => ({
-  useCommand: () => ({
-    mutate: held.mutate,
-    reset: held.reset,
-    isPending: false,
-    error: held.error,
-    // What the real mutation carries: the last change asked for. A refusal is
-    // attributed by it, so a mock without it would make every refusal look
-    // like somebody else's.
-    variables: held.variables,
-  }),
-  useSendCommand: () => held.send,
-  snapshotQuery: (workspaceId: string) => ({
-    queryKey: ['snapshot', workspaceId],
+/**
+ * A mutation, in the shape the real one has: a refusal it *holds* rather than
+ * one the test hands out.
+ *
+ * Written with state because the alternative is choreography. `reset` only
+ * matters through what it takes off the screen, and a mock that returned a
+ * fixed error made that unobservable - the only thing left to assert was that
+ * reset had been called, which is what the testing skill rules out.
+ *
+ * `held.refuses` is what a change is refused with, so a test can make the next
+ * one fail the way the server would.
+ */
+vi.mock('../../../src/api/queries', async () => {
+  const { useState } = await vi.importActual<typeof import('react')>('react');
+  return {
+    useCommand: () => {
+      const [error, setError] = useState<Error | null>(held.error);
+      return {
+        mutate: (args: unknown, options?: unknown) => {
+          if (held.refuses) setError(held.refuses);
+          held.mutate(args, options);
+        },
+        reset: () => setError(null),
+        isPending: held.pending,
+        error,
+        // What the real mutation carries: the last change asked for. A refusal
+        // is attributed by it, so a mock without it would make every refusal
+        // look like somebody else's.
+        variables: held.variables,
+      };
+    },
+    useSendCommand: () => held.send,
+    snapshotQuery: (workspaceId: string) => ({
+      queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
       Promise.resolve({
         workspace: {
@@ -61,8 +84,9 @@ vi.mock('../../../src/api/queries', () => ({
         filings: held.filings,
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
-  }),
-}));
+    }),
+  };
+});
 
 function anItem(id: string, title: string): Item {
   return {
@@ -158,7 +182,8 @@ beforeEach(() => {
   ];
   held.error = null;
   held.variables = { payload: { itemId: BART.id } };
-  held.reset = vi.fn();
+  held.refuses = null;
+  held.pending = false;
   held.mutate = vi.fn();
   held.send = vi.fn(() => Promise.resolve());
   localStorage.clear();
@@ -290,20 +315,32 @@ describe('Panels', () => {
       // A refusal outlives the dialog it was shown in, and the list says one of
       // its own now — so cancelling used to leave the message stuck above the
       // rows with nothing to explain it.
-      held.error = new CommandRefused(409, 'this panel changed while you were looking at it');
-      const reset = vi.fn(() => {
-        held.error = null;
-      });
-      held.reset = reset;
+      held.refuses = new CommandRefused(409, 'this panel changed while you were looking at it');
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
-      // Counted from *after* the picker opened: opening it resets too, so a
-      // bare "was it called" passes whether cancelling clears anything or not.
-      const beforeCancelling = reset.mock.calls.length;
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+      expect(await within(dialog).findByRole('alert')).toBeVisible();
+
       await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
-      expect(reset.mock.calls.length).toBeGreaterThan(beforeCancelling);
+      // What the person ends up seeing: no message anywhere, rather than one
+      // stuck above the rows with the dialog that explained it gone.
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('cannot be cancelled while a choice is still going', async () => {
+      // Cancelling resets the change that is still running, so a move that goes
+      // on to happen loses what follows it - the panel is not remembered as a
+      // recent one, and no way back is offered.
+      held.pending = true;
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.getByRole('dialog')).toBeVisible();
     });
 
     it('sends nothing when the question is cancelled', async () => {
@@ -387,12 +424,16 @@ describe('Panels', () => {
 
   describe('a move that fails says why and leaves the item where it was', () => {
     it('keeps the question open with the server’s own words on it', async () => {
-      held.error = new CommandRefused(409, 'The order sent is not the order of that panel any more');
+      held.refuses = new CommandRefused(
+        409,
+        'The order sent is not the order of that panel any more',
+      );
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
 
-      expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
         'The order sent is not the order of that panel any more',
       );
       expect(screen.getByText('Reply to Bart')).toBeVisible();
