@@ -312,7 +312,7 @@ test.describe('Panels', () => {
  * F3, and it can be nowhere else: scrolling and dragging both only exist in a
  * browser, and "the dashboard changed under the drag" is a claim about a real
  * page. How fast a drag near an edge scrolls, and how long a rest has to last,
- * are apps/web/tests/unit/scrollWhileDragging.test.ts; that the bar reaches
+ * are apps/web/tests/unit/switchWhileDragging.test.ts; that the bar reaches
  * those rules is apps/web/tests/unit/components/DashboardBar.test.tsx.
  *
  * Desktop only, like the other drag walks.
@@ -396,10 +396,10 @@ test.describe('Panels', () => {
 
 /**
  * F3, and it can be nowhere else: this is a claim about a page that actually
- * scrolls. jsdom has no layout engine and runs no animation frames, so the
- * level below can prove how fast a pointer near an edge *should* scroll
- * (apps/web/tests/unit/scrollWhileDragging.test.ts) and nothing about whether
- * anything moves.
+ * scrolls, and nothing in this repository makes it scroll - the browser does it
+ * during its own drag-and-drop. There is no rule below this to point at, and
+ * that is the point of keeping the walk: it is what would notice if the
+ * behaviour the app leans on ever went away.
  *
  * Desktop only: the phone has no drag.
  */

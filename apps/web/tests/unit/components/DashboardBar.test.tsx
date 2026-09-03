@@ -312,7 +312,7 @@ describe('Panels', () => {
      * second is what can end it — which is the browser's own behaviour, since
      * `dragover` keeps firing while a drag is held still. jsdom has no clock of
      * its own here, so `since` is moved rather than time: the rule about *how
-     * long* is tests/unit/scrollWhileDragging.test.ts.
+     * long* is tests/unit/switchWhileDragging.test.ts.
      */
     function restOn(name: string, forMs: number) {
       const tab = screen.getByRole('link', { name });
@@ -365,6 +365,20 @@ describe('Panels', () => {
       restOn('Research', DWELL_MS - 1);
 
       expect(wentTo.calls).toEqual([]);
+    });
+
+    it('does not let the browser take a row let go on a name', async () => {
+      // `dragover` is prevented to make a tab somewhere a drag can be *held*,
+      // which also makes it somewhere a drop can happen — so without preventing
+      // the drop too, the browser follows the text on the transfer as a link
+      // and leaves the workspace.
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-dashboard 1' });
+      const tab = await screen.findByRole('link', { name: 'Research' });
+
+      const dropped = fireEvent.drop(tab, { dataTransfer: { types: [ITEM_BEING_DRAGGED] } });
+
+      // `fireEvent` answers false when the default was prevented.
+      expect(dropped).toBe(false);
     });
 
     it('leaves a drag that is not one of our rows alone', async () => {

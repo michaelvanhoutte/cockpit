@@ -92,6 +92,20 @@ export function DashboardBar({
     restingOn.current = null;
   };
 
+  /**
+   * A row let go on a dashboard's name does nothing, and says so.
+   *
+   * `restOn` prevents the default on `dragover`, which is what makes a tab
+   * somewhere a drag can be held at all - and that also makes it somewhere a
+   * drop can *happen*. Without preventing the default here too, the browser
+   * takes the drop itself and follows the text on the transfer as a link,
+   * leaving the workspace. A tab is a place to pass over, not a place to land.
+   */
+  const droppedOnIt = (event: React.DragEvent) => {
+    if (event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) event.preventDefault();
+    restingOn.current = null;
+  };
+
   /*
    * Rounded at the top only, and filled with the page's color when it is the
    * one you are on, so the tab runs into the page under it with no line
@@ -145,7 +159,7 @@ export function DashboardBar({
           params={{ workspaceId, dashboardId: dashboard.id }}
           onDragOver={(event) => restOn(event, dashboard.id)}
           onDragLeave={leftIt}
-          onDrop={leftIt}
+          onDrop={droppedOnIt}
           className={tabClass}
         >
           {dashboard.name}
