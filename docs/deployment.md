@@ -370,9 +370,16 @@ somebody's inbox. **It stops being acceptable the moment the first connector
 lands**, which is the same moment "App login" becomes urgent; the two belong
 together.
 
-The account-level `Cloudflare Workers Preview URLs` policy is left in place. It
-covers preview URLs, of which there are none ("No branch environments"), so it
-does nothing today and would gate a preview Worker if one ever came back.
+Every Access application was deleted, the two that gated previews included. There
+is nothing left to re-enable, only to rebuild.
+
+**Check what an environment is *running* before taking a perimeter off it, not
+what `main` contains.** Production was 28 commits behind when Access came off, and
+the sign-in work had landed inside that gap — so for a few minutes production was
+not a name picker anybody could click past, it was an API with no gate compiled
+into it at all, answering `/v1/workspaces` to anyone. Promoting it closed that.
+"Production therefore lags `main` by design" is two sections up; this is the cost
+of that lag meeting a change that assumes the lag away.
 
 **Putting a perimeter back is a dashboard job, and its recipe left with this
 file.** It was exact and fiddly — one application, two path-scoped destinations,
@@ -409,19 +416,23 @@ ours is not waited on, since asking again cannot move whatever is standing in th
 way. Whether that first-touch failure is a race or something to fix is unsettled —
 the attempt count in the deploy log is the evidence.
 
-**What each environment must answer**, from outside, signed in to nothing:
+**Verified 2026-09-03**, from outside, signed in to nothing:
 
 | | `/` | `/v1/workspaces` | `/health` |
 |---|---|---|---|
-| production | 200, Cockpit's logon page | 401 `{"error":...}` | 200 `{"ok":true,...}` |
-| staging | 200, Cockpit's logon page | 401 `{"error":...}` | 200 `{"ok":true,...}` |
+| production | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
+| staging | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
 
-No automated tier asserts this: nothing runs against a deployment yet ("Run the
-F3 suite against a deployed environment, as its own account", issue 64). So it is
-a check made by hand, and it needs remaking whenever anything in front of the app
-changes — including when Access was taken off, where a 302 to a login page in the
-first two columns means the dashboard step has not been done and the deploy has
-gone out ahead of it.
+`/v1/users` answers 200 on both, deliberately: it is the logon page's list of
+names, and it is what you read while you are still nobody.
+
+No automated tier asserts any of this — nothing runs against a deployment yet
+("Run the F3 suite against a deployed environment, as its own account", issue 64)
+— so it is a check made by hand and dated, to be remade whenever what stands in
+front of the app changes. Two failures it is worth knowing the shape of: a `302`
+in the first two columns means something is gating the app again, and a `200`
+carrying data in the second means the deployment predates the gate, which is what
+the previous section's warning is about.
 
 ### A constraint to know before auth lands
 
