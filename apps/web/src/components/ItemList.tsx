@@ -148,6 +148,61 @@ export function ItemList({
     );
   };
 
+  /** The order this panel would be in with the item at this place among its rows. */
+  const orderFor = (panelId: string, item: Item, atAmongDrawn: number) => {
+    const held = filedOrderOnPanel(data?.filings ?? [], panelId);
+    const drawn = itemsOnPanel(data?.items ?? [], data?.filings ?? [], panelId).map((i) => i.id);
+    return orderWithItemAt(held, item.id, placeAmongHeld(held, drawn, item.id, atAmongDrawn));
+  };
+
+  /**
+   * Somewhere else in the same panel.
+   *
+   * **`add_item_to_panel`, not `move_item_to_panel`, and that is the fix rather
+   * than a preference.** A move takes the item off every panel before writing
+   * the target's order, which is what a move means — so sending one to reorder
+   * a row inside *this* panel silently took it off every other panel showing
+   * it. Adding it to a panel it is already on writes that panel's order and
+   * touches nothing else, which is exactly what a reorder is.
+   */
+  const reorder = (item: Item, panelId: string, atAmongDrawn: number) => {
+    const before = filedOrderOnPanel(data?.filings ?? [], panelId);
+    const order = orderFor(panelId, item, atAmongDrawn);
+    if (order.join() === before.join()) return;
+
+    command.mutate(
+      {
+        name: 'add_item_to_panel',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: item.id,
+          panelId,
+          order,
+        },
+      },
+      {
+        onSuccess: () =>
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” moved in ${nameOf(panelId)}`,
+            undo: () =>
+              send({
+                name: 'add_item_to_panel',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  panelId,
+                  order: before,
+                },
+              }),
+          }),
+      },
+    );
+  };
+
   /**
    * The same item on one more panel, leaving the panels it is on alone.
    *
@@ -155,9 +210,14 @@ export function ItemList({
    * whose inverse is simply taking it off again, since nothing else changed.
    */
   const add = (item: Item, panelId: string, atAmongDrawn: number) => {
-    const held = filedOrderOnPanel(data?.filings ?? [], panelId);
-    const drawn = itemsOnPanel(data?.items ?? [], data?.filings ?? [], panelId).map((i) => i.id);
-    const order = orderWithItemAt(held, item.id, placeAmongHeld(held, drawn, item.id, atAmongDrawn));
+    // Adding it where it already is changes nothing — and the undo would take
+    // it off a panel it was legitimately on, which is worse than doing nothing.
+    if ((data?.filings ?? []).some((f) => f.itemId === item.id && f.panelId === panelId)) {
+      setAdding(null);
+      setAsking(null);
+      return;
+    }
+    const order = orderFor(panelId, item, atAmongDrawn);
 
     command.mutate(
       {
@@ -307,7 +367,14 @@ export function ItemList({
     // moving it and adding it are two different things somebody has to mean.
     const onAPanelAlready = (data?.filings ?? []).some((filing) => filing.itemId === itemId);
     if (panelId && wasAt === -1 && onAPanelAlready) {
+      command.reset();
       setAsking({ item: moving, at: gap });
+      return;
+    }
+    // Already on this panel: somewhere else in it, which is a reorder and must
+    // leave the panels it is also on alone.
+    if (panelId && wasAt !== -1) {
+      reorder(moving, panelId, gap);
       return;
     }
     move(moving, panelId, gap);
@@ -411,7 +478,7 @@ export function ItemList({
                         ordering: {
                           at,
                           of: items.length,
-                          onMove: (places: number) => move(item, panelId, at + places),
+                          onMove: (places: number) => reorder(item, panelId, at + places),
                         },
                         onAddTo: (from: HTMLElement | null) => {
                           openedFrom.current = from;

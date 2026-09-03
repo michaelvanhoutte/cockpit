@@ -262,7 +262,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 ## 12. Open decisions (need your call — recommendations included)
 
-*Notification-class email, how "paid" is detected and the Reading digest's topics — the last three below — concern the iteration 2 inbox and its panels and can stay open until that phase. The rest touch the shared model and are best decided before or during iteration 1.*
+*Notification-class email, how "paid" is detected and the Reading digest's topics concern the iteration 2 inbox and its panels and can stay open until that phase. The rest touch the shared model and are best decided before or during iteration 1.*
 
 1. **One-way vs two-way sync.** Should archiving or marking done here change the source? *Recommendation: read-only in v1, two-way sync opt-in per connector later.* Highest-impact decision.
 2. **Inbox-first vs direct routing (§5.1).** *Recommendation: hybrid — inbox by default, per-source rules for the obvious cases, with an "unseen" marker on auto-routed cards.*

@@ -612,10 +612,13 @@ describe('Panels', () => {
       await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
       await user.click(await screen.findByRole('menuitem', { name: entry }));
 
-      // Either way round, the two swap.
+      // Either way round, the two swap - and it is an *add*, not a move: a
+      // move takes the item off every other panel showing it, which reordering
+      // a row inside this one must not do.
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
-          payload: expect.objectContaining({ order: [other.id, BART.id] }),
+          name: 'add_item_to_panel',
+          payload: expect.objectContaining({ panelId: 'p-falcon', order: [other.id, BART.id] }),
         }),
         expect.anything(),
       );
@@ -801,6 +804,20 @@ describe('Panels', () => {
         }),
         expect.anything(),
       );
+    });
+
+    it('sends nothing when it is added to a panel it is already on', async () => {
+      // The add would change nothing, and its undo would take the item off a
+      // panel it was legitimately on.
+      const user = await aRowOnAPanel();
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Add to…' }));
+      const picker = await screen.findByRole('dialog');
+      await user.click(within(picker).getByRole('button', { name: 'Falcon' }));
+
+      expect(held.mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).toBeNull();
     });
 
     it('takes it off this panel, naming this panel and no other', async () => {
