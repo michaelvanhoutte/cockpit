@@ -503,6 +503,61 @@ export const items = sqliteTable(
   ],
 );
 
+/**
+ * Which items are filed on which panels, and where each sits in its panel's
+ * order ("Panels hold the items filed into them, and the Inbox holds the rest",
+ * issue 36). The Inbox is the absence of a row here: every open item filed on
+ * no live panel.
+ *
+ * **Many-to-many from the first change, and that is the whole point of the
+ * shape.** The command that lands with it moves an item to one panel, so the
+ * table it *needs* is one panel per item - and building it to that need
+ * (`items.panel_id`, or a unique index on `item_id`) would make adding an item
+ * to a second panel a rebuild of a table that by then has children, which is
+ * the case D1 cannot do (architecture, "Schema conventions": a table with rows
+ * pointing at it under RESTRICT cannot be dropped, and `PRAGMA foreign_keys =
+ * OFF` is accepted and ignored). So nothing constrains `item_id`: an item has a
+ * row per panel it is filed on, as many as there are panels.
+ *
+ * **`(panel_id, item_id)` is the key**, for the reason `panel_placements` has a
+ * two-column one: an item is filed on a panel once, and that pair is what has
+ * to be unique anyway, so a generated id would only add an index to guard.
+ *
+ * **Deleted for real, not tombstoned.** A filing is a link, and links here are
+ * deleted - an association carries no `deleted_at` and neither does a
+ * placement; tombstones are for items and for the boxes they live in. A
+ * tombstoned link would also collide with its own dead row on the primary key
+ * the moment an item was moved off a panel and back onto it. The append-only
+ * history of where things were filed, which the router reads (routing that
+ * learns from past decisions, "What the model reads: the whole history, no
+ * retrieval"), is the command log - which carries no foreign keys precisely so
+ * it outlives what it refers to.
+ */
+export const panelItems = sqliteTable(
+  'panel_items',
+  {
+    tenantId: text('tenant_id').notNull(),
+    panelId: text('panel_id')
+      .notNull()
+      .references(() => panels.id, { onDelete: 'restrict' }),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.panelId, t.itemId] }),
+    // Read per panel to draw one, and per item to decide whether it is in the
+    // Inbox. Two indexes because the primary key only serves the first: a
+    // lookup by item alone cannot use a key that leads with the panel.
+    index('panel_items_tenant_panel').on(t.tenantId, t.panelId),
+    index('panel_items_tenant_item').on(t.tenantId, t.itemId),
+    check('panel_items_position_is_an_order', sql.raw('position >= 0')),
+    check('panel_items_created_at_is_timestamp', isTimestamp('created_at')),
+  ],
+);
+
 export const associations = sqliteTable(
   'associations',
   {

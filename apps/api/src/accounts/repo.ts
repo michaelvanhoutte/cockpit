@@ -1,5 +1,13 @@
 import { and, asc, eq, inArray, isNull, max, ne } from 'drizzle-orm';
-import type { Association, Dashboard, Item, Layout, Panel, Workspace } from '@cockpit/shared';
+import type {
+  Association,
+  Dashboard,
+  Filing,
+  Item,
+  Layout,
+  Panel,
+  Workspace,
+} from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import type { PlacementRow } from '../domain/panels.js';
 import {
@@ -8,6 +16,7 @@ import {
   dashboards,
   items,
   layouts,
+  panelItems,
   panelPlacements,
   panels,
   workspaces,
@@ -418,6 +427,72 @@ export function listAssociationsForWorkspace(
     .from(associations)
     .innerJoin(items, eq(associations.itemId, items.id))
     .where(and(eq(associations.tenantId, tenantId), eq(items.workspaceId, workspaceId)))
+    .all();
+}
+
+/**
+ * Every filing in one workspace: which items are on which of its panels, and
+ * where each sits ("Panels hold the items filed into them, and the Inbox holds
+ * the rest", issue 36).
+ *
+ * **Filings of deleted panels and deleted dashboards are left out**, which is
+ * what puts an item back in the Inbox when the last panel holding it goes. The
+ * rows stay - a panel is tombstoned, so its filings still point at something
+ * real - and the join is what stops them being read. That is the same shape
+ * `listPanelsInWorkspace` has, and reading them the same way is what keeps the
+ * two answers agreeing about which panels exist.
+ *
+ * The item is joined too, and on its workspace: a panel names its dashboard,
+ * never a workspace, so without it a filing of another workspace's item onto
+ * this workspace's panel would be read here.
+ */
+export function listFilingsInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): Filing[] {
+  return db
+    .select({
+      panelId: panelItems.panelId,
+      itemId: panelItems.itemId,
+      position: panelItems.position,
+    })
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .innerJoin(items, eq(panelItems.itemId, items.id))
+    .where(
+      and(
+        eq(panelItems.tenantId, tenantId),
+        eq(dashboards.workspaceId, workspaceId),
+        eq(items.workspaceId, workspaceId),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(asc(panelItems.position))
+    .all();
+}
+
+/**
+ * The items filed on one panel, in order — what an order sent with a move is
+ * checked against, so that an order which no longer names the panel's items is
+ * refused rather than quietly written.
+ *
+ * Deleted panels are not filtered here: the caller has already established
+ * which panel this is, and a deleted one has no filings to compare against
+ * anyway.
+ */
+export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: string): Filing[] {
+  return db
+    .select({
+      panelId: panelItems.panelId,
+      itemId: panelItems.itemId,
+      position: panelItems.position,
+    })
+    .from(panelItems)
+    .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panelId)))
+    .orderBy(asc(panelItems.position))
     .all();
 }
 

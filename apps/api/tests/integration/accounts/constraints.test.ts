@@ -120,7 +120,8 @@ describe('Capture', () => {
             `SELECT name, strict FROM pragma_table_list
               WHERE schema = 'main'
                 AND name IN ('workspaces', 'dashboards', 'panels', 'layouts',
-                             'panel_placements', 'items', 'associations', 'commands')
+                             'panel_placements', 'panel_items', 'items',
+                             'associations', 'commands')
               ORDER BY name`,
           )
           .toArray(),
@@ -132,6 +133,7 @@ describe('Capture', () => {
         'dashboards',
         'items',
         'layouts',
+        'panel_items',
         'panel_placements',
         'panels',
         'workspaces',
@@ -149,7 +151,15 @@ describe('Capture', () => {
       // there now are.
       const targets = await inTheStore((sql) => {
         const found = new Set<string>();
-        for (const table of ['items', 'associations', 'dashboards', 'panels', 'layouts', 'panel_placements']) {
+        for (const table of [
+          'items',
+          'associations',
+          'dashboards',
+          'panels',
+          'layouts',
+          'panel_placements',
+          'panel_items',
+        ]) {
           for (const row of sql
             .exec<{ target: string }>(`SELECT "table" AS target FROM pragma_foreign_key_list(?)`, table)
             .toArray()) {
@@ -301,6 +311,24 @@ describe('Panels', () => {
     });
   }
 
+  async function putFiling(overrides: Record<string, unknown> = {}): Promise<void> {
+    const row = {
+      tenant_id: ACCOUNT_NAME,
+      panel_id: 'placeholder',
+      item_id: 'placeholder',
+      position: 0,
+      created_at: AT,
+      ...overrides,
+    };
+    const columns = Object.keys(row);
+    await inTheStore((sql) => {
+      sql.exec(
+        `INSERT INTO panel_items (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+        ...Object.values(row),
+      );
+    });
+  }
+
   async function putPlacement(overrides: Record<string, unknown> = {}): Promise<void> {
     const row = {
       tenant_id: ACCOUNT_NAME,
@@ -426,6 +454,60 @@ describe('Panels', () => {
       await expect(
         putPlacement({ layout_id: layoutId, panel_id: panelId, position: 1 }),
       ).rejects.toThrow();
+    });
+  });
+
+  describe('a filing only ever names a real panel and a real item, in a real place', () => {
+    it.each([
+      { situation: 'a place before the first one', override: { position: -1 } },
+      { situation: 'a filing time that is not a moment', override: { created_at: 'yesterday' } },
+    ])('refuses $situation', async ({ override }) => {
+      const panelId = nextId();
+      const itemId = nextId();
+      await putPanel({ id: panelId });
+      await fileItem({ id: itemId });
+
+      await expect(
+        putFiling({ panel_id: panelId, item_id: itemId, ...override }),
+      ).rejects.toThrow();
+    });
+
+    it.each([
+      { situation: 'the panel was never added', which: 'panel' },
+      { situation: 'the item was never captured', which: 'item' },
+    ])('is refused when $situation', async ({ which }) => {
+      const panelId = nextId();
+      const itemId = nextId();
+      if (which !== 'panel') await putPanel({ id: panelId });
+      if (which !== 'item') await fileItem({ id: itemId });
+
+      await expect(putFiling({ panel_id: panelId, item_id: itemId })).rejects.toThrow();
+    });
+
+    it('refuses to file one item onto the same panel twice', async () => {
+      const panelId = nextId();
+      const itemId = nextId();
+      await putPanel({ id: panelId });
+      await fileItem({ id: itemId });
+      await putFiling({ panel_id: panelId, item_id: itemId });
+
+      await expect(putFiling({ panel_id: panelId, item_id: itemId, position: 1 })).rejects.toThrow();
+    });
+
+    it('files one item onto as many panels as there are, which is what the table is for', async () => {
+      // The shape the whole change rests on: nothing constrains `item_id`, so
+      // an item has a row per panel it is filed on. A unique index on it — the
+      // table the one command that ships would have needed — would fail here.
+      const first = nextId();
+      const second = nextId();
+      const itemId = nextId();
+      await putPanel({ id: first });
+      await putPanel({ id: second, name: 'Anna', folded_name: 'anna' });
+      await fileItem({ id: itemId });
+
+      await putFiling({ panel_id: first, item_id: itemId });
+
+      await expect(putFiling({ panel_id: second, item_id: itemId })).resolves.toBeUndefined();
     });
   });
 });

@@ -2,9 +2,10 @@ import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useQueryClient } from '@tanstack/react-query';
 import { GRID_COLUMNS, uuidv7 } from '@cockpit/shared';
-import type { Dashboard, Layout, Panel, PanelPlacement } from '@cockpit/shared';
+import type { Dashboard, Filing, Item, Layout, Panel, PanelPlacement } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
+import { itemsOnPanel } from '../filing';
 import { browserStore } from '../lastVisited';
 import { chooseLayout, chosenFor } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
@@ -56,11 +57,16 @@ export function PanelBoard({
   dashboard,
   panels,
   layouts,
+  items,
+  filings,
 }: {
   workspaceId: string;
   dashboard: Dashboard;
   panels: readonly Panel[];
   layouts: readonly Layout[];
+  /** Every open item of the workspace; each panel is handed the ones filed on it. */
+  items: readonly Item[];
+  filings: readonly Filing[];
 }) {
   const screenWidth = useScreenWidth();
   /**
@@ -473,6 +479,8 @@ export function PanelBoard({
               <PanelCard
                 key={panel.id}
                 panel={panel}
+                workspaceId={workspaceId}
+                items={itemsOnPanel(items, filings, panel.id)}
                 placement={placement}
                 sideBySide={sideBySide}
                 at={at}

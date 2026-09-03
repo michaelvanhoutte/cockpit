@@ -14,6 +14,7 @@ import {
   LayoutNotFoundError,
   PanelNameTakenError,
   PanelNotFoundError,
+  PanelOrderStaleError,
   UnknownThemeError,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
@@ -25,6 +26,7 @@ import {
   listAssociationsForWorkspace,
   listDashboards,
   listLayoutsInWorkspace,
+  listFilingsInWorkspace,
   listOpenItems,
   listPanelsInWorkspace,
   listWorkspaces,
@@ -69,6 +71,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         dashboards: listDashboards(db, accountName, workspaceId),
         panels: listPanelsInWorkspace(db, accountName, workspaceId),
         layouts: listLayoutsInWorkspace(db, accountName, workspaceId),
+        filings: listFilingsInWorkspace(db, accountName, workspaceId),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
       };
     });
@@ -126,7 +129,10 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         // Not a missing workspace, even though a deleted one is the likeliest
         // way to get here: what has collided is the whole list against a list
         // of workspaces that has moved on.
-        error instanceof WorkspaceOrderStaleError
+        error instanceof WorkspaceOrderStaleError ||
+        // Same kind of collision one level down: a whole order sent against a
+        // panel whose items have moved on.
+        error instanceof PanelOrderStaleError
       ) {
         return { status: 'conflict', what: error.message };
       }

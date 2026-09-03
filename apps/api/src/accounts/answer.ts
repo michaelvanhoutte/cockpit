@@ -1,4 +1,12 @@
-import type { Association, Dashboard, Item, Layout, Panel, Workspace } from '@cockpit/shared';
+import type {
+  Association,
+  Dashboard,
+  Filing,
+  Item,
+  Layout,
+  Panel,
+  Workspace,
+} from '@cockpit/shared';
 
 /** The full read model for one workspace, as the store answers it. */
 export interface AccountSnapshot {
@@ -14,6 +22,8 @@ export interface AccountSnapshot {
    */
   panels: Panel[];
   layouts: Layout[];
+  /** Which items are filed on which of those panels, and in what order. */
+  filings: Filing[];
   associations: Association[];
 }
 

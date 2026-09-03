@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
 import { useCommand } from '../api/queries';
@@ -37,9 +38,27 @@ const STATUS_DOT: Record<ItemStatus, string> = {
   dismissed: 'bg-status-snoozed',
 };
 
-export function ItemRow({ item, workspaceId }: { item: Item; workspaceId: string }) {
+export function ItemRow({
+  item,
+  workspaceId,
+  onMoveTo,
+}: {
+  item: Item;
+  workspaceId: string;
+  /**
+   * Asked to move this item somewhere, and handed the control the menu was
+   * opened from so whatever opens can put the focus back there.
+   *
+   * The picker itself belongs to the list rather than to the row (ItemList),
+   * because one dialog per row would be a dozen dialogs in an Inbox of a dozen.
+   */
+  onMoveTo?: (openedFrom: HTMLElement | null) => void;
+}) {
   const command = useCommand();
   const waited = waitedSince(item.createdAt, Date.now());
+  const trigger = useRef<HTMLButtonElement>(null);
+  /** True while the entry just chosen is opening something that wants the focus. */
+  const opening = useRef(false);
 
   const envelope = () => ({
     commandId: uuidv7(),
@@ -106,8 +125,29 @@ export function ItemRow({ item, workspaceId }: { item: Item; workspaceId: string
       )}
 
       <DropdownMenu.Root>
-        <MenuTrigger label="Item actions" />
-        <MenuContent>
+        <MenuTrigger label="Item actions" ref={trigger} />
+        <MenuContent
+          onCloseAutoFocus={(event) => {
+            // Choosing Move to… opens the picker, which takes the focus itself;
+            // Radix would put it back on this control as the menu closes and
+            // take it straight off the dialog. Every other entry here opens
+            // nothing, so the focus belongs back on the control.
+            if (!opening.current) return;
+            opening.current = false;
+            event.preventDefault();
+          }}
+        >
+          {onMoveTo && (
+            <DropdownMenu.Item
+              className={menuItemClass}
+              onSelect={() => {
+                opening.current = true;
+                onMoveTo(trigger.current);
+              }}
+            >
+              Move to…
+            </DropdownMenu.Item>
+          )}
           <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('done')}>
             Mark done
           </DropdownMenu.Item>

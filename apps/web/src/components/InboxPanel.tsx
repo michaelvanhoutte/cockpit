@@ -1,9 +1,10 @@
 import { useId } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
+import { itemsInTheInbox } from '../filing';
 import { CaptureForm } from './CaptureForm';
 import { LoadFailure } from './LoadFailure';
-import { ItemRow } from './ItemRow';
+import { ItemList } from './ItemList';
 
 /**
  * One workspace's Inbox, holding every item still to deal with, with capture as
@@ -18,9 +19,10 @@ import { ItemRow } from './ItemRow';
  * where there is not. Nothing here knows which - what changes is the width it
  * is given.
  *
- * It narrows back to unprocessed items only when panels hold items - a panel is
- * a box with a title until then ("Render actions in panels, backed by one
- * shared action list", issue 36).
+ * **What is in it is what is filed nowhere** ("Panels hold the items filed into
+ * them, and the Inbox holds the rest", issue 36): every item still to deal with
+ * that no panel holds. That is what makes filing an item the thing that takes
+ * it out of the Inbox, rather than a status change nobody made.
  */
 export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   const { data, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
@@ -34,9 +36,13 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
     return <p className="text-ink-faint">Loading…</p>;
   }
 
-  // Everything that is still yours to handle. Dismissed items never reach the
-  // client at all — the snapshot leaves them out server-side.
-  const inbox = data.items.filter((i) => i.status !== 'done' && i.status !== 'dismissed');
+  // Everything still yours to handle that is on no panel. `?? []` because a
+  // snapshot can be older than the field: the stored copy is rehydrated from
+  // IndexedDB without being parsed again (main.tsx), so somebody who had
+  // Cockpit open before this landed opens it afterwards holding a snapshot with
+  // no filings at all — which should be an Inbox holding everything, the way it
+  // was, rather than a blank screen.
+  const inbox = itemsInTheInbox(data.items, data.filings ?? []);
 
   return (
     <div className="flex flex-col gap-6">
@@ -63,15 +69,14 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
           <CaptureForm workspaceId={workspaceId} />
         </div>
 
-        {inbox.length === 0 ? (
-          <p className="px-4 py-4 text-sm text-ink-faint">Nothing to deal with.</p>
-        ) : (
-          <ul>
-            {inbox.map((item) => (
-              <ItemRow key={item.id} item={item} workspaceId={workspaceId} />
-            ))}
-          </ul>
-        )}
+        <ItemList
+          workspaceId={workspaceId}
+          items={inbox}
+          // The Inbox is beside the dashboards rather than one of them, so
+          // there is no dashboard here for the picker to offer first.
+          openDashboardId={null}
+          emptyMessage="Nothing to deal with."
+        />
       </section>
     </div>
   );

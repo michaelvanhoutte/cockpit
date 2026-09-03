@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, Layout, Panel } from '@cockpit/shared';
+import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand } from '../../../src/api/queries';
@@ -53,9 +53,37 @@ function screenIs(width: number) {
   Object.defineProperty(globalThis, 'innerWidth', { value: width, configurable: true, writable: true });
 }
 
+function anItem(id: string, title: string): Item {
+  return {
+    id,
+    tenantId: 'tenant',
+    workspaceId: 'ws-work',
+    source: 'internal',
+    sourceId: null,
+    sourceLink: null,
+    sender: null,
+    sourceTimestamp: null,
+    title,
+    preview: null,
+    sourceResolvedAt: null,
+    status: 'to_process',
+    nextAction: null,
+    focusHorizon: null,
+    priority: null,
+    dueDate: null,
+    snoozedUntil: null,
+    unseen: false,
+    deletedAt: null,
+    createdAt: '2026-08-31T08:00:00.000Z',
+    updatedAt: '2026-08-31T08:00:00.000Z',
+  };
+}
+
 function showBoard({
   panels = [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')],
   layouts = [] as Layout[],
+  items = [] as Item[],
+  filings = [] as Filing[],
   error,
   variables,
   /**
@@ -67,6 +95,8 @@ function showBoard({
 }: {
   panels?: Panel[];
   layouts?: Layout[];
+  items?: Item[];
+  filings?: Filing[];
   error?: Error;
   variables?: { name: string; payload: Record<string, unknown> };
   settles?: boolean;
@@ -88,6 +118,8 @@ function showBoard({
         dashboard={DASHBOARD}
         panels={panels}
         layouts={layouts}
+        items={items}
+        filings={filings}
       />
     </QueryClientProvider>,
   );
@@ -582,3 +614,32 @@ function panelOrderOnScreen(): string[] {
     .map((region) => region.getAttribute('aria-label') ?? '')
     .filter(Boolean);
 }
+
+describe('Panels', () => {
+  describe('a dashboard draws each panel with the items filed on it', () => {
+    it('hands each panel the items filed on it, and says so when one has none', async () => {
+      const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+      const domain = anItem('11111111-1111-7111-8111-000000000002', 'Renew the domain');
+      // Already in position order: that a panel *sorts* by position is
+      // apps/web/tests/unit/filing.test.ts's rule, and re-proving it here would
+      // be the same calculation twice. What is asked here is that the board
+      // hands each panel its own items at all.
+      showBoard({
+        items: [bart, domain],
+        filings: [
+          { panelId: 'falcon', itemId: bart.id, position: 0 },
+          { panelId: 'falcon', itemId: domain.id, position: 1 },
+        ],
+      });
+
+      const falcon = await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(within(falcon).getAllByRole('listitem').map((row) => row.textContent)).toEqual([
+        expect.stringContaining('Reply to Bart'),
+        expect.stringContaining('Renew the domain'),
+      ]);
+
+      const reading = await screen.findByRole('region', { name: 'To read' });
+      expect(within(reading).getByText('Nothing filed here yet.')).toBeVisible();
+    });
+  });
+});

@@ -72,6 +72,19 @@ export function useCommand() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (args: CommandArgs) => sendCommand(args.name, args.payload as never),
+    // **Returned, so the change is not finished until what it changed has been
+    // read again.** React Query waits on what this returns before the caller's
+    // own `onSuccess` runs and before `isPending` drops.
+    //
+    // That matters because filing an item onto a panel sends the panel's
+    // *whole order*, which the server checks against the order it holds. With
+    // the re-read left running behind, filing a second item straight after the
+    // first built its order from a workspace that did not have the first item
+    // in it yet, and was refused. It is a race, and it was only ever lost on a
+    // machine slow enough to lose it.
+    //
+    // The cost is that a control stays busy until the list behind it agrees,
+    // which is the moment the change is really done.
     onSuccess: (_result, args) => {
       if (args.name === 'delete_workspace') {
         // Dropped, not re-read. There is nothing to revalidate: the snapshot of
@@ -80,14 +93,18 @@ export function useCommand() {
         // stale - the cache is persisted for a week (main.tsx), so leaving it
         // there means a deleted workspace's items can still be painted from it.
         queryClient.removeQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
-      } else {
-        void queryClient.invalidateQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
+        return;
       }
+
+      const reread = [
+        queryClient.invalidateQueries({ queryKey: ['snapshot', args.payload.workspaceId] }),
+      ];
       // Only the changes that alter which workspaces there are, so triaging an
       // item does not refetch the list on every click.
       if (CHANGES_THE_WORKSPACE_LIST.has(args.name)) {
-        void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+        reread.push(queryClient.invalidateQueries({ queryKey: ['workspaces'] }));
       }
+      return Promise.all(reread);
     },
   });
 }
