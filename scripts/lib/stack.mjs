@@ -7,7 +7,7 @@
 //
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -105,4 +105,93 @@ export async function waitForApi(child, port, options = {}) {
     await delay(delayMs);
   }
   throw new Error(`the test API never answered on :${port}`);
+}
+
+/**
+ * Wrangler prints this once, on its way out, when the command it was given has
+ * failed. It is the only thing in the log that separates the run's last fatal
+ * from the ordinary stream errors above it, which carry the same `[ERROR]`
+ * marker and are far more numerous — a passing run holds about twenty-five of
+ * them ("Close the live-updates stream quietly when a browser walks away",
+ * issue 128).
+ */
+const ENDED_BADLY = 'If you think this is a bug then please create an issue';
+
+/**
+ * The newest log Wrangler wrote in `dir`, or null if it wrote none.
+ *
+ * Newest rather than named, because the name carries the start time and this
+ * suite starts exactly one `wrangler dev`; the template build runs earlier and
+ * writes elsewhere. Wrangler prunes its own old files, so the directory stays
+ * small.
+ */
+export function newestLog(dir) {
+  if (!existsSync(dir)) return null;
+  const logs = readdirSync(dir).filter((name) => name.endsWith('.log'));
+  if (logs.length === 0) return null;
+  return logs
+    .map((name) => join(dir, name))
+    .reduce((newest, path) => (statSync(path).mtimeMs > statSync(newest).mtimeMs ? path : newest));
+}
+
+/**
+ * Why a `wrangler dev` run ended, read out of its own log — because what it
+ * prints to the terminal is often nothing at all.
+ *
+ * That is not a figure of speech. The crash this exists for prints `✘ [ERROR]`
+ * with an empty message, because the ProxyWorker's error crosses a worker
+ * boundary as a plain object and Wrangler rebuilds it as a bare `Error`
+ * (`castErrorCause`, wrangler 4.128.0); the reason survives only in the log,
+ * as a `cause`. Two E2E jobs died that way on 3 September 2026 and the console
+ * said nothing either time, so the reason cost an artifact download each.
+ *
+ * Read backwards from `ENDED_BADLY` so the ordinary stream errors above it are
+ * never mistaken for the reason: the fatal is the *last* thing that happened,
+ * and everything before that marker belongs to the run rather than to its end.
+ * A named source is preferred over a printed line for the same reason - it only
+ * appears when a controller reported a failure, while `[ERROR]` is also what
+ * every closed tab produces.
+ *
+ * Pure, and takes the text rather than the path, so the shapes below can be
+ * asserted without a Worker to kill.
+ */
+export function fatalReason(log) {
+  const endedBadly = log.lastIndexOf(ENDED_BADLY);
+  if (endedBadly === -1) return null;
+  const beforeTheEnd = log.slice(0, endedBadly);
+
+  // `Error in <source>: <reason>` followed by the cause it was given, which is
+  // where the sentence a human wants ("Network connection lost.") actually is.
+  const named = [...beforeTheEnd.matchAll(/^Error in [^\n:]+: (.+)$/gm)].at(-1);
+  if (named) {
+    const reason = named[1].trim();
+    const cause = beforeTheEnd.slice(named.index).match(/message: '([^']*)'/);
+    return cause?.[1] ? `${reason}: ${cause[1]}` : reason;
+  }
+
+  // Otherwise whatever Wrangler managed to print. `[ERROR]` rather than the
+  // cross that precedes it: that is `✘` on a terminal that can draw one and a
+  // plain `X` on Windows, and both end up in the file.
+  return (
+    [...beforeTheEnd.matchAll(/\[ERROR\][ \t]*(.*)$/gm)]
+      .map((match) => match[1].trim())
+      .filter(Boolean)
+      .at(-1) ?? null
+  );
+}
+
+/**
+ * The sentence to print when a half of the stack has exited: what died, with
+ * what code, and — where there is a log to read — why.
+ *
+ * Assembled here rather than at the call site so the "no log" and "a log that
+ * explains nothing" cases are decided once and can be asserted. Both are
+ * ordinary: Vite writes no log at all, and a Worker that was killed rather than
+ * failing leaves one with no fatal in it.
+ */
+export function exitReport(what, code, logPath, log) {
+  const reason = log === null ? null : fatalReason(log);
+  if (reason) return `the ${what} exited (${code}): ${reason}\n  Wrangler's log: ${logPath}`;
+  if (logPath) return `the ${what} exited (${code}); Wrangler's log records no reason: ${logPath}`;
+  return `the ${what} exited (${code}), leaving no log to say why`;
 }

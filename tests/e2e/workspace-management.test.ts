@@ -1,15 +1,17 @@
-import { expect, test, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
 import {
   chooseRowAction,
   dashboardBar,
   deleteWorkspace,
   dragRowOnto,
+  expect,
   expectNoSidewaysScroll,
   groundOf,
   openFirstWorkspace,
   openSettings,
   press,
   tabOnIsWhollyInView,
+  test,
   uniqueTitle,
   workspaceTabs,
 } from './support/app';

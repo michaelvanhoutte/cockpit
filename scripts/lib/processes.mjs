@@ -131,9 +131,31 @@ export function stop(child) {
  * process being signalled. That matters more than it sounds on Windows, where
  * stop() reaches a real process by pid and a fake child's pid is some unrelated
  * program's.
+ *
+ * `explain` is the same arrangement for the other half of the sentence. Which
+ * child died and that the rest are being stopped is all supervise() can know;
+ * *why* is specific to what that child was — a Worker keeps a log, Vite does
+ * not — so the caller supplies it and this prints whatever comes back.
  */
-export function supervise(children, stopChild = stop) {
+export function supervise(children, stopChild = stop, explain = () => null) {
   let shuttingDown = false;
+
+  /**
+   * Explaining is allowed to fail, and must not take the shutdown with it: the
+   * only caller reads a file off disk from inside an exit handler, and a throw
+   * there would skip stopping the other half — which then holds its port, which
+   * the next run refuses to start against. A death nobody could explain is
+   * still a death to act on.
+   */
+  function report(child, code) {
+    let why;
+    try {
+      why = explain(child, code);
+    } catch (error) {
+      why = `(could not work out why: ${error.message})`;
+    }
+    if (why) console.error(paint('31', why));
+  }
 
   function shutdown(code) {
     if (shuttingDown) return;
@@ -152,12 +174,17 @@ export function supervise(children, stopChild = stop) {
     // is reachable: callers start their children one at a time, and anything
     // between the first spawn and this call is a window one of them can die in.
     if (child.exitCode !== null || child.signalCode !== null) {
-      console.error(paint('31', `\na server exited (${child.exitCode ?? child.signalCode}) before it could be supervised; stopping the rest`));
+      const code = child.exitCode ?? child.signalCode;
+      console.error(paint('31', `\na server exited (${code}) before it could be supervised; stopping the rest`));
+      report(child, code);
       shutdown(child.exitCode ?? 1);
       break;
     }
     child.on('exit', (code) => {
-      if (!shuttingDown) console.error(paint('31', `\na server exited (${code}); stopping the rest`));
+      if (!shuttingDown) {
+        console.error(paint('31', `\na server exited (${code}); stopping the rest`));
+        report(child, code);
+      }
       shutdown(code ?? 1);
     });
     child.on('error', (error) => {

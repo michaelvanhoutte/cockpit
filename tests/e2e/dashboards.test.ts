@@ -1,11 +1,12 @@
-import { expect, test } from '@playwright/test';
 import {
   chooseRowAction,
   dashboardBar,
+  expect,
   expectNoSidewaysScroll,
   openFirstWorkspace,
   openSettings,
   press,
+  test,
   uniqueTitle,
 } from './support/app';
 

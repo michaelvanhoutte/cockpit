@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './support/app';
 
 /**
  * F3, and deliberately one walk: what nothing below can prove is that this
