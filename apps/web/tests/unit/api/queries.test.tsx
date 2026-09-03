@@ -153,17 +153,13 @@ describe('Workspace management', () => {
 
 describe('Panels', () => {
   describe('one change after another sends what the one before it left behind', () => {
-    it('is not finished with a change until the workspace it changed has been read again', async () => {
-      // **The bug this is here for.** Filing an item onto a panel sends that
-      // panel's whole order, and the server checks it against the order it
-      // holds - so filing a second item straight after the first sent an order
-      // built from a workspace that did not have the first item in it yet, and
-      // was refused. It is a race, and it was only ever lost on a machine slow
-      // enough to lose it.
-      //
-      // The re-read is therefore held open here rather than resolved at once,
-      // which is what makes this test able to fail: with both reads instant,
-      // waiting for the re-read and not waiting for it look exactly the same.
+    /**
+     * The re-read is held open rather than resolved at once, which is what
+     * makes these able to fail: with both reads instant, waiting for the
+     * re-read and not waiting for it look exactly the same, and the first
+     * version of this test passed against the bug it was written for.
+     */
+    async function changeSomething(args: CommandArgs) {
       const filed: WorkspaceSnapshot = {
         ...snapshot,
         filings: [{ panelId: 'p-falcon', itemId: 'i-bart', position: 0 }],
@@ -179,40 +175,17 @@ describe('Panels', () => {
       sends.mockResolvedValue({ ok: true, applied: true });
 
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      let whatTheNextChangeWouldSee: number | null = null;
+      const done: { yet: boolean } = { yet: false };
 
-      function FileIt() {
+      function DoIt() {
         const { data } = useQuery(snapshotQuery('ws-work'));
         const command = useCommand();
         return data ? (
           <button
             type="button"
-            onClick={() =>
-              command.mutate(
-                {
-                  name: 'move_item_to_panel',
-                  payload: {
-                    commandId: 'c3',
-                    issuedAt: AT,
-                    workspaceId: 'ws-work',
-                    itemId: 'i-bart',
-                    panelId: 'p-falcon',
-                    order: ['i-bart'],
-                  },
-                },
-                {
-                  // What a second filing would read to build its order, at the
-                  // moment the first one is done with.
-                  onSuccess: () => {
-                    whatTheNextChangeWouldSee =
-                      client.getQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'])?.filings
-                        .length ?? -1;
-                  },
-                },
-              )
-            }
+            onClick={() => command.mutate(args, { onSuccess: () => void (done.yet = true) })}
           >
-            file it
+            do it
           </button>
         ) : (
           <p>still loading</p>
@@ -222,21 +195,60 @@ describe('Panels', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(
         <QueryClientProvider client={client}>
-          <FileIt />
+          <DoIt />
         </QueryClientProvider>,
       );
-
-      await user.click(await screen.findByRole('button', { name: 'file it' }));
-
+      await user.click(await screen.findByRole('button', { name: 'do it' }));
       // The server has taken the change and the re-read is still out, which is
-      // exactly the window the second filing used to be sent in.
+      // the window everything here is about.
       await waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
-      expect(whatTheNextChangeWouldSee).toBeNull();
+      return { done, letTheRereadFinish: () => letTheRereadFinish() };
+    }
 
+    it('waits for the re-read before it is finished filing, so the next filing has this one', async () => {
+      // **The bug this is here for.** Filing an item onto a panel sends that
+      // panel's whole order, and the server checks it against the order it
+      // holds - so filing a second item straight after the first sent an order
+      // built from a workspace that did not have the first item in it yet, and
+      // was refused. It is a race, and it was only ever lost on a machine slow
+      // enough to lose it.
+      const { done, letTheRereadFinish } = await changeSomething({
+        name: 'move_item_to_panel',
+        payload: {
+          commandId: 'c3',
+          issuedAt: AT,
+          workspaceId: 'ws-work',
+          itemId: 'i-bart',
+          panelId: 'p-falcon',
+          order: ['i-bart'],
+        },
+      });
+
+      expect(done.yet).toBe(false);
       letTheRereadFinish();
 
-      await waitFor(() => expect(whatTheNextChangeWouldSee).not.toBeNull());
-      expect(whatTheNextChangeWouldSee).toBe(1);
+      await waitFor(() => expect(done.yet).toBe(true));
+    });
+
+    it('does not hold up a change that nothing is built on, so adding a dashboard still goes there at once', async () => {
+      // **The other half, and it is not symmetry for its own sake.** Making
+      // every change wait was the first fix and it broke this one: adding a
+      // dashboard re-reads and then navigates to what it made, so waiting first
+      // put the new dashboard in the bar *before* that navigation ran - and the
+      // navigation could then land while somebody was already typing a panel
+      // name on the dashboard they were still on, taking it with them.
+      const { done } = await changeSomething({
+        name: 'add_dashboard',
+        payload: {
+          commandId: 'c4',
+          issuedAt: AT,
+          workspaceId: 'ws-work',
+          dashboardId: 'd-today',
+          name: 'Today',
+        },
+      });
+
+      await waitFor(() => expect(done.yet).toBe(true));
     });
   });
 });
