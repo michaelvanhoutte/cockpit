@@ -110,13 +110,25 @@ export const test = base.extend<{ againstALiveStack: void }>({
  * Whether the stack still answers. Anything but a plain yes counts as gone —
  * a refused connection throws, and a Worker answering something other than 200
  * is not a stack a walk can be run against either.
+ *
+ * Asked twice before it is believed. The contention that makes the Worker die
+ * in the first place is the same contention that makes a request slow: on the
+ * jobs this was written for, ordinary calls were taking over a second and a
+ * half. One slow answer here would declare a live stack dead, skip the rest of
+ * the run, and print a sentence that is not true — which is worse than the
+ * confusion it exists to remove. A stack that has really gone refuses the
+ * connection at once, so the second ask costs nothing in the case that matters.
  */
 async function answering(request: APIRequestContext): Promise<boolean> {
-  try {
-    return (await request.get('/health', { timeout: 5_000 })).ok();
-  } catch {
-    return false;
+  for (let ask = 0; ask < 2; ask += 1) {
+    try {
+      if ((await request.get('/health', { timeout: 5_000 })).ok()) return true;
+    } catch {
+      // Refused, or too slow to be worth waiting for. Ask once more.
+    }
+    if (ask === 0) await new Promise((wait) => setTimeout(wait, 1_000));
   }
+  return false;
 }
 
 export { expect };
