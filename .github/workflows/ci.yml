@@ -63,10 +63,10 @@ jobs:
   # is not quite the deployed shape — no service worker, unbundled modules,
   # Vite's SPA fallback rather than the Worker's asset routing. Those three break everything at once
   # rather than one feature at a time, and the intended cover for them is the
-  # same suite pointed at the branch preview (E2E_BASE_URL plus an Access
-  # service token, per playwright.config.ts). That run lands when the token
-  # does; see the deferred F3-against-a-preview item in "Deferred, with
-  # reasons" (docs/deployment.md §8).
+  # same suite pointed at a deployed environment (E2E_BASE_URL, per
+  # playwright.config.ts). That run lands with "Run the F3 suite against a
+  # deployed environment, as its own account" (issue 64); see the deferred item
+  # in "Deferred, with reasons" (docs/deployment.md).
   e2e:
     name: E2E (F3)
     runs-on: ubuntu-latest

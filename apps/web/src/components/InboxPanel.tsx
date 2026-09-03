@@ -30,7 +30,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
 
   // Nothing of this workspace to show, so the failure is the whole view.
   if (error && !data) {
-    return <LoadFailure error={error} onRetry={() => void refetch()} canTakeOver />;
+    return <LoadFailure error={error} onRetry={() => void refetch()} />;
   }
   if (isLoading || !data) {
     return <p className="text-ink-faint">Loading…</p>;

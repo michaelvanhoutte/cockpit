@@ -60,10 +60,10 @@ jobs:
           command: deploy --env staging
 
       - name: Verify health
-        # /health is Bypass-policied out of Cloudflare Access on every
-        # environment, so this is a real assertion instead of "the Access login
-        # page loaded" (docs/deployment.md, "`/health` must stay outside the
-        # gate"). It covers both halves of where the data is: the register, and
+        # /health answers without a sign-in on every environment
+        # (docs/deployment.md, "`/health` answers without a sign-in"), so this
+        # is a real assertion rather than a page that merely
+        # loaded. It covers both halves of where the data is: the register, and
         # a store belonging to no account that has to open and come up to date.
         # An update that will not apply fails here rather than in front of a
         # user — though the gate that stops one being deployed at all is

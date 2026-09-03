@@ -18,7 +18,6 @@ describe('Sign-in', () => {
       { situation: 'the health check', path: '/health' },
       { situation: 'the people to choose from', path: '/v1/users' },
       { situation: 'signing in', path: '/v1/sign-in' },
-      { situation: 'getting back through the perimeter', path: '/v1/relogin' },
       { situation: 'a delivery from a source', path: '/ingress/slack/events' },
       {
         // The prefix is what the connector's id and whatever the source appends
@@ -40,6 +39,12 @@ describe('Sign-in', () => {
         path: '/healthy',
       },
       { situation: 'ingress with nothing filed under it', path: '/ingress' },
+      {
+        // Open until the gate in front of the deployment was removed, and the
+        // list is the only thing that would still say otherwise.
+        situation: 'the address that used to lead back out through the old gate',
+        path: '/v1/relogin',
+      },
       { situation: 'your workspaces', path: '/v1/workspaces' },
       { situation: 'the live updates stream', path: '/v1/events' },
       { situation: 'capturing a thought', path: '/v1/commands/capture_item' },

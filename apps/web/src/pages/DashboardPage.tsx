@@ -19,7 +19,7 @@ export function DashboardPage() {
   const { data, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
 
   if (error && !data) {
-    return <LoadFailure error={error} onRetry={() => void refetch()} canTakeOver />;
+    return <LoadFailure error={error} onRetry={() => void refetch()} />;
   }
   if (isLoading || !data) {
     return <p className="text-ink-faint">Loading…</p>;

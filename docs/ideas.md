@@ -61,7 +61,7 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 
 ## 7. Platform, users and operations
 
-- ~~**Multiple users, staged.** Start without authentication: pick a name off the logon page, no password. Add OAuth and password support afterwards.~~ *(Taken up by "Sign in by picking a name, each user in their own account" (issue 86). What is left is the second half — OAuth and password support — which is "App login" in [architecture.md](architecture.md) and the trigger for reconsidering Cloudflare Access.)*
+- ~~**Multiple users, staged.** Start without authentication: pick a name off the logon page, no password. Add OAuth and password support afterwards.~~ *(Taken up by "Sign in by picking a name, each user in their own account" (issue 86). What is left is the second half — OAuth and password support — which is "App login" in [architecture.md](architecture.md), and is now the only thing that would authenticate a deployed environment.)*
 - **Admin section for user management**: its own pages to delete a user, reset a password, and the rest of day-to-day administration. *(Still open, and the nearest thing to due: adding a user is a hand-written row in the register.)*
 - ~~**Roles from the start**, so role logic is in the code from the beginning rather than retrofitted.~~ *(Done as asked: every user carries `user` or `admin` since issue 86. Nothing enforces it, because there is no admin-only page yet — the admin section above brings the first gate.)*
 - **Multi-tenancy.**

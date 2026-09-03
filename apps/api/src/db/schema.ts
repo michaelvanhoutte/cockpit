@@ -92,9 +92,9 @@ function isTimestamp(column: string) {
  *
  * **There is no secret on a user, and that is the current stage rather than an
  * oversight.** A passwordless list of names is an identity selector, not an
- * authentication control - which is why Cloudflare Access stays in front of
- * every deployed environment (docs/architecture.md, "App login"). When Google
- * sign-in lands it adds the columns it needs here; nothing else moves.
+ * authentication control, and it is the only thing in front of a deployed
+ * environment (docs/architecture.md, "App login"). When Google sign-in lands it
+ * adds the columns it needs here; nothing else moves.
  */
 export const users = sqliteTable(
   'users',

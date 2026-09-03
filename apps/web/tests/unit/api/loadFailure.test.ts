@@ -26,30 +26,16 @@ describe('Offline', () => {
     const situations = [
       {
         situation: 'it answers and reports itself well',
-        answer: json({ ok: true, db: true }),
-        reach: 'healthy',
+        answer: json({ ok: true, register: true, store: true }),
+        reach: 'reachable',
       },
       {
-        situation: 'it answers and reports its database down',
-        answer: json({ ok: false, db: false }),
-        reach: 'unhealthy',
-      },
-      {
+        // A bad answer is still an answer: the connection is plainly fine, and
+        // calling this unreachable would tell the person they are offline when
+        // they are not.
         situation: 'it answers with a failure',
         answer: json({ error: 'nope' }, 503),
-        reach: 'unhealthy',
-      },
-      {
-        // Something standing in front of the Worker — a sign-in page, most
-        // likely. It answered, so the connection is plainly fine, and calling
-        // this unreachable would tell the person they are offline when they
-        // are not.
-        situation: 'something answers in its place, with a page rather than an answer',
-        answer: new Response('<!doctype html><title>Sign in</title>', {
-          status: 200,
-          headers: { 'content-type': 'text/html' },
-        }),
-        reach: 'unhealthy',
+        reach: 'reachable',
       },
       {
         situation: 'nothing answers at all',

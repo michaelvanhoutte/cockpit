@@ -169,20 +169,19 @@ describe('Offline', () => {
     });
   });
 
-  describe('losing the connection because the sign-in expired says so instead of going quiet', () => {
+  describe('losing the connection says so instead of going quiet', () => {
     const situations = [
       { situation: 'Cockpit itself says this browser is not signed in', why: 'signed-out', reReads: true },
       {
-        // A stopped stream reports no status, so the gate in front of the
-        // deployment and Cockpit's own cannot be told apart from here. Both
-        // therefore have to make it re-read - which is the only way either of
-        // them ever gets said out loud.
-        situation: 'the gate in front of the deployment stopped letting this browser through',
-        why: 'gate-expired',
+        // A stopped stream reports no status, so nothing here can tell a
+        // sign-in that went from a request that vanished. Re-reading is the
+        // only way either of them ever gets said out loud, so anything that is
+        // not plainly a dead connection has to cause one.
+        situation: 'something answers and the stream still stopped',
+        why: 'trouble',
         reReads: true,
       },
       { situation: 'nothing can be reached at all', why: 'offline', reReads: false },
-      { situation: 'Cockpit answers but is unwell', why: 'trouble', reReads: false },
     ] as const;
 
     it.each(situations)('$situation', async ({ why, reReads }) => {
