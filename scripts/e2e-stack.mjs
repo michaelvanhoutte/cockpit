@@ -174,6 +174,12 @@ try {
   process.exit(1);
 }
 
+// Noted before the Worker is started, so a log from an *earlier* run is never
+// read out as this one's reason. Wrangler keeps its old files until it prunes
+// them, and the case that matters is a Worker that died before writing
+// anything of its own.
+const startedAt = Date.now();
+
 const api = start(
   ['--filter', '@cockpit/api', 'exec', 'wrangler', 'dev', '--port', String(API_PORT), '--persist-to', RUN_DIR],
   'test api',
@@ -188,11 +194,21 @@ try {
   // The same reason, for the half of the story that happens before the stack is
   // up: a Worker that never started has a log too, and printing only "it exited
   // before it was ready (1)" sends the reader to an artifact for a sentence.
+  //
+  // Inside its own try, and that is not belt and braces: stop(api) below is
+  // what keeps a half-started Wrangler from holding the API port, which the
+  // guard at the top of this file then refuses to start against on every later
+  // run. Reading a file that Wrangler may be pruning must not come between the
+  // two.
   console.error(paint('31', `\n${error.message}`));
-  const startupLog = newestLog(LOG_DIR);
-  if (startupLog) {
-    const reason = fatalReason(readFileSync(startupLog, 'utf8'));
-    console.error(paint('31', reason ? `  ${reason}` : `  Wrangler's log: ${startupLog}`));
+  try {
+    const startupLog = newestLog(LOG_DIR, startedAt);
+    if (startupLog) {
+      const reason = fatalReason(readFileSync(startupLog, 'utf8'));
+      console.error(paint('31', reason ? `  ${reason}` : `  Wrangler's log: ${startupLog}`));
+    }
+  } catch (couldNotRead) {
+    console.error(paint('31', `  (could not read Wrangler's log: ${couldNotRead.message})`));
   }
   // stop(), not api.kill(): on Windows the child here is a shell, and signalling
   // it would leave Wrangler holding the API port — which the check above would
@@ -231,7 +247,7 @@ console.log(
  */
 function whyItWent(child, code) {
   if (child !== api) return exitReport('test web server', code, null, null);
-  const logPath = newestLog(LOG_DIR);
+  const logPath = newestLog(LOG_DIR, startedAt);
   return exitReport('test API', code, logPath, logPath === null ? null : readFileSync(logPath, 'utf8'));
 }
 

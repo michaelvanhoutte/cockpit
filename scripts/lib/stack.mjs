@@ -118,20 +118,41 @@ export async function waitForApi(child, port, options = {}) {
 const ENDED_BADLY = 'If you think this is a bug then please create an issue';
 
 /**
- * The newest log Wrangler wrote in `dir`, or null if it wrote none.
+ * The newest log Wrangler wrote in `dir` since `since`, or null if it wrote
+ * none.
  *
  * Newest rather than named, because the name carries the start time and this
  * suite starts exactly one `wrangler dev`; the template build runs earlier and
- * writes elsewhere. Wrangler prunes its own old files, so the directory stays
- * small.
+ * writes elsewhere.
+ *
+ * `since` is what stops the previous run's log being read out as this run's
+ * reason. Wrangler keeps its old files until it prunes them, so a Worker that
+ * died before it could write anything — a failed spawn, which is what an
+ * application-control policy blocking `workerd.exe` looks like — would
+ * otherwise be explained by whatever went wrong the last time.
+ *
+ * A file that disappears between the listing and the stat is skipped rather
+ * than thrown over: Wrangler prunes its own old files, and this runs from an
+ * exit handler where a throw costs more than a missing candidate.
  */
-export function newestLog(dir) {
+export function newestLog(dir, since = 0) {
   if (!existsSync(dir)) return null;
-  const logs = readdirSync(dir).filter((name) => name.endsWith('.log'));
-  if (logs.length === 0) return null;
-  return logs
-    .map((name) => join(dir, name))
-    .reduce((newest, path) => (statSync(path).mtimeMs > statSync(newest).mtimeMs ? path : newest));
+  let newest = null;
+  let newestAt = -Infinity;
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.log')) continue;
+    const path = join(dir, name);
+    let at;
+    try {
+      at = statSync(path).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (at < since || at <= newestAt) continue;
+    newest = path;
+    newestAt = at;
+  }
+  return newest;
 }
 
 /**
@@ -165,7 +186,12 @@ export function fatalReason(log) {
   const named = [...beforeTheEnd.matchAll(/^Error in [^\n:]+: (.+)$/gm)].at(-1);
   if (named) {
     const reason = named[1].trim();
-    const cause = beforeTheEnd.slice(named.index).match(/message: '([^']*)'/);
+    // Only within that record. The one after it is `=> Error contextual data`,
+    // a megabyte of bundled configuration and source that has `message:` in it
+    // more than once — so an unbounded search would answer a fatal with no
+    // cause of its own by quoting a line of somebody else's library.
+    const record = beforeTheEnd.slice(named.index).split('\n---\n')[0];
+    const cause = record.match(/message: '([^']*)'/);
     return cause?.[1] ? `${reason}: ${cause[1]}` : reason;
   }
 

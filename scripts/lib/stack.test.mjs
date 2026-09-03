@@ -247,6 +247,17 @@ describe('fatalReason', () => {
   it('reports no reason for a log that holds nothing at all', () => {
     assert.equal(fatalReason(''), null);
   });
+
+  it('does not go looking for a cause outside the record that named the failure', () => {
+    // The record after a fatal is `=> Error contextual data`, about a megabyte
+    // of bundled configuration and library source with `message:` in it more
+    // than once. A fatal with no cause of its own must not be answered with a
+    // line from that.
+    const noCause =
+      record('debug', 'Error in ProxyController: Failed to start ProxyWorker') +
+      record('debug', "=> Error contextual data: {\n  bundle: { message: 'not the reason at all' }\n}");
+    assert.equal(fatalReason(noCause + ENDED_BADLY), 'Failed to start ProxyWorker');
+  });
 });
 
 describe('newestLog', () => {
@@ -278,6 +289,15 @@ describe('newestLog', () => {
   it('ignores files that are not logs', () => {
     const dir = fakeLogDir({ 'wrangler-old.log': 600, 'notes.txt': 1 });
     assert.equal(newestLog(dir), join(dir, 'wrangler-old.log'));
+  });
+
+  it('ignores a log from before this run started', () => {
+    // The case that matters is a Worker that died before writing anything of
+    // its own — a failed spawn. Without this, the last run's crash would be
+    // read out as the reason for this one's.
+    const dir = fakeLogDir({ 'wrangler-last-run.log': 600 });
+    assert.equal(newestLog(dir, Date.now() - 60_000), null);
+    assert.equal(newestLog(dir, Date.now() - 3_600_000), join(dir, 'wrangler-last-run.log'));
   });
 });
 
