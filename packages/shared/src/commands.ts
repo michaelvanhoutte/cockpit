@@ -281,6 +281,120 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 
+/**
+ * move_item_to_panel — where an Item lives now, and the order of the Panel it
+ * lands on ("Panels hold the items filed into them, and the Inbox holds the
+ * rest", issue 36).
+ *
+ * **One command for every way a Panel's contents change**, rather than one per
+ * gesture: filing an Item from the Inbox, moving it between Panels, sending it
+ * back to the Inbox and reordering it inside the Panel it is already on are all
+ * the same answer to the same question - where do these Items go now. Splitting
+ * them would be several commands writing the same rows, and several chances for
+ * them to disagree. `save_layout` is the same call for the same reason.
+ *
+ * **A null `panelId` is the Inbox**, which is not a Panel but the absence of
+ * one: the Item is taken off every Panel it was on and, being filed nowhere, is
+ * in the Inbox again. Nothing has to name the Inbox for that to work.
+ *
+ * **`order` is the target Panel's whole order afterwards, not this Item's
+ * position.** Commands carry the client's clock and are resolved
+ * last-write-wins (architecture, "Mutations are commands, not object PUTs"), and
+ * a whole order is a value that rule can be applied to while "put it third" is
+ * not - two of those arriving out of turn compose into an order nobody asked
+ * for. It is the same call `reorder_workspaces` makes, and it makes staleness
+ * visible the same way: an order that no longer names the Panel's Items is
+ * refused rather than quietly written.
+ */
+/**
+ * An order names each Item once. Shared by the two commands that carry one,
+ * because it is the same rule: two positions for one Item is not an order, and
+ * one of the Panel's Items is necessarily left out.
+ */
+const namesEachItemOnce = (cmd: { order: string[] }) =>
+  new Set(cmd.order).size === cmd.order.length;
+const ONCE = { message: 'an item can only be in one place in the order', path: ['order'] };
+
+export const moveItemToPanelSchema = commandEnvelopeSchema
+  .extend({
+    itemId: z.uuid(),
+    /** The Panel it lands on, or null for the Inbox. */
+    panelId: z.uuid().nullable(),
+    /** Every Item on that Panel afterwards, in order. Empty for the Inbox. */
+    order: z.array(z.uuid()),
+  })
+  /**
+   * An order naming one Item twice has no order in it - two positions for one
+   * Item, and one of the Panel's Items necessarily left out. Refused as a shape
+   * rather than checked against the store, because it is wrong on its own terms
+   * whatever the Panel holds.
+   */
+  .refine(namesEachItemOnce, ONCE)
+  /**
+   * The Item that moved has to be in the order of the Panel it moved to, and
+   * has to be absent from an order for the Inbox - which has no order at all,
+   * being by age. Either way an order that does not contain the thing it claims
+   * to have moved is not a smaller change, it is an inconsistent one.
+   */
+  .refine((cmd) => (cmd.panelId === null ? cmd.order.length === 0 : cmd.order.includes(cmd.itemId)), {
+    message: 'the item that moved is not in the order of the panel it moved to',
+    path: ['order'],
+  });
+export type MoveItemToPanelCommand = z.infer<typeof moveItemToPanelSchema>;
+
+/**
+ * add_item_to_panel — the same Item on one more Panel ("Ask whether to move an
+ * item to a panel or add it to one", issue 142).
+ *
+ * **It is `move_item_to_panel` without the taking-off.** The same Item can
+ * genuinely belong on *Project Falcon* and on *Anna*, which is the whole reason
+ * a Panel is a view over one shared list rather than a folder - so the only
+ * difference between the two commands is whether the Panels it was already on
+ * keep it.
+ *
+ * `order` is the target Panel's whole order afterwards, for the reason moving
+ * carries one: a whole order can be resolved last-write-wins and "put it third"
+ * cannot. There is no null Panel here - adding an Item to the Inbox is not a
+ * thing, because the Inbox is what is filed nowhere.
+ */
+export const addItemToPanelSchema = commandEnvelopeSchema
+  .extend({
+    itemId: z.uuid(),
+    panelId: z.uuid(),
+    order: z.array(z.uuid()),
+  })
+  // The same two rules a move's order obeys, by being the same functions rather
+  // than a copy of them: an order that names an item twice has no order in it,
+  // and one that leaves out the item it is about is inconsistent rather than
+  // smaller. There is no Inbox arm here, because there is no adding to the
+  // Inbox.
+  .refine(namesEachItemOnce, ONCE)
+  .refine((cmd) => cmd.order.includes(cmd.itemId), {
+    message: 'the item that arrived is not in the order of the panel it arrived on',
+    path: ['order'],
+  });
+export type AddItemToPanelCommand = z.infer<typeof addItemToPanelSchema>;
+
+/**
+ * remove_item_from_panel — this Panel stops showing the Item, and every other
+ * Panel holding it carries on ("Ask whether to move an item to a panel or add
+ * it to one", issue 142).
+ *
+ * **Not a delete, and not a move.** The Item is untouched; one place it was
+ * shown stops showing it. Removing it from the only Panel holding it leaves it
+ * filed nowhere, which is to say back in the Inbox - so there is no separate
+ * way to say "put this back for me to deal with later" needed here.
+ *
+ * No `order`: what is left keeps the places it had. A gap in the numbering is
+ * not a hole anybody can see, exactly as it is not for a deleted Panel's
+ * placement.
+ */
+export const removeItemFromPanelSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  panelId: z.uuid(),
+});
+export type RemoveItemFromPanelCommand = z.infer<typeof removeItemFromPanelSchema>;
+
 export const setStatusSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   status: itemStatusSchema,
@@ -341,6 +455,9 @@ export const commandSchemas = {
   save_layout: saveLayoutSchema,
   delete_layout: deleteLayoutSchema,
   capture_item: captureItemSchema,
+  move_item_to_panel: moveItemToPanelSchema,
+  add_item_to_panel: addItemToPanelSchema,
+  remove_item_from_panel: removeItemFromPanelSchema,
   set_status: setStatusSchema,
   snooze_until: snoozeUntilSchema,
   associate: associateSchema,

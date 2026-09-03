@@ -1,8 +1,14 @@
 # Statement list for "Render actions in panels, backed by one shared action list" (issue 36) — experiment
 
-**Status:** experiment, not a decision. Delete when the experiment is done. The method
-that produced it is in
-[.claude/skills/testing/references/statement-lists.md](../.claude/skills/testing/references/statement-lists.md).
+**Status:** the worked example the method was derived from, kept because
+[statement-lists.md](../.claude/skills/testing/references/statement-lists.md) and the
+[testing skill](../.claude/skills/testing/SKILL.md) both point at it as one. **It is not
+the list that was built.** Issue 36 was re-scoped after this was written: the model and
+what a panel shows stayed with it and are built; every gesture that moves an item became
+its own issue, and creating an item on a panel, the editor and the plain list page became
+"Create an item on a panel, edit it in place, and list every item plainly" (issue 140). The rules that were implemented are test names in source, per "Name it after the
+product" in the testing skill. Read this for the *method* — the passes, the collapsing,
+the pruning — and not for what the product does.
 
 ## How to review
 

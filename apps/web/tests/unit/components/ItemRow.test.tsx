@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Item, ItemStatus } from '@cockpit/shared';
 import { ItemRow } from '../../../src/components/ItemRow';
-import { useCommand } from '../../../src/api/queries';
+import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
+import { UndoWhatJustHappened } from '../../../src/undo';
+import { useCommand, useSendCommand } from '../../../src/api/queries';
 
-vi.mock('../../../src/api/queries', () => ({ useCommand: vi.fn() }));
+vi.mock('../../../src/api/queries', () => ({ useCommand: vi.fn(), useSendCommand: vi.fn() }));
 
 const mockUseCommand = vi.mocked(useCommand);
+const mockUseSendCommand = vi.mocked(useSendCommand);
 
 function anItem(overrides: Partial<Item> = {}): Item {
   return {
@@ -36,13 +39,56 @@ function anItem(overrides: Partial<Item> = {}): Item {
   };
 }
 
-/** Renders one row and hands back the changes it asks for. */
-function aRow() {
-  const mutate = vi.fn();
+/**
+ * Renders one row and hands back the changes it asks for.
+ *
+ * `settles` runs the caller's `onSuccess`, which is what a change that really
+ * landed does - and what the offer of an undo waits for.
+ */
+function aRow({
+  settles = false,
+  onMoveTo,
+  item = anItem(),
+}: {
+  settles?: boolean;
+  onMoveTo?: (from: HTMLElement | null) => void;
+  item?: Item;
+} = {}) {
+  const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
+    if (settles) options?.onSuccess?.();
+  });
+  const send = vi.fn(() => Promise.resolve());
   mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
-  render(<ItemRow item={anItem()} workspaceId="ws-work" />);
-  return mutate;
+  mockUseSendCommand.mockReturnValue(send);
+  render(
+    <UndoWhatJustHappened>
+      <ItemRow item={item} workspaceId="ws-work" {...(onMoveTo ? { onMoveTo } : {})} />
+    </UndoWhatJustHappened>,
+  );
+  return { mutate, send };
 }
+
+/**
+ * A finger down, across and off the row.
+ *
+ * Synthetic events, so what this proves is that the handlers are attached and
+ * hand their numbers to the right decision - not that a thumb can do it, which
+ * jsdom cannot say anything about at all. The rules themselves are
+ * tests/unit/swipe.test.ts and the gesture is tests/e2e/triage.test.ts.
+ */
+function swipe({
+  dx,
+  dy = 0,
+  pointerType = 'touch',
+  pointerId = 1,
+}: { dx: number; dy?: number; pointerType?: string; pointerId?: number }) {
+  const row = screen.getByRole('listitem');
+  fireEvent.pointerDown(row, { pointerType, pointerId, clientX: 0, clientY: 0 });
+  fireEvent.pointerMove(row, { pointerType, pointerId, clientX: dx, clientY: dy });
+  fireEvent.pointerUp(row, { pointerType, pointerId, clientX: dx, clientY: dy });
+}
+
+const past = SWIPE_THRESHOLD_PX + 10;
 
 async function choose(user: ReturnType<typeof userEvent.setup>, option: string) {
   await user.click(screen.getByLabelText('Item actions'));
@@ -58,7 +104,7 @@ describe('Triage', () => {
       { option: 'Dismiss', status: 'dismissed' },
     ])('$option', async ({ option, status }) => {
       const user = userEvent.setup();
-      const mutate = aRow();
+      const { mutate } = aRow();
 
       await choose(user, option);
 
@@ -70,10 +116,175 @@ describe('Triage', () => {
     });
   });
 
+  describe('a swipe that acts sends its change; one that stops short puts the row back', () => {
+    it('dismisses on a swipe left that went far enough', () => {
+      const { mutate } = aRow();
+
+      swipe({ dx: -past });
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate.mock.calls[0]![0].payload.status).toBe('dismissed');
+    });
+
+    it('opens the same picker Move to… opens, on a swipe right', () => {
+      const asked = vi.fn();
+      aRow({ onMoveTo: asked });
+
+      swipe({ dx: past });
+
+      expect(asked).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends nothing when the gesture meant nothing', () => {
+      // One case, not one per way of meaning nothing: they are the same branch
+      // here, and which distances mean nothing is
+      // apps/web/tests/unit/swipe.test.ts's rule rather than this one's.
+      const asked = vi.fn();
+      const { mutate } = aRow({ onMoveTo: asked });
+
+      swipe({ dx: SWIPE_THRESHOLD_PX - 10 });
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(asked).not.toHaveBeenCalled();
+    });
+
+    describe('the swipe belongs to the finger that started it', () => {
+      // A finger resting on the row mid-swipe used to overwrite where the
+      // gesture began, and the release was then measured from the wrong place.
+      // Two halves hold it: the second finger is not taken for the first, and
+      // only the finger that started can end it.
+      const down = (row: HTMLElement, pointerId: number, clientX: number) =>
+        fireEvent.pointerDown(row, { pointerType: 'touch', pointerId, clientX, clientY: 0 });
+      const move = (row: HTMLElement, pointerId: number, clientX: number) =>
+        fireEvent.pointerMove(row, { pointerType: 'touch', pointerId, clientX, clientY: 0 });
+      const up = (row: HTMLElement, pointerId: number, clientX: number) =>
+        fireEvent.pointerUp(row, { pointerType: 'touch', pointerId, clientX, clientY: 0 });
+
+      it('carries on when a second finger lands on the row', () => {
+        const { mutate } = aRow();
+        const row = screen.getByRole('listitem');
+
+        down(row, 1, 0);
+        move(row, 1, -past);
+        down(row, 2, 300);
+        up(row, 1, -past);
+
+        expect(mutate).toHaveBeenCalledTimes(1);
+        expect(mutate.mock.calls[0]![0].payload.status).toBe('dismissed');
+      });
+
+      it('is not started by a touch that landed on a control', () => {
+        // The menu opens on pointerdown and the same event bubbles up to the
+        // row, so tapping the three dots both opened the menu and began a
+        // swipe - and the release then landed on a menu entry in a portal
+        // outside this row, so nothing ever ended it.
+        const asked = vi.fn();
+        const { mutate } = aRow({ onMoveTo: asked });
+        const menu = screen.getByLabelText('Item actions');
+        // Held before the press: opening the menu takes the row out of the
+        // accessibility tree, which is Radix doing its job rather than
+        // anything this case is about.
+        const row = screen.getByRole('listitem');
+
+        fireEvent.pointerDown(menu, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+        fireEvent.pointerUp(row, {
+          pointerType: 'touch',
+          pointerId: 1,
+          clientX: -past,
+          clientY: 0,
+        });
+
+        expect(mutate).not.toHaveBeenCalled();
+        expect(asked).not.toHaveBeenCalled();
+      });
+
+      it('is not ended by a finger that was not making it', () => {
+        const asked = vi.fn();
+        const { mutate } = aRow({ onMoveTo: asked });
+        const row = screen.getByRole('listitem');
+
+        down(row, 1, 0);
+        down(row, 2, 300);
+        // The second finger lifts far from where the first went down, which is
+        // the whole distance a swipe rightward would need - so without the
+        // check this opens the picker for a gesture nobody made.
+        up(row, 2, 300);
+
+        expect(asked).not.toHaveBeenCalled();
+        expect(mutate).not.toHaveBeenCalled();
+      });
+    });
+
+    it('leaves a mouse alone, because a desktop row is dragged rather than swiped', () => {
+      const asked = vi.fn();
+      const { mutate } = aRow({ onMoveTo: asked });
+
+      swipe({ dx: -past, pointerType: 'mouse' });
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(asked).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('what just happened can be put back, until the offer runs out', () => {
+    it('offers a dismissal back, and takes the status the row had', async () => {
+      const user = userEvent.setup();
+      const { send } = aRow({ settles: true });
+
+      await choose(user, 'Dismiss');
+      expect(screen.getByRole('status')).toHaveTextContent(
+        '“Make appointment with Novy” dismissed',
+      );
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      // The status it had before, read off the row rather than guessed: an
+      // item dismissed while it was Waiting comes back Waiting.
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_status',
+          payload: expect.objectContaining({ itemId: 'item-1', status: 'to_process' }),
+        }),
+      );
+    });
+
+    it('offers a snoozed item back with the date it was waiting for', async () => {
+      // Leaving the snoozed state clears the wake date, which dismissing does -
+      // so putting only the status back would return a snoozed item with
+      // nothing to wake it, and the date would be gone for good.
+      const user = userEvent.setup();
+      const { send } = aRow({
+        settles: true,
+        item: anItem({ status: 'snoozed', snoozedUntil: '2026-09-08T08:00:00.000Z' }),
+      });
+
+      await choose(user, 'Dismiss');
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'snooze_until',
+          payload: expect.objectContaining({
+            itemId: 'item-1',
+            until: '2026-09-08T08:00:00.000Z',
+          }),
+        }),
+      );
+    });
+
+    it('offers nothing back while the dismissal is still in flight', async () => {
+      const user = userEvent.setup();
+      aRow({ settles: false });
+
+      await choose(user, 'Dismiss');
+
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+  });
+
   describe('snoozing a row asks for it back one week later', () => {
     it('sets the wake date a week on from when it was asked', async () => {
       const user = userEvent.setup();
-      const mutate = aRow();
+      const { mutate } = aRow();
 
       await choose(user, 'Snooze a week');
 
@@ -94,7 +305,7 @@ describe('Triage', () => {
   describe("a row can be made a goal for today", () => {
     it("sets the focus horizon on that row's own item", async () => {
       const user = userEvent.setup();
-      const mutate = aRow();
+      const { mutate } = aRow();
 
       await choose(user, 'Goal for today');
 
@@ -112,6 +323,7 @@ describe('Triage', () => {
     /** One row, rendered on its own, with the mark at its head. */
     function markOn(item: Partial<Item>): string {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+      mockUseSendCommand.mockReturnValue(vi.fn(() => Promise.resolve()));
       const { container, unmount } = render(
         <ItemRow item={anItem(item)} workspaceId="ws-work" />,
       );

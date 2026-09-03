@@ -1,17 +1,19 @@
 import { useRef } from 'react';
 import { GRID_COLUMNS, MAX_PANEL_ROWS } from '@cockpit/shared';
-import type { Panel, PanelPlacement } from '@cockpit/shared';
+import type { Item, Panel, PanelPlacement } from '@cockpit/shared';
+import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 
 /**
  * One panel on a dashboard: a titled box you can move, resize and rename in
  * place ("Panels on a dashboard, with per-screen-size layouts", issue 33).
  *
- * **What it shows comes later.** A panel is a saved, filtered view of items
- * (functional definition, "What a Panel shows"), and that configuration is
- * deliberately out of scope here - so every panel says the same thing inside,
- * the way every dashboard said the same thing before panels landed. The box,
- * its title, its place and its size are the whole of it today.
+ * **It holds the items filed into it**, in the order they were filed into
+ * ("Panels hold the items filed into them, and the Inbox holds the rest", issue
+ * 36). What it shows is still only that - a rule for what *arrives* in a panel on
+ * its own is configuration it does not have yet ("Panel configuration:
+ * connections and free-text description", issue 35).
  *
  * **Everything a pointer can do here, the menu can do too.** Dragging the
  * header reorders and dragging the corner resizes, and neither exists for a
@@ -27,6 +29,10 @@ export const PANEL_GAP = 12;
 
 export interface PanelCardProps {
   panel: Panel;
+  /** Which workspace's items these are, which every change to one has to name. */
+  workspaceId: string;
+  /** What is filed on this panel, in order. */
+  items: readonly Item[];
   placement: PanelPlacement;
   /** "Move left" on a screen with panels side by side, "Move up" on one without. */
   sideBySide: boolean;
@@ -55,6 +61,8 @@ export interface PanelCardProps {
 
 export function PanelCard({
   panel,
+  workspaceId,
+  items,
   placement,
   sideBySide,
   at,
@@ -86,8 +94,17 @@ export function PanelCard({
       // The whole panel is the drop target while only its header is the handle:
       // aiming at a two-line strip is a fiddly drop, and the thing being aimed
       // at is the place, not the grip.
-      onDragOver={(e) => e.preventDefault()}
+      //
+      // **Panels only.** A row of the list inside crosses this on its way in,
+      // and without the check it would arrive as a panel being dropped on a
+      // panel - which does nothing while no panel is being dragged, and
+      // reorders the dashboard when one was picked up and abandoned earlier.
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+        e.preventDefault();
+      }}
       onDrop={(e) => {
+        if (e.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
         e.preventDefault();
         onDropOn();
       }}
@@ -158,14 +175,25 @@ export function PanelCard({
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
-        {refusal ? (
-          <p role="alert" className="text-sm text-over">
+      {/* No padding of its own: a row carries its own, so a list inside a panel
+          reads exactly as it does in the Inbox. */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        {/* Above the list rather than instead of it. Refusing a rename says
+            nothing about what the panel holds, and hiding the items while
+            somebody decides what else to call it takes away the thing they are
+            naming. */}
+        {refusal && (
+          <p role="alert" className="px-3 py-3 text-sm text-over">
             {refusal}
           </p>
-        ) : (
-          <p className="text-sm text-ink-faint">What this panel shows is set up later.</p>
         )}
+        <ItemList
+          workspaceId={workspaceId}
+          items={items}
+          openDashboardId={panel.dashboardId}
+          panelId={panel.id}
+          emptyMessage="Nothing filed here yet."
+        />
       </div>
 
       <ResizeGrip

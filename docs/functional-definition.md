@@ -40,7 +40,7 @@ The concrete pains with today's way of working (a manual Notion board beside eac
 - **Delivery — two iterations.** Iteration 1 tracks items flagged at the source; iteration 2 adds the read-and-process inbox on top (§1.1). The data model does not change between them.
 - **Audience — personal-first, SaaS-ready.** Built for one person first, with a data model, tenancy and auth that could become a multi-tenant product without a rewrite. **There is now more than one User**, each in an Account of their own ("Sign in by picking a name, each user in their own account", issue 86). A passwordless list of names is an identity selector, not an authentication control, and it is the only thing in front of a deployed environment; what it does mean is that the tenancy the schema always carried is exercised rather than assumed. Never hard-code how many Accounts exist into the schema.
 - **Offline — local-first.** Syncing happens online, but the app must open, show current status, read synced items and triage them without a connection; offline changes queue and reconcile on reconnect. Per issue 9 (§2), instant rendering is the primary purpose and offline use should fall out of the cache design rather than drive machinery of its own.
-- **Inbox — triage queue.** The Inbox lists *items still to process*, not a permanent mirror of every message. A processed item leaves it but stays visible in whatever panels its associations feed. (Iteration 2; see the interim note in §5.)
+- **Inbox — triage queue.** The Inbox lists what has arrived and not been dealt with, not a permanent mirror of every message. **What decides is filing**: an Item filed on a Panel has left the Inbox and is visible in every Panel holding it ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36). Status is what an Item is doing, not which list it is in.
 - **v1 sources — Gmail, Slack, Notion.** Linear, Google Calendar, Chrome (bookmarks/downloads) and YouTube (saved videos) are later phases.
 
 ## 4. Core concepts and terminology
@@ -65,7 +65,7 @@ Dashboards are renamed and deleted from the dashboard settings page ("Rename and
 
 **Panel** — a movable, resizable, titled box on a Dashboard, each a **saved, filtered view of items**, with a user-editable title.
 
-Panels are added, renamed, moved, resized and deleted **on the Dashboard itself** ("Panels on a dashboard, with per-screen-size layouts", issue 33), not on a settings page, because dragging one Panel past another *is* the editing and has to happen where the Panels are drawn. A `+` adds one; each Panel carries a menu opened by the same control as every other menu in the app, and everything it offers — rename, move, resize, delete — is also a pointer gesture: drag the header to reorder, drag the corner to resize. Both directions exist because neither suffices alone — a drag is unreachable from a keyboard and absent on a touchscreen, and a corner grip is a target no thumb wants. A title is required, stored trimmed, one line of at most 60 characters, and unique among a Dashboard's live Panels whatever the capitalization, so two Dashboards of one Workspace may each have a *Reading list*. Deleting asks first, in the same dialog as everywhere else, and says the Panel goes from every Layout of its Dashboard. A Dashboard may have no Panels at all. What a Panel *shows* is configuration it does not have yet — today it is a box with a title and a place — and arrives with "Render actions in panels, backed by one shared action list" (issue 36).
+Panels are added, renamed, moved, resized and deleted **on the Dashboard itself** ("Panels on a dashboard, with per-screen-size layouts", issue 33), not on a settings page, because dragging one Panel past another *is* the editing and has to happen where the Panels are drawn. A `+` adds one; each Panel carries a menu opened by the same control as every other menu in the app, and everything it offers — rename, move, resize, delete — is also a pointer gesture: drag the header to reorder, drag the corner to resize. Both directions exist because neither suffices alone — a drag is unreachable from a keyboard and absent on a touchscreen, and a corner grip is a target no thumb wants. A title is required, stored trimmed, one line of at most 60 characters, and unique among a Dashboard's live Panels whatever the capitalization, so two Dashboards of one Workspace may each have a *Reading list*. Deleting asks first, in the same dialog as everywhere else, and says the Panel goes from every Layout of its Dashboard. A Dashboard may have no Panels at all. **A Panel holds the Items filed into it**, in an order you set, and drawing them is all it does: a rule for what *arrives* in one without being filed is configuration it does not have yet ("Panel configuration: connections and free-text description", issue 35).
 
 **Layout** — one arrangement of a Dashboard's Panels, remembering the screen width it was made at, so the same Dashboard reads well on a phone and on a 4K screen. A Dashboard may have several, and which one it is drawn with is decided in "Layouts: one arrangement per screen size" (§6.3).
 
@@ -74,7 +74,6 @@ The full path to any box is `Workspace → Dashboard → Panel`:
 ```
 Workspace: "Work"
 ├── Dashboard: "Today"       ← landing dashboard
-│   ├── Panel: "To Process"  (the inbox view, scoped to Work)
 │   ├── Panel: "Focus Today"
 │   ├── Panel: "Project Falcon"
 │   └── Panel: "People to talk to"
@@ -98,11 +97,11 @@ Because associations are many-to-many, one message appears in the *Project Falco
 
 *Iteration 1 has no in-app inbox: flagging at the source is the capture mechanism and those items route straight to the panels — the "active capture" case of Model B (§5.1). Iteration 2 adds the Model A triage queue for everything not pre-flagged.*
 
-The Inbox is a Panel type showing every Item with status **To Process**, scoped to the current Workspace.
+**The Inbox is every open Item filed on no Panel**, scoped to the current Workspace — not a Panel with rows of its own, but the absence of a filing. That is what makes filing an Item the thing that takes it out of the Inbox, and it is why an Item can be moved back there: moving an Item to the Inbox is taking it off every Panel.
 
 **Where it sits: beside the Dashboards, not among them** ("Show the Inbox beside the dashboards instead of as a tab", issue 117). Everything else flows out of it — it is read while working on a Dashboard and dropped into while looking at something else — so it is not one more view to switch to. Where there is room, it is a column down the left of every screen inside a Workspace, about a fifth of the width with a floor and a ceiling so it stays readable at 1280px and does not swallow a very wide screen; it scrolls on its own and so does the Dashboard beside it. The Dashboard settings page has it, being inside a Workspace; the Workspace settings page does not. On a phone, where a fifth of the width is about ninety pixels, the Inbox is a tab pinned at the left of the bar opening a screen of its own — and it keeps that address at every width, so a link made on a phone still works on a desktop. Hiding and hand-resizing it are not part of this yet.
 
-> **Interim, since "Show one Inbox per workspace, with capture at the top of it" (issue 89):** the Inbox currently shows every *open* Item — everything except Done and dismissed — not only the unprocessed ones, and Capture is its first row. Giving a Task, Waiting or Snoozed Item a status of its own would otherwise make it vanish from the only list there is. Panels are what give them homes, and a Panel is a box with a title until it is given something to show: the Inbox narrows back to the sentence above when "Render actions in panels, backed by one shared action list" (issue 36) lands.
+Capture is its first row ("Show one Inbox per workspace, with capture at the top of it", issue 89): writing something down and seeing where it landed are the same place.
 
 Processing an Item means one or more of:
 
@@ -110,11 +109,12 @@ Processing an Item means one or more of:
 - **Flag for follow-up** — it becomes a tracked follow-up on the dashboards, exactly as if flagged at the source.
 - **Associate it** — tag it to a Person, Project and/or Topic, which is what puts it in the right panels.
 - **Set a status** — *Done*, *Waiting on someone*, *Scheduled/Snoozed until a date*, *Delegated*, *Reference/Archive*, or *Convert to Task* with a due date.
-- **Delete/Dismiss.**
+- **File it on a Panel** — which is what takes it out of the Inbox, and the one thing that does. Every Item's own menu carries **Move to…**, opening a picker of every Panel in the Workspace with the Dashboard you are on first, the three Panels most recently filed into above it, and the Inbox among the targets.
+- **Delete/Dismiss** — which is reversible for as long as the bar offering it is on screen ("Undo what just happened", issue 144). A dismissed Item is kept rather than erased, and giving it any other status brings it back, so putting it back is the same change made the other way.
 
-Once its status is not *To Process* it leaves the Inbox but stays reachable through its associations and an optional "All items" view. (Today only *Done* and *Dismissed* take an Item out — see the interim note.)
+Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stays reachable through the Panels holding it, through its associations, and through an optional "All items" view.
 
-**Gestures:** swipe left = delete/dismiss; swipe right = file into a box (candidate meaning, §5.2). On desktop the same actions are buttons, keyboard shortcuts and drag-into-panel.
+**Gestures** ("Swipe an inbox row right to file it, left to dismiss it", issue 145): **swipe left dismisses, swipe right opens the picker** — the same picker **Move to…** opens, so filing is one gesture on a phone and the same question either way. One meaning per direction, in every list rather than only the Inbox: the same swipe cannot mean two things depending on which list it is in, so removing an Item from one Panel stays in the menu. A swipe that stops short puts the row back, and one that is mostly vertical is the list scrolling and does nothing at all. **A swipe is a touch gesture**: on a desktop the same actions are the menu, and a Panel is reached by dragging the row into it.
 
 **Open question:** does "delete" mean delete only here, or also archive/delete in Gmail/Slack? See §12 — the single biggest behavioral decision.
 
@@ -130,9 +130,11 @@ The reframing that makes this tractable: **"in the Inbox" and "shown in a box" a
 
 **Recommended lean (a hybrid).** Inbox by default for anything with no matching rule, plus per-source/per-channel routing rules so obvious and actively-saved items land directly in a box, optionally marked "unseen". Decision still open.
 
-### 5.2 Swipe-right — options to keep in mind (undecided)
+### 5.2 Swipe-right — settled
 
-Swipe-left = delete. Candidates for swipe-right, to be tested rather than decided now: **file into a box** (a picker, or repeat the last-used box — best if Model A dominates); **quick process sheet** (associations and status in one gesture); **snooze / defer**; **mark done**. They are not exclusive: a short swipe could file while a long swipe handles snooze or done. Prototype on the phone before locking in.
+**Swipe-right opens the picker**, the same one **Move to…** opens ("Swipe an inbox row right to file it, left to dismiss it", issue 145). Filing is what an Inbox row most often needs and the picker is where the decision already lives, so a phone gets to it in one gesture rather than three taps.
+
+**One meaning per direction, at one distance.** The other candidates — a quick process sheet, snooze, done — were going to be told apart by how far the swipe went, and that is what the gesture cannot spare: it is already competing with the list scrolling under the same thumb, so the difference between a short swipe and a long one is not a difference a hand can be relied on to make. They stay in the row's menu, where there is no threshold to miss.
 
 ## 6. Dashboards and Panels
 
@@ -142,7 +144,6 @@ Swipe-left = delete. Candidates for swipe-right, to be tested rather than decide
 
 **Panel types for v1:**
 
-- **To Process** — the triage queue (§5). *(Iteration 2.)*
 - **Project** — all Items associated with a Project, across all sources.
 - **Person** — Items and notes tied to a person; doubles as "things to discuss with them".
 - **Topic/Area** — a free-form bucket such as *Research*.
@@ -173,7 +174,7 @@ Panel-level controls, supported by every Panel: **manual sort** (drag to reorder
 
 Two mechanisms combine:
 
-- **Manual promotion.** Any Item can be promoted from the Inbox into a specific Panel — the explicit "file into a box" action (§5.2).
+- **Filing.** Any Item can be filed onto a Panel from its own menu, which is what takes it out of the Inbox ("The Inbox and the triage flow"). An Item filed on several Panels appears on all of them: **Add to…** in a row's menu shows it on one more, and **Remove from this panel** stops one Panel showing it while every other carries on — an Item removed from the only Panel holding it is back in the Inbox. Dragging a row from one Panel onto another **asks which was meant**, because both are reasonable and a drag says neither ("Ask whether to move an item to a panel or add it to one", issue 142); a drop from the Inbox asks nothing, there being no answer that leaves it there. On a screen with a pointer it is also **dragged** into the Panel, and dropped between the rows already there: where it is let go is where it lands, and dropping it back into the Panel it is already on reorders that Panel ("Drag an item into a panel, and drop it where you want it", issue 141). A drag is unreachable from a keyboard and absent on a touchscreen, so a row's own menu carries **Move up** and **Move down** — Ordering, the same move made two ways. **A drag near an edge scrolls the page**, so a Panel below the fold can be aimed at — which the browser does by itself and Cockpit does not implement — and **resting one on another Dashboard's name switches to it**, so a Panel that was not on screen when the drag began can be dropped on — and that Dashboard is the one still open afterwards, because it is where you just put something ("Scroll while dragging, and switch dashboards by resting on one", issue 143).
 - **Live rules (saved queries).** A Panel can be configured with a rule for what belongs in it ("all messages from the **cust-AtlasCopco** Slack channel", "emails labelled *Pricing*", "Items associated with Project Falcon"). The Panel remembers the rule and any future match **appears automatically**, without touching the Inbox — the panel-level expression of §5.1's direct routing.
 
 **Rules are configured in plain English, not through a wizard.** You describe what the Panel should show in a free-text sentence (*"all emails from customers"*, *"Slack messages where I'm mentioned in the customer channels"*) and the AI translates it into the underlying saved query (§8). The app plays the interpretation back in understandable terms ("this will show: emails, from senders matching your customer list, status not done") so it can be confirmed or refined by editing the sentence. A multi-step rule wizard is explicitly not wanted; the structured query is the stored, inspectable result of the sentence.
@@ -261,11 +262,11 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 ## 12. Open decisions (need your call — recommendations included)
 
-*Decisions #3, #15, #16 and #17 concern the iteration 2 inbox and its panels and can stay open until that phase. The rest touch the shared model and are best decided before or during iteration 1.*
+*Notification-class email, how "paid" is detected and the Reading digest's topics concern the iteration 2 inbox and its panels and can stay open until that phase. The rest touch the shared model and are best decided before or during iteration 1.*
 
 1. **One-way vs two-way sync.** Should archiving or marking done here change the source? *Recommendation: read-only in v1, two-way sync opt-in per connector later.* Highest-impact decision.
 2. **Inbox-first vs direct routing (§5.1).** *Recommendation: hybrid — inbox by default, per-source rules for the obvious cases, with an "unseen" marker on auto-routed cards.*
-3. **Swipe-right meaning (§5.2).** *Recommendation: short swipe-right files into a box; long swipe or button for snooze/done. Prototype on phone first.*
+3. ~~**Swipe-right meaning.**~~ *Settled: it opens the picker, and there is no short-versus-long split — see "Swipe-right — settled".*
 4. **Tasks — separate object or Item status?** *Recommendation: Item with a "task" status plus due date, so all panels share one model.*
 5. **Auto-tagging trust level.** Applied automatically with undo, or suggested for confirmation? *Recommendation: suggest-and-confirm in v1; auto-apply once trusted.*
 6. **AI location vs offline.** *Recommendation: generate on sync in the cloud, cache the result so it reads offline.*
@@ -286,7 +287,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 **Iteration 1 — follow-up tracking:** Workspaces, Dashboards and Panels (move/resize/title) with plain-English rule configuration (§6.2); the Item model with associations; read-only Gmail/Slack/Notion connectors limited to flagged and assigned items; fast capture of internal notes (issue 2, §2); Project, Person, Topic, Focus and Highlights panels; the four Focus horizons with overdue escalation; per-item AI summaries, next-action labels and suggested tags; local-first offline viewing with queued actions; source reconciliation (§10.1).
 
-**Iteration 2 — unified inbox:** the same connectors widened to the full stream; the To-Process triage inbox with swipe-left delete and assign/status (§5); reading and replying in the app; flag-for-follow-up feeding the iteration 1 dashboards; notification-class email routing (#15); Payments due and Reading digest panels.
+**Iteration 2 — unified inbox:** the same connectors widened to the full stream; the triage inbox with its swipes and filing (§5); reading and replying in the app; flag-for-follow-up feeding the iteration 1 dashboards; notification-class email routing (#15); Payments due and Reading digest panels.
 
 **Later:** two-way sync beyond replies; Linear and Calendar; Chrome and YouTube; Kanban and calendar panels; end-of-period roll-up reminders; multi-user billing and onboarding.
 
@@ -297,7 +298,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Dashboard** — a switchable named view inside a Workspace, holding a layout of Panels.
 - **Panel** — a movable, resizable, titled box on a Dashboard displaying a filtered set of Items. Its title is unique within its Dashboard.
 - **Layout** — one arrangement of a Dashboard's Panels — their order and each one's size — together with the screen width it was made at. A Dashboard can have several, so it reads well on a phone and on a 4K screen; the app draws it with the one closest to the screen in front of you unless you pick another.
-- **Inbox** — the one place in a Workspace holding what has arrived and not been dealt with. Beside the Dashboards rather than one of them, and never renamed or deleted.
+- **Inbox** — the one place in a Workspace holding what has arrived and not been dealt with: every open Item filed on no Panel. Beside the Dashboards rather than one of them, and never renamed or deleted, because it is not a Panel — it is what is left when nothing holds an Item.
 - **Item** — the single object everything is stored as, whether it arrived from a source or was created in the app. **Action** and **Thought** are *types* of Item, not separate objects.
 - **Action** — an Item representing something to do. One source Item can produce several.
 - **Thought** — an Item created in the app as a note or idea, with no source behind it.
@@ -308,7 +309,9 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Priority** — low / normal / high importance, independent of the Focus horizon.
 - **Next action** — the short, always-editable label describing what to actually do about an Item.
 - **Focus horizon** — Today / This Week / This Month / This Quarter, date-anchored so it escalates to overdue.
-- **Triage / process** — assigning associations and a status so an Item leaves the To-Process inbox. (Interim: until Panels hold Items, a triaged Item stays in the Inbox showing its new status — see the interim note in "The Inbox and the triage flow" (§5).)
+- **Triage / process** — dealing with what arrived: giving an Item a status, associating it, and filing it where it belongs.
+- **Undo** — putting back what the last change took away, offered briefly after it and never afterwards. One step, not a stack: what an accident needs is a way back, offered where you are looking.
+- **Filing** — putting an Item on a Panel. An Item can be filed on several Panels at once, which is why one thing to do can appear on *Project Falcon* and on *Anna*; one filed nowhere is in the Inbox. Each filing carries its own place in that Panel's order, so an Item can be first on one Panel and fifth on another.
 - **Offline** — working from the local copy when the connection is not there. Cockpit opens, shows what it already holds, and takes what you capture and triage; those changes queue and go up on reconnect. Nothing new arrives from a source until the connection is back, and what the copy shows is said to be as old as it is rather than presented as current ("Offline / local-first behavior", §10).
 - **User** — a person who uses this Cockpit. Each User owns one Account, which is what makes two Users' work separate. A User has a **Role**.
 - **Role** — *user* or *admin*. Carried today and enforced nowhere; the first admin-only part of the app brings the check with it.

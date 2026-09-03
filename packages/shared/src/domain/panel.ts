@@ -63,10 +63,16 @@ export const panelNameSchema = workspaceNameSchema;
  * rule existed should still render rather than blanking the dashboard it sits
  * on.
  *
- * What a Panel *shows* is not here. It is configuration a Panel will grow with
- * "Render actions in panels, backed by one shared action list" (issue 36), and
- * the issue this file is for leaves it out on purpose: a Panel today is a box
- * with a title and a place on the grid.
+ * **What a Panel holds is not here either**, and that is deliberate rather than
+ * unfinished: a Panel holds the Items filed into it ("Panels hold the items
+ * filed into them, and the Inbox holds the rest", issue 36), and a filing is
+ * its own shape (`filingSchema` below) because an Item can be filed on several
+ * Panels at once. A Panel that carried its own list would carry the same Item
+ * once per Panel.
+ *
+ * A rule for what *arrives* in a Panel without being filed is configuration it
+ * does not have yet ("Panel configuration: connections and free-text
+ * description", issue 35).
  */
 export const panelSchema = z.object({
   id: z.string(),
@@ -125,3 +131,33 @@ export const placementInputSchema = z.object({
   rows: z.number().int().min(1).max(MAX_PANEL_ROWS),
 });
 export type PlacementInput = z.infer<typeof placementInputSchema>;
+
+/**
+ * One Item filed on one Panel, and where it sits in that Panel's order
+ * ("Panels hold the items filed into them, and the Inbox holds the rest",
+ * issue 36).
+ *
+ * **An Item is filed on as many Panels as you like**, which is what makes a
+ * Panel a view over one shared list rather than a folder: the same thing to do
+ * can belong on *Project Falcon* and on *Anna* at once. Nothing here or in the
+ * table behind it constrains an Item to one Panel.
+ *
+ * **The order is per Panel**, so one Item can be first on one and fifth on
+ * another. It lives on the filing rather than on the Item for exactly that
+ * reason - a single order shared by every Panel would mean reordering one
+ * silently reordered the Panels you were not looking at.
+ *
+ * **The Inbox is the absence of these.** It is not a Panel with a row per Item;
+ * it is every open Item filed nowhere, which is what makes filing an Item the
+ * thing that takes it out of the Inbox.
+ *
+ * Deliberately permissive numbers and strings, for the reason the shapes above
+ * are: this is what is read back, and a stored position outside today's limits
+ * should be drawn rather than turning the whole snapshot into a parse failure.
+ */
+export const filingSchema = z.object({
+  panelId: z.string(),
+  itemId: z.string(),
+  position: z.number(),
+});
+export type Filing = z.infer<typeof filingSchema>;

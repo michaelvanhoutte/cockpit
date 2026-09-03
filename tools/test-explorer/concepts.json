@@ -80,7 +80,12 @@
         "apps/web/src/pages/WorkspacePage.tsx",
         "apps/web/src/components/Menu.tsx",
         "apps/web/src/components/InboxPanel.tsx",
-        "apps/web/src/roomForTheInbox.ts"
+        "apps/web/src/roomForTheInbox.ts",
+        "apps/web/src/filing.ts",
+        "apps/web/src/components/ItemList.tsx",
+        "apps/web/src/components/MoveToPicker.tsx",
+        "apps/web/src/undo.tsx",
+        "apps/web/src/swipe.ts"
       ]
     },
     {
@@ -126,6 +131,15 @@
         "apps/web/src/components/PanelBoard.tsx",
         "apps/web/src/components/PanelCard.tsx",
         "apps/web/src/components/LayoutQuestion.tsx",
+        "apps/api/src/domain/filings.ts",
+        "apps/web/src/filing.ts",
+        "apps/web/src/recentPanels.ts",
+        "apps/web/src/components/ItemList.tsx",
+        "apps/web/src/components/MoveToPicker.tsx",
+        "apps/web/src/undo.tsx",
+        "apps/web/src/dropAt.ts",
+        "apps/web/src/switchWhileDragging.ts",
+        "apps/web/src/components/MoveOrAddQuestion.tsx",
         "apps/web/src/pages/DashboardPage.tsx",
         "apps/web/src/components/Menu.tsx",
         "apps/web/src/components/DeleteQuestion.tsx"

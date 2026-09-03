@@ -93,10 +93,14 @@ app.use('*', gate());
 
 /**
  * `ok` stays the single verdict, because it is the only field anything reads:
- * scripts/health-check.mjs asserts it, scripts/lib/stack.mjs waits on it before
- * starting the e2e suite, and apps/web/src/api/loadFailure.ts asks this endpoint
- * whether a failed request means "sign in again" or "the deployment is unwell".
- * The two below say which half was unwell, for whoever reads the answer by hand.
+ * scripts/health-check.mjs asserts it, and scripts/lib/stack.mjs waits on it
+ * before starting the e2e suite. The two below say which half was unwell, for
+ * whoever reads the answer by hand.
+ *
+ * apps/web/src/api/loadFailure.ts reads none of them. It asks this endpoint only
+ * whether *anything* answers, which is how it tells a dead connection from a
+ * request that vanished on its way here; what the answer says is the deploy
+ * check's business and the uptime monitor's, not the app's.
  *
  * `db` is gone rather than kept alongside them. It meant "the data is
  * reachable" when all of it was in D1, and once an account's data moved into
@@ -407,6 +411,21 @@ const routes = app
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c, 'capture_item', c.req.valid('json')), 200))
+  .openapi(
+    commandRoute('move_item_to_panel', {
+      conflict: 'The order sent is not the order of that panel any more',
+    }),
+    async (c) => c.json(await change(c, 'move_item_to_panel', c.req.valid('json')), 200),
+  )
+  .openapi(
+    commandRoute('add_item_to_panel', {
+      conflict: 'The order sent is not the order of that panel any more',
+    }),
+    async (c) => c.json(await change(c, 'add_item_to_panel', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('remove_item_from_panel'), async (c) =>
+    c.json(await change(c, 'remove_item_from_panel', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_status'), async (c) => c.json(await change(c, 'set_status', c.req.valid('json')), 200))
   .openapi(commandRoute('snooze_until'), async (c) => c.json(await change(c, 'snooze_until', c.req.valid('json')), 200))
   .openapi(commandRoute('associate'), async (c) => c.json(await change(c, 'associate', c.req.valid('json')), 200))

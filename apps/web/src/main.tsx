@@ -6,6 +6,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
 import { CACHE_MAX_AGE_MS, persister } from './persistence';
 import { createAppRouter } from './router';
+import { UndoWhatJustHappened } from './undo';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -48,7 +49,13 @@ createRoot(document.getElementById('root')!).render(
       // from a shape the code no longer expects is a week.
       persistOptions={{ persister, maxAge: CACHE_MAX_AGE_MS, buster: 'v2' }}
     >
-      <RouterProvider router={router} />
+      {/* Around the whole app rather than inside the shell, so a change made
+          in the Inbox column and one made on a panel are offered back in the
+          same place - and so wrapping it costs no re-indent of a file it has
+          nothing else to do with. The bar positions itself over the page. */}
+      <UndoWhatJustHappened>
+        <RouterProvider router={router} />
+      </UndoWhatJustHappened>
     </PersistQueryClientProvider>
   </StrictMode>,
 );

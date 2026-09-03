@@ -1,5 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { browserStore, forgetEveryView } from '../lastVisited';
+import { forgetEveryRecentPanel } from '../recentPanels';
+import { forgetWhatJustHappened } from '../undo';
 import { persister } from '../persistence';
 
 /**
@@ -10,14 +12,17 @@ import { persister } from '../persistence';
  * and the only screen with none of the app mounted to write what it removes
  * straight back out again (the reason is in `pages/LogonPage.tsx`). It is the
  * whole of "nothing of what you were looking at is left on screen or in the
- * browser's cache for whoever signs in next". There are three places to reach,
+ * browser's cache for whoever signs in next". There are four places to reach,
  * and missing any one of them leaves a leak that only shows up when a second
  * person uses the same browser:
  *
  * - the in-memory cache, which is what is on screen;
  * - the copy of it in IndexedDB, which is what the *next* cold open would paint
  *   from, a week later if need be (`persistence.ts`);
- * - which view each workspace was last on, in localStorage.
+ * - which view each workspace was last on, and which panels were last filed
+ *   into, both in localStorage;
+ * - what the undo bar is still offering, which is a title of theirs drawn over
+ *   whatever screen comes next.
  *
  * Order matters for the first two. Emptying the cache first and removing the
  * stored copy second means the persister cannot write the old contents back out
@@ -40,4 +45,6 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
     // which is worse than the thing that could not happen anyway.
   }
   forgetEveryView(browserStore());
+  forgetEveryRecentPanel(browserStore());
+  forgetWhatJustHappened();
 }

@@ -20,8 +20,19 @@ import { inStoreAsItIs, startFromEmpty, storeNamed } from '../seed.js';
 
 const AT = '2026-08-12T10:00:00.000Z';
 
-/** The changes before the one under test, so a fixture can be a store that predates it. */
-const BEFORE_THE_BAR = accountChanges('any-account-would-do').length - 1;
+/**
+ * The changes before the one under test, so a fixture can be a store that
+ * predates it.
+ *
+ * **Found by name, not by counting from the end.** It was `length - 1`, which
+ * said "the bar is the last change there is" - true when it was written and
+ * false the moment another change was added, at which point the fixture applied
+ * the bar change *before* inserting its workspaces, the update found nothing to
+ * correct, and the case failed claiming the backfill was broken.
+ */
+const BEFORE_THE_BAR = accountChanges('any-account-would-do').findIndex(
+  (change) => change.name === '0005-workspace-bar',
+);
 
 function fixtureName(suffix: string): string {
   return `workspace-colors-${suffix}`;

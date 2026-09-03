@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Item, ItemStatus, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Filing, Item, ItemStatus, WorkspaceSnapshot } from '@cockpit/shared';
 import { InboxPanel } from '../../../src/components/InboxPanel';
 
 /**
@@ -17,10 +17,11 @@ import { InboxPanel } from '../../../src/components/InboxPanel';
  * a tab", issue 117) - and what it holds cannot depend on which. Which of the
  * two a workspace shows is in tests/unit/router.test.tsx.
  */
-const held = vi.hoisted(() => ({ items: [] as Item[] }));
+const held = vi.hoisted(() => ({ items: [] as Item[], filings: [] as Filing[] }));
 
 vi.mock('../../../src/api/queries', () => ({
-  useCommand: () => ({ mutate: vi.fn(), isPending: false }),
+  useCommand: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
+  useSendCommand: () => vi.fn(() => Promise.resolve()),
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
@@ -31,6 +32,7 @@ vi.mock('../../../src/api/queries', () => ({
         panels: [],
         layouts: [],
         associations: [],
+        filings: held.filings,
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
   }),
@@ -65,8 +67,9 @@ function anItem(title: string, status: ItemStatus): Item {
 }
 
 /** The workspace as a person sees it, holding exactly these items. */
-async function showWorkspace(items: Item[]) {
+async function showWorkspace(items: Item[], filings: Filing[] = []) {
   held.items = items;
+  held.filings = filings;
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <InboxPanel workspaceId="ws-work" />
@@ -97,6 +100,23 @@ describe('Triage', () => {
         expect(within(row!).getByText('Buy milk')).toBeVisible();
         expect(within(row!).getByText(shownAs)).toBeVisible();
       }
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('the Inbox holds every item you still have to deal with that is filed nowhere', () => {
+    it('leaves out an item that is filed on a panel, and stops counting it', async () => {
+      const filed = anItem('Reply to Bart', 'to_process');
+      const loose = anItem('Buy milk', 'to_process');
+
+      const inbox = await showWorkspace([filed, loose], [
+        { panelId: 'p-falcon', itemId: filed.id, position: 0 },
+      ]);
+
+      expect(within(inbox).queryByText('Reply to Bart')).toBeNull();
+      expect(within(inbox).getByText('Buy milk')).toBeVisible();
+      expect(within(inbox).getByText('1')).toBeVisible();
     });
   });
 });
