@@ -198,12 +198,15 @@ export function fatalReason(log) {
   // Otherwise whatever Wrangler managed to print. `[ERROR]` rather than the
   // cross that precedes it: that is `✘` on a terminal that can draw one and a
   // plain `X` on Windows, and both end up in the file.
-  return (
-    [...beforeTheEnd.matchAll(/\[ERROR\][ \t]*(.*)$/gm)]
-      .map((match) => match[1].trim())
-      .filter(Boolean)
-      .at(-1) ?? null
-  );
+  //
+  // The *last* one, and no skipping past it when it is empty. Skipping was the
+  // bug: the fatal this whole function exists for prints an empty `[ERROR]`,
+  // so passing over it reached back into the ordinary stream errors above and
+  // named a closed tab as the cause of death — the one thing the paragraph
+  // above promises not to do. An empty last error means Wrangler recorded no
+  // reason, which exitReport says out loud along with where to look.
+  const printed = [...beforeTheEnd.matchAll(/\[ERROR\][ \t]*(.*)$/gm)].at(-1);
+  return printed?.[1].trim() || null;
 }
 
 /**

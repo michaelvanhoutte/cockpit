@@ -244,6 +244,19 @@ describe('fatalReason', () => {
     );
   });
 
+  it('says nothing rather than reaching past an empty fatal into the stream errors', () => {
+    // The case the one above cannot see, because there the fatal is the last
+    // line either way. This crash prints its error *empty*, so an
+    // implementation that skips empties to find something to say reaches back
+    // into the twenty-five closed tabs above and names one of them as the
+    // cause of death — which is what this did until the review caught it.
+    assert.equal(
+      fatalReason(STREAM_ERRORS + record('error', '✘ [ERROR] ') + ENDED_BADLY),
+      null,
+      'an empty last error means Wrangler recorded no reason, not that an older line is the reason',
+    );
+  });
+
   it('reports no reason for a log that holds nothing at all', () => {
     assert.equal(fatalReason(''), null);
   });
