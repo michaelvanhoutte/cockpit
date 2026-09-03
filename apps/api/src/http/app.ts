@@ -435,6 +435,15 @@ const routes = app
     }),
     async (c) => c.json(await change(c, 'move_item_to_panel', c.req.valid('json')), 200),
   )
+  .openapi(
+    commandRoute('add_item_to_panel', {
+      conflict: 'The order sent is not the order of that panel any more',
+    }),
+    async (c) => c.json(await change(c, 'add_item_to_panel', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('remove_item_from_panel'), async (c) =>
+    c.json(await change(c, 'remove_item_from_panel', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_status'), async (c) => c.json(await change(c, 'set_status', c.req.valid('json')), 200))
   .openapi(commandRoute('snooze_until'), async (c) => c.json(await change(c, 'snooze_until', c.req.valid('json')), 200))
   .openapi(commandRoute('associate'), async (c) => c.json(await change(c, 'associate', c.req.valid('json')), 200))

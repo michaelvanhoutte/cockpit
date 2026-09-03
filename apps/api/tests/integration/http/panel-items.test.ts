@@ -89,12 +89,21 @@ function move(
   return send('move_item_to_panel', { workspaceId, itemId, panelId, order });
 }
 
+function addTo(itemId: string, panelId: string, order: string[] = [itemId]) {
+  return send('add_item_to_panel', { workspaceId: WORKSPACE_ID, itemId, panelId, order });
+}
+
+function removeFrom(itemId: string, panelId: string) {
+  return send('remove_item_from_panel', { workspaceId: WORKSPACE_ID, itemId, panelId });
+}
+
 /**
- * Files an item onto a panel by writing the row, which no command can do twice
- * for one item until "Ask whether to move an item to a panel or add it to one"
- * (issue 142) lands. Used only to arrange an item on two panels — the shape the
- * table is for, and the one a read path can get wrong while every single-panel
- * case passes.
+ * Files an item onto a panel by writing the row.
+ *
+ * Kept now that `add_item_to_panel` exists, and deliberately: the cases below
+ * that are about *reading* two filings should not depend on the command that
+ * writes the second one, or a fault in that command would be reported as a
+ * fault in the read.
  */
 async function alsoFileOn(panelId: string, itemId: string, position: number): Promise<void> {
   await inTheStore((sql) =>
@@ -183,6 +192,51 @@ describe('Panels', () => {
       expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: falcon })).status).toBe(200);
 
       expect(await filedOn(itemId)).toEqual(['Anna']);
+    });
+
+    it.each([
+      {
+        situation: 'added to a second panel while it is on the first',
+        act: async (itemId: string, falcon: string, anna: string) => {
+          await move(itemId, falcon);
+          return addTo(itemId, anna);
+        },
+        ends: ['Anna', 'Falcon'],
+      },
+      {
+        situation: 'removed from one of the two panels holding it',
+        act: async (itemId: string, falcon: string, anna: string) => {
+          await move(itemId, falcon);
+          await addTo(itemId, anna);
+          return removeFrom(itemId, falcon);
+        },
+        ends: ['Anna'],
+      },
+      {
+        situation: 'removed from the only panel holding it',
+        act: async (itemId: string, falcon: string) => {
+          await move(itemId, falcon);
+          return removeFrom(itemId, falcon);
+        },
+        ends: [],
+      },
+      {
+        situation: 'added to a panel it is already on',
+        act: async (itemId: string, falcon: string) => {
+          await move(itemId, falcon);
+          return addTo(itemId, falcon);
+        },
+        ends: ['Falcon'],
+      },
+    ])('$situation', async ({ act, ends }) => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const anna = await aPanel(today, 'Anna');
+      const itemId = await anItem('Reply to Bart');
+
+      expect((await act(itemId, falcon, anna)).status).toBe(200);
+
+      expect(await filedOn(itemId)).toEqual(ends);
     });
 
     it('takes a dismissed item off every list it was on', async () => {
@@ -295,6 +349,44 @@ describe('Panels', () => {
 
       expect(refused.status).toBe(404);
       expect((await snapshot()).filings).toEqual([]);
+    });
+
+    it.each([
+      {
+        situation: 'an add naming a panel that has been deleted',
+        act: async (itemId: string, panelId: string) => {
+          await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId });
+          return addTo(itemId, panelId);
+        },
+      },
+      {
+        situation: 'a remove naming a panel that has been deleted',
+        act: async (itemId: string, panelId: string) => {
+          await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId });
+          return removeFrom(itemId, panelId);
+        },
+      },
+    ])('refuses $situation', async ({ act }) => {
+      const today = await aDashboard();
+      const panelId = await aPanel(today, 'Gone by lunchtime');
+      const itemId = await anItem('Reply to Bart');
+
+      expect((await act(itemId, panelId)).status).toBe(404);
+      expect(await filedOn(itemId)).toEqual([]);
+    });
+
+    it('changes nothing when an item is removed from a panel it is not on', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const anna = await aPanel(today, 'Anna');
+      const itemId = await anItem('Reply to Bart');
+      expect((await move(itemId, falcon)).status).toBe(200);
+
+      // Accepted rather than refused: the answer asked for is that the panel is
+      // not showing it, and it already is not.
+      expect((await removeFrom(itemId, anna)).status).toBe(200);
+
+      expect(await filedOn(itemId)).toEqual(['Falcon']);
     });
 
     it('refuses a move of an item that belongs to another workspace', async () => {

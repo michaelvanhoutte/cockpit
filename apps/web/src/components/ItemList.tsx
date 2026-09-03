@@ -9,6 +9,7 @@ import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
+import { MoveOrAddQuestion } from './MoveOrAddQuestion';
 import { MoveToPicker } from './MoveToPicker';
 
 /**
@@ -60,21 +61,54 @@ export function ItemList({
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const [moving, setMoving] = useState<Item | null>(null);
+  /** The item being added to a second panel from its menu, if any. */
+  const [adding, setAdding] = useState<Item | null>(null);
   const openedFrom = useRef<HTMLElement | null>(null);
 
   /**
-   * Where the item is now, and the whole order of the panel holding it - what
-   * putting it back means ("Undo what just happened", issue 144). Read before
-   * the move, because afterwards it is gone.
+   * Every panel the item is on, and the whole order of each - what putting it
+   * back means ("Undo what just happened", issue 144). Read before the move,
+   * because afterwards it is gone.
    *
-   * One panel, because nothing files an item onto two yet; the day "Ask whether
-   * to move an item to a panel or add it to one" (issue 142) lands, this becomes
-   * the list of them and the inverse becomes several changes rather than one.
+   * A list rather than one panel, because an item can be on several ("Ask
+   * whether to move an item to a panel or add it to one", issue 142) and a move
+   * takes it off all of them: an inverse that named one would lose the rest.
    */
-  const whereItIs = (item: Item): { panelId: string | null; order: string[] } => {
+  const whereItIs = (item: Item): { panelId: string; order: string[] }[] => {
     const filings = data?.filings ?? [];
-    const panelId = filings.find((filing) => filing.itemId === item.id)?.panelId ?? null;
-    return { panelId, order: panelId ? filedOrderOnPanel(filings, panelId) : [] };
+    const panels = [
+      ...new Set(filings.filter((f) => f.itemId === item.id).map((f) => f.panelId)),
+    ];
+    return panels.map((panelId) => ({ panelId, order: filedOrderOnPanel(filings, panelId) }));
+  };
+
+  /**
+   * Puts an item back on every panel it was on, in the order each was in.
+   *
+   * **The first is a move and the rest are adds**, which is what makes this one
+   * inverse rather than two: the move takes it off wherever it is now and puts
+   * it on the first, and each add puts it on one more without disturbing that.
+   * An item that was on no panel at all is moved to the Inbox, which is the
+   * absence of a filing.
+   */
+  const putItBackOn = async (item: Item, panels: { panelId: string; order: string[] }[]) => {
+    const envelope = () => ({
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId,
+      itemId: item.id,
+    });
+    const [first, ...rest] = panels;
+    await send({
+      name: 'move_item_to_panel',
+      payload: { ...envelope(), panelId: first?.panelId ?? null, order: first?.order ?? [] },
+    });
+    for (const also of rest) {
+      await send({
+        name: 'add_item_to_panel',
+        payload: { ...envelope(), panelId: also.panelId, order: also.order },
+      });
+    }
   };
 
   /**
@@ -122,21 +156,119 @@ export function ItemList({
           // for is not a panel you have been filing into.
           if (panelId) rememberRecentPanel(browserStore(), workspaceId, panelId);
           setMoving(null);
+          setAsking(null);
           offerToUndo({
             what: `“${item.nextAction ?? item.title}” moved to ${nameOf(panelId)}`,
-            // The same command, with the panel and the order it was in before.
-            // The order named the item then and does again, so the panel it is
-            // put back on is exactly the panel it left.
+            // Every panel it was on, not the first of them: a move takes an
+            // item off all of them, so putting it back on one would lose the
+            // rest - and an item can be on several since "Ask whether to move
+            // an item to a panel or add it to one" (issue 142).
+            undo: () => putItBackOn(item, before),
+          });
+        },
+      },
+    );
+  };
+
+  /** The order this panel would be in with the item at this place among its rows. */
+  const orderFor = (panelId: string, item: Item, atAmongDrawn: number) => {
+    const held = filedOrderOnPanel(data?.filings ?? [], panelId);
+    const drawn = itemsOnPanel(data?.items ?? [], data?.filings ?? [], panelId).map((i) => i.id);
+    return orderWithItemAt(held, item.id, placeAmongHeld(held, drawn, item.id, atAmongDrawn));
+  };
+
+  /**
+   * Somewhere else in the same panel.
+   *
+   * **`add_item_to_panel`, not `move_item_to_panel`, and that is the fix rather
+   * than a preference.** A move takes the item off every panel before writing
+   * the target's order, which is what a move means — so sending one to reorder
+   * a row inside *this* panel silently took it off every other panel showing
+   * it. Adding it to a panel it is already on writes that panel's order and
+   * touches nothing else, which is exactly what a reorder is.
+   */
+  const reorder = (item: Item, panelId: string, atAmongDrawn: number) => {
+    const before = filedOrderOnPanel(data?.filings ?? [], panelId);
+    const order = orderFor(panelId, item, atAmongDrawn);
+    if (order.join() === before.join()) return;
+
+    command.mutate(
+      {
+        name: 'add_item_to_panel',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: item.id,
+          panelId,
+          order,
+        },
+      },
+      {
+        onSuccess: () =>
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” moved in ${nameOf(panelId)}`,
             undo: () =>
               send({
-                name: 'move_item_to_panel',
+                name: 'add_item_to_panel',
                 payload: {
                   commandId: uuidv7(),
                   issuedAt: new Date().toISOString(),
                   workspaceId,
                   itemId: item.id,
-                  panelId: before.panelId,
-                  order: before.order,
+                  panelId,
+                  order: before,
+                },
+              }),
+          }),
+      },
+    );
+  };
+
+  /**
+   * The same item on one more panel, leaving the panels it is on alone.
+   *
+   * Everything except the command is what a move does, including the undo -
+   * whose inverse is simply taking it off again, since nothing else changed.
+   */
+  const add = (item: Item, panelId: string, atAmongDrawn: number) => {
+    // Adding it where it already is changes nothing — and the undo would take
+    // it off a panel it was legitimately on, which is worse than doing nothing.
+    if ((data?.filings ?? []).some((f) => f.itemId === item.id && f.panelId === panelId)) {
+      setAdding(null);
+      setAsking(null);
+      return;
+    }
+    const order = orderFor(panelId, item, atAmongDrawn);
+
+    command.mutate(
+      {
+        name: 'add_item_to_panel',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: item.id,
+          panelId,
+          order,
+        },
+      },
+      {
+        onSuccess: () => {
+          rememberRecentPanel(browserStore(), workspaceId, panelId);
+          setAsking(null);
+          setAdding(null);
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” added to ${nameOf(panelId)}`,
+            undo: () =>
+              send({
+                name: 'remove_item_from_panel',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  panelId,
                 },
               }),
           });
@@ -146,10 +278,56 @@ export function ItemList({
   };
 
   /**
+   * This panel stops showing the item; every other panel holding it carries on,
+   * and one that was its only panel leaves it back in the Inbox.
+   */
+  const removeFromHere = (item: Item, panelId: string) => {
+    const before = filedOrderOnPanel(data?.filings ?? [], panelId);
+    command.mutate(
+      {
+        name: 'remove_item_from_panel',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: item.id,
+          panelId,
+        },
+      },
+      {
+        onSuccess: () =>
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” removed from ${nameOf(panelId)}`,
+            // Back on, in the order the panel was in - which still names it,
+            // because that order was read before it was taken off.
+            undo: () =>
+              send({
+                name: 'add_item_to_panel',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  panelId,
+                  order: before,
+                },
+              }),
+          }),
+      },
+    );
+  };
+
+  /**
    * Which gap a dragged row is currently over, or null when nothing is being
    * dragged across this list. Drawn as a line between two rows.
    */
   const [landingAt, setLandingAt] = useState<number | null>(null);
+  /**
+   * A row let go over this panel that is on a panel already, waiting for the
+   * answer to which of the two was meant ("Ask whether to move an item to a
+   * panel or add it to one", issue 142).
+   */
+  const [asking, setAsking] = useState<{ item: Item; at: number } | null>(null);
   const rows = useRef<HTMLUListElement>(null);
 
   /**
@@ -202,7 +380,26 @@ export function ItemList({
 
 
     const moving = items.find((item) => item.id === itemId) ?? data?.items.find((i) => i.id === itemId);
-    if (moving) move(moving, panelId, gap);
+    if (!moving) return;
+
+    // **Asked only when both answers are possible.** A row already on this
+    // panel is being reordered; a row that is on no panel at all came from the
+    // Inbox, and there is no answer that leaves it there - the Inbox is what is
+    // filed nowhere. What is left is a row arriving from another panel, where
+    // moving it and adding it are two different things somebody has to mean.
+    const onAPanelAlready = (data?.filings ?? []).some((filing) => filing.itemId === itemId);
+    if (panelId && wasAt === -1 && onAPanelAlready) {
+      command.reset();
+      setAsking({ item: moving, at: gap });
+      return;
+    }
+    // Already on this panel: somewhere else in it, which is a reorder and must
+    // leave the panels it is also on alone.
+    if (panelId && wasAt !== -1) {
+      reorder(moving, panelId, gap);
+      return;
+    }
+    move(moving, panelId, gap);
   };
 
   /** What a target is called, for the sentence the undo bar says. */
@@ -231,7 +428,7 @@ export function ItemList({
       {/* A refusal from a gesture that opened nothing: a drop, or a step move.
           The picker says its own, so this is only for the changes made without
           one - which used to fail in silence. */}
-      {refusal && !moving && (
+      {refusal && !moving && !adding && !asking && (
         <p role="alert" className="px-4 py-2 text-sm text-over">
           {refusal}
         </p>
@@ -303,8 +500,14 @@ export function ItemList({
                         ordering: {
                           at,
                           of: items.length,
-                          onMove: (places: number) => move(item, panelId, at + places),
+                          onMove: (places: number) => reorder(item, panelId, at + places),
                         },
+                        onAddTo: (from: HTMLElement | null) => {
+                          openedFrom.current = from;
+                          command.reset();
+                          setAdding(item);
+                        },
+                        onRemoveFromHere: () => removeFromHere(item, panelId),
                       }
                     : {})}
                 />
@@ -314,6 +517,50 @@ export function ItemList({
           </ul>
         )}
       </div>
+
+      {asking && panelId && (
+        <MoveOrAddQuestion
+          open
+          itemTitle={asking.item.nextAction ?? asking.item.title}
+          panelName={nameOf(panelId)}
+          // Closed by the change landing, not by the press: a refused move
+          // leaves the question up with the reason on it, which is what the
+          // picker does and what makes the refusal worth showing there at all.
+          onMove={() => move(asking.item, panelId, asking.at)}
+          onAdd={() => add(asking.item, panelId, asking.at)}
+          onCancel={() => {
+            // Reset as well as close, for the reason the picker below does: a
+            // refusal outlives the dialog it was shown in, and the list says
+            // one of its own.
+            command.reset();
+            setAsking(null);
+          }}
+          refusal={command.error instanceof CommandRefused ? command.error.message : null}
+          busy={command.isPending}
+        />
+      )}
+
+      {adding && (
+        <MoveToPicker
+          itemTitle={adding.nextAction ?? adding.title}
+          adding
+          dashboards={data?.dashboards ?? []}
+          panels={data?.panels ?? []}
+          openDashboardId={openDashboardId}
+          recent={recentPanelsIn(browserStore(), workspaceId)}
+          open
+          onPick={(pickedPanelId) => {
+            if (pickedPanelId) add(adding, pickedPanelId, 0);
+          }}
+          onCancel={() => {
+            command.reset();
+            setAdding(null);
+          }}
+          refusal={refusal}
+          busy={command.isPending}
+          returnFocusTo={openedFrom.current}
+        />
+      )}
 
       {moving && (
         <MoveToPicker

@@ -86,7 +86,8 @@
         "apps/web/src/components/MoveToPicker.tsx",
         "apps/web/src/undo.tsx",
         "apps/web/src/swipe.ts",
-        "apps/web/src/dropAt.ts"
+        "apps/web/src/dropAt.ts",
+        "apps/web/src/components/MoveOrAddQuestion.tsx"
       ]
     },
     {

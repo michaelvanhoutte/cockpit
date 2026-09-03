@@ -71,6 +71,30 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<CommandName>([
 ]);
 
 /**
+ * The changes that are not finished until the workspace has been read again,
+ * because **the next one of them is built from what this one left behind**.
+ *
+ * Filing sends the panel's whole order and the server checks it against the
+ * order it holds, so filing a second item straight after the first built its
+ * order from a workspace that did not have the first item in it yet, and was
+ * refused. Removing one is here for the same reason from the other end: it
+ * changes the order the next filing will send.
+ *
+ * **Only these.** Making every change wait is the same fix and it was tried
+ * first; it broke adding a dashboard, whose own success handler navigates to
+ * the dashboard it just made. Waiting first meant the new dashboard appeared in
+ * the bar *before* that navigation ran, so the navigation could land while
+ * somebody was already typing a panel name on the dashboard they were still on
+ * - remounting the board and taking what they had typed with it. A change that
+ * carries only its own fields has nothing to wait for, so it does not.
+ */
+const IS_BUILT_ON_THE_LAST_ONE = new Set<CommandName>([
+  'move_item_to_panel',
+  'add_item_to_panel',
+  'remove_item_from_panel',
+]);
+
+/**
  * Sends one change and re-reads what it touched, without a mutation's state
  * around it - the same two steps `useCommand` takes, for the callers that need
  * neither `isPending` nor `error` on a control.
@@ -92,23 +116,12 @@ export function useSendCommand(): (args: CommandArgs) => Promise<void> {
 }
 
 /**
- * What has to be re-read once a change has landed, and **not finished until it
- * has been**. One function, so the two senders above cannot come to disagree
- * about it.
+ * What has to be re-read once a change has landed. One function, so the two
+ * senders above cannot come to disagree about it.
  *
- * The waiting is the part worth explaining. A change used to be done the moment
- * the server accepted it, with the re-read left running behind it — which is
- * fine for a change that carries only its own fields, and wrong for the filing
- * commands, which carry the panel's *whole order* and have it checked against
- * what the server holds. Filing two items onto one panel one after the other
- * then sent the second order from a snapshot that did not have the first item
- * in it yet, and the server correctly refused it as an order that is not the
- * panel's. It only ever lost the race on a slow machine, which is exactly the
- * kind of bug that reaches somebody else's laptop first.
- *
- * So every change waits, rather than the filing ones waiting and the rest not:
- * the cost is that a control stays busy until the list behind it agrees, which
- * is the moment the change is really done.
+ * Returned rather than dropped for the changes in `IS_BUILT_ON_THE_LAST_ONE`,
+ * which is where the reason lives; every other change finishes the moment the
+ * server takes it, as they always have.
  */
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
   if (args.name === 'delete_workspace') {
@@ -127,7 +140,8 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
   if (CHANGES_THE_WORKSPACE_LIST.has(args.name)) {
     reread.push(queryClient.invalidateQueries({ queryKey: ['workspaces'] }));
   }
-  return Promise.all(reread);
+
+  if (IS_BUILT_ON_THE_LAST_ONE.has(args.name)) return Promise.all(reread);
 }
 
 export function useCommand() {
@@ -135,9 +149,10 @@ export function useCommand() {
   return useMutation({
     mutationFn: (args: CommandArgs) => sendCommand(args.name, args.payload as never),
     // Returned rather than called and dropped, because React Query waits on
-    // what a mutation's own `onSuccess` returns: the caller's `onSuccess` then
-    // runs on a snapshot that already has this change in it, and `isPending`
-    // covers the re-read.
+    // what a mutation's own `onSuccess` returns. For the changes that hand it
+    // back a promise, the caller's `onSuccess` then runs on a workspace that
+    // already has this change in it and `isPending` covers the re-read; for the
+    // rest it is `undefined` and nothing waits.
     onSuccess: (_result, args) => afterChanging(queryClient, args),
   });
 }

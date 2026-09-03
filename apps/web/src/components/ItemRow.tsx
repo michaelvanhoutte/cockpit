@@ -46,6 +46,8 @@ export function ItemRow({
   workspaceId,
   onMoveTo,
   ordering,
+  onAddTo,
+  onRemoveFromHere,
 }: {
   item: Item;
   workspaceId: string;
@@ -67,6 +69,16 @@ export function ItemRow({
    * step from its own menu are the same move.
    */
   ordering?: { at: number; of: number; onMove: (places: number) => void };
+  /**
+   * Asked to show this item on a second panel as well, and to stop showing it
+   * on this one ("Ask whether to move an item to a panel or add it to one",
+   * issue 142).
+   *
+   * Both absent in the Inbox: there is no panel to add alongside, and none to
+   * remove it from.
+   */
+  onAddTo?: (openedFrom: HTMLElement | null) => void;
+  onRemoveFromHere?: () => void;
 }) {
   const command = useCommand();
   const send = useSendCommand();
@@ -305,6 +317,22 @@ export function ItemRow({
               }}
             >
               Move to…
+            </DropdownMenu.Item>
+          )}
+          {onAddTo && (
+            <DropdownMenu.Item
+              className={menuItemClass}
+              onSelect={() => {
+                opening.current = true;
+                onAddTo(trigger.current);
+              }}
+            >
+              Add to…
+            </DropdownMenu.Item>
+          )}
+          {onRemoveFromHere && (
+            <DropdownMenu.Item className={menuItemClass} onSelect={onRemoveFromHere}>
+              Remove from this panel
             </DropdownMenu.Item>
           )}
           {ordering && (

@@ -252,3 +252,58 @@ test.describe('Panels', () => {
     });
   });
 });
+
+/**
+ * F3, and only in a browser: the question is asked by a drop, and a drop is a
+ * gesture. Which answer sends which command is
+ * apps/web/tests/unit/components/ItemList.test.tsx, and what each command does
+ * to a panel is apps/api/tests/integration/http/panel-items.test.ts. What is
+ * only true here is that a person can get one item onto two panels at once and
+ * see it on both.
+ *
+ * Desktop only, for the reason the other drag walks are: on a phone the panels
+ * are one to a screen, so there is nowhere to drag between.
+ */
+test.describe('Panels', () => {
+  test.describe('a drop from one panel onto another asks which it is, and sends what was chosen', () => {
+    test('adds the item to the second panel, leaving it on the first', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'two panels are not on one screen here');
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
+      const second = uniqueTitle('Anna');
+      await press(page.getByRole('button', { name: 'Add a panel' }), isMobile);
+      await page.getByLabel('Name of the new panel').fill(second);
+      await page.getByLabel('Name of the new panel').press('Enter');
+      await expect(page.getByRole('region', { name: second })).toBeVisible();
+
+      const title = uniqueTitle('Belongs on both');
+      await goToTheInbox(page, isMobile);
+      await captureBox(page).fill(title);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await fileOnto(page, title, panel, isMobile);
+      await goToTheDashboard(page, dashboard, isMobile);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([title]);
+
+      // Dragged from one panel to the other: both answers are possible, so it
+      // asks rather than guessing.
+      const row = page.getByRole('region', { name: panel }).getByRole('listitem').first();
+      const target = page.getByRole('region', { name: second });
+      const from = await row.boundingBox();
+      const to = await target.boundingBox();
+      if (!from || !to) throw new Error('one of the two panels is not on screen');
+      await row.dragTo(target, { targetPosition: { x: to.width / 2, y: to.height / 2 } });
+
+      const question = page.getByRole('alertdialog');
+      await expect(question).toBeVisible();
+      await expect(question).toContainText(title);
+      await press(question.getByRole('button', { name: 'Add it here as well' }), isMobile);
+
+      // On both at once, which is the whole point of a panel being a view over
+      // one shared list rather than a folder.
+      await expect.poll(() => itemsOn(page, panel)).toEqual([title]);
+      await expect.poll(() => itemsOn(page, second)).toEqual([title]);
+    });
+  });
+});
