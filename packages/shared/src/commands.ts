@@ -306,6 +306,15 @@ export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
  * visible the same way: an order that no longer names the Panel's Items is
  * refused rather than quietly written.
  */
+/**
+ * An order names each Item once. Shared by the two commands that carry one,
+ * because it is the same rule: two positions for one Item is not an order, and
+ * one of the Panel's Items is necessarily left out.
+ */
+const namesEachItemOnce = (cmd: { order: string[] }) =>
+  new Set(cmd.order).size === cmd.order.length;
+const ONCE = { message: 'an item can only be in one place in the order', path: ['order'] };
+
 export const moveItemToPanelSchema = commandEnvelopeSchema
   .extend({
     itemId: z.uuid(),
@@ -320,10 +329,7 @@ export const moveItemToPanelSchema = commandEnvelopeSchema
    * rather than checked against the store, because it is wrong on its own terms
    * whatever the Panel holds.
    */
-  .refine((cmd) => new Set(cmd.order).size === cmd.order.length, {
-    message: 'an item can only be in one place in the order',
-    path: ['order'],
-  })
+  .refine(namesEachItemOnce, ONCE)
   /**
    * The Item that moved has to be in the order of the Panel it moved to, and
    * has to be absent from an order for the Inbox - which has no order at all,
@@ -357,10 +363,12 @@ export const addItemToPanelSchema = commandEnvelopeSchema
     panelId: z.uuid(),
     order: z.array(z.uuid()),
   })
-  .refine((cmd) => new Set(cmd.order).size === cmd.order.length, {
-    message: 'an item can only be in one place in the order',
-    path: ['order'],
-  })
+  // The same two rules a move's order obeys, by being the same functions rather
+  // than a copy of them: an order that names an item twice has no order in it,
+  // and one that leaves out the item it is about is inconsistent rather than
+  // smaller. There is no Inbox arm here, because there is no adding to the
+  // Inbox.
+  .refine(namesEachItemOnce, ONCE)
   .refine((cmd) => cmd.order.includes(cmd.itemId), {
     message: 'the item that arrived is not in the order of the panel it arrived on',
     path: ['order'],

@@ -74,10 +74,41 @@ export function ItemList({
    * to move an item to a panel or add it to one" (issue 142) lands, this becomes
    * the list of them and the inverse becomes several changes rather than one.
    */
-  const whereItIs = (item: Item): { panelId: string | null; order: string[] } => {
+  const whereItIs = (item: Item): { panelId: string; order: string[] }[] => {
     const filings = data?.filings ?? [];
-    const panelId = filings.find((filing) => filing.itemId === item.id)?.panelId ?? null;
-    return { panelId, order: panelId ? filedOrderOnPanel(filings, panelId) : [] };
+    const panels = [
+      ...new Set(filings.filter((f) => f.itemId === item.id).map((f) => f.panelId)),
+    ];
+    return panels.map((panelId) => ({ panelId, order: filedOrderOnPanel(filings, panelId) }));
+  };
+
+  /**
+   * Puts an item back on every panel it was on, in the order each was in.
+   *
+   * **The first is a move and the rest are adds**, which is what makes this one
+   * inverse rather than two: the move takes it off wherever it is now and puts
+   * it on the first, and each add puts it on one more without disturbing that.
+   * An item that was on no panel at all is moved to the Inbox, which is the
+   * absence of a filing.
+   */
+  const putItBackOn = async (item: Item, panels: { panelId: string; order: string[] }[]) => {
+    const envelope = () => ({
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId,
+      itemId: item.id,
+    });
+    const [first, ...rest] = panels;
+    await send({
+      name: 'move_item_to_panel',
+      payload: { ...envelope(), panelId: first?.panelId ?? null, order: first?.order ?? [] },
+    });
+    for (const also of rest) {
+      await send({
+        name: 'add_item_to_panel',
+        payload: { ...envelope(), panelId: also.panelId, order: also.order },
+      });
+    }
   };
 
   /**
@@ -127,21 +158,11 @@ export function ItemList({
           setMoving(null);
           offerToUndo({
             what: `“${item.nextAction ?? item.title}” moved to ${nameOf(panelId)}`,
-            // The same command, with the panel and the order it was in before.
-            // The order named the item then and does again, so the panel it is
-            // put back on is exactly the panel it left.
-            undo: () =>
-              send({
-                name: 'move_item_to_panel',
-                payload: {
-                  commandId: uuidv7(),
-                  issuedAt: new Date().toISOString(),
-                  workspaceId,
-                  itemId: item.id,
-                  panelId: before.panelId,
-                  order: before.order,
-                },
-              }),
+            // Every panel it was on, not the first of them: a move takes an
+            // item off all of them, so putting it back on one would lose the
+            // rest - and an item can be on several since "Ask whether to move
+            // an item to a panel or add it to one" (issue 142).
+            undo: () => putItBackOn(item, before),
           });
         },
       },
@@ -406,7 +427,7 @@ export function ItemList({
       {/* A refusal from a gesture that opened nothing: a drop, or a step move.
           The picker says its own, so this is only for the changes made without
           one - which used to fail in silence. */}
-      {refusal && !moving && (
+      {refusal && !moving && !adding && !asking && (
         <p role="alert" className="px-4 py-2 text-sm text-over">
           {refusal}
         </p>

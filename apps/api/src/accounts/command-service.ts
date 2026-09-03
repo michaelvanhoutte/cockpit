@@ -34,7 +34,7 @@ import {
   dashboardNamed,
   firstDashboardFor,
 } from '../domain/dashboards.js';
-import { filingRows, orderIsNotOfThePanel } from '../domain/filings.js';
+import { filingRows, orderIsNotOfThePanel, type Arriving } from '../domain/filings.js';
 import {
   appendedPlacement,
   panelFromCommand,
@@ -227,6 +227,16 @@ function panelTheChangeIsAbout(
     throw new PanelNotFoundError(panelId);
   }
   return panel;
+}
+
+/**
+ * Refuses an order that is not the panel's arrangement, in the words the person
+ * who sent it is shown. Both commands that carry an order ask it, because it is
+ * the same question about the same rows.
+ */
+function refuseAStaleOrder(db: AccountDb, tenantId: string, cmd: Arriving & { panelId: string }): void {
+  const stale = orderIsNotOfThePanel(listFilingsOnPanel(db, tenantId, cmd.panelId), cmd);
+  if (stale) throw new PanelOrderStaleError(stale);
 }
 
 /**
@@ -686,10 +696,7 @@ export function runCommand<N extends CommandName>(
       // Checked against what the panel actually holds rather than left to the
       // foreign key, which could not tell an item of another workspace from one
       // that was moved off a moment ago - and would surface either as a 500.
-      const stale = panel
-        ? orderIsNotOfThePanel(listFilingsOnPanel(db, tenantId, panel.id), cmd)
-        : null;
-      if (stale) throw new PanelOrderStaleError(stale);
+      if (panel) refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
 
       const rows = filingRows(tenantId, cmd);
       db.transaction((tx) => {
@@ -719,11 +726,7 @@ export function runCommand<N extends CommandName>(
       if (!item || item.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
 
-      const stale = orderIsNotOfThePanel(listFilingsOnPanel(db, tenantId, panel.id), {
-        ...cmd,
-        panelId: panel.id,
-      });
-      if (stale) throw new PanelOrderStaleError(stale);
+      refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
 
       const rows = filingRows(tenantId, { ...cmd, panelId: panel.id });
       db.transaction((tx) => {

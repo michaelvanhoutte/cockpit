@@ -423,6 +423,41 @@ describe('Panels', () => {
       );
     });
 
+    it('puts it back on every panel it was on, not just the first', async () => {
+      // A move takes the item off all of them, so an undo that named one would
+      // lose the rest - which became possible the day an item could be on two
+      // panels at once ("Ask whether to move an item to a panel or add it to
+      // one", issue 142).
+      const other = anItem('11111111-1111-7111-8111-000000000008', 'Renew the domain');
+      held.items = [BART, other];
+      held.filings = [
+        { panelId: 'p-anna', itemId: BART.id, position: 0 },
+        { panelId: 'p-reading', itemId: other.id, position: 0 },
+        { panelId: 'p-reading', itemId: BART.id, position: 1 },
+      ];
+      movesFor(BART.id);
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      // The first as a move, which takes it off Falcon; the second as an add,
+      // which leaves the first alone.
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({ panelId: 'p-anna', order: [BART.id] }),
+        }),
+      );
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'add_item_to_panel',
+          payload: expect.objectContaining({ panelId: 'p-reading', order: [other.id, BART.id] }),
+        }),
+      );
+    });
+
     it('puts it back in the order the panel it left was in, not at the top of it', async () => {
       const other = anItem('11111111-1111-7111-8111-000000000004', 'Renew the domain');
       held.items = [BART, other];
