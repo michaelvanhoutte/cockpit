@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
 import { useCommand, useSendCommand, type CommandArgs } from '../api/queries';
+import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { howFarItHasGone, SWIPE_THRESHOLD_PX, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
@@ -44,6 +45,7 @@ export function ItemRow({
   item,
   workspaceId,
   onMoveTo,
+  ordering,
 }: {
   item: Item;
   workspaceId: string;
@@ -55,6 +57,16 @@ export function ItemRow({
    * because one dialog per row would be a dozen dialogs in an Inbox of a dozen.
    */
   onMoveTo?: (openedFrom: HTMLElement | null) => void;
+  /**
+   * Where this row sits in a list that has an order, and how to move it a step
+   * ("Drag an item into a panel, and drop it where you want it", issue 141).
+   *
+   * Absent in the Inbox, which is by age and has no order to change. Present
+   * on a panel, where it is what a keyboard and a phone have instead of the
+   * drag - the Ordering rule the Glossary binds: dragging one and moving it a
+   * step from its own menu are the same move.
+   */
+  ordering?: { at: number; of: number; onMove: (places: number) => void };
 }) {
   const command = useCommand();
   const send = useSendCommand();
@@ -202,7 +214,23 @@ export function ItemRow({
     // age at its tail, and the Inbox column is a fifth of the screen, so the
     // space between them is space the title does not get.
     <li
+      // What a list measures when it works out where a dragged row would land,
+      // so the line drawn between rows is not counted as one of them.
+      data-item-row=""
       {...swipe}
+      // The whole row, rather than a grip on it: a row is a card, and what a
+      // person aims at when moving one is the card. It is what makes a mouse
+      // drag across the text a move rather than a selection, which is the trade
+      // this gesture is - and the reason there is no drag on touch at all,
+      // where the same movement is a swipe.
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData(ITEM_BEING_DRAGGED, item.id);
+        // Its own type *and* text, because Firefox starts no drag at all
+        // without something it recognises on the transfer.
+        event.dataTransfer.setData('text/plain', item.nextAction ?? item.title);
+        event.dataTransfer.effectAllowed = 'move';
+      }}
       style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
       // `touch-action: pan-y` leaves vertical scrolling to the browser and
       // gives this the horizontal component. `select-none` stops a long press
@@ -279,6 +307,20 @@ export function ItemRow({
               Move to…
             </DropdownMenu.Item>
           )}
+          {ordering && (
+            <>
+              <MoveAStep
+                label="Move up"
+                unavailable={ordering.at === 0 ? 'This is already the first' : undefined}
+                onMove={() => ordering.onMove(-1)}
+              />
+              <MoveAStep
+                label="Move down"
+                unavailable={ordering.at === ordering.of - 1 ? 'This is already the last' : undefined}
+                onMove={() => ordering.onMove(1)}
+              />
+            </>
+          )}
           <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('done')}>
             Mark done
           </DropdownMenu.Item>
@@ -304,5 +346,45 @@ export function ItemRow({
         </MenuContent>
       </DropdownMenu.Root>
     </li>
+  );
+}
+
+/**
+ * One step up or down the list it is in.
+ *
+ * The ends are said out loud rather than silently doing nothing, exactly as a
+ * panel's moves and resizes are: an entry that can be chosen and changes
+ * nothing is indistinguishable from one that is broken. `aria-disabled` rather
+ * than `disabled` for the reason `RowMenu` carries - Radix takes a disabled
+ * entry out of the roving focus, so a keyboard never reaches it at all.
+ */
+function MoveAStep({
+  label,
+  unavailable,
+  onMove,
+}: {
+  label: string;
+  unavailable?: string | undefined;
+  onMove: () => void;
+}) {
+  return (
+    <DropdownMenu.Item
+      {...(unavailable ? { 'aria-disabled': true, 'aria-label': `${label}: ${unavailable}` } : {})}
+      className={
+        unavailable
+          ? `${menuItemClass} text-ink-faint data-[highlighted]:bg-black/5 data-[highlighted]:text-ink-faint`
+          : menuItemClass
+      }
+      onSelect={(event) => {
+        if (unavailable) {
+          event.preventDefault();
+          return;
+        }
+        onMove();
+      }}
+    >
+      {label}
+      {unavailable && <span className="block text-xs">{unavailable}</span>}
+    </DropdownMenu.Item>
   );
 }

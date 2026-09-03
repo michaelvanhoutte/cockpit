@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { GRID_COLUMNS, MAX_PANEL_ROWS } from '@cockpit/shared';
 import type { Item, Panel, PanelPlacement } from '@cockpit/shared';
+import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 
@@ -93,8 +94,17 @@ export function PanelCard({
       // The whole panel is the drop target while only its header is the handle:
       // aiming at a two-line strip is a fiddly drop, and the thing being aimed
       // at is the place, not the grip.
-      onDragOver={(e) => e.preventDefault()}
+      //
+      // **Panels only.** A row of the list inside crosses this on its way in,
+      // and without the check it would arrive as a panel being dropped on a
+      // panel - which does nothing while no panel is being dragged, and
+      // reorders the dashboard when one was picked up and abandoned earlier.
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+        e.preventDefault();
+      }}
       onDrop={(e) => {
+        if (e.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
         e.preventDefault();
         onDropOn();
       }}
@@ -181,6 +191,7 @@ export function PanelCard({
           workspaceId={workspaceId}
           items={items}
           openDashboardId={panel.dashboardId}
+          panelId={panel.id}
           emptyMessage="Nothing filed here yet."
         />
       </div>
