@@ -193,7 +193,13 @@ export function ItemList({
 
     // Dropped exactly where it started changes nothing, and sending it would
     // put a change in the undo bar that undoes to the same place.
-    if (wasAt !== -1 && gap === wasAt) return;
+    if (panelId && wasAt !== -1 && gap === wasAt) return;
+    // The same, in the Inbox: a row dragged about inside it is already filed
+    // nowhere, so moving it to the Inbox is a change that changes nothing -
+    // and it would still offer to be undone, which is worse than doing nothing
+    // at all.
+    if (!panelId && !(data?.filings ?? []).some((filing) => filing.itemId === itemId)) return;
+
 
     const moving = items.find((item) => item.id === itemId) ?? data?.items.find((i) => i.id === itemId);
     if (moving) move(moving, panelId, gap);
@@ -206,12 +212,37 @@ export function ItemList({
   // Only this list's own refusal, and only for the item still being moved: one
   // `useCommand` is shared by every row here, so without the second half a
   // refusal from a row that has since closed would appear against the next one.
+  /**
+   * Why the last change this list made did not happen.
+   *
+   * Gated on the change having been about an *item*, because one `useCommand`
+   * is not one mutation: a panel's rename is refused by the board's, and
+   * without this a list drawn inside that panel would say so as well - the
+   * same refusal, twice, in two places.
+   */
   const refusal =
-    command.error instanceof CommandRefused && moving ? command.error.message : null;
+    command.error instanceof CommandRefused &&
+    (command.variables as { payload?: { itemId?: string } } | undefined)?.payload?.itemId
+      ? command.error.message
+      : null;
 
   return (
     <>
+      {/* A refusal from a gesture that opened nothing: a drop, or a step move.
+          The picker says its own, so this is only for the changes made without
+          one - which used to fail in silence. */}
+      {refusal && !moving && (
+        <p role="alert" className="px-4 py-2 text-sm text-over">
+          {refusal}
+        </p>
+      )}
+
       <div
+        // Tall enough to be dropped on. Without this the box is only as tall as
+        // what is in it, so an empty panel's drop target was the one line of
+        // text saying it is empty - and letting go anywhere in the space below
+        // did nothing, which is most of the panel.
+        className="min-h-full"
         onDragOver={(event) => {
           // Only a row of ours. A panel dragged by its header crosses lists on
           // its way to another panel, and a list that offered it a place would
@@ -224,7 +255,11 @@ export function ItemList({
           event.preventDefault();
           event.stopPropagation();
           event.dataTransfer.dropEffect = 'move';
-          setLandingAt(gapUnder(event.clientY));
+          // **No line in the Inbox.** It is by age and has no order, so there
+          // is no gap to land in - drawing one would promise a reorder that
+          // cannot happen. A drop is still accepted here, because arriving
+          // from a panel means being taken off it.
+          if (panelId) setLandingAt(gapUnder(event.clientY));
         }}
         // Only when the pointer has left this list rather than moved onto a row
         // inside it, which fires the same event.

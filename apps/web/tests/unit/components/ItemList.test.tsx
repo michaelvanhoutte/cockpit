@@ -24,6 +24,7 @@ const held = vi.hoisted(() => ({
   mutate: vi.fn(),
   send: vi.fn(() => Promise.resolve()),
   error: null as Error | null,
+  variables: undefined as { payload?: { itemId?: string } } | undefined,
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -32,6 +33,10 @@ vi.mock('../../../src/api/queries', () => ({
     reset: vi.fn(),
     isPending: false,
     error: held.error,
+    // What the real mutation carries: the last change asked for. A refusal is
+    // attributed by it, so a mock without it would make every refusal look
+    // like somebody else's.
+    variables: held.variables,
   }),
   useSendCommand: () => held.send,
   snapshotQuery: (workspaceId: string) => ({
@@ -103,8 +108,9 @@ async function showList({
   openDashboardId = null as string | null,
   panelId = null as string | null,
 }: { items?: Item[]; openDashboardId?: string | null; panelId?: string | null } = {}) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <UndoWhatJustHappened>
         <ItemList
           workspaceId="ws-work"
@@ -116,6 +122,12 @@ async function showList({
       </UndoWhatJustHappened>
     </QueryClientProvider>,
   );
+  // **Waited for, not flushed.** What a list can file is read from the
+  // snapshot, and a drop against a list that has not read one yet does nothing
+  // at all - which reads exactly like the drop being refused. Asked of the
+  // cache rather than of the screen, because an empty list draws nothing that
+  // says the read has happened.
+  await waitFor(() => expect(client.getQueryData(['snapshot', 'ws-work'])).toBeDefined());
   return userEvent.setup();
 }
 
@@ -144,6 +156,7 @@ beforeEach(() => {
     aPanel('p-reading', RESEARCH.id, 'To read'),
   ];
   held.error = null;
+  held.variables = { payload: { itemId: BART.id } };
   held.mutate = vi.fn();
   held.send = vi.fn(() => Promise.resolve());
   localStorage.clear();
@@ -386,9 +399,6 @@ describe('Panels', () => {
      * right items in it, which is the wiring.
      */
     async function dropOnTheList(itemId: string, clientY = 1) {
-      // The snapshot has to have settled: what a list can file is read from it,
-      // and a drop against a list that has not read one yet finds no item.
-      await act(async () => {});
       const dataTransfer = {
         types: [ITEM_BEING_DRAGGED],
         getData: (type: string) => (type === ITEM_BEING_DRAGGED ? itemId : ''),
@@ -457,6 +467,37 @@ describe('Panels', () => {
       });
 
       expect(held.mutate).not.toHaveBeenCalled();
+    });
+
+    it('sends nothing when a row is dragged about inside the Inbox', async () => {
+      // The Inbox is by age and has no order, so there is nowhere in it for a
+      // row to land: moving one to the Inbox it is already in changes nothing,
+      // and it would still offer to be undone.
+      held.filings = [];
+      await showList({ items: [BART], openDashboardId: null, panelId: null });
+
+      await dropOnTheList(BART.id);
+
+      expect(held.mutate).not.toHaveBeenCalled();
+    });
+
+    it('says why a drop was refused, where nothing else would say it', async () => {
+      held.error = new CommandRefused(409, 'this panel changed while you were looking at it');
+      await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'this panel changed while you were looking at it',
+      );
+    });
+
+    it('leaves somebody else’s refusal alone', async () => {
+      // One `useCommand` is not one mutation: a panel's rename is refused by
+      // the board's, and a list drawn inside that panel must not say so too.
+      held.error = new CommandRefused(409, 'a panel called To read is already on this dashboard');
+      held.variables = { payload: {} };
+      await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      expect(screen.queryByRole('alert')).toBeNull();
     });
 
     it('sends nothing when a row is dropped exactly where it started', async () => {
