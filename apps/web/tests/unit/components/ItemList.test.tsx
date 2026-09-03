@@ -762,6 +762,42 @@ describe('Panels', () => {
       );
     });
 
+    it.each([
+      { situation: 'the question', open: 'ask' as const, cancel: 'Cancel' },
+      { situation: 'the picker for adding', open: 'add' as const, cancel: 'Cancel' },
+    ])('takes the refusal away with $situation', async ({ open }) => {
+      // The same rule the move picker follows: a refusal outlives the dialog it
+      // was shown in, and the list says one of its own — so cancelling has to
+      // clear it or the message is stuck above the rows with nothing to
+      // explain it.
+      held.refuses = new CommandRefused(409, 'this panel changed while you were looking at it');
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
+
+      if (open === 'ask') {
+        await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+        await dropOnto(BART.id);
+        const question = await screen.findByRole('alertdialog');
+        await userEvent.click(within(question).getByRole('button', { name: 'Move it here' }));
+        expect(await within(question).findByRole('alert')).toBeVisible();
+        await userEvent.click(within(question).getByRole('button', { name: 'Cancel' }));
+      } else {
+        held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+        const user = await showList({
+          items: [BART],
+          openDashboardId: TODAY.id,
+          panelId: 'p-falcon',
+        });
+        await user.click(screen.getByRole('button', { name: 'Item actions' }));
+        await user.click(await screen.findByRole('menuitem', { name: 'Add to…' }));
+        const picker = await screen.findByRole('dialog');
+        await user.click(within(picker).getByRole('button', { name: 'Anna' }));
+        expect(await within(picker).findByRole('alert')).toBeVisible();
+        await user.click(within(picker).getByRole('button', { name: 'Cancel' }));
+      }
+
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
     it('sends nothing when the question is cancelled, and leaves the item where it was', async () => {
       const user = await dropFromAnotherPanel();
 

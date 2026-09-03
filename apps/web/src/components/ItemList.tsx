@@ -66,13 +66,13 @@ export function ItemList({
   const openedFrom = useRef<HTMLElement | null>(null);
 
   /**
-   * Where the item is now, and the whole order of the panel holding it - what
-   * putting it back means ("Undo what just happened", issue 144). Read before
-   * the move, because afterwards it is gone.
+   * Every panel the item is on, and the whole order of each - what putting it
+   * back means ("Undo what just happened", issue 144). Read before the move,
+   * because afterwards it is gone.
    *
-   * One panel, because nothing files an item onto two yet; the day "Ask whether
-   * to move an item to a panel or add it to one" (issue 142) lands, this becomes
-   * the list of them and the inverse becomes several changes rather than one.
+   * A list rather than one panel, because an item can be on several ("Ask
+   * whether to move an item to a panel or add it to one", issue 142) and a move
+   * takes it off all of them: an inverse that named one would lose the rest.
    */
   const whereItIs = (item: Item): { panelId: string; order: string[] }[] => {
     const filings = data?.filings ?? [];
@@ -156,6 +156,7 @@ export function ItemList({
           // for is not a panel you have been filing into.
           if (panelId) rememberRecentPanel(browserStore(), workspaceId, panelId);
           setMoving(null);
+          setAsking(null);
           offerToUndo({
             what: `“${item.nextAction ?? item.title}” moved to ${nameOf(panelId)}`,
             // Every panel it was on, not the first of them: a move takes an
@@ -522,12 +523,18 @@ export function ItemList({
           open
           itemTitle={asking.item.nextAction ?? asking.item.title}
           panelName={nameOf(panelId)}
-          onMove={() => {
-            move(asking.item, panelId, asking.at);
+          // Closed by the change landing, not by the press: a refused move
+          // leaves the question up with the reason on it, which is what the
+          // picker does and what makes the refusal worth showing there at all.
+          onMove={() => move(asking.item, panelId, asking.at)}
+          onAdd={() => add(asking.item, panelId, asking.at)}
+          onCancel={() => {
+            // Reset as well as close, for the reason the picker below does: a
+            // refusal outlives the dialog it was shown in, and the list says
+            // one of its own.
+            command.reset();
             setAsking(null);
           }}
-          onAdd={() => add(asking.item, panelId, asking.at)}
-          onCancel={() => setAsking(null)}
           refusal={command.error instanceof CommandRefused ? command.error.message : null}
           busy={command.isPending}
         />
@@ -545,7 +552,10 @@ export function ItemList({
           onPick={(pickedPanelId) => {
             if (pickedPanelId) add(adding, pickedPanelId, 0);
           }}
-          onCancel={() => setAdding(null)}
+          onCancel={() => {
+            command.reset();
+            setAdding(null);
+          }}
           refusal={refusal}
           busy={command.isPending}
           returnFocusTo={openedFrom.current}

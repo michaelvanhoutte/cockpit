@@ -109,8 +109,6 @@ export function MoveToPicker({
               six dashboards of panels is a list longer than any screen, and a
               dialog taller than the window has a Cancel nobody can reach. */}
           <div className="-mx-1 mt-4 min-h-0 flex-1 overflow-y-auto px-1">
-            {/* Not a target when adding: the Inbox is what is filed nowhere,
-                so there is nothing to add an item to. */}
             {!adding && (
               <Target
                 label="Inbox"
