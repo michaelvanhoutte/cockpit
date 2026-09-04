@@ -10,10 +10,16 @@
  *
  * **It stops the whole window rather than saying so in a panel**, because the
  * stored copy is no safer than the network answer. The persisted snapshot is
- * rehydrated from IndexedDB *without being parsed again* (main.tsx) — the
- * schemas guard the way in from the network, not the way out of storage — so a
- * build that cannot read what the server says cannot trust what it already
+ * rehydrated from IndexedDB *without being parsed again* (persistence.tsx) —
+ * the schemas guard the way in from the network, not the way out of storage —
+ * so a build that cannot read what the server says cannot trust what it already
  * holds either. Carrying on is the one thing that is actively wrong.
+ *
+ * That the restore now re-reads everything on the way out of itself
+ * ("Re-read the stored copy on load instead of trusting how fresh it looks",
+ * issue 162) is what usually raises this gate: it is the first read to come
+ * back in a shape this build cannot understand, so the mismatch surfaces on the
+ * load rather than whenever something next happens to re-read.
  *
  * **Why reloading by hand never worked.** The shell is precached by a service
  * worker (apps/web/vite.config.ts). A reload does make the browser look for a

@@ -18,7 +18,7 @@ import { persister } from '../persistence';
  *
  * - the in-memory cache, which is what is on screen;
  * - the copy of it in IndexedDB, which is what the *next* cold open would paint
- *   from, a week later if need be (`persistence.ts`);
+ *   from, a week later if need be (`persistence.tsx`);
  * - which view each workspace was last on, and which panels were last filed
  *   into, both in localStorage;
  * - what the undo bar is still offering, which is a title of theirs drawn over

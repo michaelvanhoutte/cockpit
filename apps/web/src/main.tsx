@@ -1,10 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient } from '@tanstack/react-query';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { RouterProvider } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
-import { CACHE_MAX_AGE_MS, persister } from './persistence';
+import { CACHE_MAX_AGE_MS, PaintedFromTheStoredCopy } from './persistence';
 import { createAppRouter } from './router';
 import { Updating } from './components/Updating';
 import { UndoWhatJustHappened } from './undo';
@@ -29,31 +28,7 @@ const router = createAppRouter(queryClient);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <PersistQueryClientProvider
-      client={queryClient}
-      // `v3` because an item lost its status and gained a completion time and a
-      // type ("An item is either yours to deal with or finished with", issue
-      // 154; "Capture a thought or an action, and see which it is", issue 155),
-      // and a workspace's stored copy gained the account's types beside its
-      // items. `v2` was a workspace's fourth colour ("Modernise the app shell",
-      // issue 125).
-      //
-      // **The buster has to move whenever the shape of what is stored does.**
-      // What is restored here is never re-validated - the schemas parse
-      // responses on the way in from the network (api/client.ts), not the copy
-      // read back out of IndexedDB - so a stale shape is not rejected, it is
-      // rendered. Three-colour workspaces paint a shell with no bar: the tab
-      // you are on stops being filled and stops joining the strip, and the
-      // strip itself has no colour at all. Revalidation fixes it a moment
-      // later online, and never fixes it offline, which is the case the stored
-      // copy exists for in the first place.
-      //
-      // The cost is that everyone's stored copy is dropped once on the deploy
-      // that ships this, and the first open after it has to reach the network.
-      // That is the right way round: a cold open is a moment, a shell painted
-      // from a shape the code no longer expects is a week.
-      persistOptions={{ persister, maxAge: CACHE_MAX_AGE_MS, buster: 'v3' }}
-    >
+    <PaintedFromTheStoredCopy client={queryClient}>
       {/* Around the whole app rather than inside the shell, so a change made
           in the Inbox column and one made on a panel are offered back in the
           same place - and so wrapping it costs no re-indent of a file it has
@@ -61,12 +36,17 @@ createRoot(document.getElementById('root')!).render(
       {/* Outside the router and outside the shell, because a build that cannot
           read what the server says is not in a state any screen can be trusted
           to render - including the logon page, which hangs off the root rather
-          than off the shell. */}
+          than off the shell.
+
+          Inside the stored copy's provider, though, and that way round matters:
+          the re-read it starts on the way out of the restore (persistence.tsx)
+          is usually the first read to come back in a shape this build cannot
+          understand, and this has to be watching the cache before it does. */}
       <Updating>
         <UndoWhatJustHappened>
           <RouterProvider router={router} />
         </UndoWhatJustHappened>
       </Updating>
-    </PersistQueryClientProvider>
+    </PaintedFromTheStoredCopy>
   </StrictMode>,
 );
