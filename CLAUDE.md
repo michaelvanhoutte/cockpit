@@ -62,6 +62,15 @@ The two rules that get skipped most, restated here rather than referenced becaus
 
 **Run `/code-review` yourself before pushing, not only `/security-review`.** Across five pull requests of one run, all twenty findings were code-review findings and the security review correctly found nothing — silence that read, from the transcript, like a review had happened. A local pass runs now; a remote round costs a push, a CI run and fourteen minutes.
 
+**Open the pull request as a draft, and mark it ready when the work is done.** Both review workflows skip a draft, so every intermediate push costs CI alone instead of two full reviews of code you already know is unfinished — `claude/richtext-action-scope-afec5f` bought seven, three of them over thirteen minutes. Marking it ready is what fires them, once, against the finished head.
+
+```bash
+gh pr create --draft --title "..." --body "..."
+gh pr ready <number>
+```
+
+**Start the waiter after marking it ready, never before.** The two reviews are the only checks that fire on `ready_for_review` — `ci.yml` and `codeql.yml` name no `types`, so they run on the draft's pushes and not on the transition. A waiter started while the pull request is still a draft therefore sees a complete set of completed runs, with neither review among them, and reports a pass nobody reviewed.
+
 **Opening the pull request is not the end of the task — the review runs after the push.** "CI was still pending when I looked" is not a status; it is a note saying nobody looked again. "Create a workspace from a settings page" (pull request 81) was opened while `claude-review` was still pending and reported done in the same breath, and the one finding it went on to raise sat unanswered until somebody noticed by hand. Wait for the checks to settle, then work the findings to the end of the rule below.
 
 ```bash
@@ -79,7 +88,7 @@ Run it from inside the repository, in the background, and carry on with somethin
 
 **Wait on the commit you pushed, which is why that command names a SHA.** For the seconds around a push, GitHub's head is still the *previous* commit, whose checks are long green — so a waiter that asks "are this pull request's checks pending?" returns immediately, reporting a pass that belongs to code you have replaced. That happened twice in one run, and once was one command away from being merged on.
 
-**Settled means the list of checks stopped changing, not that the ones it saw are done.** `ci.yml` triggers on `push` as well as `pull_request`, while the review workflows and CodeQL trigger only on `pull_request`, so the ordinary sequence — push, `ci.yml` finishes, `gh pr create`, start waiting — reaches a commit with a complete set of *completed* runs and no `claude-review` yet. The loop above therefore compares the whole `name:status` list against the previous poll, which costs at least two polls.
+**Settled means the list of checks stopped changing, not that the ones it saw are done.** The checks on a commit arrive in waves rather than all at once — `ci.yml` triggers on `push` as well as `pull_request`, and the two reviews only on `ready_for_review` — so a poll can find a complete set of *completed* runs with a wave still to come. The loop above therefore compares the whole `name:status` list against the previous poll, which costs at least two polls.
 
 **A finding is not handled until its own review thread says so**, because GitHub never resolves one by itself — a push only adds an *Outdated* badge. Reply naming the commit that fixed it and what changed, then resolve; where the fix did not land or was declined on purpose, reply saying which and leave the thread open. Never resolve without a reply, and never on the strength of a commit message rather than the committed code. All ten findings on "Make the database enforce the schema conventions, not just the callers" (pull request 69) were fixed, pushed, and still read as unanswered: the pull request is the audit trail, not the session. `gh pr view` does not show thread state — query `reviewThreads` for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
 
