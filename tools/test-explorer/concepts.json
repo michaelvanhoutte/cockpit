@@ -107,7 +107,7 @@
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/DashboardBar.tsx",
         "apps/web/src/pages/DashboardPage.tsx",
-        "apps/web/src/pages/DashboardSettingsPage.tsx",
+        "apps/web/src/components/ManageDashboards.tsx",
         "apps/web/src/components/PanelBoard.tsx",
         "apps/web/src/lastVisited.ts",
         "apps/web/src/router.tsx",

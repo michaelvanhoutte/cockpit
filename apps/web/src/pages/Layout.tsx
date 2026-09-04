@@ -27,8 +27,8 @@ const DEFAULT_WORKSPACE_THEME_COLORS = {
  * **The Inbox is part of the shell, not part of a page** ("Show the Inbox
  * beside the dashboards instead of as a tab", issue 117). Inside a workspace,
  * and where there is room for it, it is a column down the left of every screen
- * - the dashboards and the dashboard settings page alike - because it is the
- * thing everything else flows out of rather than one more view to switch to.
+ * - the dashboards and the Inbox's own alike - because it is the thing
+ * everything else flows out of rather than one more view to switch to.
  * The workspaces settings page is reached without a workspace, so it has no
  * column: there is no Inbox to show.
  */
@@ -58,8 +58,9 @@ export function Layout() {
    * window rather than by each thing reading it.
    *
    * **Three components read this same snapshot** - the Inbox column, the
-   * dashboard and the dashboard settings page - and each used to render its own
-   * notice, so one failed read put the same words on screen two or three times,
+   * dashboard and the list its dashboards are managed in - and each used to
+   * render its own notice, so one failed read put the same words on screen two
+   * or three times,
    * in whatever width the box holding them happened to be. It is one read
    * (architecture, "The read model: persisted snapshot, revalidate, push") and
    * so it is one notice, and a screen added later gets it without knowing.
