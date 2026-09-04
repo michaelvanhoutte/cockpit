@@ -47,12 +47,17 @@ async function aStoredCopySaying(what: string): Promise<void> {
  * which is asked again only when what it holds has gone stale.
  */
 function Screen({ theServer }: { theServer: () => Promise<string> }) {
-  const { data } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: WHAT_THE_WORKSPACE_HOLDS,
     queryFn: theServer,
     staleTime: 15_000,
   });
-  return <p>{data ?? 'nothing yet'}</p>;
+  return (
+    <>
+      <p>{data ?? 'nothing yet'}</p>
+      {isError && <p>could not reach the server</p>}
+    </>
+  );
 }
 
 /** A server that has not answered yet, and a hand on when it does. */
@@ -107,7 +112,13 @@ describe('Offline', () => {
 
       open(() => Promise.reject(new Error('offline')));
 
-      expect(await screen.findByText('three panels')).toBeInTheDocument();
+      // The failure is waited for, not the copy. Asserting the copy alone says
+      // nothing: it is on screen from the first paint, before a re-read has
+      // been attempted, so the assertion holds just as well where no re-read is
+      // ever made - which is the state this whole file exists to rule out.
+      expect(await screen.findByText('could not reach the server')).toBeInTheDocument();
+
+      expect(screen.getByText('three panels')).toBeInTheDocument();
     });
   });
 });
