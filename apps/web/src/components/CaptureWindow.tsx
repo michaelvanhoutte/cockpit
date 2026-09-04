@@ -38,7 +38,12 @@ export function CaptureWindow({ workspaceId }: { workspaceId: string }) {
           Inbox's own box, which captures into the workspace you are in rather
           than asking. Found in the browser, where a walk could not say which
           it meant either. */}
-      <Dialog.Trigger className="milled shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-deep">
+      {/* **The same box a workspace tab has** - `pt-1.5 pb-2`, not a padding of
+          its own inside a wrapper. The header is an `items-end` row, so its
+          height is whatever its tallest child is: six pixels of extra padding
+          here pushed the whole page down by six, which is invisible until a
+          walk that drags a panel by its coordinates lands in the wrong gap. */}
+      <Dialog.Trigger className="milled shrink-0 self-end rounded-md bg-accent px-3 pt-1.5 pb-2 text-sm font-medium text-white hover:bg-accent-deep">
         Capture…
       </Dialog.Trigger>
       <Dialog.Portal>

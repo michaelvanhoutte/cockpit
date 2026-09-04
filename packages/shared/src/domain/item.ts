@@ -99,16 +99,6 @@ export function workspaceIsDecided(item: Pick<Item, 'workspaceDecided'>): boolea
   return item.workspaceDecided !== false;
 }
 
-/**
- * Whether this Item is shown in the given Workspace's Inbox: the ones that
- * belong to it, plus the ones that belong to no Workspace yet.
- */
-export function shownInWorkspace(
-  item: Pick<Item, 'workspaceId' | 'workspaceDecided'>,
-  workspaceId: string,
-): boolean {
-  return !workspaceIsDecided(item) || item.workspaceId === workspaceId;
-}
 
 /** What an Association can point at (functional definition §4.2). */
 export const associationKindSchema = z.enum(['person', 'project', 'topic']);

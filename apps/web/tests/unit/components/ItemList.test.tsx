@@ -987,6 +987,21 @@ describe('Capture', () => {
       expect(offered(dialog)[0]).toBe('Inboxstill to deal with');
     });
 
+    /**
+     * An empty list is still a list, so offering the workspaces before they
+     * have arrived drew a heading with nothing under it - and took the plain
+     * Inbox away with it, leaving an item that belongs nowhere with nowhere to
+     * be put.
+     */
+    it('falls back to this workspace’s Inbox until the workspaces have arrived', async () => {
+      held.workspaces = [];
+      const user = await showList({ items: [NOWHERE] });
+
+      const dialog = await openThePicker(user);
+
+      expect(offered(dialog)[0]).toBe('Inboxstill to deal with');
+    });
+
     it.each([
       { situation: 'the workspace you are in', pick: 'Workthe one you are in', into: 'ws-work' },
       { situation: 'another workspace', pick: 'Home', into: 'ws-home' },

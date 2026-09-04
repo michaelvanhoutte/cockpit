@@ -600,9 +600,16 @@ export function ItemList({
           workspaceId={workspaceId}
           // Only for an item that belongs to no workspace: for any other, which
           // workspace it is in is settled and the one Inbox is this one.
-          {...(workspaceIsDecided(moving)
+          //
+          // **And only when there is a workspace to offer.** An empty list is
+          // still a list, so handing one over gave the picker a Workspaces
+          // heading with nothing under it *and* took the plain Inbox away -
+          // opened before the query settled, an item that belongs nowhere
+          // could be put nowhere. Falling back to the plain Inbox is not a
+          // lie: it is this workspace's, which is one of the right answers.
+          {...(workspaceIsDecided(moving) || !allWorkspaces?.workspaces.length
             ? {}
-            : { inboxesOf: allWorkspaces?.workspaces ?? [] })}
+            : { inboxesOf: allWorkspaces.workspaces })}
           openDashboardId={openDashboardId}
           recent={recentPanelsIn(browserStore(), workspaceId)}
           open

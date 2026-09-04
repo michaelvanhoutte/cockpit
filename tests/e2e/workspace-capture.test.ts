@@ -23,7 +23,16 @@ import type { Page } from '@playwright/test';
  * apps/api/tests/integration/http/panel-items.test.ts). It proves the walk.
  */
 
-/** The workspace tabs across the top, which is how the second workspace is reached. */
+/**
+ * Two of the three workspaces every account starts with. Named rather than
+ * counted, because every spec in a run shares one database and several of them
+ * make workspaces of their own; the seeded three are the only ones a walk can
+ * name, and no walk deletes them.
+ */
+const CAPTURED_FROM = 'Work';
+const ELSEWHERE = 'Atlas Copco';
+
+/** The workspace tabs across the top, which is how another workspace is reached. */
 function workspaceTab(page: Page, name: string) {
   return page.getByRole('navigation', { name: 'Workspaces' }).getByRole('link', { name });
 }
@@ -42,6 +51,11 @@ async function captureWithoutAWorkspace(
   // note typed into a box wants the key already under the hand. The button is
   // pressed by the walk below, so both ways in are driven.
   await box.press('Enter');
+  // **The row, then the window.** The window closes on the answer rather than
+  // on the press, so waiting only for it to go says nothing about whether the
+  // note landed - and when a capture is refused the window is *meant* to stay,
+  // which would read here as a slow one.
+  await expect(itemRow(page, title)).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 }
 
@@ -62,13 +76,14 @@ test.describe('Capture', () => {
       await expect(itemRow(page, note).getByText('Any workspace')).toBeVisible();
       await expectNoSidewaysScroll(page);
 
-      // And in the next workspace along, which is the whole point of it.
-      const tabs = await page
-        .getByRole('navigation', { name: 'Workspaces' })
-        .getByRole('link')
-        .allTextContents();
-      const elsewhere = tabs[1]!.replace(/^\s+|\s+$/g, '');
-      await press(workspaceTab(page, elsewhere), isMobile);
+      // And in another workspace, which is the whole point of it.
+      //
+      // **Named, not the second tab along.** Every spec in a run shares one
+      // database and several of them make workspaces, so an index into the
+      // strip is a different workspace depending on what else is running. The
+      // three seeded ones are the only names a walk can count on, and no walk
+      // deletes them.
+      await press(workspaceTab(page, ELSEWHERE), isMobile);
       if (isMobile) {
         await press(page.getByRole('link', { name: 'Inbox' }).first(), isMobile);
       }
@@ -79,7 +94,7 @@ test.describe('Capture', () => {
       await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
       await expect(itemRow(page, note).getByText('Any workspace')).toHaveCount(0);
 
-      await press(workspaceTab(page, tabs[0]!.replace(/^\s+|\s+$/g, '')), isMobile);
+      await press(workspaceTab(page, CAPTURED_FROM), isMobile);
       if (isMobile) {
         await press(page.getByRole('link', { name: 'Inbox' }).first(), isMobile);
       }

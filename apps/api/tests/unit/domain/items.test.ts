@@ -111,6 +111,23 @@ describe('Capture', () => {
     ])('leaves an item that already belongs somewhere alone, $situation', ({ at }) => {
       expect(decideWorkspace(anItem(), 'ws-home', at)).toBeNull();
     });
+
+    /**
+     * A settling is never refused for being late - the question it answers has
+     * nothing to be stale about - but `updatedAt` is what every other handler
+     * measures staleness by, so it must not go backwards. Writing the command's
+     * own clock into it would let commands they had rightly rejected through.
+     */
+    it.each([
+      { situation: 'a settling made after the last change', at: LATEST, kept: LATEST },
+      { situation: 'one that was slow to arrive', at: MADE, kept: LATER },
+    ])('$situation leaves the time of the last change no earlier', ({ at, kept }) => {
+      const undecided = anItem({ workspaceDecided: false, updatedAt: LATER });
+
+      expect(decideWorkspace(undecided, 'ws-home', at)?.updatedAt).toBe(kept);
+      // Late or not, it still answers the question.
+      expect(decideWorkspace(undecided, 'ws-home', at)?.workspaceId).toBe('ws-home');
+    });
   });
 });
 

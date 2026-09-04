@@ -72,7 +72,17 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
  */
 export function decideWorkspace(item: Item, workspaceId: string, issuedAt: string): Item | null {
   if (item.workspaceDecided) return null;
-  return { ...item, workspaceId, workspaceDecided: true, updatedAt: issuedAt };
+  return {
+    ...item,
+    workspaceId,
+    workspaceDecided: true,
+    // **Never backwards**, which is why this is not simply `issuedAt`. The
+    // answer stands whenever it was given - a settling is not refused for being
+    // stale, because a question already answered has nothing to be stale about
+    // - but `updatedAt` is what every other handler measures staleness by, so
+    // lowering it here would let a command they had rightly rejected through.
+    updatedAt: issuedAt > item.updatedAt ? issuedAt : item.updatedAt,
+  };
 }
 
 /**

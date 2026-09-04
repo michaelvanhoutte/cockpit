@@ -253,11 +253,7 @@ export function Layout() {
               which workspace it belongs to", issue 165). Only where there is a
               workspace to have been captured from, which is every screen except
               the workspaces settings page. */}
-          {params.workspaceId && (
-            <div className="shrink-0 pb-2">
-              <CaptureWindow workspaceId={params.workspaceId} />
-            </div>
-          )}
+          {params.workspaceId && <CaptureWindow workspaceId={params.workspaceId} />}
 
           {/* The same control as every other menu in the app (components/
               Menu.tsx). It used to be a bordered pill, given that weight

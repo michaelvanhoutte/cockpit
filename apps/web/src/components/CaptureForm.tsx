@@ -98,22 +98,51 @@ export function CaptureForm({
     const already = wanted ? typeNamed(types, wanted) : undefined;
 
     const capture = (typeId: string | undefined) => {
-      command.mutate({
-        name: 'capture_item',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          itemId: uuidv7(),
-          title: trimmed,
-          ...(typeId ? { typeId } : {}),
-          // Sent only when it is false, so every other front door's command
-          // reads exactly as it did before this landed.
-          ...(decided ? {} : { workspaceDecided: false }),
-        },
-      });
+      // Emptied and cleared *before* the change is asked for, not after. A
+      // refusal can arrive during the call rather than after it, and the two
+      // lines that used to sit below this one then wiped the message and the
+      // note the error handler had just put back.
       setTitle('');
-      onCaptured?.();
+      setRefused(null);
+      command.mutate(
+        {
+          name: 'capture_item',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: uuidv7(),
+            title: trimmed,
+            ...(typeId ? { typeId } : {}),
+            // Sent only when it is false, so every other front door's command
+            // reads exactly as it did before this landed.
+            ...(decided ? {} : { workspaceDecided: false }),
+          },
+        },
+        {
+          // Told only once it landed, so a window closing on this does not
+          // close over a refusal nobody has read.
+          onSuccess: () => onCaptured?.(),
+          /**
+           * **The note goes back in the box**, which is the other half of
+           * emptying it before the answer comes.
+           *
+           * Capture must not wait on the network (architecture, "Performance
+           * budgets"), so the box is cleared the moment the change is asked
+           * for - and a capture the server then refuses used to take the note
+           * with it in silence. A workspace deleted in another tab is enough
+           * to produce one.
+           */
+          onError: (error) => {
+            setTitle(trimmed);
+            setRefused(
+              error instanceof CommandRefused
+                ? error.message
+                : 'That did not reach the server. Try again.',
+            );
+          },
+        },
+      );
     };
 
     if (!wanted || already) {
