@@ -39,14 +39,21 @@ import {
   dashboardNamed,
   firstDashboardFor,
 } from '../domain/dashboards.js';
-import { filingRows, orderIsNotOfThePanel, type Arriving } from '../domain/filings.js';
 import {
+  FILING_VALUES_PER_ROW,
+  filingRows,
+  orderIsNotOfThePanel,
+  type Arriving,
+} from '../domain/filings.js';
+import {
+  PLACEMENT_VALUES_PER_ROW,
   appendedPlacement,
   panelFromCommand,
   panelNamed,
   panelsNotOn,
   placementRows,
 } from '../domain/panels.js';
+import { inBatchesOf } from '../domain/statements.js';
 import {
   nextColor,
   nextPosition,
@@ -570,7 +577,11 @@ export function runCommand<N extends CommandName>(
             and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, cmd.layoutId)),
           )
           .run();
-        if (rows.length > 0) tx.insert(panelPlacements).values(rows).run();
+        // Several inserts rather than one, and inside this transaction rather
+        // than beside it - see `inBatchesOf`, which carries both reasons.
+        for (const batch of inBatchesOf(rows, PLACEMENT_VALUES_PER_ROW)) {
+          tx.insert(panelPlacements).values(batch).run();
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -759,7 +770,9 @@ export function runCommand<N extends CommandName>(
           tx.delete(panelItems)
             .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.id)))
             .run();
-          if (rows.length > 0) tx.insert(panelItems).values(rows).run();
+          for (const batch of inBatchesOf(rows, FILING_VALUES_PER_ROW)) {
+            tx.insert(panelItems).values(batch).run();
+          }
         }
         tx.insert(commands).values(commandRow).run();
       });
@@ -781,7 +794,9 @@ export function runCommand<N extends CommandName>(
         tx.delete(panelItems)
           .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.id)))
           .run();
-        if (rows.length > 0) tx.insert(panelItems).values(rows).run();
+        for (const batch of inBatchesOf(rows, FILING_VALUES_PER_ROW)) {
+          tx.insert(panelItems).values(batch).run();
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;

@@ -45,6 +45,13 @@ export interface FilingRow {
  * `createdAt` is the client's own timestamp, like every other command, so a
  * filing made offline records when it was made rather than when it arrived.
  */
+/**
+ * The values one filing row binds, which is what decides how many of them fit
+ * in a statement (`inBatchesOf`). Counted from the row built below; a column
+ * added there is a value added here.
+ */
+export const FILING_VALUES_PER_ROW = 5;
+
 export function filingRows(tenantId: string, cmd: Arriving): FilingRow[] {
   if (cmd.panelId === null) return [];
   const panelId = cmd.panelId;

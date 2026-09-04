@@ -84,6 +84,13 @@ export function placementRows(
 }
 
 /**
+ * The values one placement row binds, which is what decides how many of them
+ * fit in a statement (`inBatchesOf`). Counted from `PlacementRow` above; a
+ * column added there is a value added here.
+ */
+export const PLACEMENT_VALUES_PER_ROW = 6;
+
+/**
  * Where a newly added panel goes in a layout that already exists: last, at the
  * size of the panel already last in it.
  *

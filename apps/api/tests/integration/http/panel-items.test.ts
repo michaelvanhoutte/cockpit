@@ -459,4 +459,36 @@ describe('Panels', () => {
       expect((await snapshot()).filings.filter((filing) => filing.itemId === itemId)).toHaveLength(1);
     });
   });
+
+  /**
+   * A store binds 100 values per statement (architecture, "No statement's
+   * parameter count grows with the data") and a filing row is five of them, so
+   * filing onto a panel used to fail at twenty-one items - a panel a person
+   * fills in an ordinary week. Thirty rather than twenty-one, so the case goes
+   * on being about the limit if the batch size moves.
+   */
+  describe('a panel holds however many items are filed onto it', () => {
+    it('keeps all thirty, in the order the move put them in', async () => {
+      const dashboardId = await aDashboard();
+      const panelId = await aPanel(dashboardId, 'Project Falcon');
+
+      // One at a time, because an order must name exactly the panel's items
+      // plus the one arriving - which is also what makes the last move the
+      // widest statement: thirty rows of five values in a single insert.
+      // Newest first, so an order that came back as the order they were
+      // captured in would be visibly wrong rather than accidentally right.
+      const wanted: string[] = [];
+      const titles: string[] = [];
+      for (let n = 0; n < 30; n += 1) {
+        const itemId = await anItem(`Thing ${n}`);
+        wanted.unshift(itemId);
+        titles.unshift(`Thing ${n}`);
+        expect((await move(itemId, panelId, wanted)).status).toBe(200);
+      }
+
+      expect(await inOrderOn(panelId)).toEqual(titles);
+      // Thirty captures plus the move, against the workers pool - past the
+      // default five seconds on requests alone.
+    }, 30_000);
+  });
 });
