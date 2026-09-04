@@ -24,6 +24,7 @@ import {
 import { DeleteQuestion } from './DeleteQuestion';
 import { LayoutQuestion } from './LayoutQuestion';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
+import { NewPanelQuestion } from './NewPanelQuestion';
 import { PANEL_GAP, PANEL_ROW_HEIGHT, PanelCard } from './PanelCard';
 
 /**
@@ -101,11 +102,19 @@ export function PanelBoard({
    * would make the release of that drag look like no change at all and drop it.
    */
   const sent = useRef<PanelPlacement[] | null>(null);
+  /**
+   * The name being typed for a new panel, or null while nothing is being added.
+   * Held here rather than in the dialog so a refused title survives the answer
+   * coming back, and so it goes with the dashboard when one is switched away
+   * from - which is what the key on this component is for.
+   */
   const [naming, setNaming] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   /** Which panel is being dragged. A ref: nothing on screen depends on it. */
   const dragging = useRef<string | null>(null);
+  /** The control the new-panel form is opened from, which gets the focus back. */
+  const addButton = useRef<HTMLButtonElement | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
   const askedFrom = useRef<HTMLElement | null>(null);
 
@@ -340,50 +349,22 @@ export function PanelBoard({
             `mr-auto` moving onto the first of them. */}
         <h2 className="sr-only">{dashboard.name}</h2>
 
-        {naming === null ? (
-          <button
-            type="button"
-            onClick={() => {
-              command.reset();
-              setNaming('');
-            }}
-            className="milled ml-auto shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep"
-          >
-            Add a panel
-          </button>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const trimmed = naming.trim();
-              if (trimmed) addPanel(trimmed);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                setNaming(null);
-                command.reset();
-              }
-            }}
-            className="ml-auto flex shrink-0 items-center gap-2"
-          >
-            <input
-              value={naming}
-              onChange={(e) => setNaming(e.target.value)}
-              aria-label="Name of the new panel"
-              placeholder="Project Falcon, To read…"
-              maxLength={60}
-              autoFocus
-              className="w-44 rounded-md border border-black/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-            />
-            <button
-              type="submit"
-              disabled={command.isPending}
-              className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep disabled:opacity-50"
-            >
-              Add
-            </button>
-          </form>
-        )}
+        {/* The name is asked for in a dialog rather than in a field grown here
+            (NewPanelQuestion): a box wide enough to read a title in pushed the
+            two controls after it onto a second row while it was open, so
+            starting to add a panel moved Layouts out from under the pointer -
+            and on a phone the bar was already two rows before it opened. */}
+        <button
+          type="button"
+          ref={addButton}
+          onClick={() => {
+            command.reset();
+            setNaming('');
+          }}
+          className="milled ml-auto shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep"
+        >
+          Add a panel
+        </button>
 
         {/* The button the issue asks for: rearrange what is here for the screen
             it is on now, keeping the order and filling rows left to right. It
@@ -441,9 +422,12 @@ export function PanelBoard({
         </DropdownMenu.Root>
       </div>
 
-      {(refusalFor('add_panel') ?? refusalFor('save_layout')) && !asking && (
+      {/* Only the arrangement's, and only where no question is holding it: a
+          refused add is said inside the dialog that asked for the name, which
+          is where the name still is. */}
+      {refusalFor('save_layout') && !asking && (
         <p role="alert" className="text-sm text-over">
-          {refusalFor('add_panel') ?? refusalFor('save_layout')}
+          {refusalFor('save_layout')}
         </p>
       )}
 
@@ -523,6 +507,28 @@ export function PanelBoard({
           })}
         </div>
       )}
+
+      {/* Mounted whether or not it is open, unlike the questions below it: a
+          dialog torn out from above is never told it closed, so it never gets
+          to put the focus back on "Add a panel" - which is where the next
+          press would go. */}
+      <NewPanelQuestion
+        open={naming !== null}
+        returnFocusTo={addButton.current}
+        name={naming ?? ''}
+        onNameChange={setNaming}
+        onAdd={() => addPanel((naming ?? '').trim())}
+        onCancel={() => {
+          setNaming(null);
+          command.reset();
+        }}
+        refusal={refusalFor('add_panel')}
+        // The add's own, not the board's. The dialog will not close while it is
+        // busy, so a layout still being saved from a drag a moment earlier
+        // would leave a form nobody can get out of - Escape and the press
+        // outside are swallowed with it. Attributed the way a refusal is.
+        busy={command.isPending && command.variables?.name === 'add_panel'}
+      />
 
       {beingDeleted && (
         <DeleteQuestion

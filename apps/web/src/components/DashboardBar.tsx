@@ -233,6 +233,10 @@ export function DashboardBar({
  * The `+`, and the field it grows where the new tab will be. Adding a dashboard
  * is a one-gesture thing you do often, unlike making a workspace, so it asks
  * for the name in place rather than in a dialog.
+ *
+ * Naming a panel does use a dialog (NewPanelQuestion), and the difference is
+ * where the field goes: this one grows at the end of a bar, where the tab it is
+ * naming will be, while that one grew between two controls and moved them.
  */
 function AddDashboard({ workspaceId }: { workspaceId: string }) {
   const [naming, setNaming] = useState(false);
