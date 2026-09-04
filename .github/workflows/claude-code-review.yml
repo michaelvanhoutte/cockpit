@@ -8,9 +8,9 @@ concurrency:
   # One review per pull request at a time. Superseded runs are cancelled: the
   # verdict that matters is the one for the current head, and paying for a
   # review of a commit nobody will merge buys nothing. Copied from
-  # claude-security-review.yml, which had it while this file did not - seven
-  # reviews ran to completion on `claude/richtext-action-scope-afec5f`, three of
-  # them over thirteen minutes, each posting against a different head. (codeql.yml
+  # claude-security-review.yml, which had it while this file did not - eight
+  # reviews ran to completion on `claude/richtext-action-scope-afec5f` in a day,
+  # none under ten minutes, each posting against a different head. (codeql.yml
   # groups too, but cancels only on a pull request: its runs on `main` are the
   # baseline every pull request is compared against.)
   #

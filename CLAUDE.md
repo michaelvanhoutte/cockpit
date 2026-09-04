@@ -62,7 +62,7 @@ The two rules that get skipped most, restated here rather than referenced becaus
 
 **Run `/code-review` yourself before pushing, not only `/security-review`.** Across five pull requests of one run, all twenty findings were code-review findings and the security review correctly found nothing — silence that read, from the transcript, like a review had happened. A local pass runs now; a remote round costs a push, a CI run and fourteen minutes.
 
-**Open the pull request as a draft, and mark it ready when the work is done.** Both review workflows skip a draft, so every intermediate push costs CI alone instead of two full reviews of code you already know is unfinished — `claude/richtext-action-scope-afec5f` bought seven, three of them over thirteen minutes. Marking it ready is what fires them, once, against the finished head.
+**Open the pull request as a draft, and mark it ready when the work is done.** Both review workflows skip a draft, so every intermediate push costs CI alone instead of two full reviews of code you already know is unfinished — `claude/richtext-action-scope-afec5f` bought eight in a day, none under ten minutes. Marking it ready is what fires them, once, against the finished head.
 
 ```bash
 gh pr create --draft --title "..." --body "..."
