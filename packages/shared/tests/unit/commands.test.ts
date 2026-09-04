@@ -12,7 +12,7 @@ describe('Capture', () => {
           issuedAt: new Date().toISOString(),
           workspaceId: 'ws-work',
           itemId: uuidv7(),
-          title: 'x',
+          message: 'x',
         },
       },
     ])('$situation', ({ capture }) => {
@@ -27,7 +27,7 @@ describe('Capture', () => {
         issuedAt: new Date().toISOString(),
         workspaceId: 'ws-work',
         itemId: uuidv7(),
-        title: 'Make appointment with Novy',
+        message: 'Make appointment with Novy',
       });
       expect(parsed.success).toBe(true);
     });

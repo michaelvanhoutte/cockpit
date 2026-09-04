@@ -47,7 +47,7 @@ async function captureAnItem(overrides: Partial<CommandPayload<'capture_item'>> 
     issuedAt: '2026-08-12T10:00:00.000Z',
     workspaceId: WORKSPACE_ID,
     itemId,
-    title: 'Make appointment with Novy',
+    message: 'Make appointment with Novy',
     ...overrides,
   });
   return itemId;
@@ -97,7 +97,7 @@ describe('Offline', () => {
           issuedAt: '2026-08-12T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId: targetId,
-          title: 'Make appointment with Novy',
+          message: 'Make appointment with Novy',
         }),
       },
       {
@@ -292,7 +292,7 @@ describe('Triage', () => {
           issuedAt: '2026-08-12T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId,
-          title: 'x',
+          message: 'x',
         }),
       });
 
@@ -312,7 +312,7 @@ describe('Capture', () => {
           issuedAt: '2026-08-12T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId,
-          title: 'Make appointment with Novy',
+          message: 'Make appointment with Novy',
         });
 
       await capture(nextId());
@@ -370,7 +370,7 @@ describe('Capture', () => {
         issuedAt: '2026-08-12T10:00:00.000Z',
         workspaceId: 'ws-that-was-never-created',
         itemId: nextId(),
-        title: 'Make appointment with Novy',
+        message: 'Make appointment with Novy',
       });
 
       expect(response.status).toBe(404);
@@ -387,7 +387,7 @@ describe('Capture', () => {
         issuedAt: '2026-08-12T10:00:00.000Z',
         workspaceId: 'ws-that-was-never-created',
         itemId,
-        title: 'Make appointment with Novy',
+        message: 'Make appointment with Novy',
       });
 
       expect(await storedIn('items', 'id', itemId)).toHaveLength(0);
@@ -421,7 +421,7 @@ describe('Triage', () => {
           issuedAt: '2026-02-31T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId: nextId(),
-          title: 'Make appointment with Novy',
+          message: 'Make appointment with Novy',
         }),
       },
       {

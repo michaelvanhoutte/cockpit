@@ -28,13 +28,24 @@ export interface OAuthDescriptor {
 }
 
 /**
- * The source-owned slice of an Item that a connector is allowed to produce.
- * App-owned fields (status, focus, associations, ...) are never a connector's
- * business; the host merges these into full Items per the reconciliation rule.
+ * What a connector is allowed to produce for an Item: the source-owned slice,
+ * plus the two texts a source only ever *seeds*. `capturedMessage` is written
+ * once when the Item is made and `title` is app-owned from that moment on
+ * (architecture, "Schema conventions"), so a later sync proposing either
+ * changes nothing already stored - which is what lets somebody rename an Item
+ * and keep the name. App-owned fields (status, focus, associations, ...) are
+ * never a connector's business; the host merges these into full Items per the
+ * reconciliation rule.
  */
 export type SourceItem = Pick<
   Item,
-  'source' | 'sourceId' | 'sourceLink' | 'sender' | 'sourceTimestamp' | 'title' | 'preview'
+  | 'source'
+  | 'sourceId'
+  | 'sourceLink'
+  | 'sender'
+  | 'sourceTimestamp'
+  | 'title'
+  | 'capturedMessage'
 >;
 
 /** A source-state change observed during sync (tombstones, completions). */

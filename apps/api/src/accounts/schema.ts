@@ -462,17 +462,24 @@ export const items = sqliteTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'restrict' }),
 
+    // -- write-once column --
+    capturedMessage: text('captured_message'),
+
     // -- source-owned columns --
     source: text('source').$type<Source>().notNull(),
     sourceId: text('source_id'),
     sourceLink: text('source_link'),
     sender: text('sender'),
     sourceTimestamp: text('source_timestamp'),
-    title: text('title').notNull(),
-    preview: text('preview'),
     sourceResolvedAt: text('source_resolved_at'),
 
     // -- app-owned columns --
+    // `preview` is deliberately absent though the column is still there: nothing
+    // reads or writes it from here on, and dropping it waits for a later release
+    // so a rollback still meets a schema its code can read (deployment,
+    // "Migrations and rollback"; issue 161).
+    title: text('title').notNull(),
+    description: text('description'),
     status: text('status').$type<ItemStatus>().notNull(),
     nextAction: text('next_action'),
     focusHorizon: text('focus_horizon').$type<FocusHorizon>(),

@@ -8,12 +8,12 @@ import { useCommand } from '../api/queries';
  * wraps this same command when the PWA capture work lands.
  */
 export function CaptureForm({ workspaceId }: { workspaceId: string }) {
-  const [title, setTitle] = useState('');
+  const [message, setMessage] = useState('');
   const command = useCommand();
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = title.trim();
+    const trimmed = message.trim();
     if (!trimmed) return;
     command.mutate({
       name: 'capture_item',
@@ -22,10 +22,10 @@ export function CaptureForm({ workspaceId }: { workspaceId: string }) {
         issuedAt: new Date().toISOString(),
         workspaceId,
         itemId: uuidv7(),
-        title: trimmed,
+        message: trimmed,
       },
     });
-    setTitle('');
+    setMessage('');
   };
 
   return (
@@ -38,8 +38,8 @@ export function CaptureForm({ workspaceId }: { workspaceId: string }) {
           the column ever gets ("Show the Inbox beside the dashboards instead
           of as a tab", issue 117). */}
       <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
         placeholder="Capture a note or to-do…"
         aria-label="Capture a note or to-do"
         className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"

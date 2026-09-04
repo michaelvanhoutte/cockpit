@@ -50,10 +50,12 @@ import {
   workspaceNamed,
 } from '../domain/workspaces.js';
 import {
+  applySetDescription,
   applySetFocus,
   applySetNextAction,
   applySetPriority,
   applySetStatus,
+  applySetTitle,
   applySnoozeUntil,
   associationFromCommand,
   captureItem,
@@ -790,7 +792,9 @@ export function runCommand<N extends CommandName>(
         | CommandPayload<'snooze_until'>
         | CommandPayload<'set_focus'>
         | CommandPayload<'set_next_action'>
-        | CommandPayload<'set_priority'>;
+        | CommandPayload<'set_priority'>
+        | CommandPayload<'set_title'>
+        | CommandPayload<'set_description'>;
       const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
 
@@ -803,7 +807,11 @@ export function runCommand<N extends CommandName>(
               ? applySetFocus(existing, cmd as CommandPayload<'set_focus'>)
               : name === 'set_next_action'
                 ? applySetNextAction(existing, cmd as CommandPayload<'set_next_action'>)
-                : applySetPriority(existing, cmd as CommandPayload<'set_priority'>);
+                : name === 'set_title'
+                  ? applySetTitle(existing, cmd as CommandPayload<'set_title'>)
+                  : name === 'set_description'
+                    ? applySetDescription(existing, cmd as CommandPayload<'set_description'>)
+                    : applySetPriority(existing, cmd as CommandPayload<'set_priority'>);
 
       if (updated === null) {
         // Stale by last-write-wins: log the command, change nothing.

@@ -18,7 +18,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
         ...request,
         issuedAt: MADE,
         itemId: '018f0000-0000-7000-8000-000000000002',
-        title: 'Make appointment with Novy',
+        message: 'Make appointment with Novy',
       },
       'tenant-default',
     ),

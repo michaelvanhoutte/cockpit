@@ -3,7 +3,9 @@ import {
   associationKindSchema,
   dashboardNameSchema,
   focusHorizonSchema,
+  itemDescriptionSchema,
   itemStatusSchema,
+  itemTitleSchema,
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
@@ -275,8 +277,15 @@ export type DeleteLayoutCommand = z.infer<typeof deleteLayoutSchema>;
  */
 export const captureItemSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
-  title: z.string().min(1),
-  body: z.string().optional(),
+  /**
+   * What was said, which is the Item's captured message and the only text
+   * capture writes. The title is left empty and the row falls through to this
+   * (`itemLabel`), so nothing has to guess a name for a thought at the moment
+   * of having it. What capture *should* write into the three texts - a cleaned
+   * title, several suggestions to pick from - is its own piece of work
+   * (docs/ideas.md §2).
+   */
+  message: z.string().trim().min(1),
   nextAction: z.string().optional(),
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
@@ -436,6 +445,31 @@ export const setPrioritySchema = commandEnvelopeSchema.extend({
 export type SetPriorityCommand = z.infer<typeof setPrioritySchema>;
 
 /**
+ * set_title / set_description — the two texts the Item's form edits ("Edit an
+ * item's title and description on a form of its own", issue 159).
+ *
+ * **Two commands rather than one save**, because they are two fields resolved
+ * last-write-wins independently: the form sends only what changed, so leaving
+ * the title alone cannot carry a stale copy of it over an edit made on another
+ * device. One `update_item` carrying both would do exactly that.
+ *
+ * A null description is one that has been cleared, which is the same thing as
+ * never having had one - there is no third state, and nothing distinguishes an
+ * Item whose description was emptied from one that never got a word.
+ */
+export const setTitleSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  title: itemTitleSchema,
+});
+export type SetTitleCommand = z.infer<typeof setTitleSchema>;
+
+export const setDescriptionSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  description: itemDescriptionSchema.nullable(),
+});
+export type SetDescriptionCommand = z.infer<typeof setDescriptionSchema>;
+
+/**
  * The command registry: name → payload schema. The API mounts one POST route
  * per entry; the client gets a typed sender per entry. Adding a command means
  * adding it here and writing its domain handler; no other wiring.
@@ -464,6 +498,8 @@ export const commandSchemas = {
   set_focus: setFocusSchema,
   set_next_action: setNextActionSchema,
   set_priority: setPrioritySchema,
+  set_title: setTitleSchema,
+  set_description: setDescriptionSchema,
 } as const;
 
 export type CommandName = keyof typeof commandSchemas;

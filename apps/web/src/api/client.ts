@@ -140,6 +140,9 @@ const commandSenders = {
     api.v1.commands.set_next_action.$post({ json: p }),
   set_priority: (p: CommandPayload<'set_priority'>) =>
     api.v1.commands.set_priority.$post({ json: p }),
+  set_title: (p: CommandPayload<'set_title'>) => api.v1.commands.set_title.$post({ json: p }),
+  set_description: (p: CommandPayload<'set_description'>) =>
+    api.v1.commands.set_description.$post({ json: p }),
 } as const;
 
 /**

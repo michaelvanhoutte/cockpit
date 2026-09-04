@@ -23,7 +23,7 @@ describe('Capture', () => {
       expect(mutate).toHaveBeenCalledTimes(1);
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('capture_item');
-      expect(asked.payload.title).toBe('Buy milk');
+      expect(asked.payload.message).toBe('Buy milk');
       expect(asked.payload.workspaceId).toBe('ws-work');
       expect(box).toHaveValue('');
     });

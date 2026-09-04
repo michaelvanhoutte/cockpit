@@ -68,7 +68,7 @@ Cheap now, expensive to retrofit, so binding from the first migration:
 - **Client-generated IDs** (UUIDv7/ULID) for user-created entities, so creating an item never waits on the server for an identity — which the capture path (§5.4) and any future offline work depend on. Server-generated rows use the same format.
 - **Per-field `updated_at` semantics via command timestamps** (§4.3), giving last-write-wins per field, which is all a single-user-multi-device system needs.
 - **Tombstones, not deletes**, for Items, matching the functional definition's reconciliation model.
-- **Source-owned vs app-owned fields are separate column groups**, so re-syncs overwrite source-owned columns unconditionally and never touch app-owned ones.
+- **Source-owned, app-owned and write-once fields are separate column groups.** Re-syncs overwrite source-owned columns unconditionally and never touch app-owned ones. The captured message is the third kind: written when the Item is made and never again, by a re-sync or by anything else. Nothing enforces that at the database, and nothing should — no command writes the column after capture, and a trigger is more machinery than a field with no writer needs. An Item's title is **app-owned**, not source-owned: a source's subject seeds it at ingest and never afterwards, so renaming an Item survives the next poll.
 
 #### The database is the second lock
 
@@ -171,6 +171,8 @@ The service worker serves the cached app shell locally, and the capture outbox f
 - **Radix** supplies the menu and sheet primitives unstyled, so their focus trapping, keyboard navigation and ARIA are not ours to own and F1 tests cover Cockpit's logic rather than menu mechanics. The differentiating interactions — row swipe, drag-to-panel — are covered by no library and stay hand-written.
 - **Tailwind** imposes no visual style: the prototype's palette, spacing, typography and workspace colors become design tokens in its config, and utilities stay co-located with the markup so deleting an element deletes its styling.
 - Both sit well inside the §7 bundle gate, Tailwind emitting only the utilities used and Radix tree-shaking per primitive.
+- **A form is a Radix `Dialog` whose open state is a route**, not component state (functional definition, "Editing more than one field at a time"). The router owns what is open and the dialog draws it, so the back button and a pasted link both work without either half being rewritten.
+- **The rich-text editor is the first dependency the bundle gate makes lazy.** Every WYSIWYG candidate is around 100KB compressed — half the budget before any Cockpit code — so it loads behind the form rather than on the cold-open path, and the form is an async boundary with a loading state by design. Candidates, sizes and the recommendation are in [rich-text-options.md](rich-text-options.md); the choice is provisional on a spike that reads real chunk sizes off the CI bundle report.
 
 ## 6. Backend architecture
 

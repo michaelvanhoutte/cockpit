@@ -450,6 +450,10 @@ const routes = app
   .openapi(commandRoute('set_focus'), async (c) => c.json(await change(c, 'set_focus', c.req.valid('json')), 200))
   .openapi(commandRoute('set_next_action'), async (c) => c.json(await change(c, 'set_next_action', c.req.valid('json')), 200))
   .openapi(commandRoute('set_priority'), async (c) => c.json(await change(c, 'set_priority', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_title'), async (c) => c.json(await change(c, 'set_title', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_description'), async (c) =>
+    c.json(await change(c, 'set_description', c.req.valid('json')), 200),
+  )
   // --- push invalidation: an SSE doorbell, not a data channel ----------------
   .get('/v1/events', (c) =>
     streamSSE(
