@@ -96,7 +96,7 @@ export function ItemRow({
       {
         onSuccess: () =>
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” marked done`,
+            what: `“${itemLabel(item)}” marked done`,
             undo: () =>
               send({
                 name: 'set_done',

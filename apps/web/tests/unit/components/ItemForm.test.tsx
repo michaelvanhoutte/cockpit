@@ -128,7 +128,7 @@ describe('Item editing', () => {
         asks: {},
       },
     ])('$situation', ({ stored, draft, asks }) => {
-      expect(whatChanged(stored ?? { title: 'Part 11', description: null }, draft)).toEqual(asks);
+      expect(whatChanged(stored ?? { title: 'Part 11', description: '' }, draft)).toEqual(asks);
     });
 
     it('sends a change for each box that moved, and closes', async () => {
@@ -141,6 +141,41 @@ describe('Item editing', () => {
 
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
       expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_description']);
+    });
+
+    // Against the live item this inverted: an edit arriving while the form was
+    // open moved the item and not the untouched box, so Save read the box as
+    // edited and wrote the value it was opened with back over the newer one.
+    it('leaves a box alone that only the world changed, not the person', async () => {
+      held.items = [anItem()];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      // A fresh element each time: passing the identical one back lets React
+      // bail out of the re-render, and the query never sees its new key.
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+      const user = userEvent.setup();
+      await user.type(descriptionBox(), 'Tolerances');
+
+      // The title moves underneath, as a change from another device does when
+      // it arrives over the live updates stream. The box is not refilled - that
+      // is deliberate, so nothing typed is lost - so the title in it is now the
+      // one the form opened with rather than the one the item carries.
+      held.items = [anItem({ title: 'Renamed elsewhere' })];
+      rerender(shell());
+      await waitFor(() => expect(screen.getByRole('heading')).toHaveTextContent('Renamed elsewhere'));
+      expect(titleBox()).toHaveValue('Part 11');
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      // The description only. A title change here would put 'Part 11' back over
+      // the rename nobody in this form asked to undo.
+      expect(sent().map((change) => change.name)).toEqual(['set_description']);
     });
 
     it('sends nothing at all when nothing was touched', async () => {

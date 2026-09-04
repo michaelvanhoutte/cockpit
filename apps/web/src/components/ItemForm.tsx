@@ -16,25 +16,29 @@ const TITLE_LIMIT = 200;
 const DESCRIPTION_LIMIT = 60_000;
 
 /**
- * What Save has to send: the fields that actually changed, and nothing else
+ * What Save has to send: the boxes that actually moved, and nothing else
  * (functional definition, "Editing more than one field at a time"). An
  * untouched box must send no change at all, or it would carry the value it was
  * opened with over an edit made somewhere else in the meantime - the whole
  * reason there are two commands rather than one save.
  *
+ * **`was` is what the boxes were filled from, not what the item says now.**
+ * Against the live item this rule inverts: a change arriving over the live
+ * updates stream while the form is open moves the item and not the untouched
+ * box, so the box reads as edited and Save writes the value it was opened with
+ * back over the newer one. Which is precisely the revert the two commands
+ * exist to prevent.
+ *
  * Compared on the trimmed text, because that is what would be stored: adding a
  * space to the end of a title and pressing Save is not a change to the title.
  */
-export function whatChanged(
-  item: Pick<Item, 'title' | 'description'>,
-  draft: Draft,
-): { title?: string; description?: string | null } {
+export function whatChanged(was: Draft, now: Draft): { title?: string; description?: string | null } {
   const changed: { title?: string; description?: string | null } = {};
-  const title = draft.title.trim();
-  const description = draft.description.trim();
+  const title = now.title.trim();
+  const description = now.description.trim();
 
-  if (title !== item.title.trim()) changed.title = title;
-  if (description !== (item.description ?? '').trim()) changed.description = description || null;
+  if (title !== was.title.trim()) changed.title = title;
+  if (description !== was.description.trim()) changed.description = description || null;
   return changed;
 }
 
@@ -74,21 +78,27 @@ function TheForm({
   const send = useSendCommand();
   const item = data?.items.find((candidate) => candidate.id === itemId);
 
-  const [draft, setDraft] = useState<Draft | null>(null);
+  /** What the boxes hold, and what they were filled from. */
+  const [editing, setEditing] = useState<{ was: Draft; now: Draft } | null>(null);
+  const draft = editing?.now ?? null;
+  const setDraft = (now: Draft) => setEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
 
   /**
-   * The boxes start from the Item and are then the person's own. Keyed on the
-   * Item's id rather than on the Item, so a change arriving over the live
-   * updates stream while the form is open does not overwrite what is being
-   * typed - the last write wins on Save, not on every push.
+   * The boxes start from the Item and are then the person's own, and what they
+   * started from is kept beside them. Filled once and never refilled, so a
+   * change arriving over the live updates stream while the form is open does
+   * not overwrite what is being typed - the last write wins on Save, not on
+   * every push - and `was` is what Save compares against, so that same arriving
+   * change is not mistaken for something typed here.
    */
   useEffect(() => {
-    if (item && draft === null) {
-      setDraft({ title: item.title, description: item.description ?? '' });
+    if (item && editing === null) {
+      const from = { title: item.title, description: item.description ?? '' };
+      setEditing({ was: from, now: { ...from } });
     }
-  }, [item, draft]);
+  }, [item, editing]);
 
   const tooLong =
     draft !== null &&
@@ -96,8 +106,8 @@ function TheForm({
       draft.description.trim().length > DESCRIPTION_LIMIT);
 
   const save = async () => {
-    if (!item || !draft || tooLong) return;
-    const changed = whatChanged(item, draft);
+    if (!item || !editing || tooLong) return;
+    const changed = whatChanged(editing.was, editing.now);
     setSaving(true);
     setRefusal(null);
     const envelope = () => ({

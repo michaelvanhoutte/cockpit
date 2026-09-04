@@ -48,10 +48,10 @@ export const itemTitleSchema = z
 export const itemDescriptionSchema = z.string().trim().max(60_000);
 
 /**
- * Fields are kept in three groups (architecture §4.2): a connector re-sync
- * overwrites the source-owned group unconditionally, never touches the
- * app-owned group, and cannot reach `capturedMessage` at all, which is written
- * once when the Item is made and never again.
+ * Fields are kept in three groups (architecture, "Schema conventions"): a
+ * connector re-sync overwrites the source-owned group unconditionally, never
+ * touches the app-owned group, and cannot reach `capturedMessage` at all, which
+ * is written once when the Item is made and never again.
  *
  * `title` is app-owned rather than source-owned even though a source proposes
  * it: a subject seeds it at ingest and never afterwards, so renaming an Item
