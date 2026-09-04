@@ -172,7 +172,7 @@ The service worker serves the cached app shell locally, and the capture outbox f
 - **Tailwind** imposes no visual style: the prototype's palette, spacing, typography and workspace colors become design tokens in its config, and utilities stay co-located with the markup so deleting an element deletes its styling.
 - Both sit well inside the §7 bundle gate, Tailwind emitting only the utilities used and Radix tree-shaking per primitive.
 - **A form is a Radix `Dialog` whose open state is a route**, not component state (functional definition, "Editing more than one field at a time"). The router owns what is open and the dialog draws it, so the back button and a pasted link both work without either half being rewritten.
-- **The rich-text editor is lazy-loaded, like the Sentry browser SDK below (§9.2).** Every WYSIWYG candidate is around 100KB compressed — half the budget before any Cockpit code — so it loads behind the form rather than on the cold-open path, and the form is an async boundary with a loading state by design. Candidates, sizes and the recommendation are in [rich-text-options.md](rich-text-options.md); the choice is provisional on a spike that reads real chunk sizes off the CI bundle report.
+- **The rich-text editor is lazy-loaded, like the Sentry browser SDK below (§9.2, "Observability").** Every WYSIWYG candidate is around 100KB compressed — half the budget before any Cockpit code — so it loads behind the form rather than on the cold-open path, and the form is an async boundary with a loading state by design. Candidates, sizes and the recommendation are in [rich-text-options.md](rich-text-options.md); the choice is provisional on a spike that reads real chunk sizes off the CI bundle report.
 
 ## 6. Backend architecture
 

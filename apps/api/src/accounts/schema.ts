@@ -69,8 +69,10 @@ export const DEAD_STATUS_VALUE = 'to_process';
  *   of somebody else's;
  * - client-generated IDs (UUIDv7) as text primary keys;
  * - tombstones, not deletes (deleted_at / source_resolved_at);
- * - source-owned vs app-owned columns are separate groups on items:
- *   re-syncs overwrite source-owned columns unconditionally, never app-owned.
+ * - source-owned, app-owned and write-once columns are separate groups on
+ *   items: re-syncs overwrite source-owned columns unconditionally, never
+ *   app-owned, and never reach `captured_message`, which is written when the
+ *   item is made and not again.
  * Timestamps are ISO-8601 text; dates are YYYY-MM-DD text.
  *
  * The database enforces those conventions rather than trusting its callers to,

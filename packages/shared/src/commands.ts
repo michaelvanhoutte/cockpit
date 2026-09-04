@@ -282,7 +282,7 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    * (`itemLabel`), so nothing has to guess a name for a thought at the moment
    * of having it. What capture *should* write into the three texts - a cleaned
    * title, several suggestions to pick from - is its own piece of work
-   * (docs/ideas.md §2).
+   * (docs/ideas.md, "Capture and the task creator").
    */
   message: z.string().trim().min(1),
   nextAction: z.string().optional(),

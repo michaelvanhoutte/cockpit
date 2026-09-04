@@ -76,8 +76,17 @@ export const itemSchema = z.object({
   sourceResolvedAt: z.iso.datetime().nullable(),
 
   // -- app-owned --
-  title: itemTitleSchema,
-  description: itemDescriptionSchema.nullable(),
+  /**
+   * Permissive here, and capped on the way in (`setTitleSchema`), for the
+   * reason `typeId` below is permissive: what is stored has to render even
+   * where it predates a rule. `capture_item` accepted an uncapped title until
+   * this change, so a title longer than the cap can exist - and this shape is
+   * parsed for the whole snapshot at once, so refusing one would blank the
+   * workspace rather than draw one row oddly. The read model does not
+   * re-enforce what the write path already refuses.
+   */
+  title: z.string(),
+  description: z.string().nullable(),
   /**
    * What kind of thing this is ("Capture a thought or an action, and see which
    * it is", issue 155). Nullable: an item captured before types existed, and

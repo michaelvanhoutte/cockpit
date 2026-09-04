@@ -162,7 +162,7 @@ describe('Capture', () => {
    * every fixture used a uuid, so nothing here could have caught it.
    */
   describe('a workspace still opens when what it holds predates the rules', () => {
-    const anItem = (typeId: string | null) => ({
+    const anItem = (over: Record<string, unknown> = {}) => ({
       id: '018f0000-0000-7000-8000-000000000001',
       tenantId: 'tenant-default',
       workspaceId: 'ws-work',
@@ -175,7 +175,7 @@ describe('Capture', () => {
       title: '',
       description: null,
       sourceResolvedAt: null,
-      typeId,
+      typeId: null,
       nextAction: null,
       completedAt: null,
       priority: null,
@@ -184,17 +184,25 @@ describe('Capture', () => {
       deletedAt: null,
       createdAt: '2026-09-04T10:00:00.000Z',
       updatedAt: '2026-09-04T10:00:00.000Z',
+      ...over,
     });
 
     it.each([
       // The two every account starts with have ids derived from the account's
       // own, so an item captured as one of them carries a type id that is not
       // a uuid and never was.
-      { situation: 'a type the account started with', typeId: 'tenant-default-type-thought' },
-      { situation: 'a type made by using it', typeId: '018f0000-0000-7000-8000-000000000002' },
-      { situation: 'no type at all', typeId: null },
-    ])('reads back an item of $situation', ({ typeId }) => {
-      expect(itemSchema.safeParse(anItem(typeId)).success).toBe(true);
+      { situation: 'a type the account started with', over: { typeId: 'tenant-default-type-thought' } },
+      { situation: 'a type made by using it', over: { typeId: '018f0000-0000-7000-8000-000000000002' } },
+      { situation: 'no type at all', over: { typeId: null } },
+      // Capture took an uncapped title until the cap existed, so a title over
+      // it can be sitting in a store right now. The whole snapshot is parsed at
+      // once, so refusing that one item would blank the workspace rather than
+      // draw one row oddly - the cap belongs on the way in, not on the way out.
+      { situation: 'a title longer than the cap', over: { title: 'x'.repeat(500) } },
+      { situation: 'a title with a line break in it', over: { title: 'Part\n11' } },
+      { situation: 'a description longer than the cap', over: { description: 'x'.repeat(70_000) } },
+    ])('reads back an item with $situation', ({ over }) => {
+      expect(itemSchema.safeParse(anItem(over)).success).toBe(true);
     });
   });
 });
