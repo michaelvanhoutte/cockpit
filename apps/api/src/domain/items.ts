@@ -3,11 +3,10 @@ import type {
   Association,
   CaptureItemCommand,
   Item,
-  SetFocusCommand,
+  SetDismissedCommand,
+  SetDoneCommand,
   SetNextActionCommand,
   SetPriorityCommand,
-  SetStatusCommand,
-  SnoozeUntilCommand,
 } from '@cockpit/shared';
 
 /**
@@ -38,12 +37,10 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     title: cmd.title,
     preview: cmd.body ?? null,
     sourceResolvedAt: null,
-    status: 'to_process',
     nextAction: cmd.nextAction ?? null,
-    focusHorizon: null,
+    completedAt: null,
     priority: null,
     dueDate: null,
-    snoozedUntil: null,
     unseen: false,
     deletedAt: null,
     createdAt: cmd.issuedAt,
@@ -51,45 +48,39 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
   };
 }
 
-export function applySetStatus(item: Item, cmd: SetStatusCommand): Item | null {
+/**
+ * Finishing with an item, and taking that back ("An item is either yours to
+ * deal with or finished with", issue 154).
+ *
+ * The command's own timestamp is the completion time rather than the moment the
+ * store saw it, so a change made offline and sent later says when it was made.
+ */
+export function applySetDone(item: Item, cmd: SetDoneCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
   return {
     ...item,
-    status: cmd.status,
-    // Leaving the snoozed state always clears the snooze date.
-    snoozedUntil: cmd.status === 'snoozed' ? item.snoozedUntil : null,
-    // Dismissal is the soft delete of the triage flow: tombstone, never erase -
-    // and **any other status lifts the tombstone**, which is what makes a
-    // dismissal reversible ("Undo what just happened", issue 144). It read
-    // `item.deletedAt` before, so a dismissed item stayed out of every list
-    // whatever it was given afterwards: nothing was destroyed and nothing could
-    // be brought back either. Dismissal is the only thing that writes this
-    // column, so clearing it here cannot lose a tombstone somebody else set.
-    deletedAt: cmd.status === 'dismissed' ? cmd.issuedAt : null,
+    completedAt: cmd.done ? cmd.issuedAt : null,
     updatedAt: cmd.issuedAt,
   };
 }
 
-export function applySnoozeUntil(item: Item, cmd: SnoozeUntilCommand): Item | null {
+/**
+ * Dismissal is the soft delete of the triage flow: tombstone, never erase, and
+ * **undismissing lifts the tombstone**, which is what makes it reversible
+ * ("Undo what just happened", issue 144).
+ *
+ * Dismissal is the only thing that writes `deletedAt`, so clearing it here
+ * cannot lose a tombstone somebody else set. It leaves `completedAt` alone in
+ * both directions: dismissing something already finished with does not unfinish
+ * it, and bringing it back does not either.
+ */
+export function applySetDismissed(item: Item, cmd: SetDismissedCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
   return {
     ...item,
-    status: 'snoozed',
-    snoozedUntil: cmd.until,
-    // Snoozing lifts a dismissal, for the same reason every other status does
-    // (`applySetStatus`): an item hidden until a date is not one that has been
-    // got rid of. It is also the only way back for a *snoozed* item that was
-    // dismissed - putting only its status back would lose the date it was
-    // waiting for, so undoing that dismissal comes through here rather than
-    // through a status.
-    deletedAt: null,
+    deletedAt: cmd.dismissed ? cmd.issuedAt : null,
     updatedAt: cmd.issuedAt,
   };
-}
-
-export function applySetFocus(item: Item, cmd: SetFocusCommand): Item | null {
-  if (isStale(item, cmd.issuedAt)) return null;
-  return { ...item, focusHorizon: cmd.horizon, updatedAt: cmd.issuedAt };
 }
 
 export function applySetNextAction(item: Item, cmd: SetNextActionCommand): Item | null {

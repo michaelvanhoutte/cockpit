@@ -2,8 +2,6 @@ import { z } from 'zod';
 import {
   associationKindSchema,
   dashboardNameSchema,
-  focusHorizonSchema,
-  itemStatusSchema,
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
@@ -395,17 +393,26 @@ export const removeItemFromPanelSchema = commandEnvelopeSchema.extend({
 });
 export type RemoveItemFromPanelCommand = z.infer<typeof removeItemFromPanelSchema>;
 
-export const setStatusSchema = commandEnvelopeSchema.extend({
+/**
+ * The two things an Item can be besides yours to deal with ("An item is either
+ * yours to deal with or finished with", issue 154).
+ *
+ * **A flag rather than a pair of commands each way**, because both directions
+ * are wanted and both have to be idempotent: undoing is the same command with
+ * the flag turned round, so nothing has to remember which of a `mark_done` and
+ * a `reopen` inverts the other.
+ */
+export const setDoneSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
-  status: itemStatusSchema,
+  done: z.boolean(),
 });
-export type SetStatusCommand = z.infer<typeof setStatusSchema>;
+export type SetDoneCommand = z.infer<typeof setDoneSchema>;
 
-export const snoozeUntilSchema = commandEnvelopeSchema.extend({
+export const setDismissedSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
-  until: z.iso.datetime(),
+  dismissed: z.boolean(),
 });
-export type SnoozeUntilCommand = z.infer<typeof snoozeUntilSchema>;
+export type SetDismissedCommand = z.infer<typeof setDismissedSchema>;
 
 export const associateSchema = commandEnvelopeSchema.extend({
   associationId: z.uuid(),
@@ -416,12 +423,6 @@ export const associateSchema = commandEnvelopeSchema.extend({
   remove: z.boolean().optional(),
 });
 export type AssociateCommand = z.infer<typeof associateSchema>;
-
-export const setFocusSchema = commandEnvelopeSchema.extend({
-  itemId: z.uuid(),
-  horizon: focusHorizonSchema.nullable(),
-});
-export type SetFocusCommand = z.infer<typeof setFocusSchema>;
 
 export const setNextActionSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -458,10 +459,9 @@ export const commandSchemas = {
   move_item_to_panel: moveItemToPanelSchema,
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,
-  set_status: setStatusSchema,
-  snooze_until: snoozeUntilSchema,
+  set_done: setDoneSchema,
+  set_dismissed: setDismissedSchema,
   associate: associateSchema,
-  set_focus: setFocusSchema,
   set_next_action: setNextActionSchema,
   set_priority: setPrioritySchema,
 } as const;

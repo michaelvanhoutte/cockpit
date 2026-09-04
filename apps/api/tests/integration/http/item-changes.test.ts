@@ -102,13 +102,13 @@ describe('Offline', () => {
       },
       {
         situation: 'marking it done',
-        name: 'set_status',
+        name: 'set_done',
         change: (targetId, requestId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T11:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId: targetId,
-          status: 'done',
+          done: true,
         }),
       },
       {
@@ -162,27 +162,27 @@ describe('Offline', () => {
     it('leaves the item as the newer change left it', async () => {
       const itemId = await captureAnItem();
       // Move the item on, so the change below is older than what it reflects.
-      await postChange('set_status', {
+      await postChange('set_done', {
         commandId: nextId(),
         issuedAt: '2026-08-12T12:00:00.000Z',
         workspaceId: WORKSPACE_ID,
         itemId,
-        status: 'task',
+        done: true,
       });
 
       const outdatedRequestId = nextId();
-      const response = await postChange('set_status', {
+      const response = await postChange('set_done', {
         commandId: outdatedRequestId,
         issuedAt: '2026-08-12T11:00:00.000Z',
         workspaceId: WORKSPACE_ID,
         itemId,
-        status: 'done',
+        done: false,
       });
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ ok: true, applied: false });
       const [item] = await storedIn('items', 'id', itemId);
-      expect(item?.status).toBe('task');
+      expect(item?.completed_at).toBe('2026-08-12T12:00:00.000Z');
       // Still recorded, so the history stays complete even when nothing moved.
       expect(await storedIn('commands', 'command_id', outdatedRequestId)).toHaveLength(1);
     });
@@ -202,24 +202,24 @@ describe('Triage', () => {
     }>([
       {
         situation: 'marking it done',
-        name: 'set_status',
+        name: 'set_done',
         change: (requestId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId: goneItemId,
-          status: 'done',
+          done: true,
         }),
       },
       {
-        situation: 'snoozing it until a date',
-        name: 'snooze_until',
+        situation: 'dismissing it',
+        name: 'set_dismissed',
         change: (requestId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId: goneItemId,
-          until: '2026-09-01T08:00:00.000Z',
+          dismissed: true,
         }),
       },
       {
@@ -233,17 +233,6 @@ describe('Triage', () => {
           associationId: nextId(),
           kind: 'person',
           label: 'Anna',
-        }),
-      },
-      {
-        situation: 'making it a goal for today',
-        name: 'set_focus',
-        change: (requestId) => ({
-          commandId: requestId,
-          issuedAt: '2026-08-12T10:00:00.000Z',
-          workspaceId: WORKSPACE_ID,
-          itemId: goneItemId,
-          horizon: 'today',
         }),
       },
       {
@@ -425,14 +414,14 @@ describe('Triage', () => {
         }),
       },
       {
-        situation: 'snoozing it until a date',
-        name: 'snooze_until',
+        situation: 'marking it done',
+        name: 'set_done',
         change: (requestId, itemId) => ({
           commandId: requestId,
-          issuedAt: '2026-08-12T10:00:00.000Z',
+          issuedAt: '2026-02-31T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId,
-          until: '2026-02-31T08:00:00.000Z',
+          done: true,
         }),
       },
     ])('$situation', async ({ name, change }) => {

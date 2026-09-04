@@ -125,10 +125,9 @@ const commandSenders = {
     api.v1.commands.add_item_to_panel.$post({ json: p }),
   remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>) =>
     api.v1.commands.remove_item_from_panel.$post({ json: p }),
-  set_status: (p: CommandPayload<'set_status'>) => api.v1.commands.set_status.$post({ json: p }),
-  snooze_until: (p: CommandPayload<'snooze_until'>) => api.v1.commands.snooze_until.$post({ json: p }),
+  set_done: (p: CommandPayload<'set_done'>) => api.v1.commands.set_done.$post({ json: p }),
+  set_dismissed: (p: CommandPayload<'set_dismissed'>) => api.v1.commands.set_dismissed.$post({ json: p }),
   associate: (p: CommandPayload<'associate'>) => api.v1.commands.associate.$post({ json: p }),
-  set_focus: (p: CommandPayload<'set_focus'>) => api.v1.commands.set_focus.$post({ json: p }),
   set_next_action: (p: CommandPayload<'set_next_action'>) =>
     api.v1.commands.set_next_action.$post({ json: p }),
   set_priority: (p: CommandPayload<'set_priority'>) =>

@@ -383,17 +383,57 @@ export function listLayoutsInWorkspace(
   }));
 }
 
-/** Open items: tombstoned rows stay in the store but never in the snapshot. */
+/**
+ * The columns an item is read by, named for the reason `workspaceColumns` above
+ * is named: a bare `select()` names every column the table declares, so the
+ * three dead ones would come back on every read and a later release could not
+ * drop them without breaking this one.
+ *
+ * Here it does a second job. `status`, `focus_horizon` and `snoozed_until` are
+ * no longer part of what an Item *is* ("An item is either yours to deal with or
+ * finished with", issue 154), and leaving them out here is what makes that true
+ * of the rows this returns rather than only of the type describing them.
+ */
+const itemColumns = {
+  id: items.id,
+  tenantId: items.tenantId,
+  workspaceId: items.workspaceId,
+  source: items.source,
+  sourceId: items.sourceId,
+  sourceLink: items.sourceLink,
+  sender: items.sender,
+  sourceTimestamp: items.sourceTimestamp,
+  title: items.title,
+  preview: items.preview,
+  sourceResolvedAt: items.sourceResolvedAt,
+  nextAction: items.nextAction,
+  completedAt: items.completedAt,
+  priority: items.priority,
+  dueDate: items.dueDate,
+  unseen: items.unseen,
+  deletedAt: items.deletedAt,
+  createdAt: items.createdAt,
+  updatedAt: items.updatedAt,
+};
+
+/**
+ * Open items: tombstoned rows stay in the store but never in the snapshot.
+ *
+ * **Dismissed items are left out here and finished ones are not**, which is
+ * deliberate: a dismissed item is gone until something brings it back, while an
+ * item marked done has to reach the browser for the bar offering to undo it to
+ * have anything to put back ("Undo what just happened", issue 144). What keeps
+ * a finished item off the lists is the client's own derivation.
+ */
 export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: string): Item[] {
   return db
-    .select()
+    .select(itemColumns)
     .from(items)
     .where(
       and(
         eq(items.tenantId, tenantId),
         eq(items.workspaceId, workspaceId),
         isNull(items.deletedAt),
-        ne(items.status, 'dismissed'),
       ),
     )
     .orderBy(items.createdAt)
@@ -403,7 +443,7 @@ export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: stri
 export function getItem(db: AccountDb, tenantId: string, itemId: string): Item | null {
   return (
     db
-      .select()
+      .select(itemColumns)
       .from(items)
       .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
       .get() ?? null

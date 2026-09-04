@@ -53,6 +53,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANELS,
     WORKSPACE_BAR,
     PANEL_ITEMS,
+    ITEM_COMPLETED_AT,
   ];
 }
 
@@ -553,6 +554,51 @@ const PANEL_ITEMS: Change = {
     },
     {
       sql: 'CREATE INDEX IF NOT EXISTS `panel_items_tenant_item` ON `panel_items` (`tenant_id`,`item_id`)',
+    },
+  ],
+};
+
+/**
+ * Being finished with an item stops being one of eight statuses and becomes a
+ * time ("An item is either yours to deal with or finished with", issue 154).
+ *
+ * **Additive, because `items` cannot be rebuilt.** `panel_items` and
+ * `associations` point at it under RESTRICT, and a `DROP TABLE` performs an
+ * implicit delete the foreign key refuses (architecture, "Schema conventions").
+ * So `status`, `focus_horizon` and `snoozed_until` stay where they are with the
+ * CHECKs they were created with, and nothing reads them again.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **If it stops halfway:** it cannot. `transactionSync` wraps the statements
+ *   and the record that they ran together (store.ts), so a failure in the
+ *   backfill rolls the column back out with it.
+ * - **The second time it runs:** it does not, having been recorded; and if the
+ *   first attempt failed it starts from an untouched store. The backfill is
+ *   idempotent anyway - it only writes rows whose `completed_at` is still null.
+ * - **Rows that already break the new rule:** an item marked done today says so
+ *   only in `status`, so it is given `updated_at` as its completion time. That
+ *   is when it was last changed, which for a done item is when it was done.
+ * - **What is in each environment:** no environment seeds an account's own data
+ *   and none can (deployment, "Bootstrap runbook"), so every item anywhere was
+ *   made by hand through the app.
+ * - **The windows it can be interrupted in.** *Before it runs*: the account is
+ *   untouched and the previous release is reading `status`, which still says
+ *   what it always did. *After it runs, with the previous release promoted
+ *   back*: that release reads `status` and ignores a column it does not name,
+ *   so a done item is still done and one finished with in between is not - the
+ *   only loss, and it is recovered by rolling forward, because `completed_at`
+ *   was written and is still there.
+ */
+const ITEM_COMPLETED_AT: Change = {
+  name: '0007-item-completed-at',
+  statements: [
+    { sql: 'ALTER TABLE `items` ADD COLUMN `completed_at` text' },
+    {
+      sql: `UPDATE items
+               SET completed_at = updated_at
+             WHERE status = 'done'
+               AND completed_at IS NULL`,
     },
   ],
 };

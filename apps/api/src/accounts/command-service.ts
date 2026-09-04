@@ -5,6 +5,7 @@ import {
   associations,
   commands,
   dashboards,
+  DEAD_STATUS_VALUE,
   items,
   layouts,
   panelItems,
@@ -50,11 +51,10 @@ import {
   workspaceNamed,
 } from '../domain/workspaces.js';
 import {
-  applySetFocus,
+  applySetDismissed,
+  applySetDone,
   applySetNextAction,
   applySetPriority,
-  applySetStatus,
-  applySnoozeUntil,
   associationFromCommand,
   captureItem,
 } from '../domain/items.js';
@@ -674,7 +674,9 @@ export function runCommand<N extends CommandName>(
       const item = captureItem(cmd, tenantId);
       db.transaction((tx) => {
         // A retried capture whose command ID was lost still may not duplicate the item.
-        tx.insert(items).values(item).onConflictDoNothing().run();
+        // `status` is the dead column being satisfied rather than used: it is
+        // NOT NULL with a CHECK and nothing reads it (schema.ts).
+        tx.insert(items).values({ ...item, status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -786,24 +788,21 @@ export function runCommand<N extends CommandName>(
     default: {
       // All remaining commands are updates to a single existing item.
       const cmd = payload as
-        | CommandPayload<'set_status'>
-        | CommandPayload<'snooze_until'>
-        | CommandPayload<'set_focus'>
+        | CommandPayload<'set_done'>
+        | CommandPayload<'set_dismissed'>
         | CommandPayload<'set_next_action'>
         | CommandPayload<'set_priority'>;
       const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
 
       const updated =
-        name === 'set_status'
-          ? applySetStatus(existing, cmd as CommandPayload<'set_status'>)
-          : name === 'snooze_until'
-            ? applySnoozeUntil(existing, cmd as CommandPayload<'snooze_until'>)
-            : name === 'set_focus'
-              ? applySetFocus(existing, cmd as CommandPayload<'set_focus'>)
-              : name === 'set_next_action'
-                ? applySetNextAction(existing, cmd as CommandPayload<'set_next_action'>)
-                : applySetPriority(existing, cmd as CommandPayload<'set_priority'>);
+        name === 'set_done'
+          ? applySetDone(existing, cmd as CommandPayload<'set_done'>)
+          : name === 'set_dismissed'
+            ? applySetDismissed(existing, cmd as CommandPayload<'set_dismissed'>)
+            : name === 'set_next_action'
+              ? applySetNextAction(existing, cmd as CommandPayload<'set_next_action'>)
+              : applySetPriority(existing, cmd as CommandPayload<'set_priority'>);
 
       if (updated === null) {
         // Stale by last-write-wins: log the command, change nothing.

@@ -10,14 +10,42 @@ import {
 import { sql } from 'drizzle-orm';
 import {
   associationKindSchema,
-  focusHorizonSchema,
   GRID_COLUMNS,
-  itemStatusSchema,
   MAX_PANEL_ROWS,
   prioritySchema,
   sourceSchema,
 } from '@cockpit/shared';
-import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from '@cockpit/shared';
+import type { AssociationKind, Priority, Source } from '@cockpit/shared';
+
+/**
+ * The values the three dead columns on `items` are allowed to hold.
+ *
+ * They are here rather than in the wire contract because the product no longer
+ * has a status, a snooze or a focus horizon ("An item is either yours to deal
+ * with or finished with", issue 154) - so the rule that a CHECK is built from
+ * the same enum the contract uses (architecture, "The database is the second
+ * lock") has nothing left to hold these in step with. The columns stay because
+ * SQLite refuses `DROP COLUMN` for a column named in a CHECK, and `items`
+ * cannot be rebuilt while `panel_items` and `associations` point at it under
+ * RESTRICT.
+ */
+const DEAD_STATUSES = [
+  'to_process',
+  'task',
+  'waiting',
+  'snoozed',
+  'delegated',
+  'reference',
+  'done',
+  'dismissed',
+] as const;
+const DEAD_FOCUS_HORIZONS = ['today', 'week', 'month', 'quarter'] as const;
+
+/**
+ * What every new item's dead `status` column is written with. It is NOT NULL
+ * with a CHECK, so something has to satisfy both; nothing ever reads it.
+ */
+export const DEAD_STATUS_VALUE = 'to_process';
 
 /**
  * The tables inside one account's store (architecture, "One store per account,
@@ -473,14 +501,30 @@ export const items = sqliteTable(
     sourceResolvedAt: text('source_resolved_at'),
 
     // -- app-owned columns --
-    status: text('status').$type<ItemStatus>().notNull(),
     nextAction: text('next_action'),
-    focusHorizon: text('focus_horizon').$type<FocusHorizon>(),
+    /**
+     * Finished with, and when ("An item is either yours to deal with or
+     * finished with", issue 154). Carries no CHECK: a nullable column only the
+     * command handlers write is not worth rebuilding three tables for, which is
+     * the trade `workspaces.deleted_at` already records.
+     */
+    completedAt: text('completed_at'),
     priority: text('priority').$type<Priority>(),
     dueDate: text('due_date'),
-    snoozedUntil: text('snoozed_until'),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
+
+    /**
+     * Dead columns, kept because they cannot go. `status` is written
+     * `DEAD_STATUS_VALUE` on every insert to satisfy NOT NULL and its CHECK,
+     * and read nowhere; `focus_horizon` and `snoozed_until` are never written
+     * at all. Focus horizons come back with "Goals: mark actions, panels and
+     * dashboards as goals per horizon" (issue 38) as a decision rather than as
+     * a menu entry, and may well not reuse these.
+     */
+    status: text('status').notNull(),
+    focusHorizon: text('focus_horizon'),
+    snoozedUntil: text('snoozed_until'),
 
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
@@ -488,8 +532,8 @@ export const items = sqliteTable(
   (t) => [
     index('items_tenant_workspace_status').on(t.tenantId, t.workspaceId, t.status),
     check('items_source_is_known', oneOf('source', sourceSchema.options)),
-    check('items_status_is_known', oneOf('status', itemStatusSchema.options)),
-    check('items_focus_horizon_is_known', oneOf('focus_horizon', focusHorizonSchema.options)),
+    check('items_status_is_known', oneOf('status', DEAD_STATUSES)),
+    check('items_focus_horizon_is_known', oneOf('focus_horizon', DEAD_FOCUS_HORIZONS)),
     check('items_priority_is_known', oneOf('priority', prioritySchema.options)),
     // STRICT gets this column to INTEGER; this gets it to a flag.
     check('items_unseen_is_flag', sql.raw('unseen IN (0, 1)')),

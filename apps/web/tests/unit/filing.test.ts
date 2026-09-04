@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Filing, Item, ItemStatus } from '@cockpit/shared';
+import type { Filing, Item } from '@cockpit/shared';
 import {
   filedOrderOnPanel,
   itemsInTheInbox,
@@ -15,7 +15,7 @@ import {
  * in apps/api/tests/integration/http/panel-items.test.ts.
  */
 
-function anItem(id: string, status: ItemStatus = 'to_process'): Item {
+function anItem(id: string, completedAt: string | null = null): Item {
   return {
     id,
     tenantId: 'tenant',
@@ -28,18 +28,24 @@ function anItem(id: string, status: ItemStatus = 'to_process'): Item {
     title: id,
     preview: null,
     sourceResolvedAt: null,
-    status,
     nextAction: null,
-    focusHorizon: null,
+    completedAt,
     priority: null,
     dueDate: null,
-    snoozedUntil: null,
     unseen: false,
     deletedAt: null,
     createdAt: '2026-08-31T08:00:00.000Z',
     updatedAt: '2026-08-31T08:00:00.000Z',
   };
 }
+
+/**
+ * A dismissed item is not here at all: the workspace leaves it out before the
+ * browser sees it, so being finished with one is the only thing these two
+ * derivations have to decide about ("An item is either yours to deal with or
+ * finished with", issue 154).
+ */
+const FINISHED = '2026-08-31T09:00:00.000Z';
 
 function filed(panelId: string, itemId: string, position: number): Filing {
   return { panelId, itemId, position };
@@ -62,14 +68,11 @@ describe('Panels', () => {
       expect(itemsOnPanel(items, filings, 'anna').map((i) => i.id)).toEqual(['a']);
     });
 
-    it.each([
-      { situation: 'an item that has been finished', status: 'done' as ItemStatus },
-      { situation: 'an item that has been dismissed', status: 'dismissed' as ItemStatus },
-    ])('leaves $situation off the panel it was filed on', ({ status }) => {
+    it('leaves an item that has been finished with off the panel it was filed on', () => {
       const filings = [filed('falcon', 'a', 0), filed('falcon', 'b', 1)];
 
       expect(
-        itemsOnPanel([anItem('a', status), anItem('b')], filings, 'falcon').map((i) => i.id),
+        itemsOnPanel([anItem('a', FINISHED), anItem('b')], filings, 'falcon').map((i) => i.id),
       ).toEqual(['b']);
     });
 
@@ -104,11 +107,10 @@ describe('Panels', () => {
       expect(inbox.includes('a')).toBe(inTheInbox);
     });
 
-    it.each([
-      { situation: 'finished', status: 'done' as ItemStatus },
-      { situation: 'dismissed', status: 'dismissed' as ItemStatus },
-    ])('leaves out an item that has been $situation', ({ status }) => {
-      expect(itemsInTheInbox([anItem('a', status), anItem('b')], []).map((i) => i.id)).toEqual(['b']);
+    it('leaves out an item that has been finished with', () => {
+      expect(itemsInTheInbox([anItem('a', FINISHED), anItem('b')], []).map((i) => i.id)).toEqual([
+        'b',
+      ]);
     });
   });
 
