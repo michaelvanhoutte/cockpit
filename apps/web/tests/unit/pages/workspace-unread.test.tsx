@@ -21,12 +21,10 @@ const SNAPSHOT = {
     {
       id: 'item-1',
       title: 'Something still to deal with',
-      status: 'to_process',
+      completedAt: null,
       nextAction: null,
       source: 'internal',
       sender: null,
-      focusHorizon: null,
-      snoozedUntil: null,
       createdAt: '2026-09-01T09:00:00.000Z',
     },
   ],
