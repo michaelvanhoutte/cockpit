@@ -170,6 +170,33 @@ describe('Item editing', () => {
     });
   });
 
+  describe('the form is the item the address names, and no other', () => {
+    // Going from one item's form straight to another's - a pasted link, a step
+    // through history - kept the first item's boxes, and Save then wrote its
+    // text onto the second.
+    it('starts again from the item now named', async () => {
+      held.items = [anItem(), anItem({ id: 'item-2', title: 'Part 12', description: 'Its own' })];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { rerender } = render(
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>,
+      );
+      await screen.findByLabelText('Title');
+      expect(titleBox()).toHaveValue('Part 11');
+
+      held.openItemId = 'item-2';
+      rerender(
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => expect(titleBox()).toHaveValue('Part 12'));
+      expect(descriptionBox()).toHaveValue('Its own');
+    });
+  });
+
   describe('closing the form without saving changes nothing', () => {
     it.each([
       { situation: 'Cancel', close: async (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Cancel' })) },

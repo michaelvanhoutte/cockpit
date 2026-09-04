@@ -240,7 +240,17 @@ export function ItemRow({
       draggable
       // A double-click opens the form. Not a single click: a row is dragged,
       // swiped and dropped on, and every one of those begins with a press.
-      onDoubleClick={onOpen}
+      //
+      // **Only when the row itself was double-clicked.** The event bubbles, so
+      // without this a double press on the menu control - or on an entry in the
+      // open menu - opens the form over the menu as well as doing what was
+      // asked. The controls inside the row have their own meanings and none of
+      // them is "open this".
+      onDoubleClick={(event) => {
+        if (event.target === event.currentTarget || !(event.target as Element).closest('button')) {
+          onOpen?.();
+        }
+      }}
       onDragStart={(event) => {
         event.dataTransfer.setData(ITEM_BEING_DRAGGED, item.id);
         // Its own type *and* text, because Firefox starts no drag at all

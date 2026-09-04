@@ -20,6 +20,11 @@ export interface ItemFormSearch {
  * What the address is allowed to carry. Anything else is dropped rather than
  * passed on, so a hand-typed `?item=` or a stale link cannot put a value the
  * form never expects into a query key.
+ *
+ * **This is the whole of what any address under the shell may carry**, because
+ * it validates the layout route every page sits inside. A page that wants a
+ * search parameter of its own adds it here, or it is silently dropped on the
+ * way in - there is nowhere else under the shell to declare one.
  */
 export function itemFormSearch(search: Record<string, unknown>): ItemFormSearch {
   return typeof search.item === 'string' && search.item ? { item: search.item } : {};

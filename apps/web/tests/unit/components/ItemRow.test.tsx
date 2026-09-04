@@ -378,6 +378,18 @@ describe('Item editing', () => {
       expect(onOpen).toHaveBeenCalledTimes(1);
     });
 
+    // A double press on the menu control is easy to do by accident, and the
+    // event bubbles to the row: without a check on what was hit, it opened the
+    // menu and the form at once.
+    it('leaves the form shut when the double-click was on a control of its own', async () => {
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+
+      fireEvent.doubleClick(screen.getByLabelText('Item actions'));
+
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+
     it('offers nothing to open where there is nowhere to open it', async () => {
       const user = userEvent.setup();
       aRow();

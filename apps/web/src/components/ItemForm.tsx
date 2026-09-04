@@ -52,7 +52,13 @@ export function ItemForm() {
   const { workspaceId } = useParams({ strict: false }) as { workspaceId?: string };
 
   if (!openItemId || !workspaceId) return null;
-  return <TheForm itemId={openItemId} workspaceId={workspaceId} onClose={close} />;
+  // Keyed on the item, so going from one item's form straight to another's -
+  // a pasted link, a step through history - starts the boxes again from the
+  // item now named. Without it the draft is kept across the change and Save
+  // writes the first item's text onto the second.
+  return (
+    <TheForm key={openItemId} itemId={openItemId} workspaceId={workspaceId} onClose={close} />
+  );
 }
 
 function TheForm({
