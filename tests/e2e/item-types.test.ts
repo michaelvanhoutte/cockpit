@@ -3,6 +3,7 @@ import {
   chooseRowAction,
   expect,
   expectNoSidewaysScroll,
+  inbox,
   itemRow,
   openInbox,
   press,
@@ -39,7 +40,7 @@ test.describe('Capture', () => {
       const thought = uniqueTitle('Why is this slow?');
       await captureBox(page).fill(thought);
       await page.getByLabel('What kind of thing this is').fill(kind);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
       await expect(itemRow(page, thought).getByText(kind)).toBeVisible();
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);

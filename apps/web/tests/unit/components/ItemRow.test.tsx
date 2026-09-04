@@ -17,6 +17,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     id: 'item-1',
     tenantId: 'tenant-default',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,
@@ -47,10 +48,12 @@ function anItem(overrides: Partial<Item> = {}): Item {
 function aRow({
   settles = false,
   onMoveTo,
+  onMoveHere,
   item = anItem(),
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
+  onMoveHere?: () => void;
   item?: Item;
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
@@ -61,7 +64,12 @@ function aRow({
   mockUseSendCommand.mockReturnValue(send);
   render(
     <UndoWhatJustHappened>
-      <ItemRow item={item} workspaceId="ws-work" {...(onMoveTo ? { onMoveTo } : {})} />
+      <ItemRow
+        item={item}
+        workspaceId="ws-work"
+        {...(onMoveTo ? { onMoveTo } : {})}
+        {...(onMoveHere ? { onMoveHere } : {})}
+      />
     </UndoWhatJustHappened>,
   );
   return { mutate, send };
@@ -368,6 +376,63 @@ describe('Triage', () => {
 
       expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
       expect(container.querySelector('li > span[aria-hidden="true"]')).toBeNull();
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * F1: which entries a menu carries, and what the row says about itself, are
+   * the component's. That the entry's move actually settles the workspace, and
+   * that the item then leaves every other Inbox, is a query and is proved
+   * against a real store in
+   * apps/api/tests/integration/http/panel-items.test.ts.
+   */
+  describe('a row says when it belongs to no workspace yet', () => {
+    it.each([
+      { situation: 'belonging to no workspace yet', decided: false, marked: true },
+      { situation: 'belonging to this one', decided: true, marked: false },
+    ])('$situation', ({ decided, marked }) => {
+      aRow({ item: anItem({ workspaceDecided: decided }) });
+
+      expect(screen.queryByText('Any workspace') !== null).toBe(marked);
+    });
+
+    /**
+     * A snapshot stored before the field existed is rehydrated without being
+     * parsed again, so the field can simply be missing - and missing has to
+     * read as *belongs here*. The other way round would put every item an old
+     * copy holds into every workspace's Inbox at once.
+     */
+    it('takes an item from before the field as belonging where it is', () => {
+      const { workspaceDecided: _, ...older } = anItem();
+      aRow({ item: older as Item });
+
+      expect(screen.queryByText('Any workspace')).toBeNull();
+    });
+  });
+
+  describe('the workspace you are looking at is one press away, and only where there is a question', () => {
+    it.each([
+      { situation: 'belonging to no workspace yet', decided: false, offered: true },
+      { situation: 'belonging to this one already', decided: true, offered: false },
+    ])('$situation', async ({ decided, offered }) => {
+      const user = userEvent.setup();
+      aRow({ item: anItem({ workspaceDecided: decided }), onMoveHere: vi.fn() });
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(screen.queryByText('Move to this workspace') !== null).toBe(offered);
+    });
+
+    it('asks for it when it is chosen', async () => {
+      const user = userEvent.setup();
+      const onMoveHere = vi.fn();
+      aRow({ item: anItem({ workspaceDecided: false }), onMoveHere });
+
+      await choose(user, 'Move to this workspace');
+
+      expect(onMoveHere).toHaveBeenCalled();
     });
   });
 });

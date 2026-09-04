@@ -32,7 +32,7 @@ import {
   listPlacements,
   listWorkspaces,
 } from './repo.js';
-import { isPaletteTheme } from '@cockpit/shared';
+import { ACCOUNT_WIDE, isPaletteTheme } from '@cockpit/shared';
 import { foldName } from '../domain/names.js';
 import {
   dashboardFromCommand,
@@ -73,6 +73,7 @@ import {
   applySetPriority,
   associationFromCommand,
   captureItem,
+  decideWorkspace,
 } from '../domain/items.js';
 
 export class ItemTypeNotFoundError extends Error {
@@ -270,6 +271,42 @@ function panelTheChangeIsAbout(
     throw new PanelNotFoundError(panelId);
   }
   return panel;
+}
+
+/**
+ * Logs this change against the account rather than against one workspace, so
+ * the stream tells *every* workspace its snapshot is stale (events.ts derives
+ * invalidations from this column, and useServerEvents reads the sentinel).
+ *
+ * **Every change to an item that belongs to no workspace needs it**, because an
+ * item that belongs to none is drawn in every workspace's Inbox ("Capture
+ * something before you know which workspace it belongs to", issue 165) - so
+ * finishing with one, dismissing one, or settling one changes what a tab open
+ * on some other workspace should be showing. Logging it against the workspace
+ * the envelope happens to name leaves that tab drawing the item until something
+ * unrelated makes it read again.
+ */
+function everyWorkspaceSees(commandRow: { workspaceId: string }): void {
+  commandRow.workspaceId = ACCOUNT_WIDE;
+}
+
+/**
+ * Inside one of this store's transactions - what `db.transaction` hands its
+ * callback, which is not the database itself.
+ */
+type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
+
+/** Writes where an item belongs, once somebody has said ("An item gets its workspace…"). */
+function settleWorkspace(
+  tx: InATransaction,
+  tenantId: string,
+  itemId: string,
+  decided: { workspaceId: string; updatedAt: string },
+): void {
+  tx.update(items)
+    .set({ workspaceId: decided.workspaceId, workspaceDecided: true, updatedAt: decided.updatedAt })
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
+    .run();
 }
 
 /**
@@ -726,6 +763,12 @@ export function runCommand<N extends CommandName>(
         throw new ItemTypeNotFoundError(cmd.typeId);
       }
       const item = captureItem(cmd, tenantId);
+      // An item belonging to no workspace shows in every workspace's Inbox, so
+      // every workspace's snapshot is now stale - not only the one it was
+      // captured from ("Capture something before you know which workspace it
+      // belongs to", issue 165). The same sentinel a new type carries, read by
+      // the stream in events.ts and by useServerEvents in the browser.
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         // A retried capture whose command ID was lost still may not duplicate the item.
         // `status` is the dead column being satisfied rather than used: it is
@@ -742,20 +785,41 @@ export function runCommand<N extends CommandName>(
       // own id alone, so without that a move could reach across the account
       // into a workspace the caller never opened. The same reasoning
       // `panelTheChangeIsAbout` carries, one level along.
+      //
+      // **An item belonging to no workspace is reachable from every one of
+      // them**, because it is shown in every one of them ("Capture something
+      // before you know which workspace it belongs to", issue 165) - and this
+      // is the command that says where it belongs. The workspace it names still
+      // has to exist, which is what the check below does for a move to an Inbox
+      // (`panelTheChangeIsAbout` already does it for a move to a panel).
       const item = getItem(db, tenantId, cmd.itemId);
-      if (!item || item.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      if (!item || (item.workspaceDecided && item.workspaceId !== cmd.workspaceId)) {
+        throw new ItemNotFoundError(cmd.itemId);
+      }
       // A null panel is the Inbox, which is not a panel and so is nothing to
       // look up: the item comes off everything and, being filed nowhere, is
       // back in the Inbox.
       const panel = cmd.panelId ? panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId) : null;
+      if (!panel && !getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
 
       // Checked against what the panel actually holds rather than left to the
       // foreign key, which could not tell an item of another workspace from one
       // that was moved off a moment ago - and would surface either as a 500.
       if (panel) refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
 
+      // Where it goes is where it belongs, from now on. Null for an item that
+      // already belonged somewhere, which is every move the app made before
+      // this: the workspace is settled and nothing about it changes.
+      const decided = decideWorkspace(item, cmd.workspaceId, cmd.issuedAt);
+      // It has just left every other workspace's Inbox, so their snapshots are
+      // stale too - the same reason a capture with no workspace carries this.
+      if (decided) everyWorkspaceSees(commandRow);
+
       const rows = filingRows(tenantId, cmd);
       db.transaction((tx) => {
+        if (decided) settleWorkspace(tx, tenantId, cmd.itemId, decided);
         // Off everything first, which is what makes this a move rather than an
         // add: the item's own rows go, wherever they were, and the target
         // panel's arrangement is then written whole. A reorder is the same two
@@ -780,14 +844,26 @@ export function runCommand<N extends CommandName>(
     }
     case 'add_item_to_panel': {
       const cmd = payload as CommandPayload<'add_item_to_panel'>;
+      // Reachable from every workspace while it belongs to none, and settled by
+      // landing on a panel - exactly as `move_item_to_panel` above, because
+      // putting an item on a panel is putting it on a panel whichever of the
+      // two commands says so. Without this, adding an undecided item to a panel
+      // left it filed *and* still in every other workspace's Inbox, which is a
+      // state the rule does not have.
       const item = getItem(db, tenantId, cmd.itemId);
-      if (!item || item.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      if (!item || (item.workspaceDecided && item.workspaceId !== cmd.workspaceId)) {
+        throw new ItemNotFoundError(cmd.itemId);
+      }
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
 
       refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
 
+      const decided = decideWorkspace(item, cmd.workspaceId, cmd.issuedAt);
+      if (decided) everyWorkspaceSees(commandRow);
+
       const rows = filingRows(tenantId, { ...cmd, panelId: panel.id });
       db.transaction((tx) => {
+        if (decided) settleWorkspace(tx, tenantId, cmd.itemId, decided);
         // Only this panel's rows. **The whole difference from a move is the
         // delete that is not here**: the panels the item was already on keep
         // it, which is what makes one item on several panels a thing at all.
@@ -916,6 +992,9 @@ export function runCommand<N extends CommandName>(
       const cmd = payload as CommandPayload<'associate'>;
       const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      // Its associations are read in every workspace the item is drawn in, so
+      // for one that belongs to none that is all of them.
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         if (cmd.remove) {
           tx.delete(associations)
@@ -940,6 +1019,10 @@ export function runCommand<N extends CommandName>(
         | CommandPayload<'set_priority'>;
       const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      // Finishing with an item that belongs to no workspace, or dismissing one,
+      // takes it out of *every* workspace's Inbox rather than one - so every
+      // one of them has to be told, not the one the envelope happens to name.
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
 
       const updated =
         name === 'set_done'

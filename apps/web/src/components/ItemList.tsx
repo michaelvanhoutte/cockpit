@@ -1,7 +1,7 @@
 import { Fragment, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { uuidv7, type Item } from '@cockpit/shared';
-import { snapshotQuery, useCommand, useSendCommand } from '../api/queries';
+import { uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
+import { snapshotQuery, useCommand, useSendCommand, workspacesQuery } from '../api/queries';
 import { CommandRefused } from '../api/client';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
 import { filedOrderOnPanel, itemsOnPanel, orderWithItemAt } from '../filing';
@@ -58,6 +58,9 @@ export function ItemList({
   emptyMessage: string;
 }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
+  // Every workspace, for the Inboxes the picker offers an item that belongs to
+  // none of them. The same cached read the tabs above are already doing.
+  const { data: allWorkspaces } = useQuery(workspacesQuery);
   // `?? []` for the reason the filings elsewhere carry one: a stored snapshot
   // can predate the field, and a row with no type is drawn rather than hidden.
   const types = data?.itemTypes ?? [];
@@ -123,8 +126,24 @@ export function ItemList({
    * mapping to the order the panel holds is `placeAmongHeld`, and it is not the
    * same list - a filing outlives its item being finished.
    */
-  const move = (item: Item, panelId: string | null, atAmongDrawn = 0) => {
+  const move = (item: Item, panelId: string | null, atAmongDrawn = 0, intoWorkspace?: string) => {
     const before = whereItIs(item);
+    // Which workspace the move is made in - this one, unless the picker chose
+    // another workspace's Inbox for an item that belongs to none ("Capture
+    // something before you know which workspace it belongs to", issue 165).
+    const inWorkspace = intoWorkspace ?? workspaceId;
+    /**
+     * That this move is also what decides where the item belongs, which is what
+     * makes it irreversible: an item belonging to no workspace is a question,
+     * and once answered there is no putting the question back.
+     *
+     * **So no way back is offered for it**, rather than one that would quietly
+     * do less than it says. Undoing the filing would take the item off the
+     * panel and leave it in this workspace's Inbox alone, not back in every
+     * workspace's - and an offer that restores something other than what was
+     * there is worse than no offer ("Undo what just happened", issue 144).
+     */
+    const decides = !workspaceIsDecided(item);
     // The order the target panel is in afterwards, which is what the command
     // carries: a whole arrangement rather than a position, so two moves
     // arriving out of turn cannot compose into an order nobody asked for. The
@@ -148,7 +167,7 @@ export function ItemList({
         payload: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
-          workspaceId,
+          workspaceId: inWorkspace,
           itemId: item.id,
           panelId,
           order,
@@ -161,6 +180,7 @@ export function ItemList({
           if (panelId) rememberRecentPanel(browserStore(), workspaceId, panelId);
           setMoving(null);
           setAsking(null);
+          if (decides) return;
           offerToUndo({
             what: `“${item.nextAction ?? item.title}” moved to ${nameOf(panelId)}`,
             // Every panel it was on, not the first of them: a move takes an
@@ -500,6 +520,10 @@ export function ItemList({
                     command.reset();
                     setMoving(item);
                   }}
+                  // The one you are looking at, which is the same move the
+                  // picker makes with this workspace's Inbox chosen - the row
+                  // decides whether to offer it at all.
+                  onMoveHere={() => move(item, null, 0, workspaceId)}
                   {...(panelId
                     ? {
                         ordering: {
@@ -554,8 +578,9 @@ export function ItemList({
           openDashboardId={openDashboardId}
           recent={recentPanelsIn(browserStore(), workspaceId)}
           open
-          onPick={(pickedPanelId) => {
-            if (pickedPanelId) add(adding, pickedPanelId, 0);
+          workspaceId={workspaceId}
+          onPick={(target) => {
+            if ('panel' in target) add(adding, target.panel, 0);
           }}
           onCancel={() => {
             command.reset();
@@ -572,10 +597,27 @@ export function ItemList({
           itemTitle={moving.nextAction ?? moving.title}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
+          workspaceId={workspaceId}
+          // Only for an item that belongs to no workspace: for any other, which
+          // workspace it is in is settled and the one Inbox is this one.
+          //
+          // **And only when there is a workspace to offer.** An empty list is
+          // still a list, so handing one over gave the picker a Workspaces
+          // heading with nothing under it *and* took the plain Inbox away -
+          // opened before the query settled, an item that belongs nowhere
+          // could be put nowhere. Falling back to the plain Inbox is not a
+          // lie: it is this workspace's, which is one of the right answers.
+          {...(workspaceIsDecided(moving) || !allWorkspaces?.workspaces.length
+            ? {}
+            : { inboxesOf: allWorkspaces.workspaces })}
           openDashboardId={openDashboardId}
           recent={recentPanelsIn(browserStore(), workspaceId)}
           open
-          onPick={(panelId) => move(moving, panelId)}
+          onPick={(target) =>
+            'panel' in target
+              ? move(moving, target.panel)
+              : move(moving, null, 0, target.inboxOf)
+          }
           onCancel={() => {
             // Reset as well as close: a refusal outlives the dialog it was
             // shown in, and the list says one of its own now - so cancelling

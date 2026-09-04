@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Dashboard, Filing, Item, Panel, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { ItemList } from '../../../src/components/ItemList';
@@ -21,6 +21,8 @@ const held = vi.hoisted(() => ({
   filings: [] as Filing[],
   dashboards: [] as Dashboard[],
   panels: [] as Panel[],
+  /** Every workspace of the account, which the picker offers as Inboxes. */
+  workspaces: [] as Workspace[],
   mutate: vi.fn(),
   send: vi.fn(() => Promise.resolve()),
   error: null as Error | null,
@@ -63,6 +65,10 @@ vi.mock('../../../src/api/queries', async () => {
       };
     },
     useSendCommand: () => held.send,
+    workspacesQuery: {
+      queryKey: ['workspaces'],
+      queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
+    },
     snapshotQuery: (workspaceId: string) => ({
       queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
@@ -94,6 +100,7 @@ function anItem(id: string, title: string): Item {
     id,
     tenantId: 'tenant',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,
@@ -124,6 +131,18 @@ const RESEARCH: Dashboard = {
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
   return { id, tenantId: 'tenant', dashboardId, name };
+}
+
+function aWorkspace(id: string, name: string): Workspace {
+  return {
+    id,
+    tenantId: 'tenant',
+    name,
+    color: '#6f62b5',
+    bar: '#dbd7ee',
+    ground: '#e3e1f2',
+    header: '#d2cdea',
+  };
 }
 
 const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
@@ -213,6 +232,7 @@ beforeEach(() => {
     aPanel('p-anna', TODAY.id, 'Anna'),
     aPanel('p-reading', RESEARCH.id, 'To read'),
   ];
+  held.workspaces = [aWorkspace('ws-work', 'Work'), aWorkspace('ws-home', 'Home')];
   held.error = null;
   held.variables = { payload: { itemId: BART.id } };
   held.refuses = null;
@@ -932,6 +952,98 @@ describe('Panels', () => {
       await user.click(screen.getByRole('button', { name: 'Undo' }));
 
       expect(held.send).toHaveBeenCalledWith(expect.objectContaining({ name: undoes }));
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * F1: what the picker offers and what choosing in it sends. Which workspace
+   * an item then belongs to, and which Inboxes it leaves, is a query proved
+   * against a real store in apps/api/tests/integration/http/panel-items.test.ts.
+   */
+  const NOWHERE = { ...anItem('11111111-1111-7111-8111-000000000009', 'Where does this go'), workspaceDecided: false };
+
+  describe('an item belonging to no workspace is offered the Inboxes first', () => {
+    it('lists every workspace, in the order of the tabs, above the panels', async () => {
+      const user = await showList({ items: [NOWHERE] });
+
+      const dialog = await openThePicker(user);
+
+      expect(offered(dialog)).toEqual([
+        'Workthe one you are in',
+        'Home',
+        'Falcon',
+        'Anna',
+        'To read',
+      ]);
+    });
+
+    it('offers an item that belongs here the one Inbox, as it always did', async () => {
+      const user = await showList();
+
+      const dialog = await openThePicker(user);
+
+      expect(offered(dialog)[0]).toBe('Inboxstill to deal with');
+    });
+
+    /**
+     * An empty list is still a list, so offering the workspaces before they
+     * have arrived drew a heading with nothing under it - and took the plain
+     * Inbox away with it, leaving an item that belongs nowhere with nowhere to
+     * be put.
+     */
+    it('falls back to this workspace’s Inbox until the workspaces have arrived', async () => {
+      held.workspaces = [];
+      const user = await showList({ items: [NOWHERE] });
+
+      const dialog = await openThePicker(user);
+
+      expect(offered(dialog)[0]).toBe('Inboxstill to deal with');
+    });
+
+    it.each([
+      { situation: 'the workspace you are in', pick: 'Workthe one you are in', into: 'ws-work' },
+      { situation: 'another workspace', pick: 'Home', into: 'ws-home' },
+    ])('sends the move in $situation when its Inbox is chosen', async ({ pick, into }) => {
+      const user = await showList({ items: [NOWHERE] });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: pick }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          // The workspace chosen, not the one being looked at: that is the
+          // whole of what picking another workspace's Inbox means.
+          payload: expect.objectContaining({ workspaceId: into, panelId: null, order: [] }),
+        }),
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('deciding where an item belongs is not offered back, because it cannot be taken back', () => {
+    it.each([
+      {
+        situation: 'a move that decided it',
+        item: NOWHERE,
+        offersTheWayBack: false,
+      },
+      {
+        situation: 'a move of an item that already belonged here',
+        item: anItem('11111111-1111-7111-8111-00000000000a', 'Reply to Bart'),
+        offersTheWayBack: true,
+      },
+    ])('$situation', async ({ item, offersTheWayBack }) => {
+      held.items = [item];
+      const user = await showList({ items: [item] });
+      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getAllByRole('button', { name: 'Falcon' })[0]!);
+
+      expect(screen.queryByRole('button', { name: 'Undo' }) !== null).toBe(offersTheWayBack);
     });
   });
 });

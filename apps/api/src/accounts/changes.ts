@@ -55,6 +55,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANEL_ITEMS,
     ITEM_COMPLETED_AT,
     itemTypes(accountId),
+    ITEM_WORKSPACE_DECIDED,
   ];
 }
 
@@ -672,3 +673,49 @@ function itemTypes(accountId: string): Change {
     ],
   };
 }
+
+/**
+ * An Item can belong to no Workspace yet, and then shows in every Workspace's
+ * Inbox ("Capture something before you know which workspace it belongs to",
+ * issue 165).
+ *
+ * **One statement, and that is the design rather than a coincidence.** The
+ * column's `NOT NULL DEFAULT 1` gives every row that already exists the answer
+ * it should have - all of them were captured into a Workspace deliberately - so
+ * there is no backfill, and therefore nothing that can be half-done. Additive
+ * for the reason `0007` was: `panel_items` and `associations` point at `items`
+ * under RESTRICT, so it cannot be rebuilt, which is also why the column carries
+ * no CHECK holding it to 0 or 1.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **If it stops halfway:** it cannot, twice over. One statement, and
+ *   `transactionSync` wraps it with the record that it ran (store.ts), so a
+ *   failure leaves neither the column nor the record and it is retried whole.
+ *   That matters because SQLite has no `ADD COLUMN IF NOT EXISTS`: a column
+ *   left behind could never be re-run over.
+ * - **The second time it runs:** it does not, having been recorded. A re-run
+ *   over a store that somehow already had the column fails loudly with
+ *   `duplicate column name`, which is the outcome to want - it says the ledger
+ *   and the schema disagree.
+ * - **Rows that already break the new rule:** none. Every existing Item belongs
+ *   to the Workspace it was captured into, and the default says so.
+ * - **What is in each environment:** the same thing everywhere. No environment
+ *   seeds an account's own data and none can (deployment, "Bootstrap runbook"),
+ *   and an account applies its outstanding changes inside the first request
+ *   that opens it, on a laptop, in staging and in production alike.
+ * - **The windows it can be interrupted in.** *Before it runs*: the account is
+ *   untouched and the previous release never names the column. *After it runs,
+ *   with the previous release promoted back*: that release reads a table with a
+ *   column it does not name, which SQLite is happy with because no read names
+ *   every column (`itemColumns` in repo.ts) - and an Item belonging to no
+ *   Workspace reads as belonging to the one it was captured from, which is
+ *   where the old code would have put it anyway. Nothing is lost by rolling
+ *   back and nothing has to be repaired by rolling forward.
+ */
+const ITEM_WORKSPACE_DECIDED: Change = {
+  name: '0009-item-workspace-decided',
+  statements: [
+    { sql: 'ALTER TABLE `items` ADD COLUMN `workspace_decided` integer DEFAULT 1 NOT NULL' },
+  ],
+};

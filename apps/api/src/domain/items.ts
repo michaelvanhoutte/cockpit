@@ -29,6 +29,13 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     id: cmd.itemId,
     tenantId,
     workspaceId: cmd.workspaceId,
+    /**
+     * Decided unless the capture says otherwise ("Capture something before you
+     * know which workspace it belongs to", issue 165), so a front door with no
+     * opinion - an SMS, a connector, the Inbox's own row - captures into the
+     * Workspace it named, as it always did.
+     */
+    workspaceDecided: cmd.workspaceDecided ?? true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,
@@ -46,6 +53,35 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     deletedAt: null,
     createdAt: cmd.issuedAt,
     updatedAt: cmd.issuedAt,
+  };
+}
+
+/**
+ * Where an Item belongs, said for the first time ("Capture something before you
+ * know which workspace it belongs to", issue 165).
+ *
+ * **The first answer wins, not the last one.** Everything else about an item is
+ * last-write-wins on the command's clock, and this deliberately is not: an Item
+ * belonging to no Workspace is a question, and once somebody has answered it
+ * there is nothing left for a later command to be more recent about. So an Item
+ * that already belongs somewhere returns null - nothing to write - which is
+ * also what makes filing it onto a second Panel leave its Workspace alone.
+ *
+ * That is the rule a proposed routing will need too: the system may replace
+ * what it proposed, never what a person settled.
+ */
+export function decideWorkspace(item: Item, workspaceId: string, issuedAt: string): Item | null {
+  if (item.workspaceDecided) return null;
+  return {
+    ...item,
+    workspaceId,
+    workspaceDecided: true,
+    // **Never backwards**, which is why this is not simply `issuedAt`. The
+    // answer stands whenever it was given - a settling is not refused for being
+    // stale, because a question already answered has nothing to be stale about
+    // - but `updatedAt` is what every other handler measures staleness by, so
+    // lowering it here would let a command they had rightly rejected through.
+    updatedAt: issuedAt > item.updatedAt ? issuedAt : item.updatedAt,
   };
 }
 

@@ -21,7 +21,27 @@ export type Priority = z.infer<typeof prioritySchema>;
 export const itemSchema = z.object({
   id: z.uuid(),
   tenantId: z.string(),
+  /**
+   * The Workspace this Item belongs to - or, while `workspaceDecided` is
+   * false, the one it was captured from, which it does not belong to yet.
+   */
   workspaceId: z.string(),
+  /**
+   * Whether anybody has said which Workspace this Item belongs to ("Capture
+   * something before you know which workspace it belongs to", issue 165).
+   *
+   * False means it belongs to none, so it shows in *every* Workspace's Inbox:
+   * it is not clear where it goes, so it is offered everywhere. It turns true
+   * the first time somebody says where - by filing it onto a Panel, or by
+   * moving it to a Workspace's Inbox - and never turns back.
+   *
+   * Read it through `workspaceIsDecided` rather than directly. A snapshot
+   * stored before this landed is rehydrated without being parsed again
+   * (main.tsx), so the field can be missing, and missing has to read as
+   * *decided*: an Item wrongly shown in one Workspace is where it always was,
+   * where an Item wrongly shown in all of them is a privacy boundary crossed.
+   */
+  workspaceDecided: z.boolean(),
 
   // -- source-owned --
   source: sourceSchema,
@@ -69,6 +89,16 @@ export const itemSchema = z.object({
   updatedAt: z.iso.datetime(),
 });
 export type Item = z.infer<typeof itemSchema>;
+
+/**
+ * Whether this Item belongs to a Workspace at all yet, read so that a snapshot
+ * older than the field answers *yes* rather than putting every Item it holds
+ * into every Workspace's Inbox (see `workspaceDecided`).
+ */
+export function workspaceIsDecided(item: Pick<Item, 'workspaceDecided'>): boolean {
+  return item.workspaceDecided !== false;
+}
+
 
 /** What an Association can point at (functional definition §4.2). */
 export const associationKindSchema = z.enum(['person', 'project', 'topic']);

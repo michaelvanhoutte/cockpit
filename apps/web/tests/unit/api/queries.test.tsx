@@ -253,3 +253,90 @@ describe('Panels', () => {
     });
   });
 });
+
+describe('Capture', () => {
+  /**
+   * An item that belongs to no workspace is drawn in every workspace's Inbox
+   * ("Capture something before you know which workspace it belongs to", issue
+   * 165), so making one and settling one change what the *other* workspaces
+   * hold. The server says so too, by logging the change against the account
+   * and letting the stream tell everybody - but the tab that made the change
+   * would otherwise wait for its own message to come back, and until it did
+   * the copy it already held stayed fresh. Switching workspace inside that
+   * window painted an item that had just left, which is how the walk found it.
+   */
+  describe('a change every workspace can see leaves no other workspace’s copy fresh', () => {
+    it.each([
+      {
+        situation: 'capturing something that belongs to no workspace',
+        args: {
+          name: 'capture_item',
+          payload: {
+            commandId: 'c5',
+            issuedAt: AT,
+            workspaceId: 'ws-work',
+            itemId: '018f0000-0000-7000-8000-000000000001',
+            title: 'Where does this go',
+            workspaceDecided: false,
+          },
+        },
+        stale: true,
+      },
+      {
+        situation: 'settling one onto a panel',
+        args: {
+          name: 'move_item_to_panel',
+          payload: {
+            commandId: 'c6',
+            issuedAt: AT,
+            workspaceId: 'ws-work',
+            itemId: '018f0000-0000-7000-8000-000000000001',
+            panelId: '018f0000-0000-7000-8000-000000000002',
+            order: ['018f0000-0000-7000-8000-000000000001'],
+          },
+        },
+        stale: true,
+      },
+      {
+        // The other half of the branch: a capture that says where it belongs
+        // changes that workspace and no other, so nobody else re-reads.
+        situation: 'capturing into the workspace you are in',
+        args: {
+          name: 'capture_item',
+          payload: {
+            commandId: 'c7',
+            issuedAt: AT,
+            workspaceId: 'ws-work',
+            itemId: '018f0000-0000-7000-8000-000000000003',
+            title: 'Reply to Bart',
+          },
+        },
+        stale: false,
+      },
+    ] as { situation: string; args: CommandArgs; stale: boolean }[])(
+      '$situation',
+      async ({ args, stale }) => {
+        sends.mockResolvedValue({ ok: true, applied: true });
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        // A workspace the change does not name, holding what was last shown of
+        // it - the other tab, or the one switched to a moment later.
+        client.setQueryData(['snapshot', 'ws-personal'], snapshot);
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        render(
+          <QueryClientProvider client={client}>
+            <Change args={args} />
+          </QueryClientProvider>,
+        );
+
+        await user.click(screen.getByRole('button', { name: 'go' }));
+
+        await waitFor(() => expect(sends).toHaveBeenCalledTimes(1));
+        // Stale rather than gone: the copy is still painted at once, it is
+        // simply read again rather than trusted for the whole staleTime.
+        await waitFor(() =>
+          expect(client.getQueryState(['snapshot', 'ws-personal'])?.isInvalidated).toBe(stale),
+        );
+      },
+    );
+  });
+});
