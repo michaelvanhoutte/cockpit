@@ -567,6 +567,25 @@ export function listItemTypes(db: AccountDb, tenantId: string): ItemType[] {
     .all();
 }
 
+/**
+ * The highest position any of this account's types holds, or null when it has
+ * none - so a new one can go after every type there is.
+ *
+ * **Deleted types count**, which is why this reads the table rather than the
+ * live list: every read filters them out anyway, and a position that came back
+ * would put a new type in front of a survivor whose own position is higher than
+ * the number of types still live. The workspace list is computed the same way
+ * for the same reason.
+ */
+export function lastItemTypePosition(db: AccountDb, tenantId: string): number | null {
+  const row = db
+    .select({ highest: max(itemTypes.position) })
+    .from(itemTypes)
+    .where(eq(itemTypes.tenantId, tenantId))
+    .get();
+  return row?.highest ?? null;
+}
+
 /** One live type, or null - what a capture naming a type is checked against. */
 export function getItemType(db: AccountDb, tenantId: string, typeId: string): ItemType | null {
   return listItemTypes(db, tenantId).find((type) => type.id === typeId) ?? null;

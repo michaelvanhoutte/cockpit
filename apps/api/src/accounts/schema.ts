@@ -11,6 +11,7 @@ import { sql } from 'drizzle-orm';
 import {
   associationKindSchema,
   GRID_COLUMNS,
+  ITEM_TYPE_COLORS,
   MAX_PANEL_ROWS,
   prioritySchema,
   sourceSchema,
@@ -507,10 +508,16 @@ export const itemTypes = sqliteTable(
     foldedName: text('folded_name').notNull().default(''),
     /** One of the palette's tints, which is the dot at the head of a row. */
     color: text('color').notNull(),
-    /** Where it sits in the list you put it in. Written by issue 156. */
+    /**
+     * Where it sits in the list you put it in. Written by "Manage the types,
+     * and put them in the order you want" (issue 156).
+     */
     position: integer('position').notNull().default(0),
     createdAt: text('created_at').notNull(),
-    /** Tombstone, written by issue 156 and unread until then. */
+    /**
+     * Tombstone, written by "Manage the types, and put them in the order you
+     * want" (issue 156) and unread until then.
+     */
     deletedAt: text('deleted_at'),
   },
   (t) => [
@@ -526,6 +533,15 @@ export const itemTypes = sqliteTable(
     uniqueIndex('item_types_tenant_live_folded_name')
       .on(t.tenantId, t.foldedName)
       .where(sql`${t.deletedAt} IS NULL`),
+    /**
+     * A closed set, so the database holds it too (architecture, "The database
+     * is the second lock") - built from the same list the wire contract uses,
+     * so the two cannot drift. `workspaces.color` has no equivalent for a
+     * reason that does not apply here: that table was already live and could
+     * not be rebuilt to attach one, and this one is created whole precisely so
+     * every constraint it will ever need arrives up front.
+     */
+    check('item_types_color_is_known', oneOf('color', ITEM_TYPE_COLORS)),
     check('item_types_position_is_an_order', sql.raw('position >= 0')),
     check('item_types_created_at_is_timestamp', isTimestamp('created_at')),
     check('item_types_deleted_at_is_timestamp', isTimestamp('deleted_at')),

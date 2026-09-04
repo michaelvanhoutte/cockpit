@@ -22,11 +22,12 @@ function aType(name: string, color: string, at = 0): ItemType {
   };
 }
 
-const made = (name: string, taken: ItemType[] = []) =>
+const made = (name: string, taken: ItemType[] = [], lastPosition: number | null = null) =>
   itemTypeFromCommand(
     { ...request, typeId: '018f0000-0000-7000-8000-000000000009', name },
     'tenant-default',
     taken,
+    lastPosition,
   );
 
 describe('Capture', () => {
@@ -47,6 +48,23 @@ describe('Capture', () => {
 
     it('folds the pair that lowercasing alone would leave apart', () => {
       expect(itemTypeNamed([aType('Straße', ITEM_TYPE_COLORS[0]!)], 'STRASSE')).toBeDefined();
+    });
+  });
+
+  describe('a new type joins the end of the list, after every type there has ever been', () => {
+    it.each([
+      { situation: 'the account has none at all', last: null, position: 0 },
+      { situation: 'two live types', last: 1, position: 2 },
+      {
+        // The case counting the live ones gets wrong: three deleted below one
+        // survivor leaves a single live type sitting at position 3, and a new
+        // one at 1 would be drawn in front of it.
+        situation: 'one survivor whose place is higher than the count',
+        last: 3,
+        position: 4,
+      },
+    ])('$situation', ({ last, position }) => {
+      expect(made('Question', [], last).position).toBe(position);
     });
   });
 

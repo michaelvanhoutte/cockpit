@@ -30,7 +30,12 @@ import type { Filing, Item } from '@cockpit/shared';
  * work without a round trip.
  */
 export function stillOpen(item: Item): boolean {
-  return item.completedAt === null;
+  // Falsy rather than `=== null`, because a copy restored from IndexedDB is
+  // never parsed again (main.tsx) - so an item stored before this field existed
+  // has `undefined` here, and comparing to null would hide every one of them
+  // from both lists. The buster moves with this shape change as well, which is
+  // the fix; this is what makes the week of stored copies in between harmless.
+  return !item.completedAt;
 }
 
 /**

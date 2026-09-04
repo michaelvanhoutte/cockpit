@@ -24,6 +24,7 @@ import {
   getWorkspace,
   lastWorkspacePosition,
   listDashboards,
+  lastItemTypePosition,
   listFilingsOnPanel,
   listItemTypes,
   listLayoutIds,
@@ -821,7 +822,7 @@ export function runCommand<N extends CommandName>(
         if (!existing) {
           tx.insert(itemTypes)
             .values({
-              ...itemTypeFromCommand(cmd, tenantId, already),
+              ...itemTypeFromCommand(cmd, tenantId, already, lastItemTypePosition(db, tenantId)),
               foldedName: foldName(cmd.name),
               deletedAt: null,
             })

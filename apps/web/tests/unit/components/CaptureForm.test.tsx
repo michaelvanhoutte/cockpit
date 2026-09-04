@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import type { Item, ItemType } from '@cockpit/shared';
+import { CommandRefused } from '../../../src/api/client';
 import { CaptureForm } from '../../../src/components/CaptureForm';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 
@@ -75,9 +76,12 @@ function aForm(
   types: ItemType[] = [ACTION, THOUGHT],
   items: Item[] = [],
   madeAs: ItemType[] = types,
+  refuses?: Error,
 ) {
   const mutate = vi.fn();
-  const send = vi.fn((_args: unknown) => Promise.resolve());
+  const send = vi.fn((_args: unknown) =>
+    refuses ? Promise.reject(refuses) : Promise.resolve(),
+  );
   afterwards.types = madeAs;
   mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
   mockUseSendCommand.mockReturnValue(send as never);
@@ -230,6 +234,35 @@ describe('Capture', () => {
 
       expect(offered()).toEqual([]);
       expect(screen.getByLabelText('What kind of thing this is')).toHaveValue('');
+    });
+  });
+
+  describe('a thought whose type could not be made stays in the box, and says why', () => {
+    it.each([
+      {
+        situation: 'the server refused the name',
+        refuses: new CommandRefused(400, 'a name is at most 60 characters'),
+        says: 'a name is at most 60 characters',
+      },
+      {
+        situation: 'the request never arrived',
+        refuses: new Error('offline'),
+        says: 'That did not reach the server. Try again.',
+      },
+    ])('$situation', async ({ refuses, says }) => {
+      const { mutate, user } = aForm([ACTION, THOUGHT], [], [ACTION, THOUGHT], refuses);
+
+      const box = screen.getByLabelText('Capture a note or to-do');
+      await user.type(box, 'Why is this slow?');
+      await user.clear(screen.getByLabelText('What kind of thing this is'));
+      await user.type(screen.getByLabelText('What kind of thing this is'), 'Question');
+      await user.click(screen.getByRole('button', { name: 'Capture' }));
+
+      // The note is still there to be captured again, and the reason is on
+      // screen - clearing it first threw it away with nothing said.
+      expect(await screen.findByText(says)).toBeVisible();
+      expect(box).toHaveValue('Why is this slow?');
+      expect(asked(mutate, 'capture_item')).toBeUndefined();
     });
   });
 });

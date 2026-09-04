@@ -348,8 +348,13 @@ export function ItemTypeSettingsPage() {
             confirmLabel={`Yes, delete ${beingDeleted.name}`}
             // Nothing goes before the question has an answer in it, and a count
             // that could not be read lets it through rather than trapping you -
-            // the same trade the workspace question makes.
-            canConfirm={!command.isPending && (held.data !== undefined || held.isError)}
+            // the same trade the workspace question makes. A workspace list
+            // that failed is that case too, and the loudest version of it: the
+            // count is never even asked for, so without this the dialog would
+            // wait on an answer that is not coming.
+            canConfirm={
+              !command.isPending && (held.data !== undefined || held.isError || workspaces.isError)
+            }
             refusal={refusalFor('delete_item_type', beingDeleted.id)}
             returnFocusTo={askedFrom.current}
             onCancel={stopAsking}

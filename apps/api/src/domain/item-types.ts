@@ -30,17 +30,24 @@ export function itemTypeFromCommand(
   cmd: CreateItemTypeCommand,
   tenantId: string,
   taken: readonly ItemType[],
+  lastPosition: number | null,
 ): ItemType {
   return {
     id: cmd.typeId,
     tenantId,
     name: cmd.name,
     color: colorNoTypeIsUsing(taken.map((type) => type.color)),
-    // After every type there is, so a new one joins the end of the list rather
-    // than the front. Deleted types count, for the reason a workspace's
-    // position counts them: a number that comes back is one more thing to
-    // reason about.
-    position: taken.length,
+    /**
+     * After every type there has ever been, so a new one joins the end of the
+     * list rather than the front.
+     *
+     * **The highest position, not how many types are live**, which is the same
+     * distinction `lastWorkspacePosition` carries: deleting the three types at
+     * positions 0, 1 and 2 leaves one survivor at 3, and counting the live ones
+     * would put the next new type at 1 - in front of it, at the head of a list
+     * it was meant to join the end of.
+     */
+    position: lastPosition === null ? 0 : lastPosition + 1,
     createdAt: cmd.issuedAt,
   };
 }

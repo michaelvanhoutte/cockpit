@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { uuidv7, type Item, type ItemType } from '@cockpit/shared';
+import { CommandRefused } from '../api/client';
 import { itemTypesQuery, useCommand, useSendCommand } from '../api/queries';
 import { typeNamed, typesOffered, typeToOffer } from '../itemTypes';
 
@@ -32,6 +33,10 @@ export function CaptureForm({
 }) {
   const [title, setTitle] = useState('');
   const [typeName, setTypeName] = useState('');
+  /** What the server said about the type, where it said anything. */
+  const [refused, setRefused] = useState<string | null>(null);
+  /** True while the type is being made, so the button says so like any other. */
+  const [makingTheType, setMakingTheType] = useState(false);
   const command = useCommand();
   const send = useSendCommand();
   const queryClient = useQueryClient();
@@ -62,6 +67,11 @@ export function CaptureForm({
    * this one, so capturing against the id invented here would name something
    * nobody stored and be refused - and the note would be gone. Re-reading the
    * types is what turns that race into two people agreeing on one type.
+   *
+   * **The box is emptied only once the capture has been asked for**, and a
+   * refusal on the way is said out loud. Clearing it first threw the note away
+   * on any failure the type could produce - a name the server will not take,
+   * the request never arriving - with nothing on screen to say so.
    */
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +81,7 @@ export function CaptureForm({
     const wanted = typeName.trim();
     const already = wanted ? typeNamed(types, wanted) : undefined;
 
-    const capture = (typeId: string | undefined) =>
+    const capture = (typeId: string | undefined) => {
       command.mutate({
         name: 'capture_item',
         payload: {
@@ -83,32 +93,46 @@ export function CaptureForm({
           ...(typeId ? { typeId } : {}),
         },
       });
+      setTitle('');
+    };
 
     if (!wanted || already) {
       capture(already?.id);
-      setTitle('');
       return;
     }
 
+    setMakingTheType(true);
     void (async () => {
-      await send({
-        name: 'create_item_type',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          typeId: uuidv7(),
-          name: wanted,
-        },
-      });
-      // Whichever request made it, this is the one type now going by that name.
-      const made = typeNamed(
-        (await queryClient.fetchQuery(itemTypesQuery)).itemTypes,
-        wanted,
-      );
-      capture(made?.id);
+      try {
+        await send({
+          name: 'create_item_type',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            typeId: uuidv7(),
+            name: wanted,
+          },
+        });
+        // Whichever request made it, this is the one type now going by that name.
+        const made = typeNamed(
+          (await queryClient.fetchQuery(itemTypesQuery)).itemTypes,
+          wanted,
+        );
+        capture(made?.id);
+        setRefused(null);
+      } catch (error) {
+        // The note stays in the box, so it can be captured again once the type
+        // is named something the server will take.
+        setRefused(
+          error instanceof CommandRefused
+            ? error.message
+            : 'That did not reach the server. Try again.',
+        );
+      } finally {
+        setMakingTheType(false);
+      }
     })();
-    setTitle('');
   };
 
   return (
@@ -133,6 +157,7 @@ export function CaptureForm({
         list={listId}
         placeholder="Type"
         aria-label="What kind of thing this is"
+        maxLength={60}
         className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
       <datalist id={listId}>
@@ -142,11 +167,16 @@ export function CaptureForm({
       </datalist>
       <button
         type="submit"
-        disabled={command.isPending}
+        disabled={command.isPending || makingTheType}
         className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
       >
         Capture
       </button>
+      {refused && (
+        <p role="alert" className="basis-full text-sm text-over">
+          {refused}
+        </p>
+      )}
     </form>
   );
 }

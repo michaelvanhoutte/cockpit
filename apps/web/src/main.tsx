@@ -30,8 +30,12 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <PersistQueryClientProvider
       client={queryClient}
-      // `v2` because a workspace gained a fourth colour ("Modernise the app
-      // shell", issue 125), and a stored copy written before it has three.
+      // `v3` because an item lost its status and gained a completion time and a
+      // type ("An item is either yours to deal with or finished with", issue
+      // 154; "Capture a thought or an action, and see which it is", issue 155),
+      // and a workspace's stored copy gained the account's types beside its
+      // items. `v2` was a workspace's fourth colour ("Modernise the app shell",
+      // issue 125).
       //
       // **The buster has to move whenever the shape of what is stored does.**
       // What is restored here is never re-validated - the schemas parse
@@ -47,7 +51,7 @@ createRoot(document.getElementById('root')!).render(
       // that ships this, and the first open after it has to reach the network.
       // That is the right way round: a cold open is a moment, a shell painted
       // from a shape the code no longer expects is a week.
-      persistOptions={{ persister, maxAge: CACHE_MAX_AGE_MS, buster: 'v2' }}
+      persistOptions={{ persister, maxAge: CACHE_MAX_AGE_MS, buster: 'v3' }}
     >
       {/* Around the whole app rather than inside the shell, so a change made
           in the Inbox column and one made on a panel are offered back in the

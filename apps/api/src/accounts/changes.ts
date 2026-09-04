@@ -622,6 +622,12 @@ const ITEM_COMPLETED_AT: Change = {
  * the account's, the way the starting workspaces' are, so applying this twice
  * cannot make two of them - and `INSERT OR IGNORE` says so out loud.
  *
+ * **The colours are written out rather than built from `ITEM_TYPE_COLORS`**,
+ * for the reason the position bound in `0006-panel-items` is: a change that has
+ * shipped may never be edited, and a constant that later moved would rewrite
+ * this statement for the accounts that had not applied it yet. The constraints
+ * test is what notices if the two stop agreeing.
+ *
  * Its failure modes: nothing here rewrites a row that already exists, so the
  * only loss available is the change failing partway - which `transactionSync`
  * rules out (store.ts), leaving the account to apply it whole next time.
@@ -641,6 +647,7 @@ function itemTypes(accountId: string): Change {
 	\`position\` integer DEFAULT 0 NOT NULL,
 	\`created_at\` text NOT NULL,
 	\`deleted_at\` text,
+	CONSTRAINT "item_types_color_is_known" CHECK(color IN ('#6f62b5', '#3a72c8', '#c06a45', '#3f8f78', '#a8548c', '#b58a2f', '#4f8fa8', '#7d8f3f')),
 	CONSTRAINT "item_types_position_is_an_order" CHECK(position >= 0),
 	CONSTRAINT "item_types_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))),
 	CONSTRAINT "item_types_deleted_at_is_timestamp" CHECK(deleted_at IS NULL OR (datetime(deleted_at) IS NOT NULL AND substr(deleted_at, 11, 1) = 'T' AND substr(deleted_at, -1) = 'Z' AND length(deleted_at) >= 20 AND date(deleted_at) = substr(deleted_at, 1, 10)))
