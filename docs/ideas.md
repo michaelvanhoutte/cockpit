@@ -93,13 +93,13 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
   - Using the product tree also makes tests easier to keep through a major refactoring, because you can see more easily whether a test is still there.
   - Will we structure the markdown files by concept (action, dashboard, ...)?
 
-## 11. Sources to connect
-
-- **Incoming invoices.** Show the invoices coming in to me.
-
 ## 10. Development process
 
 - **A skill to create issues.** *(Implemented: [github-issue](../.claude/skills/github-issue/SKILL.md) files an already-scoped piece of work; the sharpening and sizing live in [scoping](../.claude/skills/scoping/SKILL.md) so they trigger on any new work starting.)*
 - **Issues must be small enough** that you can control what is tested. *(Enforced by `scoping` as a vertical-slice size gate.)*
 - **Issues cannot be the long-term link.** The durable link is to *features*, because features change while issues are closed and left behind. *(The statement list says explicitly that it stops being the reference once building starts.)*
 - **Migrate the glossary/ADR layout?** mattpocock-skills' `domain-modeling` (`CONTEXT.md` + `docs/adr/`) came up while building the issue-creation skill. The functional definition's glossary maps closely onto `CONTEXT.md` — close to a rename. The architecture's decisions are a different matter: they live as prose sections inside one narrative document, so splitting them into `docs/adr/NNNN-slug.md` files is a real decomposition. Deferred, and worth deciding on its own footing.
+
+## 11. Sources to connect
+
+- **Incoming invoices.** Show the invoices coming in to me.
