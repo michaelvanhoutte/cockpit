@@ -49,10 +49,12 @@ function anItem(overrides: Partial<Item> = {}): Item {
 function aRow({
   settles = false,
   onMoveTo,
+  onOpen,
   item = anItem(),
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
+  onOpen?: () => void;
   item?: Item;
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
@@ -63,7 +65,12 @@ function aRow({
   mockUseSendCommand.mockReturnValue(send);
   render(
     <UndoWhatJustHappened>
-      <ItemRow item={item} workspaceId="ws-work" {...(onMoveTo ? { onMoveTo } : {})} />
+      <ItemRow
+        item={item}
+        workspaceId="ws-work"
+        {...(onMoveTo ? { onMoveTo } : {})}
+        {...(onOpen ? { onOpen } : {})}
+      />
     </UndoWhatJustHappened>,
   );
   return { mutate, send };
@@ -376,6 +383,60 @@ describe('Triage', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+});
+
+/**
+ * F1: the row's own wiring. What a label *is* is a pure decision proved in
+ * packages/shared/tests/unit/domain/item.test.ts; what is asked here is that
+ * the row asks it, and that the two ways into the form both ask for this item.
+ */
+describe('Item editing', () => {
+  describe('a row shows the label the item has, and says whether there is more written about it', () => {
+    it('falls through to the captured message when there is no next action and no title', () => {
+      aRow({ item: anItem({ title: '', capturedMessage: 'Ask Novy about part 11' }) });
+
+      expect(screen.getByRole('listitem')).toHaveTextContent('Ask Novy about part 11');
+    });
+
+    it.each([
+      { situation: 'an item with a description', description: 'Tolerances', marked: true },
+      { situation: 'an item with none', description: null, marked: false },
+    ])('$situation', ({ description, marked }) => {
+      aRow({ item: anItem({ description }) });
+
+      expect(screen.queryByLabelText('Has a description') !== null).toBe(marked);
+    });
+  });
+
+  describe('a row opens its own form, from a double-click and from its menu', () => {
+    it('opens it on a double-click', async () => {
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+
+      fireEvent.doubleClick(screen.getByRole('listitem'));
+
+      expect(onOpen).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens it from the menu, which is the way a keyboard has', async () => {
+      const user = userEvent.setup();
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+
+      await choose(user, 'Open');
+
+      expect(onOpen).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers nothing to open where there is nowhere to open it', async () => {
+      const user = userEvent.setup();
+      aRow();
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(screen.queryByRole('menuitem', { name: 'Open' })).toBeNull();
     });
   });
 });

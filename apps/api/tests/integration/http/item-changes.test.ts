@@ -125,6 +125,28 @@ describe('Offline', () => {
         }),
       },
       {
+        situation: 'renaming it',
+        name: 'set_title',
+        change: (targetId, requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T11:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: targetId,
+          title: 'Part 11',
+        }),
+      },
+      {
+        situation: 'writing a description for it',
+        name: 'set_description',
+        change: (targetId, requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T11:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: targetId,
+          description: 'Ask about the tolerances',
+        }),
+      },
+      {
         // The one row that is about the workspace rather than something in it,
         // so `makesIt` is set to say there is nothing to arrange - the seeded
         // workspace is the subject and `targetId` goes unused.
@@ -266,6 +288,28 @@ describe('Triage', () => {
           workspaceId: WORKSPACE_ID,
           itemId: goneItemId,
           priority: 'high',
+        }),
+      },
+      {
+        situation: 'renaming it',
+        name: 'set_title',
+        change: (requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: goneItemId,
+          title: 'Part 11',
+        }),
+      },
+      {
+        situation: 'writing a description for it',
+        name: 'set_description',
+        change: (requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: goneItemId,
+          description: 'Ask about the tolerances',
         }),
       },
     ])('$situation', async ({ name, change }) => {
@@ -443,6 +487,102 @@ describe('Triage', () => {
 
       expect(response.status).toBe(400);
       expect(await storedIn('commands', 'command_id', requestId)).toHaveLength(0);
+    });
+  });
+});
+
+/**
+ * Integration: what a text survives is a real column with a real cap, entered
+ * the way the form enters it. What the form *sends* - only the fields that
+ * changed - is a decision made before anything leaves the browser, and is
+ * proved in apps/web/tests/unit/components/ItemForm.test.tsx.
+ */
+describe('Item editing', () => {
+  describe('an item’s title and description are what you last saved', () => {
+    const save = async (
+      itemId: string,
+      what: 'set_title' | 'set_description',
+      value: string | null,
+      at = '2026-08-12T12:00:00.000Z',
+    ) =>
+      postChange(what, {
+        commandId: nextId(),
+        issuedAt: at,
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        ...(what === 'set_title' ? { title: value as string } : { description: value }),
+      } as CommandPayload<typeof what>);
+
+    it.each([
+      { situation: 'a title saved', what: 'set_title' as const, value: 'Part 11', column: 'title', stored: 'Part 11' },
+      { situation: 'a title with blanks around it', what: 'set_title' as const, value: '  Part 11  ', column: 'title', stored: 'Part 11' },
+      { situation: 'a title cleared', what: 'set_title' as const, value: '', column: 'title', stored: '' },
+      { situation: 'a title at the cap', what: 'set_title' as const, value: 'x'.repeat(200), column: 'title', stored: 'x'.repeat(200) },
+      { situation: 'a description saved', what: 'set_description' as const, value: 'Ask about the tolerances', column: 'description', stored: 'Ask about the tolerances' },
+      // The one text meant to run to paragraphs, so the line breaks are the point.
+      { situation: 'a description over several lines', what: 'set_description' as const, value: 'One\n\nTwo', column: 'description', stored: 'One\n\nTwo' },
+      // Emptied is cleared: nothing in the product tells an item whose
+      // description was emptied from one that never had a word.
+      { situation: 'a description cleared', what: 'set_description' as const, value: '', column: 'description', stored: null },
+      { situation: 'a description explicitly removed', what: 'set_description' as const, value: null, column: 'description', stored: null },
+      { situation: 'a description at the cap', what: 'set_description' as const, value: 'x'.repeat(60_000), column: 'description', stored: 'x'.repeat(60_000) },
+    ])('$situation', async ({ what, value, column, stored }) => {
+      const itemId = await captureAnItem();
+
+      const response = await save(itemId, what, value);
+
+      expect(response.status).toBe(200);
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.[column]).toBe(stored);
+    });
+
+    it.each([
+      { situation: 'a title over the cap', what: 'set_title' as const, value: 'x'.repeat(201) },
+      { situation: 'a title broken over two lines', what: 'set_title' as const, value: 'Part\n11' },
+      { situation: 'a description over the cap', what: 'set_description' as const, value: 'x'.repeat(60_001) },
+    ])('$situation is refused and nothing is stored', async ({ what, value }) => {
+      const itemId = await captureAnItem();
+      const [before] = await storedIn('items', 'id', itemId);
+
+      const response = await save(itemId, what, value);
+
+      expect(response.status).toBe(400);
+      const [after] = await storedIn('items', 'id', itemId);
+      expect(after).toEqual(before);
+    });
+  });
+
+  describe('the captured message is written when the item is made and never changes', () => {
+    it('holds what was said, and holds it through everything the form can do', async () => {
+      const itemId = await captureAnItem({ message: 'Ask Novy about part 11' });
+
+      const [made] = await storedIn('items', 'id', itemId);
+      expect(made?.captured_message).toBe('Ask Novy about part 11');
+      // Capture writes no title deliberately: naming a thought is a second act,
+      // and the row falls through to the captured message until somebody
+      // performs it.
+      expect(made?.title).toBe('');
+      expect(made?.description).toBe(null);
+
+      await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-08-12T12:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Part 11',
+      });
+      await postChange('set_description', {
+        commandId: nextId(),
+        issuedAt: '2026-08-12T12:00:01.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        description: 'Tolerances, and the sign-off date',
+      });
+
+      const [after] = await storedIn('items', 'id', itemId);
+      expect(after?.captured_message).toBe('Ask Novy about part 11');
+      expect(after?.title).toBe('Part 11');
+      expect(after?.description).toBe('Tolerances, and the sign-off date');
     });
   });
 });

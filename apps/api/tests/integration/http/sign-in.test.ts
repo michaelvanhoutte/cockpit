@@ -138,7 +138,7 @@ describe('Sign-in', () => {
           issuedAt: AT,
           workspaceId: 'ws-work',
           itemId: '018f0000-0000-7000-8000-000000000002',
-          title: 'Nobody should be able to file this',
+          message: 'Nobody should be able to file this',
         }),
       });
 

@@ -8,7 +8,9 @@ import { meQuery, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxPanel } from '../components/InboxPanel';
+import { ItemForm } from '../components/ItemForm';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
+import { OpensItemForms } from '../itemForm';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /** The default theme in the shape a workspace carries it. */
@@ -31,7 +33,19 @@ const DEFAULT_WORKSPACE_THEME_COLORS = {
  * The workspaces settings page is reached without a workspace, so it has no
  * column: there is no Inbox to show.
  */
+/**
+ * The shell, and the one thing that wraps it: every row drawn below here can
+ * ask for an Item's form, which is a change of address (`itemForm.tsx`).
+ */
 export function Layout() {
+  return (
+    <OpensItemForms>
+      <TheShell />
+    </OpensItemForms>
+  );
+}
+
+function TheShell() {
   useServerEvents();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -303,6 +317,11 @@ export function Layout() {
           <Outlet />
         </div>
       </main>
+
+      {/* The Item's form, drawn over whatever the address below resolves to and
+          opened by that same address (`itemForm.tsx`). Here rather than in the
+          lists, because there is one form open at a time. */}
+      <ItemForm />
     </div>
   );
 }

@@ -115,7 +115,7 @@ async function reorderWorkspaces(
   );
 }
 
-async function captureInto(workspaceId: string, title: string): Promise<string> {
+async function captureInto(workspaceId: string, message: string): Promise<string> {
   const itemId = nextId();
   await asUser('http://cockpit.test/v1/commands/capture_item', {
     method: 'POST',
@@ -125,7 +125,7 @@ async function captureInto(workspaceId: string, title: string): Promise<string> 
       issuedAt: '2026-08-12T10:30:00.000Z',
       workspaceId,
       itemId,
-      title,
+      message,
     }),
   });
   return itemId;
@@ -401,8 +401,8 @@ describe('Workspace management', () => {
       expect((await theWorkspaces()).map((w) => w.id)).toContain(untouched.id);
       const res = await asUser(`http://cockpit.test/v1/workspaces/${untouched.id}/snapshot`);
       expect(res.status).toBe(200);
-      const snapshot = (await res.json()) as { items: { title: string }[] };
-      expect(snapshot.items.map((i) => i.title)).toEqual(['A note in the workspace that stays']);
+      const snapshot = (await res.json()) as { items: { capturedMessage: string }[] };
+      expect(snapshot.items.map((i) => i.capturedMessage)).toEqual(['A note in the workspace that stays']);
     });
 
     it('lets a new workspace take the name it had', async () => {

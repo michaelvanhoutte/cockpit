@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
 import { snapshotQuery, workspacesQuery } from './api/queries';
+import { itemFormSearch } from './itemForm';
 import { INBOX, browserStore, rememberView, rememberedIn, viewToOpen } from './lastVisited';
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
@@ -115,6 +116,10 @@ const signInRoute = createRoute({
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'app',
+  // Which Item's form is open, on every address under the shell rather than on
+  // one of them (`itemForm.ts`). The form is drawn by the Layout, over whatever
+  // page the address below it resolves to.
+  validateSearch: itemFormSearch,
   component: Layout,
 });
 

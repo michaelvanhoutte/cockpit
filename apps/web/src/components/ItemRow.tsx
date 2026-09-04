@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
+import { itemLabel, uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
 import { useCommand, useSendCommand, type CommandArgs } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { howFarItHasGone, SWIPE_THRESHOLD_PX, whatTheSwipeMeant } from '../swipe';
@@ -47,6 +47,7 @@ export function ItemRow({
   onMoveTo,
   ordering,
   onAddTo,
+  onOpen,
   onRemoveFromHere,
 }: {
   item: Item;
@@ -78,6 +79,14 @@ export function ItemRow({
    * remove it from.
    */
   onAddTo?: (openedFrom: HTMLElement | null) => void;
+  /**
+   * Asked to open this Item's form ("Edit an item's title and description on a
+   * form of its own", issue 159). Two ways in, neither the lesser: a
+   * double-click on the row, and **Open** in its menu - which is the only way a
+   * keyboard has and the comfortable way on a phone, where a double-tap is a
+   * gesture the browser has already spent on zooming.
+   */
+  onOpen?: () => void;
   onRemoveFromHere?: () => void;
 }) {
   const command = useCommand();
@@ -134,7 +143,7 @@ export function ItemRow({
       {
         onSuccess: () =>
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” dismissed`,
+            what: `“${itemLabel(item)}” dismissed`,
             undo: () => send(putItBack()),
           }),
       },
@@ -236,11 +245,14 @@ export function ItemRow({
       // this gesture is - and the reason there is no drag on touch at all,
       // where the same movement is a swipe.
       draggable
+      // A double-click opens the form. Not a single click: a row is dragged,
+      // swiped and dropped on, and every one of those begins with a press.
+      onDoubleClick={onOpen}
       onDragStart={(event) => {
         event.dataTransfer.setData(ITEM_BEING_DRAGGED, item.id);
         // Its own type *and* text, because Firefox starts no drag at all
         // without something it recognises on the transfer.
-        event.dataTransfer.setData('text/plain', item.nextAction ?? item.title);
+        event.dataTransfer.setData('text/plain', itemLabel(item));
         event.dataTransfer.effectAllowed = 'move';
       }}
       style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
@@ -262,7 +274,23 @@ export function ItemRow({
         className={`mt-0.5 size-2 shrink-0 self-start rounded-full ${STATUS_DOT[item.status]}`}
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm">{item.nextAction ?? item.title}</span>
+        <span className="flex min-w-0 items-center gap-1 text-sm">
+          <span className="truncate">{itemLabel(item)}</span>
+          {/* That there is something written about this Item, not what it says
+              - the description is paragraphs and this is a row. A mark rather
+              than a snippet, so the row keeps the height issue 140 settled, and
+              titled rather than lettered because it has nothing to spell. */}
+          {item.description && (
+            <span
+              className="shrink-0 text-ink-faint"
+              title="Has a description"
+              aria-label="Has a description"
+              role="img"
+            >
+              ¶
+            </span>
+          )}
+        </span>
         {/* Where it came from and what it is now, on one line under the title.
             The status used to be a pill of its own out to the right, which is
             about seventy pixels a row cannot spare once the Inbox is a column
@@ -308,6 +336,18 @@ export function ItemRow({
             event.preventDefault();
           }}
         >
+          {onOpen && (
+            <DropdownMenu.Item
+              className={menuItemClass}
+              onSelect={() => {
+                // The form takes the focus itself, like the pickers below.
+                opening.current = true;
+                onOpen();
+              }}
+            >
+              Open
+            </DropdownMenu.Item>
+          )}
           {onMoveTo && (
             <DropdownMenu.Item
               className={menuItemClass}

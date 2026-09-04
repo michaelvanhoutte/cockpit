@@ -38,7 +38,7 @@ async function makeWorkspace(userId: string, name: string): Promise<string> {
   return workspaceId;
 }
 
-async function captureThought(userId: string, workspaceId: string, title: string): Promise<void> {
+async function captureThought(userId: string, workspaceId: string, message: string): Promise<void> {
   const res = await asUser(
     'http://cockpit.test/v1/commands/capture_item',
     {
@@ -49,7 +49,7 @@ async function captureThought(userId: string, workspaceId: string, title: string
         issuedAt: AT,
         workspaceId,
         itemId: nextId(),
-        title,
+        message,
       }),
     },
     userId,
@@ -67,8 +67,8 @@ async function workspaceNames(userId: string): Promise<string[]> {
 async function thoughtsIn(userId: string, workspaceId: string): Promise<string[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`, {}, userId);
   expect(res.status).toBe(200);
-  const { items } = (await res.json()) as { items: { title: string }[] };
-  return items.map((i) => i.title);
+  const { items } = (await res.json()) as { items: { capturedMessage: string }[] };
+  return items.map((i) => i.capturedMessage);
 }
 
 beforeEach(async () => {

@@ -1,10 +1,11 @@
 import { Fragment, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { uuidv7, type Item } from '@cockpit/shared';
+import { itemLabel, uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import { CommandRefused } from '../api/client';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
 import { filedOrderOnPanel, itemsOnPanel, orderWithItemAt } from '../filing';
+import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import { useUndo } from '../undo';
@@ -57,6 +58,7 @@ export function ItemList({
   emptyMessage: string;
 }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
+  const openItem = useOpenItem();
   const command = useCommand();
   const send = useSendCommand();
   const offerToUndo = useUndo();
@@ -158,7 +160,7 @@ export function ItemList({
           setMoving(null);
           setAsking(null);
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” moved to ${nameOf(panelId)}`,
+            what: `“${itemLabel(item)}” moved to ${nameOf(panelId)}`,
             // Every panel it was on, not the first of them: a move takes an
             // item off all of them, so putting it back on one would lose the
             // rest - and an item can be on several since "Ask whether to move
@@ -495,6 +497,7 @@ export function ItemList({
                     command.reset();
                     setMoving(item);
                   }}
+                  onOpen={() => openItem(item.id)}
                   {...(panelId
                     ? {
                         ordering: {

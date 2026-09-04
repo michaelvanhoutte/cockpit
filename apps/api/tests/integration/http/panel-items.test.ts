@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
+import { itemLabel } from '@cockpit/shared';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
 import { WORKSPACE_ID, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
@@ -59,7 +60,13 @@ async function inOrderOn(panelId: string): Promise<string[]> {
   return held.filings
     .filter((filing) => filing.panelId === panelId)
     .sort((a, b) => a.position - b.position)
-    .map((filing) => held.items.find((item) => item.id === filing.itemId)?.title ?? filing.itemId);
+    .map((filing) => {
+      // Named the way the product names them: what a row would show. These
+      // items are captured and never titled, so their label is their captured
+      // message - which is the text each case arranged them by.
+      const item = held.items.find((candidate) => candidate.id === filing.itemId);
+      return item ? itemLabel(item) : filing.itemId;
+    });
 }
 
 async function aDashboard(workspaceId: string = WORKSPACE_ID): Promise<string> {
@@ -74,9 +81,9 @@ async function aPanel(dashboardId: string, name: string, workspaceId = WORKSPACE
   return panelId;
 }
 
-async function anItem(title: string, workspaceId: string = WORKSPACE_ID): Promise<string> {
+async function anItem(message: string, workspaceId: string = WORKSPACE_ID): Promise<string> {
   const itemId = nextId();
-  expect((await send('capture_item', { workspaceId, itemId, title })).status).toBe(200);
+  expect((await send('capture_item', { workspaceId, itemId, message })).status).toBe(200);
   return itemId;
 }
 
