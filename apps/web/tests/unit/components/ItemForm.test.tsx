@@ -206,6 +206,30 @@ describe('Item editing', () => {
     });
   });
 
+  describe('the boxes are closed while a save is in flight', () => {
+    // What is sent is worked out before the round trip, so a keystroke landing
+    // during it would go into a draft nobody reads and be lost when the form
+    // closes - the opposite of the promise the refusal path makes.
+    it('takes nothing more while it is saving', async () => {
+      const user = await theForm();
+      let letItLand: (() => void) | undefined;
+      held.send.mockImplementation(
+        () =>
+          new Promise((settle) => {
+            letItLand = () => settle({ ok: true as const, applied: true });
+          }),
+      );
+
+      await user.type(descriptionBox(), 'Tolerances');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(descriptionBox()).toBeDisabled());
+      expect(titleBox()).toBeDisabled();
+      letItLand?.();
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+    });
+  });
+
   describe('a save that did not land keeps the form open', () => {
     // A change made against an older version of an item is answered with a 200
     // and `applied: false` rather than refused, so a form that read only "it

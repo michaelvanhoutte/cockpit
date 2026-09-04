@@ -91,7 +91,7 @@ Everything that flows in — email, Slack message, Notion page, later a calendar
 
 **An Item carries three texts, answering three different questions** ("Edit an item's title and description on a form of its own", issue 159). The **captured message** is what arrived, or what you said: written once when the Item is made and never changed by anything afterwards, because it is the record of what was actually captured. The **title** names the Item and the **description** is what you have to say about it; both are yours to edit and neither is required. The description is plain text today; it gains formatting — bold, italic, links and lists to begin with — kept as Markdown, so it can be worked on as formatted text or as its own source ("Format a description, and edit its source", issue 160).
 
-**A row shows the next action, or the title, or the first 150 characters of the captured message** — the best label the Item has, worked out where the row is drawn. Not stored as a fourth text, which would be a summary free to go stale behind the three it summarises.
+**A row shows the next action, or the title, or the first 150 characters of the captured message**, and *Untitled* where an Item has none of the three — the best label it has, worked out where the row is drawn. Not stored as a fourth text, which would be a summary free to go stale behind the three it summarises.
 
 
 Items are **not filed into one folder.** Each carries any number of **Associations**: to one or more **People**, **Projects**, **Topics/Areas** (*Research*, *People to discuss*), a **Workspace** (rarely more than one) and optional **Focus** flags (§7).

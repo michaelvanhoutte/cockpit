@@ -213,7 +213,7 @@ function TheForm({
               rather than from the boxes, so it holds still while a new title is
               being typed under it. */}
           <Dialog.Title className="truncate text-base font-semibold">
-            {item ? itemLabel(item) || 'Item' : 'Item'}
+            {item ? itemLabel(item) : 'Item'}
           </Dialog.Title>
 
           {!item ? (
@@ -227,6 +227,12 @@ function TheForm({
                   Title
                   <input
                     autoFocus
+                    // Both boxes are closed while a save is in flight, for the
+                    // reason Cancel and Save are: what is sent is worked out
+                    // before the round trip, so a keystroke landing during it
+                    // would be typed into a draft nobody is going to read and
+                    // lost when the form closes.
+                    disabled={saving}
                     value={draft.title}
                     onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                     className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
@@ -237,6 +243,7 @@ function TheForm({
                   Description
                   <textarea
                     rows={12}
+                    disabled={saving}
                     value={draft.description}
                     onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                     className="mt-1 w-full resize-y rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"

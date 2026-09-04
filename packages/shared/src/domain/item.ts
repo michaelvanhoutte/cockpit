@@ -125,6 +125,9 @@ export type Item = z.infer<typeof itemSchema>;
 /** How much of the captured message can stand in for a label. */
 export const LABEL_LENGTH = 150;
 
+/** What a row says about an Item with nothing written in any of its three texts. */
+export const UNTITLED = 'Untitled';
+
 /**
  * What a row shows: the next action, or the title, or the start of the captured
  * message (functional definition, "A row shows the next action, or the title,
@@ -134,8 +137,13 @@ export const LABEL_LENGTH = 150;
  * would be free to go stale behind the three it stands for.
  *
  * **Blank counts as absent**, for the next action and the title alike: a title
- * of spaces is stored as the empty string, and a label that falls through to
- * nothing would leave the row unreadable rather than merely unlabelled.
+ * of spaces is stored as the empty string.
+ *
+ * **And when all three are blank it says so**, rather than returning nothing.
+ * An Item made before it had a captured message keeps its only text in its
+ * title, so clearing that title empties every one of the three - and a row, a
+ * drag and an offer to undo would each render as a gap where a name should be.
+ * There is no length at which an unlabelled row is better off unlabelled.
  * **Runs of whitespace collapse**, because a captured message may run to
  * paragraphs and a row is one line - and the cut has to land in the label a
  * person sees, not 150 characters into one full of newlines.
@@ -152,7 +160,8 @@ export function itemLabel(
   if (title) return title;
 
   const captured = oneLine(item.capturedMessage ?? '');
-  return captured.length > LABEL_LENGTH ? `${captured.slice(0, LABEL_LENGTH)}…` : captured;
+  if (captured.length > LABEL_LENGTH) return `${captured.slice(0, LABEL_LENGTH)}…`;
+  return captured || UNTITLED;
 }
 
 /** What an Association can point at (functional definition §4.2). */

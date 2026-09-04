@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   LABEL_LENGTH,
+  UNTITLED,
   itemDescriptionSchema,
   itemLabel,
   itemSchema,
@@ -108,10 +109,12 @@ describe('Item editing', () => {
         item: texts({ nextAction: ' ', title: 'Part 11' }),
         shows: 'Part 11',
       },
+      // Reachable on an Item made before it had a captured message: its only
+      // text is its title, so clearing that empties all three.
       {
         situation: 'nothing written anywhere',
         item: texts({}),
-        shows: '',
+        shows: UNTITLED,
       },
       // A captured message runs to paragraphs and a row is one line, so the cut
       // has to land in the label a person sees.
