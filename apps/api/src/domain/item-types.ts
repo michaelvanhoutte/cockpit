@@ -44,3 +44,20 @@ export function itemTypeFromCommand(
     createdAt: cmd.issuedAt,
   };
 }
+
+/**
+ * Whether this list is exactly the account's live types, in some order.
+ *
+ * The same check `ordersExactly` makes for workspaces, and for the same reason:
+ * an order naming types the account no longer has is not a smaller change, it
+ * is one made against a list somebody else has moved on from.
+ */
+export function ordersTypesExactly(
+  live: readonly ItemType[],
+  order: readonly string[],
+): boolean {
+  const named = new Set(order);
+  if (named.size !== order.length) return false;
+  if (named.size !== live.length) return false;
+  return live.every((type) => named.has(type.id));
+}

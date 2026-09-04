@@ -66,7 +66,8 @@
         "apps/web/src/components/InboxPanel.tsx",
         "apps/api/src/domain/item-types.ts",
         "packages/shared/src/domain/item-type.ts",
-        "apps/web/src/itemTypes.ts"
+        "apps/web/src/itemTypes.ts",
+        "apps/web/src/pages/ItemTypeSettingsPage.tsx"
       ]
     },
     {

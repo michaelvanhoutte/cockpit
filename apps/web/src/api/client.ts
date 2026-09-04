@@ -1,6 +1,7 @@
 import { hc } from 'hono/client';
 import type { AppType } from '@cockpit/api';
 import {
+  itemTypeListSchema,
   signedInSchema,
   userListSchema,
   workspaceListSchema,
@@ -8,6 +9,7 @@ import {
   type CommandName,
   type CommandPayload,
   type CommandResult,
+  type ItemTypeList,
   type SignedIn,
   type User,
   type WorkspaceList,
@@ -48,6 +50,13 @@ export async function fetchWorkspaces(): Promise<WorkspaceList> {
   const res = await api.v1.workspaces.$get();
   if (!res.ok) throw refusal('workspaces', res.status);
   return workspaceListSchema.parse(await res.json());
+}
+
+/** The account's live types, for the page that manages them. */
+export async function fetchItemTypes(): Promise<ItemTypeList> {
+  const res = await api.v1['item-types'].$get();
+  if (!res.ok) throw refusal('types', res.status);
+  return itemTypeListSchema.parse(await res.json());
 }
 
 /**
@@ -127,6 +136,14 @@ const commandSenders = {
     api.v1.commands.remove_item_from_panel.$post({ json: p }),
   create_item_type: (p: CommandPayload<'create_item_type'>) =>
     api.v1.commands.create_item_type.$post({ json: p }),
+  rename_item_type: (p: CommandPayload<'rename_item_type'>) =>
+    api.v1.commands.rename_item_type.$post({ json: p }),
+  set_item_type_color: (p: CommandPayload<'set_item_type_color'>) =>
+    api.v1.commands.set_item_type_color.$post({ json: p }),
+  delete_item_type: (p: CommandPayload<'delete_item_type'>) =>
+    api.v1.commands.delete_item_type.$post({ json: p }),
+  reorder_item_types: (p: CommandPayload<'reorder_item_types'>) =>
+    api.v1.commands.reorder_item_types.$post({ json: p }),
   set_done: (p: CommandPayload<'set_done'>) => api.v1.commands.set_done.$post({ json: p }),
   set_dismissed: (p: CommandPayload<'set_dismissed'>) => api.v1.commands.set_dismissed.$post({ json: p }),
   associate: (p: CommandPayload<'associate'>) => api.v1.commands.associate.$post({ json: p }),

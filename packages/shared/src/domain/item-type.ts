@@ -58,6 +58,18 @@ export const DEFAULT_ITEM_TYPE_COLOR: string = ITEM_TYPE_COLORS[0]!;
  */
 export const STARTING_ITEM_TYPES: readonly string[] = ['Action', 'Thought'];
 
+/**
+ * What a Type change names instead of a workspace.
+ *
+ * Types belong to the account, and the pages that manage them are outside any
+ * workspace - but every command carries a workspace in its envelope, because
+ * that is what a change announces itself on. This is the value that says "the
+ * whole account": nothing is stored against it, and the client reads it as
+ * "every workspace's read model changed", which is what a Type change actually
+ * does.
+ */
+export const ACCOUNT_WIDE = 'account';
+
 export const itemTypeSchema = z.object({
   /**
    * The permissive `z.string()` rather than a uuid, for the reason a

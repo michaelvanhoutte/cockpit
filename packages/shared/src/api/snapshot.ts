@@ -72,3 +72,16 @@ export const workspaceListSchema = z.object({
   workspaces: z.array(workspaceSchema),
 });
 export type WorkspaceList = z.infer<typeof workspaceListSchema>;
+
+/**
+ * The account's live Types, in the order they are offered in ("Manage the
+ * types, and put them in the order you want", issue 156).
+ *
+ * Its own call because the page that manages them is outside any workspace, so
+ * there is no snapshot to read them from - the same reason the workspace list
+ * has one.
+ */
+export const itemTypeListSchema = z.object({
+  itemTypes: z.array(itemTypeSchema),
+});
+export type ItemTypeList = z.infer<typeof itemTypeListSchema>;

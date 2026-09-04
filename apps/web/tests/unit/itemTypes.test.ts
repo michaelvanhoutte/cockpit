@@ -97,6 +97,28 @@ describe('Capture', () => {
       expect(typeToOffer([], used())).toBeUndefined();
     });
 
+    it('offers the rest in the order the types page put them in', () => {
+      // The types arrive in that order and nothing here re-sorts them, which
+      // is what makes moving one on the settings page change what capture
+      // offers ("Manage the types, and put them in the order you want", issue
+      // 156).
+      const putInOrder = [DECISION, QUESTION, THOUGHT, ACTION];
+
+      expect(names(typesOffered(putInOrder, used()))).toEqual([
+        'Decision',
+        'Question',
+        'Thought',
+        'Action',
+      ]);
+      // And the ones used last still come first, over the order set there.
+      expect(names(typesOffered(putInOrder, used(ACTION)))).toEqual([
+        'Action',
+        'Decision',
+        'Question',
+        'Thought',
+      ]);
+    });
+
     it('opens on the one used last', () => {
       expect(typeToOffer(EVERY, used(ACTION, QUESTION))?.name).toBe('Question');
     });

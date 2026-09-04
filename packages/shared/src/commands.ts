@@ -5,7 +5,7 @@ import {
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
-import { itemTypeNameSchema } from './domain/item-type.js';
+import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import { panelNameSchema, placementInputSchema } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
@@ -305,6 +305,65 @@ export const createItemTypeSchema = commandEnvelopeSchema.extend({
 export type CreateItemTypeCommand = z.infer<typeof createItemTypeSchema>;
 
 /**
+ * The three changes the types page makes to one Type ("Manage the types, and
+ * put them in the order you want", issue 156).
+ *
+ * `typeId` is the envelope's plain string rather than a uuid, for the reason
+ * renaming a workspace takes one: it names something that already exists, and
+ * the two every account starts with have ids derived from the account's own.
+ *
+ * Renaming obeys exactly the rules creating does, by carrying the same schema.
+ * Uniqueness is not a shape: the handler and the index behind it decide it, in
+ * the scope of the account.
+ */
+export const renameItemTypeSchema = commandEnvelopeSchema.extend({
+  typeId: z.string().min(1),
+  name: itemTypeNameSchema,
+});
+export type RenameItemTypeCommand = z.infer<typeof renameItemTypeSchema>;
+
+export const setItemTypeColorSchema = commandEnvelopeSchema.extend({
+  typeId: z.string().min(1),
+  color: itemTypeColorSchema,
+});
+export type SetItemTypeColorCommand = z.infer<typeof setItemTypeColorSchema>;
+
+/**
+ * delete_item_type - which Type. Its Items are left where they are and simply
+ * stop having a type, the way deleting a Workspace leaves its Items filed
+ * against it: nothing written down is lost by removing a label.
+ */
+export const deleteItemTypeSchema = commandEnvelopeSchema.extend({
+  typeId: z.string().min(1),
+});
+export type DeleteItemTypeCommand = z.infer<typeof deleteItemTypeSchema>;
+
+/**
+ * reorder_item_types - the whole order, not the move that produced it, for the
+ * two reasons `reorder_workspaces` carries: a whole order is a value
+ * last-write-wins can be applied to while a relative move is not, and a list
+ * that no longer names the same types the account has is refused rather than
+ * quietly succeeding against a list nobody was looking at.
+ *
+ * `typeId` is the one that moved, which is what the audit trail reads as
+ * afterwards - "the whole order changed" says nothing about what somebody did.
+ */
+export const reorderItemTypesSchema = commandEnvelopeSchema
+  .extend({
+    typeId: z.string().min(1),
+    typeIds: z.array(z.string().min(1)).min(1),
+  })
+  .refine((cmd) => new Set(cmd.typeIds).size === cmd.typeIds.length, {
+    message: 'a type can only be in one place in the order',
+    path: ['typeIds'],
+  })
+  .refine((cmd) => cmd.typeIds.includes(cmd.typeId), {
+    message: 'the type that moved is not in the order',
+    path: ['typeIds'],
+  });
+export type ReorderItemTypesCommand = z.infer<typeof reorderItemTypesSchema>;
+
+/**
  * move_item_to_panel — where an Item lives now, and the order of the Panel it
  * lands on ("Panels hold the items filed into them, and the Inbox holds the
  * rest", issue 36).
@@ -482,6 +541,10 @@ export const commandSchemas = {
   delete_layout: deleteLayoutSchema,
   capture_item: captureItemSchema,
   create_item_type: createItemTypeSchema,
+  rename_item_type: renameItemTypeSchema,
+  set_item_type_color: setItemTypeColorSchema,
+  delete_item_type: deleteItemTypeSchema,
+  reorder_item_types: reorderItemTypesSchema,
   move_item_to_panel: moveItemToPanelSchema,
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,

@@ -7,6 +7,7 @@ import {
   signedInSchema,
   signInSchema,
   userListSchema,
+  itemTypeListSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
   type CommandName,
@@ -244,6 +245,17 @@ const workspacesRoute = createRoute({
   },
 });
 
+const itemTypesRoute = createRoute({
+  method: 'get',
+  path: '/v1/item-types',
+  responses: {
+    200: {
+      description: 'All live types of the account',
+      content: { 'application/json': { schema: itemTypeListSchema } },
+    },
+  },
+});
+
 const snapshotRoute = createRoute({
   method: 'get',
   path: '/v1/workspaces/{workspaceId}/snapshot',
@@ -363,6 +375,10 @@ const routes = app
     const account = await openAccount(c.env, c.get('visitor').accountName);
     return c.json({ workspaces: await account.workspaces() }, 200);
   })
+  .openapi(itemTypesRoute, async (c) => {
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ itemTypes: await account.itemTypes() }, 200);
+  })
   .openapi(snapshotRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -428,6 +444,18 @@ const routes = app
   )
   .openapi(commandRoute('create_item_type'), async (c) =>
     c.json(await change(c, 'create_item_type', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('rename_item_type'), async (c) =>
+    c.json(await change(c, 'rename_item_type', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('set_item_type_color'), async (c) =>
+    c.json(await change(c, 'set_item_type_color', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('delete_item_type'), async (c) =>
+    c.json(await change(c, 'delete_item_type', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('reorder_item_types'), async (c) =>
+    c.json(await change(c, 'reorder_item_types', c.req.valid('json')), 200),
   )
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_dismissed'), async (c) => c.json(await change(c, 'set_dismissed', c.req.valid('json')), 200))

@@ -53,7 +53,11 @@ import {
   workspaceFromCommand,
   workspaceNamed,
 } from '../domain/workspaces.js';
-import { itemTypeFromCommand, itemTypeNamed } from '../domain/item-types.js';
+import {
+  itemTypeFromCommand,
+  itemTypeNamed,
+  ordersTypesExactly,
+} from '../domain/item-types.js';
 import {
   applySetDismissed,
   applySetDone,
@@ -67,6 +71,26 @@ export class ItemTypeNotFoundError extends Error {
   constructor(typeId: string) {
     super(`item type ${typeId} not found`);
     this.name = 'ItemTypeNotFoundError';
+  }
+}
+
+/**
+ * Its own kind rather than the workspace one, for the reason the dashboard one
+ * is: the message is what a person reads, and it has to name the thing that is
+ * actually in the way.
+ */
+export class ItemTypeNameTakenError extends Error {
+  constructor(name: string) {
+    super(`a type called ${name} already exists`);
+    this.name = 'ItemTypeNameTakenError';
+  }
+}
+
+/** The same collision `WorkspaceOrderStaleError` names, one list along. */
+export class ItemTypeOrderStaleError extends Error {
+  constructor() {
+    super('the types changed while they were being put in order');
+    this.name = 'ItemTypeOrderStaleError';
   }
 }
 
@@ -804,6 +828,70 @@ export function runCommand<N extends CommandName>(
             .onConflictDoNothing()
             .run();
         }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'rename_item_type': {
+      const cmd = payload as CommandPayload<'rename_item_type'>;
+      const live = listItemTypes(db, tenantId);
+      const type = live.find((candidate) => candidate.id === cmd.typeId);
+      if (!type) throw new ItemTypeNotFoundError(cmd.typeId);
+      // Its own name back is a rename that changes nothing, not a collision.
+      const taken = itemTypeNamed(live, cmd.name);
+      if (taken && taken.id !== cmd.typeId) throw new ItemTypeNameTakenError(cmd.name);
+      db.transaction((tx) => {
+        tx.update(itemTypes)
+          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
+          .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, cmd.typeId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_item_type_color': {
+      const cmd = payload as CommandPayload<'set_item_type_color'>;
+      if (!getItemType(db, tenantId, cmd.typeId)) throw new ItemTypeNotFoundError(cmd.typeId);
+      db.transaction((tx) => {
+        tx.update(itemTypes)
+          .set({ color: cmd.color })
+          .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, cmd.typeId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_item_type': {
+      const cmd = payload as CommandPayload<'delete_item_type'>;
+      if (!getItemType(db, tenantId, cmd.typeId)) throw new ItemTypeNotFoundError(cmd.typeId);
+      db.transaction((tx) => {
+        // Tombstoned, never erased, and the items that named it are left
+        // alone: the row stays, so the foreign key stays satisfied, and an
+        // item pointing at a type no longer in the live list simply has none.
+        // That is what makes deleting a type a tidy-up rather than a change to
+        // everything it labelled.
+        tx.update(itemTypes)
+          .set({ deletedAt: cmd.issuedAt })
+          .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, cmd.typeId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'reorder_item_types': {
+      const cmd = payload as CommandPayload<'reorder_item_types'>;
+      const live = listItemTypes(db, tenantId);
+      if (!live.some((type) => type.id === cmd.typeId)) {
+        throw new ItemTypeNotFoundError(cmd.typeId);
+      }
+      if (!ordersTypesExactly(live, cmd.typeIds)) throw new ItemTypeOrderStaleError();
+      db.transaction((tx) => {
+        cmd.typeIds.forEach((typeId, position) => {
+          tx.update(itemTypes)
+            .set({ position })
+            .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, typeId)))
+            .run();
+        });
         tx.insert(commands).values(commandRow).run();
       });
       break;
