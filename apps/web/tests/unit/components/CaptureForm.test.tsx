@@ -1,13 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import type { Item, ItemType } from '@cockpit/shared';
 import { CaptureForm } from '../../../src/components/CaptureForm';
-import { useCommand } from '../../../src/api/queries';
+import { useCommand, useSendCommand } from '../../../src/api/queries';
 
-vi.mock('../../../src/api/queries', () => ({ useCommand: vi.fn() }));
+/**
+ * The types the account has *after* a change, which is what the form re-reads
+ * to find out which id the type it just named ended up with.
+ */
+const afterwards = vi.hoisted(() => ({ types: [] as unknown[] }));
+
+vi.mock('../../../src/api/queries', () => ({
+  useCommand: vi.fn(),
+  useSendCommand: vi.fn(),
+  itemTypesQuery: {
+    queryKey: ['itemTypes'],
+    queryFn: () => Promise.resolve({ itemTypes: afterwards.types }),
+  },
+}));
 
 const mockUseCommand = vi.mocked(useCommand);
+const mockUseSendCommand = vi.mocked(useSendCommand);
 
 function aType(name: string, at: number): ItemType {
   return {
@@ -48,12 +63,30 @@ function anItemOf(type: ItemType | null, at: number): Item {
   };
 }
 
-/** The form, with the types and items the workspace holds. */
-function aForm(types: ItemType[] = [ACTION, THOUGHT], items: Item[] = []) {
+/**
+ * The form, with the types and items the workspace holds.
+ *
+ * `madeAs` is the type the account is holding by the time the form re-reads
+ * them - which is how the case where another tab made the same type first is
+ * arranged, since the id that comes back is then not the one this form
+ * generated.
+ */
+function aForm(
+  types: ItemType[] = [ACTION, THOUGHT],
+  items: Item[] = [],
+  madeAs: ItemType[] = types,
+) {
   const mutate = vi.fn();
+  const send = vi.fn((_args: unknown) => Promise.resolve());
+  afterwards.types = madeAs;
   mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
-  render(<CaptureForm workspaceId="ws-work" types={types} items={items} />);
-  return { mutate, user: userEvent.setup() };
+  mockUseSendCommand.mockReturnValue(send as never);
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <CaptureForm workspaceId="ws-work" types={types} items={items} />
+    </QueryClientProvider>,
+  );
+  return { mutate, send, user: userEvent.setup() };
 }
 
 /** What the type box offers, in the order it offers them. */
@@ -121,19 +154,34 @@ describe('Capture', () => {
       expect(asked(mutate, 'capture_item').payload.typeId).toBe(THOUGHT.id);
     });
 
-    it('makes a new type when the name matches none, and captures it as that', async () => {
-      const { mutate, user } = aForm();
+    it.each([
+      {
+        situation: 'this request is what made it',
+        made: aType('Question', 2),
+      },
+      {
+        // The same name, a different id: another tab got there first and the
+        // store kept its row. Capturing against the id this form generated
+        // would name something nobody stored, and the note would be gone.
+        situation: 'another tab made it first',
+        made: { ...aType('Question', 9), id: 'made-by-somebody-else' },
+      },
+    ])('makes a new type and captures as the one now going by that name, when $situation', async ({ made }) => {
+      const { mutate, send, user } = aForm([ACTION, THOUGHT], [], [ACTION, THOUGHT, made]);
 
       await user.type(screen.getByLabelText('Capture a note or to-do'), 'Why is this slow?');
       await user.clear(screen.getByLabelText('What kind of thing this is'));
       await user.type(screen.getByLabelText('What kind of thing this is'), 'Question');
       await user.click(screen.getByRole('button', { name: 'Capture' }));
 
-      const made = asked(mutate, 'create_item_type');
-      expect(made.payload.name).toBe('Question');
-      // The same id both times, so the item lands as the type just made rather
-      // than as nothing.
-      expect(asked(mutate, 'capture_item').payload.typeId).toBe(made.payload.typeId);
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'create_item_type',
+          payload: expect.objectContaining({ name: 'Question' }),
+        }),
+      );
+      await waitFor(() => expect(asked(mutate, 'capture_item')).toBeDefined());
+      expect(asked(mutate, 'capture_item').payload.typeId).toBe(made.id);
     });
 
     it('captures with no type when the box was emptied', async () => {

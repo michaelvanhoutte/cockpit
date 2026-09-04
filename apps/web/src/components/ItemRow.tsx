@@ -73,7 +73,36 @@ export function ItemRow({
     itemId: item.id,
   });
 
-  const markDone = () => command.mutate({ name: 'set_done', payload: { ...envelope(), done: true } });
+  /**
+   * Finishing with it, and the way back offered for as long as the bar lasts
+   * ("Undo what just happened", issue 144).
+   *
+   * It needs the offer more than dismissing does, not less: it takes the item
+   * off the Inbox and off every panel it was filed on at once, and there is no
+   * list left that it can be found in to be put back by hand.
+   */
+  const markDone = () => {
+    command.mutate(
+      { name: 'set_done', payload: { ...envelope(), done: true } },
+      {
+        onSuccess: () =>
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” marked done`,
+            undo: () =>
+              send({
+                name: 'set_done',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  done: false,
+                },
+              }),
+          }),
+      },
+    );
+  };
 
   /**
    * Dismissing, with the way back offered for as long as the bar lasts ("Undo

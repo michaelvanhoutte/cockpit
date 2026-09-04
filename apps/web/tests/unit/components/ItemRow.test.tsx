@@ -262,6 +262,24 @@ describe('Triage', () => {
       );
     });
 
+    it('offers a finish back, as the same change turned round', async () => {
+      const user = userEvent.setup();
+      const { send } = aRow({ settles: true });
+
+      await choose(user, 'Mark done');
+      expect(screen.getByRole('status')).toHaveTextContent(
+        '“Make appointment with Novy” marked done',
+      );
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_done',
+          payload: expect.objectContaining({ itemId: 'item-1', done: false }),
+        }),
+      );
+    });
+
     it('offers nothing back while the dismissal is still in flight', async () => {
       const user = userEvent.setup();
       aRow({ settles: false });

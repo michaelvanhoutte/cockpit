@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { uuidv7, type Item, type ItemType } from '@cockpit/shared';
-import { useCommand } from '../api/queries';
+import { itemTypesQuery, useCommand, useSendCommand } from '../api/queries';
 import { typeNamed, typesOffered, typeToOffer } from '../itemTypes';
 
 /**
@@ -32,6 +33,8 @@ export function CaptureForm({
   const [title, setTitle] = useState('');
   const [typeName, setTypeName] = useState('');
   const command = useCommand();
+  const send = useSendCommand();
+  const queryClient = useQueryClient();
   const listId = useId();
 
   const offered = typesOffered(types, items);
@@ -43,8 +46,23 @@ export function CaptureForm({
   // somebody did on purpose.
   useEffect(() => {
     setTypeName((chosen) => (chosen === '' && opensOn ? opensOn.name : chosen));
-  }, [opensOn]);
+    // Keyed on which type it is, not on the object: `typeToOffer` derives a
+    // fresh one from every snapshot, so keying on the object re-ran this on
+    // each background revalidation and refilled a box somebody had emptied on
+    // purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opensOn?.id]);
 
+  /**
+   * Captures it, making the type first where the name matches none.
+   *
+   * **The type is made and then looked up again rather than assumed.** The id
+   * generated here is only used if this request is what created the type; where
+   * another tab made one of that name first the store keeps its row and ignores
+   * this one, so capturing against the id invented here would name something
+   * nobody stored and be refused - and the note would be gone. Re-reading the
+   * types is what turns that race into two people agreeing on one type.
+   */
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = title.trim();
@@ -52,34 +70,44 @@ export function CaptureForm({
 
     const wanted = typeName.trim();
     const already = wanted ? typeNamed(types, wanted) : undefined;
-    // A name matching none of the types there are is a new one, made before the
-    // capture that names it so the item lands with a type rather than without.
-    // Both are idempotent, so a retry of either is harmless.
-    const typeId = wanted ? (already?.id ?? uuidv7()) : undefined;
-    if (wanted && !already) {
+
+    const capture = (typeId: string | undefined) =>
       command.mutate({
+        name: 'capture_item',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: uuidv7(),
+          title: trimmed,
+          ...(typeId ? { typeId } : {}),
+        },
+      });
+
+    if (!wanted || already) {
+      capture(already?.id);
+      setTitle('');
+      return;
+    }
+
+    void (async () => {
+      await send({
         name: 'create_item_type',
         payload: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId,
-          typeId: typeId!,
+          typeId: uuidv7(),
           name: wanted,
         },
       });
-    }
-
-    command.mutate({
-      name: 'capture_item',
-      payload: {
-        commandId: uuidv7(),
-        issuedAt: new Date().toISOString(),
-        workspaceId,
-        itemId: uuidv7(),
-        title: trimmed,
-        ...(typeId ? { typeId } : {}),
-      },
-    });
+      // Whichever request made it, this is the one type now going by that name.
+      const made = typeNamed(
+        (await queryClient.fetchQuery(itemTypesQuery)).itemTypes,
+        wanted,
+      );
+      capture(made?.id);
+    })();
     setTitle('');
   };
 
