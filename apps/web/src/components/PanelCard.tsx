@@ -1,5 +1,4 @@
 import { useRef } from 'react';
-import { GRID_COLUMNS, MAX_PANEL_ROWS } from '@cockpit/shared';
 import type { Item, Panel, PanelPlacement } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
@@ -15,12 +14,13 @@ import { RowMenu } from './Menu';
  * its own is configuration it does not have yet ("Panel configuration:
  * connections and free-text description", issue 35).
  *
- * **Everything a pointer can do here, the menu can do too.** Dragging the
- * header reorders and dragging the corner resizes, and neither exists for a
- * keyboard or on a phone - the browser's own drag-and-drop is a mouse gesture,
- * and a corner grip is a target no thumb wants. So the panel's own menu carries
- * the same four moves and the same four resizes, which is also what makes them
- * provable below the browser tier.
+ * **Moving is in the menu as well as under the pointer.** Dragging the header
+ * reorders, and that gesture exists for neither a keyboard nor a phone - the
+ * browser's own drag-and-drop is a mouse protocol - so the panel's own menu
+ * carries the same moves, which is also what makes them provable below the
+ * browser tier. Resizing is the corner grip alone: dragging it is the whole of
+ * the gesture, and four step-at-a-time entries beside it were clutter in a menu
+ * read on every panel.
  */
 
 /** The height of one grid row, in pixels, and the gap between panels. */
@@ -167,7 +167,6 @@ export function PanelCard({
               entries={[
                 { label: 'Rename', onSelect: onStartRenaming },
                 ...movesFor({ at, of, sideBySide }, onMove),
-                ...resizesFor(placement, onResize),
                 { label: 'Delete', destructive: true, onSelect: onDelete },
               ]}
             />
@@ -212,11 +211,11 @@ export function PanelCard({
  * wrap, so on a screen only one panel wide they are stacked and "Move left"
  * would name a direction nothing goes in.
  *
- * The ends are said out loud rather than silently doing nothing, exactly as the
- * ends of a resize are: an entry that can be chosen and changes nothing is
- * indistinguishable from one that is broken. It also keeps a no-op out of the
- * board, where a change that moves nothing would still record a layout for this
- * screen out of a gesture that did not arrange anything.
+ * The ends are said out loud rather than silently doing nothing: an entry that
+ * can be chosen and changes nothing is indistinguishable from one that is
+ * broken. It also keeps a no-op out of the board, where a change that moves
+ * nothing would still record a layout for this screen out of a gesture that
+ * did not arrange anything.
  *
  * `keepsFocus`, because these open nothing and are the entries most likely to
  * be chosen several times in a row - dropping the focus to the top of the page
@@ -248,47 +247,6 @@ function movesFor(
 }
 
 /**
- * Resizing in whole grid steps, with the ends said out loud rather than
- * silently doing nothing: an entry that can be chosen and changes nothing is
- * indistinguishable from one that is broken ("Ask before deleting in a dialog,
- * from the row's own menu", issue 116, which is where the unavailable-with-a-
- * reason entry comes from).
- *
- * `keepsFocus` for the reason moving carries it: a resize opens nothing, and
- * these are entries somebody presses three times in a row to get a panel to the
- * size they want.
- */
-function resizesFor(placement: PanelPlacement, onResize: (size: { columns?: number; rows?: number }) => void) {
-  return [
-    {
-      label: 'Wider',
-      keepsFocus: true,
-      unavailable:
-        placement.columns >= GRID_COLUMNS ? 'This panel is already the full width' : undefined,
-      onSelect: () => onResize({ columns: placement.columns + 1 }),
-    },
-    {
-      label: 'Narrower',
-      keepsFocus: true,
-      unavailable: placement.columns <= 1 ? 'This panel is already as narrow as it goes' : undefined,
-      onSelect: () => onResize({ columns: placement.columns - 1 }),
-    },
-    {
-      label: 'Taller',
-      keepsFocus: true,
-      unavailable: placement.rows >= MAX_PANEL_ROWS ? 'This panel is already as tall as it goes' : undefined,
-      onSelect: () => onResize({ rows: placement.rows + 1 }),
-    },
-    {
-      label: 'Shorter',
-      keepsFocus: true,
-      unavailable: placement.rows <= 1 ? 'This panel is already as short as it goes' : undefined,
-      onSelect: () => onResize({ rows: placement.rows - 1 }),
-    },
-  ];
-}
-
-/**
  * The corner you drag to resize.
  *
  * **Pointer events rather than mouse events**, so the same handler is the whole
@@ -302,11 +260,11 @@ function resizesFor(placement: PanelPlacement, onResize: (size: { columns?: numb
  * a constant. Both include the gap, which is why it is added on either side of
  * the division rather than ignored.
  *
- * **Hidden from anything that is not a pointer**, deliberately: it is a grip
- * with no keyboard gesture behind it, and the four resizes in the panel's own
- * menu are the reachable version of exactly this. A control announced to a
- * screen reader that it cannot then operate is worse than one that is not
- * announced.
+ * **Hidden from anything that is not a pointer**, deliberately: a control
+ * announced to a screen reader that it cannot then operate is worse than one
+ * that is not announced. That leaves resizing as a pointer gesture only - the
+ * menu carried step-at-a-time entries until they were taken out as clutter, so
+ * a keyboard has no way to resize a panel today.
  */
 function ResizeGrip({
   panelName,

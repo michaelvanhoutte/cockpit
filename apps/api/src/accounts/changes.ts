@@ -55,9 +55,10 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANEL_ITEMS,
     ITEM_COMPLETED_AT,
     itemTypes(accountId),
-    // Last, because it is the only one here that has not shipped: the two above
-    // are applied in accounts already, and a change that has shipped can never
-    // be reordered any more than it can be edited.
+    ITEM_WORKSPACE_DECIDED,
+    // Last, because it is the only one here that has not shipped: everything
+    // above is applied in accounts already, and a change that has shipped can
+    // never be reordered any more than it can be edited.
     ITEM_TEXTS,
   ];
 }
@@ -292,8 +293,8 @@ const DASHBOARDS: Change = {
  *   in the same millisecond still get different numbers rather than sharing one.
  * - **What each environment does.** All of them do this, and they do it the same
  *   way - an account applies its outstanding changes inside the first request
- *   that opens it, whether that account is on a laptop, in preview, in staging
- *   or in production. There is no per-environment seeding step to differ,
+ *   that opens it, whether that account is on a laptop, in staging or in
+ *   production. There is no per-environment seeding step to differ,
  *   because nothing outside a store can reach one.
  * - **The windows it can be interrupted in.** Two, and the second is the reason
  *   the column is additive rather than a rebuild. *Before it runs*: the account
@@ -352,10 +353,10 @@ const WORKSPACE_ORDER: Change = {
  *   empty by this change, so the first row any of these constraints ever sees
  *   is one the command handlers wrote.
  * - **What each environment does.** Nothing environment-specific: no seed and
- *   no backfill, so preview (re-seeded every deploy), staging (deliberately
- *   never) and production (seeded once by hand) all get the same three empty
- *   tables. Every account applies this the next time it is opened, which is the
- *   price the account storage decision records.
+ *   no backfill, so staging (deliberately never re-seeded) and production
+ *   (seeded once by hand) both get the same three empty tables. Every account
+ *   applies this the next time it is opened, which is the price the account
+ *   storage decision records.
  * - **The windows it can be interrupted in.** Two, and both are safe. Before
  *   the tables exist, the code running is the code that never reads them.
  *   After, an account is brought up to date *before* any work in the same
@@ -675,6 +676,51 @@ function itemTypes(accountId: string): Change {
     ],
   };
 }
+
+/**
+ * An Item can belong to no Workspace yet, and then shows in every Workspace's
+ * Inbox ("Capture something before you know which workspace it belongs to",
+ * issue 165).
+ *
+ * **One statement, and that is the design rather than a coincidence.** The
+ * column's `NOT NULL DEFAULT 1` gives every row that already exists the answer
+ * it should have - all of them were captured into a Workspace deliberately - so
+ * there is no backfill, and therefore nothing that can be half-done. Additive
+ * for the reason `0007` was: `panel_items` and `associations` point at `items`
+ * under RESTRICT, so it cannot be rebuilt, which is also why the column carries
+ * no CHECK holding it to 0 or 1.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **If it stops halfway:** it cannot, twice over. One statement, and
+ *   `transactionSync` wraps it with the record that it ran (store.ts), so a
+ *   failure leaves neither the column nor the record and it is retried whole.
+ *   That matters because SQLite has no `ADD COLUMN IF NOT EXISTS`: a column
+ *   left behind could never be re-run over.
+ * - **The second time it runs:** it does not, having been recorded. A re-run
+ *   over a store that somehow already had the column fails loudly with
+ *   `duplicate column name`, which is the outcome to want - it says the ledger
+ *   and the schema disagree.
+ * - **Rows that already break the new rule:** none. Every existing Item belongs
+ *   to the Workspace it was captured into, and the default says so.
+ * - **What is in each environment:** the same thing everywhere. No environment
+ *   seeds an account's own data and none can (deployment, "Bootstrap runbook"),
+ *   and an account applies its outstanding changes inside the first request
+ *   that opens it, on a laptop, in staging and in production alike.
+ * - **The windows it can be interrupted in.** *Before it runs*: the account is
+ *   untouched and the previous release never names the column. *After it runs,
+ *   with the previous release promoted back*: that release reads a table with a
+ *   column it does not name, which SQLite is happy with because no read names
+ *   every column (`itemColumns` in repo.ts) - and an Item belonging to no
+ *   Workspace reads as belonging to the one it was captured from, which is
+ *   where the old code would have put it anyway. Nothing is lost by rolling
+ *   back and nothing has to be repaired by rolling forward.
+ */
+const ITEM_WORKSPACE_DECIDED: Change = {
+  name: '0009-item-workspace-decided',
+  statements: [
+    { sql: 'ALTER TABLE `items` ADD COLUMN `workspace_decided` integer DEFAULT 1 NOT NULL' },  ],
+};
 
 /**
  * The two texts an Item gains beside its title: `captured_message`, written

@@ -59,6 +59,13 @@ vi.mock('../../../src/api/queries', () => ({
     queryKey: ['me'],
     queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
   },
+  // The header's capture window reads the account's types ('Capture something
+  // before you know which workspace it belongs to', issue 165). Empty here:
+  // what the window offers is CaptureForm's, proved on CaptureForm.
+  itemTypesQuery: {
+    queryKey: ['itemTypes'],
+    queryFn: () => Promise.resolve({ itemTypes: [] }),
+  },
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () =>

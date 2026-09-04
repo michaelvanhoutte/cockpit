@@ -1,5 +1,15 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import type { Dashboard, Panel } from '@cockpit/shared';
+import type { Dashboard, Panel, Workspace } from '@cockpit/shared';
+
+/**
+ * Where an item can be moved: onto a panel, or into a workspace's Inbox.
+ *
+ * The Inbox arm names its workspace rather than being a bare null, because
+ * since "Capture something before you know which workspace it belongs to"
+ * (issue 165) there is more than one Inbox to mean: an item belonging to no
+ * workspace is in every one of them, and picking which is how it gets one.
+ */
+export type MoveTarget = { panel: string } | { inboxOf: string };
 
 /**
  * Where an item should go: the Inbox, or any panel of this workspace ("Panels
@@ -30,6 +40,8 @@ export function MoveToPicker({
   adding = false,
   dashboards,
   panels,
+  workspaceId,
+  inboxesOf,
   openDashboardId,
   recent,
   open,
@@ -54,13 +66,27 @@ export function MoveToPicker({
   dashboards: readonly Dashboard[];
   /** Every panel of the workspace, whichever dashboard it is on. */
   panels: readonly Panel[];
+  /** The workspace being looked at, whose Inbox is the plain one at the top. */
+  workspaceId: string;
+  /**
+   * Every workspace, listed as Inboxes above the panels - given only for an
+   * item that belongs to none of them yet ("Capture something before you know
+   * which workspace it belongs to", issue 165).
+   *
+   * **First, and in the order of the tabs.** For an item that is in every Inbox
+   * at once, which Inbox it should be in is the question actually being asked,
+   * and the panels below are the answer to a longer one. The tab order rather
+   * than any other, because a second arrangement of the same workspaces is a
+   * second thing to learn.
+   */
+  inboxesOf?: readonly Workspace[];
   /** The dashboard being looked at, or null on a screen that is not one. */
   openDashboardId: string | null;
   /** Panel ids, most recently filed into first. */
   recent: readonly string[];
   open: boolean;
-  /** The chosen target: a panel's id, or null for the Inbox. */
-  onPick: (panelId: string | null) => void;
+  /** The chosen target: a panel, or the Inbox of one of the workspaces. */
+  onPick: (target: MoveTarget) => void;
   onCancel: () => void;
   /** Why the last choice did not happen, if it did not. */
   refusal?: string | null;
@@ -109,14 +135,27 @@ export function MoveToPicker({
               six dashboards of panels is a list longer than any screen, and a
               dialog taller than the window has a Cancel nobody can reach. */}
           <div className="-mx-1 mt-4 min-h-0 flex-1 overflow-y-auto px-1">
-            {!adding && (
-              <Target
-                label="Inbox"
-                hint="still to deal with"
-                busy={busy}
-                onPick={() => onPick(null)}
-              />
-            )}
+            {!adding &&
+              (inboxesOf ? (
+                <Group title="Workspaces">
+                  {inboxesOf.map((workspace) => (
+                    <Target
+                      key={workspace.id}
+                      label={workspace.name}
+                      hint={workspace.id === workspaceId ? 'the one you are in' : undefined}
+                      busy={busy}
+                      onPick={() => onPick({ inboxOf: workspace.id })}
+                    />
+                  ))}
+                </Group>
+              ) : (
+                <Target
+                  label="Inbox"
+                  hint="still to deal with"
+                  busy={busy}
+                  onPick={() => onPick({ inboxOf: workspaceId })}
+                />
+              ))}
 
             {recentPanels.length > 0 && (
               <Group title="Recent">
@@ -126,7 +165,7 @@ export function MoveToPicker({
                     label={panel.name}
                     hint={nameOfDashboard(dashboards, panel.dashboardId)}
                     busy={busy}
-                    onPick={() => onPick(panel.id)}
+                    onPick={() => onPick({ panel: panel.id })}
                   />
                 ))}
               </Group>
@@ -142,7 +181,7 @@ export function MoveToPicker({
                       key={panel.id}
                       label={panel.name}
                       busy={busy}
-                      onPick={() => onPick(panel.id)}
+                      onPick={() => onPick({ panel: panel.id })}
                     />
                   ))
                 )}

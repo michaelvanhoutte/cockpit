@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Item } from '@cockpit/shared';
-import { applySetDismissed, applySetDone, captureItem } from '../../../src/domain/items.js';
+import {
+  applySetDismissed,
+  applySetDone,
+  captureItem,
+  decideWorkspace,
+} from '../../../src/domain/items.js';
 
 const MADE = '2026-08-12T10:00:00.000Z';
 const LATER = '2026-08-12T10:00:01.000Z';
@@ -40,6 +45,88 @@ describe('Capture', () => {
       expect(item.completedAt).toBeNull();
       expect(item.createdAt).toBe(MADE);
       expect(item.updatedAt).toBe(MADE);
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * L1: which workspace an item gets, and whether it gets one at all, is a
+   * decision over the command and the item. That the Inbox then shows it in
+   * every workspace, and stops, is a query and is proved against a real store
+   * in apps/api/tests/integration/http/item-changes.test.ts.
+   */
+  describe('capture says where an item belongs, or that nobody has said yet', () => {
+    it.each([
+      {
+        situation: 'a front door with no opinion, which is every one but the capture window',
+        asked: {},
+        decided: true,
+      },
+      { situation: 'the Inbox’s own row, inside a workspace', asked: { workspaceDecided: true }, decided: true },
+      { situation: 'the capture window, which is not', asked: { workspaceDecided: false }, decided: false },
+    ])('$situation', ({ asked, decided }) => {
+      const item = captureItem(
+        {
+          ...request,
+          ...asked,
+          issuedAt: MADE,
+          itemId: '018f0000-0000-7000-8000-000000000002',
+          message: 'Make appointment with Novy',
+        },
+        'tenant-default',
+      );
+      expect(item.workspaceDecided).toBe(decided);
+      // Either way it records the workspace it was captured from, which is
+      // what a later router reads and what the foreign key needs.
+      expect(item.workspaceId).toBe('ws-work');
+    });
+  });
+
+  describe('an item gets its workspace the first time somebody says where it belongs, and keeps it', () => {
+    const undecided = () => anItem({ workspaceDecided: false });
+
+    it('takes the workspace it is put into, and stops belonging to none', () => {
+      const settled = decideWorkspace(undecided(), 'ws-home', LATER);
+      expect(settled).toEqual(expect.objectContaining({ workspaceId: 'ws-home', workspaceDecided: true }));
+      expect(settled?.updatedAt).toBe(LATER);
+    });
+
+    it.each([
+      { situation: 'put into the workspace it was captured from', into: 'ws-work' },
+      { situation: 'put into another workspace', into: 'ws-home' },
+    ])('$situation is still an answer', ({ into }) => {
+      expect(decideWorkspace(undecided(), into, LATER)?.workspaceId).toBe(into);
+    });
+
+    /**
+     * **The first answer wins, not the last one.** Everything else about an
+     * item is last-write-wins on the command's clock; this is the one thing a
+     * later command may not have an opinion about, because the question it
+     * answers has already been answered.
+     */
+    it.each([
+      { situation: 'moved again, later', at: LATEST },
+      { situation: 'a command that was slow to arrive', at: MADE },
+    ])('leaves an item that already belongs somewhere alone, $situation', ({ at }) => {
+      expect(decideWorkspace(anItem(), 'ws-home', at)).toBeNull();
+    });
+
+    /**
+     * A settling is never refused for being late - the question it answers has
+     * nothing to be stale about - but `updatedAt` is what every other handler
+     * measures staleness by, so it must not go backwards. Writing the command's
+     * own clock into it would let commands they had rightly rejected through.
+     */
+    it.each([
+      { situation: 'a settling made after the last change', at: LATEST, kept: LATEST },
+      { situation: 'one that was slow to arrive', at: MADE, kept: LATER },
+    ])('$situation leaves the time of the last change no earlier', ({ at, kept }) => {
+      const undecided = anItem({ workspaceDecided: false, updatedAt: LATER });
+
+      expect(decideWorkspace(undecided, 'ws-home', at)?.updatedAt).toBe(kept);
+      // Late or not, it still answers the question.
+      expect(decideWorkspace(undecided, 'ws-home', at)?.workspaceId).toBe('ws-home');
     });
   });
 });

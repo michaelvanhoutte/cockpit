@@ -50,7 +50,7 @@ jobs:
       # Deliberately not seeded. Staging's value is that its data is old:
       # accumulated state is what makes a migration rehearsal and a stale
       # connector token realistic. Re-seeding it every deploy would throw away
-      # the only thing staging has that previews do not.
+      # exactly that.
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
         with:

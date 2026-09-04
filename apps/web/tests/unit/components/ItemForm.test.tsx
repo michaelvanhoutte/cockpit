@@ -41,6 +41,7 @@ function anItem(over: Partial<Item> = {}): Item {
     id: 'item-1',
     tenantId: 'tenant',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,

@@ -26,10 +26,26 @@ export function CaptureForm({
   workspaceId,
   types,
   items,
+  decided = true,
+  autoFocus = false,
+  onCaptured,
 }: {
   workspaceId: string;
   types: readonly ItemType[];
   items: readonly Item[];
+  /**
+   * Whether `workspaceId` is where what this captures *belongs*, or only where
+   * it was captured from ("Capture something before you know which workspace it
+   * belongs to", issue 165).
+   *
+   * True in the Inbox's own row, which is inside a workspace and has therefore
+   * already said which. False in the header's capture window, which is not.
+   */
+  decided?: boolean;
+  /** True in the window, where the box is the only thing on screen. */
+  autoFocus?: boolean;
+  /** Told once the capture has been asked for, so a window can close itself. */
+  onCaptured?: () => void;
 }) {
   const [message, setMessage] = useState('');
   const [typeName, setTypeName] = useState('');
@@ -82,18 +98,51 @@ export function CaptureForm({
     const already = wanted ? typeNamed(types, wanted) : undefined;
 
     const capture = (typeId: string | undefined) => {
-      command.mutate({
-        name: 'capture_item',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          itemId: uuidv7(),
-          message: trimmed,
-          ...(typeId ? { typeId } : {}),
-        },
-      });
+      // Emptied and cleared *before* the change is asked for, not after. A
+      // refusal can arrive during the call rather than after it, and the two
+      // lines that used to sit below this one then wiped the message and the
+      // note the error handler had just put back.
       setMessage('');
+      setRefused(null);
+      command.mutate(
+        {
+          name: 'capture_item',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: uuidv7(),
+            message: trimmed,
+            ...(typeId ? { typeId } : {}),
+            // Sent only when it is false, so every other front door's command
+            // reads exactly as it did before this landed.
+            ...(decided ? {} : { workspaceDecided: false }),
+          },
+        },
+        {
+          // Told only once it landed, so a window closing on this does not
+          // close over a refusal nobody has read.
+          onSuccess: () => onCaptured?.(),
+          /**
+           * **The note goes back in the box**, which is the other half of
+           * emptying it before the answer comes.
+           *
+           * Capture must not wait on the network (architecture, "Performance
+           * budgets"), so the box is cleared the moment the change is asked
+           * for - and a capture the server then refuses used to take the note
+           * with it in silence. A workspace deleted in another tab is enough
+           * to produce one.
+           */
+          onError: (error) => {
+            setMessage(trimmed);
+            setRefused(
+              error instanceof CommandRefused
+                ? error.message
+                : 'That did not reach the server. Try again.',
+            );
+          },
+        },
+      );
     };
 
     if (!wanted || already) {
@@ -154,6 +203,7 @@ export function CaptureForm({
         onChange={(e) => setMessage(e.target.value)}
         placeholder="Capture a note or to-do…"
         aria-label="Capture a note or to-do"
+        autoFocus={autoFocus}
         className="min-w-0 flex-1 basis-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
       <input

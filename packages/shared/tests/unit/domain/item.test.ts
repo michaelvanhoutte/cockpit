@@ -169,6 +169,7 @@ describe('Capture', () => {
       id: '018f0000-0000-7000-8000-000000000001',
       tenantId: 'tenant-default',
       workspaceId: 'ws-work',
+      workspaceDecided: true,
       source: 'internal' as const,
       sourceId: null,
       sourceLink: null,

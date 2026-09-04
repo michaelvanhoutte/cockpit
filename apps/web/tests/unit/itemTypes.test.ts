@@ -31,6 +31,7 @@ function anItemOf(type: ItemType | null, at: number): Item {
     id: `item-${at}`,
     tenantId: 'tenant',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,

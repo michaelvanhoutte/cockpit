@@ -20,6 +20,7 @@ function anItem(id: string, completedAt: string | null = null): Item {
     id,
     tenantId: 'tenant',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,

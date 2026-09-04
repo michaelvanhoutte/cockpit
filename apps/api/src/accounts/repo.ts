@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, max, ne } from 'drizzle-orm';
+import { and, asc, eq, isNull, max, ne, or } from 'drizzle-orm';
 import type {
   Association,
   Dashboard,
@@ -407,6 +407,7 @@ const itemColumns = {
   id: items.id,
   tenantId: items.tenantId,
   workspaceId: items.workspaceId,
+  workspaceDecided: items.workspaceDecided,
   source: items.source,
   sourceId: items.sourceId,
   sourceLink: items.sourceLink,
@@ -435,6 +436,13 @@ const itemColumns = {
  * item marked done has to reach the browser for the bar offering to undo it to
  * have anything to put back ("Undo what just happened", issue 144). What keeps
  * a finished item off the lists is the client's own derivation.
+ *
+ * **Plus every item belonging to no workspace yet** ("Capture something before
+ * you know which workspace it belongs to", issue 165): it is not clear where
+ * one goes, so it is offered in every workspace's Inbox until somebody says.
+ * The `or` sits inside the `and` rather than beside it, which is the whole of
+ * the care this needs - hoisted out, it would return every tenant's dismissed
+ * undecided items along with this workspace's own.
  */
 export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: string): Item[] {
   return db
@@ -443,7 +451,7 @@ export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: stri
     .where(
       and(
         eq(items.tenantId, tenantId),
-        eq(items.workspaceId, workspaceId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
         isNull(items.deletedAt),
       ),
     )
@@ -477,7 +485,16 @@ export function listAssociationsForWorkspace(
     })
     .from(associations)
     .innerJoin(items, eq(associations.itemId, items.id))
-    .where(and(eq(associations.tenantId, tenantId), eq(items.workspaceId, workspaceId)))
+    // **The same items `listOpenItems` returns**, which is why this carries the
+    // same `or`: an item belonging to no workspace is drawn in every workspace,
+    // and a row drawn without the associations it has is a row saying something
+    // untrue about itself.
+    .where(
+      and(
+        eq(associations.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+      ),
+    )
     .all();
 }
 

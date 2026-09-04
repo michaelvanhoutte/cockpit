@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
-import { itemLabel } from '@cockpit/shared';
+import { ACCOUNT_WIDE, itemLabel } from '@cockpit/shared';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
 import { WORKSPACE_ID, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
@@ -464,6 +464,277 @@ describe('Panels', () => {
       expect(await (await once()).json()).toEqual({ ok: true, applied: false });
 
       expect((await snapshot()).filings.filter((filing) => filing.itemId === itemId)).toHaveLength(1);
+    });
+  });
+
+  /**
+   * A store binds 100 values per statement (architecture, "No statement's
+   * parameter count grows with the data") and a filing row is five of them, so
+   * filing onto a panel used to fail at twenty-one items - a panel a person
+   * fills in an ordinary week. Thirty rather than twenty-one, so the case goes
+   * on being about the limit if the batch size moves.
+   */
+  describe('a panel holds however many items are filed onto it', () => {
+    it('keeps all thirty, in the order the move put them in', async () => {
+      const dashboardId = await aDashboard();
+      const panelId = await aPanel(dashboardId, 'Project Falcon');
+
+      // One at a time, because an order must name exactly the panel's items
+      // plus the one arriving - which is also what makes the last move the
+      // widest statement: thirty rows of five values in a single insert.
+      // Newest first, so an order that came back as the order they were
+      // captured in would be visibly wrong rather than accidentally right.
+      const wanted: string[] = [];
+      const titles: string[] = [];
+      for (let n = 0; n < 30; n += 1) {
+        const itemId = await anItem(`Thing ${n}`);
+        wanted.unshift(itemId);
+        titles.unshift(`Thing ${n}`);
+        expect((await move(itemId, panelId, wanted)).status).toBe(200);
+      }
+
+      expect(await inOrderOn(panelId)).toEqual(titles);
+      // Thirty captures plus the move, against the workers pool - past the
+      // default five seconds on requests alone.
+    }, 30_000);
+  });
+});
+
+/**
+ * Integration level for the reason the panels above are: which items an Inbox
+ * holds is a query, and one belonging to no workspace is in every Inbox at
+ * once - which exists only against a real store with real workspaces in it.
+ * Which workspace a settling gives an item, and that the first answer wins,
+ * are pure decisions settled in apps/api/tests/unit/domain/items.test.ts.
+ */
+describe('Capture', () => {
+  /**
+   * What one workspace's Inbox reads as: its open items filed on no panel,
+   * named the way the product names them - capture writes no title, so their
+   * label is their captured message (`itemLabel`).
+   */
+  async function inboxOf(workspaceId: string): Promise<string[]> {
+    const held = await snapshot(workspaceId);
+    const filed = new Set(held.filings.map((filing) => filing.itemId));
+    return held.items
+      .filter((item) => !filed.has(item.id) && item.completedAt === null)
+      .map((item) => itemLabel(item))
+      .sort();
+  }
+
+  async function anItemBelongingNowhere(message: string, from = WORKSPACE_ID): Promise<string> {
+    const itemId = nextId();
+    expect(
+      (await send('capture_item', { workspaceId: from, itemId, message, workspaceDecided: false }))
+        .status,
+    ).toBe(200);
+    return itemId;
+  }
+
+  const EVERY_WORKSPACE = ['ws-work', 'ws-atlas', 'ws-personal'];
+
+  describe('an item belonging to no workspace waits in every workspace’s Inbox', () => {
+    it('is in the Inbox of the workspace it was captured from and of every other', async () => {
+      await anItemBelongingNowhere('Where does this go');
+      for (const workspaceId of EVERY_WORKSPACE) {
+        expect(await inboxOf(workspaceId)).toContain('Where does this go');
+      }
+    });
+
+    it('leaves an item captured into a workspace in that workspace alone', async () => {
+      await anItem('Reply to Bart');
+      expect(await inboxOf('ws-work')).toContain('Reply to Bart');
+      expect(await inboxOf('ws-personal')).not.toContain('Reply to Bart');
+    });
+
+    /**
+     * The associations follow the item. The two reads have to agree about
+     * which items a workspace holds, or a row is drawn in three workspaces
+     * with the person it names attached in only one of them.
+     */
+    it('carries its associations into every workspace it is drawn in', async () => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      expect(
+        (
+          await send('associate', {
+            workspaceId: WORKSPACE_ID,
+            associationId: nextId(),
+            itemId,
+            kind: 'person',
+            label: 'Anna',
+          })
+        ).status,
+      ).toBe(200);
+
+      for (const workspaceId of EVERY_WORKSPACE) {
+        expect((await snapshot(workspaceId)).associations.map((a) => a.label)).toContain('Anna');
+      }
+    });
+
+    it.each([
+      { situation: 'finished with', command: 'set_done', body: { done: true } },
+      { situation: 'dismissed', command: 'set_dismissed', body: { dismissed: true } },
+    ])('is out of every Inbox once it is $situation', async ({ command, body }) => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      // Asked from a workspace it does not belong to, which is every one.
+      expect((await send(command, { workspaceId: 'ws-personal', itemId, ...body })).status).toBe(200);
+
+      for (const workspaceId of EVERY_WORKSPACE) {
+        expect(await inboxOf(workspaceId)).not.toContain('Where does this go');
+      }
+    });
+  });
+
+  describe('an item gets its workspace the first time somebody says where it belongs', () => {
+    it('takes the workspace of the panel it is filed onto, and leaves every other Inbox', async () => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      const elsewhere = await aDashboard('ws-personal');
+      const panelId = await aPanel(elsewhere, 'Errands', 'ws-personal');
+
+      expect(
+        (await send('move_item_to_panel', { workspaceId: 'ws-personal', itemId, panelId, order: [itemId] }))
+          .status,
+      ).toBe(200);
+
+      expect(await filedOn(itemId, 'ws-personal')).toEqual(['Errands']);
+      expect(await inboxOf('ws-work')).not.toContain('Where does this go');
+      expect(await inboxOf('ws-atlas')).not.toContain('Where does this go');
+    });
+
+    it.each([
+      { situation: 'the workspace it was captured from', into: 'ws-work', gone: 'ws-personal' },
+      { situation: 'another workspace entirely', into: 'ws-personal', gone: 'ws-work' },
+    ])('takes $situation when its Inbox is chosen, and leaves the others', async ({ into, gone }) => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+
+      expect(
+        (await send('move_item_to_panel', { workspaceId: into, itemId, panelId: null, order: [] })).status,
+      ).toBe(200);
+
+      expect(await inboxOf(into)).toContain('Where does this go');
+      expect(await inboxOf(gone)).not.toContain('Where does this go');
+    });
+
+    it('stays where it was put, and is out of reach of the workspaces it left', async () => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      expect(
+        (await send('move_item_to_panel', { workspaceId: 'ws-personal', itemId, panelId: null, order: [] }))
+          .status,
+      ).toBe(200);
+      // Asked from a workspace it no longer belongs to, which now names
+      // nothing that workspace can reach.
+      expect(
+        (await send('move_item_to_panel', { workspaceId: 'ws-work', itemId, panelId: null, order: [] })).status,
+      ).toBe(404);
+
+      expect(await inboxOf('ws-personal')).toContain('Where does this go');
+      expect(await inboxOf('ws-work')).not.toContain('Where does this go');
+    });
+
+    /**
+     * Both commands that put an item on a panel, not only the move. Putting an
+     * item on a panel is putting it on a panel whichever one says so, and an
+     * item left filed *and* undecided would be in a panel of one workspace and
+     * in every other workspace's Inbox at once - a state the rule does not have.
+     */
+    it('takes the workspace of the panel it is added to as well', async () => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      const elsewhere = await aDashboard('ws-personal');
+      const panelId = await aPanel(elsewhere, 'Errands', 'ws-personal');
+
+      expect(
+        (await send('add_item_to_panel', { workspaceId: 'ws-personal', itemId, panelId, order: [itemId] }))
+          .status,
+      ).toBe(200);
+
+      expect(await filedOn(itemId, 'ws-personal')).toEqual(['Errands']);
+      expect(await inboxOf('ws-work')).not.toContain('Where does this go');
+      expect(await inboxOf('ws-atlas')).not.toContain('Where does this go');
+    });
+
+    it('refuses a workspace that is not there rather than failing on the way in', async () => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      expect(
+        (await send('move_item_to_panel', { workspaceId: 'ws-nothing', itemId, panelId: null, order: [] }))
+          .status,
+      ).toBe(404);
+      // Still everybody's, because nothing was decided.
+      expect(await inboxOf('ws-work')).toContain('Where does this go');
+      expect(await inboxOf('ws-personal')).toContain('Where does this go');
+    });
+  });
+
+  /**
+   * The stream derives what to invalidate from the command log's own workspace
+   * column (accounts/events.ts), so a change every workspace can see has to be
+   * logged as the account's rather than as one workspace's - otherwise a tab
+   * open on another workspace never hears about it.
+   */
+  describe('a change every workspace can see is logged as the account’s', () => {
+    const loggedWorkspaceFor = async (name: string) =>
+      inTheStore((sql) =>
+        sql
+          .exec<{ workspace_id: string }>(
+            'SELECT workspace_id FROM commands WHERE name = ? ORDER BY received_at DESC LIMIT 1',
+            name,
+          )
+          .toArray(),
+      );
+
+    it('logs a capture with no workspace against the account, not the one it came from', async () => {
+      await anItemBelongingNowhere('Where does this go');
+      expect((await loggedWorkspaceFor('capture_item'))[0]?.workspace_id).toBe(ACCOUNT_WIDE);
+    });
+
+    it('logs the settling against the account too, because every other Inbox loses it', async () => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      expect(
+        (await send('move_item_to_panel', { workspaceId: 'ws-personal', itemId, panelId: null, order: [] }))
+          .status,
+      ).toBe(200);
+      expect((await loggedWorkspaceFor('move_item_to_panel'))[0]?.workspace_id).toBe(ACCOUNT_WIDE);
+    });
+
+    /**
+     * Every change to an item that belongs to no workspace, not only the two
+     * that make and settle one: it is drawn in every Inbox, so finishing with
+     * it or dismissing it changes what a tab open on another workspace should
+     * be showing.
+     */
+    it.each([
+      { situation: 'finished with', command: 'set_done', body: { done: true } },
+      { situation: 'dismissed', command: 'set_dismissed', body: { dismissed: true } },
+      { situation: 'given a next action', command: 'set_next_action', body: { nextAction: 'Ring' } },
+      { situation: 'given a priority', command: 'set_priority', body: { priority: 'high' } },
+    ])('logs it against the account when one is $situation', async ({ command, body }) => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      expect((await send(command, { workspaceId: 'ws-personal', itemId, ...body })).status).toBe(200);
+
+      expect((await loggedWorkspaceFor(command))[0]?.workspace_id).toBe(ACCOUNT_WIDE);
+    });
+
+    it('logs a change to an item that belongs somewhere against that workspace', async () => {
+      const itemId = await anItem('Reply to Bart');
+      expect((await send('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true })).status).toBe(200);
+
+      expect((await loggedWorkspaceFor('set_done'))[0]?.workspace_id).toBe(WORKSPACE_ID);
+    });
+
+    it('logs an ordinary move against its own workspace, as it always did', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const itemId = await anItem('Reply to Bart');
+      expect(
+        (
+          await send('move_item_to_panel', {
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            panelId: falcon,
+            order: [itemId],
+          })
+        ).status,
+      ).toBe(200);
+      expect((await loggedWorkspaceFor('move_item_to_panel'))[0]?.workspace_id).toBe(WORKSPACE_ID);
     });
   });
 });

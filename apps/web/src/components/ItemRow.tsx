@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { itemLabel, uuidv7, type Item, type ItemType } from '@cockpit/shared';
+import { itemLabel, uuidv7, workspaceIsDecided, type Item, type ItemType } from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { howFarItHasGone, SWIPE_THRESHOLD_PX, whatTheSwipeMeant } from '../swipe';
@@ -17,6 +17,7 @@ export function ItemRow({
   onAddTo,
   onOpen,
   onRemoveFromHere,
+  onMoveHere,
 }: {
   item: Item;
   /**
@@ -66,11 +67,21 @@ export function ItemRow({
    */
   onOpen?: () => void;
   onRemoveFromHere?: () => void;
+  /**
+   * Asked to make this the item's workspace ("Capture something before you know
+   * which workspace it belongs to", issue 165) - the one you are looking at.
+   *
+   * Offered only where the row belongs to no workspace yet, which the row works
+   * out for itself from the item rather than being told twice.
+   */
+  onMoveHere?: () => void;
 }) {
   const command = useCommand();
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const waited = waitedSince(item.createdAt, Date.now());
+  /** Belongs to no workspace yet, so it is in every workspace's Inbox at once. */
+  const undecided = !workspaceIsDecided(item);
   const trigger = useRef<HTMLButtonElement>(null);
   /** True while the entry just chosen is opening something that wants the focus. */
   const opening = useRef(false);
@@ -322,6 +333,17 @@ export function ItemRow({
             {item.source === 'internal' ? 'Own' : item.source}
             {item.sender ? ` · ${item.sender}` : ''}
           </span>
+          {/* That this row is not this workspace's own ("Capture something
+              before you know which workspace it belongs to", issue 165). Said
+              in words rather than as a colour or an icon, because it is the one
+              thing about the row a reader cannot infer from where they are
+              looking: every other row in this Inbox belongs here and this one
+              is in every Inbox at once. */}
+          {undecided && (
+            <span className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep">
+              Any workspace
+            </span>
+          )}
         </span>
       </span>
 
@@ -357,6 +379,19 @@ export function ItemRow({
               }}
             >
               Open
+            </DropdownMenu.Item>
+          )}
+          {/* The common case in one press ("Capture something before you know
+              which workspace it belongs to", issue 165): a row read in Work is
+              usually Work's, and saying so should not cost a dialog listing
+              every alternative. Above Move to…, which is the same answer with
+              the other workspaces in it.
+
+              Only on a row that belongs to no workspace: on any other it would
+              be an entry that does nothing. */}
+          {undecided && onMoveHere && (
+            <DropdownMenu.Item className={menuItemClass} onSelect={onMoveHere}>
+              Move to this workspace
             </DropdownMenu.Item>
           )}
           {onMoveTo && (
@@ -420,10 +455,10 @@ export function ItemRow({
  * One step up or down the list it is in.
  *
  * The ends are said out loud rather than silently doing nothing, exactly as a
- * panel's moves and resizes are: an entry that can be chosen and changes
- * nothing is indistinguishable from one that is broken. `aria-disabled` rather
- * than `disabled` for the reason `RowMenu` carries - Radix takes a disabled
- * entry out of the roving focus, so a keyboard never reaches it at all.
+ * panel's moves are: an entry that can be chosen and changes nothing is
+ * indistinguishable from one that is broken. `aria-disabled` rather than
+ * `disabled` for the reason `RowMenu` carries - Radix takes a disabled entry
+ * out of the roving focus, so a keyboard never reaches it at all.
  */
 function MoveAStep({
   label,

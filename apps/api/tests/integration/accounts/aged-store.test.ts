@@ -305,3 +305,43 @@ describe('Triage', () => {
     });
   });
 });
+
+describe('Capture', () => {
+  describe('an item captured before a workspace could be left undecided still belongs to its own', () => {
+    /**
+     * The direction that matters, and the reason the column defaults to
+     * *decided* ("Capture something before you know which workspace it belongs
+     * to", issue 165): every item that existed before this was captured into a
+     * workspace deliberately, and one read back as undecided would appear in
+     * every workspace's Inbox at once - a privacy boundary crossed by a
+     * migration rather than by anybody's decision.
+     *
+     * It is also what lets the update be a single statement: the default does
+     * the work a backfill would, so there is no second statement to half-apply.
+     */
+    const BEFORE_IT = updates.findIndex((update) => update.name === '0009-item-workspace-decided');
+
+    it('reads as belonging to the workspace it was captured into', async () => {
+      const name = 'aged-store-before-the-workspace-question';
+      await agedTo(name, BEFORE_IT);
+      await fillWithWhatIsAlreadyThere(name);
+
+      // Opening it is what brings it up to date, exactly as the first request
+      // of the day does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql
+            .exec<{ workspace_id: string; workspace_decided: number }>(
+              'SELECT workspace_id, workspace_decided FROM items ORDER BY id',
+            )
+            .toArray(),
+        ),
+      ).toEqual([
+        { workspace_id: 'ws-before', workspace_decided: 1 },
+        { workspace_id: 'ws-before', workspace_decided: 1 },
+      ]);
+    });
+  });
+});

@@ -4,6 +4,26 @@ on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
 
+concurrency:
+  # One review per pull request at a time. Superseded runs are cancelled: the
+  # verdict that matters is the one for the current head, and paying for a
+  # review of a commit nobody will merge buys nothing. Copied from
+  # claude-security-review.yml, which had it while this file did not - eight
+  # reviews ran to completion on `claude/richtext-action-scope-afec5f` in a day,
+  # none under ten minutes, each posting against a different head. (codeql.yml
+  # groups too, but cancels only on a pull request: its runs on `main` are the
+  # baseline every pull request is compared against.)
+  #
+  # **This sharpens issue 75**, "The review check goes green when the reviewer
+  # declined to look at the new commits". Cancel a run that has already posted
+  # some of its findings and the run replacing it can decline as
+  # already-reviewed, which the gate below reports as a warning rather than a
+  # failure - a half-review, green. Cancelling is still right, because the
+  # alternative is paying for every superseded run in full; the exposure belongs
+  # to that issue, not to this group.
+  group: code-review-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   claude-review:
     # A fork's pull request gets a read-only token and no secrets, so this job
@@ -15,7 +35,17 @@ jobs:
     # repository hands CLAUDE_CODE_OAUTH_TOKEN to anyone who opens a pull
     # request. The same guard, and the same reasoning, is in
     # claude-security-review.yml.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    #
+    # A draft is work in progress, and reviewing every intermediate push of one
+    # costs a full run each time to tell someone something they already know
+    # they have not finished. Marking it ready for review is in the trigger
+    # types above, so a draft is reviewed the moment it stops being one. This
+    # guard is what makes the skip cheap: the review already declined to *post*
+    # on a draft, by an instruction in the prompt below, having first paid for
+    # the whole run to reach that conclusion.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: read

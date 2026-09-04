@@ -204,10 +204,12 @@ test.describe('Panels', () => {
 
   test.describe('a panel goes where you drag it and takes the size you drag it to', () => {
     // Desktop only, and the reason is the gesture rather than the screen: the
-    // browser's own drag-and-drop is a mouse protocol, and a corner grip is a
-    // target no thumb wants, so neither is offered to a touchscreen at all.
-    // Moving and resizing by touch are entries in the panel's own menu, which
-    // the walk above drives on both projects.
+    // browser's own drag-and-drop is a mouse protocol, so dragging a panel
+    // cannot happen on a touchscreen at all - moving there is the entry in the
+    // panel's own menu, which the walk above drives on both projects.
+    // Resizing has no such entry: the grip is drawn everywhere and a touch drag
+    // does work it, but a corner that size is a target no thumb wants, so what
+    // the gesture is worth on a phone is not what this walk is for.
     test.skip(({ isMobile }) => !!isMobile, 'these two are pointer gestures');
 
     test('takes the size the corner was dragged to, and still has it after a reload', async ({

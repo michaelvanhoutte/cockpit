@@ -58,6 +58,7 @@ function anItem(id: string, title: string): Item {
     id,
     tenantId: 'tenant',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,
@@ -261,10 +262,10 @@ describe('Panels', () => {
     });
 
     it('leaves the focus on the panel’s own menu, which is where the next move is chosen', async () => {
-      // Moving and resizing open nothing, so there is nowhere else for the
-      // focus to go - and these are the entries somebody presses three times in
-      // a row. Dropped to the top of the page between two presses is losing
-      // your place on the dashboard.
+      // Moving opens nothing, so there is nowhere else for the focus to go -
+      // and these are the entries somebody presses three times in a row.
+      // Dropped to the top of the page between two presses is losing your
+      // place on the dashboard.
       const { user } = showBoard();
 
       await choose(user, 'To read', 'Move left');
@@ -300,32 +301,21 @@ describe('Panels', () => {
       expect(screen.queryByRole('menuitem', { name: 'Move left' })).toBeNull();
     });
 
-    it.each([
-      { entry: 'Wider', columns: 5, rows: 3 },
-      { entry: 'Narrower', columns: 3, rows: 3 },
-      { entry: 'Taller', columns: 4, rows: 4 },
-      { entry: 'Shorter', columns: 4, rows: 2 },
-    ])('resizes it: $entry', async ({ entry, columns, rows }) => {
-      const { user, mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+    it.each(['Wider', 'Narrower', 'Taller', 'Shorter'])(
+      'offers no %s, resizing being the corner grip’s alone',
+      async (gone) => {
+        // Four step-at-a-time entries in a menu read on every panel, beside a
+        // gesture that does the whole thing at once.
+        const { user } = showBoard();
 
-      await choose(user, 'Project Falcon', entry);
+        await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
 
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('save_layout');
-      expect(asked.payload.placements[0]).toEqual({ panelId: 'falcon', columns, rows });
-    });
-
-    it('says why a panel cannot get any wider instead of doing nothing', async () => {
-      const full = { ...aLayout('laptop', 1280, ['falcon']), placements: [{ panelId: 'falcon', columns: 12, rows: 8 }] };
-      const { user, mutate } = showBoard({ panels: [aPanel('falcon', 'Project Falcon')], layouts: [full] });
-
-      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
-      await user.click(
-        await screen.findByRole('menuitem', { name: 'Wider: This panel is already the full width' }),
-      );
-
-      expect(mutate).not.toHaveBeenCalled();
-    });
+        expect(screen.queryByRole('menuitem', { name: new RegExp(`^${gone}`) })).toBeNull();
+        // And the count, so they cannot come back under other words: rename,
+        // the two moves, delete.
+        expect(screen.getAllByRole('menuitem')).toHaveLength(4);
+      },
+    );
   });
 
   describe('changing the arrangement on a screen the layout was not made for asks which one to change', () => {
