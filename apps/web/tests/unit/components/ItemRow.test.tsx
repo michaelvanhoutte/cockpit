@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Item, ItemType } from '@cockpit/shared';
 import { ItemRow } from '../../../src/components/ItemRow';
+import { HOLD_DRIFT_PX, HOLD_MS } from '../../../src/hold';
 import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
 import { UndoWhatJustHappened } from '../../../src/undo';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
@@ -50,11 +51,13 @@ function aRow({
   onMoveTo,
   onMoveHere,
   item = anItem(),
+  selecting,
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
   onMoveHere?: () => void;
   item?: Item;
+  selecting?: { picked: boolean; revealed: boolean; onPick: (withShift: boolean) => void };
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
@@ -69,6 +72,7 @@ function aRow({
         workspaceId="ws-work"
         {...(onMoveTo ? { onMoveTo } : {})}
         {...(onMoveHere ? { onMoveHere } : {})}
+        {...(selecting ? { selecting } : {})}
       />
     </UndoWhatJustHappened>,
   );
@@ -433,6 +437,153 @@ describe('Capture', () => {
       await choose(user, 'Move to this workspace');
 
       expect(onMoveHere).toHaveBeenCalled();
+    });
+  });
+});
+
+/**
+ * Holding a row still to pick it out ("Start a selection with a long press, so
+ * a phone can do it too", issue 170).
+ *
+ * Synthetic events on a fake clock, so what this proves is that the handlers
+ * are attached, hand their numbers to the right decision, and stop waiting when
+ * the gesture stops being a hold. How far is too far is tests/unit/hold.test.ts,
+ * and that a thumb can do it at all is tests/e2e/selecting.test.ts.
+ */
+
+/** A finger down on the row, held for `ms`, having moved `dx`/`dy` first. */
+function hold({
+  ms = HOLD_MS,
+  dx = 0,
+  dy = 0,
+  pointerType = 'touch',
+  onto = 'listitem' as 'listitem' | 'menu',
+  cancelled = false,
+}: {
+  ms?: number;
+  dx?: number;
+  dy?: number;
+  pointerType?: string;
+  onto?: 'listitem' | 'menu';
+  cancelled?: boolean;
+} = {}) {
+  const row = screen.getByRole('listitem');
+  const target = onto === 'menu' ? screen.getByLabelText('Item actions') : row;
+  fireEvent.pointerDown(target, { pointerType, pointerId: 1, clientX: 0, clientY: 0 });
+  if (dx !== 0 || dy !== 0) {
+    fireEvent.pointerMove(row, { pointerType, pointerId: 1, clientX: dx, clientY: dy });
+  }
+  if (cancelled) fireEvent.pointerCancel(row, { pointerType, pointerId: 1 });
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
+}
+
+describe('Selection', () => {
+  describe('a row held still is picked out, and anything else is not', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('picks the row out once the finger has rested long enough', () => {
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, onPick } });
+
+      hold();
+
+      expect(onPick).toHaveBeenCalledWith(false);
+    });
+
+    it('puts the row back where it started, however far the finger drifted', () => {
+      // A hold allows a little drift, so the row can already be drawn a few
+      // pixels across when the timer fires - and nothing moves it back
+      // afterwards, because a spent gesture stops drawing. It would have stayed
+      // there, mid-swipe, until the finger came off.
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, onPick } });
+
+      hold({ dx: HOLD_DRIFT_PX });
+
+      expect(onPick).toHaveBeenCalledWith(false);
+      expect(screen.getByRole('listitem')).not.toHaveStyle({
+        transform: `translateX(${HOLD_DRIFT_PX}px)`,
+      });
+    });
+
+    it.each([
+      { situation: 'it has not rested long enough yet', ms: HOLD_MS - 50 },
+      { situation: 'it set off across the row instead', dx: SWIPE_THRESHOLD_PX + 10 },
+      { situation: 'it set off down the list instead', dy: 40 },
+      { situation: 'the browser took the gesture for a scroll', cancelled: true },
+      // A held mouse button is the beginning of a drag onto a panel, and a
+      // desktop row shows its tick on hover.
+      { situation: 'it was a mouse button being held down', pointerType: 'mouse' },
+      // A touch that starts on a control belongs to that control, which is the
+      // rule the swipe already keeps.
+      { situation: 'it started on the row’s own menu', onto: 'menu' as const },
+    ])('picks nothing out when $situation', (how) => {
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, onPick } });
+
+      hold(how);
+
+      expect(onPick).not.toHaveBeenCalled();
+    });
+
+    it('is finished once it has picked the row out, whatever the finger does next', () => {
+      // The finger is still down when a hold fires, and what it does afterwards
+      // is still measured from where it started - so without a gesture that
+      // knows it is spent, resting on a row and then sliding away picked the
+      // row out *and* dismissed it.
+      const onPick = vi.fn();
+      const { mutate } = aRow({ selecting: { picked: false, revealed: false, onPick } });
+
+      const row = screen.getByRole('listitem');
+      fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      act(() => {
+        vi.advanceTimersByTime(HOLD_MS);
+      });
+      fireEvent.pointerMove(row, { pointerType: 'touch', pointerId: 1, clientX: -past, clientY: 0 });
+
+      // Asserted here, with the finger still down: it does not draw the gesture
+      // it will not make. The row would otherwise slide and colour itself to
+      // promise a dismissal that has already been refused - and letting go puts
+      // it back either way, so after the release the two are indistinguishable.
+      expect(row).not.toHaveStyle({ transform: `translateX(${-past}px)` });
+
+      fireEvent.pointerUp(row, { pointerType: 'touch', pointerId: 1, clientX: -past, clientY: 0 });
+
+      expect(onPick).toHaveBeenCalledTimes(1);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('stops waiting when the finger lifts, so a later tap is not a hold', () => {
+      // The timer outlives the gesture unless something stops it: without that,
+      // resting a moment on one row and letting go picked it out half a second
+      // later, while the finger was somewhere else entirely.
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, onPick } });
+
+      const row = screen.getByRole('listitem');
+      fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerUp(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      act(() => {
+        vi.advanceTimersByTime(HOLD_MS * 2);
+      });
+
+      expect(onPick).not.toHaveBeenCalled();
+    });
+
+    it('leaves a row that cannot be picked out alone', () => {
+      // A list drawn without a selection - a test harness, or a screen that
+      // does not offer one - has no tick, so a hold has nothing to do.
+      aRow();
+
+      expect(() => hold()).not.toThrow();
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     });
   });
 });

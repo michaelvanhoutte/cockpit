@@ -2,8 +2,10 @@ import { type Page } from '@playwright/test';
 import {
   ADA,
   capture,
+  captureBox,
   dashboardBar,
   expect,
+  holdRow,
   inbox,
   itemRow,
   itemsOn,
@@ -16,23 +18,25 @@ import {
 /**
  * F3: the walk that says picking several rows out of the Inbox and filing them
  * together works for a person ("Select several items, and file them all in one
- * go", issue 169).
+ * go", issue 169; "Start a selection with a long press, so a phone can do it
+ * too", issue 170).
  *
  * What a click on a tick means is proved in apps/web/tests/unit/selection.test.ts,
- * the orders a filing of several carries in apps/web/tests/unit/filing.test.ts,
- * and what choosing a panel sends in
- * apps/web/tests/unit/components/ItemList.test.tsx. **What is only true in a
- * browser is the tick appearing at all** - it is revealed by CSS, and jsdom has
- * no hover - and that three rows really do leave one list and arrive on another
- * together.
+ * what counts as holding still in apps/web/tests/unit/hold.test.ts, the orders a
+ * filing of several carries in apps/web/tests/unit/filing.test.ts, and what
+ * choosing a panel sends in apps/web/tests/unit/components/ItemList.test.tsx.
+ * **What is only true in a browser is the tick appearing at all** - it is
+ * revealed by CSS, and jsdom has no hover - and that three rows really do leave
+ * one list and arrive on another together.
  *
- * **Desktop only, and that is the feature rather than the test.** The tick is
- * revealed by hovering, which a finger cannot do; the way in on a phone is a
- * long press, and it is "Start a selection with a long press, so a phone can do
- * it too" (issue 170). The walk under the phone project is that issue's to add.
+ * **Both projects, by different doors.** A tick is revealed by hovering, which
+ * a finger cannot do, so a phone starts a selection by resting on a row
+ * instead. From the first row on the two are the same gesture: every row shows
+ * its tick and the rest are taps. The range stays desktop-only, because a
+ * shift-click is not something a phone can make.
  */
 
-/** An empty dashboard of this walk's own, with one panel on it, already open. */
+/** An empty dashboard of this walk's own, with one panel on it. */
 async function ownDashboardWithAPanel(
   page: Page,
   isMobile: boolean,
@@ -52,9 +56,41 @@ async function ownDashboardWithAPanel(
   return { dashboard, panel };
 }
 
+/**
+ * Where the Inbox and the dashboard are: two columns of one screen with a
+ * mouse, two screens with a finger. The same two helpers filing.test.ts keeps,
+ * because the walk has to get to both lists to say an item moved between them.
+ */
+async function goToTheInbox(page: Page, isMobile: boolean): Promise<void> {
+  if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+  await expect(captureBox(page)).toBeVisible();
+}
+
+async function goToTheDashboard(page: Page, dashboard: string, isMobile: boolean): Promise<void> {
+  if (isMobile) await press(dashboardBar(page).getByRole('link', { name: dashboard }), isMobile);
+  await expect(page.getByRole('heading', { name: dashboard, level: 2 })).toBeVisible();
+}
+
 /** The tick at the head of a row, which is what picks it out. */
 function tickOn(page: Page, title: string) {
   return itemRow(page, title).getByRole('checkbox');
+}
+
+/**
+ * The first row picked, by whichever door this device has: a finger rests on
+ * the row, a pointer hovers it and clicks the tick that appears.
+ */
+async function startSelecting(page: Page, title: string, isMobile: boolean): Promise<void> {
+  if (isMobile) {
+    await holdRow(page, title);
+    return;
+  }
+  await itemRow(page, title).hover();
+  // Asserted here rather than left to the click: Playwright only needs the tick
+  // to be reachable, so a tick that stayed invisible would still be clicked and
+  // the walk would pass while nobody could see what they were aiming at.
+  await expect(tickOn(page, title)).toHaveCSS('opacity', '1');
+  await tickOn(page, title).click();
 }
 
 test.describe('Selection', () => {
@@ -63,31 +99,32 @@ test.describe('Selection', () => {
       page,
       isMobile,
     }) => {
-      // The way in is a hover, and a finger has none. Issue 170 brings the long
-      // press and the walk that proves it.
-      test.skip(isMobile, 'selecting starts with a hover until the long press lands (issue 170)');
-
-      const { panel } = await ownDashboardWithAPanel(page, isMobile);
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
       const first = uniqueTitle('Reply to Bart');
       const second = uniqueTitle('Renew the domain');
       const third = uniqueTitle('Chase the purchase order');
+      await goToTheInbox(page, isMobile);
       for (const title of [first, second, third]) await capture(page, title, isMobile);
 
       // **The half that only exists in a browser.** At rest the tick is there
-      // to be reached by Tab and invisible; hovering the row is what brings it
-      // out, which is the whole reason the column is not a column of ticks.
+      // to be reached by Tab and invisible; what brings it out is hovering the
+      // row - the whole reason the column is not a column of ticks - and on a
+      // phone, where nothing hovers, resting on the row instead.
       await expect(tickOn(page, first)).toHaveCSS('opacity', '0');
       // And out of the way of anything aimed at the row. A tick nobody can see
       // still catches what lands on it, which was eating the start of a swipe
-      // in the leading pixels of every row on a phone.
+      // in the leading pixels of every row - which is the very gesture a finger
+      // uses to reach this feature at all.
       await expect(tickOn(page, first)).toHaveCSS('pointer-events', 'none');
-      await itemRow(page, first).hover();
-      await expect(tickOn(page, first)).toHaveCSS('opacity', '1');
+      await startSelecting(page, first, isMobile);
+      await expect(tickOn(page, first)).toBeChecked();
 
-      await tickOn(page, first).click();
-      // Once one row is picked, every row shows its tick without being hovered.
+      // Once one row is picked, every row shows its tick untouched.
       await expect(tickOn(page, third)).toHaveCSS('opacity', '1');
-      await tickOn(page, third).click({ modifiers: ['Shift'] });
+      // A range is a shift-click, which a phone cannot make; there, each row is
+      // one more tap.
+      if (isMobile) await tickOn(page, second).click();
+      await tickOn(page, third).click(isMobile ? {} : { modifiers: ['Shift'] });
       await expect(inbox(page).getByText('3 selected')).toBeVisible();
 
       await page.getByRole('button', { name: 'Move to…' }).click();
@@ -101,15 +138,15 @@ test.describe('Selection', () => {
       for (const title of [first, second, third]) {
         await expect(inbox(page).getByText(title)).toHaveCount(0);
       }
-      await expect
-        .poll(() => itemsOn(page, panel))
-        .toEqual([first, second, third]);
+      await goToTheDashboard(page, dashboard, isMobile);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([first, second, third]);
 
       // One way back for the whole filing, not three.
       await expect(page.getByText(`3 items moved to ${panel}`)).toBeVisible();
       await page.getByRole('button', { name: 'Undo' }).click();
 
       await expect.poll(() => itemsOn(page, panel)).toEqual([]);
+      await goToTheInbox(page, isMobile);
       for (const title of [first, second, third]) {
         await expect(inbox(page).getByText(title)).toBeVisible();
       }
@@ -121,14 +158,17 @@ test.describe('Selection', () => {
       // have to scroll to - and what scrolls it away is the row you just
       // picked. Only true in a browser, because nothing below it lays anything
       // out.
-      test.skip(isMobile, 'selecting starts with a hover until the long press lands (issue 170)');
+      //
+      // **Desktop alone, and it is the same rule either way.** The bar sticks
+      // to the foot of whatever box the list is drawn in; proving that twice
+      // would be the same CSS against a second width.
+      test.skip(isMobile, 'the same stickiness, against a second width');
 
       const { panel } = await ownDashboardWithAPanel(page, isMobile);
       const titles = [uniqueTitle('Reply to Bart'), uniqueTitle('Renew the domain')];
       for (const title of titles) await capture(page, title, isMobile);
 
-      await itemRow(page, titles[0]!).hover();
-      await tickOn(page, titles[0]!).click();
+      await startSelecting(page, titles[0]!, isMobile);
       await tickOn(page, titles[1]!).click();
       await page.getByRole('button', { name: 'Move to…' }).click();
       const picker = page.getByRole('dialog');

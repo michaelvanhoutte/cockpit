@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uuidv7, workspaceIsDecided, type Item, type ItemType } from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { HOLD_MS, stillHolding } from '../hold';
 import { howFarItHasGone, SWIPE_THRESHOLD_PX, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
@@ -185,6 +186,33 @@ export function ItemRow({
   const [gone, setGone] = useState(0);
 
   /**
+   * The finger resting on this row, waiting to become a selection ("Start a
+   * selection with a long press, so a phone can do it too", issue 170).
+   *
+   * Set while a touch is down and still; cleared the moment it moves too far,
+   * lifts, or is taken away by the browser deciding it was a scroll after all.
+   */
+  const holding = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * That this gesture has already picked the row out, so it cannot go on to
+   * mean something else as well.
+   *
+   * The finger is still down when a hold fires, and what it does next is still
+   * measured from where it started - so without this, resting on a row and then
+   * sliding away picked the row out *and* dismissed it: two changes from one
+   * unbroken touch, which is the thing `swipe.ts` refuses to let a mouse do.
+   */
+  const held = useRef(false);
+  const letGo = () => {
+    if (holding.current) clearTimeout(holding.current);
+    holding.current = null;
+  };
+  // A row can leave the list under a finger - filed from another device, or
+  // dismissed in another tab - and a timer left running would pick out a row
+  // that is not there.
+  useEffect(() => letGo, []);
+
+  /**
    * The swipes ("Swipe an inbox row right to file it, left to dismiss it",
    * issue 145). Touch only, and `pointerType` is the whole of that check: a
    * desktop row is dragged into a panel instead, and a mouse drag that both
@@ -212,17 +240,47 @@ export function ItemRow({
       if (from.current) return;
       from.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY };
       setGone(0);
+      // Every guard above is the hold's as much as the swipe's, which is why it
+      // starts here rather than in a handler of its own: a mouse does not hold,
+      // a touch on the menu belongs to the menu, and a second finger is not
+      // the first one still resting.
+      held.current = false;
+      if (selecting) {
+        holding.current = setTimeout(() => {
+          holding.current = null;
+          held.current = true;
+          // Back where it started. A hold allows a little drift, so the row can
+          // already be drawn a few pixels across when this fires - and nothing
+          // moves it back afterwards, because a spent gesture stops drawing.
+          setGone(0);
+          selecting.onPick(false);
+        }, HOLD_MS);
+      }
     },
     onPointerMove: (event: React.PointerEvent) => {
       const start = from.current;
       if (!start || event.pointerId !== start.pointer) return;
-      setGone(howFarItHasGone(event.clientX - start.x, event.clientY - start.y));
+      // A spent gesture draws nothing. The row slides under the finger and
+      // colours itself to say what letting go would do, and letting go will now
+      // do nothing at all - so without this it promises a dismissal it has
+      // already refused to make.
+      if (held.current) return;
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      // Gone somewhere, so it is no longer resting - whether it went on to mean
+      // a swipe or nothing at all.
+      if (!stillHolding(dx, dy)) letGo();
+      setGone(howFarItHasGone(dx, dy));
     },
     onPointerUp: (event: React.PointerEvent) => {
       const start = from.current;
       if (!start || event.pointerId !== start.pointer) return;
       from.current = null;
+      letGo();
       setGone(0);
+      // A gesture that has already picked the row out is finished, whatever the
+      // finger did afterwards.
+      if (held.current) return;
       const meant = whatTheSwipeMeant(event.clientX - start.x, event.clientY - start.y);
       if (meant === 'dismiss') dismiss();
       // The same picker the menu's Move to… opens, so filing is one gesture on
@@ -234,6 +292,7 @@ export function ItemRow({
     onPointerCancel: (event: React.PointerEvent) => {
       if (from.current && event.pointerId !== from.current.pointer) return;
       from.current = null;
+      letGo();
       setGone(0);
     },
   };
