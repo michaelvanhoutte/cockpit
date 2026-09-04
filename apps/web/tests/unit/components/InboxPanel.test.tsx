@@ -22,6 +22,12 @@ const held = vi.hoisted(() => ({ items: [] as Item[], filings: [] as Filing[] })
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
   useSendCommand: () => vi.fn(() => Promise.resolve()),
+  // Read by the picker inside the list, for the Inboxes it offers an item
+  // that belongs to no workspace. Nothing here opens it, so it is empty.
+  workspacesQuery: {
+    queryKey: ['workspaces'],
+    queryFn: () => Promise.resolve({ workspaces: [] }),
+  },
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
@@ -46,6 +52,7 @@ function anItem(title: string, completedAt: string | null = null): Item {
     id: `11111111-1111-7111-8111-${String(nextItem++).padStart(12, '0')}`,
     tenantId: 'tenant',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,

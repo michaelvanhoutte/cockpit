@@ -6,6 +6,7 @@ import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, snapshotQuery, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
+import { CaptureWindow } from '../components/CaptureWindow';
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxPanel } from '../components/InboxPanel';
 import { LoadFailure } from '../components/LoadFailure';
@@ -237,6 +238,17 @@ export function Layout() {
               );
             })}
           </nav>
+
+          {/* Beside the workspaces rather than in one of them: what it makes
+              belongs to no workspace at all ("Capture something before you know
+              which workspace it belongs to", issue 165). Only where there is a
+              workspace to have been captured from, which is every screen except
+              the workspaces settings page. */}
+          {params.workspaceId && (
+            <div className="shrink-0 pb-2">
+              <CaptureWindow workspaceId={params.workspaceId} />
+            </div>
+          )}
 
           {/* The same control as every other menu in the app (components/
               Menu.tsx). It used to be a bordered pill, given that weight

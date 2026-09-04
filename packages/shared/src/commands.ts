@@ -287,6 +287,21 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    * the account's own.
    */
   typeId: z.string().min(1).optional(),
+  /**
+   * Whether the envelope's Workspace is where this Item *belongs*, or merely
+   * where it was captured from ("Capture something before you know which
+   * workspace it belongs to", issue 165).
+   *
+   * Optional and true by default, so every front door that captures into a
+   * named Workspace - the Inbox's own row, an SMS, a connector - keeps saying
+   * what it always said. Only the header's capture window sends `false`, which
+   * is the whole of what "I have not decided yet" means on the wire.
+   *
+   * The envelope's Workspace is still required and still has to exist: it is
+   * where the Item was captured from, which is a fact worth keeping and the
+   * seed a later router would read.
+   */
+  workspaceDecided: z.boolean().optional(),
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 

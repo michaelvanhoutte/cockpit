@@ -17,6 +17,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     id: 'item-1',
     tenantId: 'tenant-default',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,

@@ -32,7 +32,7 @@ import {
   listPlacements,
   listWorkspaces,
 } from './repo.js';
-import { isPaletteTheme } from '@cockpit/shared';
+import { ACCOUNT_WIDE, isPaletteTheme } from '@cockpit/shared';
 import { foldName } from '../domain/names.js';
 import {
   dashboardFromCommand,
@@ -73,6 +73,7 @@ import {
   applySetPriority,
   associationFromCommand,
   captureItem,
+  decideWorkspace,
 } from '../domain/items.js';
 
 export class ItemTypeNotFoundError extends Error {
@@ -726,6 +727,12 @@ export function runCommand<N extends CommandName>(
         throw new ItemTypeNotFoundError(cmd.typeId);
       }
       const item = captureItem(cmd, tenantId);
+      // An item belonging to no workspace shows in every workspace's Inbox, so
+      // every workspace's snapshot is now stale - not only the one it was
+      // captured from ("Capture something before you know which workspace it
+      // belongs to", issue 165). The same sentinel a new type carries, read by
+      // the stream in events.ts and by useServerEvents in the browser.
+      if (!item.workspaceDecided) commandRow.workspaceId = ACCOUNT_WIDE;
       db.transaction((tx) => {
         // A retried capture whose command ID was lost still may not duplicate the item.
         // `status` is the dead column being satisfied rather than used: it is
@@ -742,20 +749,46 @@ export function runCommand<N extends CommandName>(
       // own id alone, so without that a move could reach across the account
       // into a workspace the caller never opened. The same reasoning
       // `panelTheChangeIsAbout` carries, one level along.
+      //
+      // **An item belonging to no workspace is reachable from every one of
+      // them**, because it is shown in every one of them ("Capture something
+      // before you know which workspace it belongs to", issue 165) - and this
+      // is the command that says where it belongs. The workspace it names still
+      // has to exist, which is what the check below does for a move to an Inbox
+      // (`panelTheChangeIsAbout` already does it for a move to a panel).
       const item = getItem(db, tenantId, cmd.itemId);
-      if (!item || item.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      if (!item || (item.workspaceDecided && item.workspaceId !== cmd.workspaceId)) {
+        throw new ItemNotFoundError(cmd.itemId);
+      }
       // A null panel is the Inbox, which is not a panel and so is nothing to
       // look up: the item comes off everything and, being filed nowhere, is
       // back in the Inbox.
       const panel = cmd.panelId ? panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId) : null;
+      if (!panel && !getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
 
       // Checked against what the panel actually holds rather than left to the
       // foreign key, which could not tell an item of another workspace from one
       // that was moved off a moment ago - and would surface either as a 500.
       if (panel) refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
 
+      // Where it goes is where it belongs, from now on. Null for an item that
+      // already belonged somewhere, which is every move the app made before
+      // this: the workspace is settled and nothing about it changes.
+      const decided = decideWorkspace(item, cmd.workspaceId, cmd.issuedAt);
+      // It has just left every other workspace's Inbox, so their snapshots are
+      // stale too - the same reason a capture with no workspace carries this.
+      if (decided) commandRow.workspaceId = ACCOUNT_WIDE;
+
       const rows = filingRows(tenantId, cmd);
       db.transaction((tx) => {
+        if (decided) {
+          tx.update(items)
+            .set({ workspaceId: decided.workspaceId, workspaceDecided: true, updatedAt: decided.updatedAt })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+        }
         // Off everything first, which is what makes this a move rather than an
         // add: the item's own rows go, wherever they were, and the target
         // panel's arrangement is then written whole. A reorder is the same two

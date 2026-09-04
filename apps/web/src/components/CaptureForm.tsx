@@ -26,10 +26,26 @@ export function CaptureForm({
   workspaceId,
   types,
   items,
+  decided = true,
+  autoFocus = false,
+  onCaptured,
 }: {
   workspaceId: string;
   types: readonly ItemType[];
   items: readonly Item[];
+  /**
+   * Whether `workspaceId` is where what this captures *belongs*, or only where
+   * it was captured from ("Capture something before you know which workspace it
+   * belongs to", issue 165).
+   *
+   * True in the Inbox's own row, which is inside a workspace and has therefore
+   * already said which. False in the header's capture window, which is not.
+   */
+  decided?: boolean;
+  /** True in the window, where the box is the only thing on screen. */
+  autoFocus?: boolean;
+  /** Told once the capture has been asked for, so a window can close itself. */
+  onCaptured?: () => void;
 }) {
   const [title, setTitle] = useState('');
   const [typeName, setTypeName] = useState('');
@@ -91,9 +107,13 @@ export function CaptureForm({
           itemId: uuidv7(),
           title: trimmed,
           ...(typeId ? { typeId } : {}),
+          // Sent only when it is false, so every other front door's command
+          // reads exactly as it did before this landed.
+          ...(decided ? {} : { workspaceDecided: false }),
         },
       });
       setTitle('');
+      onCaptured?.();
     };
 
     if (!wanted || already) {
@@ -154,6 +174,7 @@ export function CaptureForm({
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Capture a note or to-do…"
         aria-label="Capture a note or to-do"
+        autoFocus={autoFocus}
         className="min-w-0 flex-1 basis-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
       <input

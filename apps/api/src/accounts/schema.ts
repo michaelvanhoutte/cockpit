@@ -556,6 +556,27 @@ export const items = sqliteTable(
     workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'restrict' }),
+    /**
+     * Whether anybody has said which Workspace this Item belongs to ("Capture
+     * something before you know which workspace it belongs to", issue 165).
+     * False means it belongs to none and shows in every Workspace's Inbox;
+     * `workspace_id` then holds the Workspace it was captured from.
+     *
+     * **The default is `1`, and that direction is the point.** `ADD COLUMN`
+     * gives every row that already existed the default, and every one of them
+     * was captured into a Workspace deliberately - so the default is what
+     * makes this change a single statement with no backfill to half-apply.
+     * It is also the safe direction for a write that forgets the column: the
+     * Item stays in its own Workspace rather than appearing in all of them.
+     *
+     * Carries no CHECK holding it to a flag, unlike `unseen` beside it: a
+     * column added to a live table cannot get one, because SQLite attaches
+     * CHECKs only when a table is created and `items` cannot be rebuilt. Same
+     * trade `completed_at` records below.
+     */
+    workspaceDecided: integer('workspace_decided', { mode: 'boolean' })
+      .notNull()
+      .default(true),
 
     // -- source-owned columns --
     source: text('source').$type<Source>().notNull(),

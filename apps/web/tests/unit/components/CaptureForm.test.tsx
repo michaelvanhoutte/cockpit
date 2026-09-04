@@ -45,6 +45,7 @@ function anItemOf(type: ItemType | null, at: number): Item {
     id: `22222222-2222-7222-8222-${String(at).padStart(12, '0')}`,
     tenantId: 'tenant',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,

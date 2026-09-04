@@ -58,6 +58,7 @@ function anItem(id: string, title: string): Item {
     id,
     tenantId: 'tenant',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,

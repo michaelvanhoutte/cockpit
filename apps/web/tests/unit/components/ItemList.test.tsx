@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Dashboard, Filing, Item, Panel, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { ItemList } from '../../../src/components/ItemList';
@@ -21,6 +21,8 @@ const held = vi.hoisted(() => ({
   filings: [] as Filing[],
   dashboards: [] as Dashboard[],
   panels: [] as Panel[],
+  /** Every workspace of the account, which the picker offers as Inboxes. */
+  workspaces: [] as Workspace[],
   mutate: vi.fn(),
   send: vi.fn(() => Promise.resolve()),
   error: null as Error | null,
@@ -63,6 +65,10 @@ vi.mock('../../../src/api/queries', async () => {
       };
     },
     useSendCommand: () => held.send,
+    workspacesQuery: {
+      queryKey: ['workspaces'],
+      queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
+    },
     snapshotQuery: (workspaceId: string) => ({
       queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
@@ -94,6 +100,7 @@ function anItem(id: string, title: string): Item {
     id,
     tenantId: 'tenant',
     workspaceId: 'ws-work',
+    workspaceDecided: true,
     source: 'internal',
     sourceId: null,
     sourceLink: null,
@@ -124,6 +131,18 @@ const RESEARCH: Dashboard = {
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
   return { id, tenantId: 'tenant', dashboardId, name };
+}
+
+function aWorkspace(id: string, name: string): Workspace {
+  return {
+    id,
+    tenantId: 'tenant',
+    name,
+    color: '#6f62b5',
+    bar: '#dbd7ee',
+    ground: '#e3e1f2',
+    header: '#d2cdea',
+  };
 }
 
 const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
@@ -213,6 +232,7 @@ beforeEach(() => {
     aPanel('p-anna', TODAY.id, 'Anna'),
     aPanel('p-reading', RESEARCH.id, 'To read'),
   ];
+  held.workspaces = [aWorkspace('ws-work', 'Work'), aWorkspace('ws-home', 'Home')];
   held.error = null;
   held.variables = { payload: { itemId: BART.id } };
   held.refuses = null;
