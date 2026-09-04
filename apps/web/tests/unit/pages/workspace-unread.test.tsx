@@ -39,8 +39,6 @@ const params: { workspaceId?: string; dashboardId?: string } = {
   dashboardId: 'dash-1',
 };
 
-/** Whatever the router has put under the shell, for this case. */
-let underTheShell: () => React.ReactNode = () => null;
 /** Whether this screen is wide enough for the Inbox to have a column. */
 let room = true;
 
@@ -48,7 +46,9 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
     <a className={className}>{children}</a>
   ),
-  Outlet: () => underTheShell(),
+  // Nothing: the shell is what is under test, and neither place this rule is
+  // asked about puts a screen of its own inside it.
+  Outlet: () => null,
   useParams: () => params,
   useNavigate: () => () => Promise.resolve(),
 }));
@@ -115,29 +115,21 @@ function theWorkspace() {
 describe('Offline', () => {
   describe('a workspace that cannot be read says so once, wherever you are in it', () => {
     const places = [
-      {
-        situation: 'on a dashboard, with the Inbox in its column beside it',
-        under: () => null,
-        room: true,
-      },
-      {
-        // The settings page reads the same snapshot and is reached under the
-        // same shell, so it is a third voice on the same failure.
-        situation: 'on the dashboard settings page',
-        under: () => <p>Manage dashboards</p>,
-        room: true,
-      },
+      { situation: 'on a dashboard, with the Inbox in its column beside it', room: true },
+      // Managing the dashboards was a third place here, being a screen inside
+      // the workspace reading the same snapshot. It is a dialog over one of
+      // these two now (components/ManageDashboards.tsx), so it is not a place
+      // this rule can be asked about - and the shell's outlet, which that case
+      // was the only one to fill, holds nothing in either of the two left.
       {
         // Too narrow for a column, so the Inbox is a screen of its own - which
         // is the same Inbox, reading the same snapshot, one layer down.
         situation: 'on a screen too narrow for the Inbox to have a column',
-        under: () => null,
         room: false,
       },
     ];
 
-    it.each(places)('$situation', async ({ under, room: wide }) => {
-      underTheShell = under;
+    it.each(places)('$situation', async ({ room: wide }) => {
       room = wide;
       theWorkspace();
 
@@ -149,7 +141,6 @@ describe('Offline', () => {
     });
 
     it('keeps showing the work it already has behind the notice', async () => {
-      underTheShell = () => null;
       room = true;
       theWorkspace();
 

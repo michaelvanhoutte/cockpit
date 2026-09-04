@@ -340,8 +340,8 @@ describe('Workspace management', () => {
       { situation: 'the first workspace cannot be moved up', row: 'Work', entry: 'Move up', says: 'It is already the first' },
       { situation: 'the last workspace cannot be moved down', row: 'Personal', entry: 'Move down', says: 'It is already the last' },
     ])('$situation, and says why rather than going quiet', async ({ row, entry, says }) => {
-      // Said rather than hidden, for the reason the dashboard settings page
-      // says it: an entry that vanishes on one row leaves somebody hunting for
+      // Said rather than hidden, for the reason the list of dashboards says
+      // it: an entry that vanishes on one row leaves somebody hunting for
       // a control that was there a moment ago.
       showThree();
       const user = userEvent.setup();
