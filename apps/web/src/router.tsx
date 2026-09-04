@@ -11,7 +11,6 @@ import { INBOX, browserStore, rememberView, rememberedIn, viewToOpen } from './l
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
 import { DashboardPage } from './pages/DashboardPage';
-import { DashboardSettingsPage } from './pages/DashboardSettingsPage';
 import { Layout } from './pages/Layout';
 import { LogonPage } from './pages/LogonPage';
 import { WorkspacePage } from './pages/WorkspacePage';
@@ -210,22 +209,12 @@ export const dashboardRoute = createRoute({
   component: DashboardPage,
 });
 
-/**
- * The dashboards of one workspace, managed. Reached from "Manage dashboards"
- * in the menu at the right of the bar it governs ("Open every menu from the
- * same control", issue 115), and addressed under the workspace for the same
- * reason:
- * what it acts on is where it sits ("Rename and delete a dashboard from a
- * dashboard settings page", issue 90).
+/*
+ * There is no address for managing the dashboards. They are renamed and
+ * deleted over the workspace, in a dialog the bar's own menu opens
+ * (components/ManageDashboards.tsx), so there is no screen to navigate to and
+ * nothing to come back from.
  */
-export const dashboardSettingsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/w/$workspaceId/settings/dashboards',
-  beforeLoad: async ({ context, params }) => {
-    await workspaceMustExist(context.queryClient, params.workspaceId);
-  },
-  component: DashboardSettingsPage,
-});
 
 /** Reached from the header's menu; the home of everything per-workspace. */
 const workspaceSettingsRoute = createRoute({
@@ -248,7 +237,6 @@ const routeTree = rootRoute.addChildren([
     workspaceRoute,
     inboxRoute,
     dashboardRoute,
-    dashboardSettingsRoute,
     workspaceSettingsRoute,
     itemTypeSettingsRoute,
   ]),

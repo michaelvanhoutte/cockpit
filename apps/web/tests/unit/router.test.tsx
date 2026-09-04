@@ -179,13 +179,13 @@ describe('Workspace management', () => {
 
 describe('Triage', () => {
   describe('a workspace always shows its Inbox, beside the dashboards or instead of them', () => {
-    it.each([
-      { situation: 'on a dashboard', at: '/w/ws-work/d/ws-work-research' },
-      { situation: 'on the page its dashboards are managed from', at: '/w/ws-work/settings/dashboards' },
-    ])('$situation, it is the column beside it', async ({ at }) => {
+    // One situation rather than two, since managing the dashboards stopped
+    // being a screen of its own: it opens over whichever screen you were on
+    // (components/ManageDashboards.tsx), so the Inbox beside it is this one.
+    it('on a dashboard, it is the column beside it', async () => {
       withRoomForTheInbox();
 
-      await open(at, [work, personal]);
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
 
       await screen.findByRole('navigation', { name: 'Dashboards' });
       // The Inbox itself, not merely a column: capture is its first row

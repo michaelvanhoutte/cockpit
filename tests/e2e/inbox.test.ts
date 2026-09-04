@@ -72,15 +72,12 @@ test.describe('Triage', () => {
       // you go, it is somewhere you are.
       await expect(dashboardBar(page).getByRole('link', { name: 'Inbox' })).toHaveCount(0);
 
-      // Still there on the page the dashboards are managed from, which is
-      // inside the workspace too.
-      await press(dashboardBar(page).getByRole('button', { name: 'Dashboard actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Manage dashboards' }), isMobile);
-      await expect(page.getByRole('heading', { name: 'Dashboards' })).toBeVisible();
-      await expect(column).toBeInViewport();
-      await expectNoSidewaysScroll(page);
+      // Managing the dashboards used to be a second screen inside the
+      // workspace, and is not one any more: the list opens over this one
+      // (apps/web/src/components/ManageDashboards.tsx), so there is no other
+      // screen here to ask the same question of.
 
-      // And gone from the page reached without a workspace, which has no Inbox
+      // Gone from the page reached without a workspace, which has no Inbox
       // to show.
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Workspaces' }), isMobile);

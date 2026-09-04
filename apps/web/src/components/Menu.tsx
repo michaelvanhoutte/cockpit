@@ -7,8 +7,8 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  *
  * **Three dots always mean a menu opens here.** Before this, the header's was a
  * bordered pill, an item row's was faint and unbordered, and the one at the
- * right of the dashboard bar was not a menu at all - it was a link to the
- * dashboard settings page wearing a menu's clothes. Same glyph, three meanings,
+ * right of the dashboard bar was not a menu at all - it was a link to a
+ * settings page wearing a menu's clothes. Same glyph, three meanings,
  * and the next feature would have added a fourth: the functional definition's
  * "Dashboards and Panels" promises every Panel a menu of its own.
  *

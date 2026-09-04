@@ -115,8 +115,8 @@ export function PanelBoard({
   const shown = draft ?? stored;
   const sideBySide = panelsAcross(acrossWidth) > 1;
   /**
-   * Read from the list rather than kept beside the id, for the reason the
-   * dashboard settings page does it: a panel deleted in another tab is gone
+   * Read from the list rather than kept beside the id, for the reason the list
+   * of dashboards does it: a panel deleted in another tab is gone
    * from the next snapshot, and a question about one that is no longer there
    * closes itself instead of asking about a name nothing holds.
    */

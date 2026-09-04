@@ -164,9 +164,8 @@ describe('Dashboards', () => {
   describe('the bar opens a menu of its own, and managing dashboards is an entry in it', () => {
     // It used to be three dots that navigated straight to the settings page:
     // a menu's glyph on a link ("Open every menu from the same control",
-    // issue 115). What it opens is asserted here; that the entry really lands
-    // on the settings page is the router's, and is walked in
-    // tests/e2e/dashboards.test.ts.
+    // issue 115). What the list itself does is
+    // tests/unit/components/ManageDashboards.test.tsx.
     it('opens on the control and closes again without going anywhere', async () => {
       const { user } = showBar(['Dashboard 1']);
 
@@ -177,6 +176,46 @@ describe('Dashboards', () => {
 
       await user.keyboard('{Escape}');
       expect(screen.queryByRole('menu')).toBeNull();
+    });
+  });
+
+  describe('the dashboards are managed over the workspace, not on a screen of their own', () => {
+    it('opens the list in place, leaving the bar behind it', async () => {
+      const { user } = showBar(['Dashboard 1', 'Research']);
+      await screen.findByRole('link', { name: 'Research' });
+
+      await user.click(screen.getByRole('button', { name: 'Dashboard actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Manage dashboards' }));
+
+      expect(await screen.findByRole('dialog', { name: 'Manage dashboards' })).toBeVisible();
+      // Nowhere: the whole point of it being a dialog is that what you were
+      // looking at is still there when it closes. The bar is behind it and
+      // hidden from a reader while it is open, which is what a modal is for -
+      // so this asks for it again afterwards rather than through it.
+      expect(wentTo.calls).toEqual([]);
+
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('link', { name: 'Research' })).toBeVisible();
+      expect(wentTo.calls).toEqual([]);
+    });
+
+    it('leaves the focus on the control it was opened from, and puts it back', async () => {
+      // The entry is the only way in, so the dialog has no trigger of its own
+      // to return the focus to and Radix would drop it at the top of the page.
+      // The menu closing must not claim it back either, or it would take it
+      // straight off the dialog that has just opened.
+      const { user } = showBar(['Dashboard 1', 'Research']);
+
+      await user.click(screen.getByRole('button', { name: 'Dashboard actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Manage dashboards' }));
+      const list = await screen.findByRole('dialog', { name: 'Manage dashboards' });
+      expect(list.contains(document.activeElement)).toBe(true);
+
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(screen.getByRole('button', { name: 'Dashboard actions' })).toHaveFocus();
     });
   });
 
