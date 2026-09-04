@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
-import type { CommandName, CommandPayload } from '@cockpit/shared';
+import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
 import {
   fetchItemTypes,
   fetchMe,
@@ -140,12 +140,20 @@ const IS_BUILT_ON_THE_LAST_ONE = new Set<CommandName>([
  * has left the screen. A mutation belongs to the component that holds it, and
  * the whole point of an undo is that it outlives one.
  */
-export function useSendCommand(): (args: CommandArgs) => Promise<void> {
+/**
+ * Sends a change and hands back what the server said about it - which is not
+ * always that it landed: a change made against an older version of an item is
+ * answered `{ ok: true, applied: false }` rather than refused, so a caller that
+ * reads only "it did not throw" cannot tell a save from a silent no-op. Callers
+ * with nothing to lose ignore the answer; one holding typed text does not.
+ */
+export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> {
   const queryClient = useQueryClient();
   return useCallback(
     async (args: CommandArgs) => {
-      await sendCommand(args.name, args.payload as never);
+      const answer = await sendCommand(args.name, args.payload as never);
       await afterChanging(queryClient, args);
+      return answer;
     },
     [queryClient],
   );

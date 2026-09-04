@@ -61,7 +61,7 @@ function aRow({
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
   });
-  const send = vi.fn(() => Promise.resolve());
+  const send = vi.fn(() => Promise.resolve({ ok: true as const, applied: true }));
   mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
   mockUseSendCommand.mockReturnValue(send);
   render(
@@ -423,7 +423,7 @@ describe('Triage', () => {
     /** One row, rendered on its own, with the type it was given. */
     function aRowOf(itemType: ItemType | undefined) {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
-      mockUseSendCommand.mockReturnValue(vi.fn(() => Promise.resolve()));
+      mockUseSendCommand.mockReturnValue(vi.fn(() => Promise.resolve({ ok: true as const, applied: true })));
       return render(
         <ItemRow item={anItem({})} itemType={itemType} workspaceId="ws-work" />,
       );

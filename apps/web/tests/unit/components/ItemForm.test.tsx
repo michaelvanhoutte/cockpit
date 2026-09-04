@@ -14,7 +14,7 @@ import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 
 const held = vi.hoisted(() => ({
   items: [] as Item[],
-  send: vi.fn(() => Promise.resolve()),
+  send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
   openItemId: 'item-1' as string | undefined,
 }));
@@ -83,6 +83,7 @@ const sent = () =>
 beforeEach(() => {
   cleanup();
   held.send.mockClear();
+  held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
   held.close.mockClear();
   held.openItemId = 'item-1';
 });
@@ -202,6 +203,49 @@ describe('Item editing', () => {
       await theForm(anItem(item));
 
       expect(screen.getByRole('heading')).toHaveTextContent(named);
+    });
+  });
+
+  describe('a save that did not land keeps the form open', () => {
+    // A change made against an older version of an item is answered with a 200
+    // and `applied: false` rather than refused, so a form that read only "it
+    // did not throw" would close on it and take what was typed with it.
+    it('says the item changed elsewhere, and keeps what was typed', async () => {
+      const user = await theForm();
+      held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: false }));
+
+      await user.type(descriptionBox(), 'Tolerances');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/changed somewhere else/));
+      expect(held.close).not.toHaveBeenCalled();
+      expect(descriptionBox()).toHaveValue('Tolerances');
+    });
+
+    // The two texts are sent one after the other, so the first can land and the
+    // second not. A second Save must then send only what is still missing:
+    // re-sending a title that is already stored bumps its time and would drop a
+    // genuinely newer edit from somewhere else as stale.
+    it('asks only for what is still missing when a second save follows a half one', async () => {
+      const user = await theForm();
+      await user.clear(titleBox());
+      await user.type(titleBox(), 'Part 12');
+      await user.type(descriptionBox(), 'Tolerances');
+
+      let sends = 0;
+      held.send.mockImplementation(() => {
+        sends += 1;
+        return Promise.resolve({ ok: true as const, applied: sends === 1 });
+      });
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+
+      held.send.mockClear();
+      held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_description']);
     });
   });
 

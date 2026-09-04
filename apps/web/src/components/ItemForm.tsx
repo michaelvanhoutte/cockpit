@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { itemLabel, uuidv7, type Item } from '@cockpit/shared';
-import { snapshotQuery, useSendCommand } from '../api/queries';
+import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { useItemForm } from '../itemForm';
 
 /** What the two boxes hold, before anything is sent. */
@@ -130,15 +130,54 @@ function TheForm({
       workspaceId,
       itemId,
     });
+    /**
+     * Each text as it lands, and the baseline moved with it.
+     *
+     * **Moving the baseline is what makes a second Save mean something.** The
+     * two are sent one after the other, so the first can land and the second
+     * fail; without this the form would still believe neither had, and pressing
+     * Save again would re-send a title that is already stored - bumping its
+     * time and dropping a genuinely newer edit from somewhere else as stale.
+     * Cancel would also be lying, since what it discards is by then only the
+     * half that did not land.
+     *
+     * **`applied` is read, not just the absence of a throw.** A change made
+     * against an older version of an item is answered `{ applied: false }` with
+     * a 200 (`isStale`), so a form that took "it did not throw" for "it saved"
+     * would close on it and take what was typed with it.
+     */
+    const landed = async (
+      what: 'title' | 'description',
+      change: CommandArgs,
+    ): Promise<boolean> => {
+      const answer = await send(change);
+      if (!answer.applied) return false;
+      setEditing((held) =>
+        held ? { ...held, was: { ...held.was, [what]: editing.now[what] } } : held,
+      );
+      return true;
+    };
+
     try {
-      if (changed.title !== undefined) {
-        await send({ name: 'set_title', payload: { ...envelope(), title: changed.title } });
+      if (
+        changed.title !== undefined &&
+        !(await landed('title', {
+          name: 'set_title',
+          payload: { ...envelope(), title: changed.title },
+        }))
+      ) {
+        setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
+        return;
       }
-      if (changed.description !== undefined) {
-        await send({
+      if (
+        changed.description !== undefined &&
+        !(await landed('description', {
           name: 'set_description',
           payload: { ...envelope(), description: changed.description },
-        });
+        }))
+      ) {
+        setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
+        return;
       }
       onClose();
     } catch (failure) {

@@ -89,6 +89,15 @@ test.describe('Item editing', () => {
       await page.goBack();
       await expect(titleBox(page)).toHaveCount(0);
 
+      // And closing collapses the entry opening made rather than stacking one
+      // on it: Back after Cancel leaves the page rather than putting the form
+      // straight back up.
+      await openItem(page, thought, isMobile);
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await expect(titleBox(page)).toHaveCount(0);
+      await page.goBack();
+      await expect(titleBox(page)).toHaveCount(0);
+
       // The address on its own opens it, which is what makes it a link rather
       // than a state only this tab knows about.
       await page.goto(openAt);

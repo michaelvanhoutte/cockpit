@@ -69,6 +69,11 @@ export function useItemForm(): { openItemId: string | undefined; close: () => vo
     close: () =>
       void navigate({
         to: '.',
+        // Replacing rather than pushing, so closing collapses the entry opening
+        // made instead of stacking a third on top of it. Pushing left
+        // `[page] -> [page?item=x] -> [page]`, where Back after closing put the
+        // form straight back up - the opposite of what the address is for.
+        replace: true,
         search: (was) => {
           const { item: _closed, ...rest } = was as ItemFormSearch;
           return rest;
