@@ -33,7 +33,7 @@ test.describe('Capture', () => {
 
       const thought = uniqueTitle('Buy milk');
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
 
       await expect(itemRow(page, thought)).toBeVisible();
       await expect(inbox(page).getByText(thought)).toBeVisible();
@@ -51,7 +51,7 @@ test.describe('Capture', () => {
       const thought = uniqueTitle('Maybe split the pricing page');
       await captureBox(page).fill(thought);
       await kind.fill('Thought');
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
 
       // The word under the title, which is one of the two marks the type took
       // from the status ("Capture a thought or an action, and see which it
@@ -70,7 +70,7 @@ test.describe('Capture', () => {
       const thought = uniqueTitle('Why is this slow?');
       await captureBox(page).fill(thought);
       await page.getByLabel('What kind of thing this is').fill(made);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
 
       await expect(itemRow(page, thought).getByText(made)).toBeVisible();
       await expectNoSidewaysScroll(page);

@@ -364,7 +364,11 @@ export function itemRow(page: Page, title: string): Locator {
  */
 export async function capture(page: Page, title: string, isMobile: boolean): Promise<void> {
   await captureBox(page).fill(title);
-  await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+  // The Inbox's own button, which captures into the workspace you are in. The
+  // header has a Capture… of its own, which asks nothing about where it goes
+  // ("Capture something before you know which workspace it belongs to", issue
+  // 165), so this has to say which of the two it means.
+  await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
   await expect(itemRow(page, title)).toBeVisible();
 }
 

@@ -955,3 +955,80 @@ describe('Panels', () => {
     });
   });
 });
+
+describe('Capture', () => {
+  /**
+   * F1: what the picker offers and what choosing in it sends. Which workspace
+   * an item then belongs to, and which Inboxes it leaves, is a query proved
+   * against a real store in apps/api/tests/integration/http/panel-items.test.ts.
+   */
+  const NOWHERE = { ...anItem('11111111-1111-7111-8111-000000000009', 'Where does this go'), workspaceDecided: false };
+
+  describe('an item belonging to no workspace is offered the Inboxes first', () => {
+    it('lists every workspace, in the order of the tabs, above the panels', async () => {
+      const user = await showList({ items: [NOWHERE] });
+
+      const dialog = await openThePicker(user);
+
+      expect(offered(dialog)).toEqual([
+        'Workthe one you are in',
+        'Home',
+        'Falcon',
+        'Anna',
+        'To read',
+      ]);
+    });
+
+    it('offers an item that belongs here the one Inbox, as it always did', async () => {
+      const user = await showList();
+
+      const dialog = await openThePicker(user);
+
+      expect(offered(dialog)[0]).toBe('Inboxstill to deal with');
+    });
+
+    it.each([
+      { situation: 'the workspace you are in', pick: 'Workthe one you are in', into: 'ws-work' },
+      { situation: 'another workspace', pick: 'Home', into: 'ws-home' },
+    ])('sends the move in $situation when its Inbox is chosen', async ({ pick, into }) => {
+      const user = await showList({ items: [NOWHERE] });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: pick }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          // The workspace chosen, not the one being looked at: that is the
+          // whole of what picking another workspace's Inbox means.
+          payload: expect.objectContaining({ workspaceId: into, panelId: null, order: [] }),
+        }),
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('deciding where an item belongs is not offered back, because it cannot be taken back', () => {
+    it.each([
+      {
+        situation: 'a move that decided it',
+        item: NOWHERE,
+        offersTheWayBack: false,
+      },
+      {
+        situation: 'a move of an item that already belonged here',
+        item: anItem('11111111-1111-7111-8111-00000000000a', 'Reply to Bart'),
+        offersTheWayBack: true,
+      },
+    ])('$situation', async ({ item, offersTheWayBack }) => {
+      held.items = [item];
+      const user = await showList({ items: [item] });
+      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getAllByRole('button', { name: 'Falcon' })[0]!);
+
+      expect(screen.queryByRole('button', { name: 'Undo' }) !== null).toBe(offersTheWayBack);
+    });
+  });
+});

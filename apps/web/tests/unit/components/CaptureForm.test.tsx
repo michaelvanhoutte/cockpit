@@ -79,6 +79,8 @@ function aForm(
   items: Item[] = [],
   madeAs: ItemType[] = types,
   refuses?: Error,
+  /** False in the header's capture window, which has not said where it goes. */
+  decided = true,
 ) {
   const mutate = vi.fn();
   const send = vi.fn((_args: unknown) =>
@@ -89,7 +91,7 @@ function aForm(
   mockUseSendCommand.mockReturnValue(send as never);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <CaptureForm workspaceId="ws-work" types={types} items={items} />
+      <CaptureForm workspaceId="ws-work" types={types} items={items} decided={decided} />
     </QueryClientProvider>,
   );
   return { mutate, send, user: userEvent.setup() };
@@ -117,6 +119,30 @@ describe('Capture', () => {
       expect(capture.payload.title).toBe('Buy milk');
       expect(capture.payload.workspaceId).toBe('ws-work');
       expect(box).toHaveValue('');
+    });
+
+    /**
+     * Which of the two doors this is ("Capture something before you know which
+     * workspace it belongs to", issue 165). The Inbox's own row is inside a
+     * workspace and has therefore already said where; the header's window has
+     * not, and says so by leaving it undecided.
+     *
+     * The command carries the field only when it is false, so every front door
+     * that has an answer sends exactly what it always sent.
+     */
+    it.each([
+      { situation: 'the Inbox’s own row, inside a workspace', decided: true, sent: undefined },
+      { situation: 'the header’s capture window, which is not', decided: false, sent: false },
+    ])('says where it belongs, captured from $situation', async ({ decided, sent }) => {
+      const { mutate, user } = aForm([ACTION, THOUGHT], [], [ACTION, THOUGHT], undefined, decided);
+
+      await user.type(screen.getByLabelText('Capture a note or to-do'), 'Buy milk');
+      await user.click(screen.getByRole('button', { name: 'Capture' }));
+
+      const capture = asked(mutate, 'capture_item');
+      expect(capture.payload.workspaceDecided).toBe(sent);
+      // Either way it records the workspace it was captured from.
+      expect(capture.payload.workspaceId).toBe('ws-work');
     });
   });
 

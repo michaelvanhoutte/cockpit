@@ -191,7 +191,16 @@ export function Layout() {
             pills floating on the bar any more - they stand on its bottom edge
             so the selected one can run into the strip underneath. */}
         <div className="flex w-full items-end gap-4 px-3 pt-2">
-          <span className="shrink-0 pb-2 text-lg font-semibold tracking-tight">Cockpit</span>
+          {/* **Gone on a phone**, where it is the only thing in the bar that
+              does nothing. The header holds four things now - the name, the
+              workspaces, Capture… and the menu ("Capture something before you
+              know which workspace it belongs to", issue 165) - and at 375px
+              that left the strip showing one whole tab and a letter of the
+              next. The workspaces are what the bar is for, so the wordmark is
+              what gives way; the logon page still says whose app this is. */}
+          <span className="hidden shrink-0 pb-2 text-lg font-semibold tracking-tight sm:block">
+            Cockpit
+          </span>
           {/* Scrolls within itself rather than widening the page. Until
               workspaces could be made, three of them fit any screen and this
               was a plain row; the fourth one pushed a 480px phone to 571px and

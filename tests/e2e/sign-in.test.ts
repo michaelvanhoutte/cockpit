@@ -4,6 +4,7 @@ import {
   captureBox,
   dashboardBar,
   expect,
+  inbox,
   itemRow,
   openSettings,
   press,
@@ -128,7 +129,7 @@ test.describe('Accounts', () => {
         await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
       }
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
       await expect(itemRow(page, thought)).toBeVisible();
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);

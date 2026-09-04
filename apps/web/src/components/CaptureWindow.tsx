@@ -32,8 +32,14 @@ export function CaptureWindow({ workspaceId }: { workspaceId: string }) {
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
+      {/* **Capture…, not Capture**, the ellipsis meaning a window opens - the
+          same convention Move to… and Add to… already carry. Without it there
+          are two controls called Capture on one screen: this one, and the
+          Inbox's own box, which captures into the workspace you are in rather
+          than asking. Found in the browser, where a walk could not say which
+          it meant either. */}
       <Dialog.Trigger className="milled shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-deep">
-        Capture
+        Capture…
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
