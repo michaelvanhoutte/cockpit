@@ -484,7 +484,16 @@ export function listAssociationsForWorkspace(
     })
     .from(associations)
     .innerJoin(items, eq(associations.itemId, items.id))
-    .where(and(eq(associations.tenantId, tenantId), eq(items.workspaceId, workspaceId)))
+    // **The same items `listOpenItems` returns**, which is why this carries the
+    // same `or`: an item belonging to no workspace is drawn in every workspace,
+    // and a row drawn without the associations it has is a row saying something
+    // untrue about itself.
+    .where(
+      and(
+        eq(associations.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+      ),
+    )
     .all();
 }
 

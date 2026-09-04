@@ -159,6 +159,27 @@ export function useSendCommand(): (args: CommandArgs) => Promise<void> {
  * which is where the reason lives; every other change finishes the moment the
  * server takes it, as they always have.
  */
+/**
+ * Whether this change can alter what a workspace *other than* the one it names
+ * is showing ("Capture something before you know which workspace it belongs
+ * to", issue 165).
+ *
+ * An item that belongs to no workspace is drawn in every workspace's Inbox, so
+ * making one and settling one both change what another workspace holds. The
+ * server says so too, by logging the change against the account and letting the
+ * stream tell everybody - but the tab that *made* the change should not have to
+ * wait for its own message to come back, and until it did the copy it already
+ * held stayed fresh for the whole `staleTime`. Switching workspace inside that
+ * window then painted an item that had just left.
+ *
+ * A capture says in its payload whether it decided; a move does not, and the
+ * cost of not knowing is one extra read of a workspace you go on to open.
+ */
+function everyWorkspaceCanSee(args: CommandArgs): boolean {
+  if (args.name === 'capture_item') return args.payload.workspaceDecided === false;
+  return args.name === 'move_item_to_panel' || args.name === 'add_item_to_panel';
+}
+
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
   if (args.name === 'delete_workspace') {
     // Dropped, not re-read. There is nothing to revalidate: the snapshot of a
@@ -179,7 +200,13 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     ]);
   }
 
-  const reread = [queryClient.invalidateQueries({ queryKey: ['snapshot', args.payload.workspaceId] })];
+  const reread = [
+    queryClient.invalidateQueries(
+      everyWorkspaceCanSee(args)
+        ? { queryKey: ['snapshot'] }
+        : { queryKey: ['snapshot', args.payload.workspaceId] },
+    ),
+  ];
   // Only the changes that alter which workspaces there are, so triaging an item
   // does not refetch the list on every click.
   if (CHANGES_THE_WORKSPACE_LIST.has(args.name)) {

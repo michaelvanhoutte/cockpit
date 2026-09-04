@@ -536,6 +536,30 @@ describe('Capture', () => {
       expect(await inboxOf('ws-personal')).not.toContain('Reply to Bart');
     });
 
+    /**
+     * The associations follow the item. The two reads have to agree about
+     * which items a workspace holds, or a row is drawn in three workspaces
+     * with the person it names attached in only one of them.
+     */
+    it('carries its associations into every workspace it is drawn in', async () => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      expect(
+        (
+          await send('associate', {
+            workspaceId: WORKSPACE_ID,
+            associationId: nextId(),
+            itemId,
+            kind: 'person',
+            label: 'Anna',
+          })
+        ).status,
+      ).toBe(200);
+
+      for (const workspaceId of EVERY_WORKSPACE) {
+        expect((await snapshot(workspaceId)).associations.map((a) => a.label)).toContain('Anna');
+      }
+    });
+
     it.each([
       { situation: 'finished with', command: 'set_done', body: { done: true } },
       { situation: 'dismissed', command: 'set_dismissed', body: { dismissed: true } },
@@ -596,6 +620,27 @@ describe('Capture', () => {
       expect(await inboxOf('ws-work')).not.toContain('Where does this go');
     });
 
+    /**
+     * Both commands that put an item on a panel, not only the move. Putting an
+     * item on a panel is putting it on a panel whichever one says so, and an
+     * item left filed *and* undecided would be in a panel of one workspace and
+     * in every other workspace's Inbox at once - a state the rule does not have.
+     */
+    it('takes the workspace of the panel it is added to as well', async () => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      const elsewhere = await aDashboard('ws-personal');
+      const panelId = await aPanel(elsewhere, 'Errands', 'ws-personal');
+
+      expect(
+        (await send('add_item_to_panel', { workspaceId: 'ws-personal', itemId, panelId, order: [itemId] }))
+          .status,
+      ).toBe(200);
+
+      expect(await filedOn(itemId, 'ws-personal')).toEqual(['Errands']);
+      expect(await inboxOf('ws-work')).not.toContain('Where does this go');
+      expect(await inboxOf('ws-atlas')).not.toContain('Where does this go');
+    });
+
     it('refuses a workspace that is not there rather than failing on the way in', async () => {
       const itemId = await anItemBelongingNowhere('Where does this go');
       expect(
@@ -637,6 +682,31 @@ describe('Capture', () => {
           .status,
       ).toBe(200);
       expect((await loggedWorkspaceFor('move_item_to_panel'))[0]?.workspace_id).toBe(ACCOUNT_WIDE);
+    });
+
+    /**
+     * Every change to an item that belongs to no workspace, not only the two
+     * that make and settle one: it is drawn in every Inbox, so finishing with
+     * it or dismissing it changes what a tab open on another workspace should
+     * be showing.
+     */
+    it.each([
+      { situation: 'finished with', command: 'set_done', body: { done: true } },
+      { situation: 'dismissed', command: 'set_dismissed', body: { dismissed: true } },
+      { situation: 'given a next action', command: 'set_next_action', body: { nextAction: 'Ring' } },
+      { situation: 'given a priority', command: 'set_priority', body: { priority: 'high' } },
+    ])('logs it against the account when one is $situation', async ({ command, body }) => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      expect((await send(command, { workspaceId: 'ws-personal', itemId, ...body })).status).toBe(200);
+
+      expect((await loggedWorkspaceFor(command))[0]?.workspace_id).toBe(ACCOUNT_WIDE);
+    });
+
+    it('logs a change to an item that belongs somewhere against that workspace', async () => {
+      const itemId = await anItem('Reply to Bart');
+      expect((await send('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true })).status).toBe(200);
+
+      expect((await loggedWorkspaceFor('set_done'))[0]?.workspace_id).toBe(WORKSPACE_ID);
     });
 
     it('logs an ordinary move against its own workspace, as it always did', async () => {
