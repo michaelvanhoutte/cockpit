@@ -10,14 +10,43 @@ import {
 import { sql } from 'drizzle-orm';
 import {
   associationKindSchema,
-  focusHorizonSchema,
   GRID_COLUMNS,
-  itemStatusSchema,
+  ITEM_TYPE_COLORS,
   MAX_PANEL_ROWS,
   prioritySchema,
   sourceSchema,
 } from '@cockpit/shared';
-import type { AssociationKind, FocusHorizon, ItemStatus, Priority, Source } from '@cockpit/shared';
+import type { AssociationKind, Priority, Source } from '@cockpit/shared';
+
+/**
+ * The values the three dead columns on `items` are allowed to hold.
+ *
+ * They are here rather than in the wire contract because the product no longer
+ * has a status, a snooze or a focus horizon ("An item is either yours to deal
+ * with or finished with", issue 154) - so the rule that a CHECK is built from
+ * the same enum the contract uses (architecture, "The database is the second
+ * lock") has nothing left to hold these in step with. The columns stay because
+ * SQLite refuses `DROP COLUMN` for a column named in a CHECK, and `items`
+ * cannot be rebuilt while `panel_items` and `associations` point at it under
+ * RESTRICT.
+ */
+const DEAD_STATUSES = [
+  'to_process',
+  'task',
+  'waiting',
+  'snoozed',
+  'delegated',
+  'reference',
+  'done',
+  'dismissed',
+] as const;
+const DEAD_FOCUS_HORIZONS = ['today', 'week', 'month', 'quarter'] as const;
+
+/**
+ * What every new item's dead `status` column is written with. It is NOT NULL
+ * with a CHECK, so something has to satisfy both; nothing ever reads it.
+ */
+export const DEAD_STATUS_VALUE = 'to_process';
 
 /**
  * The tables inside one account's store (architecture, "One store per account,
@@ -453,6 +482,72 @@ export const panelPlacements = sqliteTable(
   ],
 );
 
+/**
+ * What kind of thing an Item is ("Capture a thought or an action, and see which
+ * it is", issue 155). Account-wide rather than per workspace: *Thought* means
+ * the same in Work and in Personal, and a type name reveals nothing the
+ * workspace boundary protects.
+ *
+ * **Created whole, with every column it will ever need**, including two nothing
+ * writes yet. Once `items.type_id` points here this table has children under
+ * RESTRICT, and from that moment a CHECK cannot be altered in and the table
+ * cannot be rebuilt (architecture, "Schema conventions") - so `position` and
+ * `deleted_at`, which "Manage the types, and put them in the order you want"
+ * (issue 156) needs, arrive now with their constraints rather than later
+ * without them. That is the opposite of the rule `itemColumns` in repo.ts
+ * carries about *reads*, and for the same underlying reason: what a store can
+ * still be told is decided the moment the first child row exists.
+ */
+export const itemTypes = sqliteTable(
+  'item_types',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    name: text('name').notNull(),
+    /** The name with its case folded away, exactly as `workspaces` carries one. */
+    foldedName: text('folded_name').notNull().default(''),
+    /** One of the palette's tints, which is the dot at the head of a row. */
+    color: text('color').notNull(),
+    /**
+     * Where it sits in the list you put it in. Written by "Manage the types,
+     * and put them in the order you want" (issue 156).
+     */
+    position: integer('position').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+    /**
+     * Tombstone, written by "Manage the types, and put them in the order you
+     * want" (issue 156) and unread until then.
+     */
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    /**
+     * Uniqueness on the folded name among live types, the same shape and for
+     * the same two reasons `workspaces` has one: `Thought` and `thought` are
+     * the same name, and deleting a type gives its name back.
+     *
+     * It is the lock behind the check rather than the answer: creating a type
+     * by using its name folds through `foldName` like every other writer, and
+     * this is what keeps two tabs racing from making two of it.
+     */
+    uniqueIndex('item_types_tenant_live_folded_name')
+      .on(t.tenantId, t.foldedName)
+      .where(sql`${t.deletedAt} IS NULL`),
+    /**
+     * A closed set, so the database holds it too (architecture, "The database
+     * is the second lock") - built from the same list the wire contract uses,
+     * so the two cannot drift. `workspaces.color` has no equivalent for a
+     * reason that does not apply here: that table was already live and could
+     * not be rebuilt to attach one, and this one is created whole precisely so
+     * every constraint it will ever need arrives up front.
+     */
+    check('item_types_color_is_known', oneOf('color', ITEM_TYPE_COLORS)),
+    check('item_types_position_is_an_order', sql.raw('position >= 0')),
+    check('item_types_created_at_is_timestamp', isTimestamp('created_at')),
+    check('item_types_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
 export const items = sqliteTable(
   'items',
   {
@@ -480,14 +575,37 @@ export const items = sqliteTable(
     // "Migrations and rollback"; issue 161).
     title: text('title').notNull(),
     description: text('description'),
-    status: text('status').$type<ItemStatus>().notNull(),
+    /**
+     * What kind of thing it is ("Capture a thought or an action, and see which
+     * it is", issue 155). Nullable, which is what let it be added at all:
+     * SQLite accepts a new column with a REFERENCES clause only when its
+     * default is NULL, and `items` has children so it cannot be rebuilt.
+     */
+    typeId: text('type_id').references(() => itemTypes.id, { onDelete: 'restrict' }),
     nextAction: text('next_action'),
-    focusHorizon: text('focus_horizon').$type<FocusHorizon>(),
+    /**
+     * Finished with, and when ("An item is either yours to deal with or
+     * finished with", issue 154). Carries no CHECK: a nullable column only the
+     * command handlers write is not worth rebuilding three tables for, which is
+     * the trade `workspaces.deleted_at` already records.
+     */
+    completedAt: text('completed_at'),
     priority: text('priority').$type<Priority>(),
     dueDate: text('due_date'),
-    snoozedUntil: text('snoozed_until'),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
+
+    /**
+     * Dead columns, kept because they cannot go. `status` is written
+     * `DEAD_STATUS_VALUE` on every insert to satisfy NOT NULL and its CHECK,
+     * and read nowhere; `focus_horizon` and `snoozed_until` are never written
+     * at all. Focus horizons come back with "Goals: mark actions, panels and
+     * dashboards as goals per horizon" (issue 38) as a decision rather than as
+     * a menu entry, and may well not reuse these.
+     */
+    status: text('status').notNull(),
+    focusHorizon: text('focus_horizon'),
+    snoozedUntil: text('snoozed_until'),
 
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
@@ -495,8 +613,8 @@ export const items = sqliteTable(
   (t) => [
     index('items_tenant_workspace_status').on(t.tenantId, t.workspaceId, t.status),
     check('items_source_is_known', oneOf('source', sourceSchema.options)),
-    check('items_status_is_known', oneOf('status', itemStatusSchema.options)),
-    check('items_focus_horizon_is_known', oneOf('focus_horizon', focusHorizonSchema.options)),
+    check('items_status_is_known', oneOf('status', DEAD_STATUSES)),
+    check('items_focus_horizon_is_known', oneOf('focus_horizon', DEAD_FOCUS_HORIZONS)),
     check('items_priority_is_known', oneOf('priority', prioritySchema.options)),
     // STRICT gets this column to INTEGER; this gets it to a flag.
     check('items_unseen_is_flag', sql.raw('unseen IN (0, 1)')),

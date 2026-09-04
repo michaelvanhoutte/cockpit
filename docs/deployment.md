@@ -82,15 +82,16 @@ no commitlint hook to install and nothing for an agent to get wrong.
 
 ## 2. The environments
 
-| | Deployed by | Worker | Database | Cron/Queues | URL | Access |
-|---|---|---|---|---|---|---|
-| **production** | manual promotion | `cockpit` | `cockpit` | yes | `cockpit.vanhoutte-michael.workers.dev` | gated |
-| **staging** | every commit on `main` | `cockpit-staging` | `cockpit-staging` | yes | `cockpit-staging.vanhoutte-michael.workers.dev` | gated |
+| | Deployed by | Worker | Database | Cron/Queues | URL |
+|---|---|---|---|---|---|
+| **production** | manual promotion | `cockpit` | `cockpit` | yes | `cockpit.vanhoutte-michael.workers.dev` |
+| **staging** | every commit on `main` | `cockpit-staging` | `cockpit-staging` | yes | `cockpit-staging.vanhoutte-michael.workers.dev` |
 
 There is no third environment; branches are deployed nowhere (§4).
 
-**Every environment is gated, `/health` excepted.** There is no public instance:
-the showcase is this repository, not a running app holding real mail and messages.
+**Both are reachable by anyone who knows the URL**, with Cockpit's own sign-in the
+only thing in the way — see "Secrets and access" for what that is worth today. The
+showcase is still this repository rather than either instance.
 
 Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which
@@ -123,20 +124,20 @@ this application's own prefixes the two lists must be kept in sync.**
 
 **They are not the same list, and the difference is load-bearing.** The denylist
 carries a fourth, `/cdn-cgi/`, which must never appear here: it is Cloudflare's,
-answered by Access at the edge. Leaving it out of the denylist is what stopped
-signing in from ever finishing — Access ends a sign-in by redirecting to
-`/cdn-cgi/access/authorized`, the cached shell answered that navigation, and the
-cookie was never set.
+answered at the edge before assets or the Worker see it. Leaving it out of the
+denylist once stopped a sign-in finishing at all — the cached shell answered a
+navigation to a URL that was never ours to serve, so the request never left the
+browser.
 
 Because `assets.directory` points at `../web/dist`, the web app must be built
 before the API is deployed or run with `wrangler dev`. `pnpm build` first.
 
 ## 4. No branch environments
 
-**Removed, deliberately.** A branch used to get its own Access-gated URL on every
-push. It cannot any more, and rebuilding the capability costs more than it is
-worth. Both halves are argued below, because "we deleted the preview environment"
-reads as neglect a year later.
+**Removed, deliberately.** A branch used to get its own URL on every push. It
+cannot any more, and rebuilding the capability costs more than it is worth. Both
+halves are argued below, because "we deleted the preview environment" reads as
+neglect a year later.
 
 Gone: `deploy-preview.yml`, the `cockpit-preview` Wrangler environment,
 `scripts/branch-alias.sh` and the CI step that asserted it. What replaces it is
@@ -153,15 +154,22 @@ this one does. Mechanism and symptoms below.
 | | Click through before merge | Cost |
 |---|---|---|
 | Keep the job as a rehearsal, no URL | no | a workflow that deploys nothing anyone can see |
-| A Worker per branch, every push | yes | per-environment Access, lifecycle, on every push |
-| A Worker per branch, on request | yes | per-environment Access, lifecycle, when asked |
+| A Worker per branch, every push | yes | a Worker and a database created and reaped per branch, on every push |
+| A Worker per branch, on request | yes | the same lifecycle, when asked |
 | **Remove it** | no | no rehearsal against real Cloudflare before merge |
 
-The two that keep the capability founder on the same thing, and it is not
-lifecycle: **a branch Worker cannot be gated cheaply** (below). Between the two
-that give it up, the rehearsal is the smaller loss and the larger residue — a
-workflow, a database, a Worker and an alias script kept alive for a green check
-nobody looks at. Removing it leaves nothing to explain.
+The two that keep the capability cost a per-branch Worker and database to create
+and reap, which is a workflow to maintain for a green check nobody looks at.
+Between the two that give it up, the rehearsal is the smaller loss and the larger
+residue. Removing it leaves nothing to explain.
+
+**One reason has since gone.** These options used to founder on something sharper
+than lifecycle — a branch Worker could not be gated cheaply, because Access on a
+`workers.dev` URL is per Worker and `.workers.dev` supports no wildcard
+subdomains, so the account-level policy covering preview URLs reached nothing. No
+environment is gated any more (see "Secrets and access"), so that cost is zero and
+only the lifecycle argument above is still standing. It is still enough, and it is
+worth knowing which leg was kicked away if this is ever reopened.
 
 ### What it costs, stated plainly
 
@@ -173,7 +181,7 @@ red, and the fix is an ordinary branch and an ordinary pull request.
 That is not hypothetical — the Durable Object migration error below was caught
 before merge by exactly the step this section removes. The trade is accepted with
 that example in view: one deploy-time surprise per platform limitation, against a
-workflow, a Worker, a database and an Access policy maintained permanently.
+workflow, a Worker and a database maintained permanently.
 
 **What still gates a branch:** `ci.yml` on every push — typecheck, the fast test
 tiers, the browser tier against its own local stack, the build, the script tests
@@ -182,9 +190,9 @@ and the concept registry. Nothing about *code* correctness moved.
 ### Removing the infrastructure
 
 The repository no longer references them, but the `cockpit-preview` Worker and D1
-database still exist on Cloudflare, along with any Access application scoped to
-them. Deleting them is **one-time and irreversible**, done by hand because nothing
-here should be able to delete infrastructure on its own:
+database still exist on Cloudflare. Deleting them is **one-time and
+irreversible**, done by hand because nothing here should be able to delete
+infrastructure on its own:
 
 ```bash
 wrangler delete cockpit-preview
@@ -209,36 +217,6 @@ alias it passed rather than reading one back from Wrangler, and comments it on t
 pull request. So a pull request carries a green check and a URL that looks right
 and answers with a placeholder. The tell in the log is that Wrangler prints no
 `Version Preview URL:` line at all.
-
-### Gating a branch Worker costs what previews did not
-
-**The account-level Access policy does not reach a branch Worker**, and no naming
-or wildcard makes it. Two facts, both from Cloudflare: Access on a `workers.dev`
-URL protects
-[one Worker's production URL, its preview URLs, or both](https://developers.cloudflare.com/workers/configuration/cloudflare-access/) —
-it is per Worker; and
-[`.workers.dev` does not support wildcard subdomains](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/),
-so one application cannot stand in front of every branch Worker the way
-`Cloudflare Workers Preview URLs` stands in front of every preview URL. That
-account-level policy was a property of **preview URLs specifically**, so a branch
-Worker inherits nothing.
-
-Three shapes remain and none is free:
-
-- **Create and delete an Access application per environment from the workflow.**
-  Doable through the API, and it widens the CI token from Workers and D1 to
-  Access. Its failure mode is the one §6 exists to prevent: an application that is
-  not created leaves an unauthenticated instance of this app on the public
-  internet, and nothing about the deploy looks wrong when that happens.
-- **Move branch environments to a custom domain**, where one wildcard application
-  covers them all. The documented answer, and a bigger one-time setup: a zone, DNS
-  and custom-domain routing.
-- **Accept public branch environments.** They hold `seed.sql` fixtures rather than
-  real mail, which was the argument for leaving previews ungated — but §6 gates
-  them anyway, and that reversal was the owner's.
-
-This is what reopened §4, and it is recorded here rather than in a commit message
-because the cost is the decision.
 
 ### A Durable Object class cannot be introduced by a preview
 
@@ -374,27 +352,49 @@ workflows authenticate with — and it is listed here because a missing secret
 presents as a workflow that goes green having done nothing. The readme's
 *Development automation* section has the rest.
 
-**Both environments are gated with Cloudflare Access, production included.**
+**Nothing stands in front of either environment.** Cockpit's own sign-in is all
+there is on staging and on production, and until Google sign-in ships that
+sign-in is a list of names you pick from — an identity selector, not an
+authentication control. Anyone who can reach the URL can be anyone in the list.
 
-**This is a recorded reversal.** An earlier draft left production open, reasoning
-that production is the showcase. That was backwards, and the owner corrected it:
-**the showcase is this repository**, not a running instance. Production is the one
-holding real Gmail, Slack and Notion content, which makes it the *most* sensitive
-environment, and the proof-of-identity half of "App login" does not exist yet — so
-without Access it has no authentication whatsoever, Cockpit's own sign-in being a
-list of names anybody reaching the URL could click.
+**This is a recorded reversal, and it went both ways.** Both environments used to
+be gated with Cloudflare Access, production included, which was itself a
+correction of an earlier draft that left production open on the reasoning that
+production is the showcase — backwards, since **the showcase is this repository**
+rather than a running instance. Access came off on 2026-09-02 ("Remove Cloudflare
+Access from staging and production", issue 123), deliberately ahead of the trigger
+the architecture had recorded for it: OAuth login shipping. What made that
+acceptable is that production holds `seed.sql` fixtures rather than real mail —
+no connector has landed — so the exposure is a demonstration instance, not
+somebody's inbox. **It stops being acceptable the moment the first connector
+lands**, which is the same moment "App login" becomes urgent; the two belong
+together.
 
-Each `workers.dev` URL gets its own per-Worker policy, so production and staging
-are gated independently. There is also an account-level `Cloudflare Workers
-Preview URLs` policy covering every *preview URL* at once, which is what used to
-make previews free to gate and what nothing replaced when they went (§4).
+Every Access application was deleted, the two that gated previews included. There
+is nothing left to re-enable, only to rebuild.
 
-### `/health` must stay outside the gate
+**Check what an environment is *running* before taking a perimeter off it, not
+what `main` contains.** Production was 28 commits behind when Access came off, and
+the sign-in work had landed inside that gap — so for a few minutes production was
+not a name picker anybody could click past, it was an API with no gate compiled
+into it at all, answering `/v1/workspaces` to anyone. Promoting it closed that.
+"Production therefore lags `main` by design" is two sections up; this is the cost
+of that lag meeting a change that assumes the lag away.
+
+**Putting a perimeter back is a dashboard job, and its recipe left with this
+file.** It was exact and fiddly — one application, two path-scoped destinations,
+a Bypass policy, and three traps that each cost a wrong turn — and it now exists
+only in the diff that removed it: "Remove Cloudflare Access from staging and
+production" (pull request 139). Read it there rather than rediscovering it.
+
+### `/health` answers without a sign-in
 
 Two things depend on reaching `/health` unauthenticated and both break silently
 without it: the post-deploy assertion in the deploy workflows, and the external
 uptime check, deliberately the only observability layer not running on the app's
-own code.
+own code. It is outside Cockpit's own gate (`PATHS_OUTSIDE_THE_GATE` in
+`apps/api/src/auth/gate.ts`), and anything ever put in front of the deployment
+has to be told to leave it alone.
 
 `/health` returns `{"ok":true,"register":true,"store":true}` and nothing else, so
 it discloses only whether each half answered — never *why* one did not, since the
@@ -411,125 +411,28 @@ is when the store applies outstanding changes, so `/health` can legitimately
 answer `store: false` for a moment and be well immediately after (observed on the
 deploy of a762ff1: unwell ten seconds after, healthy on every ask afterwards). The
 post-deploy check therefore asks until the deployment says it is well or a minute
-is up, and reports how many attempts it took; a redirect or a login page is not
-waited on, since no amount of asking again puts a Bypass policy back. Whether that
-first-touch failure is a race or something to fix is unsettled — the attempt count
-in the deploy log is the evidence.
+is up, and reports how many attempts it took; a redirect or a page that is not
+ours is not waited on, since asking again cannot move whatever is standing in the
+way. Whether that first-touch failure is a race or something to fix is unsettled —
+the attempt count in the deploy log is the evidence.
 
-The recipe, fiddly enough to be worth writing down exactly. **One** Access
-application (Zero Trust → Access → Applications → self-hosted) holding **two
-destinations**, one policy, covering both environments:
-
-| Subdomain | Domain | Path |
-|---|---|---|
-| `cockpit` | `vanhoutte-michael.workers.dev` | `health` |
-| `cockpit-staging` | `vanhoutte-michael.workers.dev` | `health` |
-
-with a single policy: Action **Bypass**, Include **Everyone**. Three traps, each
-of which cost a wrong turn:
-
-- **Use the "public hostname" destination, not the "Workers" one.** The Workers
-  type is whole-Worker only and offers no path field, so a Bypass on it would
-  unprotect the entire Worker.
-- **An application with a destination and no policy denies everything.** Policies
-  are default-deny, so a half-finished bypass app makes `/health` *less*
-  reachable, not more.
-- **Name it distinctly.** The one-click Worker toggles create their own
-  applications named after the Workers, so an app called `cockpit` that is
-  actually the hole in the perimeter is a trap for later.
-
-`scripts/health-check.mjs` detects the gated case and names this fix rather than
-failing with an unexplained parse error on an HTML login page.
-
-**Verified 2026-08-13**, from outside, unauthenticated:
+**Verified 2026-09-03**, from outside, signed in to nothing:
 
 | | `/` | `/v1/workspaces` | `/health` |
 |---|---|---|---|
-| production | 302 → Access | 302 → Access | 200 `{"ok":true,...}` |
-| staging | 302 → Access | 302 → Access | 200 `{"ok":true,...}` |
-| preview alias | 302 → Access | — | 302 → Access |
+| production | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
+| staging | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
 
-The preview row records a test that was run, not a live environment. All
-challenges redirect to `conselit.cloudflareaccess.com`. Two things this settles
-that the documentation does not state: **a path-scoped public-hostname destination
-does take precedence over a whole-Worker Access app on a `workers.dev` hostname**,
-and **the `*-cockpit-preview` wildcard covered aliases created after Access was
-enabled**. The second is what made previews free to gate.
+`/v1/users` answers 200 on both, deliberately: it is the logon page's list of
+names, and it is what you read while you are still nobody.
 
-### The cost of gating production, stated plainly
-
-Gating costs one thing concretely: **Access's expired-session redirects to an HTML
-login page break silent `fetch` and `EventSource` refresh.** Cockpit revalidates on
-focus and holds an SSE stream open, so an expired Access session hands the client
-HTML where it expects JSON or events.
-
-**Amended 2026-08-31, for reads and for the push stream.** The client now
-recognises the case: it asks `/health` — outside the gate, so an answer proves the
-deployment is healthy and the fault is this browser's sign-in — then sends itself
-through `/v1/relogin`, which Access challenges and which hands the browser back to
-the page it came from. The push stream recovers by a related route, since
-`EventSource` abandons a badly-answered connection after one attempt: the client
-reopens on a backoff and runs the same check.
-
-**A second, sharper case: requests the browser makes with credentials omitted.**
-The web app manifest is fetched that way by specification unless its `<link>`
-carries `crossorigin="use-credentials"`, so behind Access it went out with no
-session cookie, was redirected to `conselit.cloudflareaccess.com`, and was
-rejected by the browser as a cross-origin redirect with no
-`Access-Control-Allow-Origin` — surfacing as a CORS error, which is what makes it
-misleading to diagnose. Fixed by `useCredentials: true` in
-[apps/web/vite.config.ts](../apps/web/vite.config.ts). Three things to carry
-forward: **a valid session does not help here**, because the cookie is never
-offered; **the recovery above does not reach it either**, because nothing was
-refused and so nothing asks why; and manifest *icon* fetches are a separate path
-this attribute does not govern, so whether install artwork resolves behind Access
-is untested.
-
-Three mitigations, of which only the first is a fix, and it covers the expiry case
-rather than the credentials-omitted one:
-
-- **Recover in the client**, as above. It removes the dead-end, not the interruption.
-- **Set a long Access session duration** (up to one month) so expiry is rare.
-- **Treat this as interim.** The perimeter exists *because* the proof-of-identity
-  half of "App login" has not been built. **The trigger to reconsider it is
-  password or OAuth login shipping — not signing in.** Cockpit has had its own
-  sign-in, session and request gate since issue 86, and that changes nothing here:
-  clicking a name off a list is an identity selector, not an authentication
-  control. When the OIDC flow lands, Access on production should be reconsidered
-  rather than left in place by inertia — it would then be a second gate in front
-  of the app's own.
-
-This does **not** reverse the architecture decision. Access here is a perimeter
-around a deployment, not the application's identity model, and it buys time rather
-than a design.
-
-The Zero Trust team domain is `conselit.cloudflareaccess.com`, account-wide rather
-than per-project (the same account runs conselit.be and the task-creator worker).
-
-### Two known gaps in the perimeter
-
-Recorded rather than fixed, both deliberately:
-
-1. **The Worker does not validate the Access JWT.** Cloudflare's guidance is to
-   verify `Cf-Access-Jwt-Assertion` inside the Worker so a request that somehow
-   reaches it without passing Access is still rejected. Deferred because it means
-   three per-environment `aud` tags, JWKS fetching, RS256 verification and a
-   local-dev bypass — throwaway code that the session handling replaces. The
-   practical bypass surface is small (two Workers, no service bindings, nothing
-   deployed per branch) and production holds `seed.sql` fixtures.
-
-   **The trigger to close this is the first connector landing**, which is the same
-   moment "App login" becomes urgent, so the two should be done together.
-
-   Note the distinction that makes it safe to defer: validating the JWT as a
-   *gate* is defence in depth, whereas reading its email claim to decide *who the
-   user is* would make Access the application's identity model, which "App login"
-   settles against. Only the first is deferred; the second should not be built.
-
-2. **Access on a `workers.dev` URL does not cover a custom domain.** If one is
-   ever attached to production, the app becomes publicly reachable on the new
-   hostname while the dashboard still reports Access as enabled on the
-   `workers.dev` one. Gating a custom domain is a separate Access application.
+No automated tier asserts any of this — nothing runs against a deployment yet
+("Run the F3 suite against a deployed environment, as its own account", issue 64)
+— so it is a check made by hand and dated, to be remade whenever what stands in
+front of the app changes. Two failures it is worth knowing the shape of: a `302`
+in the first two columns means something is gating the app again, and a `200`
+carrying data in the second means the deployment predates the gate, which is what
+the previous section's warning is about.
 
 ### A constraint to know before auth lands
 
@@ -579,8 +482,8 @@ staging database from before issue 86 has the two new tables and no rows in
 `users`, and nobody can sign in until the seed is run there once by hand.
 
 **No sign-ins are seeded**, and `seed.sql` has no column for a secret to put in
-one. Signing in is choosing a name, which proves nothing, and Cloudflare Access is
-what actually authenticates a deployed environment.
+one. Signing in is choosing a name, which proves nothing, and nothing else stands
+in front of a deployed environment either — see "Secrets and access".
 
 **There is no seed step for an account's own data, and there cannot be.** Its
 workspaces, dashboards, panels, layouts, items and associations live in a Durable
@@ -591,14 +494,9 @@ account first. Same temporary bootstrap, in the only place that can hold it.
 
 Then, by hand (no API, or deliberately not automated):
 
-1. **Cloudflare Access** on both Workers, production included, plus a **Bypass
-   policy scoped to `/health`** so the deploy checks and the uptime monitor can
-   still reach it. Dashboard only, one per Worker; set a long session duration
-   (§6). (There used to be a third, free: a single account-level policy covering
-   every preview URL. It went with the previews.)
-2. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
+1. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
    Settings: Read), stored as the `CLOUDFLARE_API_TOKEN` GitHub secret.
-3. **Branch protection** on `main`. The payload lives in
+2. **Branch protection** on `main`. The payload lives in
    [.github/branch-protection.json](../.github/branch-protection.json) rather than
    only in a dashboard, because configuration nobody can review or restore is not
    really configuration:
@@ -660,7 +558,7 @@ Then, by hand (no API, or deliberately not automated):
    do this, and the branch-protection API answers `404` rather than `403` when the
    caller lacks admin, which reads as "wrong URL".
 
-4. **The GitHub-native security controls.** Checked 2026-08-31, **secret scanning**
+3. **The GitHub-native security controls.** Checked 2026-08-31, **secret scanning**
    and **secret scanning push protection** were already on, both free on a public
    repository, and between them they catch a committed credential before it is
    pushed rather than after.
@@ -721,16 +619,15 @@ mail provider.
 - **L3 on merge, and the nightly contract runs**: they land with the suites they
   would run. F3 no longer waits — the browser tier runs as its own `E2E (F3)` job
   on every pull request and on `main`, against its own isolated local stack.
-- **F3 against a deployed environment.** The suite already takes `E2E_BASE_URL`
-  and the `CF-Access-Client-*` header pair, so pointing it at one is configuration
-  rather than code. What is missing is the credential: Access fronts every
-  deployment (§6) and no **service token** exists yet, so an unauthenticated run
-  would test the login page. Creating one (Zero Trust → Access → Service Auth,
-  then a policy that accepts it) is owner work. The only candidate now is staging,
+- **F3 against a deployed environment.** The suite already takes `E2E_BASE_URL`,
+  so pointing it at one is configuration rather than code — and with nothing
+  standing in front of a deployment there is no credential to arrange either. What
+  is missing is keeping test data out of real data: the only candidate is staging,
   which accumulates state on purpose, so a suite asserting what is on screen would
-  be running against whatever is there. Until then the local stack is the only
-  thing F3 drives, which leaves the service worker, the built bundle and the
-  Worker's asset routing proven by nothing but a manual look.
+  be running against whatever is there. That is "Run the F3 suite against a
+  deployed environment, as its own account" (issue 64). Until then the local stack
+  is the only thing F3 drives, which leaves the service worker, the built bundle
+  and the Worker's asset routing proven by nothing but a manual look.
 - **Bundle-size gate:** the budget needs recording as a number before it can be enforced as one.
 - **Sentry, the connector watchdog, and the external uptime check:** they land
   with the code they observe. `/health` already reports whether the register and
@@ -743,14 +640,13 @@ mail provider.
 
 For the moment before you know what is wrong: a deployed environment is showing
 something bad and it is not yet clear whether the deployment is broken, the
-database is unreachable, or this browser simply needs to sign in again. It exists
-because the likeliest failure was already predicted in the wrong genre — "The cost
-of gating production" names it exactly, but nobody reads a decision's rationale
+database is unreachable, or this browser simply needs to sign in again. It is a
+procedure rather than a rationale, because nobody reads a decision's argument
 while staring at a broken page.
 
 ### First question: is it the deployment, or is it me?
 
-One command settles it, and it is why `/health` is Bypass-policied out of the gate:
+One command settles it, and it is why `/health` answers without a sign-in:
 
 ```bash
 curl -i https://cockpit-staging.vanhoutte-michael.workers.dev/health
@@ -761,8 +657,8 @@ curl -i https://cockpit-staging.vanhoutte-michael.workers.dev/health
 | `200 {"ok":true,...}` | Worker up, register answering, an account store openable. The deployment is fine. | *In the browser*, below |
 | `200 {"ok":false,"register":true,"store":false}` | A store would not open — most often an update that will not apply. | *At the deployment*, below |
 | `200 {"ok":false,"register":false,...}` | Either D1 did not answer, **or** somebody registered an account under the health check's own name, which makes it refuse to run rather than open their data. Two faults with one shape, so read the logs — the reason is never in the body. | *At the deployment*, below |
-| `200` with any other body | Something answered in front of the Worker — usually a login page, so the Bypass policy has come undone | *In the browser* |
-| `301`/`302` | The Bypass policy is gone; `/health` is behind the gate | *`/health` must stay outside the gate* |
+| `200` with any other body | Something answered in front of the Worker rather than the Worker itself | *In the browser* |
+| `301`/`302` | Something is redirecting `/health` away, which nothing in this application does | *`/health` answers without a sign-in* |
 | `5xx` | The Worker is up and failing | *At the deployment*, below |
 | Nothing, or a TLS error | Not reachable at all | *At the deployment*, below |
 
@@ -776,7 +672,8 @@ error instead, the wording identifies the class before you open anything:
 |---|---|---|
 | `TypeError: Failed to fetch` | The request never completed | Not a Worker error. The Worker was never reached, or its answer was a redirect the browser refused to follow |
 | `... failed: 500` | The Worker answered, and failed | Not a sign-in or connectivity problem |
-| `... failed: 401` / `403` | The gate answered rather than redirecting | Not a Worker problem |
+| `... failed: 401` | Cockpit's own gate answered: this browser is not signed in | Not a Worker problem |
+| `... failed: 403` | Something refused the request, and it was not Cockpit — nothing here answers `403` | Not a sign-in problem |
 | A `ZodError` | The API and this build of the SPA disagree on shape | Not a sign-in problem; it is version skew, and a reload fixes it |
 
 `Failed to fetch` is ambiguous by design: the browser will not tell a page whether
@@ -785,20 +682,16 @@ a reason, and why you should too.
 
 Then, in DevTools, in this order:
 
-1. **Network**, with *Preserve log* ticked — without it the 302 disappears before
-   you can read it. A `Location:` pointing at `conselit.cloudflareaccess.com` is a
-   sign-in that has run out, full stop.
-2. **Application → Cookies**, for the environment's origin. `CF_Authorization`
+1. **Network**, with *Preserve log* ticked. Every `/v1/*` call answering `401` is
+   a sign-in that has run out, and the app should be saying so; a redirect to
+   anywhere else means something has been put in front of the deployment.
+2. **Application → Cookies**, for the environment's origin. `cockpit_session`
    absent or expired is the whole story.
 3. **Application → Service Workers**, which explains the confusing part: why a
-   signed-out browser shows a *rendered app* instead of a login page. The service
-   worker answers navigations from its own precache, so the document never touches
-   the network and never gets redirected; only the `/v1/*` calls do. Tick *Bypass
-   for network* to see what the server would really have said.
-
-**A plain reload does not sign you back in**, for that same reason. Only a
-navigation to a path on the service worker's denylist leaves the browser at all —
-which is what `/v1/relogin` is for.
+   signed-out browser shows a *rendered app* rather than the logon page. The
+   service worker answers navigations from its own precache, so the document never
+   touches the network; only the `/v1/*` calls do. Tick *Bypass for network* to
+   see what the server would really have said.
 
 ### At the deployment
 

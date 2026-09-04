@@ -2,7 +2,7 @@
 
 The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where). Unscheduled ideas are in [docs/ideas.md](docs/ideas.md) (the maybe).
 
-The showcase is this repository, not a public instance: every deployed environment is behind Cloudflare Access, because production holds real mail and messages.
+The showcase is this repository rather than a running instance. Both deployed environments are reachable by anyone who knows the URL, with Cockpit's own sign-in the only thing in the way — and that sign-in is a list of names you pick from until Google sign-in ships. They hold `seed.sql` fixtures, not real mail: no connector has landed yet, and the first one to land is what makes real authentication urgent.
 
 ## Layout
 
@@ -31,7 +31,7 @@ Not yet in place, deliberately and in build order: app login ("App login: hand-r
 
 Trunk-based: `main` is the trunk, every other branch is gated on push and deployed nowhere, merging deploys staging, and **production is a deliberate promotion pinned to one commit**. The model and its arguments — including why branches get no environment — are in [docs/deployment.md](docs/deployment.md).
 
-Both are behind Cloudflare Access, `/health` excepted so the deploy checks and the uptime monitor can reach it.
+Nothing stands in front of either; `/health` additionally answers without a sign-in at all, so the deploy checks and the uptime monitor can reach it.
 
 | | Deployed by | URL |
 |---|---|---|
@@ -215,7 +215,6 @@ This lives in repository settings, so a fresh fork gets none of it. The reasonin
 - **The GitHub-native security controls.** Secret scanning and push protection were already on; Dependabot alerts and security updates were turned on by two `gh api` calls. Routine dependency bumps are deliberately off and the code-scanning failure threshold is deliberately left at its default. Commands and dates are in the bootstrap runbook.
 - **Automatically delete head branches.** `pnpm branches:tidy` keys on a local branch's upstream being `[gone]`, so it is only trustworthy while that setting is on.
 - **The Claude GitHub App**, installed on the repository, plus the OAuth token above — usually via `/install-github-app` from an interactive session.
-- **Cloudflare Access on both environments**, with a Bypass policy scoped to `/health`. Dashboard only.
 - The `staging` and `production` **GitHub environments**, for deployment history and somewhere to hang a required reviewer later.
 
 ### Set up on your own machine (recommended, none of it in the code)

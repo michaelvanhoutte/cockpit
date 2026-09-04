@@ -2,13 +2,12 @@ import { z } from 'zod';
 import {
   associationKindSchema,
   dashboardNameSchema,
-  focusHorizonSchema,
   itemDescriptionSchema,
-  itemStatusSchema,
   itemTitleSchema,
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
+import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import { panelNameSchema, placementInputSchema } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
@@ -287,8 +286,91 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    */
   message: z.string().trim().min(1),
   nextAction: z.string().optional(),
+  /**
+   * What kind of thing it is ("Capture a thought or an action, and see which it
+   * is", issue 155). Optional, because a capture from a front door that has no
+   * picker - a dictated note, a connector - still has to land.
+   *
+   * The envelope's plain string rather than a uuid: it names a type that
+   * already exists, and the two every account starts with have ids derived from
+   * the account's own.
+   */
+  typeId: z.string().min(1).optional(),
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
+
+/**
+ * A new Type, made by naming one that is not there yet ("Capture a thought or
+ * an action, and see which it is", issue 155).
+ *
+ * It carries no colour: which one is free is a fact about the account rather
+ * than about the request, so the store decides it. That is also what makes a
+ * replay harmless - the same command twice cannot be two colours.
+ */
+export const createItemTypeSchema = commandEnvelopeSchema.extend({
+  typeId: z.uuid(),
+  name: itemTypeNameSchema,
+});
+export type CreateItemTypeCommand = z.infer<typeof createItemTypeSchema>;
+
+/**
+ * The three changes the types page makes to one Type ("Manage the types, and
+ * put them in the order you want", issue 156).
+ *
+ * `typeId` is the envelope's plain string rather than a uuid, for the reason
+ * renaming a workspace takes one: it names something that already exists, and
+ * the two every account starts with have ids derived from the account's own.
+ *
+ * Renaming obeys exactly the rules creating does, by carrying the same schema.
+ * Uniqueness is not a shape: the handler and the index behind it decide it, in
+ * the scope of the account.
+ */
+export const renameItemTypeSchema = commandEnvelopeSchema.extend({
+  typeId: z.string().min(1),
+  name: itemTypeNameSchema,
+});
+export type RenameItemTypeCommand = z.infer<typeof renameItemTypeSchema>;
+
+export const setItemTypeColorSchema = commandEnvelopeSchema.extend({
+  typeId: z.string().min(1),
+  color: itemTypeColorSchema,
+});
+export type SetItemTypeColorCommand = z.infer<typeof setItemTypeColorSchema>;
+
+/**
+ * delete_item_type - which Type. Its Items are left where they are and simply
+ * stop having a type, the way deleting a Workspace leaves its Items filed
+ * against it: nothing written down is lost by removing a label.
+ */
+export const deleteItemTypeSchema = commandEnvelopeSchema.extend({
+  typeId: z.string().min(1),
+});
+export type DeleteItemTypeCommand = z.infer<typeof deleteItemTypeSchema>;
+
+/**
+ * reorder_item_types - the whole order, not the move that produced it, for the
+ * two reasons `reorder_workspaces` carries: a whole order is a value
+ * last-write-wins can be applied to while a relative move is not, and a list
+ * that no longer names the same types the account has is refused rather than
+ * quietly succeeding against a list nobody was looking at.
+ *
+ * `typeId` is the one that moved, which is what the audit trail reads as
+ * afterwards - "the whole order changed" says nothing about what somebody did.
+ */
+export const reorderItemTypesSchema = commandEnvelopeSchema
+  .extend({
+    typeId: z.string().min(1),
+    typeIds: z.array(z.string().min(1)).min(1),
+  })
+  .refine((cmd) => new Set(cmd.typeIds).size === cmd.typeIds.length, {
+    message: 'a type can only be in one place in the order',
+    path: ['typeIds'],
+  })
+  .refine((cmd) => cmd.typeIds.includes(cmd.typeId), {
+    message: 'the type that moved is not in the order',
+    path: ['typeIds'],
+  });
+export type ReorderItemTypesCommand = z.infer<typeof reorderItemTypesSchema>;
 
 /**
  * move_item_to_panel — where an Item lives now, and the order of the Panel it
@@ -404,17 +486,26 @@ export const removeItemFromPanelSchema = commandEnvelopeSchema.extend({
 });
 export type RemoveItemFromPanelCommand = z.infer<typeof removeItemFromPanelSchema>;
 
-export const setStatusSchema = commandEnvelopeSchema.extend({
+/**
+ * The two things an Item can be besides yours to deal with ("An item is either
+ * yours to deal with or finished with", issue 154).
+ *
+ * **A flag rather than a pair of commands each way**, because both directions
+ * are wanted and both have to be idempotent: undoing is the same command with
+ * the flag turned round, so nothing has to remember which of a `mark_done` and
+ * a `reopen` inverts the other.
+ */
+export const setDoneSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
-  status: itemStatusSchema,
+  done: z.boolean(),
 });
-export type SetStatusCommand = z.infer<typeof setStatusSchema>;
+export type SetDoneCommand = z.infer<typeof setDoneSchema>;
 
-export const snoozeUntilSchema = commandEnvelopeSchema.extend({
+export const setDismissedSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
-  until: z.iso.datetime(),
+  dismissed: z.boolean(),
 });
-export type SnoozeUntilCommand = z.infer<typeof snoozeUntilSchema>;
+export type SetDismissedCommand = z.infer<typeof setDismissedSchema>;
 
 export const associateSchema = commandEnvelopeSchema.extend({
   associationId: z.uuid(),
@@ -425,12 +516,6 @@ export const associateSchema = commandEnvelopeSchema.extend({
   remove: z.boolean().optional(),
 });
 export type AssociateCommand = z.infer<typeof associateSchema>;
-
-export const setFocusSchema = commandEnvelopeSchema.extend({
-  itemId: z.uuid(),
-  horizon: focusHorizonSchema.nullable(),
-});
-export type SetFocusCommand = z.infer<typeof setFocusSchema>;
 
 export const setNextActionSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -489,13 +574,17 @@ export const commandSchemas = {
   save_layout: saveLayoutSchema,
   delete_layout: deleteLayoutSchema,
   capture_item: captureItemSchema,
+  create_item_type: createItemTypeSchema,
+  rename_item_type: renameItemTypeSchema,
+  set_item_type_color: setItemTypeColorSchema,
+  delete_item_type: deleteItemTypeSchema,
+  reorder_item_types: reorderItemTypesSchema,
   move_item_to_panel: moveItemToPanelSchema,
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,
-  set_status: setStatusSchema,
-  snooze_until: snoozeUntilSchema,
+  set_done: setDoneSchema,
+  set_dismissed: setDismissedSchema,
   associate: associateSchema,
-  set_focus: setFocusSchema,
   set_next_action: setNextActionSchema,
   set_priority: setPrioritySchema,
   set_title: setTitleSchema,

@@ -1,14 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { workspaceListSchema } from '@cockpit/shared';
 import { LoadFailure } from '../../../src/components/LoadFailure';
-import {
-  goToLogonPage,
-  signInAgain,
-  type Reach,
-  type Surroundings,
-} from '../../../src/api/loadFailure';
+import { goToLogonPage, type Reach, type Surroundings } from '../../../src/api/loadFailure';
 
 /**
  * F1: every branch here is a decision over facts about the world, and all of
@@ -22,11 +17,9 @@ import {
  */
 vi.mock('../../../src/api/loadFailure', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/loadFailure')>()),
-  signInAgain: vi.fn(),
   goToLogonPage: vi.fn(),
 }));
 
-const askedToSignIn = vi.mocked(signInAgain);
 const sentToTheLogonPage = vi.mocked(goToLogonPage);
 
 function world(definitelyOffline: boolean, reach: Reach): Surroundings {
@@ -47,10 +40,6 @@ function unreadableAnswer(): unknown {
 }
 
 const refused = new TypeError('Failed to fetch');
-
-beforeEach(() => {
-  sessionStorage.clear();
-});
 
 describe('Offline', () => {
   describe('Cockpit says which of the reasons it could not load your work', () => {
@@ -74,33 +63,36 @@ describe('Offline', () => {
         // said was that this browser is nobody.
         situation: 'Cockpit itself says this browser is not signed in',
         error: new Error('workspaces failed: 401'),
-        surroundings: world(false, 'healthy'),
+        surroundings: world(false, 'reachable'),
         headline: "You're signed out",
       },
       {
-        // Nothing of ours answered at all while the deployment says it is well,
-        // so what swallowed the request is the gate in front of it.
-        situation: 'the deployment is healthy and nothing of Cockpit answered',
+        // Something answered while our own request got nowhere, so whatever
+        // swallowed it sits between this browser and the Worker. Cockpit cannot
+        // say what, and trying again is the only move it can offer.
+        situation: 'something answers and nothing of Cockpit does',
         error: refused,
-        surroundings: world(false, 'healthy'),
-        headline: 'Your sign-in expired',
+        surroundings: world(false, 'reachable'),
+        headline: 'Cockpit is having trouble',
       },
       {
-        situation: 'the deployment answers, but reports itself unwell',
-        error: refused,
-        surroundings: world(false, 'unhealthy'),
+        // A refusal that is not Cockpit's own 401 is somebody else's, and this
+        // app cannot say whose.
+        situation: 'the read is refused by something that is not Cockpit',
+        error: new Error('workspaces failed: 403'),
+        surroundings: world(false, 'reachable'),
         headline: 'Cockpit is having trouble',
       },
       {
         situation: 'the read itself comes back as a failure',
         error: new Error('workspaces failed: 500'),
-        surroundings: world(false, 'healthy'),
+        surroundings: world(false, 'reachable'),
         headline: 'Cockpit is having trouble',
       },
       {
         situation: 'the answer is something this version cannot read',
         error: unreadableAnswer(),
-        surroundings: world(false, 'healthy'),
+        surroundings: world(false, 'reachable'),
         headline: 'Cockpit has been updated',
       },
     ];
@@ -130,34 +122,40 @@ describe('Offline', () => {
    * A failure that persists is *re-*read: the workspace is re-read on the push
    * stream's backoff, and each refusal arrives as its own new error object. So
    * this is not an edge case — it is what the screen does for as long as it is
-   * on screen, and going blank each time is what made "Sign in again" take
-   * several attempts to hit.
+   * on screen, and going blank each time is what made the way out take several
+   * attempts to hit.
    */
   describe('Cockpit keeps the reason it has named while it checks again', () => {
-    it('leaves the way to sign in on screen, and working, when the read fails again', async () => {
-      askedToSignIn.mockClear();
+    it('leaves the way out on screen, and working, when the read fails again', async () => {
+      const retry = vi.fn();
       const user = userEvent.setup();
       const { rerender } = render(
-        <LoadFailure error={refused} surroundings={world(false, 'healthy')} />,
+        <LoadFailure error={refused} surroundings={world(false, 'reachable')} onRetry={retry} />,
       );
-      expect(await screen.findByRole('button', { name: 'Sign in again' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
 
       // The next refused read: the same failure, told again as a new error.
       rerender(
-        <LoadFailure error={new TypeError('Failed to fetch')} surroundings={world(false, 'healthy')} />,
+        <LoadFailure
+          error={new TypeError('Failed to fetch')}
+          surroundings={world(false, 'reachable')}
+          onRetry={retry}
+        />,
       );
 
       // Synchronously, in the instant the click has to land in.
-      expect(screen.getByRole('button', { name: 'Sign in again' })).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: 'Sign in again' }));
-      expect(askedToSignIn).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(retry).toHaveBeenCalledTimes(1);
     });
 
     it('replaces the reason once the situation behind it has changed', async () => {
       const { rerender } = render(
-        <LoadFailure error={refused} surroundings={world(false, 'healthy')} />,
+        <LoadFailure error={refused} surroundings={world(false, 'reachable')} />,
       );
-      expect(await screen.findByRole('heading', { name: 'Your sign-in expired' })).toBeInTheDocument();
+      expect(
+        await screen.findByRole('heading', { name: 'Cockpit is having trouble' }),
+      ).toBeInTheDocument();
 
       // The connection has since gone, so the same failure now has a different
       // reason and the screen has to follow it rather than keep the old one.
@@ -171,72 +169,26 @@ describe('Offline', () => {
 });
 
 describe('Sign-in', () => {
-  describe('being signed out of Cockpit offers Cockpit’s own logon page', () => {
-    it('sends you there when you ask, and never by itself', async () => {
+  describe('being signed out offers the logon page, and never goes there by itself', () => {
+    it('waits to be asked, leaving the page alone until it is', async () => {
       sentToTheLogonPage.mockClear();
-      askedToSignIn.mockClear();
       const user = userEvent.setup();
 
-      // `canTakeOver`, so nothing of the person's is on screen - the one case
-      // where the perimeter's sign-in *would* move by itself.
       render(
         <LoadFailure
           error={new Error('workspaces failed: 401')}
-          surroundings={world(false, 'healthy')}
-          canTakeOver
+          surroundings={world(false, 'reachable')}
         />,
       );
 
       expect(await screen.findByRole('heading', { name: "You're signed out" })).toBeInTheDocument();
+      // Reading what you already have is a promise the app keeps (functional
+      // definition, "Offline / local-first behavior"), so nothing here may
+      // navigate off the page on its own.
       expect(sentToTheLogonPage).not.toHaveBeenCalled();
-      expect(askedToSignIn).not.toHaveBeenCalled();
 
       await user.click(screen.getByRole('button', { name: 'Sign in' }));
       expect(sentToTheLogonPage).toHaveBeenCalledTimes(1);
-      // Never out through the perimeter: that is a different gate, and going
-      // back through a perfectly happy one fixes nothing.
-      expect(askedToSignIn).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Cockpit only takes over the screen to sign you in when it has nothing to show', () => {
-    it('goes straight to signing in, remembering the page, when nothing is on screen', async () => {
-      askedToSignIn.mockClear();
-      window.history.pushState({}, '', '/w/ws-work');
-
-      render(<LoadFailure error={refused} surroundings={world(false, 'healthy')} canTakeOver />);
-
-      expect(await screen.findByText('Signing you back in…')).toBeInTheDocument();
-      // Waited for rather than asserted outright: saying so and doing it are
-      // one render and the effect after it, and nothing makes the effect have
-      // run by the moment the words are on screen. Asserted straight, this
-      // passes on a quick machine and fails on a loaded one - which is what it
-      // did, once, on CI under coverage while passing everywhere else.
-      await waitFor(() => expect(askedToSignIn).toHaveBeenCalledWith('/w/ws-work'));
-    });
-
-    it('asks rather than moves, once a sign-in has already been tried and did not help', async () => {
-      askedToSignIn.mockClear();
-      // As if this tab had just come back from signing in and failed anyway.
-      sessionStorage.setItem('cockpit-sign-in-attempted', '1');
-
-      render(<LoadFailure error={refused} surroundings={world(false, 'healthy')} canTakeOver />);
-
-      expect(await screen.findByRole('heading', { name: 'Your sign-in expired' })).toBeInTheDocument();
-      expect(askedToSignIn).not.toHaveBeenCalled();
-    });
-
-    it('waits to be asked, leaving the page alone, when work is already on screen', async () => {
-      askedToSignIn.mockClear();
-      const user = userEvent.setup();
-
-      render(<LoadFailure error={refused} surroundings={world(false, 'healthy')} />);
-
-      expect(await screen.findByRole('heading', { name: 'Your sign-in expired' })).toBeInTheDocument();
-      expect(askedToSignIn).not.toHaveBeenCalled();
-
-      await user.click(screen.getByRole('button', { name: 'Sign in again' }));
-      expect(askedToSignIn).toHaveBeenCalledTimes(1);
     });
   });
 });

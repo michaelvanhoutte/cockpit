@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
+import { ITEM_TYPE_COLORS } from '@cockpit/shared';
 import { ACCOUNT_NAME, WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
@@ -49,6 +50,31 @@ async function fileItem(overrides: Record<string, unknown> = {}): Promise<void> 
   await inTheStore((sql) => {
     sql.exec(
       `INSERT INTO items (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+      ...Object.values(row),
+    );
+  });
+}
+
+/**
+ * A type written straight into the store, past the handlers that would have
+ * checked it - which is what the constraints are there for (architecture, "The
+ * database is the second lock").
+ */
+async function makeType(overrides: Record<string, unknown> = {}): Promise<void> {
+  const row = {
+    id: nextId(),
+    tenant_id: ACCOUNT_NAME,
+    name: 'Question',
+    folded_name: 'question',
+    color: ITEM_TYPE_COLORS[2],
+    position: 0,
+    created_at: AT,
+    ...overrides,
+  };
+  const columns = Object.keys(row);
+  await inTheStore((sql) => {
+    sql.exec(
+      `INSERT INTO item_types (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
       ...Object.values(row),
     );
   });
@@ -121,7 +147,7 @@ describe('Capture', () => {
               WHERE schema = 'main'
                 AND name IN ('workspaces', 'dashboards', 'panels', 'layouts',
                              'panel_placements', 'panel_items', 'items',
-                             'associations', 'commands')
+                             'item_types', 'associations', 'commands')
               ORDER BY name`,
           )
           .toArray(),
@@ -131,6 +157,7 @@ describe('Capture', () => {
         'associations',
         'commands',
         'dashboards',
+        'item_types',
         'items',
         'layouts',
         'panel_items',
@@ -169,12 +196,39 @@ describe('Capture', () => {
         return [...found].sort();
       });
 
-      expect(targets).toEqual(['dashboards', 'items', 'layouts', 'panels', 'workspaces']);
+      expect(targets).toEqual([
+        'dashboards',
+        'item_types',
+        'items',
+        'layouts',
+        'panels',
+        'workspaces',
+      ]);
     });
   });
 });
 
 describe('Triage', () => {
+  describe('a type only ever holds values the product defines', () => {
+    it.each([
+      {
+        situation: 'a colour that is not one the palette offers',
+        override: { color: '#123456', folded_name: 'one' },
+      },
+      { situation: 'a place in the list that is not an order', override: { position: -1, folded_name: 'two' } },
+      { situation: 'a made time that is not a moment', override: { created_at: 'yesterday', folded_name: 'three' } },
+      { situation: 'a deleted time that is not a moment', override: { deleted_at: 'later', folded_name: 'four' } },
+    ])('refuses $situation', async ({ override }) => {
+      await expect(makeType(override)).rejects.toThrow();
+    });
+
+    it('accepts a type wearing one of the palette’s colours', async () => {
+      await expect(
+        makeType({ color: ITEM_TYPE_COLORS[5], folded_name: 'five' }),
+      ).resolves.toBeUndefined();
+    });
+  });
+
   describe('an item only ever holds values the product defines', () => {
     it.each([
       { situation: 'a status that is not one of the triage outcomes', override: { status: 'banana' } },

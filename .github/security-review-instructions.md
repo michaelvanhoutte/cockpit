@@ -35,7 +35,7 @@ The architecture chose to hand-roll Google OIDC and its own sessions, and it say
 - ID token validation: signature, issuer, audience, expiry — all four, not some;
 - session expiry and the sliding-refresh path.
 
-Cloudflare Access currently fronts the deployments, and it is a perimeter, not the application's identity model. "Access is in front of it" is not a reason for any of the above to be missing.
+**Nothing fronts the deployments.** Cockpit's own sign-in is all there is, and until Google sign-in lands that sign-in is a list of names you pick from — an identity selector, not an authentication control. So there is no perimeter to fall back on, and "it is only reachable by us" is not a reason for any of the above to be missing.
 
 ## The workflows themselves
 

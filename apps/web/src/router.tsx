@@ -17,6 +17,7 @@ import { Layout } from './pages/Layout';
 import { LogonPage } from './pages/LogonPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage';
+import { ItemTypeSettingsPage } from './pages/ItemTypeSettingsPage';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -238,6 +239,13 @@ const workspaceSettingsRoute = createRoute({
   component: WorkspaceSettingsPage,
 });
 
+/** Reached from the header's menu, beside the workspaces page: types belong to the account. */
+const itemTypeSettingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings/types',
+  component: ItemTypeSettingsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   appRoute.addChildren([
@@ -247,6 +255,7 @@ const routeTree = rootRoute.addChildren([
     dashboardRoute,
     dashboardSettingsRoute,
     workspaceSettingsRoute,
+    itemTypeSettingsRoute,
   ]),
 ]);
 
@@ -261,7 +270,7 @@ export function createAppRouter(queryClient: QueryClient) {
     // identical. This boundary is only reached when there is no stored copy to
     // paint from, so it may take the screen over.
     defaultErrorComponent: ({ error, reset }) => (
-      <LoadFailure error={error} onRetry={reset} canTakeOver />
+      <LoadFailure error={error} onRetry={reset} />
     ),
   });
 }

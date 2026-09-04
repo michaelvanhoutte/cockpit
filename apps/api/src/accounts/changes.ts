@@ -53,6 +53,11 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANELS,
     WORKSPACE_BAR,
     PANEL_ITEMS,
+    ITEM_COMPLETED_AT,
+    itemTypes(accountId),
+    // Last, because it is the only one here that has not shipped: the two above
+    // are applied in accounts already, and a change that has shipped can never
+    // be reordered any more than it can be edited.
     ITEM_TEXTS,
   ];
 }
@@ -595,9 +600,123 @@ const PANEL_ITEMS: Change = {
  *   release (deployment, "Migrations and rollback"; issue 161).
  */
 const ITEM_TEXTS: Change = {
-  name: '0007-item-texts',
+  name: '0009-item-texts',
   statements: [
     { sql: 'ALTER TABLE `items` ADD COLUMN `captured_message` text' },
     { sql: 'ALTER TABLE `items` ADD COLUMN `description` text' },
   ],
 };
+
+/**
+ * Being finished with an item stops being one of eight statuses and becomes a
+ * time ("An item is either yours to deal with or finished with", issue 154).
+ *
+ * **Additive, because `items` cannot be rebuilt.** `panel_items` and
+ * `associations` point at it under RESTRICT, and a `DROP TABLE` performs an
+ * implicit delete the foreign key refuses (architecture, "Schema conventions").
+ * So `status`, `focus_horizon` and `snoozed_until` stay where they are with the
+ * CHECKs they were created with, and nothing reads them again.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **If it stops halfway:** it cannot. `transactionSync` wraps the statements
+ *   and the record that they ran together (store.ts), so a failure in the
+ *   backfill rolls the column back out with it.
+ * - **The second time it runs:** it does not, having been recorded; and if the
+ *   first attempt failed it starts from an untouched store. The backfill is
+ *   idempotent anyway - it only writes rows whose `completed_at` is still null.
+ * - **Rows that already break the new rule:** an item marked done today says so
+ *   only in `status`, so it is given `updated_at` as its completion time. That
+ *   is when it was last changed, which for a done item is when it was done.
+ * - **What is in each environment:** no environment seeds an account's own data
+ *   and none can (deployment, "Bootstrap runbook"), so every item anywhere was
+ *   made by hand through the app.
+ * - **The windows it can be interrupted in.** *Before it runs*: the account is
+ *   untouched and the previous release is reading `status`, which still says
+ *   what it always did. *After it runs, with the previous release promoted
+ *   back*: that release reads `status` and ignores a column it does not name,
+ *   so a done item is still done and one finished with in between is not - the
+ *   only loss, and it is recovered by rolling forward, because `completed_at`
+ *   was written and is still there.
+ */
+const ITEM_COMPLETED_AT: Change = {
+  name: '0007-item-completed-at',
+  statements: [
+    { sql: 'ALTER TABLE `items` ADD COLUMN `completed_at` text' },
+    {
+      sql: `UPDATE items
+               SET completed_at = updated_at
+             WHERE status = 'done'
+               AND completed_at IS NULL`,
+    },
+  ],
+};
+
+/**
+ * Types, and the column on an item that points at one ("Capture a thought or an
+ * action, and see which it is", issue 155).
+ *
+ * **The table is created whole and the column is added.** `item_types` has no
+ * children yet, so it can carry every CHECK it will ever need - including on
+ * two columns nothing writes until "Manage the types, and put them in the order
+ * you want" (issue 156), because the moment `items.type_id` points at it the
+ * table can no longer be told anything (architecture, "Schema conventions").
+ * `items` is the other way round: it already has children, so the only thing
+ * that can be done to it is add a nullable column, and SQLite allows a
+ * REFERENCES clause on one exactly when its default is NULL.
+ *
+ * **Every account gets Action and Thought**, so no account starts with an empty
+ * picker and the first capture has something to be. Their ids are derived from
+ * the account's, the way the starting workspaces' are, so applying this twice
+ * cannot make two of them - and `INSERT OR IGNORE` says so out loud.
+ *
+ * **The colours are written out rather than built from `ITEM_TYPE_COLORS`**,
+ * for the reason the position bound in `0006-panel-items` is: a change that has
+ * shipped may never be edited, and a constant that later moved would rewrite
+ * this statement for the accounts that had not applied it yet. The constraints
+ * test is what notices if the two stop agreeing.
+ *
+ * Its failure modes: nothing here rewrites a row that already exists, so the
+ * only loss available is the change failing partway - which `transactionSync`
+ * rules out (store.ts), leaving the account to apply it whole next time.
+ */
+function itemTypes(accountId: string): Change {
+  const at = '2026-09-04T00:00:00.000Z';
+  return {
+    name: '0008-item-types',
+    statements: [
+      {
+        sql: `CREATE TABLE IF NOT EXISTS \`item_types\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`folded_name\` text DEFAULT '' NOT NULL,
+	\`color\` text NOT NULL,
+	\`position\` integer DEFAULT 0 NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	CONSTRAINT "item_types_color_is_known" CHECK(color IN ('#6f62b5', '#3a72c8', '#c06a45', '#3f8f78', '#a8548c', '#b58a2f', '#4f8fa8', '#7d8f3f')),
+	CONSTRAINT "item_types_position_is_an_order" CHECK(position >= 0),
+	CONSTRAINT "item_types_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))),
+	CONSTRAINT "item_types_deleted_at_is_timestamp" CHECK(deleted_at IS NULL OR (datetime(deleted_at) IS NOT NULL AND substr(deleted_at, 11, 1) = 'T' AND substr(deleted_at, -1) = 'Z' AND length(deleted_at) >= 20 AND date(deleted_at) = substr(deleted_at, 1, 10)))
+) STRICT`,
+      },
+      {
+        sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `item_types_tenant_live_folded_name` ON `item_types` (`tenant_id`,`folded_name`) WHERE `deleted_at` IS NULL',
+      },
+      {
+        sql: 'ALTER TABLE `items` ADD COLUMN `type_id` text REFERENCES `item_types`(`id`)',
+      },
+      {
+        sql: `INSERT OR IGNORE INTO item_types (id, tenant_id, name, folded_name, color, position, created_at)
+              VALUES (?, ?, 'Action', 'action', '#6f62b5', 0, ?)`,
+        params: [`${accountId}-type-action`, accountId, at],
+      },
+      {
+        sql: `INSERT OR IGNORE INTO item_types (id, tenant_id, name, folded_name, color, position, created_at)
+              VALUES (?, ?, 'Thought', 'thought', '#3a72c8', 1, ?)`,
+        params: [`${accountId}-type-thought`, accountId, at],
+      },
+    ],
+  };
+}

@@ -7,6 +7,7 @@ import {
   signedInSchema,
   signInSchema,
   userListSchema,
+  itemTypeListSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
   type CommandName,
@@ -93,10 +94,14 @@ app.use('*', gate());
 
 /**
  * `ok` stays the single verdict, because it is the only field anything reads:
- * scripts/health-check.mjs asserts it, scripts/lib/stack.mjs waits on it before
- * starting the e2e suite, and apps/web/src/api/loadFailure.ts asks this endpoint
- * whether a failed request means "sign in again" or "the deployment is unwell".
- * The two below say which half was unwell, for whoever reads the answer by hand.
+ * scripts/health-check.mjs asserts it, and scripts/lib/stack.mjs waits on it
+ * before starting the e2e suite. The two below say which half was unwell, for
+ * whoever reads the answer by hand.
+ *
+ * apps/web/src/api/loadFailure.ts reads none of them. It asks this endpoint only
+ * whether *anything* answers, which is how it tells a dead connection from a
+ * request that vanished on its way here; what the answer says is the deploy
+ * check's business and the uptime monitor's, not the app's.
  *
  * `db` is gone rather than kept alongside them. It meant "the data is
  * reachable" when all of it was in D1, and once an account's data moved into
@@ -142,11 +147,11 @@ const usersRoute = createRoute({
  * Signing in: you say which of them you are, and that is the whole proof.
  *
  * **This is an identity selector, not an authentication control**, and saying
- * so plainly is what keeps it from being mistaken for one later. What replaces
- * it is a single step - how we come to believe who you are - because everything
- * downstream of this handler is already the real thing: a real session row, a
- * real cookie, a real gate on every request. Until then Cloudflare Access stays
- * in front of every deployed environment (docs/architecture.md, "App login").
+ * so plainly is what keeps it from being mistaken for one later. It is also all
+ * that stands in front of a deployed environment (docs/architecture.md, "App
+ * login"). What replaces it is a single step - how we come to believe who you
+ * are - because everything downstream of this handler is already the real
+ * thing: a real session row, a real cookie, a real gate on every request.
  *
  * **There is no CSRF token here, and what stands in for one is the declared
  * content type.** The risk this endpoint would otherwise carry is login CSRF -
@@ -240,6 +245,17 @@ const workspacesRoute = createRoute({
   },
 });
 
+const itemTypesRoute = createRoute({
+  method: 'get',
+  path: '/v1/item-types',
+  responses: {
+    200: {
+      description: 'All live types of the account',
+      content: { 'application/json': { schema: itemTypeListSchema } },
+    },
+  },
+});
+
 const snapshotRoute = createRoute({
   method: 'get',
   path: '/v1/workspaces/{workspaceId}/snapshot',
@@ -308,28 +324,6 @@ async function change<N extends CommandName>(
 }
 
 /**
- * Where /v1/relogin is allowed to send the browser afterwards.
- *
- * The return location arrives in a query string, so it is attacker-supplied by
- * definition, and handing it to a redirect unchecked is an open redirect: a
- * link on our own trusted host that silently lands on someone else's. Only a
- * path inside this app is allowed, and anything a browser could read as a host
- * falls back to the start page rather than being cleaned up — rejecting is
- * safe, repairing is where the bypasses live.
- */
-export function safeReturnPath(raw: string | undefined): string {
-  if (!raw || !raw.startsWith('/')) return '/';
-  // `//elsewhere.example` and `/\elsewhere.example` are both read as hosts.
-  if (raw.startsWith('//') || raw.startsWith('/\\')) return '/';
-  // A control character would let the value continue into a header of its own.
-  for (let i = 0; i < raw.length; i += 1) {
-    const code = raw.charCodeAt(i);
-    if (code < 0x20 || code === 0x7f) return '/';
-  }
-  return raw;
-}
-
-/**
  * Whether an error raised while streaming changes is worth reporting.
  *
  * A browser closing its tab is how a stream ends, not a failure: the loop is
@@ -380,6 +374,10 @@ const routes = app
   .openapi(workspacesRoute, async (c) => {
     const account = await openAccount(c.env, c.get('visitor').accountName);
     return c.json({ workspaces: await account.workspaces() }, 200);
+  })
+  .openapi(itemTypesRoute, async (c) => {
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ itemTypes: await account.itemTypes() }, 200);
   })
   .openapi(snapshotRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
@@ -444,10 +442,24 @@ const routes = app
   .openapi(commandRoute('remove_item_from_panel'), async (c) =>
     c.json(await change(c, 'remove_item_from_panel', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('set_status'), async (c) => c.json(await change(c, 'set_status', c.req.valid('json')), 200))
-  .openapi(commandRoute('snooze_until'), async (c) => c.json(await change(c, 'snooze_until', c.req.valid('json')), 200))
+  .openapi(commandRoute('create_item_type'), async (c) =>
+    c.json(await change(c, 'create_item_type', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('rename_item_type'), async (c) =>
+    c.json(await change(c, 'rename_item_type', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('set_item_type_color'), async (c) =>
+    c.json(await change(c, 'set_item_type_color', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('delete_item_type'), async (c) =>
+    c.json(await change(c, 'delete_item_type', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('reorder_item_types'), async (c) =>
+    c.json(await change(c, 'reorder_item_types', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_dismissed'), async (c) => c.json(await change(c, 'set_dismissed', c.req.valid('json')), 200))
   .openapi(commandRoute('associate'), async (c) => c.json(await change(c, 'associate', c.req.valid('json')), 200))
-  .openapi(commandRoute('set_focus'), async (c) => c.json(await change(c, 'set_focus', c.req.valid('json')), 200))
   .openapi(commandRoute('set_next_action'), async (c) => c.json(await change(c, 'set_next_action', c.req.valid('json')), 200))
   .openapi(commandRoute('set_priority'), async (c) => c.json(await change(c, 'set_priority', c.req.valid('json')), 200))
   .openapi(commandRoute('set_title'), async (c) => c.json(await change(c, 'set_title', c.req.valid('json')), 200))
@@ -504,17 +516,6 @@ const routes = app
       },
     ),
   )
-  // --- returning from the perimeter's sign-in --------------------------------
-  // Reached only *after* the gate has let the request through, which is the
-  // whole trick: the browser cannot follow a sign-in redirect from a background
-  // request, and a plain reload is answered by the service worker out of its
-  // own cache and never leaves the machine. So the client navigates here for
-  // real (`/v1/*` is on the service worker's denylist), the gate challenges it,
-  // and once signed in this hands the browser back to the page it came from.
-  //
-  // Plain `.get` rather than an OpenAPI route: this answers with a redirect,
-  // not with a documented response body.
-  .get('/v1/relogin', (c) => c.redirect(safeReturnPath(c.req.query('return')), 302))
   // --- generic webhook ingress: no source-specific routes here ---------------
   .post('/ingress/:connectorId/*', async (c) => {
     const connector = getConnector(c.req.param('connectorId'));

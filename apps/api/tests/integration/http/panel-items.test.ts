@@ -253,7 +253,7 @@ describe('Panels', () => {
       expect((await move(itemId, falcon)).status).toBe(200);
 
       expect(
-        (await send('set_status', { workspaceId: WORKSPACE_ID, itemId, status: 'dismissed' })).status,
+        (await send('set_dismissed', { workspaceId: WORKSPACE_ID, itemId, dismissed: true })).status,
       ).toBe(200);
 
       // Gone from the workspace's items, which is what both lists are drawn

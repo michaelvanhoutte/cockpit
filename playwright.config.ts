@@ -28,15 +28,14 @@ import { isLinkedWorktree, portsFor } from './scripts/lib/ports.mjs';
  *    Worker's `run_worker_first` routing. Those three are all-or-nothing
  *    failures rather than per-feature ones, and until the suite can run against
  *    a deployment they are covered by looking at the preview before promoting.
- *    Running it against a deployment needs an Access service token *and* a way
- *    to keep test data out of real data. The second is now possible - accounts
- *    and sign-in arrived with "Sign in by picking a name, each user in their own
- *    account" (issue 86), so the suite can have an account of its own - but
- *    nothing here does it yet: that is "Run the F3 suite against a deployed
- *    environment, as its own account" (issue 64), which has to provision that
- *    account and sign in as it. Until then E2E_BASE_URL starts no server and
- *    points the specs at a URL, which is enough to try it by hand but is
- *    deliberately not wired into CI.
+ *    Running it against a deployment needs a way to keep test data out of real
+ *    data, which is now possible - accounts and sign-in arrived with "Sign in
+ *    by picking a name, each user in their own account" (issue 86), so the
+ *    suite can have an account of its own - but nothing here does it yet: that
+ *    is "Run the F3 suite against a deployed environment, as its own account"
+ *    (issue 64), which has to provision that account and sign in as it. Until
+ *    then E2E_BASE_URL starts no server and points the specs at a URL, which is
+ *    enough to try it by hand but is deliberately not wired into CI.
  * 2. WHICH SCREENS. Every spec runs under both projects, because "the actions
  *    work on that device" is a claim about each device, not about the code.
  *    Both are Chromium — this is a viewport and input matrix, not a browser
@@ -63,7 +62,6 @@ const root = __dirname;
 const ports = portsFor(root, { linked: isLinkedWorktree(root), env: process.env });
 const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${ports.e2eWeb}`;
 const drivingLocalStack = !process.env.E2E_BASE_URL;
-const usingAccessToken = !!(process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET);
 
 /**
  * The phone profile is a real handset's, not a round number: Michael's is a
@@ -107,26 +105,11 @@ export default defineConfig({
     // cost — or the cross-machine baseline problem — of pixel snapshots, which
     // this tier deliberately does not do.
     //
-    // Except when this run carries an Access service token, where the trace is
-    // turned off entirely. A trace records every request's headers verbatim,
-    // the credentialed run is the one whose failures get uploaded as a CI
-    // artifact, and the two together would publish CF-Access-Client-Secret as a
-    // downloadable file for anyone who can read the run. Losing the trace makes
-    // a failed credentialed run harder to diagnose; that is the right way round,
-    // and screenshots (which carry no headers) still survive.
-    trace: usingAccessToken ? 'off' : 'retain-on-failure',
+    // A trace records every request's headers verbatim and failed runs are
+    // uploaded as a CI artifact, so anything that ever puts a credential on
+    // these requests has to turn this off in the same change.
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    // Cloudflare Access fronts every deployed environment (secrets and access,
-    // docs/deployment.md §6), so a preview run needs a service token or it gets
-    // the login page instead of the app. Absent locally, where there is no Access in front.
-    ...(usingAccessToken
-      ? {
-          extraHTTPHeaders: {
-            'CF-Access-Client-Id': process.env.CF_ACCESS_CLIENT_ID!,
-            'CF-Access-Client-Secret': process.env.CF_ACCESS_CLIENT_SECRET!,
-          },
-        }
-      : {}),
   },
 
   projects: [

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Filing, Item, ItemStatus, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Filing, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { InboxPanel } from '../../../src/components/InboxPanel';
 
 /**
@@ -32,6 +32,7 @@ vi.mock('../../../src/api/queries', () => ({
         panels: [],
         layouts: [],
         associations: [],
+        itemTypes: [],
         filings: held.filings,
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
@@ -40,7 +41,7 @@ vi.mock('../../../src/api/queries', () => ({
 
 let nextItem = 0;
 
-function anItem(title: string, status: ItemStatus): Item {
+function anItem(title: string, completedAt: string | null = null): Item {
   return {
     id: `11111111-1111-7111-8111-${String(nextItem++).padStart(12, '0')}`,
     tenantId: 'tenant',
@@ -54,12 +55,11 @@ function anItem(title: string, status: ItemStatus): Item {
     capturedMessage: null,
     description: null,
     sourceResolvedAt: null,
-    status,
+    typeId: null,
     nextAction: null,
-    focusHorizon: null,
+    completedAt,
     priority: null,
     dueDate: null,
-    snoozedUntil: null,
     unseen: false,
     deletedAt: null,
     createdAt: '2026-08-31T08:00:00.000Z',
@@ -81,25 +81,23 @@ async function showWorkspace(items: Item[], filings: Filing[] = []) {
 
 describe('Triage', () => {
   describe('the Inbox holds every item you still have to deal with, and nothing you finished', () => {
-    const situations = [
-      { situation: 'an item still to process', status: 'to_process', shownAs: 'To process' },
-      { situation: 'an item made a task', status: 'task', shownAs: 'Task' },
-      { situation: 'an item set to waiting', status: 'waiting', shownAs: 'Waiting' },
-      { situation: 'an item snoozed', status: 'snoozed', shownAs: 'Snoozed' },
-      { situation: 'an item marked done', status: 'done', shownAs: null },
-    ] satisfies { situation: string; status: ItemStatus; shownAs: string | null }[];
-
-    it.each(situations)('$situation', async ({ status, shownAs }) => {
-      const inbox = await showWorkspace([anItem('Buy milk', status)]);
+    it.each([
+      { situation: 'an item you still have to deal with', finished: null, shown: true },
+      {
+        situation: 'an item you are finished with',
+        finished: '2026-08-31T09:00:00.000Z',
+        shown: false,
+      },
+    ])('$situation', async ({ finished, shown }) => {
+      const inbox = await showWorkspace([anItem('Buy milk', finished)]);
 
       const row = within(inbox).queryByRole('listitem');
-      if (shownAs === null) {
-        expect(row).toBeNull();
-        expect(screen.queryByText('Buy milk')).toBeNull();
-      } else {
+      if (shown) {
         expect(row).not.toBeNull();
         expect(within(row!).getByText('Buy milk')).toBeVisible();
-        expect(within(row!).getByText(shownAs)).toBeVisible();
+      } else {
+        expect(row).toBeNull();
+        expect(screen.queryByText('Buy milk')).toBeNull();
       }
     });
   });
@@ -108,8 +106,8 @@ describe('Triage', () => {
 describe('Panels', () => {
   describe('the Inbox holds every item you still have to deal with that is filed nowhere', () => {
     it('leaves out an item that is filed on a panel, and stops counting it', async () => {
-      const filed = anItem('Reply to Bart', 'to_process');
-      const loose = anItem('Buy milk', 'to_process');
+      const filed = anItem('Reply to Bart');
+      const loose = anItem('Buy milk');
 
       const inbox = await showWorkspace([filed, loose], [
         { panelId: 'p-falcon', itemId: filed.id, position: 0 },
@@ -125,7 +123,7 @@ describe('Panels', () => {
 describe('Capture', () => {
   describe('what you capture appears in the Inbox you captured it into', () => {
     it('offers the box as the first row of the Inbox, with the items under it', async () => {
-      const inbox = await showWorkspace([anItem('Buy milk', 'to_process')]);
+      const inbox = await showWorkspace([anItem('Buy milk')]);
 
       const box = within(inbox).getByLabelText('Capture a note or to-do');
       const row = within(inbox).getByRole('listitem');

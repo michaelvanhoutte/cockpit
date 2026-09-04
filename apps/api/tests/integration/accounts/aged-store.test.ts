@@ -36,6 +36,8 @@ import { inStoreAsItIs, startFromEmpty, storeNamed } from '../seed.js';
  */
 
 const AT = '2026-08-12T10:00:00.000Z';
+/** When the item that was already finished with was last touched, which is when it was finished. */
+const FINISHED_AT = '2026-08-12T16:00:00.000Z';
 
 /** A store no account owns, one per case, so a broken arrangement cannot leak into the next. */
 function fixtureName(index: number): string {
@@ -121,6 +123,26 @@ const rowsFor: { table: string; sql: string; params: (name: string) => string[] 
     sql: `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen, created_at, updated_at)
           VALUES ('it-before', ?, 'ws-before', 'internal', 'Captured before the update', 'task', 0, ?, ?)`,
     params: (name) => [name, AT, AT],
+  },
+  {
+    // A second item, finished with under the old eight statuses, so the update
+    // that turns being done into a time meets a row it has to carry across
+    // rather than an empty column ("An item is either yours to deal with or
+    // finished with", issue 154).
+    table: 'items',
+    sql: `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen, created_at, updated_at)
+          VALUES ('it-done-before', ?, 'ws-before', 'internal', 'Finished before the update', 'done', 0, ?, ?)`,
+    params: (name) => [name, AT, FINISHED_AT],
+  },
+  {
+    // The table the types update creates, filled so that whatever comes next
+    // meets a full one - the discipline this file's header states. A name of
+    // its own, so it cannot collide with the Action and Thought that update
+    // inserts for every account.
+    table: 'item_types',
+    sql: `INSERT INTO item_types (id, tenant_id, name, folded_name, color, position, created_at)
+          VALUES ('ty-before', ?, 'Before', 'before', '#c06a45', 7, ?)`,
+    params: (name) => [name, AT],
   },
   {
     table: 'associations',
@@ -243,6 +265,43 @@ describe('Workspace management', () => {
         { id: 'ws-personal', position: 2 },
         { id: 'ws-before', position: 3 },
       ]);
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('an item finished with before the app kept the time still says it is finished with', () => {
+    /**
+     * The one row the update has to carry rather than leave alone: being done
+     * used to live in `status` and nothing else, so an account brought up to
+     * date without this would show every item it had ever finished with back in
+     * the Inbox ("An item is either yours to deal with or finished with", issue
+     * 154).
+     */
+    const BEFORE_THE_TIME = updates.findIndex((update) => update.name === '0007-item-completed-at');
+
+    it.each([
+      { situation: 'was finished with', id: 'it-done-before', completed: FINISHED_AT },
+      { situation: 'was still to deal with', id: 'it-before', completed: null },
+    ])('an item that $situation', async ({ id, completed }) => {
+      const name = `aged-store-before-the-time-${id}`;
+      await agedTo(name, BEFORE_THE_TIME);
+      await fillWithWhatIsAlreadyThere(name);
+
+      // Opening it is what brings it up to date, exactly as the first request
+      // of the day does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql
+            .exec<{ completed_at: string | null }>(
+              'SELECT completed_at FROM items WHERE id = ?',
+              id,
+            )
+            .toArray(),
+        ),
+      ).toEqual([{ completed_at: completed }]);
     });
   });
 });

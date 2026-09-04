@@ -234,7 +234,7 @@ export function DashboardSettingsPage() {
         )}
         {listFailed && (
           <div className="px-4 py-4">
-            <LoadFailure error={error} onRetry={() => void refetch()} canTakeOver />
+            <LoadFailure error={error} onRetry={() => void refetch()} />
           </div>
         )}
       </section>

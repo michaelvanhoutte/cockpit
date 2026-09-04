@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { serverEventSchema } from '@cockpit/shared';
+import { ACCOUNT_WIDE, serverEventSchema } from '@cockpit/shared';
 import { diagnoseConnection } from './loadFailure';
 
 /**
@@ -62,6 +62,15 @@ export function useServerEvents() {
         // (architecture, "How the client talks to the backend"), so the list is
         // revalidated rather than reasoned about.
         void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+        // A type change names the account rather than a workspace, because
+        // types belong to the account and the page that manages them is
+        // outside every workspace ("Manage the types, and put them in the
+        // order you want", issue 156). Every snapshot draws them, so every
+        // snapshot goes stale.
+        if (parsed.data.workspaceId === ACCOUNT_WIDE) {
+          void queryClient.invalidateQueries({ queryKey: ['itemTypes'] });
+          void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
+        }
       });
 
       stream.addEventListener('error', () => {
@@ -74,10 +83,11 @@ export function useServerEvents() {
     };
 
     const afterDeath = async () => {
-      // A healthy deployment refusing us means a sign-in went - Cockpit's own
-      // or the perimeter's. Which one cannot be told apart from here, because
-      // `EventSource` reports that it stopped and never why, so there is no
-      // status to read; both are therefore treated the same way, by re-reading.
+      // Anything but a dead connection is re-read, because `EventSource`
+      // reports that it stopped and never why: there is no status here to tell
+      // a sign-in that went from a request that vanished, and both want the
+      // same move. Being offline is the one case that does not, since there is
+      // nothing to re-read it against.
       //
       // Re-reading is how it gets said out loud: the read fails the same way,
       // with a status this time, and the screen the person already knows
@@ -92,7 +102,7 @@ export function useServerEvents() {
       // workspace *list* is neither: Layout takes only its `data`, so
       // invalidating that would fail again in silence.
       const reason = await diagnoseConnection();
-      if (reason === 'signed-out' || reason === 'gate-expired') {
+      if (reason !== 'offline') {
         void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
         void queryClient.invalidateQueries({ queryKey: ['me'] });
       }

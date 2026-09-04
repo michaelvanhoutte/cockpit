@@ -30,7 +30,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
 
   // Nothing of this workspace to show, so the failure is the whole view.
   if (error && !data) {
-    return <LoadFailure error={error} onRetry={() => void refetch()} canTakeOver />;
+    return <LoadFailure error={error} onRetry={() => void refetch()} />;
   }
   if (isLoading || !data) {
     return <p className="text-ink-faint">Loading…</p>;
@@ -66,7 +66,14 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
         {/* Writing something down and seeing where it landed are the same
             place: the box is the Inbox's first row. */}
         <div className="border-b border-black/5 px-4 py-3">
-          <CaptureForm workspaceId={workspaceId} />
+          <CaptureForm
+            workspaceId={workspaceId}
+            // `?? []` for the reason the filings above carry one: a stored
+            // snapshot can predate the field, and capture with no types to
+            // offer is a box you can type a name into rather than a crash.
+            types={data.itemTypes ?? []}
+            items={data.items}
+          />
         </div>
 
         <ItemList

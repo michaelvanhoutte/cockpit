@@ -1,11 +1,12 @@
-import { expect, test } from '@playwright/test';
 import {
   captureBox,
+  expect,
   expectNoSidewaysScroll,
   inbox,
   itemRow,
   openInbox,
   press,
+  test,
   uniqueTitle,
 } from './support/app';
 
@@ -36,6 +37,42 @@ test.describe('Capture', () => {
 
       await expect(itemRow(page, thought)).toBeVisible();
       await expect(inbox(page).getByText(thought)).toBeVisible();
+      await expectNoSidewaysScroll(page);
+    });
+  });
+
+  test.describe('capturing a thought shows it in the inbox as a thought', () => {
+    test('says what kind of thing it is on its own row', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+
+      const kind = page.getByLabel('What kind of thing this is');
+      await expect(kind).toBeInViewport();
+
+      const thought = uniqueTitle('Maybe split the pricing page');
+      await captureBox(page).fill(thought);
+      await kind.fill('Thought');
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+
+      // The word under the title, which is one of the two marks the type took
+      // from the status ("Capture a thought or an action, and see which it
+      // is", issue 155).
+      await expect(itemRow(page, thought).getByText('Thought')).toBeVisible();
+      await expectNoSidewaysScroll(page);
+    });
+
+    test('makes a type by naming one that is not there, and captures as it', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+
+      const made = uniqueTitle('Kind');
+      const thought = uniqueTitle('Why is this slow?');
+      await captureBox(page).fill(thought);
+      await page.getByLabel('What kind of thing this is').fill(made);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+
+      await expect(itemRow(page, thought).getByText(made)).toBeVisible();
       await expectNoSidewaysScroll(page);
     });
   });

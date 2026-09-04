@@ -45,11 +45,11 @@ export function readAnswer({ status, body }) {
   }
   if (status === 301 || status === 302 || status === 303 || status === 307 || status === 308) {
     return {
-      state: 'gated',
+      state: 'redirected',
       message:
-        `redirected (${status}). /health must be reachable without Cloudflare Access: add a Bypass ` +
-        'policy scoped to the /health path (docs/deployment.md, "`/health` must stay outside the ' +
-        'gate"). The uptime monitor in architecture\'s Observability section depends on this too.',
+        `redirected (${status}), so something is standing in front of /health. It must answer ` +
+        'anyone without a sign-in (docs/deployment.md, "`/health` answers without a sign-in"): ' +
+        "this check and the uptime monitor in architecture's Observability section both read it.",
     };
   }
   // Up and failing, or asking to be asked less often. Both are what an edge
@@ -74,8 +74,8 @@ export function readAnswer({ status, body }) {
     return {
       state: 'not-ours',
       message:
-        'returned 200 but not our JSON, so something answered in front of the Worker - usually an ' +
-        'Access login page, so the Bypass policy has come undone.',
+        'returned 200 but not our JSON, so something answered in front of the Worker rather than ' +
+        'the Worker itself.',
     };
   }
   if (answer.ok) return { state: 'healthy', message: 'healthy.' };
@@ -109,9 +109,9 @@ export function failureReport({ stopped, attempts, answer }, windowMs = WINDOW_M
  * Whether waiting could change this answer.
  *
  * The deployment being unwell, unreachable, or up and failing are all things a
- * deployment settling can fix. A redirect and a login page are both somebody
- * having changed the perimeter, and asking twenty more times only delays saying
- * so.
+ * deployment settling can fix. A redirect and a page that is not ours both mean
+ * something has been put in front of /health, and asking twenty more times only
+ * delays saying so.
  *
  * The list is here and nowhere else. An earlier version said "the two" in this
  * file's header as well, and adding a third left that sentence wrong - which is

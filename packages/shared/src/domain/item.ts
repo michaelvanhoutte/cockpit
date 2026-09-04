@@ -10,23 +10,6 @@ import { z } from 'zod';
 export const sourceSchema = z.enum(['internal', 'mail', 'slack', 'notion', 'whatsapp']);
 export type Source = z.infer<typeof sourceSchema>;
 
-/** Processing status (functional definition §5). */
-export const itemStatusSchema = z.enum([
-  'to_process',
-  'task',
-  'waiting',
-  'snoozed',
-  'delegated',
-  'reference',
-  'done',
-  'dismissed',
-]);
-export type ItemStatus = z.infer<typeof itemStatusSchema>;
-
-/** Focus horizons (functional definition §7). */
-export const focusHorizonSchema = z.enum(['today', 'week', 'month', 'quarter']);
-export type FocusHorizon = z.infer<typeof focusHorizonSchema>;
-
 export const prioritySchema = z.enum(['low', 'normal', 'high']);
 export type Priority = z.infer<typeof prioritySchema>;
 
@@ -95,13 +78,32 @@ export const itemSchema = z.object({
   // -- app-owned --
   title: itemTitleSchema,
   description: itemDescriptionSchema.nullable(),
-  status: itemStatusSchema,
+  /**
+   * What kind of thing this is ("Capture a thought or an action, and see which
+   * it is", issue 155). Nullable: an item captured before types existed, and
+   * one whose type was deleted, both have none, and a row with no type is drawn
+   * rather than hidden.
+   *
+   * The permissive `z.string()` rather than a uuid, for the reason every other
+   * id read back here is permissive: the *Action* and *Thought* every account
+   * starts with have ids derived from the account's own. A `z.uuid()` here
+   * refused the whole snapshot the first time an item was captured as one of
+   * them, which is a blank workspace rather than one item drawn oddly.
+   */
+  typeId: z.string().nullable(),
   /** The current, always-editable next-action label (functional definition §6.1). */
   nextAction: z.string().nullable(),
-  focusHorizon: focusHorizonSchema.nullable(),
+  /**
+   * When this was finished with, and the whole of what "done" means ("An item
+   * is either yours to deal with or finished with", issue 154).
+   *
+   * A time rather than a flag, because the two things that ask are "is this
+   * still yours to deal with" and "when did you finish it", and a flag answers
+   * only the first. It is app-owned: a re-sync from a source never clears it.
+   */
+  completedAt: z.iso.datetime().nullable(),
   priority: prioritySchema.nullable(),
   dueDate: z.iso.date().nullable(),
-  snoozedUntil: z.iso.datetime().nullable(),
   unseen: z.boolean(),
   /** Tombstone, never a hard delete (architecture §4.2). */
   deletedAt: z.iso.datetime().nullable(),

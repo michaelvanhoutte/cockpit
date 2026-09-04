@@ -239,6 +239,14 @@ function TheShell() {
                   Workspaces
                 </Link>
               </DropdownMenu.Item>
+              {/* Beside the workspaces page rather than inside one: types
+                  belong to the account ("Manage the types, and put them in the
+                  order you want", issue 156). */}
+              <DropdownMenu.Item asChild>
+                <Link to="/settings/types" className={menuItemClass}>
+                  Types
+                </Link>
+              </DropdownMenu.Item>
               {/* Who you are, and the way out. Both in the menu rather than on
                   the bar: the tabs are the thing you use all day and the header
                   is already full on a phone, while this is read once when you

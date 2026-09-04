@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { itemRow, openInbox, uniqueTitle } from './support/app';
+import { expect, itemRow, openInbox, test, uniqueTitle } from './support/app';
 
 /**
  * F3, and one walk: what nothing below can prove is that a *real* EventSource,

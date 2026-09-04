@@ -72,8 +72,9 @@ describe('Accounts', () => {
 
     it('refuses to practise on a name somebody has registered as an account', async () => {
       // The one way the check could reach real data, so it is refused rather
-      // than assumed away: /health is outside the perimeter, and opening a
-      // registered account here would apply updates to their data unasked.
+      // than assumed away: /health is outside the gate, so anyone at all can
+      // reach it, and opening a registered account here would apply updates to
+      // their data unasked.
       await env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)')
         .bind(PROBE_NAME, 'Somebody', '2026-08-12T00:00:00.000Z')
         .run();

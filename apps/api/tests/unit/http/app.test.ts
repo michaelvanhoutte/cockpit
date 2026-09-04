@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { safeReturnPath, worthReporting } from '../../../src/http/app.js';
+import { worthReporting } from '../../../src/http/app.js';
 
 /**
  * Unit level, because none of this needs a real dependency to be proved.
@@ -31,31 +31,6 @@ describe('Offline', () => {
 
     it.each(situations)('$situation', ({ aborted, closed, reported }) => {
       expect(worthReporting({ aborted, closed })).toBe(reported);
-    });
-  });
-});
-
-describe('Sign-in', () => {
-  /**
-   * Every branch of this is a decision about a string, so it belongs here
-   * rather than in the integration test, which now proves only that the route
-   * reaches it and hands the answer to the browser.
-   */
-  describe('signing in again returns you into Cockpit and nowhere else', () => {
-    const situations = [
-      { situation: 'an ordinary page inside Cockpit', asked: '/w/ws-work', lands: '/w/ws-work' },
-      { situation: 'the start page', asked: '/', lands: '/' },
-      { situation: 'no page at all', asked: undefined, lands: '/' },
-      { situation: 'another site entirely', asked: 'https://elsewhere.example/inbox', lands: '/' },
-      { situation: 'a bare host', asked: 'elsewhere.example/inbox', lands: '/' },
-      { situation: 'a site borrowing our protocol', asked: '//elsewhere.example/inbox', lands: '/' },
-      { situation: 'a site disguised with a backslash', asked: '/\\elsewhere.example/inbox', lands: '/' },
-      { situation: 'a smuggled line break', asked: '/w/ws-work\r\nSet-Cookie: a=b', lands: '/' },
-      { situation: 'a smuggled null', asked: '/w/ws-work\u0000', lands: '/' },
-    ];
-
-    it.each(situations)('sends you back to $situation', ({ asked, lands }) => {
-      expect(safeReturnPath(asked)).toBe(lands);
     });
   });
 });

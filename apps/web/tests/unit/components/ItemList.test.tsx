@@ -81,6 +81,7 @@ vi.mock('../../../src/api/queries', async () => {
         panels: held.panels,
         layouts: [],
         associations: [],
+        itemTypes: [],
         filings: held.filings,
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
@@ -102,12 +103,11 @@ function anItem(id: string, title: string): Item {
     capturedMessage: null,
     description: null,
     sourceResolvedAt: null,
-    status: 'to_process',
+    typeId: null,
     nextAction: null,
-    focusHorizon: null,
+    completedAt: null,
     priority: null,
     dueDate: null,
-    snoozedUntil: null,
     unseen: false,
     deletedAt: null,
     createdAt: '2026-08-31T08:00:00.000Z',
@@ -296,7 +296,7 @@ describe('Panels', () => {
       // server compares against every filing, so a panel that had ever held a
       // completed item refused everything filed onto it afterwards, for good.
       const finished = anItem('11111111-1111-7111-8111-000000000003', 'Already handled');
-      finished.status = 'done';
+      finished.completedAt = '2026-08-31T09:00:00.000Z';
       held.items = [BART, finished];
       held.filings = [{ panelId: 'p-falcon', itemId: finished.id, position: 0 }];
       const user = await showList({ openDashboardId: TODAY.id });
@@ -687,7 +687,7 @@ describe('Panels', () => {
       // drawn one made Move down on the first visible row rewrite the stored
       // order and change nothing on the screen.
       const finished = anItem('11111111-1111-7111-8111-000000000007', 'Already handled');
-      finished.status = 'done';
+      finished.completedAt = '2026-08-31T09:00:00.000Z';
       const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
       held.items = [finished, BART, other];
       held.filings = [

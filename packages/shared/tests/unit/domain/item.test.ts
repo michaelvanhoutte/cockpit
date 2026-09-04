@@ -3,6 +3,7 @@ import {
   LABEL_LENGTH,
   itemDescriptionSchema,
   itemLabel,
+  itemSchema,
   itemTitleSchema,
   workspaceNameSchema,
 } from '../../../src/domain/item.js';
@@ -149,6 +150,51 @@ describe('Item editing', () => {
     ])('$situation', ({ schema, typed, accepted }) => {
       const of = schema === 'title' ? itemTitleSchema : itemDescriptionSchema;
       expect(of.safeParse(typed).success).toBe(accepted);
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * The shape read back is permissive on purpose: what is stored has to render
+   * even where it predates a rule, and refusing it blanks the screen it is on
+   * rather than drawing one row oddly. Found in the browser, not by these:
+   * every fixture used a uuid, so nothing here could have caught it.
+   */
+  describe('a workspace still opens when what it holds predates the rules', () => {
+    const anItem = (typeId: string | null) => ({
+      id: '018f0000-0000-7000-8000-000000000001',
+      tenantId: 'tenant-default',
+      workspaceId: 'ws-work',
+      source: 'internal' as const,
+      sourceId: null,
+      sourceLink: null,
+      sender: null,
+      sourceTimestamp: null,
+      capturedMessage: 'Make appointment with Novy',
+      title: '',
+      description: null,
+      sourceResolvedAt: null,
+      typeId,
+      nextAction: null,
+      completedAt: null,
+      priority: null,
+      dueDate: null,
+      unseen: false,
+      deletedAt: null,
+      createdAt: '2026-09-04T10:00:00.000Z',
+      updatedAt: '2026-09-04T10:00:00.000Z',
+    });
+
+    it.each([
+      // The two every account starts with have ids derived from the account's
+      // own, so an item captured as one of them carries a type id that is not
+      // a uuid and never was.
+      { situation: 'a type the account started with', typeId: 'tenant-default-type-thought' },
+      { situation: 'a type made by using it', typeId: '018f0000-0000-7000-8000-000000000002' },
+      { situation: 'no type at all', typeId: null },
+    ])('reads back an item of $situation', ({ typeId }) => {
+      expect(itemSchema.safeParse(anItem(typeId)).success).toBe(true);
     });
   });
 });

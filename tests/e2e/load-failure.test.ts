@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './support/app';
 
 /**
  * F3, and deliberately one walk: what nothing below can prove is that this
@@ -9,10 +9,9 @@ import { expect, test } from '@playwright/test';
  * apps/web/tests/unit/components/LoadFailure.test.tsx and is not re-proved here.
  *
  * The walk cuts Cockpit off entirely rather than staging an expired sign-in,
- * because there is no gate in front of the local stack to expire: proving the
- * sign-in path end to end needs a deployed, gated environment, which is what
- * "Run the F3 suite against a deployed environment, as its own account"
- * (issue #64) exists to make possible.
+ * because proving the sign-in path end to end needs a deployed environment —
+ * which is what "Run the F3 suite against a deployed environment, as its own
+ * account" (issue 64) exists to make possible.
  */
 test.describe('Offline', () => {
   test.describe('Cockpit says why it could not load your work instead of showing a raw failure', () => {

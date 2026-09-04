@@ -3,6 +3,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
+  ItemType,
   ServerEvent,
   Workspace,
 } from '@cockpit/shared';
@@ -30,6 +31,7 @@ import type { AccountSnapshot, Answer } from './answer.js';
  */
 export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   workspaces(accountName: string): Awaitable<Answer<Workspace[]>>;
+  itemTypes(accountName: string): Awaitable<Answer<ItemType[]>>;
   snapshot(accountName: string, workspaceId: string): Awaitable<Answer<AccountSnapshot>>;
   changesSince(
     accountName: string,

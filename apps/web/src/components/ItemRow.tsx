@@ -1,48 +1,16 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { itemLabel, uuidv7, type Item, type ItemStatus } from '@cockpit/shared';
-import { useCommand, useSendCommand, type CommandArgs } from '../api/queries';
+import { itemLabel, uuidv7, type Item, type ItemType } from '@cockpit/shared';
+import { useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { howFarItHasGone, SWIPE_THRESHOLD_PX, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
-const STATUS_LABEL: Record<ItemStatus, string> = {
-  to_process: 'To process',
-  task: 'Task',
-  waiting: 'Waiting',
-  snoozed: 'Snoozed',
-  delegated: 'Delegated',
-  reference: 'Reference',
-  done: 'Done',
-  dismissed: 'Dismissed',
-};
-
-/**
- * The same status as a color, for the dot at the head of the row.
- *
- * **The dot does not replace the word, it goes beside it.** Six statuses are
- * more than color can separate reliably, and a color cannot be read out at all,
- * so the dot is what makes the list scannable and the word is what makes it
- * legible. Either alone would be the wrong half.
- *
- * `done` and `dismissed` are here because the record is total, not because they
- * are ever drawn: neither reaches a list this renders.
- */
-const STATUS_DOT: Record<ItemStatus, string> = {
-  to_process: 'bg-status-to-process',
-  task: 'bg-status-task',
-  waiting: 'bg-status-waiting',
-  snoozed: 'bg-status-snoozed',
-  delegated: 'bg-status-delegated',
-  reference: 'bg-status-reference',
-  done: 'bg-status-task',
-  dismissed: 'bg-status-snoozed',
-};
-
 export function ItemRow({
   item,
+  itemType,
   workspaceId,
   onMoveTo,
   ordering,
@@ -51,6 +19,16 @@ export function ItemRow({
   onRemoveFromHere,
 }: {
   item: Item;
+  /**
+   * What kind of thing this is ("Capture a thought or an action, and see which
+   * it is", issue 155), already looked up: the row is drawn once per item and
+   * the list has the types in hand, so searching them again per row would be
+   * the same search a dozen times.
+   *
+   * Undefined is a real state and is drawn as one - an item captured before
+   * types existed, and one whose type was deleted, both have none.
+   */
+  itemType?: ItemType | undefined;
   workspaceId: string;
   /**
    * Asked to move this item somewhere, and handed the control the menu was
@@ -104,8 +82,36 @@ export function ItemRow({
     itemId: item.id,
   });
 
-  const setStatus = (status: ItemStatus) =>
-    command.mutate({ name: 'set_status', payload: { ...envelope(), status } });
+  /**
+   * Finishing with it, and the way back offered for as long as the bar lasts
+   * ("Undo what just happened", issue 144).
+   *
+   * It needs the offer more than dismissing does, not less: it takes the item
+   * off the Inbox and off every panel it was filed on at once, and there is no
+   * list left that it can be found in to be put back by hand.
+   */
+  const markDone = () => {
+    command.mutate(
+      { name: 'set_done', payload: { ...envelope(), done: true } },
+      {
+        onSuccess: () =>
+          offerToUndo({
+            what: `“${item.nextAction ?? item.title}” marked done`,
+            undo: () =>
+              send({
+                name: 'set_done',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  done: false,
+                },
+              }),
+          }),
+      },
+    );
+  };
 
   /**
    * Dismissing, with the way back offered for as long as the bar lasts ("Undo
@@ -114,49 +120,36 @@ export function ItemRow({
    * It is the one gesture here that takes an item off every list at once, and
    * on a phone it is a swipe ("Swipe an inbox row right to file it, left to
    * dismiss it", issue 145) - the easiest thing to do by accident and the
-   * hardest to see the result of. The inverse is the state it was in, which is
-   * read from the row rather than from the server, because the row is what was
-   * on screen when the choice was made.
+   * hardest to see the result of.
    *
-   * **A snoozed item goes back with its date**, and that is why the inverse is
-   * not always a status. Leaving the snoozed state clears the wake date, which
-   * dismissing does - so putting the status back alone would return a snoozed
-   * item with nothing to wake it, and the date it was waiting for would be gone
-   * for good. `snooze_until` sets both, which is exactly what undoing it means.
+   * **Undoing it is the same change with the flag turned round**, which is what
+   * being finished with an item and being rid of it becoming two flags bought
+   * ("An item is either yours to deal with or finished with", issue 154): there
+   * is no previous state to read off the row and hand back, so a dismissal
+   * cannot put back the wrong one.
    */
   const dismiss = () => {
-    const wasSnoozedUntil = item.status === 'snoozed' ? item.snoozedUntil : null;
-    const was = item.status;
-    const putItBack = (): CommandArgs => {
-      const envelopeBack = {
-        commandId: uuidv7(),
-        issuedAt: new Date().toISOString(),
-        workspaceId,
-        itemId: item.id,
-      };
-      return wasSnoozedUntil
-        ? { name: 'snooze_until', payload: { ...envelopeBack, until: wasSnoozedUntil } }
-        : { name: 'set_status', payload: { ...envelopeBack, status: was } };
-    };
     command.mutate(
-      { name: 'set_status', payload: { ...envelope(), status: 'dismissed' } },
+      { name: 'set_dismissed', payload: { ...envelope(), dismissed: true } },
       {
         onSuccess: () =>
           offerToUndo({
             what: `“${itemLabel(item)}” dismissed`,
-            undo: () => send(putItBack()),
+            undo: () =>
+              send({
+                name: 'set_dismissed',
+                payload: {
+                  commandId: uuidv7(),
+                  issuedAt: new Date().toISOString(),
+                  workspaceId,
+                  itemId: item.id,
+                  dismissed: false,
+                },
+              }),
           }),
       },
     );
   };
-
-  const snoozeOneWeek = () => {
-    const until = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    command.mutate({ name: 'snooze_until', payload: { ...envelope(), until } });
-  };
-
-  const focusToday = () =>
-    command.mutate({ name: 'set_focus', payload: { ...envelope(), horizon: 'today' } });
 
   /**
    * Which finger is swiping, where it started, and how far it has come.
@@ -266,13 +259,18 @@ export function ItemRow({
         wouldAct ? (gone > 0 ? 'bg-accent-tint' : 'bg-over/15') : ''
       }`}
     >
-      {/* What the row is doing, before anything is read. Decorative on purpose:
-          the word it stands for is on the line below, so announcing the color
-          as well would say the status twice. */}
-      <span
-        aria-hidden="true"
-        className={`mt-0.5 size-2 shrink-0 self-start rounded-full ${STATUS_DOT[item.status]}`}
-      />
+      {/* What kind of thing it is, before anything is read. Decorative on
+          purpose: the word it stands for is on the line below, so announcing
+          the colour as well would say the type twice. An item with no type has
+          no dot rather than a grey one - absent reads as absent, where a
+          neutral colour reads as a type you cannot name. */}
+      {itemType && (
+        <span
+          aria-hidden="true"
+          className="mt-0.5 size-2 shrink-0 self-start rounded-full"
+          style={{ backgroundColor: itemType.color }}
+        />
+      )}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1 text-sm">
           <span className="truncate">{itemLabel(item)}</span>
@@ -291,28 +289,20 @@ export function ItemRow({
             </span>
           )}
         </span>
-        {/* Where it came from and what it is now, on one line under the title.
-            The status used to be a pill of its own out to the right, which is
-            about seventy pixels a row cannot spare once the Inbox is a column
-            a fifth of the screen wide ("Show the Inbox beside the dashboards
-            instead of as a tab", issue 117). Its own element, still, so it is
-            a thing on the row rather than part of a sentence. */}
+        {/* What it is and where it came from, on one line under the title. The
+            two marks the status used to hold - the dot at the head of the row
+            and the first word here - are what the type took ("Capture a thought
+            or an action, and see which it is", issue 155). Its own element, so
+            it is a thing on the row rather than part of a sentence. */}
         <span className="flex min-w-0 gap-1 text-xs text-ink-faint">
-          <span className="shrink-0 text-accent-deep">{STATUS_LABEL[item.status]}</span>
+          {itemType && <span className="shrink-0 text-accent-deep">{itemType.name}</span>}
           <span className="truncate">
-            {'· '}
+            {itemType ? '· ' : ''}
             {item.source === 'internal' ? 'Own' : item.source}
             {item.sender ? ` · ${item.sender}` : ''}
-            {item.snoozedUntil ? ` · until ${item.snoozedUntil.slice(0, 10)}` : ''}
           </span>
         </span>
       </span>
-
-      {item.focusHorizon && (
-        <span className="shrink-0 rounded bg-accent-deep px-1.5 text-xs font-semibold uppercase text-white">
-          {item.focusHorizon[0]}
-        </span>
-      )}
 
       {/* How long it has waited. Tabular figures so the column does not shuffle
           sideways as the numbers change under it, and `title` because `14d` is
@@ -389,20 +379,8 @@ export function ItemRow({
               />
             </>
           )}
-          <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('done')}>
+          <DropdownMenu.Item className={menuItemClass} onSelect={markDone}>
             Mark done
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('task')}>
-            Make it a task
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItemClass} onSelect={() => setStatus('waiting')}>
-            Waiting on someone
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItemClass} onSelect={snoozeOneWeek}>
-            Snooze a week
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItemClass} onSelect={focusToday}>
-            Goal for today
           </DropdownMenu.Item>
           <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
           <DropdownMenu.Item

@@ -1,4 +1,11 @@
-import type { CommandName, CommandPayload, CommandResult, ServerEvent, Workspace } from '@cockpit/shared';
+import type {
+  CommandName,
+  CommandPayload,
+  CommandResult,
+  ItemType,
+  ServerEvent,
+  Workspace,
+} from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { accountIsRegistered } from './register.js';
 import type { AccountSnapshot, Answer } from './answer.js';
@@ -53,6 +60,8 @@ export class NotFoundInAccountError extends Error {
 export interface Account {
   workspaces(): Promise<Workspace[]>;
   snapshot(workspaceId: string): Promise<AccountSnapshot>;
+  /** The account's live types, in the order they were put in. */
+  itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
   applyChange<N extends CommandName>(
     name: N,
@@ -84,6 +93,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
 
   return {
     workspaces: async () => unwrap(await store.workspaces(accountName)),
+    itemTypes: async () => unwrap(await store.itemTypes(accountName)),
     snapshot: async (workspaceId) => unwrap(await store.snapshot(accountName, workspaceId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),

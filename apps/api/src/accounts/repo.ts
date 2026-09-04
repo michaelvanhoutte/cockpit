@@ -4,6 +4,7 @@ import type {
   Dashboard,
   Filing,
   Item,
+  ItemType,
   Layout,
   Panel,
   Workspace,
@@ -15,6 +16,7 @@ import {
   commands,
   dashboards,
   items,
+  itemTypes,
   layouts,
   panelItems,
   panelPlacements,
@@ -383,17 +385,59 @@ export function listLayoutsInWorkspace(
   }));
 }
 
-/** Open items: tombstoned rows stay in the store but never in the snapshot. */
+/**
+ * The columns an item is read by, named for the reason `workspaceColumns` above
+ * is named: a bare `select()` names every column the table declares, so the
+ * three dead ones would come back on every read and a later release could not
+ * drop them without breaking this one.
+ *
+ * Here it does a second job. `status`, `focus_horizon` and `snoozed_until` are
+ * no longer part of what an Item *is* ("An item is either yours to deal with or
+ * finished with", issue 154), and leaving them out here is what makes that true
+ * of the rows this returns rather than only of the type describing them.
+ */
+const itemColumns = {
+  id: items.id,
+  tenantId: items.tenantId,
+  workspaceId: items.workspaceId,
+  source: items.source,
+  sourceId: items.sourceId,
+  sourceLink: items.sourceLink,
+  sender: items.sender,
+  sourceTimestamp: items.sourceTimestamp,
+  capturedMessage: items.capturedMessage,
+  title: items.title,
+  description: items.description,
+  sourceResolvedAt: items.sourceResolvedAt,
+  typeId: items.typeId,
+  nextAction: items.nextAction,
+  completedAt: items.completedAt,
+  priority: items.priority,
+  dueDate: items.dueDate,
+  unseen: items.unseen,
+  deletedAt: items.deletedAt,
+  createdAt: items.createdAt,
+  updatedAt: items.updatedAt,
+};
+
+/**
+ * Open items: tombstoned rows stay in the store but never in the snapshot.
+ *
+ * **Dismissed items are left out here and finished ones are not**, which is
+ * deliberate: a dismissed item is gone until something brings it back, while an
+ * item marked done has to reach the browser for the bar offering to undo it to
+ * have anything to put back ("Undo what just happened", issue 144). What keeps
+ * a finished item off the lists is the client's own derivation.
+ */
 export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: string): Item[] {
   return db
-    .select()
+    .select(itemColumns)
     .from(items)
     .where(
       and(
         eq(items.tenantId, tenantId),
         eq(items.workspaceId, workspaceId),
         isNull(items.deletedAt),
-        ne(items.status, 'dismissed'),
       ),
     )
     .orderBy(items.createdAt)
@@ -403,7 +447,7 @@ export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: stri
 export function getItem(db: AccountDb, tenantId: string, itemId: string): Item | null {
   return (
     db
-      .select()
+      .select(itemColumns)
       .from(items)
       .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
       .get() ?? null
@@ -498,4 +542,52 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
 
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {
   return db.select().from(commands).where(eq(commands.commandId, commandId)).all().length > 0;
+}
+
+/**
+ * Every live type of the account, in the order they were put in ("Capture a
+ * thought or an action, and see which it is", issue 155).
+ *
+ * `position` first and `createdAt` to break a tie, so the order is total even
+ * where nothing has set a position - which is every account until "Manage the
+ * types, and put them in the order you want" (issue 156) lands.
+ */
+export function listItemTypes(db: AccountDb, tenantId: string): ItemType[] {
+  return db
+    .select({
+      id: itemTypes.id,
+      tenantId: itemTypes.tenantId,
+      name: itemTypes.name,
+      color: itemTypes.color,
+      position: itemTypes.position,
+      createdAt: itemTypes.createdAt,
+    })
+    .from(itemTypes)
+    .where(and(eq(itemTypes.tenantId, tenantId), isNull(itemTypes.deletedAt)))
+    .orderBy(itemTypes.position, itemTypes.createdAt)
+    .all();
+}
+
+/**
+ * The highest position any of this account's types holds, or null when it has
+ * none - so a new one can go after every type there is.
+ *
+ * **Deleted types count**, which is why this reads the table rather than the
+ * live list: every read filters them out anyway, and a position that came back
+ * would put a new type in front of a survivor whose own position is higher than
+ * the number of types still live. The workspace list is computed the same way
+ * for the same reason.
+ */
+export function lastItemTypePosition(db: AccountDb, tenantId: string): number | null {
+  const row = db
+    .select({ highest: max(itemTypes.position) })
+    .from(itemTypes)
+    .where(eq(itemTypes.tenantId, tenantId))
+    .get();
+  return row?.highest ?? null;
+}
+
+/** One live type, or null - what a capture naming a type is checked against. */
+export function getItemType(db: AccountDb, tenantId: string, typeId: string): ItemType | null {
+  return listItemTypes(db, tenantId).find((type) => type.id === typeId) ?? null;
 }

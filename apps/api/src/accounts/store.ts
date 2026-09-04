@@ -1,5 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { CommandName, CommandPayload, CommandResult, ServerEvent, Workspace } from '@cockpit/shared';
+import type {
+  CommandName,
+  CommandPayload,
+  CommandResult,
+  ItemType,
+  ServerEvent,
+  Workspace,
+} from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountStoreRpc } from './rpc.js';
@@ -10,6 +17,9 @@ import {
   DashboardNameTakenError,
   DashboardNotFoundError,
   ItemNotFoundError,
+  ItemTypeNameTakenError,
+  ItemTypeNotFoundError,
+  ItemTypeOrderStaleError,
   LastDashboardError,
   LayoutNotFoundError,
   PanelNameTakenError,
@@ -24,6 +34,7 @@ import {
 import {
   getWorkspace,
   listAssociationsForWorkspace,
+  listItemTypes,
   listDashboards,
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
@@ -55,6 +66,11 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   #db: AccountDb | null = null;
   #upToDate = false;
 
+  /** All live types of the account, in the order they were put in. */
+  itemTypes(accountName: string): Answer<ItemType[]> {
+    return this.#answer(accountName, (db) => listItemTypes(db, accountName));
+  }
+
   /** All workspaces of the account. */
   workspaces(accountName: string): Answer<Workspace[]> {
     return this.#answer(accountName, (db) => listWorkspaces(db, accountName));
@@ -73,6 +89,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         layouts: listLayoutsInWorkspace(db, accountName, workspaceId),
         filings: listFilingsInWorkspace(db, accountName, workspaceId),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
+        itemTypes: listItemTypes(db, accountName),
       };
     });
   }
@@ -111,6 +128,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     } catch (error) {
       if (
         error instanceof ItemNotFoundError ||
+        error instanceof ItemTypeNotFoundError ||
         error instanceof WorkspaceNotFoundError ||
         error instanceof DashboardNotFoundError ||
         error instanceof PanelNotFoundError ||
@@ -132,7 +150,11 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof WorkspaceOrderStaleError ||
         // Same kind of collision one level down: a whole order sent against a
         // panel whose items have moved on.
-        error instanceof PanelOrderStaleError
+        error instanceof PanelOrderStaleError ||
+        error instanceof ItemTypeNameTakenError ||
+        // The same collision one list along: a whole order sent against a set
+        // of types that has moved on.
+        error instanceof ItemTypeOrderStaleError
       ) {
         return { status: 'conflict', what: error.message };
       }

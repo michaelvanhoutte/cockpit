@@ -1,7 +1,7 @@
 import { hc } from 'hono/client';
-import { clearSignInAttempt } from './loadFailure';
 import type { AppType } from '@cockpit/api';
 import {
+  itemTypeListSchema,
   signedInSchema,
   userListSchema,
   workspaceListSchema,
@@ -9,6 +9,7 @@ import {
   type CommandName,
   type CommandPayload,
   type CommandResult,
+  type ItemTypeList,
   type SignedIn,
   type User,
   type WorkspaceList,
@@ -29,8 +30,8 @@ export const api = hc<AppType>('/');
  * A separate type rather than a status to read off the message, because two
  * different things have to react to it: the router, which sends you to the
  * logon page instead of to a failed read, and the failure screen, which offers
- * Cockpit's own sign-in rather than the perimeter's. The message keeps the
- * `failed: 401` shape every other refusal has, so `diagnose` still reads it.
+ * the way back in. The message keeps the `failed: 401` shape every other
+ * refusal has, so `diagnose` still reads it.
  */
 export class NotSignedIn extends Error {
   constructor(message: string) {
@@ -49,6 +50,13 @@ export async function fetchWorkspaces(): Promise<WorkspaceList> {
   const res = await api.v1.workspaces.$get();
   if (!res.ok) throw refusal('workspaces', res.status);
   return workspaceListSchema.parse(await res.json());
+}
+
+/** The account's live types, for the page that manages them. */
+export async function fetchItemTypes(): Promise<ItemTypeList> {
+  const res = await api.v1['item-types'].$get();
+  if (!res.ok) throw refusal('types', res.status);
+  return itemTypeListSchema.parse(await res.json());
 }
 
 /**
@@ -90,12 +98,6 @@ export async function fetchSnapshot(workspaceId: string): Promise<WorkspaceSnaps
     param: { workspaceId },
   });
   if (!res.ok) throw refusal('snapshot', res.status);
-  // Reaching a workspace is what proves we are back in, so this is where the
-  // one-attempt-per-tab guard is forgotten. Deliberately not on the workspace
-  // list: Layout reads that on every route and it succeeds even while the
-  // snapshot is being refused, which would clear the guard immediately before
-  // it is consulted and turn one sign-in attempt into an endless round trip.
-  clearSignInAttempt();
   return workspaceSnapshotSchema.parse(await res.json());
 }
 
@@ -132,10 +134,19 @@ const commandSenders = {
     api.v1.commands.add_item_to_panel.$post({ json: p }),
   remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>) =>
     api.v1.commands.remove_item_from_panel.$post({ json: p }),
-  set_status: (p: CommandPayload<'set_status'>) => api.v1.commands.set_status.$post({ json: p }),
-  snooze_until: (p: CommandPayload<'snooze_until'>) => api.v1.commands.snooze_until.$post({ json: p }),
+  create_item_type: (p: CommandPayload<'create_item_type'>) =>
+    api.v1.commands.create_item_type.$post({ json: p }),
+  rename_item_type: (p: CommandPayload<'rename_item_type'>) =>
+    api.v1.commands.rename_item_type.$post({ json: p }),
+  set_item_type_color: (p: CommandPayload<'set_item_type_color'>) =>
+    api.v1.commands.set_item_type_color.$post({ json: p }),
+  delete_item_type: (p: CommandPayload<'delete_item_type'>) =>
+    api.v1.commands.delete_item_type.$post({ json: p }),
+  reorder_item_types: (p: CommandPayload<'reorder_item_types'>) =>
+    api.v1.commands.reorder_item_types.$post({ json: p }),
+  set_done: (p: CommandPayload<'set_done'>) => api.v1.commands.set_done.$post({ json: p }),
+  set_dismissed: (p: CommandPayload<'set_dismissed'>) => api.v1.commands.set_dismissed.$post({ json: p }),
   associate: (p: CommandPayload<'associate'>) => api.v1.commands.associate.$post({ json: p }),
-  set_focus: (p: CommandPayload<'set_focus'>) => api.v1.commands.set_focus.$post({ json: p }),
   set_next_action: (p: CommandPayload<'set_next_action'>) =>
     api.v1.commands.set_next_action.$post({ json: p }),
   set_priority: (p: CommandPayload<'set_priority'>) =>

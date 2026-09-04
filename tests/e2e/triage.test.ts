@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { capture, itemRow, openInbox, press, swipeRow, uniqueTitle } from './support/app';
+import { capture, expect, itemRow, openInbox, press, swipeRow, test, uniqueTitle } from './support/app';
 
 /**
  * F3, and specifically on both projects, because the way this action is
@@ -54,10 +53,12 @@ test.describe('Triage', () => {
       await expect(offer).toContainText(thought);
       await press(offer.getByRole('button', { name: 'Undo' }), isMobile);
 
-      // Back in the Inbox, with the status it had — and the offer gone, because
-      // an undo cannot itself be undone.
+      // Back in the Inbox, and the offer gone, because an undo cannot itself be
+      // undone. There is nothing else to check it came back as: undoing a
+      // dismissal is the same change with the flag turned round, so there is no
+      // previous state that could be put back wrongly ("An item is either yours
+      // to deal with or finished with", issue 154).
       await expect(itemRow(page, thought)).toBeVisible();
-      await expect(itemRow(page, thought).getByText('To process')).toBeVisible();
       await expect(offer).toHaveCount(0);
     });
   });

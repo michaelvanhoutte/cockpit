@@ -15,8 +15,8 @@ import type { Env } from '../env.js';
  * through a completely broken deployment.
  *
  * **The check practises on a store that belongs to no account.** `/health` is
- * deliberately outside Cloudflare Access (docs/deployment.md, "`/health` must
- * stay outside the gate"), so anyone at all can reach it, and opening a real
+ * deliberately outside every gate (docs/deployment.md, "`/health` answers
+ * without a sign-in"), so anyone at all can reach it, and opening a real
  * account's store from an unauthenticated endpoint would be applying schema
  * changes to somebody's data to decide whether they are safe. The name below
  * is never resolved through `openAccount`, which is the only thing that reads
