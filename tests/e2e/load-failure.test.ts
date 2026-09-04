@@ -24,6 +24,13 @@ test.describe('Offline', () => {
       await expect(page.getByRole('heading', { name: "Cockpit can't be reached" })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 
+      // Once, not once per thing that was reading. Three components read the
+      // workspace and each used to say so; which of them the router has put on
+      // screen is the one thing only this level knows, which is why the count
+      // is asserted here and the rule itself is proved in
+      // apps/web/tests/unit/pages/workspace-unread.test.tsx.
+      await expect(page.getByRole('heading', { name: "Cockpit can't be reached" })).toHaveCount(1);
+
       // The failure the whole change exists to remove.
       await expect(page.getByText('Something went wrong!')).toHaveCount(0);
       await expect(page.getByText('Failed to fetch')).toHaveCount(0);

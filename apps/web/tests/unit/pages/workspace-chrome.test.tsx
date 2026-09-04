@@ -85,6 +85,12 @@ vi.mock('../../../src/api/queries', () => ({
         ],
       }),
   },
+  // Read by the shell so a workspace that cannot be read is said once rather
+  // than by each thing reading it; these cases are about color, so it answers.
+  snapshotQuery: (workspaceId: string) => ({
+    queryKey: ['snapshot', workspaceId],
+    queryFn: () => Promise.resolve({ items: [], dashboards: [] }),
+  }),
 }));
 
 /**

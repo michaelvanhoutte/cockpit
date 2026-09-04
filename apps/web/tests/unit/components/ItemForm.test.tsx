@@ -263,6 +263,21 @@ describe('Item editing', () => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
       expect(held.send).not.toHaveBeenCalled();
     });
+
+    // The read model lets a title from before the cap existed through on
+    // purpose, so such an item opens this form with an over-cap title in the
+    // box. Measured over the whole draft, that disabled Save outright and
+    // refused an edit to the description for a title nothing was going to send.
+    it('lets a description be written on an item whose stored title is over the cap', async () => {
+      const user = await theForm(anItem({ title: 'x'.repeat(500) }));
+
+      expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+      await user.type(descriptionBox(), 'Tolerances');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_description']);
+    });
   });
 
   describe('what was captured is there when you look for it, and not before', () => {

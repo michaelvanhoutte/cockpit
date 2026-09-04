@@ -100,14 +100,28 @@ function TheForm({
     }
   }, [item, editing]);
 
-  const tooLong =
-    draft !== null &&
-    (draft.title.trim().length > TITLE_LIMIT ||
-      draft.description.trim().length > DESCRIPTION_LIMIT);
+  /**
+   * Over the cap in a box that is actually being sent, not in one that merely
+   * holds too much.
+   *
+   * The read model is permissive on purpose - a title from before the cap
+   * existed still opens - so measuring the whole draft would open such an item
+   * with Save already disabled, and refuse a description-only edit for a title
+   * nothing was going to send. What is refused is what would be written.
+   */
+  const changing = editing ? whatChanged(editing.was, editing.now) : {};
+  const overCap =
+    (changing.title !== undefined && changing.title.length > TITLE_LIMIT
+      ? ('title' as const)
+      : undefined) ??
+    (changing.description != null && changing.description.length > DESCRIPTION_LIMIT
+      ? ('description' as const)
+      : undefined);
+  const tooLong = overCap !== undefined;
 
   const save = async () => {
     if (!item || !editing || tooLong) return;
-    const changed = whatChanged(editing.was, editing.now);
+    const changed = changing;
     setSaving(true);
     setRefusal(null);
     const envelope = () => ({
@@ -210,7 +224,7 @@ function TheForm({
 
           {tooLong && (
             <p role="alert" className="pt-3 text-sm text-over">
-              {draft && draft.title.trim().length > TITLE_LIMIT
+              {overCap === 'title'
                 ? `A title is at most ${TITLE_LIMIT} characters.`
                 : `A description is at most ${DESCRIPTION_LIMIT.toLocaleString()} characters.`}
             </p>

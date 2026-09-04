@@ -333,11 +333,12 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Sign in** — saying which User you are. Today by choosing a name on the **logon page**, which proves nothing and is meant not to; passwords and Google sign-in replace that step later. A sign-in lasts a set time, renews while used, and expires on its own, and Cockpit says so rather than failing at you.
 - **Sign out** — ending a sign-in deliberately. Cockpit forgets it and the browser is left holding nothing of what you were looking at.
 
-Four things the app does in the same way wherever it does them, named here because a shared behaviour with no word is one nobody can say is tested (`tools/test-explorer/concepts.json`):
+Five things the app does in the same way wherever it does them, named here because a shared behaviour with no word is one nobody can say is tested (`tools/test-explorer/concepts.json`):
 
 - **Menu** — the control a row's actions open from, three dots wherever it appears. An action that cannot be taken stays in the menu, unavailable, saying why, rather than disappearing.
 - **Deleting** — asking before anything goes, in a dialog naming what is going and what goes with it, offering Cancel and Delete in that fixed order. Escape and Cancel are the two ways to say no.
 - **Ordering** — putting rows in the order you choose, by dragging one or by moving it a step at a time from its own menu; the two are the same move.
 - **Live updates** — a change made in one place reaching everywhere else it is shown, without a reload.
+- **Updating** — picking up a new version of Cockpit. A tab running one older than the server can read nothing it is told, so it stops, fetches the newer one and comes back where you were, rather than asking. Your sign-in and your work are untouched; the version is the only thing that was wrong. Where there is no newer one to fetch, it says so instead of trying again.
 
 This glossary is binding on anything written to be read as a description of the product, test names included (see `docs/testing-strategy.md`, "Tests are named in the product's language"). Words that live only in `docs/architecture.md` — command, envelope, tombstone, idempotency, last-write-wins — are implementation and stay there.

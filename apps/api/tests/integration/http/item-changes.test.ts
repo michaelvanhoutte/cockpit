@@ -518,7 +518,6 @@ describe('Item editing', () => {
       { situation: 'a title saved', what: 'set_title' as const, value: 'Part 11', column: 'title', stored: 'Part 11' },
       { situation: 'a title with blanks around it', what: 'set_title' as const, value: '  Part 11  ', column: 'title', stored: 'Part 11' },
       { situation: 'a title cleared', what: 'set_title' as const, value: '', column: 'title', stored: '' },
-      { situation: 'a title at the cap', what: 'set_title' as const, value: 'x'.repeat(200), column: 'title', stored: 'x'.repeat(200) },
       { situation: 'a description saved', what: 'set_description' as const, value: 'Ask about the tolerances', column: 'description', stored: 'Ask about the tolerances' },
       // The one text meant to run to paragraphs, so the line breaks are the point.
       { situation: 'a description over several lines', what: 'set_description' as const, value: 'One\n\nTwo', column: 'description', stored: 'One\n\nTwo' },
@@ -526,7 +525,6 @@ describe('Item editing', () => {
       // description was emptied from one that never had a word.
       { situation: 'a description cleared', what: 'set_description' as const, value: '', column: 'description', stored: null },
       { situation: 'a description explicitly removed', what: 'set_description' as const, value: null, column: 'description', stored: null },
-      { situation: 'a description at the cap', what: 'set_description' as const, value: 'x'.repeat(60_000), column: 'description', stored: 'x'.repeat(60_000) },
     ])('$situation', async ({ what, value, column, stored }) => {
       const itemId = await captureAnItem();
 

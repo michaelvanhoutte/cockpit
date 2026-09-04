@@ -283,8 +283,13 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    * of having it. What capture *should* write into the three texts - a cleaned
    * title, several suggestions to pick from - is its own piece of work
    * (docs/ideas.md, "Capture and the task creator").
+   *
+   * Capped where a description is capped, and for the same reason: it lands in
+   * the same snapshot, which every device holds a copy of. Only on the way in -
+   * the read model stays permissive, so a capture from before the cap still
+   * opens (`itemSchema`).
    */
-  message: z.string().trim().min(1),
+  message: z.string().trim().min(1).max(60_000),
   nextAction: z.string().optional(),
   /**
    * What kind of thing it is ("Capture a thought or an action, and see which it

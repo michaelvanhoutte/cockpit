@@ -5,6 +5,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
 import { CACHE_MAX_AGE_MS, PaintedFromTheStoredCopy } from './persistence';
 import { createAppRouter } from './router';
+import { Updating } from './components/Updating';
 import { UndoWhatJustHappened } from './undo';
 import './styles.css';
 
@@ -32,9 +33,20 @@ createRoot(document.getElementById('root')!).render(
           in the Inbox column and one made on a panel are offered back in the
           same place - and so wrapping it costs no re-indent of a file it has
           nothing else to do with. The bar positions itself over the page. */}
-      <UndoWhatJustHappened>
-        <RouterProvider router={router} />
-      </UndoWhatJustHappened>
+      {/* Outside the router and outside the shell, because a build that cannot
+          read what the server says is not in a state any screen can be trusted
+          to render - including the logon page, which hangs off the root rather
+          than off the shell.
+
+          Inside the stored copy's provider, though, and that way round matters:
+          the re-read it starts on the way out of the restore (persistence.tsx)
+          is usually the first read to come back in a shape this build cannot
+          understand, and this has to be watching the cache before it does. */}
+      <Updating>
+        <UndoWhatJustHappened>
+          <RouterProvider router={router} />
+        </UndoWhatJustHappened>
+      </Updating>
     </PaintedFromTheStoredCopy>
   </StrictMode>,
 );
