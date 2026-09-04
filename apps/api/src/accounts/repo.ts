@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, max, ne } from 'drizzle-orm';
+import { and, asc, eq, isNull, max, ne } from 'drizzle-orm';
 import type {
   Association,
   Dashboard,
@@ -350,6 +350,13 @@ export function listLayoutsInWorkspace(
     .all();
   if (found.length === 0) return [];
 
+  // Reached by the same join as the layouts above rather than by naming the
+  // ids just found. Naming them bound one variable per layout, which SQLite
+  // refuses past a limit - and it refused the *whole* workspace read, so a
+  // workspace stopped painting entirely once it had accumulated enough layouts,
+  // which is a dashboard per screen size and nothing unusual. The join binds
+  // the workspace and nothing that grows.
+  //
   // No filter on the panels being live, deliberately: deleting a panel takes
   // its placements with it in the same transaction (command-service.ts), so a
   // placement naming a deleted panel is not a state this store can be in. A
@@ -365,13 +372,13 @@ export function listLayoutsInWorkspace(
       rows: panelPlacements.rowSpan,
     })
     .from(panelPlacements)
+    .innerJoin(layouts, eq(panelPlacements.layoutId, layouts.id))
+    .innerJoin(dashboards, eq(layouts.dashboardId, dashboards.id))
     .where(
       and(
         eq(panelPlacements.tenantId, tenantId),
-        inArray(
-          panelPlacements.layoutId,
-          found.map((layout) => layout.id),
-        ),
+        eq(dashboards.workspaceId, workspaceId),
+        isNull(dashboards.deletedAt),
       ),
     )
     .orderBy(asc(panelPlacements.position), asc(panelPlacements.panelId))

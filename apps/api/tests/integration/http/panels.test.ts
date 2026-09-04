@@ -377,6 +377,30 @@ describe('Panels', () => {
 
       expect((await layoutsOf(dashboardId)).map((layout) => layout.screenWidth)).toEqual([480, 2560]);
     });
+
+    it('still reads the workspace when it holds more layouts than a statement can name', async () => {
+      // A workspace accumulates a layout per dashboard per screen, and the read
+      // that paints it once named every one of them in a single statement -
+      // which SQLite refuses past a limit, failing the *whole* workspace read
+      // rather than a part of it. So the workspace stopped painting at all, and
+      // did so at a size a person reaches by using the product normally.
+      const dashboardId = await aDashboard();
+      const falcon = nextId();
+      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
+      const widths = Array.from({ length: 120 }, (_, at) => 320 + at);
+      for (const screenWidth of widths) {
+        await saveLayout(dashboardId, nextId(), screenWidth, [
+          { panelId: falcon, columns: 3, rows: 3 },
+        ]);
+      }
+
+      const its = await layoutsOf(dashboardId);
+
+      expect(its).toHaveLength(widths.length);
+      // Every one of them arrives with its arrangement, rather than the read
+      // coming back short or empty.
+      expect(its.every((layout) => layout.placements.length === 1)).toBe(true);
+    });
   });
 
   describe('a panel added later joins every layout, and a deleted one leaves them all', () => {
