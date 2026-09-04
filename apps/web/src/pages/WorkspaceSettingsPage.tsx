@@ -14,7 +14,7 @@ import { RowMenu } from '../components/Menu';
  * colors them, puts them in the order they appear across the top of the screen,
  * and deletes them.
  *
- * **A row keeps its shape**, exactly as on the dashboard settings page: what
+ * **A row keeps its shape**, exactly as in the list of dashboards: what
  * can be done to a workspace is in its own menu, renaming happens in the row,
  * and deleting asks in a dialog ("Ask before deleting in a dialog, from the
  * row's own menu", issue 116).

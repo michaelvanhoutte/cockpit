@@ -242,7 +242,7 @@ export function getPanel(db: AccountDb, tenantId: string, panelId: string): Pane
  *
  * The join is on the dashboard's tombstone as well as the panel's. A panel of a
  * deleted dashboard is not on any screen there is, and leaving it in would let
- * the dashboard settings page count panels nobody can reach.
+ * the list of dashboards count panels nobody can reach.
  */
 export function listPanelsInWorkspace(
   db: AccountDb,

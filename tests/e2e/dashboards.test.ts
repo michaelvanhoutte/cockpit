@@ -79,7 +79,7 @@ test.describe('Dashboards', () => {
   });
 
   test.describe('deleting the dashboard you are on leaves you somewhere that works', () => {
-    test('reaches the settings from the bar, renames one, and lands elsewhere after deleting', async ({
+    test('opens the list from the bar, renames one, and lands elsewhere after deleting', async ({
       page,
       isMobile,
     }) => {
@@ -101,22 +101,38 @@ test.describe('Dashboards', () => {
       // The dashboard being deleted is the one being looked at.
       const itsAddress = page.url();
 
-      // The menu at the right of the bar is how the settings are reached, and
-      // choosing the entry is what proves it still leads there: the control
-      // opens a menu rather than navigating ("Open every menu from the same
-      // control", issue 115), and no level below this one can see where its
-      // entry goes.
+      // The menu at the right of the bar is how the list is reached, and
+      // choosing the entry is what proves it still opens it: the control opens
+      // a menu rather than navigating ("Open every menu from the same control",
+      // issue 115), and the list is a dialog over the workspace rather than a
+      // screen, which is a stacking and focus-trapping question only a browser
+      // answers.
       await press(dashboardBar(page).getByRole('button', { name: 'Dashboard actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Manage dashboards' }), isMobile);
+      await expect(page.getByRole('dialog', { name: 'Manage dashboards' })).toBeVisible();
       const renamed = uniqueTitle('Renamed');
       await chooseRowAction(page, doomed, 'Rename', isMobile);
       await page.getByLabel(`New name for ${doomed}`).fill(renamed);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
-      await expect(dashboardBar(page).getByRole('link', { name: renamed })).toBeVisible();
+      // In the list, not in the bar: the bar is behind the dialog and hidden
+      // from a reader while it is open, which is what a modal is for. That the
+      // bar keeps up with the list is what the end of this walk shows.
+      await expect(
+        page.getByRole('dialog', { name: 'Manage dashboards' }).getByText(renamed),
+      ).toBeVisible();
 
       await chooseRowAction(page, renamed, 'Delete', isMobile);
       await expect(page.getByText(`Delete ${renamed}? There is nothing on it.`)).toBeVisible();
       await press(page.getByRole('button', { name: `Yes, delete ${renamed}` }), isMobile);
+
+      // The list stays open with the row gone, and closing it is what puts you
+      // back on the workspace - which moved underneath while it was open,
+      // because the dashboard being deleted was the one being looked at.
+      const list = page.getByRole('dialog', { name: 'Manage dashboards' });
+      await expect(list).toBeVisible();
+      await expect(list.getByText(renamed)).toHaveCount(0);
+      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      await expect(page.getByRole('dialog', { name: 'Manage dashboards' })).toHaveCount(0);
 
       // Somewhere that works: a dashboard that is still there, and no entry in
       // the bar pointing at the one that has gone.

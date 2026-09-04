@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
@@ -93,6 +93,8 @@ function showBoard({
    * dragged rather than from the snapshot in hand.
    */
   settles = true,
+  /** A change already on its way out when the board is first drawn. */
+  pending = false,
 }: {
   panels?: Panel[];
   layouts?: Layout[];
@@ -101,6 +103,7 @@ function showBoard({
   error?: Error;
   variables?: { name: string; payload: Record<string, unknown> };
   settles?: boolean;
+  pending?: boolean;
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (!error && settles) options?.onSuccess?.();
@@ -108,7 +111,7 @@ function showBoard({
   mockUseCommand.mockReturnValue({
     mutate,
     reset: vi.fn(),
-    isPending: false,
+    isPending: pending,
     error: error ?? null,
     variables,
   } as never);
@@ -197,6 +200,56 @@ describe('Panels', () => {
       expect(asked.name).toBe('add_panel');
       expect(asked.payload.name).toBe('Project Falcon');
       expect(asked.payload.dashboardId).toBe('today');
+    });
+
+    it('asks in a form of its own, which is not on the dashboard until it is asked for', async () => {
+      // The bar carries the button and nothing else: a box wide enough to read
+      // a title in used to grow between it and Layouts, moving the controls
+      // after it while it was open.
+      const { user } = showBoard({ panels: [] });
+
+      expect(screen.queryByLabelText('Name of the new panel')).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Add a panel' }));
+
+      expect(screen.getByRole('dialog')).toBeVisible();
+      expect(screen.getByLabelText('Name of the new panel')).toHaveFocus();
+    });
+
+    it.each([
+      { situation: 'cancelled', answer: 'Cancel', while: undefined },
+      { situation: 'dismissed with Escape', answer: null, while: undefined },
+      {
+        // It will not close over its own add, so that a refusal has somewhere
+        // to appear - but the board sends one change at a time from one place,
+        // and an arrangement still going out from a drag a moment earlier is
+        // not this form's business. Taking the whole board's word for it left
+        // a form nobody could get out of: Escape and the press outside are
+        // swallowed with the button.
+        situation: 'dismissed while an arrangement is still going out',
+        answer: null,
+        while: { name: 'save_layout', payload: {} },
+      },
+    ])('sends nothing and closes when it is $situation', async ({ answer, while: inFlight }) => {
+      const { user, mutate } = showBoard({
+        panels: [],
+        pending: inFlight !== undefined,
+        ...(inFlight ? { variables: inFlight } : {}),
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Add a panel' }));
+      await user.type(screen.getByLabelText('Name of the new panel'), 'Project Falcon');
+      if (answer) await user.click(screen.getByRole('button', { name: answer }));
+      else await user.keyboard('{Escape}');
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(screen.queryByLabelText('Name of the new panel')).toBeNull();
+      // Back on the control it was opened from, which is where the next press
+      // would go: dropped to the top of the page is losing your place. Waited
+      // for because the focus is put back as the dialog comes down, a frame
+      // after the answer.
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Add a panel' })).toHaveFocus(),
+      );
     });
   });
 
@@ -554,6 +607,8 @@ describe('Panels', () => {
           await user.click(screen.getByRole('button', { name: 'Save' }));
         },
         says: 'a panel called To read is already on this dashboard',
+        stillOpen: 'New name for Project Falcon',
+        holding: 'Project Falcon',
       },
       {
         situation: 'a request that never reached the server',
@@ -564,15 +619,31 @@ describe('Panels', () => {
           await user.click(screen.getByRole('button', { name: 'Save' }));
         },
         says: 'That did not reach the server. Try again.',
+        stillOpen: 'New name for Project Falcon',
+        holding: 'Project Falcon',
       },
-    ])('$situation', async ({ error, variables, act, says }) => {
+      {
+        situation: 'a title another panel already holds, on a panel being added',
+        error: new CommandRefused(409, 'a panel called To read is already on this dashboard'),
+        variables: { name: 'add_panel', payload: {} },
+        act: async (user: ReturnType<typeof userEvent.setup>) => {
+          await user.click(screen.getByRole('button', { name: 'Add a panel' }));
+          await user.type(screen.getByLabelText('Name of the new panel'), 'To read');
+          await user.click(screen.getByRole('button', { name: 'Add' }));
+        },
+        says: 'a panel called To read is already on this dashboard',
+        stillOpen: 'Name of the new panel',
+        holding: 'To read',
+      },
+    ])('$situation', async ({ error, variables, act, says, stillOpen, holding }) => {
       const { user } = showBoard({ error, variables });
 
       await act(user);
 
       expect(screen.getByRole('alert')).toHaveTextContent(says);
-      // Still there to be corrected: the box does not close over a refusal.
-      expect(screen.getByLabelText('New name for Project Falcon')).toBeVisible();
+      // Still there to be corrected: the box does not close over a refusal, and
+      // it still holds what was typed into it.
+      expect(screen.getByLabelText(stillOpen)).toHaveValue(holding);
     });
 
     it('keeps the layout question open and says why, rather than looking like it worked', async () => {

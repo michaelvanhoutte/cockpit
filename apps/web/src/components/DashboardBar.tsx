@@ -8,6 +8,7 @@ import { snapshotQuery, useCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
+import { ManageDashboards } from './ManageDashboards';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
 /**
@@ -46,6 +47,24 @@ export function DashboardBar({
   const dashboards = data?.dashboards ?? [];
   const roomForTheInbox = useRoomForTheInbox();
   const navigate = useNavigate();
+
+  /**
+   * Whether the list of dashboards is open over the workspace, and the control
+   * it was opened from, which gets the focus back when it closes.
+   *
+   * The menu's own control is the only way in, so the dialog has no trigger to
+   * return to and Radix would leave the focus at the top of the page - which,
+   * from a bar you were half way along, is losing your place.
+   */
+  const [managing, setManaging] = useState(false);
+  const barMenu = useRef<HTMLButtonElement>(null);
+  /**
+   * That the entry just chosen opens something, so the menu closing must not
+   * pull the focus back onto its own control - it would take it straight off
+   * the dialog that has just opened. `RowMenu` does this for the row menus; the
+   * bar's menu is not a row's, and this is the whole of what it borrows.
+   */
+  const opening = useRef(false);
 
   /**
    * Which dashboard's name a drag is resting on, and since when.
@@ -178,19 +197,34 @@ export function DashboardBar({
           33), because this bar is also drawn on the Inbox, where there is no
           dashboard to have a layout. */}
       <DropdownMenu.Root>
-        <MenuTrigger label="Dashboard actions" className="mb-1 ml-auto" />
-        <MenuContent>
-          <DropdownMenu.Item asChild>
-            <Link
-              to="/w/$workspaceId/settings/dashboards"
-              params={{ workspaceId }}
-              className={menuItemClass}
-            >
-              Manage dashboards
-            </Link>
+        <MenuTrigger label="Dashboard actions" className="mb-1 ml-auto" ref={barMenu} />
+        <MenuContent
+          onCloseAutoFocus={(event) => {
+            const claimed = opening.current;
+            opening.current = false;
+            if (claimed) event.preventDefault();
+          }}
+        >
+          {/* An entry rather than a link: the list opens over the workspace
+              instead of replacing it, so renaming a dashboard is a detour and
+              not a journey. */}
+          <DropdownMenu.Item
+            className={menuItemClass}
+            onSelect={() => {
+              opening.current = true;
+              setManaging(true);
+            }}
+          >
+            Manage dashboards
           </DropdownMenu.Item>
         </MenuContent>
       </DropdownMenu.Root>
+      <ManageDashboards
+        workspaceId={workspaceId}
+        open={managing}
+        onClose={() => setManaging(false)}
+        returnFocusTo={barMenu.current}
+      />
     </nav>
   );
 }
@@ -199,6 +233,10 @@ export function DashboardBar({
  * The `+`, and the field it grows where the new tab will be. Adding a dashboard
  * is a one-gesture thing you do often, unlike making a workspace, so it asks
  * for the name in place rather than in a dialog.
+ *
+ * Naming a panel does use a dialog (NewPanelQuestion), and the difference is
+ * where the field goes: this one grows at the end of a bar, where the tab it is
+ * naming will be, while that one grew between two controls and moved them.
  */
 function AddDashboard({ workspaceId }: { workspaceId: string }) {
   const [naming, setNaming] = useState(false);
