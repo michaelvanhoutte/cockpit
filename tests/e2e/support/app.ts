@@ -393,7 +393,7 @@ export async function expectNothingSpillsOutOfTheInbox(page: Page): Promise<void
 /**
  * What this browser is still holding of whoever was signed in: the query keys
  * in the stored copy of the read model (IndexedDB, written by
- * `apps/web/src/persistence.ts`) and the keys the app has written to
+ * `apps/web/src/persistence.tsx`) and the keys the app has written to
  * localStorage.
  *
  * Read straight out of the browser rather than off the screen, because that is
