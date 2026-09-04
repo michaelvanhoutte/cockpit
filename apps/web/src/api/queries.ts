@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
-import type { CommandName, CommandPayload } from '@cockpit/shared';
+import type { CommandName, CommandPayload, WorkspaceSnapshot } from '@cockpit/shared';
 import {
   fetchItemTypes,
   fetchMe,
@@ -140,6 +140,35 @@ const IS_BUILT_ON_THE_LAST_ONE = new Set<CommandName>([
  * has left the screen. A mutation belongs to the component that holds it, and
  * the whole point of an undo is that it outlives one.
  */
+/**
+ * The workspace's copy as it stands now, rather than as it stood when the
+ * render asking began.
+ *
+ * **For a run of changes each built on the last one.** Filing several items, or
+ * putting several back, sends one change at a time and every one of them
+ * carries the panel's whole arrangement afterwards - so each has to be built on
+ * what the panel holds *by then*, which the `data` a render closed over cannot
+ * say.
+ *
+ * **Fetched rather than read off the cache**, which is not the same thing here.
+ * The changes that carry an order wait for a re-read before they finish
+ * (`IS_BUILT_ON_THE_LAST_ONE`), but `invalidateQueries` only refetches the
+ * queries something is still watching - and the workspace's snapshot stops
+ * being watched the moment you navigate off the workspace (`Layout.tsx` runs it
+ * `enabled` on the route's own id). The bar offering the way back outlives that
+ * navigation, being mounted above the router, so an undo pressed from anywhere
+ * else was building its orders on whatever the cache last happened to hold and
+ * being refused for it. `fetchQuery` asks for real when what is held is stale
+ * and hands back the cached copy when it is not.
+ */
+export function useLatestSnapshot(): (workspaceId: string) => Promise<WorkspaceSnapshot> {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (workspaceId: string) => queryClient.fetchQuery(snapshotQuery(workspaceId)),
+    [queryClient],
+  );
+}
+
 export function useSendCommand(): (args: CommandArgs) => Promise<void> {
   const queryClient = useQueryClient();
   return useCallback(

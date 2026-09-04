@@ -17,6 +17,7 @@ export function ItemRow({
   onAddTo,
   onRemoveFromHere,
   onMoveHere,
+  selecting,
 }: {
   item: Item;
   /**
@@ -66,6 +67,20 @@ export function ItemRow({
    * out for itself from the item rather than being told twice.
    */
   onMoveHere?: () => void;
+  /**
+   * Picking this row out to be acted on with others ("Select several items, and
+   * file them all in one go", issue 169), and whether it is picked.
+   *
+   * `revealed` is the list saying it already has a selection, which is what
+   * puts a tick on every row rather than only on the one under the pointer.
+   * Hovering does the same thing in CSS, because a hover is not a state this
+   * row is in - it is where the pointer happens to be.
+   */
+  selecting?: {
+    picked: boolean;
+    revealed: boolean;
+    onPick: (withShift: boolean) => void;
+  };
 }) {
   const command = useCommand();
   const send = useSendCommand();
@@ -189,8 +204,9 @@ export function ItemRow({
       // this, tapping the three dots both opened the menu and began a swipe -
       // and the release then landed on a menu entry in a portal outside this
       // row, so no pointerup ever arrived to end it and the row stayed shifted
-      // sideways.
-      if ((event.target as Element).closest('button')) return;
+      // sideways. The tick is a control for the same reason: picking a row out
+      // is not a gesture across it.
+      if ((event.target as Element).closest('button, input')) return;
       // One finger swipes; a second one landing on the row is ignored rather
       // than taken for the first.
       if (from.current) return;
@@ -254,10 +270,43 @@ export function ItemRow({
       // `pointer-coarse:` rather than plain: a mouse never swipes, and taking
       // selection off a row for everyone would mean a title that cannot be
       // copied to pay for a gesture only a finger makes.
-      className={`flex touch-pan-y items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
-        wouldAct ? (gone > 0 ? 'bg-accent-tint' : 'bg-over/15') : ''
+      className={`group flex touch-pan-y items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
+        wouldAct ? (gone > 0 ? 'bg-accent-tint' : 'bg-over/15') : selecting?.picked ? 'bg-accent-tint' : ''
       }`}
     >
+      {/* Picking the row out to be acted on with others. Always in the markup
+          and hidden by CSS rather than drawn only on hover: a tick that is not
+          there cannot be reached by Tab, and the keyboard is the one way in
+          that neither a pointer nor a finger provides. Shown for good once the
+          list has a selection, because a column of ticks with one filled and
+          the rest invisible reads as a row that is somehow different. */}
+      {selecting && (
+        <input
+          type="checkbox"
+          checked={selecting.picked}
+          aria-label={`Select “${item.nextAction ?? item.title}”`}
+          // `onClick` rather than `onChange`, because whether shift was held is
+          // what tells a range from a single pick and only the click carries it.
+          onClick={(event) => {
+            event.stopPropagation();
+            selecting.onPick(event.shiftKey);
+          }}
+          // React wants one on a checked box; the click above is what acts.
+          onChange={() => {}}
+          // **Invisible means untouchable, not merely unseen.** An opacity of
+          // zero still takes its place in the row and still catches what lands
+          // on it, so a tick nobody can see was eating the start of a swipe in
+          // the leading sixteen pixels of every row - on a device that could
+          // not select anything anyway. It goes back to being a target when it
+          // is drawn: hovered, focused, or once the list has a selection. Tab
+          // still reaches it either way, because focus is not a pointer.
+          className={`size-4 shrink-0 accent-accent ${
+            selecting.picked || selecting.revealed
+              ? ''
+              : 'pointer-events-none opacity-0 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100'
+          }`}
+        />
+      )}
       {/* What kind of thing it is, before anything is read. Decorative on
           purpose: the word it stands for is on the line below, so announcing
           the colour as well would say the type twice. An item with no type has
