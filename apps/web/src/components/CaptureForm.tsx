@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { uuidv7, type Item, type ItemType } from '@cockpit/shared';
+import { ACCOUNT_WIDE, uuidv7, type Item, type ItemType } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { itemTypesQuery, useCommand, useSendCommand } from '../api/queries';
 import { typeNamed, typesOffered, typeToOffer } from '../itemTypes';
@@ -109,7 +109,12 @@ export function CaptureForm({
           payload: {
             commandId: uuidv7(),
             issuedAt: new Date().toISOString(),
-            workspaceId,
+            // The account, not the workspace this was captured in: a type
+            // belongs to the account, and the live-updates handler reads that
+            // to know every workspace's types have changed. Sending the
+            // workspace here left every other tab's list stale until an
+            // unrelated refetch happened to catch it up.
+            workspaceId: ACCOUNT_WIDE,
             typeId: uuidv7(),
             name: wanted,
           },

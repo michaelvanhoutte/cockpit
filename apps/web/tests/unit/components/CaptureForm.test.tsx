@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
+import { ACCOUNT_WIDE } from '@cockpit/shared';
 import type { Item, ItemType } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { CaptureForm } from '../../../src/components/CaptureForm';
@@ -181,7 +182,10 @@ describe('Capture', () => {
       expect(send).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'create_item_type',
-          payload: expect.objectContaining({ name: 'Question' }),
+          // The account rather than this workspace, because a type belongs to
+          // the account - and it is what tells every other tab its list of
+          // types has changed.
+          payload: expect.objectContaining({ name: 'Question', workspaceId: ACCOUNT_WIDE }),
         }),
       );
       await waitFor(() => expect(asked(mutate, 'capture_item')).toBeDefined());
