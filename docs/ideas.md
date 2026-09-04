@@ -1,6 +1,6 @@
 # Ideas Backlog
 
-Raw feature ideas, captured as voice and WhatsApp notes between 17 and 25 August 2026 and grouped by theme. A **capture list, not a plan**: nothing here is decided, sized or scheduled. Contradictions and overlaps with the [functional definition](functional-definition.md) are kept as written, because the wording is the record of what was wanted.
+Raw feature ideas, captured as voice and WhatsApp notes between 17 August and 3 September 2026 and grouped by theme. A **capture list, not a plan**: nothing here is decided, sized or scheduled. Contradictions and overlaps with the [functional definition](functional-definition.md) are kept as written, because the wording is the record of what was wanted.
 
 Terminology follows the functional definition. Notes since taken up in their own documents are marked where they appear, and kept so the origin of the requirement stays visible.
 
@@ -43,6 +43,8 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 - **Authentication skill.** Add a skill for commands that states which method is used to authenticate with each target system (Linear, Jira, Notion, ...) when authentication is needed.
 - **Commands run as durable background jobs.** Example: a Command button that appends text to this project's `ideas.md`. Dropping a note on it starts the operation asynchronously so I can carry on immediately, which means the job must survive a crash or a restart rather than sitting in an in-memory queue.
 - **Async task UI** showing every launched asynchronous task and its status, with enough detail to troubleshoot a failure and retry it. (Related to the command history UI above and to the operations items in §7.)
+- **Show the agents that are running.** Show the active Claude, coding and other agents, not only the tasks Cockpit itself launched.
+- **Run an agent on an Item.** Drag an agent or a command onto an action; that action then carries a small icon showing an agent is running on it.
 
 ## 4. Chat
 
@@ -97,3 +99,7 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 - **Issues must be small enough** that you can control what is tested. *(Enforced by `scoping` as a vertical-slice size gate.)*
 - **Issues cannot be the long-term link.** The durable link is to *features*, because features change while issues are closed and left behind. *(The statement list says explicitly that it stops being the reference once building starts.)*
 - **Migrate the glossary/ADR layout?** mattpocock-skills' `domain-modeling` (`CONTEXT.md` + `docs/adr/`) came up while building the issue-creation skill. The functional definition's glossary maps closely onto `CONTEXT.md` — close to a rename. The architecture's decisions are a different matter: they live as prose sections inside one narrative document, so splitting them into `docs/adr/NNNN-slug.md` files is a real decomposition. Deferred, and worth deciding on its own footing.
+
+## 11. Sources to connect
+
+- **Incoming invoices.** Show the invoices coming in to me.
