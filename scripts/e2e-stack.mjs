@@ -42,13 +42,21 @@
 // in lib/stack.mjs, where they can be tested without starting anything.
 //
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { paint, run, start, stop, supervise } from './lib/processes.mjs';
 import { howToFreeThePort, isLinkedWorktree, portsFor } from './lib/ports.mjs';
-import { assertPortFree, schemaDigest, templateIsCurrent, waitForApi } from './lib/stack.mjs';
+import {
+  assertPortFree,
+  exitReport,
+  fatalReason,
+  newestLog,
+  schemaDigest,
+  templateIsCurrent,
+  waitForApi,
+} from './lib/stack.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const apiDir = join(root, 'apps/api');
@@ -166,6 +174,12 @@ try {
   process.exit(1);
 }
 
+// Noted before the Worker is started, so a log from an *earlier* run is never
+// read out as this one's reason. Wrangler keeps its old files until it prunes
+// them, and the case that matters is a Worker that died before writing
+// anything of its own.
+const startedAt = Date.now();
+
 const api = start(
   ['--filter', '@cockpit/api', 'exec', 'wrangler', 'dev', '--port', String(API_PORT), '--persist-to', RUN_DIR],
   'test api',
@@ -177,7 +191,25 @@ const api = start(
 try {
   await waitForApi(api, API_PORT);
 } catch (error) {
+  // The same reason, for the half of the story that happens before the stack is
+  // up: a Worker that never started has a log too, and printing only "it exited
+  // before it was ready (1)" sends the reader to an artifact for a sentence.
+  //
+  // Inside its own try, and that is not belt and braces: stop(api) below is
+  // what keeps a half-started Wrangler from holding the API port, which the
+  // guard at the top of this file then refuses to start against on every later
+  // run. Reading a file that Wrangler may be pruning must not come between the
+  // two.
   console.error(paint('31', `\n${error.message}`));
+  try {
+    const startupLog = newestLog(LOG_DIR, startedAt);
+    if (startupLog) {
+      const reason = fatalReason(readFileSync(startupLog, 'utf8'));
+      console.error(paint('31', reason ? `  ${reason}` : `  Wrangler's log: ${startupLog}`));
+    }
+  } catch (couldNotRead) {
+    console.error(paint('31', `  (could not read Wrangler's log: ${couldNotRead.message})`));
+  }
   // stop(), not api.kill(): on Windows the child here is a shell, and signalling
   // it would leave Wrangler holding the API port — which the check above would
   // then refuse to start against on every later run.
@@ -204,4 +236,19 @@ console.log(
   `\n${paint('36', 'test api')} http://localhost:${API_PORT}   ${paint('35', 'test web')} http://localhost:${WEB_PORT}   (a fresh database, thrown away next run)\n`,
 );
 
-supervise([api, web]);
+/**
+ * Why a half of the stack has gone, for supervise() to print beside the fact
+ * that it has.
+ *
+ * Only the Worker has an answer to give: Wrangler keeps a log (LOG_DIR above),
+ * and reading it here is the difference between "a server exited (1)" and the
+ * sentence that names what happened. Vite falls through to the same report
+ * without one, which is honest — it writes no log, so there is nothing to read.
+ */
+function whyItWent(child, code) {
+  if (child !== api) return exitReport('test web server', code, null, null);
+  const logPath = newestLog(LOG_DIR, startedAt);
+  return exitReport('test API', code, logPath, logPath === null ? null : readFileSync(logPath, 'utf8'));
+}
+
+supervise([api, web], stop, whyItWent);

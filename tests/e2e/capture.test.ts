@@ -1,11 +1,12 @@
-import { expect, test } from '@playwright/test';
 import {
   captureBox,
+  expect,
   expectNoSidewaysScroll,
   inbox,
   itemRow,
   openInbox,
   press,
+  test,
   uniqueTitle,
 } from './support/app';
 

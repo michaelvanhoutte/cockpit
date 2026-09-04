@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { capture, itemRow, openInbox, press, swipeRow, uniqueTitle } from './support/app';
+import { capture, expect, itemRow, openInbox, press, swipeRow, test, uniqueTitle } from './support/app';
 
 /**
  * F3, and specifically on both projects, because the way this action is

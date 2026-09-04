@@ -1,4 +1,14 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
+import {
+  expect,
+  test as base,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from '@playwright/test';
 
 /**
  * Shared arrangement for the F3 walks. Not a page-object layer — F3 is
@@ -32,6 +42,96 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * mandatory - and unique titles remain the rule for everything that does not
  * take it.
  */
+
+/**
+ * Once the stack is known to be gone, the note saying so.
+ *
+ * **A file, not a variable, and that is the whole of why this works.**
+ * Playwright throws its worker process away and starts a fresh one after every
+ * failed test, so module state does not outlive the walk that discovered
+ * anything: the first version of this held a `let`, detected the dead stack
+ * thirty-four times in one run, and skipped two. The output directory is
+ * emptied at the start of each run, so the note cannot be left over from the
+ * last one either.
+ */
+const NOTE = '.the-stack-went-away';
+
+const noteIn = (info: TestInfo) => join(info.project.outputDir, NOTE);
+
+/**
+ * Every walk runs under this, which is why the specs import `test` from here
+ * rather than from `@playwright/test` — **a new spec that imports it from
+ * Playwright directly opts out of this silently**, the same trap as naming a
+ * spec `.spec.ts` and having the explorer not count it.
+ *
+ * What it is for: when the test stack dies mid-run, everything after it fails
+ * on a symptom of its own — a connection refused here, an element not found
+ * there — and reads like a dozen unrelated bugs. Two E2E jobs died that way on
+ * 3 September 2026 (wrangler quitting on a transient it should have survived,
+ * cloudflare/workers-sdk#15317) and cost an artifact download and a log read
+ * each to tell apart from real breakage.
+ *
+ * **It never turns a red run green.** The stack going away is a failure worth
+ * seeing — it may be the application that has become unstable — so the walk
+ * that discovers it still fails, and skipping only begins afterwards. That
+ * ordering is what makes a green run impossible here: nothing is skipped until
+ * something has already failed.
+ */
+export const test = base.extend<{ againstALiveStack: void }>({
+  againstALiveStack: [
+    async ({ request }, use, testInfo) => {
+      const note = noteIn(testInfo);
+      // Not "is the stack up?" before every walk: that is a request per walk to
+      // answer a question whose answer is yes all but once in a suite's life.
+      // The cheap version asks only once something has already gone wrong.
+      if (existsSync(note)) test.skip(true, readFileSync(note, 'utf8'));
+
+      await use();
+
+      if (testInfo.status === testInfo.expectedStatus || existsSync(note)) return;
+      if (await answering(request)) return;
+
+      const gone =
+        'the test stack exited during this run, so this walk was not run against a live server ' +
+        '— read the [test api] and [test web] output above for why it went';
+      mkdirSync(dirname(note), { recursive: true });
+      writeFileSync(note, gone);
+      // Printed as well as written, because the reason a walk was skipped never
+      // reaches the terminal and this is the one line that explains the rest of
+      // the run. Once, by the walk that found out.
+      console.error(`\n${gone}\n`);
+      testInfo.annotations.push({ type: 'stack', description: gone });
+    },
+    { auto: true },
+  ],
+});
+
+/**
+ * Whether the stack still answers. Anything but a plain yes counts as gone —
+ * a refused connection throws, and a Worker answering something other than 200
+ * is not a stack a walk can be run against either.
+ *
+ * Asked twice before it is believed. The contention that makes the Worker die
+ * in the first place is the same contention that makes a request slow: on the
+ * jobs this was written for, ordinary calls were taking over a second and a
+ * half. One slow answer here would declare a live stack dead, skip the rest of
+ * the run, and print a sentence that is not true — which is worse than the
+ * confusion it exists to remove. A stack that has really gone refuses the
+ * connection at once, so the second ask costs nothing in the case that matters.
+ */
+async function answering(request: APIRequestContext): Promise<boolean> {
+  for (let ask = 0; ask < 2; ask += 1) {
+    try {
+      if ((await request.get('/health', { timeout: 5_000 })).ok()) return true;
+    } catch {
+      // Refused, or too slow to be worth waiting for. Ask once more.
+    }
+    if (ask === 0) await new Promise((wait) => setTimeout(wait, 1_000));
+  }
+  return false;
+}
+
+export { expect };
 
 /**
  * Presses a control the way the device under test would. This is not a

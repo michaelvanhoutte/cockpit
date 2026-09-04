@@ -137,6 +137,41 @@ describe('supervise', () => {
     assert.deepEqual(stopped, [first, second], 'a second exit must not re-signal what is already stopping');
     exitCodeAfterShutdown();
   });
+
+  it('asks what went wrong, naming the child that went and the code it went with', () => {
+    const first = fakeChild();
+    const second = fakeChild();
+    const { stop } = recordStops();
+    const asked = [];
+    supervise([first, second], stop, (child, code) => {
+      asked.push([child === first ? 'first' : 'second', code]);
+      return 'because of something';
+    });
+
+    first.emitExit(1);
+
+    assert.deepEqual(asked, [['first', 1]], 'why is specific to which half died, so both have to reach the caller');
+    exitCodeAfterShutdown();
+  });
+
+  it('still stops the others when working out why throws', () => {
+    // The real explain reads a log off disk from inside an exit handler. A
+    // throw there used to skip the shutdown below it, leaving the other half
+    // holding its port — which the next run refuses to start against, so one
+    // unreadable file would break the suite on that machine until someone
+    // killed the process by hand.
+    const first = fakeChild();
+    const second = fakeChild();
+    const { stopped, stop } = recordStops();
+    supervise([first, second], stop, () => {
+      throw new Error('no such file');
+    });
+
+    first.emitExit(1);
+
+    assert.deepEqual(stopped, [first, second], 'a death nobody could explain is still a death to act on');
+    assert.equal(exitCodeAfterShutdown(), 1);
+  });
 });
 
 describe('halvesToRun', () => {
