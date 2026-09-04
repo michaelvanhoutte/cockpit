@@ -574,7 +574,8 @@ export const items = sqliteTable(
     // `preview` is deliberately absent though the column is still there: nothing
     // reads or writes it from here on, and dropping it waits for a later release
     // so a rollback still meets a schema its code can read (deployment,
-    // "Migrations and rollback"; issue 161).
+    // "Migrations and rollback"; "Drop the preview column, once nothing reads
+    // it", issue 161).
     title: text('title').notNull(),
     description: text('description'),
     /**

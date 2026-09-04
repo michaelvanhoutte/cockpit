@@ -710,7 +710,8 @@ function itemTypes(accountId: string): Change {
  *   promoted back*, its reads name a subset of the columns that exist, which
  *   SQLite is happy with. The reverse - a release naming a column that is gone -
  *   is what dropping `preview` would cause, which is why that waits for its own
- *   release (deployment, "Migrations and rollback"; issue 161).
+ *   release (deployment, "Migrations and rollback"; "Drop the preview column,
+ *   once nothing reads it", issue 161).
  */
 const ITEM_TEXTS: Change = {
   name: '0009-item-texts',

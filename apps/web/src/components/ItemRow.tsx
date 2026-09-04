@@ -295,7 +295,9 @@ export function ItemRow({
           <span className="truncate">{itemLabel(item)}</span>
           {/* That there is something written about this Item, not what it says
               - the description is paragraphs and this is a row. A mark rather
-              than a snippet, so the row keeps the height issue 140 settled, and
+              than a snippet, so the row keeps the height "Create an item on a
+              panel, edit it in place, and list every item plainly" (issue 140)
+              settled, and
               titled rather than lettered because it has nothing to spell. */}
           {item.description && (
             <span

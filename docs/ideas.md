@@ -53,7 +53,7 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 ## 5. Item content
 
 - **Rich text** in the description of an action/note. *(Scoped into two: "Edit an item's title and description on a form of its own" (issue 159) gives the description somewhere to live at all, and "Format a description, and edit its source" (issue 160) formats it. Candidates compared in [rich-text-options.md](rich-text-options.md).)*
-- **Attachments** in the description of an action/note. *(Still open, and now the blocker on one half of the above: issue 160 keeps a pasted image and offers no way to add one, because there is nowhere to put the file.)*
+- **Attachments** in the description of an action/note. *(Still open, and now the blocker on one half of the above: "Format a description, and edit its source" (issue 160) keeps a pasted image and offers no way to add one, because there is nowhere to put the file.)*
 
 ## 6. Search, archive and organisation
 
