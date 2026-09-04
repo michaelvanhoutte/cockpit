@@ -130,6 +130,17 @@ function aPanel(id: string, dashboardId: string, name: string): Panel {
 const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
 
 /**
+ * A captured item, which is what capture actually makes: no title, and the text
+ * in the captured message. Every other fixture here has a title, and with one
+ * the old `item.nextAction ?? item.title` and `itemLabel(item)` say the same
+ * thing - so nothing else in this file can tell the two apart.
+ */
+const JUST_CAPTURED: Item = {
+  ...anItem('11111111-1111-7111-8111-000000000009', ''),
+  capturedMessage: 'Ask Novy about the part 11 tolerances',
+};
+
+/**
  * The box a drop is handled on: the rows and the empty message both sit inside
  * it, so it is one parent up from whichever of them is drawn.
  */
@@ -189,6 +200,38 @@ async function showList({
   await waitFor(() => expect(client.getQueryData(['snapshot', 'ws-work'])).toBeDefined());
   return userEvent.setup();
 }
+
+describe('Item editing', () => {
+  describe('a dialog names an item the way its row does', () => {
+    // The bug this holds: every dialog and undo offer read `title`, which
+    // capture no longer writes, so each named a captured item as an empty pair
+    // of quotation marks. Found in the browser, which is the only tier that
+    // reads these dialogs - and this is the level that can hold it.
+    it('names a captured item by what was captured, in the picker', async () => {
+      const user = await showList({ items: [JUST_CAPTURED], openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+
+      expect(dialog).toHaveTextContent('Ask Novy about the part 11 tolerances');
+    });
+
+    it('names it the same way in the offer to undo what just happened', async () => {
+      // The offer waits for the change to land, which this file's mutation
+      // never does by itself.
+      held.mutate.mockImplementation((_args, options?: { onSuccess?: () => void }) =>
+        options?.onSuccess?.(),
+      );
+      const user = await showList({ items: [JUST_CAPTURED], openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        'Ask Novy about the part 11 tolerances',
+      );
+    });
+  });
+});
 
 /** Move to… lives in the row's own menu, so reaching the picker is two gestures. */
 async function openThePicker(user: ReturnType<typeof userEvent.setup>) {
