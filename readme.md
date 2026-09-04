@@ -168,13 +168,17 @@ One consequence, which is the action's behaviour rather than either workflow's: 
 
 **Posting the findings is where the automation stops.** Answering them is manual and it is a rule: reply in each review thread naming the commit that fixed it, then resolve it — see "Review findings" in [CLAUDE.md](CLAUDE.md). Nothing about pushing a fix or merging closes a thread.
 
-Note the ordering. The review is triggered *by* the push, so it has not run when the pull request appears — and it has not necessarily been *created* either, since `ci.yml` also runs on `push`, so a commit can carry a full set of finished check runs while the pull-request-triggered ones have not been dispatched. Wait for the checks to settle first; the command is in "Review findings" in [CLAUDE.md](CLAUDE.md), and lives there alone because the copy that used to sit here went stale the day that one was fixed.
+**Why the reviews wait until a pull request is marked ready — read this before making them fire on every push again.** Measured over one day's runs, 2026-09-04: `ci.yml` 196–301s, CodeQL 60–101s, the security review 46–205s, and the code review **50–986s**. The code review is the long pole every time and the only check whose cost varies nearly twentyfold, so triggering it per push had by that date bought `claude/richtext-action-scope-afec5f` eight completed reviews in that day alone — none under ten minutes, the longest over sixteen — each judging a head the next push had already replaced. Both workflows now skip a draft and cancel superseded runs, so a pull request is reviewed once, against the head that merges.
+
+Those intermediate reviews were not extra safety. They re-read code that was still moving, and the only verdict that ever mattered was the one on the final head — while the four checks `main` actually enforces finish in under two minutes, so nothing about the merge gate was waiting on them. **Removing the draft guard, or opening pull requests ready rather than draft, buys all of that back.** Open with `gh pr create --draft` and mark ready with `gh pr ready` when the work is done; the rule and its waiter are under "Review findings" in [CLAUDE.md](CLAUDE.md).
+
+Note the ordering. The reviews are triggered by `ready_for_review`, not by the push — `ci.yml` and `codeql.yml` name no `types`, so they run on a draft's pushes and not on the transition. A commit can therefore carry a full set of finished check runs with neither review among them, which is a pass nobody reviewed rather than a pass. Mark it ready first, then wait for the checks to settle; the command is in "Review findings" in [CLAUDE.md](CLAUDE.md), and lives there alone because the copy that used to sit here went stale the day that one was fixed.
 
 ### Checked in — agent configuration
 
 | What | Where | Effect |
 |---|---|---|
-| Project instructions | [CLAUDE.md](CLAUDE.md) | Loaded into every session: how to run it, how to write, when to scope, the two testing rules that get skipped most, and what answering a review requires. |
+| Project instructions | [CLAUDE.md](CLAUDE.md) | Loaded into every session: how to run it, how to write, when to scope, the two testing rules that get skipped most, when a pull request is opened as a draft and marked ready, and what answering a review requires. |
 | `scoping` skill | [.claude/skills/scoping/](.claude/skills/scoping/SKILL.md) | Sharpen requirements, size the vertical slice, enumerate failure modes, produce the statement list — before any code. |
 | `testing` skill | [.claude/skills/testing/](.claude/skills/testing/SKILL.md) | The binding test rules, restated in full so no agent has to open the strategy document. |
 | `github-issue` skill | [.claude/skills/github-issue/](.claude/skills/github-issue/SKILL.md) | The issue body template, its length rules, and the `gh` publishing step. |
