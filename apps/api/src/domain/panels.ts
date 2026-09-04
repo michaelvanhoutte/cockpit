@@ -84,6 +84,37 @@ export function placementRows(
 }
 
 /**
+ * How many placement rows one insert may carry.
+ *
+ * A statement may bind 100 values (architecture, "No statement's parameter
+ * count grows with the data") and a placement row is six columns, so sixteen
+ * rows is 96 and seventeen is 102. That is not a comfortable margin chosen by
+ * feel - it is the arithmetic, and the number it produced was reachable by one
+ * person on one dashboard: before this, arranging a seventeenth panel raised
+ * `too many SQL variables` and the dashboard could not be rearranged at all.
+ */
+export const PLACEMENTS_PER_INSERT = Math.floor(100 / 6);
+
+/**
+ * One layout's rows, split into inserts small enough to be sent.
+ *
+ * Order is kept across the split, and every row lands in exactly one batch, so
+ * what is written is what `placementRows` produced - the split is a property of
+ * the statement, not of the arrangement. `position` is already on each row by
+ * the time this is called, so a row's place survives being in the second batch.
+ */
+export function placementBatches(
+  rows: readonly PlacementRow[],
+  size: number = PLACEMENTS_PER_INSERT,
+): PlacementRow[][] {
+  const batches: PlacementRow[][] = [];
+  for (let from = 0; from < rows.length; from += size) {
+    batches.push(rows.slice(from, from + size));
+  }
+  return batches;
+}
+
+/**
  * Where a newly added panel goes in a layout that already exists: last, at the
  * size of the panel already last in it.
  *

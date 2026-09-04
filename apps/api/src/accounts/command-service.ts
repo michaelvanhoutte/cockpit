@@ -45,6 +45,7 @@ import {
   panelFromCommand,
   panelNamed,
   panelsNotOn,
+  placementBatches,
   placementRows,
 } from '../domain/panels.js';
 import {
@@ -570,7 +571,15 @@ export function runCommand<N extends CommandName>(
             and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, cmd.layoutId)),
           )
           .run();
-        if (rows.length > 0) tx.insert(panelPlacements).values(rows).run();
+        // Several inserts rather than one, because one statement may bind 100
+        // values and a placement is six of them (`placementBatches`). Inside
+        // this transaction and not beside it, which is the whole of what makes
+        // a big arrangement still all-or-nothing: a batch that failed with its
+        // predecessors already committed would leave a layout holding half an
+        // arrangement, and nothing afterwards would know to finish it.
+        for (const batch of placementBatches(rows)) {
+          tx.insert(panelPlacements).values(batch).run();
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;

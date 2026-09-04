@@ -485,4 +485,81 @@ describe('Panels', () => {
       expect((await panelsOn(dashboardId)).map((panel) => panel.name)).toEqual(['Project Falcon']);
     });
   });
+
+  /**
+   * The write half of the ceiling the read hit above ("still reads the
+   * workspace when it holds more layouts than a statement can name"): a store
+   * binds 100 values per statement (architecture, "No statement's parameter
+   * count grows with the data") and a placement is six of them, so an
+   * arrangement used to fail at seventeen panels. Forty rather than seventeen,
+   * so the case goes on being about the limit if the batch size moves.
+   */
+  describe('a dashboard is arranged however many panels are on it', () => {
+    it('stores all forty in the order given, at the sizes given', async () => {
+      const dashboardId = await aDashboard();
+      const wanted: { panelId: string; columns: number; rows: number }[] = [];
+      for (let n = 0; n < 40; n += 1) {
+        const panelId = nextId();
+        expect((await addPanel(dashboardId, `Panel ${n}`, { panelId })).status).toBe(200);
+        // Sizes that differ per panel, so a row landing under another panel's
+        // place would show up as the wrong size rather than passing quietly.
+        wanted.push({ panelId, columns: (n % 12) + 1, rows: (n % 5) + 1 });
+      }
+
+      const saved = await saveLayout(dashboardId, nextId(), 1280, wanted);
+
+      expect(saved.status).toBe(200);
+      expect((await layoutsOf(dashboardId))[0]?.placements).toEqual(wanted);
+      // Forty panels is forty-two round trips, which is past the default five
+      // seconds on its own - `startFromEmpty` empties the store before every
+      // case, so this is the cost of the requests and not of what ran before.
+    }, 30_000);
+  });
+
+  describe('the layouts a workspace shows are its own', () => {
+    it('leaves out another workspace’s, and a deleted dashboard’s', async () => {
+      const mine = await aDashboard();
+      const falcon = nextId();
+      await addPanel(mine, 'Project Falcon', { panelId: falcon });
+      await saveLayout(mine, nextId(), 1280, [{ panelId: falcon, columns: 4, rows: 3 }]);
+
+      const doomed = await aDashboard();
+      const passing = nextId();
+      await addPanel(doomed, 'Passing thought', { panelId: passing });
+      await saveLayout(doomed, nextId(), 1280, [{ panelId: passing, columns: 6, rows: 2 }]);
+      expect(
+        (await send('delete_dashboard', { workspaceId: WORKSPACE_ID, dashboardId: doomed })).status,
+      ).toBe(200);
+
+      // Every one of these is checked, because the assertion below is that the
+      // other workspace's layout is absent - and a setup that quietly failed
+      // would make it absent for the wrong reason and pass.
+      const elsewhere = nextId();
+      const stranger = nextId();
+      const theirs = nextId();
+      for (const made of [
+        await send('create_workspace', { workspaceId: elsewhere, name: `Personal ${seq}` }),
+        await send('add_dashboard', {
+          workspaceId: elsewhere,
+          dashboardId: theirs,
+          name: 'Someone else’s',
+        }),
+        await addPanel(theirs, 'Not yours', { panelId: stranger, workspaceId: elsewhere }),
+        await send('save_layout', {
+          workspaceId: elsewhere,
+          dashboardId: theirs,
+          layoutId: nextId(),
+          screenWidth: 1280,
+          placements: [{ panelId: stranger, columns: 12, rows: 4 }],
+        }),
+      ]) {
+        expect(made.status).toBe(200);
+      }
+
+      const shown = (await snapshot()).layouts;
+
+      expect(shown.map((layout) => layout.dashboardId)).toEqual([mine]);
+      expect(shown[0]?.placements).toEqual([{ panelId: falcon, columns: 4, rows: 3 }]);
+    });
+  });
 });

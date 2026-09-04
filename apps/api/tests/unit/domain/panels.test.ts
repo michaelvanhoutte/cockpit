@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PANEL_SIZE } from '@cockpit/shared';
 import type { Panel, SaveLayoutCommand } from '@cockpit/shared';
-import { appendedPlacement, panelsNotOn, placementRows } from '../../../src/domain/panels.js';
+import {
+  PLACEMENTS_PER_INSERT,
+  appendedPlacement,
+  panelsNotOn,
+  placementBatches,
+  placementRows,
+} from '../../../src/domain/panels.js';
 
 /**
  * L1: where a new panel lands in a layout, which panels an arrangement names
@@ -80,6 +86,30 @@ describe('Panels', () => {
         { tenantId: 'tenant', layoutId: 'wide', panelId: 'falcon', position: 0, columnSpan: 4, rowSpan: 3 },
         { tenantId: 'tenant', layoutId: 'wide', panelId: 'reading', position: 1, columnSpan: 8, rowSpan: 2 },
       ]);
+    });
+  });
+
+  describe('an arrangement of any size is stored whole, in the order it was given', () => {
+    it.each([
+      { situation: 'a dashboard arranged empty', panels: 0 },
+      { situation: 'a handful of panels', panels: 3 },
+      { situation: 'exactly as many as one write holds', panels: PLACEMENTS_PER_INSERT },
+      { situation: 'one more than one write holds', panels: PLACEMENTS_PER_INSERT + 1 },
+      { situation: 'a dashboard nobody should build, at forty panels', panels: 40 },
+    ])('$situation', ({ panels }) => {
+      const rows = placementRows(
+        'tenant',
+        'wide',
+        Array.from({ length: panels }, (_, n) => ({ panelId: `panel-${n}`, columns: 4, rows: 3 })),
+      );
+
+      const written = placementBatches(rows);
+
+      // Every panel exactly once, still in its place: what comes back out is
+      // what went in, whether that took one write or three.
+      expect(written.flat()).toEqual(rows);
+      for (const batch of written) expect(batch.length).toBeLessThanOrEqual(PLACEMENTS_PER_INSERT);
+      expect(written.some((batch) => batch.length === 0)).toBe(false);
     });
   });
 

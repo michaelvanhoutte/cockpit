@@ -94,6 +94,8 @@ These conventions are enforced by the schema, not by the callers that happen to 
 - **The live-updates stream stays in the Worker**, polling the account's store rather than moving into it, because Durable Objects bill wall-clock duration and the stream is long-lived by design.
 - **The register cannot be joined to account data** — D1 cannot join across bindings, and a Worker cannot join D1 to a Durable Object — so `tenant_id` carries no foreign key inside a store.
 
+**No statement's parameter count grows with the data.** A store's SQLite binds at most 100 values per statement, so a query holding one variable per row it found, or an insert holding one per row it writes, works until somebody has enough and then fails — and it fails as a 500 on a read the whole page depends on, not as a slow query. Reach a set through a join or split the write into batches; never build an `IN` list or a multi-row insert whose length is the user's. Both instances the codebase had were reachable in ordinary use: the workspace snapshot died at 100 layouts, and a dashboard could not be rearranged at all once it held 17 panels, six bound values each.
+
 **`tenant_id` stays on every row even after the split.** It looks redundant once a store holds one account, and is not:
 
 - **It is the second lock again.** Correctness otherwise rests entirely on addressing the right store; with `tenant_id` a routing bug returns nothing, without it that same bug serves another account's data.
