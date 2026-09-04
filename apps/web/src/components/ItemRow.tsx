@@ -241,15 +241,24 @@ export function ItemRow({
       // A double-click opens the form. Not a single click: a row is dragged,
       // swiped and dropped on, and every one of those begins with a press.
       //
-      // **Only when the row itself was double-clicked.** The event bubbles, so
-      // without this a double press on the menu control - or on an entry in the
-      // open menu - opens the form over the menu as well as doing what was
-      // asked. The controls inside the row have their own meanings and none of
-      // them is "open this".
+      // **Only when the row itself was double-clicked**, which is two different
+      // questions because a React event bubbles through the component tree
+      // rather than the DOM one.
+      //
+      // *Inside this row at all*: the menu's entries are drawn in a portal on
+      // the body, so a double press on one reaches this handler while sitting
+      // nowhere near the `li` in the DOM. `contains` is what tells them apart -
+      // and it is not hypothetical, because an unavailable **Move up** keeps
+      // the menu open under the second press (`MoveAStep`).
+      //
+      // *And not on a control of the row's own*: the menu's three dots is a
+      // button inside the `li`, so containment alone would let a double press
+      // on it open the form as well as the menu.
       onDoubleClick={(event) => {
-        if (event.target === event.currentTarget || !(event.target as Element).closest('button')) {
-          onOpen?.();
-        }
+        const hit = event.target as Node;
+        if (!event.currentTarget.contains(hit)) return;
+        if ((hit as Element).closest?.('button')) return;
+        onOpen?.();
       }}
       onDragStart={(event) => {
         event.dataTransfer.setData(ITEM_BEING_DRAGGED, item.id);
