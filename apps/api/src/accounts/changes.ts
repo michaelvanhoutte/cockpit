@@ -288,8 +288,8 @@ const DASHBOARDS: Change = {
  *   in the same millisecond still get different numbers rather than sharing one.
  * - **What each environment does.** All of them do this, and they do it the same
  *   way - an account applies its outstanding changes inside the first request
- *   that opens it, whether that account is on a laptop, in preview, in staging
- *   or in production. There is no per-environment seeding step to differ,
+ *   that opens it, whether that account is on a laptop, in staging or in
+ *   production. There is no per-environment seeding step to differ,
  *   because nothing outside a store can reach one.
  * - **The windows it can be interrupted in.** Two, and the second is the reason
  *   the column is additive rather than a rebuild. *Before it runs*: the account
@@ -348,10 +348,10 @@ const WORKSPACE_ORDER: Change = {
  *   empty by this change, so the first row any of these constraints ever sees
  *   is one the command handlers wrote.
  * - **What each environment does.** Nothing environment-specific: no seed and
- *   no backfill, so preview (re-seeded every deploy), staging (deliberately
- *   never) and production (seeded once by hand) all get the same three empty
- *   tables. Every account applies this the next time it is opened, which is the
- *   price the account storage decision records.
+ *   no backfill, so staging (deliberately never re-seeded) and production
+ *   (seeded once by hand) both get the same three empty tables. Every account
+ *   applies this the next time it is opened, which is the price the account
+ *   storage decision records.
  * - **The windows it can be interrupted in.** Two, and both are safe. Before
  *   the tables exist, the code running is the code that never reads them.
  *   After, an account is brought up to date *before* any work in the same

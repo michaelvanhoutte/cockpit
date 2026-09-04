@@ -27,7 +27,7 @@ import { isLinkedWorktree, portsFor } from './scripts/lib/ports.mjs';
  *    in dev), unbundled modules, and Vite's own SPA fallback rather than the
  *    Worker's `run_worker_first` routing. Those three are all-or-nothing
  *    failures rather than per-feature ones, and until the suite can run against
- *    a deployment they are covered by looking at the preview before promoting.
+ *    a deployment they are covered by looking at staging before promoting.
  *    Running it against a deployment needs a way to keep test data out of real
  *    data, which is now possible - accounts and sign-in arrived with "Sign in
  *    by picking a name, each user in their own account" (issue 86), so the
