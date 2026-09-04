@@ -91,6 +91,8 @@ function showBoard({
    * dragged rather than from the snapshot in hand.
    */
   settles = true,
+  /** A change already on its way out when the board is first drawn. */
+  pending = false,
 }: {
   panels?: Panel[];
   layouts?: Layout[];
@@ -99,6 +101,7 @@ function showBoard({
   error?: Error;
   variables?: { name: string; payload: Record<string, unknown> };
   settles?: boolean;
+  pending?: boolean;
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (!error && settles) options?.onSuccess?.();
@@ -106,7 +109,7 @@ function showBoard({
   mockUseCommand.mockReturnValue({
     mutate,
     reset: vi.fn(),
-    isPending: false,
+    isPending: pending,
     error: error ?? null,
     variables,
   } as never);
@@ -211,10 +214,25 @@ describe('Panels', () => {
     });
 
     it.each([
-      { situation: 'cancelled', answer: 'Cancel' },
-      { situation: 'dismissed with Escape', answer: null },
-    ])('sends nothing and closes when it is $situation', async ({ answer }) => {
-      const { user, mutate } = showBoard({ panels: [] });
+      { situation: 'cancelled', answer: 'Cancel', while: undefined },
+      { situation: 'dismissed with Escape', answer: null, while: undefined },
+      {
+        // It will not close over its own add, so that a refusal has somewhere
+        // to appear - but the board sends one change at a time from one place,
+        // and an arrangement still going out from a drag a moment earlier is
+        // not this form's business. Taking the whole board's word for it left
+        // a form nobody could get out of: Escape and the press outside are
+        // swallowed with the button.
+        situation: 'dismissed while an arrangement is still going out',
+        answer: null,
+        while: { name: 'save_layout', payload: {} },
+      },
+    ])('sends nothing and closes when it is $situation', async ({ answer, while: inFlight }) => {
+      const { user, mutate } = showBoard({
+        panels: [],
+        pending: inFlight !== undefined,
+        ...(inFlight ? { variables: inFlight } : {}),
+      });
 
       await user.click(screen.getByRole('button', { name: 'Add a panel' }));
       await user.type(screen.getByLabelText('Name of the new panel'), 'Project Falcon');

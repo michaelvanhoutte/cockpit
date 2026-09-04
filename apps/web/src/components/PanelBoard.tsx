@@ -523,7 +523,11 @@ export function PanelBoard({
           command.reset();
         }}
         refusal={refusalFor('add_panel')}
-        busy={command.isPending}
+        // The add's own, not the board's. The dialog will not close while it is
+        // busy, so a layout still being saved from a drag a moment earlier
+        // would leave a form nobody can get out of - Escape and the press
+        // outside are swallowed with it. Attributed the way a refusal is.
+        busy={command.isPending && command.variables?.name === 'add_panel'}
       />
 
       {beingDeleted && (
