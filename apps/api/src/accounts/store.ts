@@ -10,6 +10,7 @@ import {
   DashboardNameTakenError,
   DashboardNotFoundError,
   ItemNotFoundError,
+  ItemTypeNotFoundError,
   LastDashboardError,
   LayoutNotFoundError,
   PanelNameTakenError,
@@ -24,6 +25,7 @@ import {
 import {
   getWorkspace,
   listAssociationsForWorkspace,
+  listItemTypes,
   listDashboards,
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
@@ -73,6 +75,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         layouts: listLayoutsInWorkspace(db, accountName, workspaceId),
         filings: listFilingsInWorkspace(db, accountName, workspaceId),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
+        itemTypes: listItemTypes(db, accountName),
       };
     });
   }
@@ -111,6 +114,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     } catch (error) {
       if (
         error instanceof ItemNotFoundError ||
+        error instanceof ItemTypeNotFoundError ||
         error instanceof WorkspaceNotFoundError ||
         error instanceof DashboardNotFoundError ||
         error instanceof PanelNotFoundError ||

@@ -66,6 +66,7 @@ function anItem(id: string, title: string): Item {
     title,
     preview: null,
     sourceResolvedAt: null,
+    typeId: null,
     nextAction: null,
     completedAt: null,
     priority: null,

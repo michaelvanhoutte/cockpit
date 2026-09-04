@@ -426,6 +426,9 @@ const routes = app
   .openapi(commandRoute('remove_item_from_panel'), async (c) =>
     c.json(await change(c, 'remove_item_from_panel', c.req.valid('json')), 200),
   )
+  .openapi(commandRoute('create_item_type'), async (c) =>
+    c.json(await change(c, 'create_item_type', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_dismissed'), async (c) => c.json(await change(c, 'set_dismissed', c.req.valid('json')), 200))
   .openapi(commandRoute('associate'), async (c) => c.json(await change(c, 'associate', c.req.valid('json')), 200))

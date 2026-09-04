@@ -135,6 +135,16 @@ const rowsFor: { table: string; sql: string; params: (name: string) => string[] 
     params: (name) => [name, AT, FINISHED_AT],
   },
   {
+    // The table the types update creates, filled so that whatever comes next
+    // meets a full one - the discipline this file's header states. A name of
+    // its own, so it cannot collide with the Action and Thought that update
+    // inserts for every account.
+    table: 'item_types',
+    sql: `INSERT INTO item_types (id, tenant_id, name, folded_name, color, position, created_at)
+          VALUES ('ty-before', ?, 'Before', 'before', '#c06a45', 7, ?)`,
+    params: (name) => [name, AT],
+  },
+  {
     table: 'associations',
     sql: `INSERT INTO associations (id, tenant_id, item_id, kind, label, created_at)
           VALUES ('as-before', ?, 'it-before', 'person', 'Anna', ?)`,

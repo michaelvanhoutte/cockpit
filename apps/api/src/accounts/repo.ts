@@ -4,6 +4,7 @@ import type {
   Dashboard,
   Filing,
   Item,
+  ItemType,
   Layout,
   Panel,
   Workspace,
@@ -15,6 +16,7 @@ import {
   commands,
   dashboards,
   items,
+  itemTypes,
   layouts,
   panelItems,
   panelPlacements,
@@ -406,6 +408,7 @@ const itemColumns = {
   title: items.title,
   preview: items.preview,
   sourceResolvedAt: items.sourceResolvedAt,
+  typeId: items.typeId,
   nextAction: items.nextAction,
   completedAt: items.completedAt,
   priority: items.priority,
@@ -538,4 +541,33 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
 
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {
   return db.select().from(commands).where(eq(commands.commandId, commandId)).all().length > 0;
+}
+
+/**
+ * Every live type of the account, in the order they were put in ("Capture a
+ * thought or an action, and see which it is", issue 155).
+ *
+ * `position` first and `createdAt` to break a tie, so the order is total even
+ * where nothing has set a position - which is every account until "Manage the
+ * types, and put them in the order you want" (issue 156) lands.
+ */
+export function listItemTypes(db: AccountDb, tenantId: string): ItemType[] {
+  return db
+    .select({
+      id: itemTypes.id,
+      tenantId: itemTypes.tenantId,
+      name: itemTypes.name,
+      color: itemTypes.color,
+      position: itemTypes.position,
+      createdAt: itemTypes.createdAt,
+    })
+    .from(itemTypes)
+    .where(and(eq(itemTypes.tenantId, tenantId), isNull(itemTypes.deletedAt)))
+    .orderBy(itemTypes.position, itemTypes.createdAt)
+    .all();
+}
+
+/** One live type, or null - what a capture naming a type is checked against. */
+export function getItemType(db: AccountDb, tenantId: string, typeId: string): ItemType | null {
+  return listItemTypes(db, tenantId).find((type) => type.id === typeId) ?? null;
 }

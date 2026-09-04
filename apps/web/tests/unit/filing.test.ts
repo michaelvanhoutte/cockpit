@@ -28,6 +28,7 @@ function anItem(id: string, completedAt: string | null = null): Item {
     title: id,
     preview: null,
     sourceResolvedAt: null,
+    typeId: null,
     nextAction: null,
     completedAt,
     priority: null,

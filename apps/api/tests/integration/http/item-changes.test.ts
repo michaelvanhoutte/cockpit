@@ -89,6 +89,18 @@ describe('Offline', () => {
         }),
       },
       {
+        situation: 'saying what kind of thing something is',
+        name: 'create_item_type',
+        makesIt: true,
+        change: (targetId, requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-09-04T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          typeId: targetId,
+          name: `Question ${requestId.slice(-4)}`,
+        }),
+      },
+      {
         situation: 'capturing a thought',
         name: 'capture_item',
         makesIt: true,
@@ -432,6 +444,105 @@ describe('Triage', () => {
 
       expect(response.status).toBe(400);
       expect(await storedIn('commands', 'command_id', requestId)).toHaveLength(0);
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * Reuse and the race are both facts about a real store: whether a name is
+   * already taken is a query, and whether two of them can exist at once is what
+   * the unique index behind the check decides. The folding itself is proved
+   * without one in tests/unit/domain/item-types.test.ts.
+   */
+  describe('naming a type already there reuses it; naming a new one creates it', () => {
+    const makeType = (name: string) => ({
+      commandId: nextId(),
+      issuedAt: '2026-09-04T10:00:00.000Z',
+      workspaceId: WORKSPACE_ID,
+      typeId: nextId(),
+      name,
+    });
+
+    it.each([
+      { situation: 'the exact name', named: 'Action' },
+      { situation: 'a different capitalisation', named: 'ACTION' },
+      { situation: 'the name with blanks round it', named: '  action  ' },
+    ])('leaves one type when it is named again with $situation', async ({ named }) => {
+      // Every account starts with Action and Thought, so this names one it has.
+      expect((await postChange('create_item_type', makeType(named))).status).toBe(200);
+
+      expect(
+        await inTheStore((sql) =>
+          sql
+            .exec("SELECT name FROM item_types WHERE folded_name = 'action'")
+            .toArray(),
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('makes a type nothing was going by', async () => {
+      const request = makeType('Question');
+
+      expect((await postChange('create_item_type', request)).status).toBe(200);
+
+      expect(await storedIn('item_types', 'id', request.typeId)).toHaveLength(1);
+    });
+
+    it('leaves one type when two tabs name the same new one at once', async () => {
+      // Two requests, two ids, one name, sent together: only the index behind
+      // the check decides this, which is why it is here and not at L1.
+      const [first, second] = await Promise.all([
+        postChange('create_item_type', makeType('Question')),
+        postChange('create_item_type', makeType('Question')),
+      ]);
+
+      expect([first.status, second.status]).toEqual([200, 200]);
+      expect(
+        await inTheStore((sql) =>
+          sql.exec("SELECT id FROM item_types WHERE folded_name = 'question'").toArray(),
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('makes two types when two tabs name different ones at once', async () => {
+      const [first, second] = await Promise.all([
+        postChange('create_item_type', makeType('Question')),
+        postChange('create_item_type', makeType('Decision')),
+      ]);
+
+      expect([first.status, second.status]).toEqual([200, 200]);
+      expect(
+        await inTheStore((sql) =>
+          sql
+            .exec("SELECT id FROM item_types WHERE folded_name IN ('question', 'decision')")
+            .toArray(),
+        ),
+      ).toHaveLength(2);
+    });
+  });
+
+  describe('a capture naming a type this account does not have finds nothing', () => {
+    it.each([
+      { situation: 'a type of this account', ofThisAccount: true, answers: 200 },
+      { situation: 'a type nothing here has', ofThisAccount: false, answers: 404 },
+    ])('$situation', async ({ ofThisAccount, answers }) => {
+      const [action] = await inTheStore((sql) =>
+        sql.exec<{ id: string }>("SELECT id FROM item_types WHERE folded_name = 'action'").toArray(),
+      );
+      const itemId = nextId();
+
+      const response = await postChange('capture_item', {
+        commandId: nextId(),
+        issuedAt: '2026-09-04T10:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Make appointment with Novy',
+        typeId: ofThisAccount ? action!.id : '018f0000-0000-7000-8000-999999999999',
+      });
+
+      expect(response.status).toBe(answers);
+      expect(await storedIn('items', 'id', itemId)).toHaveLength(answers === 200 ? 1 : 0);
     });
   });
 });

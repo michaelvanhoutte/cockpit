@@ -5,6 +5,7 @@ import {
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
+import { itemTypeNameSchema } from './domain/item-type.js';
 import { panelNameSchema, placementInputSchema } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
@@ -276,8 +277,32 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
   title: z.string().min(1),
   body: z.string().optional(),
   nextAction: z.string().optional(),
+  /**
+   * What kind of thing it is ("Capture a thought or an action, and see which it
+   * is", issue 155). Optional, because a capture from a front door that has no
+   * picker - a dictated note, a connector - still has to land.
+   *
+   * The envelope's plain string rather than a uuid: it names a type that
+   * already exists, and the two every account starts with have ids derived from
+   * the account's own.
+   */
+  typeId: z.string().min(1).optional(),
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
+
+/**
+ * A new Type, made by naming one that is not there yet ("Capture a thought or
+ * an action, and see which it is", issue 155).
+ *
+ * It carries no colour: which one is free is a fact about the account rather
+ * than about the request, so the store decides it. That is also what makes a
+ * replay harmless - the same command twice cannot be two colours.
+ */
+export const createItemTypeSchema = commandEnvelopeSchema.extend({
+  typeId: z.uuid(),
+  name: itemTypeNameSchema,
+});
+export type CreateItemTypeCommand = z.infer<typeof createItemTypeSchema>;
 
 /**
  * move_item_to_panel — where an Item lives now, and the order of the Panel it
@@ -456,6 +481,7 @@ export const commandSchemas = {
   save_layout: saveLayoutSchema,
   delete_layout: deleteLayoutSchema,
   capture_item: captureItemSchema,
+  create_item_type: createItemTypeSchema,
   move_item_to_panel: moveItemToPanelSchema,
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,

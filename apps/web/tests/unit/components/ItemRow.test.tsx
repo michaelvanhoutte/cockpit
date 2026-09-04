@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Item } from '@cockpit/shared';
+import type { Item, ItemType } from '@cockpit/shared';
 import { ItemRow } from '../../../src/components/ItemRow';
 import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
 import { UndoWhatJustHappened } from '../../../src/undo';
@@ -25,6 +25,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     title: 'Make appointment with Novy',
     preview: null,
     sourceResolvedAt: null,
+    typeId: null,
     nextAction: null,
     completedAt: null,
     priority: null,
@@ -280,11 +281,11 @@ describe('Triage', () => {
       const { container } = render(<ItemRow item={anItem({})} workspaceId="ws-work" />);
 
       // The dot at the head of the row and the word under the title were the
-      // status's two places, and both are free for the type to take ("An item
-      // is either yours to deal with or finished with", issue 154).
+      // status's two places, and both went to the type ("An item is either
+      // yours to deal with or finished with", issue 154).
       expect(container.querySelector('li > span[aria-hidden="true"]')).toBeNull();
       expect(screen.queryByText('To process')).toBeNull();
-      expect(screen.getByText('Own')).toBeInTheDocument();
+      expect(screen.getByText(/Own/)).toBeInTheDocument();
     });
 
     it.each([
@@ -304,6 +305,51 @@ describe('Triage', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('a row shows what type it is', () => {
+    /** One row, rendered on its own, with the type it was given. */
+    function aRowOf(itemType: ItemType | undefined) {
+      mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+      mockUseSendCommand.mockReturnValue(vi.fn(() => Promise.resolve()));
+      return render(
+        <ItemRow item={anItem({})} itemType={itemType} workspaceId="ws-work" />,
+      );
+    }
+
+    const aType = (name: string, color: string): ItemType => ({
+      id: '11111111-1111-7111-8111-111111111111',
+      tenantId: 'tenant',
+      name,
+      color,
+      position: 0,
+      createdAt: '2026-08-31T08:00:00.000Z',
+    });
+
+    it.each([
+      { situation: 'an action', itemType: aType('Action', '#6f62b5') },
+      { situation: 'a thought', itemType: aType('Thought', '#3a72c8') },
+      { situation: 'one made by using it', itemType: aType('Question', '#c06a45') },
+    ])('says the type in words and in its own colour for $situation', ({ itemType }) => {
+      const { container, unmount } = aRowOf(itemType);
+
+      expect(screen.getByText(itemType.name)).toBeInTheDocument();
+      const mark = container.querySelector('li > span[aria-hidden="true"]');
+      // The colour is the dot's, and the word is what carries it to anyone not
+      // looking at colours - neither alone would be the whole mark.
+      expect(mark).not.toBeNull();
+      expect((mark as HTMLElement).style.backgroundColor).not.toBe('');
+      unmount();
+    });
+
+    it('draws an item with no type without one, rather than hiding it', () => {
+      const { container } = aRowOf(undefined);
+
+      expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
+      expect(container.querySelector('li > span[aria-hidden="true"]')).toBeNull();
     });
   });
 });

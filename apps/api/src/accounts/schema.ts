@@ -481,6 +481,57 @@ export const panelPlacements = sqliteTable(
   ],
 );
 
+/**
+ * What kind of thing an Item is ("Capture a thought or an action, and see which
+ * it is", issue 155). Account-wide rather than per workspace: *Thought* means
+ * the same in Work and in Personal, and a type name reveals nothing the
+ * workspace boundary protects.
+ *
+ * **Created whole, with every column it will ever need**, including two nothing
+ * writes yet. Once `items.type_id` points here this table has children under
+ * RESTRICT, and from that moment a CHECK cannot be altered in and the table
+ * cannot be rebuilt (architecture, "Schema conventions") - so `position` and
+ * `deleted_at`, which "Manage the types, and put them in the order you want"
+ * (issue 156) needs, arrive now with their constraints rather than later
+ * without them. That is the opposite of the rule `itemColumns` in repo.ts
+ * carries about *reads*, and for the same underlying reason: what a store can
+ * still be told is decided the moment the first child row exists.
+ */
+export const itemTypes = sqliteTable(
+  'item_types',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    name: text('name').notNull(),
+    /** The name with its case folded away, exactly as `workspaces` carries one. */
+    foldedName: text('folded_name').notNull().default(''),
+    /** One of the palette's tints, which is the dot at the head of a row. */
+    color: text('color').notNull(),
+    /** Where it sits in the list you put it in. Written by issue 156. */
+    position: integer('position').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+    /** Tombstone, written by issue 156 and unread until then. */
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    /**
+     * Uniqueness on the folded name among live types, the same shape and for
+     * the same two reasons `workspaces` has one: `Thought` and `thought` are
+     * the same name, and deleting a type gives its name back.
+     *
+     * It is the lock behind the check rather than the answer: creating a type
+     * by using its name folds through `foldName` like every other writer, and
+     * this is what keeps two tabs racing from making two of it.
+     */
+    uniqueIndex('item_types_tenant_live_folded_name')
+      .on(t.tenantId, t.foldedName)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check('item_types_position_is_an_order', sql.raw('position >= 0')),
+    check('item_types_created_at_is_timestamp', isTimestamp('created_at')),
+    check('item_types_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
 export const items = sqliteTable(
   'items',
   {
@@ -501,6 +552,13 @@ export const items = sqliteTable(
     sourceResolvedAt: text('source_resolved_at'),
 
     // -- app-owned columns --
+    /**
+     * What kind of thing it is ("Capture a thought or an action, and see which
+     * it is", issue 155). Nullable, which is what let it be added at all:
+     * SQLite accepts a new column with a REFERENCES clause only when its
+     * default is NULL, and `items` has children so it cannot be rebuilt.
+     */
+    typeId: text('type_id').references(() => itemTypes.id, { onDelete: 'restrict' }),
     nextAction: text('next_action'),
     /**
      * Finished with, and when ("An item is either yours to deal with or

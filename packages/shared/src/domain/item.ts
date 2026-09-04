@@ -35,6 +35,19 @@ export const itemSchema = z.object({
   sourceResolvedAt: z.iso.datetime().nullable(),
 
   // -- app-owned --
+  /**
+   * What kind of thing this is ("Capture a thought or an action, and see which
+   * it is", issue 155). Nullable: an item captured before types existed, and
+   * one whose type was deleted, both have none, and a row with no type is drawn
+   * rather than hidden.
+   *
+   * The permissive `z.string()` rather than a uuid, for the reason every other
+   * id read back here is permissive: the *Action* and *Thought* every account
+   * starts with have ids derived from the account's own. A `z.uuid()` here
+   * refused the whole snapshot the first time an item was captured as one of
+   * them, which is a blank workspace rather than one item drawn oddly.
+   */
+  typeId: z.string().nullable(),
   /** The current, always-editable next-action label (functional definition §6.1). */
   nextAction: z.string().nullable(),
   /**

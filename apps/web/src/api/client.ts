@@ -125,6 +125,8 @@ const commandSenders = {
     api.v1.commands.add_item_to_panel.$post({ json: p }),
   remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>) =>
     api.v1.commands.remove_item_from_panel.$post({ json: p }),
+  create_item_type: (p: CommandPayload<'create_item_type'>) =>
+    api.v1.commands.create_item_type.$post({ json: p }),
   set_done: (p: CommandPayload<'set_done'>) => api.v1.commands.set_done.$post({ json: p }),
   set_dismissed: (p: CommandPayload<'set_dismissed'>) => api.v1.commands.set_dismissed.$post({ json: p }),
   associate: (p: CommandPayload<'associate'>) => api.v1.commands.associate.$post({ json: p }),

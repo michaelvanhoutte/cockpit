@@ -5,6 +5,7 @@ import {
   itemSchema,
   workspaceSchema,
 } from '../domain/item.js';
+import { itemTypeSchema } from '../domain/item-type.js';
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
 
 /**
@@ -53,6 +54,16 @@ export const workspaceSnapshotSchema = z.object({
    */
   filings: z.array(filingSchema),
   associations: z.array(associationSchema),
+  /**
+   * Every live Type of the account, in the order they are offered in ("Capture
+   * a thought or an action, and see which it is", issue 155).
+   *
+   * In the workspace's snapshot although types belong to the account, because
+   * every screen that draws an item needs them and this is the one call a
+   * workspace makes: a second resource would be a second thing to revalidate
+   * and a second chance for a row to be drawn before its type has arrived.
+   */
+  itemTypes: z.array(itemTypeSchema),
   generatedAt: z.iso.datetime(),
 });
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;

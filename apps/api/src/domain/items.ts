@@ -37,6 +37,7 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     title: cmd.title,
     preview: cmd.body ?? null,
     sourceResolvedAt: null,
+    typeId: cmd.typeId ?? null,
     nextAction: cmd.nextAction ?? null,
     completedAt: null,
     priority: null,

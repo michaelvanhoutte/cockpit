@@ -85,11 +85,13 @@ Workspace: "Work"
 
 ### 4.2 Item + Association model (resolves "one message in two inboxes")
 
-Everything that flows in — email, Slack message, Notion page, later a calendar event or bookmark — normalizes into a single **Item**, storing: source app (or *internal*), source ID, a deep link back, sender/author, timestamp, title, a text preview or body, optional priority, optional due date, and whether it has been finished with. Native notes and to-dos created in the app have no source app and open in the app rather than deep-linking out.
+Everything that flows in — email, Slack message, Notion page, later a calendar event or bookmark — normalizes into a single **Item**, storing: source app (or *internal*), source ID, a deep link back, sender/author, timestamp, title, a text preview or body, its **Type**, optional priority, optional due date, and whether it has been finished with. Native notes and to-dos created in the app have no source app and open in the app rather than deep-linking out.
 
 Items are **not filed into one folder.** Each carries any number of **Associations**: to one or more **People**, **Projects**, **Topics/Areas** (*Research*, *People to discuss*), a **Workspace** (rarely more than one) and optional **Focus** flags (§7).
 
 Because associations are many-to-many, one message appears in the *Project Falcon* panel **and** the *Anna* panel without being duplicated or moved. A Panel is a query over Items, so the same Item shows up in every Panel whose filter it matches.
+
+**Every Item has a Type** — *Action*, *Thought*, or whatever else you name — which is what kind of thing it is, as against where it stands. The set is open and account-wide, and a Type is made by naming one at capture that does not exist yet ("Capture a thought or an action, and see which it is", issue 155): a type you need once is not worth a trip to a settings page. Capture offers the types you already have, the three used last first, and opens on the one used last.
 
 **An Item is either yours to deal with or finished with**, and nothing in between ("An item is either yours to deal with or finished with", issue 154). Being finished with one is a time, so it says *when*; dismissing one is the tombstone that makes it reversible. The eight-value status this replaced — To Process, Task, Waiting, Snoozed, Delegated, Reference — was never asked for, and six of the eight changed a mark on the row and nothing else. What kind of thing an Item is belongs to its **Type**, and a due date is a field. A Kanban board, a to-do list and the inbox are still all Panels over the same Items.
 
@@ -300,6 +302,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Layout** — one arrangement of a Dashboard's Panels — their order and each one's size — together with the screen width it was made at. A Dashboard can have several, so it reads well on a phone and on a 4K screen; the app draws it with the one closest to the screen in front of you unless you pick another.
 - **Inbox** — the one place in a Workspace holding what has arrived and not been dealt with: every open Item filed on no Panel. Beside the Dashboards rather than one of them, and never renamed or deleted, because it is not a Panel — it is what is left when nothing holds an Item.
 - **Item** — the single object everything is stored as, whether it arrived from a source or was created in the app. **Action** and **Thought** are *types* of Item, not separate objects.
+- **Type** — what kind of thing an Item is: *Action*, *Thought*, and whatever else you name. The set is open and account-wide, and a Type comes into existence by being used — naming one at capture that is not there yet makes it ("Capture a thought or an action, and see which it is", issue 155). Each wears a colour from the palette, which is the dot at the head of a row; the name beside it is what carries the meaning. A Type says what an Item *is*, where **Done** says where it stands.
 - **Action** — an Item representing something to do. One source Item can produce several.
 - **Thought** — an Item created in the app as a note or idea, with no source behind it.
 - **Association** — a link from an Item to a Person, Project, Topic or Focus flag; many-to-many, which is why an Item can appear in several Panels.

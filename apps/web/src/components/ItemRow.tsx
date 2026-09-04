@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { uuidv7, type Item } from '@cockpit/shared';
+import { uuidv7, type Item, type ItemType } from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { howFarItHasGone, SWIPE_THRESHOLD_PX, whatTheSwipeMeant } from '../swipe';
@@ -10,6 +10,7 @@ import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
 export function ItemRow({
   item,
+  itemType,
   workspaceId,
   onMoveTo,
   ordering,
@@ -17,6 +18,16 @@ export function ItemRow({
   onRemoveFromHere,
 }: {
   item: Item;
+  /**
+   * What kind of thing this is ("Capture a thought or an action, and see which
+   * it is", issue 155), already looked up: the row is drawn once per item and
+   * the list has the types in hand, so searching them again per row would be
+   * the same search a dozen times.
+   *
+   * Undefined is a real state and is drawn as one - an item captured before
+   * types existed, and one whose type was deleted, both have none.
+   */
+  itemType?: ItemType | undefined;
   workspaceId: string;
   /**
    * Asked to move this item somewhere, and handed the control the menu was
@@ -207,15 +218,29 @@ export function ItemRow({
         wouldAct ? (gone > 0 ? 'bg-accent-tint' : 'bg-over/15') : ''
       }`}
     >
+      {/* What kind of thing it is, before anything is read. Decorative on
+          purpose: the word it stands for is on the line below, so announcing
+          the colour as well would say the type twice. An item with no type has
+          no dot rather than a grey one - absent reads as absent, where a
+          neutral colour reads as a type you cannot name. */}
+      {itemType && (
+        <span
+          aria-hidden="true"
+          className="mt-0.5 size-2 shrink-0 self-start rounded-full"
+          style={{ backgroundColor: itemType.color }}
+        />
+      )}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm">{item.nextAction ?? item.title}</span>
-        {/* Where it came from, on one line under the title. The status stood at
-            the head of this line and a coloured dot stood at the head of the
-            row; both went with the status itself ("An item is either yours to
-            deal with or finished with", issue 154), and the type takes the two
-            of them. */}
+        {/* What it is and where it came from, on one line under the title. The
+            two marks the status used to hold - the dot at the head of the row
+            and the first word here - are what the type took ("Capture a thought
+            or an action, and see which it is", issue 155). Its own element, so
+            it is a thing on the row rather than part of a sentence. */}
         <span className="flex min-w-0 gap-1 text-xs text-ink-faint">
+          {itemType && <span className="shrink-0 text-accent-deep">{itemType.name}</span>}
           <span className="truncate">
+            {itemType ? '· ' : ''}
             {item.source === 'internal' ? 'Own' : item.source}
             {item.sender ? ` · ${item.sender}` : ''}
           </span>

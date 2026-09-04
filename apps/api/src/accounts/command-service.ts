@@ -7,6 +7,7 @@ import {
   dashboards,
   DEAD_STATUS_VALUE,
   items,
+  itemTypes,
   layouts,
   panelItems,
   panelPlacements,
@@ -17,12 +18,14 @@ import {
   commandAlreadyApplied,
   getDashboard,
   getItem,
+  getItemType,
   getLayout,
   getPanel,
   getWorkspace,
   lastWorkspacePosition,
   listDashboards,
   listFilingsOnPanel,
+  listItemTypes,
   listLayoutIds,
   listPanels,
   listPlacements,
@@ -50,6 +53,7 @@ import {
   workspaceFromCommand,
   workspaceNamed,
 } from '../domain/workspaces.js';
+import { itemTypeFromCommand, itemTypeNamed } from '../domain/item-types.js';
 import {
   applySetDismissed,
   applySetDone,
@@ -58,6 +62,13 @@ import {
   associationFromCommand,
   captureItem,
 } from '../domain/items.js';
+
+export class ItemTypeNotFoundError extends Error {
+  constructor(typeId: string) {
+    super(`item type ${typeId} not found`);
+    this.name = 'ItemTypeNotFoundError';
+  }
+}
 
 export class ItemNotFoundError extends Error {
   constructor(itemId: string) {
@@ -671,6 +682,13 @@ export function runCommand<N extends CommandName>(
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
+      // The type the capture names, checked here rather than left to the
+      // foreign key, for the reason the workspace above is: a constraint would
+      // surface a caller's mistake as a 500, and a type of another account is
+      // a 404 like any other missing thing.
+      if (cmd.typeId && !getItemType(db, tenantId, cmd.typeId)) {
+        throw new ItemTypeNotFoundError(cmd.typeId);
+      }
       const item = captureItem(cmd, tenantId);
       db.transaction((tx) => {
         // A retried capture whose command ID was lost still may not duplicate the item.
@@ -762,6 +780,30 @@ export function runCommand<N extends CommandName>(
             ),
           )
           .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'create_item_type': {
+      const cmd = payload as CommandPayload<'create_item_type'>;
+      const already = listItemTypes(db, tenantId);
+      // Naming one that is already there reuses it rather than refusing: the
+      // gesture is "this is a thought", and it means the same whether or not
+      // the type existed a moment ago ("Capture a thought or an action, and
+      // see which it is", issue 155). The command is still recorded, so a
+      // replay is still a replay.
+      const existing = itemTypeNamed(already, cmd.name);
+      db.transaction((tx) => {
+        if (!existing) {
+          tx.insert(itemTypes)
+            .values({
+              ...itemTypeFromCommand(cmd, tenantId, already),
+              foldedName: foldName(cmd.name),
+              deletedAt: null,
+            })
+            .onConflictDoNothing()
+            .run();
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;

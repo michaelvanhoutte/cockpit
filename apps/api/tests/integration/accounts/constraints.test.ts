@@ -121,7 +121,7 @@ describe('Capture', () => {
               WHERE schema = 'main'
                 AND name IN ('workspaces', 'dashboards', 'panels', 'layouts',
                              'panel_placements', 'panel_items', 'items',
-                             'associations', 'commands')
+                             'item_types', 'associations', 'commands')
               ORDER BY name`,
           )
           .toArray(),
@@ -131,6 +131,7 @@ describe('Capture', () => {
         'associations',
         'commands',
         'dashboards',
+        'item_types',
         'items',
         'layouts',
         'panel_items',
@@ -169,7 +170,14 @@ describe('Capture', () => {
         return [...found].sort();
       });
 
-      expect(targets).toEqual(['dashboards', 'items', 'layouts', 'panels', 'workspaces']);
+      expect(targets).toEqual([
+        'dashboards',
+        'item_types',
+        'items',
+        'layouts',
+        'panels',
+        'workspaces',
+      ]);
     });
   });
 });
