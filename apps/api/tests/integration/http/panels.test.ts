@@ -377,6 +377,44 @@ describe('Panels', () => {
 
       expect((await layoutsOf(dashboardId)).map((layout) => layout.screenWidth)).toEqual([480, 2560]);
     });
+
+    // Given longer than the file's other cases, and it is the arrangement that
+    // needs it: a hundred and twenty layouts are a hundred and twenty changes,
+    // and they are made the way a person makes them rather than written into
+    // the store, so that what is under test is a workspace somebody could
+    // actually have. About four seconds here and slower on a shared runner,
+    // where the default five would be a coin toss.
+    it('still reads the workspace when it holds more layouts than a statement can name', { timeout: 30_000 }, async () => {
+      // A workspace accumulates a layout per dashboard per screen, and the read
+      // that paints it once named every one of them in a single statement -
+      // which SQLite refuses past a limit, failing the *whole* workspace read
+      // rather than a part of it. So the workspace stopped painting at all, and
+      // did so at a size a person reaches by using the product normally.
+      const dashboardId = await aDashboard();
+      const falcon = nextId();
+      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
+      // Comfortably past the limit rather than exactly on it, so the case goes
+      // on being about the limit if the limit ever moves. Sent together rather
+      // than one after another: the store serialises them anyway, and a hundred
+      // and twenty round trips in a row is the difference between a case that
+      // runs in a moment and one that outlasts the runner's patience.
+      const widths = Array.from({ length: 120 }, (_, at) => 320 + at);
+      const saved = await Promise.all(
+        widths.map((screenWidth) =>
+          saveLayout(dashboardId, nextId(), screenWidth, [
+            { panelId: falcon, columns: 3, rows: 3 },
+          ]),
+        ),
+      );
+      expect(saved.every((res) => res.status === 200)).toBe(true);
+
+      const its = await layoutsOf(dashboardId);
+
+      expect(its).toHaveLength(widths.length);
+      // Every one of them arrives with its arrangement, rather than the read
+      // coming back short or empty.
+      expect(its.every((layout) => layout.placements.length === 1)).toBe(true);
+    });
   });
 
   describe('a panel added later joins every layout, and a deleted one leaves them all', () => {
