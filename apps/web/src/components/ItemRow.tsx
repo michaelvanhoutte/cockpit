@@ -359,10 +359,10 @@ export function ItemRow({
  * One step up or down the list it is in.
  *
  * The ends are said out loud rather than silently doing nothing, exactly as a
- * panel's moves and resizes are: an entry that can be chosen and changes
- * nothing is indistinguishable from one that is broken. `aria-disabled` rather
- * than `disabled` for the reason `RowMenu` carries - Radix takes a disabled
- * entry out of the roving focus, so a keyboard never reaches it at all.
+ * panel's moves are: an entry that can be chosen and changes nothing is
+ * indistinguishable from one that is broken. `aria-disabled` rather than
+ * `disabled` for the reason `RowMenu` carries - Radix takes a disabled entry
+ * out of the roving focus, so a keyboard never reaches it at all.
  */
 function MoveAStep({
   label,
