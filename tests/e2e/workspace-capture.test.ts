@@ -38,7 +38,10 @@ async function captureWithoutAWorkspace(
   const box = page.getByRole('dialog').getByLabel('Capture a note or to-do');
   await expect(box).toBeVisible();
   await box.fill(title);
-  await press(page.getByRole('dialog').getByRole('button', { name: 'Capture' }), isMobile);
+  // Enter, not the button: capture is the thing the app does fastest, and a
+  // note typed into a box wants the key already under the hand. The button is
+  // pressed by the walk below, so both ways in are driven.
+  await box.press('Enter');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 }
 
