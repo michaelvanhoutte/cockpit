@@ -154,6 +154,23 @@ describe('Item editing', () => {
     });
   });
 
+  describe('the form says which item is open', () => {
+    it.each([
+      { situation: 'an item with a title', item: {}, named: 'Part 11' },
+      // The case that needs it: both boxes are empty, so without this the form
+      // is two blank fields over the word "Item".
+      {
+        situation: 'an item with only a captured message',
+        item: { title: '', capturedMessage: 'Ask Novy about part 11' },
+        named: 'Ask Novy about part 11',
+      },
+    ])('$situation', async ({ item, named }) => {
+      await theForm(anItem(item));
+
+      expect(screen.getByRole('heading')).toHaveTextContent(named);
+    });
+  });
+
   describe('closing the form without saving changes nothing', () => {
     it.each([
       { situation: 'Cancel', close: async (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Cancel' })) },

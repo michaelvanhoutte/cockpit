@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { uuidv7, type Item } from '@cockpit/shared';
+import { itemLabel, uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand } from '../api/queries';
 import { useItemForm } from '../itemForm';
 
@@ -137,7 +137,15 @@ function TheForm({
           aria-describedby={undefined}
           className="fixed left-1/2 top-1/2 flex max-h-[min(44rem,calc(100vh-2rem))] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
         >
-          <Dialog.Title className="text-base font-semibold">Item</Dialog.Title>
+          {/* The label the row was showing, so the form says which item is open.
+              "Item" alone over two empty boxes says nothing at all - and the
+              boxes are empty exactly when the item has only a captured message,
+              which is the case that needs it most. Read from the stored item
+              rather than from the boxes, so it holds still while a new title is
+              being typed under it. */}
+          <Dialog.Title className="truncate text-base font-semibold">
+            {item ? itemLabel(item) || 'Item' : 'Item'}
+          </Dialog.Title>
 
           {!item ? (
             <p role="alert" className="pt-3 text-sm text-ink-soft">

@@ -39,7 +39,9 @@ test.describe('Item editing', () => {
       // disclosure rather than in a box: it can never be edited.
       await expect(titleBox(page)).toHaveValue('');
       await press(form(page).getByText('What was captured'), isMobile);
-      await expect(form(page).getByText(thought)).toBeVisible();
+      // The paragraph the disclosure holds, not the heading, which now carries
+      // the same label because the item has no title yet.
+      await expect(form(page).getByRole('paragraph')).toHaveText(thought);
 
       const named = uniqueTitle('Part 11');
       await titleBox(page).fill(named);
