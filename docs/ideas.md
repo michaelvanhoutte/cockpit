@@ -1,6 +1,6 @@
 # Ideas Backlog
 
-Raw feature ideas, captured as voice and WhatsApp notes between 17 and 25 August 2026 and grouped by theme. A **capture list, not a plan**: nothing here is decided, sized or scheduled. Contradictions and overlaps with the [functional definition](functional-definition.md) are kept as written, because the wording is the record of what was wanted.
+Raw feature ideas, captured as voice and WhatsApp notes between 17 August and 3 September 2026 and grouped by theme. A **capture list, not a plan**: nothing here is decided, sized or scheduled. Contradictions and overlaps with the [functional definition](functional-definition.md) are kept as written, because the wording is the record of what was wanted.
 
 Terminology follows the functional definition. Notes since taken up in their own documents are marked where they appear, and kept so the origin of the requirement stays visible.
 
@@ -43,6 +43,8 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 - **Authentication skill.** Add a skill for commands that states which method is used to authenticate with each target system (Linear, Jira, Notion, ...) when authentication is needed.
 - **Commands run as durable background jobs.** Example: a Command button that appends text to this project's `ideas.md`. Dropping a note on it starts the operation asynchronously so I can carry on immediately, which means the job must survive a crash or a restart rather than sitting in an in-memory queue.
 - **Async task UI** showing every launched asynchronous task and its status, with enough detail to troubleshoot a failure and retry it. (Related to the command history UI above and to the operations items in §7.)
+- **Show the agents that are running.** Show the active Claude, coding and other agents, not only the tasks Cockpit itself launched.
+- **Run an agent on an Item.** Drag an agent or a command onto an action; that action then carries a small icon showing an agent is running on it.
 
 ## 4. Chat
 
@@ -90,6 +92,10 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
   - Should the code tree follow the product tree, or only the test code?
   - Using the product tree also makes tests easier to keep through a major refactoring, because you can see more easily whether a test is still there.
   - Will we structure the markdown files by concept (action, dashboard, ...)?
+
+## 11. Sources to connect
+
+- **Incoming invoices.** Show the invoices coming in to me.
 
 ## 10. Development process
 
