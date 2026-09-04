@@ -209,7 +209,7 @@ export function ItemList({
       {
         onSuccess: () =>
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” moved in ${nameOf(panelId)}`,
+            what: `“${itemLabel(item)}” moved in ${nameOf(panelId)}`,
             undo: () =>
               send({
                 name: 'add_item_to_panel',
@@ -261,7 +261,7 @@ export function ItemList({
           setAsking(null);
           setAdding(null);
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” added to ${nameOf(panelId)}`,
+            what: `“${itemLabel(item)}” added to ${nameOf(panelId)}`,
             undo: () =>
               send({
                 name: 'remove_item_from_panel',
@@ -299,7 +299,7 @@ export function ItemList({
       {
         onSuccess: () =>
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” removed from ${nameOf(panelId)}`,
+            what: `“${itemLabel(item)}” removed from ${nameOf(panelId)}`,
             // Back on, in the order the panel was in - which still names it,
             // because that order was read before it was taken off.
             undo: () =>
@@ -524,7 +524,7 @@ export function ItemList({
       {asking && panelId && (
         <MoveOrAddQuestion
           open
-          itemTitle={asking.item.nextAction ?? asking.item.title}
+          itemTitle={itemLabel(asking.item)}
           panelName={nameOf(panelId)}
           // Closed by the change landing, not by the press: a refused move
           // leaves the question up with the reason on it, which is what the
@@ -545,7 +545,7 @@ export function ItemList({
 
       {adding && (
         <MoveToPicker
-          itemTitle={adding.nextAction ?? adding.title}
+          itemTitle={itemLabel(adding)}
           adding
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
@@ -567,7 +567,7 @@ export function ItemList({
 
       {moving && (
         <MoveToPicker
-          itemTitle={moving.nextAction ?? moving.title}
+          itemTitle={itemLabel(moving)}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
           openDashboardId={openDashboardId}
