@@ -101,7 +101,7 @@ describe('Updating', () => {
     it.each(situations)('$situation', async ({ newVersionWaiting, picksItUp }) => {
       const reload = vi.fn();
       const client = newClient();
-      show(client, { newVersionWaiting, reload }, scratchMemory());
+      show(client, { newVersionWaiting, thisBuild: () => 'build-1', reload }, scratchMemory());
       await anOlderVersion(client);
 
       if (picksItUp) {
@@ -116,14 +116,24 @@ describe('Updating', () => {
     });
 
     /**
-     * The case that makes the automatic reload safe rather than reckless. A
-     * build still out of date *after* updating - a half-swapped deployment, an
-     * API that moved again - would otherwise gate and reload for as long as the
+     * The case that makes the automatic reload safe rather than reckless, and
+     * the one the first attempt at this guard got wrong. A build still out of
+     * date *after* updating would otherwise gate and reload for as long as the
      * tab is open.
+     *
+     * The reads that *do* work are what make this subtle: on a build that is
+     * behind, `me` parses its own schema perfectly well a moment before the
+     * workspace fails to parse. A guard cleared by "something read successfully"
+     * is therefore already gone by the time the gate rises, and loops. So the
+     * successful read is here in the walk rather than left out of it.
      */
-    it('reloads once and then stops, however long the tab stays open', async () => {
+    it('reloads once from a build, and never twice, however long the tab stays open', async () => {
       const reload = vi.fn();
-      const versions = { newVersionWaiting: () => Promise.resolve(true), reload };
+      const versions = {
+        newVersionWaiting: () => Promise.resolve(true),
+        thisBuild: () => 'build-1',
+        reload,
+      };
       const memory = scratchMemory();
 
       const first = newClient();
@@ -131,10 +141,11 @@ describe('Updating', () => {
       await anOlderVersion(first);
       await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
 
-      // The page came back on a build that is still behind: the same gate, the
-      // same offer of a new version, and this time it must be refused.
+      // The page came back on the same build, still behind. Something reads
+      // fine, as it always does, and then the workspace does not.
       const second = newClient();
       show(second, versions, memory);
+      await second.fetchQuery({ queryKey: ['me'], queryFn: () => Promise.resolve({}) });
       await anOlderVersion(second);
 
       expect(await screen.findByRole('heading', { name: "Cockpit couldn't update" })).toBeVisible();
@@ -145,21 +156,25 @@ describe('Updating', () => {
      * And what stops that guard outliving its purpose: a tab left open across
      * two deployments has to take the second as readily as the first.
      */
-    it('is ready to update again once this version has read something', async () => {
+    it('updates again for a build it has not tried yet', async () => {
       const reload = vi.fn();
-      const versions = { newVersionWaiting: () => Promise.resolve(true), reload };
       const memory = scratchMemory();
+      let build = 'build-1';
+      const versions = {
+        newVersionWaiting: () => Promise.resolve(true),
+        thisBuild: () => build,
+        reload,
+      };
 
       const first = newClient();
       show(first, versions, memory);
       await anOlderVersion(first);
       await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
 
-      // The new version came up and read the workspace perfectly well. Much
-      // later, the deployment after it lands.
+      // The update landed, and much later the deployment after it does too.
+      build = 'build-2';
       const second = newClient();
       show(second, versions, memory);
-      await second.fetchQuery({ queryKey: ['workspaces'], queryFn: () => Promise.resolve({}) });
       await anOlderVersion(second);
 
       await waitFor(() => expect(reload).toHaveBeenCalledTimes(2));
@@ -169,7 +184,7 @@ describe('Updating', () => {
   describe('nothing of the app is usable while it is out of date', () => {
     it('takes the window, because the copy in hand is no safer than the answer', async () => {
       const client = newClient();
-      show(client, { newVersionWaiting: () => Promise.resolve(false), reload: vi.fn() }, scratchMemory());
+      show(client, { newVersionWaiting: () => Promise.resolve(false), thisBuild: () => 'build-1', reload: vi.fn() }, scratchMemory());
       expect(screen.getByText('Your workspace')).toBeVisible();
 
       await anOlderVersion(client);
@@ -180,7 +195,7 @@ describe('Updating', () => {
 
     it('is nowhere to be seen while Cockpit can read what it is told', async () => {
       const client = newClient();
-      show(client, { newVersionWaiting: () => Promise.resolve(true), reload: vi.fn() }, scratchMemory());
+      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', reload: vi.fn() }, scratchMemory());
 
       await client.fetchQuery({ queryKey: ['workspaces'], queryFn: () => Promise.resolve({}) });
 

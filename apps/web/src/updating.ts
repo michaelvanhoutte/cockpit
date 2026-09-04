@@ -22,7 +22,9 @@
  * page a moment later, far too late for the page now on screen. So the second
  * reload would have worked and the first never could — and nobody clicks twice
  * on a button that does nothing. Waiting for the check before reloading is the
- * whole fix.
+ * whole fix. Measured against a real service worker: one bare reload serves the
+ * old build, two serve the new, and awaiting the check first serves the new on
+ * one.
  *
  * **And "nothing newer" is conclusive rather than a guess.** `sw.js` carries
  * the precache manifest, which is content-hashed, so any changed asset changes
@@ -44,12 +46,14 @@ export type Update =
   | 'nothing-new';
 
 /**
- * The two things about the browser that a test cannot have and must not need,
+ * The three things about the browser that a test cannot have and must not need,
  * injected the way `Surroundings` is in api/loadFailure.ts.
  */
 export interface Versions {
   /** Asks whatever precaches the shell to go and look for a newer one. */
   newVersionWaiting(): Promise<boolean>;
+  /** Which build this page is running, so an attempt can be told from a repeat. */
+  thisBuild(): string;
   reload(): void;
 }
 
@@ -67,12 +71,25 @@ export const realVersions: Versions = {
     // that has begun installing will be the one answering the reload below.
     return Boolean(registration.installing ?? registration.waiting);
   },
+
+  /**
+   * The module script's own address, which Vite content-hashes
+   * (`/assets/index-DgOhHjV4.js`), so it changes exactly when the build does.
+   *
+   * A build identity rather than a version number because nothing has to
+   * generate, inject or bump it: it is already in the page, and it is already
+   * what the precache is keyed on.
+   */
+  thisBuild: () =>
+    globalThis.document?.querySelector('script[type="module"][src]')?.getAttribute('src') ??
+    'unknown',
+
   reload: () => globalThis.location.reload(),
 };
 
-const TRIED = 'cockpit.updating.tried';
+const TRIED_FROM = 'cockpit.updating.tried-from';
 
-/** Where the one-reload guard is kept: this tab, this visit. */
+/** Where the guard is kept: this tab, this visit. */
 export function tabMemory(): Storage | undefined {
   try {
     return globalThis.sessionStorage;
@@ -84,20 +101,31 @@ export function tabMemory(): Storage | undefined {
 /**
  * Take the new version if there is one, and otherwise say so.
  *
- * **At most one reload, by construction rather than by argument.** A build that
- * is still out of date after updating — a deployment half-swapped, an API that
- * moved again — would otherwise gate, reload, gate and reload for as long as
- * the tab is open, which is worse than the dead button this replaces. The mark
- * is written before the reload and cleared by the first read that works
- * (`working`), so it means "we reloaded and have not yet seen this build read
- * anything", which is exactly the state a loop is stuck in. A browser that
- * refuses storage keeps no mark and is left with one honest dead end instead.
+ * **Never twice from the same build, which is what makes a loop impossible.** A
+ * build still out of date *after* updating — a half-swapped deployment, an API
+ * that moved again — would otherwise gate, reload, gate and reload for as long
+ * as the tab is open, which is far worse than the dead button this replaces.
+ *
+ * The mark is the build it was written from, not the bare fact that an attempt
+ * happened, and that distinction is the whole guard. "We already tried" has to
+ * be cleared at some point, or a tab open across two deployments takes only the
+ * first — and clearing it on a read that worked does not do it, because on a
+ * build that is behind the reads that *do* work answer first: `me` parses its
+ * own schema perfectly well a moment before the workspace fails to parse, so
+ * the mark would be gone by the time the gate rose. That was the first version
+ * of this guard, and it looped. Comparing builds needs no clearing and no
+ * timer: landing on the same build says the reload changed nothing, and a
+ * different one is by definition a version this tab has not tried yet.
+ *
+ * A browser that refuses storage keeps no mark and is left with one honest dead
+ * end instead.
  */
 export async function pickUpTheNewVersion(
   versions: Versions = realVersions,
   memory: Storage | undefined = tabMemory(),
 ): Promise<Update> {
-  if (read(memory) !== null) return 'nothing-new';
+  const build = versions.thisBuild();
+  if (read(memory) === build) return 'nothing-new';
 
   let waiting: boolean;
   try {
@@ -109,37 +137,24 @@ export async function pickUpTheNewVersion(
   }
   if (!waiting) return 'nothing-new';
 
-  write(memory);
+  write(memory, build);
   versions.reload();
   return 'taken';
 }
 
-/**
- * This build has read something successfully, so it is not the one that was
- * behind. Clears the guard, which is what lets a tab left open across two
- * deployments pick up the second as readily as the first.
- */
-export function working(memory: Storage | undefined = tabMemory()): void {
-  try {
-    memory?.removeItem(TRIED);
-  } catch {
-    // A browser that refuses storage kept no mark to remove.
-  }
-}
-
 function read(memory: Storage | undefined): string | null {
   try {
-    return memory?.getItem(TRIED) ?? null;
+    return memory?.getItem(TRIED_FROM) ?? null;
   } catch {
     return null;
   }
 }
 
-function write(memory: Storage | undefined): void {
+function write(memory: Storage | undefined, build: string): void {
   try {
-    memory?.setItem(TRIED, 'yes');
+    memory?.setItem(TRIED_FROM, build);
   } catch {
-    // Nothing to do: without the mark the dead end below is reached one reload
-    // later than it would have been, which is a flicker rather than a loop.
+    // Nothing to do: without the mark a build that is still behind reaches the
+    // dead end one reload later than it would have, rather than never.
   }
 }

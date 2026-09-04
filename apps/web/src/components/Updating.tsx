@@ -1,12 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import {
-  outOfDate,
-  pickUpTheNewVersion,
-  working,
-  type Update,
-  type Versions,
-} from '../updating';
+import { outOfDate, pickUpTheNewVersion, type Update, type Versions } from '../updating';
 
 interface Props {
   children: React.ReactNode;
@@ -39,11 +33,7 @@ export function Updating({ children, versions, memory }: Props) {
   useEffect(() => {
     const cache = queryClient.getQueryCache();
     const look = () => {
-      const reads = cache.getAll();
-      // A read that worked proves this build is not the one that was behind,
-      // which is what releases the one-reload guard for the next deployment.
-      if (reads.some((read) => read.state.status === 'success')) working(memory);
-      if (reads.some((read) => outOfDate(read.state.error))) setGated(true);
+      if (cache.getAll().some((read) => outOfDate(read.state.error))) setGated(true);
     };
     look();
     return cache.subscribe(look);
