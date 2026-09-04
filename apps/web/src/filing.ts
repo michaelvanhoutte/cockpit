@@ -15,16 +15,27 @@ import type { Filing, Item } from '@cockpit/shared';
  */
 
 /**
- * Whether an item is still yours to deal with.
+ * Whether an item is still yours to deal with, which is the whole of what an
+ * item can be besides finished with ("An item is either yours to deal with or
+ * finished with", issue 154).
  *
  * Dismissed items never reach the client at all - the snapshot leaves them out
- * server-side - and done ones do, so this is what keeps a completed item off
- * the panel it was filed on as well as out of the Inbox. One predicate for both
- * lists, because "gone from the Inbox but still on a panel" is a distinction
- * nobody asked for.
+ * server-side - and finished ones do, so this is what keeps a completed item
+ * off the panel it was filed on as well as out of the Inbox. One predicate for
+ * both lists, because "gone from the Inbox but still on a panel" is a
+ * distinction nobody asked for.
+ *
+ * **They arrive so that undoing has something to put back.** A finished item
+ * has to be in the copy the browser holds for the bar offering to undo it to
+ * work without a round trip.
  */
 export function stillOpen(item: Item): boolean {
-  return item.status !== 'done' && item.status !== 'dismissed';
+  // Falsy rather than `=== null`, because a copy restored from IndexedDB is
+  // never parsed again (main.tsx) - so an item stored before this field existed
+  // has `undefined` here, and comparing to null would hide every one of them
+  // from both lists. The buster moves with this shape change as well, which is
+  // the fix; this is what makes the week of stored copies in between harmless.
+  return !item.completedAt;
 }
 
 /**

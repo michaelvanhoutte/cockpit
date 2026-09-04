@@ -40,7 +40,7 @@ The concrete pains with today's way of working (a manual Notion board beside eac
 - **Delivery — two iterations.** Iteration 1 tracks items flagged at the source; iteration 2 adds the read-and-process inbox on top (§1.1). The data model does not change between them.
 - **Audience — personal-first, SaaS-ready.** Built for one person first, with a data model, tenancy and auth that could become a multi-tenant product without a rewrite. **There is now more than one User**, each in an Account of their own ("Sign in by picking a name, each user in their own account", issue 86). A passwordless list of names is an identity selector, not an authentication control, and it is the only thing in front of a deployed environment; what it does mean is that the tenancy the schema always carried is exercised rather than assumed. Never hard-code how many Accounts exist into the schema.
 - **Offline — local-first.** Syncing happens online, but the app must open, show current status, read synced items and triage them without a connection; offline changes queue and reconcile on reconnect. Per issue 9 (§2), instant rendering is the primary purpose and offline use should fall out of the cache design rather than drive machinery of its own.
-- **Inbox — triage queue.** The Inbox lists what has arrived and not been dealt with, not a permanent mirror of every message. **What decides is filing**: an Item filed on a Panel has left the Inbox and is visible in every Panel holding it ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36). Status is what an Item is doing, not which list it is in.
+- **Inbox — triage queue.** The Inbox lists what has arrived and not been dealt with, not a permanent mirror of every message. **What decides is filing**: an Item filed on a Panel has left the Inbox and is visible in every Panel holding it ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36). What an Item *is* — its Type — is separate from which list it is in.
 - **v1 sources — Gmail, Slack, Notion.** Linear, Google Calendar, Chrome (bookmarks/downloads) and YouTube (saved videos) are later phases.
 
 ## 4. Core concepts and terminology
@@ -85,13 +85,17 @@ Workspace: "Work"
 
 ### 4.2 Item + Association model (resolves "one message in two inboxes")
 
-Everything that flows in — email, Slack message, Notion page, later a calendar event or bookmark — normalizes into a single **Item**, storing: source app (or *internal*), source ID, a deep link back, sender/author, timestamp, title, a text preview or body, optional priority, optional due date, and its status. Native notes and to-dos created in the app have no source app and open in the app rather than deep-linking out.
+Everything that flows in — email, Slack message, Notion page, later a calendar event or bookmark — normalizes into a single **Item**, storing: source app (or *internal*), source ID, a deep link back, sender/author, timestamp, title, a text preview or body, its **Type**, optional priority, optional due date, and whether it has been finished with. Native notes and to-dos created in the app have no source app and open in the app rather than deep-linking out.
 
-Items are **not filed into one folder.** Each carries any number of **Associations**: to one or more **People**, **Projects**, **Topics/Areas** (*Research*, *People to discuss*), a **Workspace** (rarely more than one), optional **Focus** flags (§7), and a **processing status** (§5).
+Items are **not filed into one folder.** Each carries any number of **Associations**: to one or more **People**, **Projects**, **Topics/Areas** (*Research*, *People to discuss*), a **Workspace** (rarely more than one) and optional **Focus** flags (§7).
 
 Because associations are many-to-many, one message appears in the *Project Falcon* panel **and** the *Anna* panel without being duplicated or moved. A Panel is a query over Items, so the same Item shows up in every Panel whose filter it matches.
 
-**Tasks vs Items (recommendation):** treat a to-do as an Item given a *status of "task"* plus optional due date, not a separate silo. A Kanban board, a to-do list and the inbox are then all Panels over the same Items.
+**Every Item has a Type** — *Action*, *Thought*, or whatever else you name — which is what kind of thing it is, as against where it stands. The set is open and account-wide, and a Type is made by naming one at capture that does not exist yet ("Capture a thought or an action, and see which it is", issue 155): a type you need once is not worth a trip to a settings page. Capture offers the types you already have, the three used last first, and opens on the one used last.
+
+Types are managed on their own page, a sibling of the workspaces one because they belong to the Account: a row each, renamed and recoloured in the row, deleted through the same dialog as everything else, and put in the order capture offers them in — the Ordering rule, so the grip and the row's own *Move up* and *Move down* are the same move ("Manage the types, and put them in the order you want", issue 156). **There is no way to make one there**, which is the one thing that page does not do: a second place to type a name is a second place for the same word to be spelled differently. **Deleting a Type leaves its Items where they are**, holding everything except the label — the same way deleting a Workspace keeps everything filed against it — and gives the name back.
+
+**An Item is either yours to deal with or finished with**, and nothing in between ("An item is either yours to deal with or finished with", issue 154). Being finished with one is a time, so it says *when*; dismissing one is the tombstone that makes it reversible. The eight-value status this replaced — To Process, Task, Waiting, Snoozed, Delegated, Reference — was never asked for, and six of the eight changed a mark on the row and nothing else. What kind of thing an Item is belongs to its **Type**, and a due date is a field. A Kanban board, a to-do list and the inbox are still all Panels over the same Items.
 
 ## 5. The Inbox and the triage flow *(iteration 2)*
 
@@ -108,9 +112,9 @@ Processing an Item means one or more of:
 - **Read and respond** — the content is readable in the app, and where the source supports it you can react or reply from here; otherwise the deep link (§6.1) takes you to the source.
 - **Flag for follow-up** — it becomes a tracked follow-up on the dashboards, exactly as if flagged at the source.
 - **Associate it** — tag it to a Person, Project and/or Topic, which is what puts it in the right panels.
-- **Set a status** — *Done*, *Waiting on someone*, *Scheduled/Snoozed until a date*, *Delegated*, *Reference/Archive*, or *Convert to Task* with a due date.
+- **Mark it done** — which takes it off every list, saying when.
 - **File it on a Panel** — which is what takes it out of the Inbox, and the one thing that does. Every Item's own menu carries **Move to…**, opening a picker of every Panel in the Workspace with the Dashboard you are on first, the three Panels most recently filed into above it, and the Inbox among the targets.
-- **Delete/Dismiss** — which is reversible for as long as the bar offering it is on screen ("Undo what just happened", issue 144). A dismissed Item is kept rather than erased, and giving it any other status brings it back, so putting it back is the same change made the other way.
+- **Delete/Dismiss** — which is reversible for as long as the bar offering it is on screen ("Undo what just happened", issue 144). A dismissed Item is kept rather than erased, and undismissing it brings it back, so putting it back is the same change made the other way.
 
 Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stays reachable through the Panels holding it, through its associations, and through an optional "All items" view.
 
@@ -120,7 +124,7 @@ Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stay
 
 ### 5.1 How an Item reaches a box — must it pass through the Inbox first? (undecided)
 
-The reframing that makes this tractable: **"in the Inbox" and "shown in a box" are two independent states, not two ends of one pipeline.** Associations are many-to-many and status is separate (§4.2), so an Item can be in either, both or neither, and "passes through the inbox first" is a per-source default rather than an architecture.
+The reframing that makes this tractable: **"in the Inbox" and "shown in a box" are two independent states, not two ends of one pipeline.** Associations are many-to-many and being finished with an Item is separate (§4.2), so an Item can be in either, both or neither, and "passes through the inbox first" is a per-source default rather than an architecture.
 
 **Model A — Inbox-first (manual triage).** Everything lands in To Process; nothing appears in a box until deliberately filed there. *Pro:* one point of control. *Con:* obvious items still need manual routing.
 
@@ -134,7 +138,7 @@ The reframing that makes this tractable: **"in the Inbox" and "shown in a box" a
 
 **Swipe-right opens the picker**, the same one **Move to…** opens ("Swipe an inbox row right to file it, left to dismiss it", issue 145). Filing is what an Inbox row most often needs and the picker is where the decision already lives, so a phone gets to it in one gesture rather than three taps.
 
-**One meaning per direction, at one distance.** The other candidates — a quick process sheet, snooze, done — were going to be told apart by how far the swipe went, and that is what the gesture cannot spare: it is already competing with the list scrolling under the same thumb, so the difference between a short swipe and a long one is not a difference a hand can be relied on to make. They stay in the row's menu, where there is no threshold to miss.
+**One meaning per direction, at one distance.** The other candidates — a quick process sheet, a wake date, done — were going to be told apart by how far the swipe went, and that is what the gesture cannot spare: it is already competing with the list scrolling under the same thumb, so the difference between a short swipe and a long one is not a difference a hand can be relied on to make. They stay in the row's menu, where there is no threshold to miss.
 
 ## 6. Dashboards and Panels
 
@@ -164,7 +168,7 @@ Any Panel can present its Items as an action list rather than raw message previe
 - A **source icon** — mail, Slack, Notion, or an internal-note marker.
 - **Deadline color** (§7.1) and a **priority** highlight, independent of any deadline.
 
-Panel-level controls, supported by every Panel: **manual sort** (drag to reorder, remembered); **grouping** by any field (person, project, status, priority); **highlighting** by priority and deadline.
+Panel-level controls, supported by every Panel: **manual sort** (drag to reorder, remembered); **grouping** by any field (person, project, type, priority); **highlighting** by priority and deadline.
 
 **Where a card links.** An Item from a connected source deep-links into that app at exactly the right place (the Gmail thread, the Slack message, the Notion page), so you act in the real tool rather than a degraded copy. An internal note opens inside this app for viewing and editing.
 
@@ -177,7 +181,7 @@ Two mechanisms combine:
 - **Filing.** Any Item can be filed onto a Panel from its own menu, which is what takes it out of the Inbox ("The Inbox and the triage flow"). An Item filed on several Panels appears on all of them: **Add to…** in a row's menu shows it on one more, and **Remove from this panel** stops one Panel showing it while every other carries on — an Item removed from the only Panel holding it is back in the Inbox. Dragging a row from one Panel onto another **asks which was meant**, because both are reasonable and a drag says neither ("Ask whether to move an item to a panel or add it to one", issue 142); a drop from the Inbox asks nothing, there being no answer that leaves it there. On a screen with a pointer it is also **dragged** into the Panel, and dropped between the rows already there: where it is let go is where it lands, and dropping it back into the Panel it is already on reorders that Panel ("Drag an item into a panel, and drop it where you want it", issue 141). A drag is unreachable from a keyboard and absent on a touchscreen, so a row's own menu carries **Move up** and **Move down** — Ordering, the same move made two ways. **A drag near an edge scrolls the page**, so a Panel below the fold can be aimed at — which the browser does by itself and Cockpit does not implement — and **resting one on another Dashboard's name switches to it**, so a Panel that was not on screen when the drag began can be dropped on — and that Dashboard is the one still open afterwards, because it is where you just put something ("Scroll while dragging, and switch dashboards by resting on one", issue 143).
 - **Live rules (saved queries).** A Panel can be configured with a rule for what belongs in it ("all messages from the **cust-AtlasCopco** Slack channel", "emails labelled *Pricing*", "Items associated with Project Falcon"). The Panel remembers the rule and any future match **appears automatically**, without touching the Inbox — the panel-level expression of §5.1's direct routing.
 
-**Rules are configured in plain English, not through a wizard.** You describe what the Panel should show in a free-text sentence (*"all emails from customers"*, *"Slack messages where I'm mentioned in the customer channels"*) and the AI translates it into the underlying saved query (§8). The app plays the interpretation back in understandable terms ("this will show: emails, from senders matching your customer list, status not done") so it can be confirmed or refined by editing the sentence. A multi-step rule wizard is explicitly not wanted; the structured query is the stored, inspectable result of the sentence.
+**Rules are configured in plain English, not through a wizard.** You describe what the Panel should show in a free-text sentence (*"all emails from customers"*, *"Slack messages where I'm mentioned in the customer channels"*) and the AI translates it into the underlying saved query (§8). The app plays the interpretation back in understandable terms ("this will show: emails, from senders matching your customer list, not yet done") so it can be confirmed or refined by editing the sentence. A multi-step rule wizard is explicitly not wanted; the structured query is the stored, inspectable result of the sentence.
 
 **Attach-and-monitor scope prompt.** Adding a Slack item to a Panel asks *how much* to monitor: **this thread**, **this conversation/DM**, or **this channel** (the live-rule case). The same generalizes to other sources — one email thread versus a whole label, one Notion page versus a database. The scope picked becomes the Panel's live rule.
 
@@ -207,7 +211,7 @@ Independently of Focus horizons, an Item can carry a hard **due date**, and card
 
 - **Per-item / per-thread summary** so long or technical messages can be triaged without reading the whole thread.
 - **Action extraction (the next-action label).** Read the full thread, not the last message, and distil the concrete thing to do into one line (§6.1). Always editable.
-- **Suggested associations.** On arrival, propose the likely Project/Person/Topic tags and a status to confirm or override. This is where most of the day-to-day value is.
+- **Suggested associations.** On arrival, propose the likely Project/Person/Topic tags to confirm or override. This is where most of the day-to-day value is.
 - **Dashboard highlights digest** — "here is what needs follow-up today" across all sources, optionally as a daily push.
 - **Plain-English panel rules** — turn a free-text description into the structured saved query behind a Panel and render the interpretation back for confirmation (§6.2).
 - **Reading-digest topic extraction** *(iteration 2)* — detect that an email is content rather than correspondence, split it into its individual stories, and rank those against topics of interest. Finer-grained than a per-item summary, since one newsletter can hold ten unrelated stories of which one matters.
@@ -240,7 +244,7 @@ The local copy serves **instant rendering** first and **offline availability** s
 The source apps remain the source of truth for everything they own. The rule that keeps this tractable is a strict split of every Item's fields:
 
 - **Source-owned facts** — whether the underlying object still exists, its content, its state at the source. Every re-sync overwrites the cache unconditionally; the app never argues with the source about the source's own data.
-- **App-owned facts** — associations, focus flags, processing status, edited next-action labels, panel placement, manual sort order. Reconciliation never touches these.
+- **App-owned facts** — associations, focus flags, whether it has been finished with, edited next-action labels, panel placement, manual sort order. Reconciliation never touches these.
 
 Convergence is layered, cheapest first, and a source change should have the same effect as processing the item here (so completing something in Notion counts as done, per issue 1):
 
@@ -267,7 +271,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 1. **One-way vs two-way sync.** Should archiving or marking done here change the source? *Recommendation: read-only in v1, two-way sync opt-in per connector later.* Highest-impact decision.
 2. **Inbox-first vs direct routing (§5.1).** *Recommendation: hybrid — inbox by default, per-source rules for the obvious cases, with an "unseen" marker on auto-routed cards.*
 3. ~~**Swipe-right meaning.**~~ *Settled: it opens the picker, and there is no short-versus-long split — see "Swipe-right — settled".*
-4. **Tasks — separate object or Item status?** *Recommendation: Item with a "task" status plus due date, so all panels share one model.*
+4. ~~**Tasks — separate object or Item status?**~~ *Answered: neither. An Item has a **Type**, and a due date is a field — see "An item is either yours to deal with or finished with" (issue 154) and "Capture a thought or an action, and see which it is" (issue 155). All panels still share one model.*
 5. **Auto-tagging trust level.** Applied automatically with undo, or suggested for confirmation? *Recommendation: suggest-and-confirm in v1; auto-apply once trusted.*
 6. **AI location vs offline.** *Recommendation: generate on sync in the cloud, cache the result so it reads offline.*
 7. **Multi-workspace items.** *Recommendation: one primary Workspace per item to keep the privacy boundary clean; use Topics/Projects for cross-cutting.*
@@ -300,16 +304,16 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Layout** — one arrangement of a Dashboard's Panels — their order and each one's size — together with the screen width it was made at. A Dashboard can have several, so it reads well on a phone and on a 4K screen; the app draws it with the one closest to the screen in front of you unless you pick another.
 - **Inbox** — the one place in a Workspace holding what has arrived and not been dealt with: every open Item filed on no Panel. Beside the Dashboards rather than one of them, and never renamed or deleted, because it is not a Panel — it is what is left when nothing holds an Item.
 - **Item** — the single object everything is stored as, whether it arrived from a source or was created in the app. **Action** and **Thought** are *types* of Item, not separate objects.
+- **Type** — what kind of thing an Item is: *Action*, *Thought*, and whatever else you name. The set is open and account-wide, and a Type comes into existence by being used — naming one at capture that is not there yet makes it ("Capture a thought or an action, and see which it is", issue 155). Each wears a colour from the palette, which is the dot at the head of a row; the name beside it is what carries the meaning. A Type says what an Item *is*, where **Done** says where it stands. Types are renamed, recoloured, ordered and deleted on a page of their own, and an Item whose Type is deleted keeps everything but the label ("Manage the types, and put them in the order you want", issue 156).
 - **Action** — an Item representing something to do. One source Item can produce several.
 - **Thought** — an Item created in the app as a note or idea, with no source behind it.
 - **Association** — a link from an Item to a Person, Project, Topic or Focus flag; many-to-many, which is why an Item can appear in several Panels.
 - **Capture** — creating an Item directly in the app instead of receiving it from a source.
-- **Status** — where an Item stands: To Process, Task, Waiting, Snoozed, Delegated, Reference, Done, Dismissed.
-- **Snooze** — hiding an Item until a chosen date, after which it returns.
+- **Done** — finished with, recorded as the time it happened. An Item is either yours to deal with or done; there is nothing in between, and a Type says what kind of thing it is rather than where it stands.
 - **Priority** — low / normal / high importance, independent of the Focus horizon.
 - **Next action** — the short, always-editable label describing what to actually do about an Item.
 - **Focus horizon** — Today / This Week / This Month / This Quarter, date-anchored so it escalates to overdue.
-- **Triage / process** — dealing with what arrived: giving an Item a status, associating it, and filing it where it belongs.
+- **Triage / process** — dealing with what arrived: associating an Item, filing it where it belongs, and finishing with it or dismissing it.
 - **Undo** — putting back what the last change took away, offered briefly after it and never afterwards. One step, not a stack: what an accident needs is a way back, offered where you are looking.
 - **Filing** — putting an Item on a Panel. An Item can be filed on several Panels at once, which is why one thing to do can appear on *Project Falcon* and on *Anna*; one filed nowhere is in the Inbox. Each filing carries its own place in that Panel's order, so an Item can be first on one Panel and fifth on another.
 - **Offline** — working from the local copy when the connection is not there. Cockpit opens, shows what it already holds, and takes what you capture and triage; those changes queue and go up on reconnect. Nothing new arrives from a source until the connection is back, and what the copy shows is said to be as old as it is rather than presented as current ("Offline / local-first behavior", §10).

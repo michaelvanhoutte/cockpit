@@ -89,6 +89,18 @@ describe('Offline', () => {
         }),
       },
       {
+        situation: 'saying what kind of thing something is',
+        name: 'create_item_type',
+        makesIt: true,
+        change: (targetId, requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-09-04T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          typeId: targetId,
+          name: `Question ${requestId.slice(-4)}`,
+        }),
+      },
+      {
         situation: 'capturing a thought',
         name: 'capture_item',
         makesIt: true,
@@ -102,13 +114,13 @@ describe('Offline', () => {
       },
       {
         situation: 'marking it done',
-        name: 'set_status',
+        name: 'set_done',
         change: (targetId, requestId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T11:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId: targetId,
-          status: 'done',
+          done: true,
         }),
       },
       {
@@ -162,27 +174,27 @@ describe('Offline', () => {
     it('leaves the item as the newer change left it', async () => {
       const itemId = await captureAnItem();
       // Move the item on, so the change below is older than what it reflects.
-      await postChange('set_status', {
+      await postChange('set_done', {
         commandId: nextId(),
         issuedAt: '2026-08-12T12:00:00.000Z',
         workspaceId: WORKSPACE_ID,
         itemId,
-        status: 'task',
+        done: true,
       });
 
       const outdatedRequestId = nextId();
-      const response = await postChange('set_status', {
+      const response = await postChange('set_done', {
         commandId: outdatedRequestId,
         issuedAt: '2026-08-12T11:00:00.000Z',
         workspaceId: WORKSPACE_ID,
         itemId,
-        status: 'done',
+        done: false,
       });
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ ok: true, applied: false });
       const [item] = await storedIn('items', 'id', itemId);
-      expect(item?.status).toBe('task');
+      expect(item?.completed_at).toBe('2026-08-12T12:00:00.000Z');
       // Still recorded, so the history stays complete even when nothing moved.
       expect(await storedIn('commands', 'command_id', outdatedRequestId)).toHaveLength(1);
     });
@@ -202,24 +214,24 @@ describe('Triage', () => {
     }>([
       {
         situation: 'marking it done',
-        name: 'set_status',
+        name: 'set_done',
         change: (requestId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId: goneItemId,
-          status: 'done',
+          done: true,
         }),
       },
       {
-        situation: 'snoozing it until a date',
-        name: 'snooze_until',
+        situation: 'dismissing it',
+        name: 'set_dismissed',
         change: (requestId) => ({
           commandId: requestId,
           issuedAt: '2026-08-12T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId: goneItemId,
-          until: '2026-09-01T08:00:00.000Z',
+          dismissed: true,
         }),
       },
       {
@@ -233,17 +245,6 @@ describe('Triage', () => {
           associationId: nextId(),
           kind: 'person',
           label: 'Anna',
-        }),
-      },
-      {
-        situation: 'making it a goal for today',
-        name: 'set_focus',
-        change: (requestId) => ({
-          commandId: requestId,
-          issuedAt: '2026-08-12T10:00:00.000Z',
-          workspaceId: WORKSPACE_ID,
-          itemId: goneItemId,
-          horizon: 'today',
         }),
       },
       {
@@ -425,14 +426,14 @@ describe('Triage', () => {
         }),
       },
       {
-        situation: 'snoozing it until a date',
-        name: 'snooze_until',
+        situation: 'marking it done',
+        name: 'set_done',
         change: (requestId, itemId) => ({
           commandId: requestId,
-          issuedAt: '2026-08-12T10:00:00.000Z',
+          issuedAt: '2026-02-31T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           itemId,
-          until: '2026-02-31T08:00:00.000Z',
+          done: true,
         }),
       },
     ])('$situation', async ({ name, change }) => {
@@ -443,6 +444,105 @@ describe('Triage', () => {
 
       expect(response.status).toBe(400);
       expect(await storedIn('commands', 'command_id', requestId)).toHaveLength(0);
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * Reuse and the race are both facts about a real store: whether a name is
+   * already taken is a query, and whether two of them can exist at once is what
+   * the unique index behind the check decides. The folding itself is proved
+   * without one in tests/unit/domain/item-types.test.ts.
+   */
+  describe('naming a type already there reuses it; naming a new one creates it', () => {
+    const makeType = (name: string) => ({
+      commandId: nextId(),
+      issuedAt: '2026-09-04T10:00:00.000Z',
+      workspaceId: WORKSPACE_ID,
+      typeId: nextId(),
+      name,
+    });
+
+    it.each([
+      { situation: 'the exact name', named: 'Action' },
+      { situation: 'a different capitalisation', named: 'ACTION' },
+      { situation: 'the name with blanks round it', named: '  action  ' },
+    ])('leaves one type when it is named again with $situation', async ({ named }) => {
+      // Every account starts with Action and Thought, so this names one it has.
+      expect((await postChange('create_item_type', makeType(named))).status).toBe(200);
+
+      expect(
+        await inTheStore((sql) =>
+          sql
+            .exec("SELECT name FROM item_types WHERE folded_name = 'action'")
+            .toArray(),
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('makes a type nothing was going by', async () => {
+      const request = makeType('Question');
+
+      expect((await postChange('create_item_type', request)).status).toBe(200);
+
+      expect(await storedIn('item_types', 'id', request.typeId)).toHaveLength(1);
+    });
+
+    it('leaves one type when two tabs name the same new one at once', async () => {
+      // Two requests, two ids, one name, sent together: only the index behind
+      // the check decides this, which is why it is here and not at L1.
+      const [first, second] = await Promise.all([
+        postChange('create_item_type', makeType('Question')),
+        postChange('create_item_type', makeType('Question')),
+      ]);
+
+      expect([first.status, second.status]).toEqual([200, 200]);
+      expect(
+        await inTheStore((sql) =>
+          sql.exec("SELECT id FROM item_types WHERE folded_name = 'question'").toArray(),
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('makes two types when two tabs name different ones at once', async () => {
+      const [first, second] = await Promise.all([
+        postChange('create_item_type', makeType('Question')),
+        postChange('create_item_type', makeType('Decision')),
+      ]);
+
+      expect([first.status, second.status]).toEqual([200, 200]);
+      expect(
+        await inTheStore((sql) =>
+          sql
+            .exec("SELECT id FROM item_types WHERE folded_name IN ('question', 'decision')")
+            .toArray(),
+        ),
+      ).toHaveLength(2);
+    });
+  });
+
+  describe('a capture naming a type this account does not have finds nothing', () => {
+    it.each([
+      { situation: 'a type of this account', ofThisAccount: true, answers: 200 },
+      { situation: 'a type nothing here has', ofThisAccount: false, answers: 404 },
+    ])('$situation', async ({ ofThisAccount, answers }) => {
+      const [action] = await inTheStore((sql) =>
+        sql.exec<{ id: string }>("SELECT id FROM item_types WHERE folded_name = 'action'").toArray(),
+      );
+      const itemId = nextId();
+
+      const response = await postChange('capture_item', {
+        commandId: nextId(),
+        issuedAt: '2026-09-04T10:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Make appointment with Novy',
+        typeId: ofThisAccount ? action!.id : '018f0000-0000-7000-8000-999999999999',
+      });
+
+      expect(response.status).toBe(answers);
+      expect(await storedIn('items', 'id', itemId)).toHaveLength(answers === 200 ? 1 : 0);
     });
   });
 });
