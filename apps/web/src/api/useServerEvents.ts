@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { serverEventSchema } from '@cockpit/shared';
+import { ACCOUNT_WIDE, serverEventSchema } from '@cockpit/shared';
 import { diagnoseConnection } from './loadFailure';
 
 /**
@@ -62,6 +62,15 @@ export function useServerEvents() {
         // (architecture, "How the client talks to the backend"), so the list is
         // revalidated rather than reasoned about.
         void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+        // A type change names the account rather than a workspace, because
+        // types belong to the account and the page that manages them is
+        // outside every workspace ("Manage the types, and put them in the
+        // order you want", issue 156). Every snapshot draws them, so every
+        // snapshot goes stale.
+        if (parsed.data.workspaceId === ACCOUNT_WIDE) {
+          void queryClient.invalidateQueries({ queryKey: ['itemTypes'] });
+          void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
+        }
       });
 
       stream.addEventListener('error', () => {

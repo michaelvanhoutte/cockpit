@@ -5,7 +5,9 @@ import {
   associations,
   commands,
   dashboards,
+  DEAD_STATUS_VALUE,
   items,
+  itemTypes,
   layouts,
   panelItems,
   panelPlacements,
@@ -16,12 +18,15 @@ import {
   commandAlreadyApplied,
   getDashboard,
   getItem,
+  getItemType,
   getLayout,
   getPanel,
   getWorkspace,
   lastWorkspacePosition,
   listDashboards,
+  lastItemTypePosition,
   listFilingsOnPanel,
+  listItemTypes,
   listLayoutIds,
   listPanels,
   listPlacements,
@@ -50,14 +55,45 @@ import {
   workspaceNamed,
 } from '../domain/workspaces.js';
 import {
-  applySetFocus,
+  itemTypeFromCommand,
+  itemTypeNamed,
+  ordersTypesExactly,
+} from '../domain/item-types.js';
+import {
+  applySetDismissed,
+  applySetDone,
   applySetNextAction,
   applySetPriority,
-  applySetStatus,
-  applySnoozeUntil,
   associationFromCommand,
   captureItem,
 } from '../domain/items.js';
+
+export class ItemTypeNotFoundError extends Error {
+  constructor(typeId: string) {
+    super(`item type ${typeId} not found`);
+    this.name = 'ItemTypeNotFoundError';
+  }
+}
+
+/**
+ * Its own kind rather than the workspace one, for the reason the dashboard one
+ * is: the message is what a person reads, and it has to name the thing that is
+ * actually in the way.
+ */
+export class ItemTypeNameTakenError extends Error {
+  constructor(name: string) {
+    super(`a type called ${name} already exists`);
+    this.name = 'ItemTypeNameTakenError';
+  }
+}
+
+/** The same collision `WorkspaceOrderStaleError` names, one list along. */
+export class ItemTypeOrderStaleError extends Error {
+  constructor() {
+    super('the types changed while they were being put in order');
+    this.name = 'ItemTypeOrderStaleError';
+  }
+}
 
 export class ItemNotFoundError extends Error {
   constructor(itemId: string) {
@@ -671,10 +707,19 @@ export function runCommand<N extends CommandName>(
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
+      // The type the capture names, checked here rather than left to the
+      // foreign key, for the reason the workspace above is: a constraint would
+      // surface a caller's mistake as a 500, and a type of another account is
+      // a 404 like any other missing thing.
+      if (cmd.typeId && !getItemType(db, tenantId, cmd.typeId)) {
+        throw new ItemTypeNotFoundError(cmd.typeId);
+      }
       const item = captureItem(cmd, tenantId);
       db.transaction((tx) => {
         // A retried capture whose command ID was lost still may not duplicate the item.
-        tx.insert(items).values(item).onConflictDoNothing().run();
+        // `status` is the dead column being satisfied rather than used: it is
+        // NOT NULL with a CHECK and nothing reads it (schema.ts).
+        tx.insert(items).values({ ...item, status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -764,6 +809,94 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
+    case 'create_item_type': {
+      const cmd = payload as CommandPayload<'create_item_type'>;
+      const already = listItemTypes(db, tenantId);
+      // Naming one that is already there reuses it rather than refusing: the
+      // gesture is "this is a thought", and it means the same whether or not
+      // the type existed a moment ago ("Capture a thought or an action, and
+      // see which it is", issue 155). The command is still recorded, so a
+      // replay is still a replay.
+      const existing = itemTypeNamed(already, cmd.name);
+      db.transaction((tx) => {
+        if (!existing) {
+          tx.insert(itemTypes)
+            .values({
+              ...itemTypeFromCommand(cmd, tenantId, already, lastItemTypePosition(db, tenantId)),
+              foldedName: foldName(cmd.name),
+              deletedAt: null,
+            })
+            .onConflictDoNothing()
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'rename_item_type': {
+      const cmd = payload as CommandPayload<'rename_item_type'>;
+      const live = listItemTypes(db, tenantId);
+      const type = live.find((candidate) => candidate.id === cmd.typeId);
+      if (!type) throw new ItemTypeNotFoundError(cmd.typeId);
+      // Its own name back is a rename that changes nothing, not a collision.
+      const taken = itemTypeNamed(live, cmd.name);
+      if (taken && taken.id !== cmd.typeId) throw new ItemTypeNameTakenError(cmd.name);
+      db.transaction((tx) => {
+        tx.update(itemTypes)
+          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
+          .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, cmd.typeId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_item_type_color': {
+      const cmd = payload as CommandPayload<'set_item_type_color'>;
+      if (!getItemType(db, tenantId, cmd.typeId)) throw new ItemTypeNotFoundError(cmd.typeId);
+      db.transaction((tx) => {
+        tx.update(itemTypes)
+          .set({ color: cmd.color })
+          .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, cmd.typeId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_item_type': {
+      const cmd = payload as CommandPayload<'delete_item_type'>;
+      if (!getItemType(db, tenantId, cmd.typeId)) throw new ItemTypeNotFoundError(cmd.typeId);
+      db.transaction((tx) => {
+        // Tombstoned, never erased, and the items that named it are left
+        // alone: the row stays, so the foreign key stays satisfied, and an
+        // item pointing at a type no longer in the live list simply has none.
+        // That is what makes deleting a type a tidy-up rather than a change to
+        // everything it labelled.
+        tx.update(itemTypes)
+          .set({ deletedAt: cmd.issuedAt })
+          .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, cmd.typeId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'reorder_item_types': {
+      const cmd = payload as CommandPayload<'reorder_item_types'>;
+      const live = listItemTypes(db, tenantId);
+      if (!live.some((type) => type.id === cmd.typeId)) {
+        throw new ItemTypeNotFoundError(cmd.typeId);
+      }
+      if (!ordersTypesExactly(live, cmd.typeIds)) throw new ItemTypeOrderStaleError();
+      db.transaction((tx) => {
+        cmd.typeIds.forEach((typeId, position) => {
+          tx.update(itemTypes)
+            .set({ position })
+            .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, typeId)))
+            .run();
+        });
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'associate': {
       const cmd = payload as CommandPayload<'associate'>;
       const existing = getItem(db, tenantId, cmd.itemId);
@@ -786,24 +919,21 @@ export function runCommand<N extends CommandName>(
     default: {
       // All remaining commands are updates to a single existing item.
       const cmd = payload as
-        | CommandPayload<'set_status'>
-        | CommandPayload<'snooze_until'>
-        | CommandPayload<'set_focus'>
+        | CommandPayload<'set_done'>
+        | CommandPayload<'set_dismissed'>
         | CommandPayload<'set_next_action'>
         | CommandPayload<'set_priority'>;
       const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
 
       const updated =
-        name === 'set_status'
-          ? applySetStatus(existing, cmd as CommandPayload<'set_status'>)
-          : name === 'snooze_until'
-            ? applySnoozeUntil(existing, cmd as CommandPayload<'snooze_until'>)
-            : name === 'set_focus'
-              ? applySetFocus(existing, cmd as CommandPayload<'set_focus'>)
-              : name === 'set_next_action'
-                ? applySetNextAction(existing, cmd as CommandPayload<'set_next_action'>)
-                : applySetPriority(existing, cmd as CommandPayload<'set_priority'>);
+        name === 'set_done'
+          ? applySetDone(existing, cmd as CommandPayload<'set_done'>)
+          : name === 'set_dismissed'
+            ? applySetDismissed(existing, cmd as CommandPayload<'set_dismissed'>)
+            : name === 'set_next_action'
+              ? applySetNextAction(existing, cmd as CommandPayload<'set_next_action'>)
+              : applySetPriority(existing, cmd as CommandPayload<'set_priority'>);
 
       if (updated === null) {
         // Stale by last-write-wins: log the command, change nothing.

@@ -1,5 +1,6 @@
 export * from './ids.js';
 export * from './domain/item.js';
+export * from './domain/item-type.js';
 export * from './domain/panel.js';
 export * from './domain/workspace-themes.js';
 export * from './commands.js';

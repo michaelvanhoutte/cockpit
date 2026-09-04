@@ -16,12 +16,12 @@ Terminology follows the functional definition. Notes since taken up in their own
 - **Highlight the destination.** When you click an Item in the Inbox, highlight the Panel or Panels that Item would be moved into.
 - **Table view.** Support a table view next to the Panel view.
 - **Zoom.** Support zooming in the Panel view.
-- **Configurable item types.** Add configurable types (e.g. *action* and *note*) that can be created and moved in a Panel, and render each type differently.
+- ~~**Configurable item types.** Add configurable types (e.g. *action* and *note*) that can be created and moved in a Panel, and render each type differently.~~ *(Taken up by "Capture a thought or an action, and see which it is" (issue 155), which makes the set open and draws each type in its own colour, and "Manage the types, and put them in the order you want" (issue 156). Moving one between Panels is filing, which "Drag an item into a panel, and drop it where you want it" (issue 141) and "Ask whether to move an item to a panel or add it to one" (issue 142) already cover.)*
 
 ## 2. Capture and the task creator
 
 - **Remember the last project used**, and remember colour suggestions in a particular way.
-- **Task vs thought.** When creating an entry, let me choose between a *task* (something actionable) and a *thought* (not directly actionable).
+- ~~**Task vs thought.** When creating an entry, let me choose between a *task* (something actionable) and a *thought* (not directly actionable).~~ *(Taken up by "Capture a thought or an action, and see which it is" (issue 155): capture asks what kind of thing it is, and the set is open rather than the two.)*
 - **Guidance alongside a thought.** Let me set guidance next to a thought, e.g. *"the next few thoughts are likely about project X."*
 - **Three cleaned-up phrasings.** Make three suggestions of cleaned-up text and let the LLM learn from my selections how I want the titles of my actions and notes phrased.
 - **Offer multiple interpretations.** When converting a short note into a longer, clearer message and there are several plausible readings, suggest the alternative meanings so I can pick the right one.

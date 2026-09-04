@@ -63,7 +63,11 @@
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/CaptureForm.tsx",
         "apps/web/src/pages/WorkspacePage.tsx",
-        "apps/web/src/components/InboxPanel.tsx"
+        "apps/web/src/components/InboxPanel.tsx",
+        "apps/api/src/domain/item-types.ts",
+        "packages/shared/src/domain/item-type.ts",
+        "apps/web/src/itemTypes.ts",
+        "apps/web/src/pages/ItemTypeSettingsPage.tsx"
       ]
     },
     {

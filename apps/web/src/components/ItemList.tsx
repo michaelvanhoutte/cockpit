@@ -9,6 +9,7 @@ import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
+import { typeOf } from '../itemTypes';
 import { MoveOrAddQuestion } from './MoveOrAddQuestion';
 import { MoveToPicker } from './MoveToPicker';
 
@@ -57,6 +58,9 @@ export function ItemList({
   emptyMessage: string;
 }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
+  // `?? []` for the reason the filings elsewhere carry one: a stored snapshot
+  // can predate the field, and a row with no type is drawn rather than hidden.
+  const types = data?.itemTypes ?? [];
   const command = useCommand();
   const send = useSendCommand();
   const offerToUndo = useUndo();
@@ -489,6 +493,7 @@ export function ItemList({
                 {landingAt === at && <Landing />}
                 <ItemRow
                   item={item}
+                  itemType={typeOf(types, item)}
                   workspaceId={workspaceId}
                   onMoveTo={(from) => {
                     openedFrom.current = from;

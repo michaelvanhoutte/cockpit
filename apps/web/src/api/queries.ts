@@ -2,7 +2,14 @@ import { useCallback } from 'react';
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
-import { fetchMe, fetchSnapshot, fetchUsers, fetchWorkspaces, sendCommand } from './client';
+import {
+  fetchItemTypes,
+  fetchMe,
+  fetchSnapshot,
+  fetchUsers,
+  fetchWorkspaces,
+  sendCommand,
+} from './client';
 
 /**
  * The people to choose from on the logon page.
@@ -37,6 +44,19 @@ export const meQuery = queryOptions({
 export const workspacesQuery = queryOptions({
   queryKey: ['workspaces'],
   queryFn: fetchWorkspaces,
+  staleTime: 60_000,
+});
+
+/**
+ * The account's types, for the page that manages them ("Manage the types, and
+ * put them in the order you want", issue 156).
+ *
+ * Its own query rather than a slice of a snapshot, because that page is outside
+ * any workspace - the same reason the workspace list has one.
+ */
+export const itemTypesQuery = queryOptions({
+  queryKey: ['itemTypes'],
+  queryFn: fetchItemTypes,
   staleTime: 60_000,
 });
 
@@ -88,6 +108,22 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<CommandName>([
  * - remounting the board and taking what they had typed with it. A change that
  * carries only its own fields has nothing to wait for, so it does not.
  */
+/**
+ * The changes after which the account's types are not what they were.
+ *
+ * Every one of them also changes every workspace's read model, because a type
+ * is drawn on every row of every list - so these re-read the whole of
+ * `['snapshot']` rather than the one workspace the envelope names, which for a
+ * type change is not a workspace at all.
+ */
+const CHANGES_THE_TYPES = new Set<CommandName>([
+  'create_item_type',
+  'rename_item_type',
+  'set_item_type_color',
+  'delete_item_type',
+  'reorder_item_types',
+]);
+
 const IS_BUILT_ON_THE_LAST_ONE = new Set<CommandName>([
   'move_item_to_panel',
   'add_item_to_panel',
@@ -132,6 +168,15 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     // deleted workspace's items can still be painted from it.
     queryClient.removeQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
     return;
+  }
+
+  if (CHANGES_THE_TYPES.has(args.name)) {
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['itemTypes'] }),
+      // Every workspace, not the one the envelope names: types belong to the
+      // account and are drawn on every row of every list.
+      queryClient.invalidateQueries({ queryKey: ['snapshot'] }),
+    ]);
   }
 
   const reread = [queryClient.invalidateQueries({ queryKey: ['snapshot', args.payload.workspaceId] })];

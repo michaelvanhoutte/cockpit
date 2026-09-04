@@ -107,7 +107,7 @@ These conventions are enforced by the schema, not by the callers that happen to 
 
 ### 4.3 Mutations are commands, not object PUTs
 
-All writes go through small, named, idempotent commands: `capture_item`, `set_status`, `snooze_until`, `associate`, `set_focus`. Each carries a client-generated command ID, the client timestamp, and a minimal Zod-validated payload from `packages/shared`.
+All writes go through small, named, idempotent commands: `capture_item`, `create_item_type`, `rename_item_type`, `set_done`, `set_dismissed`, `associate`. Each carries a client-generated command ID, the client timestamp, and a minimal Zod-validated payload from `packages/shared`.
 
 Commands keep every door open at almost no cost: idempotent retries on flaky mobile networks, an audit trail for free, trivially testable pure handlers at L1, and exactly the API an offline queue would need if offline writes are ever promoted from exceptional to supported (§5.3). A generic `PUT /items/:id` gives none of that and invites lost updates between two devices.
 

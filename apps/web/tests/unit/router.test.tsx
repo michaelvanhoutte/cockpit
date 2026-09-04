@@ -71,6 +71,7 @@ async function open(
           panels: [],
           layouts: [],
           associations: [],
+          itemTypes: [],
           filings: [],
           generatedAt: '2026-08-31T10:00:00.000Z',
         })
@@ -372,6 +373,7 @@ describe('Dashboards', () => {
           panels: [],
           layouts: [],
           associations: [],
+          itemTypes: [],
           filings: [],
           generatedAt: '2026-08-31T10:00:00.000Z',
         },
@@ -436,6 +438,7 @@ describe('Sign-in', () => {
         panels: [],
         layouts: [],
         associations: [],
+        itemTypes: [],
         filings: [],
         generatedAt: '2026-08-31T10:00:00.000Z',
       });

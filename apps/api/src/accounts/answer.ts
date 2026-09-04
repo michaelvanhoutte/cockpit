@@ -3,6 +3,7 @@ import type {
   Dashboard,
   Filing,
   Item,
+  ItemType,
   Layout,
   Panel,
   Workspace,
@@ -25,6 +26,8 @@ export interface AccountSnapshot {
   /** Which items are filed on which of those panels, and in what order. */
   filings: Filing[];
   associations: Association[];
+  /** Every live Type of the account, in the order they are offered in. */
+  itemTypes: ItemType[];
 }
 
 /**
