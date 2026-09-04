@@ -6,6 +6,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
 import { CACHE_MAX_AGE_MS, persister } from './persistence';
 import { createAppRouter } from './router';
+import { Updating } from './components/Updating';
 import { UndoWhatJustHappened } from './undo';
 import './styles.css';
 
@@ -53,9 +54,15 @@ createRoot(document.getElementById('root')!).render(
           in the Inbox column and one made on a panel are offered back in the
           same place - and so wrapping it costs no re-indent of a file it has
           nothing else to do with. The bar positions itself over the page. */}
-      <UndoWhatJustHappened>
-        <RouterProvider router={router} />
-      </UndoWhatJustHappened>
+      {/* Outside the router and outside the shell, because a build that cannot
+          read what the server says is not in a state any screen can be trusted
+          to render - including the logon page, which hangs off the root rather
+          than off the shell. */}
+      <Updating>
+        <UndoWhatJustHappened>
+          <RouterProvider router={router} />
+        </UndoWhatJustHappened>
+      </Updating>
     </PersistQueryClientProvider>
   </StrictMode>,
 );

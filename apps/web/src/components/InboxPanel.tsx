@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { itemsInTheInbox } from '../filing';
 import { CaptureForm } from './CaptureForm';
-import { LoadFailure } from './LoadFailure';
 import { ItemList } from './ItemList';
 
 /**
@@ -25,13 +24,18 @@ import { ItemList } from './ItemList';
  * it out of the Inbox, rather than a status change nobody made.
  */
 export function InboxPanel({ workspaceId }: { workspaceId: string }) {
-  const { data, isLoading, error, refetch } = useQuery(snapshotQuery(workspaceId));
+  const { data, isLoading, error } = useQuery(snapshotQuery(workspaceId));
   const headingId = useId();
 
-  // Nothing of this workspace to show, so the failure is the whole view.
-  if (error && !data) {
-    return <LoadFailure error={error} onRetry={() => void refetch()} />;
-  }
+  /**
+   * **The column never says the workspace could not be read**, however badly
+   * it went. The shell says it once for the whole window (pages/Layout.tsx)
+   * where there is a stored copy to keep painting behind it, and the screen
+   * beside this column says it where there is not - and the Inbox adding a
+   * second voice is what put the same notice on screen twice, in two different
+   * widths, for one failed read.
+   */
+  if (error && !data) return null;
   if (isLoading || !data) {
     return <p className="text-ink-faint">Loading…</p>;
   }
@@ -46,12 +50,6 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* The stored copy stays on screen behind this: reading what you already
-          have is what the local copy is for (functional definition, "Offline /
-          local-first behavior"), so a failed refresh reports itself instead of
-          blanking the workspace. */}
-      {error && <LoadFailure error={error} onRetry={() => void refetch()} />}
-
       <section aria-labelledby={headingId} className="rounded-lg bg-surface shadow-panel">
         <header className="flex items-baseline gap-2 border-b border-black/5 px-4 py-3">
           <h2 id={headingId} className="text-base font-semibold">
