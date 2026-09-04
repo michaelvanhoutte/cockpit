@@ -17,7 +17,7 @@ interface Props {
 interface Wording {
   headline: string;
   detail: string;
-  action?: 'retry' | 'reload' | 'logon';
+  action?: 'retry' | 'logon';
 }
 
 const WORDING: Record<FailureReason, Wording> = {
@@ -36,11 +36,6 @@ const WORDING: Record<FailureReason, Wording> = {
     headline: 'Cockpit is having trouble',
     detail: 'Something answered, but the read did not work. Nothing you have here is affected.',
     action: 'retry',
-  },
-  outdated: {
-    headline: 'Cockpit has been updated',
-    detail: 'This tab is running an older version. Reload to pick up the new one.',
-    action: 'reload',
   },
 };
 
@@ -93,15 +88,6 @@ export function LoadFailure({ error, onRetry, surroundings }: Props) {
           onClick={goToLogonPage}
         >
           Sign in
-        </button>
-      )}
-      {action === 'reload' && (
-        <button
-          type="button"
-          className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white"
-          onClick={() => window.location.reload()}
-        >
-          Reload
         </button>
       )}
       {action === 'retry' && onRetry && (

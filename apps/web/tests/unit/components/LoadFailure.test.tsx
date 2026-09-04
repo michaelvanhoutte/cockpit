@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { workspaceListSchema } from '@cockpit/shared';
 import { LoadFailure } from '../../../src/components/LoadFailure';
 import { goToLogonPage, type Reach, type Surroundings } from '../../../src/api/loadFailure';
 
@@ -27,16 +26,6 @@ function world(definitelyOffline: boolean, reach: Reach): Surroundings {
     isDefinitelyOffline: () => definitelyOffline,
     reachServer: () => Promise.resolve(reach),
   };
-}
-
-/** A real shape mismatch, not a hand-made stand-in for one. */
-function unreadableAnswer(): unknown {
-  try {
-    workspaceListSchema.parse({ workspaces: 'not a list' });
-    throw new Error('expected the shape to be rejected');
-  } catch (error) {
-    return error;
-  }
 }
 
 const refused = new TypeError('Failed to fetch');
@@ -88,12 +77,6 @@ describe('Offline', () => {
         error: new Error('workspaces failed: 500'),
         surroundings: world(false, 'reachable'),
         headline: 'Cockpit is having trouble',
-      },
-      {
-        situation: 'the answer is something this version cannot read',
-        error: unreadableAnswer(),
-        surroundings: world(false, 'reachable'),
-        headline: 'Cockpit has been updated',
       },
     ];
 

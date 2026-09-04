@@ -4,10 +4,11 @@ import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
 import { NotSignedIn, signOut } from '../api/client';
-import { meQuery, workspacesQuery } from '../api/queries';
+import { meQuery, snapshotQuery, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxPanel } from '../components/InboxPanel';
+import { LoadFailure } from '../components/LoadFailure';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
@@ -51,6 +52,31 @@ export function Layout() {
    */
   const { data: me, error: sessionFailure } = useQuery(meQuery);
   const signedOut = sessionFailure instanceof NotSignedIn;
+
+  /**
+   * The workspace you are in, failing to be read - said once here for the whole
+   * window rather than by each thing reading it.
+   *
+   * **Three components read this same snapshot** - the Inbox column, the
+   * dashboard and the dashboard settings page - and each used to render its own
+   * notice, so one failed read put the same words on screen two or three times,
+   * in whatever width the box holding them happened to be. It is one read
+   * (architecture, "The read model: persisted snapshot, revalidate, push") and
+   * so it is one notice, and a screen added later gets it without knowing.
+   *
+   * Costs no request: it is the same query key those three already subscribe
+   * to, so this is another reader of a cache entry rather than another fetch.
+   *
+   * **Only where there is a stored copy behind it.** With nothing to paint, the
+   * route itself could not resolve and the failure screen already has the page
+   * (router.tsx, `defaultErrorComponent`); adding this would be the duplicate
+   * all over again, one column to its left.
+   */
+  const workspace = useQuery({
+    ...snapshotQuery(params.workspaceId ?? ''),
+    enabled: Boolean(params.workspaceId),
+  });
+  const workspaceUnread = Boolean(workspace.error) && workspace.data !== undefined;
 
   useEffect(() => {
     if (!signedOut) return;
@@ -295,6 +321,13 @@ export function Layout() {
           This element begins where the ground first becomes visible, and does
           not scroll itself - its two columns do - so the wash stays put over a
           moving page rather than sliding with it. */}
+      {/* Above the columns and across both, because it is about the workspace
+          they are both showing rather than about either of them. */}
+      {workspaceUnread && (
+        <div className="px-3 pt-3">
+          <LoadFailure error={workspace.error} onRetry={() => void workspace.refetch()} />
+        </div>
+      )}
       <main className="ground-wash flex w-full min-h-0 flex-1">
         {params.workspaceId && roomForTheInbox && (
           <aside

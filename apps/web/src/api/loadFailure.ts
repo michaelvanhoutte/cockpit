@@ -30,9 +30,7 @@ export type FailureReason =
    */
   | 'signed-out'
   /** Something answered, and the read still did not work. Trying again is the move. */
-  | 'trouble'
-  /** The answer did not match what this build of the app understands. */
-  | 'outdated';
+  | 'trouble';
 
 export type Reach =
   /**
@@ -77,10 +75,12 @@ export async function diagnose(
   error: unknown,
   surroundings: Surroundings = realSurroundings,
 ): Promise<FailureReason> {
-  // A shape mismatch means the running API and this build of the app disagree,
-  // which is only ever fixed by picking up the newer build.
-  if (error instanceof Error && error.name === 'ZodError') return 'outdated';
-
+  // A shape mismatch is deliberately *not* one of the reasons above. It is not
+  // a read that failed, it is a build that cannot read: the sign-in is valid
+  // and the data is fine, and the only way on is a newer version. That is a
+  // gate over the whole window rather than a notice on one screen, so
+  // src/updating.ts owns the condition and this is never asked about it. If one
+  // ever did get here it falls through to "having trouble", which is true.
   const status = error instanceof Error ? STATUS.exec(error.message)?.[1] : undefined;
   if (status) {
     // A 401 is Cockpit's own gate, which answers in the application's format
