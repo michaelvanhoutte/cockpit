@@ -17,5 +17,10 @@
 *.tsx   text eol=lf
 *.md    text eol=lf
 
+# A patch is matched against the package it patches, line endings and all, so a
+# CRLF checkout of one makes `pnpm install` fail to apply it - on Windows only,
+# which is where the developing happens and where CI would never see it.
+*.patch text eol=lf
+
 # Lockfiles are generated; keep them byte-stable across platforms.
 pnpm-lock.yaml text eol=lf -diff

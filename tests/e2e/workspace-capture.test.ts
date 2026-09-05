@@ -37,6 +37,34 @@ function workspaceTab(page: Page, name: string) {
   return page.getByRole('navigation', { name: 'Workspaces' }).getByRole('link', { name });
 }
 
+/**
+ * Switches workspace, and waits until the new one is really the one on screen.
+ *
+ * **The waiting is the point, and nothing else in this walk can do it.** The
+ * note it follows is drawn in *every* workspace's Inbox until it is settled -
+ * which is the rule under test - so "the note is in the Inbox" is true before
+ * the switch as well as after, and cannot say the switch has happened. Without
+ * this the walk pressed Move to this workspace on the workspace it had just
+ * left: measured on CI, Atlas Copco's snapshot took 126ms to arrive and the
+ * walk was seven milliseconds quicker, so the item was settled into the
+ * workspace it was captured in and never left that Inbox.
+ *
+ * **It waits for the address to get deeper, not to change.** A tab's own
+ * address is `/w/<id>`, and the router puts that in the bar before it does any
+ * of the work - the failing run had `/w/ws-atlas` up a twentieth of a second
+ * before the bad press. `/w/<id>` then redirects to the view the workspace was
+ * last on, from a `beforeLoad` that awaits the workspace and its dashboards
+ * (router.tsx), so a *deeper* address is the page saying it holds this
+ * workspace's snapshot - which is the same snapshot the Inbox is drawn from.
+ */
+async function switchTo(page: Page, name: string, isMobile: boolean): Promise<void> {
+  const tab = workspaceTab(page, name);
+  const workspace = await tab.getAttribute('href');
+  if (!workspace) throw new Error(`the tab for ${name} has no address to wait for`);
+  await press(tab, isMobile);
+  await page.waitForURL((url) => url.pathname.startsWith(`${workspace}/`));
+}
+
 /** Opens the header's capture window and writes a note in it, without saying where it goes. */
 async function captureWithoutAWorkspace(
   page: Page,
@@ -83,7 +111,7 @@ test.describe('Capture', () => {
       // strip is a different workspace depending on what else is running. The
       // three seeded ones are the only names a walk can count on, and no walk
       // deletes them.
-      await press(workspaceTab(page, ELSEWHERE), isMobile);
+      await switchTo(page, ELSEWHERE, isMobile);
       if (isMobile) {
         await press(page.getByRole('link', { name: 'Inbox' }).first(), isMobile);
       }
@@ -94,7 +122,13 @@ test.describe('Capture', () => {
       await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
       await expect(itemRow(page, note).getByText('Any workspace')).toHaveCount(0);
 
-      await press(workspaceTab(page, CAPTURED_FROM), isMobile);
+      // Waited for here too, for a different reason: what follows is a
+      // negative assertion, and one of those is answered by any moment the
+      // rows are not drawn - a page part way through a navigation among them.
+      // The note is still in Atlas Copco's Inbox at this point, as its own
+      // rather than everybody's, so it is Work's Inbox that has to be on screen
+      // before "it is not there" says anything.
+      await switchTo(page, CAPTURED_FROM, isMobile);
       if (isMobile) {
         await press(page.getByRole('link', { name: 'Inbox' }).first(), isMobile);
       }
