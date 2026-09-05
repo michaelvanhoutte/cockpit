@@ -67,6 +67,34 @@
     0 12px 28px rgb(41 43 49 / 0.11);
 }
 
+/*
+ * What the screen itself takes: the status bar and the notch above the page,
+ * the home indicator below it, and the rounded corners either side when a
+ * phone is turned on its side.
+ *
+ * `viewport-fit=cover` in index.html is what lays the page under all of it,
+ * and it is kept on purpose. Without it the browser letterboxes the page in
+ * one fixed colour - the manifest's `theme_color`, which is the accent - so
+ * every workspace would wear the same band above its own header. With it, the
+ * workspace's colour runs to the physical top edge and these four give the
+ * room back to anything that would otherwise be hidden behind the furniture.
+ *
+ * **Named rather than written as `env()` at each use**, for two reasons. Every
+ * surface that meets an edge asks the same question, and a test can answer it:
+ * nothing makes a browser report a notch - the phone the F3 suite runs is a
+ * Galaxy A55, which has none - so a walk that can actually fail has to be able
+ * to declare the insets itself (tests/e2e/screen-edges.test.ts).
+ *
+ * Zero on everything without furniture to allow for, which is every desktop
+ * and most phones, so each `calc` below is the plain padding it always was.
+ */
+:root {
+  --edge-top: env(safe-area-inset-top, 0px);
+  --edge-right: env(safe-area-inset-right, 0px);
+  --edge-bottom: env(safe-area-inset-bottom, 0px);
+  --edge-left: env(safe-area-inset-left, 0px);
+}
+
 body {
   @apply bg-ground text-ink font-sans antialiased;
   font-size: 15px;

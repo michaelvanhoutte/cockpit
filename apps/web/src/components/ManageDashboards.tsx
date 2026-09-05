@@ -248,8 +248,11 @@ export function ManageDashboards({
           // opens the keyboard over the bottom half of the screen, and a dialog
           // centred on a 667px screen has its Save and Cancel behind it. The
           // list scrolls inside the dialog rather than growing past the screen,
-          // because a workspace may hold plenty of dashboards.
-          className="fixed left-1/2 top-4 flex max-h-[calc(100dvh-2rem)] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:max-h-[min(40rem,calc(100dvh-8rem))] md:-translate-y-1/2"
+          // because a workspace may hold plenty of dashboards. On a phone it is
+          // the one dialog that can reach both ends of the screen, so both the
+          // 16px it starts at and the height it may grow to are measured
+          // inside the screen's own edges (styles.css, `--edge-top`).
+          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] flex max-h-[calc(100dvh_-_2rem_-_var(--edge-top)_-_var(--edge-bottom))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:max-h-[min(40rem,calc(100dvh-8rem))] md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">Manage dashboards</Dialog.Title>
 
