@@ -57,10 +57,11 @@ export function accountChanges(accountId: string): readonly Change[] {
     itemTypes(accountId),
     ITEM_WORKSPACE_DECIDED,
     ITEM_TEXTS,
+    WORKSPACE_INK,
     // Last, because it is the only one here that has not shipped: everything
     // above is applied in accounts already, and a change that has shipped can
     // never be reordered any more than it can be edited.
-    WORKSPACE_INK,
+    LAYOUT_NAMES,
   ];
 }
 
@@ -857,6 +858,94 @@ const WORKSPACE_INK: Change = {
                 WHEN '#7d8f3f' THEN '#f4f7eb'
                 ELSE '#edebf7'
               END`,
+    },
+  ],
+};
+
+/**
+ * Layouts get a name, and it becomes the thing they are picked by ("Pick the
+ * layout you are on, by name").
+ *
+ * A layout used to be identified by the width it was made at, and the app drew
+ * whichever one was closest to the screen in front of you. Nobody could tell
+ * which they were on, so this gives every layout a name, and the ones that
+ * already exist get the label the app was already showing them under.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Interrupted partway.** It cannot be. A change is applied atomically
+ *   (up-to-date.ts): its statements and the record that they ran commit
+ *   together, so the two `ALTER TABLE`s, the backfill and the index either all
+ *   happen or none do. That is the whole reason they are one change rather
+ *   than the add-then-backfill pair the register needs (migrations/0007 and
+ *   0008), where nothing wraps the files.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left nothing behind. Both `UPDATE`s are guarded on the empty string all
+ *   the same, so neither would rewrite a name somebody has since chosen.
+ * - **Data the new rules reject.** Two layouts of one dashboard made at the
+ *   same width - which nothing stopped - would take the same name and fail the
+ *   unique index, taking the whole change and the account's first request with
+ *   it. The backfill numbers them instead, so the second becomes `1440 px (2)`.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop, in
+ *   preview, in staging and in production alike. Nothing seeds layouts, so
+ *   preview has none until somebody arranges a dashboard.
+ * - **The windows it can be interrupted in.** One, and it is the deploy rather
+ *   than the database: for the seconds both versions of the Worker are serving,
+ *   old code can still create a layout and knows nothing of these columns, so
+ *   its insert takes the `''` default. Following `0005-workspace-bar`, that
+ *   collides with *another* unnamed layout on the same dashboard rather than
+ *   escaping the index - the second such create in that window is refused, and
+ *   a refusal during a deploy is recoverable where a duplicate name is not.
+ *   Layouts are only created by arranging a dashboard for the first time, so
+ *   the window is narrower than that one's. A row it does leave behind keeps
+ *   its empty name, and is drawn as the width it was made for
+ *   (apps/web/src/panels/arrangement.ts) rather than as a blank entry.
+ */
+const LAYOUT_NAMES: Change = {
+  name: '0011-layout-names',
+  statements: [
+    { sql: `ALTER TABLE layouts ADD name text DEFAULT '' NOT NULL` },
+    { sql: `ALTER TABLE layouts ADD folded_name text DEFAULT '' NOT NULL` },
+    {
+      // The label every layout was already listed under, so nothing a person
+      // recognises changes on the day this lands. Numbered within the width
+      // rather than globally: `1440 px` and `1440 px (2)` say the two are the
+      // same size and different arrangements, which is what they are.
+      //
+      // `ROW_NUMBER` rather than a correlated count, because the ordering has
+      // to be stable across the two writers below and a count would have to be
+      // written twice. `created_at, id` and not `created_at` alone: two layouts
+      // made in the same millisecond would otherwise tie and could take the
+      // same number.
+      sql: `UPDATE layouts AS l
+              SET name = CAST(l.screen_width AS TEXT) || ' px'
+                || CASE WHEN d.rn = 1 THEN '' ELSE ' (' || d.rn || ')' END
+              FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                  PARTITION BY tenant_id, dashboard_id, screen_width
+                  ORDER BY created_at, id
+                ) AS rn
+                FROM layouts
+              ) AS d
+              WHERE l.id = d.id AND l.name = ''`,
+    },
+    {
+      // Folded from the name just written rather than computed a second time,
+      // which is what `0005-workspace-bar` does and for the same reason: two
+      // expressions that have to agree are one expression too many. `lower()`
+      // is enough for what the statement above can produce - digits, a space
+      // and ASCII letters - though it is not case folding in general, which is
+      // why `foldName` exists in the application (src/domain/names.ts).
+      sql: `UPDATE layouts SET folded_name = lower(name) WHERE folded_name = ''`,
+    },
+    {
+      // Not partial on a tombstone, unlike the other three name indexes: a
+      // layout is deleted for real rather than tombstoned, so there is no dead
+      // row to exclude.
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS layouts_dashboard_folded_name
+              ON layouts (tenant_id, dashboard_id, folded_name)`,
     },
   ],
 };

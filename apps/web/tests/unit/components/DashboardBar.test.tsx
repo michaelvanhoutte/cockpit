@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Dashboard, Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand } from '../../../src/api/queries';
@@ -15,7 +15,11 @@ import { DWELL_MS } from '../../../src/switchWhileDragging';
  * actually refused is the server's rule and is proved against a real store in
  * apps/api/tests/integration/http/dashboards.test.ts.
  */
-const held = vi.hoisted(() => ({ dashboards: [] as Dashboard[] }));
+const held = vi.hoisted(() => ({
+  dashboards: [] as Dashboard[],
+  panels: [] as Panel[],
+  layouts: [] as Layout[],
+}));
 
 // The router is not under test, and `to`/`params` are its props rather than an
 // anchor's, so they stop here instead of being spread onto the DOM.
@@ -67,8 +71,8 @@ vi.mock('../../../src/api/queries', () => ({
         },
         items: [],
         dashboards: held.dashboards,
-        panels: [],
-        layouts: [],
+        panels: held.panels,
+        layouts: held.layouts,
         associations: [],
         itemTypes: [],
         filings: [],
@@ -99,9 +103,16 @@ function aDashboard(name: string): Dashboard {
  */
 function showBar(
   names: string[],
-  answer: { error?: Error; openDashboardId?: string | null } = {},
+  answer: {
+    error?: Error;
+    openDashboardId?: string | null;
+    panels?: Panel[];
+    layouts?: Layout[];
+  } = {},
 ) {
   held.dashboards = names.map(aDashboard);
+  held.panels = answer.panels ?? [];
+  held.layouts = answer.layouts ?? [];
   wentTo.calls = [];
   const asked = { error: answer.error ?? null };
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
@@ -424,5 +435,263 @@ describe('Panels', () => {
 
       expect(wentTo.calls).toEqual([]);
     });
+  });
+});
+
+/**
+ * F1: the dashboard's own controls, which live at the right of its own bar
+ * ("Pick the layout you are on, by name"). Which layout the automatic choice
+ * lands on is arithmetic and is settled in tests/unit/panels/arrangement.test.ts;
+ * whether the server accepts a name is proved against a real store in
+ * apps/api/tests/integration/http/panels.test.ts.
+ */
+describe('Layouts', () => {
+  const OPEN = 'ws-work-dashboard 1';
+
+  function aLayout(id: string, name: string, screenWidth: number): Layout {
+    return {
+      id,
+      tenantId: 'tenant',
+      dashboardId: OPEN,
+      name,
+      screenWidth,
+      placements: [{ panelId: 'falcon', columns: 4, rows: 3 }],
+    };
+  }
+
+  const FALCON: Panel = {
+    id: 'falcon',
+    tenantId: 'tenant',
+    dashboardId: OPEN,
+    name: 'Project Falcon',
+  };
+
+  /** The width the picker reads, which is what the automatic choice compares. */
+  function screenIs(width: number) {
+    Object.defineProperty(globalThis, 'innerWidth', {
+      value: width,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  beforeEach(() => {
+    screenIs(1280);
+    localStorage.clear();
+  });
+
+  /**
+   * The control, once the snapshot behind it has arrived.
+   *
+   * The bar paints from the first render and the layouts come with the
+   * workspace's snapshot a tick later, so asking for the control straight away
+   * finds it saying *No layout yet* - which is true of that instant and not of
+   * what is being tested.
+   */
+  async function theControl(named: string) {
+    const control = await screen.findByRole('button', { name: 'Layout for this dashboard' });
+    await waitFor(() => expect(control).toHaveTextContent(named));
+    return control;
+  }
+
+  describe('the dashboard’s own controls are on the right of its bar, and only where there is one', () => {
+    it('offers the layout in use and the way to add a panel while a dashboard is open', async () => {
+      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: [aLayout('l', 'Wide', 1280)] });
+
+      expect(
+        await screen.findByRole('button', { name: 'Layout for this dashboard' }),
+      ).toBeVisible();
+      expect(screen.getByRole('button', { name: '+ Panel' })).toBeVisible();
+    });
+
+    it('offers neither on the Inbox, where there is no dashboard to have either', async () => {
+      // The bar is the shell's and is drawn on the Inbox too. That is why these
+      // used to be kept off it; mounting them only where a dashboard is open is
+      // the answer instead.
+      showBar(['Dashboard 1'], { openDashboardId: null });
+
+      await screen.findByRole('link', { name: 'Dashboard 1' });
+      expect(screen.queryByRole('button', { name: 'Layout for this dashboard' })).toBeNull();
+      expect(screen.queryByRole('button', { name: '+ Panel' })).toBeNull();
+    });
+  });
+
+  describe('the control says which arrangement you are looking at, and how it was picked', () => {
+    it.each([
+      {
+        situation: 'nothing has been picked in this browser',
+        pick: null,
+        saysAuto: true,
+        andNames: 'Laptop',
+      },
+      {
+        situation: 'a layout was picked by hand',
+        pick: 'wide',
+        saysAuto: false,
+        andNames: 'Wide',
+      },
+    ])('$situation', async ({ pick, saysAuto, andNames }) => {
+      if (pick) localStorage.setItem('cockpit.layout.' + OPEN, pick);
+      showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)],
+      });
+
+      const control = await theControl(andNames);
+      // Saying *which* of the two ways you are on it is the whole point: the
+      // automatic choice used to happen with nothing on screen admitting to it.
+      if (saysAuto) expect(control).toHaveTextContent('Auto');
+      else expect(control).not.toHaveTextContent('Auto');
+    });
+
+    it('draws a layout written before names existed as the width it was made for', async () => {
+      // What old code writes for the seconds of a deploy that both versions
+      // serve. A blank entry in the menu would be worse than the old label.
+      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: [aLayout('l', '', 1440)] });
+
+      await theControl('1440 px');
+    });
+  });
+
+  describe('a dashboard that has a layout keeps one', () => {
+    it('says why the only one cannot go, rather than offering it and refusing', async () => {
+      const { user } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('l', 'Wide', 1280)],
+      });
+
+      await user.click(await theControl('Wide'));
+
+      expect(
+        screen.getByRole('menuitem', { name: /A dashboard keeps at least one layout/ }),
+      ).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('offers the delete when there is another layout to fall back to', async () => {
+      const { user } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)],
+      });
+
+      await user.click(await theControl('Laptop'));
+
+      expect(screen.getByRole('menuitem', { name: 'Delete Laptop' })).not.toHaveAttribute(
+        'aria-disabled',
+      );
+    });
+  });
+
+  describe('a layout is renamed, made and deleted from the same control', () => {
+    it('renames the one being drawn, without resending the arrangement', async () => {
+      // Its own command, so a bar holding a stale arrangement cannot put the
+      // panels back as the price of changing a word.
+      const { user, mutate } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('laptop', 'Laptop', 1280)],
+      });
+
+      await user.click(await theControl('Laptop'));
+      await user.click(screen.getByRole('menuitem', { name: 'Rename Laptop…' }));
+      const box = screen.getByLabelText('New name for this layout');
+      await user.clear(box);
+      await user.type(box, '  The big one  ');
+      await user.click(screen.getByRole('button', { name: 'Rename' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('rename_layout');
+      expect(asked.payload.layoutId).toBe('laptop');
+      expect(asked.payload.name).toBe('The big one');
+      expect(asked.payload.placements).toBeUndefined();
+    });
+
+    it('makes a new one from the arrangement on screen, and puts you on it', async () => {
+      const { user, mutate } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        panels: [FALCON],
+        layouts: [aLayout('laptop', 'Laptop', 1280)],
+      });
+
+      await user.click(await theControl('Laptop'));
+      await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
+      await user.click(screen.getByRole('button', { name: 'Create' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('save_layout');
+      expect(asked.payload.screenWidth).toBe(1280);
+      // A copy, which is what "from this one" means.
+      expect(asked.payload.placements).toEqual([{ panelId: 'falcon', columns: 4, rows: 3 }]);
+      // Making one and then having to pick it is two gestures for what reads
+      // as one.
+      expect(localStorage.getItem('cockpit.layout.' + OPEN)).toBe(asked.payload.layoutId);
+    });
+
+    it('offers a name for the screen it is being made on, free on this dashboard', async () => {
+      // The server refuses a name this dashboard already holds, and the offered
+      // one is generated rather than typed - so a press cannot be met with a
+      // collision the person did not cause.
+      const { user } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('wide', 'Wide', 1280)],
+      });
+
+      await user.click(await theControl('Wide'));
+      await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
+
+      // 1280px is a wide screen, and this dashboard already has a *Wide*.
+      expect(screen.getByLabelText('Name of the new layout')).toHaveValue('Wide 2');
+    });
+
+    it('asks before deleting one, and says the panels are staying', async () => {
+      const { user, mutate } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)],
+      });
+
+      await user.click(await theControl('Laptop'));
+      await user.click(screen.getByRole('menuitem', { name: 'Delete Laptop' }));
+      expect(screen.getByRole('alertdialog')).toHaveTextContent(/The panels stay/);
+      await user.click(screen.getByRole('button', { name: 'Yes, delete Laptop' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('delete_layout');
+      expect(asked.payload.layoutId).toBe('laptop');
+    });
+  });
+});
+
+/**
+ * F1: adding a panel, which is the other half of the dashboard's own controls.
+ * It moved here from the foot of the board, where it was a hairline strip that
+ * read as a rule drawn across an empty page.
+ */
+describe('Panels', () => {
+  const OPEN = 'ws-work-dashboard 1';
+
+  describe('adding a panel asks for the title you typed, on the dashboard you are on', () => {
+    it('sends it without the blanks around it', async () => {
+      const { user, mutate } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
+
+      await user.click(await screen.findByRole('button', { name: '+ Panel' }));
+      await user.type(screen.getByLabelText('Name of the new panel'), '  Project Falcon  ');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('add_panel');
+      expect(asked.payload.name).toBe('Project Falcon');
+      expect(asked.payload.dashboardId).toBe(OPEN);
+    });
+
+    it('asks in a form of its own, which is not in the bar until it is asked for', async () => {
+      // A box wide enough to read a title in would grow between two controls
+      // and push the one beside it out from under the pointer.
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
+
+      expect(screen.queryByLabelText('Name of the new panel')).toBeNull();
+      await user.click(await screen.findByRole('button', { name: '+ Panel' }));
+
+      expect(screen.getByRole('dialog')).toBeVisible();
+      expect(screen.getByLabelText('Name of the new panel')).toHaveFocus();
+    });
+
   });
 });

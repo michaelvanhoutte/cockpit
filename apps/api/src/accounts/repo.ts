@@ -270,18 +270,39 @@ export function getLayout(
   db: AccountDb,
   tenantId: string,
   layoutId: string,
-): { id: string; dashboardId: string; screenWidth: number } | null {
+): { id: string; dashboardId: string; name: string; screenWidth: number } | null {
   return (
     db
       .select({
         id: layouts.id,
         dashboardId: layouts.dashboardId,
+        name: layouts.name,
         screenWidth: layouts.screenWidth,
       })
       .from(layouts)
       .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, layoutId)))
       .get() ?? null
   );
+}
+
+/**
+ * One dashboard's layouts, named, oldest first.
+ *
+ * Two questions are asked of this list and neither can be asked of the ids
+ * alone: whether a name is already taken on this dashboard, and whether the one
+ * being deleted is the last ("Pick the layout you are on, by name").
+ */
+export function listLayoutsOn(
+  db: AccountDb,
+  tenantId: string,
+  dashboardId: string,
+): { id: string; name: string }[] {
+  return db
+    .select({ id: layouts.id, name: layouts.name })
+    .from(layouts)
+    .where(and(eq(layouts.tenantId, tenantId), eq(layouts.dashboardId, dashboardId)))
+    .orderBy(layouts.createdAt)
+    .all();
 }
 
 /** The ids of one dashboard's layouts, which is all a new panel needs to reach every one of them. */
@@ -335,6 +356,7 @@ export function listLayoutsInWorkspace(
       id: layouts.id,
       tenantId: layouts.tenantId,
       dashboardId: layouts.dashboardId,
+      name: layouts.name,
       screenWidth: layouts.screenWidth,
     })
     .from(layouts)

@@ -8,7 +8,7 @@ import {
   workspaceNameSchema,
 } from './domain/item.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
-import { panelNameSchema, placementInputSchema } from './domain/panel.js';
+import { layoutNameSchema, panelNameSchema, placementInputSchema } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
 /**
@@ -222,17 +222,16 @@ export type DeletePanelCommand = z.infer<typeof deletePanelSchema>;
  * is where these panels go now. Splitting them would be three commands writing
  * the same rows, and three chances for them to disagree.
  *
- * **It is an upsert, and that is what makes the issue's question answerable.**
- * A `layoutId` the dashboard already has changes that layout; a fresh one
- * defines a new layout for `screenWidth`. Those are exactly the two answers the
- * app asks for when an arrangement is changed on a screen the layout was not
- * made for, so the choice is carried by which id is sent rather than by a mode
- * flag.
+ * **It is still an upsert**, but the two answers it used to carry are gone: a
+ * `layoutId` the dashboard already has changes that layout, a fresh one creates
+ * one, and *which* is no longer a question anybody is asked. You pick the
+ * layout you are on by name and every change goes into it ("Pick the layout you
+ * are on, by name"), so the id sent is simply the id of the layout on screen.
  *
- * **`screenWidth` is only read when the layout is created.** A layout records
- * the width it was made at ("Panels on a dashboard, with per-screen-size
- * layouts", issue 33), so changing one from another screen must not quietly
- * move it to that screen - that is what defining a new layout is for.
+ * **`name` and `screenWidth` are only read when the layout is created.** A
+ * layout records the width it was made at, so changing one from another screen
+ * must not quietly move it to that screen; and a rename is `rename_layout`, so
+ * an arrangement saved from a tab holding a stale name cannot rename it back.
  *
  * The order of `placements` is the order the panels are drawn in. Nothing else
  * carries it, which is why this is a list rather than a map.
@@ -240,6 +239,8 @@ export type DeletePanelCommand = z.infer<typeof deletePanelSchema>;
 export const saveLayoutSchema = commandEnvelopeSchema.extend({
   dashboardId: z.string(),
   layoutId: z.uuid(),
+  /** What to call it, where this is the save that creates it. */
+  name: layoutNameSchema,
   /**
    * The width of the screen this arrangement was made on, in CSS pixels.
    * Bounded so a layout can never record a width no screen has: the automatic
@@ -259,11 +260,28 @@ export const saveLayoutSchema = commandEnvelopeSchema.extend({
 export type SaveLayoutCommand = z.infer<typeof saveLayoutSchema>;
 
 /**
+ * rename_layout — what to call one arrangement, and nothing else.
+ *
+ * **Its own command rather than a field on `save_layout`**, which is where the
+ * name is set when a layout is created. A rename that had to resend the
+ * arrangement would let a tab holding a stale one put the panels back where
+ * they were as the price of changing a word.
+ */
+export const renameLayoutSchema = commandEnvelopeSchema.extend({
+  layoutId: z.uuid(),
+  name: layoutNameSchema,
+});
+export type RenameLayoutCommand = z.infer<typeof renameLayoutSchema>;
+
+/**
  * delete_layout — which layout. The panels stay exactly where they are; what
  * goes is one way of arranging them, and the dashboard falls back to the
- * closest remaining layout ("Panels on a dashboard, with per-screen-size
- * layouts", issue 33) or, with none left, to an arrangement made for the screen
- * it is being drawn on.
+ * closest remaining one.
+ *
+ * **A dashboard that has a layout keeps one**, so deleting the last is refused
+ * ("Pick the layout you are on, by name"). A dashboard that has never been
+ * arranged has none and is drawn fitted to the screen it is on; what this
+ * protects is an arrangement somebody made, not the existence of a row.
  */
 export const deleteLayoutSchema = commandEnvelopeSchema.extend({
   layoutId: z.uuid(),
@@ -592,6 +610,7 @@ export const commandSchemas = {
   rename_panel: renamePanelSchema,
   delete_panel: deletePanelSchema,
   save_layout: saveLayoutSchema,
+  rename_layout: renameLayoutSchema,
   delete_layout: deleteLayoutSchema,
   capture_item: captureItemSchema,
   create_item_type: createItemTypeSchema,

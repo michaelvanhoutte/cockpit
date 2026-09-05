@@ -61,9 +61,13 @@ export function panelsAcross(availableWidth: number): number {
  *
  * Exact equality would be unusable: a scrollbar appearing takes about fifteen
  * pixels off the width, and a window nudged by a few would count as a different
- * screen and start asking which layout to change on every drag. Forty is under
- * a tenth of the narrowest screen the app is drawn on, so nothing that is
- * really a different size can hide inside it.
+ * screen. Forty is under a tenth of the narrowest screen the app is drawn on,
+ * so nothing that is really a different size can hide inside it.
+ *
+ * It no longer decides anything a person sees. Changing an arrangement used to
+ * ask which layout to keep it in whenever this was false, and that question is
+ * gone: you pick the layout you are on and every change goes into it ("Pick the
+ * layout you are on, by name").
  */
 export const SAME_SCREEN_TOLERANCE = 40;
 
@@ -73,13 +77,74 @@ export function madeForThisScreen(layout: Layout, screenWidth: number): boolean 
 }
 
 /**
+ * What to call a layout on screen: its name, or the width it was made for where
+ * it has none.
+ *
+ * **A layout with no name is a real state and not a bug.** For the seconds both
+ * versions of the Worker are serving the deploy that introduced names, old code
+ * can still create one, and it writes none (apps/api/src/accounts/changes.ts,
+ * `0011-layout-names`). Drawing it as the width is what the app called every
+ * layout before this, so such a row reads as it always did rather than as a
+ * blank entry in a menu.
+ */
+export function layoutLabel(layout: Layout): string {
+  return layout.name.trim() || `${layout.screenWidth} px`;
+}
+
+/**
+ * What to call a layout made right now, on a screen this wide - the name
+ * offered when one is created, and the name a dashboard's first arrangement
+ * takes without asking.
+ *
+ * **A size, not a width.** *Made for 1463 px* is the label this feature exists
+ * to get rid of: it names a number a window only accidentally is, and says
+ * nothing about what the arrangement is for. Four names covering the range is
+ * what a person would say out loud, and every one of them is theirs to change.
+ *
+ * The boundaries are the ones `panelsAcross` already draws in the same range,
+ * so the name changes where the arrangement does.
+ */
+export function nameForScreen(screenWidth: number): string {
+  if (screenWidth < 560) return 'Phone';
+  if (screenWidth < 900) return 'Tablet';
+  if (screenWidth < 1200) return 'Laptop';
+  return 'Wide';
+}
+
+/**
+ * That name, made free on this dashboard - *Wide*, then *Wide 2*, and so on.
+ *
+ * The server refuses a name a layout of this dashboard already holds, and the
+ * two places a name is generated rather than typed - a dashboard's first
+ * arrangement, and the name offered when creating one - would otherwise collide
+ * with a layout somebody already has. A refusal in the middle of a drag is the
+ * worst place to learn that.
+ *
+ * It cannot close the gap entirely: two tabs asking at once both see the name
+ * free and the second is refused, which is the ordinary name collision and says
+ * so.
+ */
+export function freeName(taken: readonly Layout[], wanted: string): string {
+  const used = new Set(taken.map((layout) => layoutLabel(layout).trim().toLowerCase()));
+  if (!used.has(wanted.toLowerCase())) return wanted;
+  for (let n = 2; ; n++) {
+    const tried = `${wanted} ${n}`;
+    if (!used.has(tried.toLowerCase())) return tried;
+  }
+}
+
+/** One dashboard's layouts, oldest recorded width first, which is how they are listed. */
+export function layoutsOf(layouts: readonly Layout[], dashboardId: string): Layout[] {
+  return layouts.filter((layout) => layout.dashboardId === dashboardId);
+}
+
+/**
  * The layout a dashboard is drawn with: the one chosen by hand while it is
  * still there, and otherwise the one whose recorded width is closest to this
  * screen.
  *
  * A chosen layout that has been deleted falls straight through to the closest
- * remaining one, which is the issue's rule for a deleted layout arriving by the
- * only route it can - nothing has to notice the deletion and clear the choice.
+ * remaining one - nothing has to notice the deletion and clear the choice.
  *
  * Ties go to the narrower layout. Any tie-break would do; having one is what
  * stops the same dashboard being drawn two ways on two devices of the same
@@ -91,7 +156,7 @@ export function layoutToDraw(
   screenWidth: number,
   chosenLayoutId: string | null,
 ): Layout | null {
-  const its = layouts.filter((layout) => layout.dashboardId === dashboardId);
+  const its = layoutsOf(layouts, dashboardId);
   const chosen = its.find((layout) => layout.id === chosenLayoutId);
   if (chosen) return chosen;
   return its.reduce<Layout | null>((closest, layout) => {

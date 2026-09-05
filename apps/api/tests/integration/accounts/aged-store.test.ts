@@ -111,6 +111,18 @@ const rowsFor: { table: string; sql: string; params: (name: string) => string[] 
     params: (name) => [name, AT],
   },
   {
+    // A second one of the same dashboard at the same width, which nothing ever
+    // stopped: two devices of one size could each record their own. It is here
+    // because `0011-layout-names` names every layout after the width it was
+    // made at and then guards those names with a unique index - so these two
+    // are the rows that would collide, and the change has to number them apart
+    // or take the account's first request down with it.
+    table: 'layouts',
+    sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_width, created_at)
+          VALUES ('ly-twin', ?, 'db-before', 1280, ?)`,
+    params: (name) => [name, AT],
+  },
+  {
     table: 'panel_placements',
     // After both of the above, which is the whole reason this is a list: the
     // placement points at the layout and the panel written just now.
@@ -341,6 +353,36 @@ describe('Capture', () => {
       ).toEqual([
         { workspace_id: 'ws-before', workspace_decided: 1 },
         { workspace_id: 'ws-before', workspace_decided: 1 },
+      ]);
+    });
+  });
+});
+
+describe('Layouts', () => {
+  describe('the layouts an account already had are named for the width they were made at', () => {
+    /**
+     * The change that names them is applied to a store that has two layouts of
+     * one dashboard at the same width, which nothing ever stopped and which is
+     * exactly what the unique index it then creates would refuse.
+     */
+    it('numbers two of one width apart rather than failing the account', async () => {
+      const name = 'aged-store-layout-names';
+      await agedTo(name, updates.length - 1);
+      await fillWithWhatIsAlreadyThere(name);
+
+      // Opening the store is what applies it, as the first request of the day
+      // does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql
+            .exec('SELECT id, name, folded_name FROM layouts ORDER BY created_at, id')
+            .toArray(),
+        ),
+      ).toEqual([
+        { id: 'ly-before', name: '1280 px', folded_name: '1280 px' },
+        { id: 'ly-twin', name: '1280 px (2)', folded_name: '1280 px (2)' },
       ]);
     });
   });

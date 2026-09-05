@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useQueryClient } from '@tanstack/react-query';
 import { GRID_COLUMNS, uuidv7 } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, Panel, PanelPlacement } from '@cockpit/shared';
@@ -7,23 +6,22 @@ import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { itemsOnPanel } from '../filing';
 import { browserStore } from '../lastVisited';
-import { chooseLayout, chosenFor } from '../panels/chosenLayout';
+import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
   drawnArrangement,
+  layoutLabel,
+  layoutsOf,
   layoutToDraw,
-  madeForThisScreen,
   movedBefore,
   movedBy,
+  nameForScreen,
   panelsAcross,
   resizedTo,
   sameArrangement,
   SAME_SCREEN_TOLERANCE,
 } from '../panels/arrangement';
 import { DeleteQuestion } from './DeleteQuestion';
-import { LayoutQuestion } from './LayoutQuestion';
-import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
-import { NewPanelQuestion } from './NewPanelQuestion';
 import { PANEL_GAP, PANEL_ROW_HEIGHT, PanelCard } from './PanelCard';
 
 /**
@@ -82,18 +80,20 @@ export function PanelBoard({
   const command = useCommand();
   const queryClient = useQueryClient();
 
-  const [chosen, setChosen] = useState<string | null>(() =>
-    chosenFor(browserStore(), dashboard.id),
-  );
   /**
-   * An arrangement that has been made but not yet stored - dragged, resized or
-   * fitted. It is what the grid draws while it exists, so the panel really does
-   * move under the hand that moved it, and it is dropped once the store has
-   * been re-read and agrees.
+   * Which layout is being drawn, shared with the control in the bar that names
+   * it (panels/chosenLayout.ts). The two are in different halves of the app -
+   * this is the page, that is the shell - so what they share is a store rather
+   * than a prop one would have to be handed through the router.
+   */
+  const [chosen, choose] = useChosenLayout(browserStore(), dashboard.id);
+  /**
+   * An arrangement that has been made but not yet stored - dragged or resized.
+   * It is what the grid draws while it exists, so the panel really does move
+   * under the hand that moved it, and it is dropped once the store has been
+   * re-read and agrees.
    */
   const [draft, setDraft] = useState<PanelPlacement[] | null>(null);
-  /** The arrangement waiting on the question of which layout to keep it in. */
-  const [asking, setAsking] = useState<PanelPlacement[] | null>(null);
   /**
    * The last arrangement actually sent, which is not the same as the last one
    * drawn: a corner still being dragged is drawn every pointer move and sent
@@ -101,23 +101,14 @@ export function PanelBoard({
    * would make the release of that drag look like no change at all and drop it.
    */
   const sent = useRef<PanelPlacement[] | null>(null);
-  /**
-   * The name being typed for a new panel, or null while nothing is being added.
-   * Held here rather than in the dialog so a refused title survives the answer
-   * coming back, and so it goes with the dashboard when one is switched away
-   * from - which is what the key on this component is for.
-   */
-  const [naming, setNaming] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   /** Which panel is being dragged. A ref: nothing on screen depends on it. */
   const dragging = useRef<string | null>(null);
-  /** The control the new-panel form is opened from, which gets the focus back. */
-  const addButton = useRef<HTMLButtonElement | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
   const askedFrom = useRef<HTMLElement | null>(null);
 
-  const its = layouts.filter((layout) => layout.dashboardId === dashboard.id);
+  const its = layoutsOf(layouts, dashboard.id);
   const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth, chosen);
   const stored = drawnArrangement(drawnWith, panels, acrossWidth);
   const shown = draft ?? stored;
@@ -138,7 +129,7 @@ export function PanelBoard({
         : null;
 
   /** The refusal belongs to the control that asked for it. */
-  const refusalFor = (what: 'rename_panel' | 'delete_panel' | 'add_panel' | 'save_layout', id?: string) => {
+  const refusalFor = (what: 'rename_panel' | 'delete_panel' | 'save_layout', id?: string) => {
     if (!refusal || command.variables?.name !== what) return null;
     if (!id) return refusal;
     const payload = command.variables.payload as { panelId?: string };
@@ -154,12 +145,12 @@ export function PanelBoard({
   const settle = async () => {
     await queryClient.refetchQueries({ queryKey: ['snapshot', workspaceId] });
     setDraft(null);
-    setAsking(null);
     sent.current = null;
   };
 
   const saveArrangement = (
     layoutId: string,
+    nameIfNew: string,
     screenWidthOfLayout: number,
     placements: readonly PanelPlacement[],
   ) => {
@@ -172,6 +163,10 @@ export function PanelBoard({
           workspaceId,
           dashboardId: dashboard.id,
           layoutId,
+          // Read by the server only where this save is the one creating the
+          // layout, so a board holding a name from before a rename cannot put
+          // the old one back.
+          name: nameIfNew,
           screenWidth: screenWidthOfLayout,
           placements: placements.map((placement) => ({
             panelId: placement.panelId,
@@ -182,13 +177,14 @@ export function PanelBoard({
       },
       {
         onSuccess: () => {
-          // A layout picked by hand is drawn ahead of the closest one, so a
-          // new layout made while one is picked would be saved and then not
-          // drawn: the board would go back to the old one and the change would
-          // read as having reverted. Repointed rather than cleared, because
-          // "make a layout for this screen" is a request to be on it - and
-          // `deleteLayout` below does the same bookkeeping the other way.
-          if (chosen && chosen !== layoutId) chooseFor(layoutId);
+          // The board only ever saves into the layout it is drawing, so the
+          // choice is already right - except in one case: a choice naming a
+          // layout another device deleted is drawn by falling through to the
+          // closest remaining one (arrangement.ts), and this dashboard had
+          // none, so what was just made is not what is stored as picked. The
+          // dead id is cleared rather than repointed, because falling through
+          // is what *Automatic* is, and that is what the control should say.
+          if (chosen && !its.some((layout) => layout.id === chosen)) choose(null);
           void settle();
         },
       },
@@ -202,7 +198,7 @@ export function PanelBoard({
    *
    * Two gestures can both find the dashboard with no layout: the first sends
    * one and the second happens before the re-read lands. A fresh id each time
-   * would define a second layout at the same width, and the Layouts menu would
+   * would define a second layout at the same width, and the layout menu would
    * list "Made for 1280 px" twice with nothing to tell them apart. Sending the
    * same id makes the second gesture change the layout the first one made,
    * which is what it meant.
@@ -220,11 +216,17 @@ export function PanelBoard({
   };
 
   /**
-   * What every gesture that changes the arrangement ends in: keep it if there
-   * is only one place it could go, and otherwise ask.
+   * What every gesture that changes the arrangement ends in: keep it, in the
+   * layout on screen.
    *
-   * A new layout is made silently when there is none, because "change the
-   * layout you are on" is not an answer when you are not on one.
+   * **It asks nothing, and that is the change** ("Pick the layout you are on,
+   * by name"). Dragging on a screen the drawn layout was not made for used to
+   * stop and ask whether to change that layout or make a new one, because
+   * nothing in the gesture said which and the layout had been picked *for* you.
+   * You pick it now, by name, so the gesture means what it says.
+   *
+   * A layout is still made silently when the dashboard has none, because there
+   * is nothing to change and nothing worth interrupting a drag to ask.
    */
   const propose = (next: PanelPlacement[]) => {
     // Against what has been *sent* - or the store, where nothing has - rather
@@ -244,39 +246,26 @@ export function PanelBoard({
     if (sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
     setDraft(next);
-    // Nothing to give the focus back to. Every gesture that gets here now is a
-    // drag or a menu entry that keeps its own focus, so the question that may
-    // follow has no control it was opened from - which is also why the option
-    // that carried one is gone with "Fit to this screen".
-    askedFrom.current = null;
-    if (!drawnWith) {
-      saveArrangement(layoutForThisScreen(), screenWidth, next);
+    if (drawnWith) {
+      // The label rather than the stored name, and the difference is not
+      // cosmetic: a name is required on the way in, and a layout can genuinely
+      // have none. Every layout in a snapshot cached before names existed
+      // parses with an empty one (`layoutSchema`), as does one old code wrote
+      // during the deploy - so sending the stored name would have the first
+      // drag after an upgrade refused for a field the person never typed. The
+      // server ignores it on a layout that already exists either way.
+      saveArrangement(drawnWith.id, layoutLabel(drawnWith), drawnWith.screenWidth, next);
       return;
     }
-    if (madeForThisScreen(drawnWith, screenWidth)) {
-      saveArrangement(drawnWith.id, drawnWith.screenWidth, next);
-      return;
-    }
-    setAsking(next);
-  };
-
-  const addPanel = (name: string) => {
-    command.mutate(
-      {
-        name: 'add_panel',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          dashboardId: dashboard.id,
-          panelId: uuidv7(),
-          name,
-        },
-      },
-      // Closed and emptied only once it worked, so a refused title is still
-      // there to be corrected rather than typed again.
-      { onSuccess: () => setNaming(null) },
-    );
+    // The first arrangement of a dashboard names its layout after the screen it
+    // was made on - *Wide*, *Laptop*, *Phone*. Asking would be the question
+    // this feature exists to remove, one gesture earlier.
+    //
+    // Nothing has to make that name free here, unlike in the picker: there is
+    // no layout to draw only when the dashboard has none at all (`layoutToDraw`
+    // returns the closest of whatever it is given), so there is nothing on this
+    // dashboard for the name to collide with.
+    saveArrangement(layoutForThisScreen(), nameForScreen(screenWidth), screenWidth, next);
   };
 
   const renamePanel = () => {
@@ -313,33 +302,6 @@ export function PanelBoard({
     );
   };
 
-  const chooseFor = (layoutId: string | null) => {
-    chooseLayout(browserStore(), dashboard.id, layoutId);
-    setChosen(layoutId);
-  };
-
-  const deleteLayout = (layoutId: string) => {
-    command.mutate(
-      {
-        name: 'delete_layout',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId,
-          layoutId,
-        },
-      },
-      {
-        onSuccess: () => {
-          // The choice goes with the layout. Leaving it would only fall through
-          // to the closest remaining one anyway (arrangement.ts), but a stored
-          // id naming nothing is a thing to explain later rather than now.
-          if (chosen === layoutId) chooseFor(null);
-        },
-      },
-    );
-  };
-
   return (
     <div ref={measure} className="flex min-w-0 flex-col">
       {/* The name, for whoever is not looking at the screen. It used to be a
@@ -349,10 +311,9 @@ export function PanelBoard({
           the one that stays. */}
       <h2 className="sr-only">{dashboard.name}</h2>
 
-      {/* Only the arrangement's, and only where no question is holding it: a
-          refused add is said inside the dialog that asked for the name, which
-          is where the name still is. */}
-      {refusalFor('save_layout') && !asking && (
+      {/* Only the arrangement's. A refused add or rename is said where the
+          name still is - in the dialog, or in the panel's own header. */}
+      {refusalFor('save_layout') && (
         <p role="alert" className="px-4 py-2 text-sm text-over">
           {refusalFor('save_layout')}
         </p>
@@ -435,95 +396,6 @@ export function PanelBoard({
         </div>
       )}
 
-      {/* The foot of the sheet: where a panel is made, and where the
-          arrangement it joins is chosen ("Cockpit Shell Explorations",
-          artboard 2c).
-
-          **Adding a panel happens where panels live.** It was a filled button
-          in a toolbar over the dashboard, which could say that a panel would
-          appear but not where; at the end of the arrangement it is the place the
-          new panel goes. It costs one hairline rule rather than a panel-sized
-          hole - an outlined full-width track was tried first and took too much
-          of the screen for something you press now and then.
-
-          **Layouts is here rather than in the band above**, which is where the
-          artboard draws it: the band is the shell's and is drawn on the Inbox
-          too, where there is no dashboard to have a layout, so folding these
-          entries into its menu would mean the page publishing entries up into
-          the shell. Beside adding a panel is the other true home - both are
-          about how this dashboard is arranged. */}
-      <div className="mt-1 flex items-center shadow-[inset_0_1px_0_0_rgb(93_82_148/0.28)]">
-        {/* The name is asked for in a dialog rather than in a field grown here
-            (NewPanelQuestion): a box wide enough to read a title in would push
-            the menu beside it out from under the pointer as it opened. */}
-        <button
-          type="button"
-          ref={addButton}
-          onClick={() => {
-            command.reset();
-            setNaming('');
-          }}
-          className="min-w-0 flex-1 self-stretch px-4 py-1.5 text-left text-xs font-medium text-accent-deep hover:bg-accent-tint"
-        >
-          + Add a panel
-        </button>
-
-        <DropdownMenu.Root>
-          <MenuTrigger label="Layouts" />
-          <MenuContent>
-            <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
-              Layout for this dashboard
-            </DropdownMenu.Label>
-            <DropdownMenu.RadioGroup
-              value={chosen ?? AUTOMATIC}
-              onValueChange={(value) => chooseFor(value === AUTOMATIC ? null : value)}
-            >
-              <DropdownMenu.RadioItem value={AUTOMATIC} className={menuItemClass}>
-                Whichever fits this screen
-              </DropdownMenu.RadioItem>
-              {its.map((layout) => (
-                <DropdownMenu.RadioItem key={layout.id} value={layout.id} className={menuItemClass}>
-                  {`Made for ${layout.screenWidth} px`}
-                  {layout.id === drawnWith?.id && (
-                    <span className="block text-xs text-ink-faint">in use</span>
-                  )}
-                </DropdownMenu.RadioItem>
-              ))}
-            </DropdownMenu.RadioGroup>
-            {drawnWith && (
-              <DropdownMenu.Item
-                className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
-                onSelect={() => deleteLayout(drawnWith.id)}
-              >
-                {`Delete the ${drawnWith.screenWidth} px layout`}
-              </DropdownMenu.Item>
-            )}
-          </MenuContent>
-        </DropdownMenu.Root>
-      </div>
-
-      {/* Mounted whether or not it is open, unlike the questions below it: a
-          dialog torn out from above is never told it closed, so it never gets
-          to put the focus back on "Add a panel" - which is where the next
-          press would go. */}
-      <NewPanelQuestion
-        open={naming !== null}
-        returnFocusTo={addButton.current}
-        name={naming ?? ''}
-        onNameChange={setNaming}
-        onAdd={() => addPanel((naming ?? '').trim())}
-        onCancel={() => {
-          setNaming(null);
-          command.reset();
-        }}
-        refusal={refusalFor('add_panel')}
-        // The add's own, not the board's. The dialog will not close while it is
-        // busy, so a layout still being saved from a drag a moment earlier
-        // would leave a form nobody can get out of - Escape and the press
-        // outside are swallowed with it. Attributed the way a refusal is.
-        busy={command.isPending && command.variables?.name === 'add_panel'}
-      />
-
       {beingDeleted && (
         <DeleteQuestion
           open
@@ -540,30 +412,6 @@ export function PanelBoard({
         />
       )}
 
-      {asking && drawnWith && (
-        <LayoutQuestion
-          open
-          madeFor={drawnWith.screenWidth}
-          screenWidth={screenWidth}
-          canAnswer={!command.isPending}
-          refusal={refusalFor('save_layout')}
-          returnFocusTo={askedFrom.current}
-          onCancel={() => {
-            // The change goes back with the question: what was asked was where
-            // to keep it, and "nowhere" is an answer.
-            setAsking(null);
-            setDraft(null);
-            command.reset();
-          }}
-          onChangeThisLayout={() =>
-            saveArrangement(drawnWith.id, drawnWith.screenWidth, asking)
-          }
-          onMakeANewLayout={() => saveArrangement(layoutForThisScreen(), screenWidth, asking)}
-        />
-      )}
     </div>
   );
 }
-
-/** The radio value standing for "no layout chosen by hand", which is the default. */
-const AUTOMATIC = 'automatic';
