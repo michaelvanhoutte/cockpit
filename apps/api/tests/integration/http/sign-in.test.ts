@@ -318,7 +318,10 @@ describe('Sign-in', () => {
           }),
         }),
       );
-      expect(res.status).toBe(200);
+      // Asserted with what it said, not on the status alone: every way this
+      // can go wrong - the validator, a refusal, a workspace that is not there
+      // - arrives as a number that names none of them.
+      expect({ status: res.status, said: await res.text() }).toMatchObject({ status: 200 });
 
       // Michael's own store, so this fails rather than passes if the capture
       // went to the account of whoever signed in next door.
