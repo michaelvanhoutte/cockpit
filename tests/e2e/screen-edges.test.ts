@@ -4,6 +4,7 @@ import {
   captureBox,
   dashboardBar,
   expect,
+  holdRow,
   itemRow,
   openFirstWorkspace,
   openInbox,
@@ -33,12 +34,13 @@ import {
  * test can prove is iOS reporting the right number in the first place; that is
  * what looking at a real handset is for.
  *
- * **Two shapes, because a screen never reports all four at once**: held
- * upright a notch takes the top and the indicator the bottom, turned on its
- * side it takes one end and the indicator shrinks. Declaring all four together
- * would ask the app to survive a screen that does not exist - a 480px-wide
- * phone with 44px gone from each side, which no dialog sized for a phone can
- * fit inside.
+ * **A shape per screen, because a screen never reports all four at once**:
+ * held upright a notch takes the top and the indicator the bottom, turned on
+ * its side it takes one end and the indicator shrinks, and a cutout with no
+ * indicator under it takes the top alone. Declaring all four together would
+ * ask the app to survive a screen that does not exist - a 480px-wide phone
+ * with 44px gone from each side, which no dialog sized for a phone can fit
+ * inside.
  */
 
 /** A notched phone held upright, in the CSS pixels iOS reports for one. */
@@ -46,6 +48,17 @@ const UPRIGHT = { top: 47, right: 0, bottom: 34, left: 0 };
 
 /** The same phone turned on its side, where the notch takes an end instead. */
 const SIDEWAYS = { top: 0, right: 44, bottom: 21, left: 44 };
+
+/**
+ * A cutout above the page and nothing at all below it, which is most Android
+ * phones.
+ *
+ * Here because the two shapes above are nearly symmetrical, and a box centred
+ * in the window keeps half of whatever it gives up at each end: anything that
+ * allows for the two insets *added together* clears their average, which is
+ * right until they are more than 2rem apart. This is the shape that says so.
+ */
+const CUTOUT = { top: 48, right: 0, bottom: 0, left: 0 };
 
 type Edges = typeof UPRIGHT;
 
@@ -218,6 +231,40 @@ test.describe('Screen edges', () => {
       const form = page.getByRole('dialog');
       await expect(form).toBeVisible();
       await expectClearOfTheEdges(page, form, "the form for an item's title", UPRIGHT);
+
+      // And again on a screen that gives up all of it at one end, which is what
+      // separates allowing for the larger inset from allowing for the average
+      // of the two.
+      await screenWithEdges(page, CUTOUT);
+      await expectClearOfTheEdges(page, form, "the form for an item's title", CUTOUT);
+    });
+
+    test('keeps the bar for what is picked out of a list clear of them', async ({
+      page,
+      isMobile,
+    }) => {
+      // The phone, because that is where a bar stuck to the foot of a list is
+      // also at the foot of the screen: the way in on a desktop is a hover, and
+      // the walk for that lives with the selection itself.
+      test.skip(!isMobile, 'a selection starts with a hold on a phone and a hover on a desktop');
+
+      await openInbox(page, isMobile);
+      const picked = uniqueTitle('Aaa picked out');
+      await capture(page, picked, isMobile);
+      for (let more = 0; more < 8; more += 1) await capture(page, uniqueTitle('Below it'), isMobile);
+
+      const screen = page.viewportSize()!;
+      await page.setViewportSize({ width: screen.width, height: 400 });
+      await screenWithEdges(page, UPRIGHT);
+
+      // The first row, so the list stays at its top with plenty still below:
+      // the bar is stuck to the foot of the list rather than merely sitting
+      // after the last row, which is the only state it can be behind anything
+      // in.
+      await holdRow(page, picked);
+      const bar = page.getByRole('button', { name: 'Move to…' });
+      await expect(bar).toBeVisible();
+      await expectClearOfTheEdges(page, bar, 'Move to… on the bar for what is picked', UPRIGHT);
     });
   });
 
@@ -234,7 +281,13 @@ test.describe('Screen edges', () => {
       // happens to paint it is exactly the implementation detail this must not
       // be written against. Transparent boxes are looked through, the way the
       // screen does.
-      const painted = await page.evaluate(() => {
+      //
+      // **Compared against the workspace's own stored colour, not against the
+      // header's.** Reading the expected value off `<header>` compares the top
+      // of the screen to whatever is at the top of the screen the moment the
+      // header is the thing there - true of any painting at all, including the
+      // wrong one. This asks the server what colour this workspace is.
+      const painted = await page.evaluate(async () => {
         const colourAt = (x: number, y: number) => {
           for (let el = document.elementFromPoint(x, y); el; el = el.parentElement) {
             const painting = getComputedStyle(el).backgroundColor;
@@ -244,14 +297,25 @@ test.describe('Screen edges', () => {
           }
           return 'nothing at all';
         };
-        const header = document.querySelector('header');
-        return {
-          atTheTop: colourAt(Math.floor(window.innerWidth / 2), 4),
-          theBar: header ? getComputedStyle(header).backgroundColor : '',
+        const here = location.pathname.split('/')[2];
+        const { workspaces } = (await (await fetch('/v1/workspaces')).json()) as {
+          workspaces: { id: string; header: string }[];
         };
+        const workspace = workspaces.find((candidate) => candidate.id === here);
+        // Through the browser, so the stored hex is compared as the `rgb()` a
+        // computed style is always reported in.
+        const swatch = document.createElement('div');
+        swatch.style.backgroundColor = workspace?.header ?? '';
+        document.body.append(swatch);
+        const itsColour = getComputedStyle(swatch).backgroundColor;
+        swatch.remove();
+        return { atTheTop: colourAt(Math.floor(window.innerWidth / 2), 4), itsColour };
       });
-      expect(painted.atTheTop, "the top of the screen is not the header bar's colour").toBe(
-        painted.theBar,
+      expect(painted.itsColour, 'this walk is not in a workspace with a colour').not.toBe(
+        'rgba(0, 0, 0, 0)',
+      );
+      expect(painted.atTheTop, "the top of the screen is not the workspace's colour").toBe(
+        painted.itsColour,
       );
     });
   });
