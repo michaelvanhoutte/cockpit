@@ -118,6 +118,28 @@ export async function waitForApi(child, port, options = {}) {
 const ENDED_BADLY = 'If you think this is a bug then please create an issue';
 
 /**
+ * The one named record that is not a failure, and so is read past like the
+ * stream errors above.
+ *
+ * It used to be the crash itself. The Wrangler patch (pnpm-workspace.yaml) made
+ * it non-fatal, which is what stopped the browser suite dying mid-run — and
+ * turned it into noise of exactly the shape this function prefers: one record
+ * per browser that walks away from the live-updates stream, dozens a run, each
+ * of them nearer the end of the log than whatever actually kills Wrangler next.
+ * Left in, the next crash would be reported as this one.
+ *
+ * **Both halves, because the heading alone is every ProxyWorker error.**
+ * Wrangler passes `Error inside ProxyWorker` as the reason for anything the
+ * proxy could not do and puts what actually went wrong in the cause, so a
+ * proxy that is failing for a reason worth knowing wears the same heading as a
+ * closed tab. The patch exempts the same pair, and the two must agree: skip on
+ * the heading here and the one ProxyWorker error still worth reading would be
+ * the only one this function could not name.
+ */
+const NO_LONGER_A_FAILURE = 'Error inside ProxyWorker';
+const WALKED_AWAY = 'Network connection lost.';
+
+/**
  * The newest log Wrangler wrote in `dir` since `since`, or null if it wrote
  * none.
  *
@@ -166,12 +188,20 @@ export function newestLog(dir, since = 0) {
  * as a `cause`. Two E2E jobs died that way on 3 September 2026 and the console
  * said nothing either time, so the reason cost an artifact download each.
  *
+ * The reason it read out — `Error inside ProxyWorker: Network connection lost.`
+ * — is patched out of Wrangler now (pnpm-workspace.yaml), and this stays: it is
+ * what named the crash in the first place, and it is how the next one gets
+ * named too.
+ *
  * Read backwards from `ENDED_BADLY` so the ordinary stream errors above it are
  * never mistaken for the reason: the fatal is the *last* thing that happened,
  * and everything before that marker belongs to the run rather than to its end.
- * A named source is preferred over a printed line for the same reason - it only
+ * A named source is preferred over a printed line for the same reason - it
  * appears when a controller reported a failure, while `[ERROR]` is also what
- * every closed tab produces.
+ * every closed tab produces. `NO_LONGER_A_FAILURE` with `WALKED_AWAY` for its
+ * cause is the exception the patch created and the reason that "only" is now an
+ * "also": one named record every closed tab does produce, skipped rather than
+ * preferred.
  *
  * Pure, and takes the text rather than the path, so the shapes below can be
  * asserted without a Worker to kill.
@@ -183,16 +213,31 @@ export function fatalReason(log) {
 
   // `Error in <source>: <reason>` followed by the cause it was given, which is
   // where the sentence a human wants ("Network connection lost.") actually is.
-  const named = [...beforeTheEnd.matchAll(/^Error in [^\n:]+: (.+)$/gm)].at(-1);
+  //
+  // Only within that record. The one after it is `=> Error contextual data`, a
+  // megabyte of bundled configuration and source that has `message:` in it more
+  // than once — so an unbounded search would answer a fatal with no cause of
+  // its own by quoting a line of somebody else's library.
+  const causeIn = (match) =>
+    beforeTheEnd
+      .slice(match.index)
+      .split('\n---\n')[0]
+      .match(/message: '([^']*)'/)?.[1] ?? '';
+
+  // The last one that is a failure at all. Both halves are needed to tell that:
+  // the heading a browser walking away produces is the heading of every other
+  // ProxyWorker error too (`NO_LONGER_A_FAILURE`), so skipping on it alone
+  // would leave the one ProxyWorker error worth reading about as the only one
+  // with no name.
+  const named = [...beforeTheEnd.matchAll(/^Error in [^\n:]+: (.+)$/gm)]
+    .filter(
+      (match) => !(match[1].startsWith(NO_LONGER_A_FAILURE) && causeIn(match) === WALKED_AWAY),
+    )
+    .at(-1);
   if (named) {
     const reason = named[1].trim();
-    // Only within that record. The one after it is `=> Error contextual data`,
-    // a megabyte of bundled configuration and source that has `message:` in it
-    // more than once — so an unbounded search would answer a fatal with no
-    // cause of its own by quoting a line of somebody else's library.
-    const record = beforeTheEnd.slice(named.index).split('\n---\n')[0];
-    const cause = record.match(/message: '([^']*)'/);
-    return cause?.[1] ? `${reason}: ${cause[1]}` : reason;
+    const cause = causeIn(named);
+    return cause ? `${reason}: ${cause}` : reason;
   }
 
   // Otherwise whatever Wrangler managed to print. `[ERROR]` rather than the
