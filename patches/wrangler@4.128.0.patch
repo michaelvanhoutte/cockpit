@@ -1,5 +1,5 @@
 diff --git a/wrangler-dist/cli.js b/wrangler-dist/cli.js
-index 843a7026fbc56d9b7f84442cc24773b486ff99f8..06a438c4676f56e6dab98139c112cf71099a3591 100644
+index 843a7026fbc56d9b7f84442cc24773b486ff99f8..56b5b927c98cfb7fc3bc493187910b63e7f0735b 100644
 --- a/wrangler-dist/cli.js
 +++ b/wrangler-dist/cli.js
 @@ -170331,7 +170331,7 @@ You can also run \`wrangler whoami\` to check your current authentication status
@@ -7,7 +7,7 @@ index 843a7026fbc56d9b7f84442cc24773b486ff99f8..06a438c4676f56e6dab98139c112cf71
        handleErrorEvent(event) {
          if (event.cause instanceof miniflare.MiniflareCoreError && event.cause.isUserError()) this.emit("error", new UserError(event.cause.message, { telemetryMessage: "api dev miniflare user error" }));
 -        else if (event.source === "ProxyController" && event.reason.startsWith("Failed to send message to")) {
-+        else if (event.source === "ProxyController" && (event.reason.startsWith("Failed to send message to") || event.reason.startsWith("Error inside ProxyWorker"))) {
++        else if (event.source === "ProxyController" && (event.reason.startsWith("Failed to send message to") || (event.reason.startsWith("Error inside ProxyWorker") && event.cause?.cause?.message === "Network connection lost."))) {
            logger3.debug(`Error in ${event.source}: ${event.reason}
  `, event.cause);
            logger3.debug("=> Error contextual data:", event.data);
@@ -16,7 +16,7 @@ index 843a7026fbc56d9b7f84442cc24773b486ff99f8..06a438c4676f56e6dab98139c112cf71
              })
            );
 -        } else if (event.source === "ProxyController" && (event.reason.startsWith("Failed to send message to") || event.reason.startsWith("Could not connect to InspectorProxyWorker"))) {
-+        } else if (event.source === "ProxyController" && (event.reason.startsWith("Failed to send message to") || event.reason.startsWith("Could not connect to InspectorProxyWorker") || event.reason.startsWith("Error inside ProxyWorker"))) {
++        } else if (event.source === "ProxyController" && (event.reason.startsWith("Failed to send message to") || event.reason.startsWith("Could not connect to InspectorProxyWorker") || (event.reason.startsWith("Error inside ProxyWorker") && event.cause?.cause?.message === "Network connection lost."))) {
            logger2.debug(`Error in ${event.source}: ${event.reason}
  `, event.cause);
            logger2.debug("=> Error contextual data:", event.data);

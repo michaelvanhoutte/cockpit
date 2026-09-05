@@ -264,6 +264,21 @@ describe('fatalReason', () => {
     );
   });
 
+  it('names a ProxyWorker failure that is not a browser walking away', () => {
+    // Only the lost connection was made non-fatal, so this one still ends the
+    // run - and it carries the same `Error inside ProxyWorker` heading as the
+    // dozens of harmless ones. Skipping by the heading alone would leave the
+    // one ProxyWorker error worth reading about as the only one with no name.
+    const somethingElse = PROXY_WORKER_NOISE.replace(
+      'Network connection lost.',
+      'The script will never generate a response.',
+    );
+    assert.equal(
+      fatalReason(PROXY_WORKER_NOISE.repeat(3) + somethingElse + ENDED_BADLY),
+      'Error inside ProxyWorker: The script will never generate a response.',
+    );
+  });
+
   it('takes the message Wrangler managed to print when there is no cause to read', () => {
     assert.equal(
       fatalReason(record('error', 'X [ERROR] spawn UNKNOWN') + ENDED_BADLY),

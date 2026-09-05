@@ -122,10 +122,12 @@ test.describe('Capture', () => {
       await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
       await expect(itemRow(page, note).getByText('Any workspace')).toHaveCount(0);
 
-      // Waited for here too, and for the same reason turned around: the note
-      // has just left Atlas Copco's Inbox, so "it is not in the Inbox" is
-      // already true of the screen the walk is standing on and would pass
-      // without ever arriving.
+      // Waited for here too, for a different reason: what follows is a
+      // negative assertion, and one of those is answered by any moment the
+      // rows are not drawn - a page part way through a navigation among them.
+      // The note is still in Atlas Copco's Inbox at this point, as its own
+      // rather than everybody's, so it is Work's Inbox that has to be on screen
+      // before "it is not there" says anything.
       await switchTo(page, CAPTURED_FROM, isMobile);
       if (isMobile) {
         await press(page.getByRole('link', { name: 'Inbox' }).first(), isMobile);

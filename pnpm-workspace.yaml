@@ -8,9 +8,15 @@ onlyBuiltDependencies:
   - esbuild
   - workerd
 
-# One line, in both copies of it: `Error inside ProxyWorker` joins the reasons
-# Wrangler's own `handleErrorEvent` already treats as non-fatal, rather than
-# exiting 1 on them.
+# One line, in both copies of it: `Error inside ProxyWorker` *whose cause is a
+# lost connection* joins the reasons Wrangler's own `handleErrorEvent` already
+# treats as non-fatal, rather than exiting 1 on them.
+#
+# The cause is half the condition because the reason is not enough on its own:
+# Wrangler passes that same heading up for anything the proxy could not do and
+# puts what went wrong in the cause, so matching the heading alone would make a
+# genuinely broken proxy quiet too. `scripts/lib/stack.mjs` skips the same pair
+# for the same reason, and the two have to agree.
 #
 # It is what killed the browser suite. Every walk opens the live-updates stream
 # and walks away from it, which the runtime reports as `Network connection
@@ -24,8 +30,8 @@ onlyBuiltDependencies:
 #
 # **Pinned to the version on purpose.** Against any other, `pnpm install` fails
 # with ERR_PNPM_UNUSED_PATCH naming this line — re-make it (`pnpm patch
-# wrangler@<new>`, the same one line, `pnpm patch-commit`) or delete it because
-# upstream has fixed it. Keyed to the bare name instead, it would apply to
-# whatever resolved and vanish silently the first time the bundle moved.
+# wrangler@<new>`, the same two clauses, `pnpm patch-commit`) or delete it
+# because upstream has fixed it. Keyed to the bare name instead, it would apply
+# to whatever resolved and vanish silently the first time the bundle moved.
 patchedDependencies:
   wrangler@4.128.0: patches/wrangler@4.128.0.patch
