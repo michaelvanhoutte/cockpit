@@ -129,9 +129,12 @@ describe('Workspace management', () => {
         // The whole theme its tint belongs to, not just the tint: a workspace
         // has all four of its colors from the moment it is made.
         color: '#3f8f78',
-        bar: '#cbe4dc',
-        ground: '#d9ece6',
-        header: '#bcdcd2',
+        // Read off the palette rather than written out: the four are one set,
+        // and a copy of three of them here would only ever say that somebody
+        // remembered to update this file when the palette moved.
+        bar: themeOf('#3f8f78').bar,
+        ground: themeOf('#3f8f78').ground,
+        header: themeOf('#3f8f78').header,
         // Where it sits in the tabs, handed to it the way the color is: both
         // are answers about every workspace the account has, which only the
         // caller with the account in front of it can give.

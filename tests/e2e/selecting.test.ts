@@ -49,7 +49,7 @@ async function ownDashboardWithAPanel(
   await page.getByLabel('Name of the new dashboard').press('Enter');
   await expect(dashboardBar(page).getByRole('link', { name: dashboard })).toBeVisible();
 
-  await press(page.getByRole('button', { name: 'Add a panel' }), isMobile);
+  await press(page.getByRole('button', { name: '+ Add a panel' }), isMobile);
   await page.getByLabel('Name of the new panel').fill(panel);
   await page.getByLabel('Name of the new panel').press('Enter');
   await expect(page.getByRole('region', { name: panel })).toBeVisible();

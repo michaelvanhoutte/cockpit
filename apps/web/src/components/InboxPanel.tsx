@@ -1,9 +1,44 @@
-import { useId } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { itemsInTheInbox } from '../filing';
 import { CaptureForm } from './CaptureForm';
 import { ItemList } from './ItemList';
+
+/**
+ * The Inbox's name and how much is in it, drawn wherever the Inbox is headed:
+ * in the dashboard band above the column, where there is room for a column
+ * (pages/Layout.tsx), and on the screen the tab opens where there is not
+ * (pages/WorkspacePage.tsx).
+ *
+ * **Separate from the panel below it** because on a wide screen the two are not
+ * in the same place: the heading sits on the band beside the dashboard tabs and
+ * the list sits on the sheet under it, which is what says the Inbox is the
+ * workspace's rather than one of its dashboards ("Cockpit Shell Explorations",
+ * artboard 2c).
+ *
+ * It costs no request of its own: the count is the same view over the same
+ * snapshot the column below is already reading.
+ */
+export function InboxHeading({ workspaceId, id }: { workspaceId: string; id?: string }) {
+  const { data } = useQuery(snapshotQuery(workspaceId));
+  const inbox = data ? itemsInTheInbox(data.items, data.filings ?? []) : null;
+
+  return (
+    <div className="flex items-baseline gap-2">
+      <h2
+        id={id}
+        className="text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep"
+      >
+        Inbox
+      </h2>
+      {/* Nothing where the snapshot has not arrived, rather than a zero: an
+          Inbox that has not been read yet is not an empty one. */}
+      {inbox && (
+        <span className="ml-auto text-xs tabular-nums text-ink-faint">{inbox.length}</span>
+      )}
+    </div>
+  );
+}
 
 /**
  * One workspace's Inbox, holding every item still to deal with, with capture as
@@ -25,7 +60,6 @@ import { ItemList } from './ItemList';
  */
 export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   const { data, isLoading, error } = useQuery(snapshotQuery(workspaceId));
-  const headingId = useId();
 
   /**
    * **The column never says the workspace could not be read**, however badly
@@ -37,7 +71,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
    */
   if (error && !data) return null;
   if (isLoading || !data) {
-    return <p className="text-ink-faint">Loading…</p>;
+    return <p className="px-4 py-3 text-ink-faint">Loading…</p>;
   }
 
   // Everything still yours to handle that is on no panel. `?? []` because a
@@ -48,41 +82,32 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   // was, rather than a blank screen.
   const inbox = itemsInTheInbox(data.items, data.filings ?? []);
 
+  /* No box of its own and no heading: the column it is drawn in is the hollow
+     in the sheet (pages/Layout.tsx), and the name and count are up in the band
+     above it. What is left here is what the Inbox actually holds. */
   return (
-    <div className="flex flex-col gap-6">
-      <section aria-labelledby={headingId} className="rounded-lg bg-surface shadow-panel">
-        <header className="flex items-baseline gap-2 border-b border-black/5 px-4 py-3">
-          <h2 id={headingId} className="text-base font-semibold">
-            Inbox
-          </h2>
-          <span className="text-xs text-ink-faint">still to deal with</span>
-          <span className="ml-auto rounded-full bg-accent-tint px-2 text-xs tabular-nums text-accent-deep">
-            {inbox.length}
-          </span>
-        </header>
-
-        {/* Writing something down and seeing where it landed are the same
-            place: the box is the Inbox's first row. */}
-        <div className="border-b border-black/5 px-4 py-3">
-          <CaptureForm
-            workspaceId={workspaceId}
-            // `?? []` for the reason the filings above carry one: a stored
-            // snapshot can predate the field, and capture with no types to
-            // offer is a box you can type a name into rather than a crash.
-            types={data.itemTypes ?? []}
-            items={data.items}
-          />
-        </div>
-
-        <ItemList
+    <>
+      {/* Writing something down and seeing where it landed are the same
+          place: the box is the Inbox's first row. */}
+      <div className="border-b border-black/5 px-4 py-3">
+        <CaptureForm
           workspaceId={workspaceId}
-          items={inbox}
-          // The Inbox is beside the dashboards rather than one of them, so
-          // there is no dashboard here for the picker to offer first.
-          openDashboardId={null}
-          emptyMessage="Nothing to deal with."
+          // `?? []` for the reason the filings above carry one: a stored
+          // snapshot can predate the field, and capture with no types to
+          // offer is a box you can type a name into rather than a crash.
+          types={data.itemTypes ?? []}
+          items={data.items}
         />
-      </section>
-    </div>
+      </div>
+
+      <ItemList
+        workspaceId={workspaceId}
+        items={inbox}
+        // The Inbox is beside the dashboards rather than one of them, so
+        // there is no dashboard here for the picker to offer first.
+        openDashboardId={null}
+        emptyMessage="Nothing to deal with."
+      />
+    </>
   );
 }

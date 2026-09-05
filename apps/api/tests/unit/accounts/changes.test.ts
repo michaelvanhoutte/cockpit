@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { WORKSPACE_THEMES } from '@cockpit/shared';
 import { accountChanges } from '../../../src/accounts/changes.js';
 
 /**
@@ -35,5 +36,33 @@ describe('Accounts', () => {
 
       expect(new Set(names).size, names.join(', ')).toBe(names.length);
     });
+  });
+
+  describe('a workspace ends up wearing the whole of its own theme', () => {
+    /*
+     * L1, and it is a duplication guard rather than a behaviour: the change
+     * that repaints a workspace's surfaces writes the palette's colours out as
+     * SQL, so the palette and the SQL are the same eight sets of numbers said
+     * twice. Three of the eight are proved end to end against a real store in
+     * tests/integration/accounts/workspace-reads.test.ts - the seeded
+     * workspaces - and the other five have nothing else holding them to the
+     * palette at all. A theme retuned by hand and half-copied here is a
+     * workspace painted in two palettes at once, and nothing would fail.
+     */
+    it.each(WORKSPACE_THEMES.map((theme) => ({ situation: theme.name, theme })))(
+      'repaints $situation in the surfaces the palette gives it',
+      ({ theme }) => {
+        const ink = accountChanges('any-account-would-do').find(
+          (change) => change.name === '0010-workspace-ink',
+        );
+        const sql = ink!.statements.map((statement) => statement.sql).join(' ');
+
+        for (const surface of [theme.header, theme.bar, theme.ground]) {
+          expect(sql, `${theme.name} is missing ${surface}`).toContain(
+            `WHEN '${theme.tint}' THEN '${surface}'`,
+          );
+        }
+      },
+    );
   });
 });

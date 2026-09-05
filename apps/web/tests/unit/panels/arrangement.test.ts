@@ -131,7 +131,7 @@ describe('Panels', () => {
       { situation: 'a dashboard with no layout at all', panels: ['a', 'b'], drawn: [at('a', 4, 3), at('b', 4, 3)] },
       { situation: 'a dashboard with nothing on it', panels: [], drawn: [] },
     ])('$situation is arranged for the screen it is on', ({ panels, drawn }) => {
-      // The same arrangement "Fit to this screen" would give, deliberately:
+      // The same arrangement fitting it to this screen gives, deliberately:
       // pressing it on a fresh dashboard should not appear to do nothing.
       expect(drawnArrangement(null, panels.map(aPanel), 1280)).toEqual(drawn);
     });

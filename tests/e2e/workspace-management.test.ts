@@ -1,4 +1,5 @@
 import { type Page } from '@playwright/test';
+import { themeOf } from '@cockpit/shared';
 import {
   chooseRowAction,
   dashboardBar,
@@ -15,6 +16,15 @@ import {
   uniqueTitle,
   workspaceTabs,
 } from './support/app';
+
+/** The swatch this walk presses, and the one it then expects the page to wear. */
+const OLIVE_TINT = '#7d8f3f';
+
+/** `#rrggbb` as a browser reports a background colour back. */
+function asRgb(hex: string): string {
+  const [r, g, b] = [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16));
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 /**
  * F3, because none of this exists below a real browser: the header's menu is
@@ -218,7 +228,9 @@ test.describe('Workspace management', () => {
       // accepted, so the window is however long that round trip takes - 12ms on
       // one run and 184ms on the next, and the slow one failed on a phone in CI
       // while the same commit passed on the desktop project beside it.
-      await expect.poll(() => groundOf(page)).toBe('rgb(230, 235, 214)');
+      // Read off the palette rather than written out, so a change to the
+      // theme's colours is not also a change to this walk.
+      await expect.poll(() => groundOf(page)).toBe(asRgb(themeOf(OLIVE_TINT).ground));
 
       // And switching away takes the colour with it. Polled for the same reason.
       await press(page.locator('header').getByRole('link', { name: 'Work' }), isMobile);

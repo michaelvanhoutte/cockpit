@@ -217,8 +217,8 @@ export type DeletePanelCommand = z.infer<typeof deletePanelSchema>;
  * save_layout — one arrangement of a dashboard's panels, whole.
  *
  * **One command for every way an arrangement changes**, rather than one per
- * gesture: dragging a panel past another, dragging its corner, and pressing
- * "Fit to this screen" all end with the same answer to the same question - here
+ * gesture: dragging a panel past another, moving it from its own menu and
+ * dragging its corner all end with the same answer to the same question - here
  * is where these panels go now. Splitting them would be three commands writing
  * the same rows, and three chances for them to disagree.
  *

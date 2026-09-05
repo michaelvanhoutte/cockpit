@@ -46,7 +46,7 @@ async function ownDashboardWithAPanel(
   await page.getByLabel('Name of the new dashboard').press('Enter');
   await expect(dashboardBar(page).getByRole('link', { name: dashboard })).toBeVisible();
 
-  await press(page.getByRole('button', { name: 'Add a panel' }), isMobile);
+  await press(page.getByRole('button', { name: '+ Add a panel' }), isMobile);
   await page.getByLabel('Name of the new panel').fill(panel);
   await page.getByLabel('Name of the new panel').press('Enter');
   await expect(page.getByRole('region', { name: panel })).toBeVisible();
@@ -275,7 +275,7 @@ test.describe('Panels', () => {
       test.skip(isMobile, 'two panels are not on one screen here');
       const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
       const second = uniqueTitle('Anna');
-      await press(page.getByRole('button', { name: 'Add a panel' }), isMobile);
+      await press(page.getByRole('button', { name: '+ Add a panel' }), isMobile);
       await page.getByLabel('Name of the new panel').fill(second);
       await page.getByLabel('Name of the new panel').press('Enter');
       await expect(page.getByRole('region', { name: second })).toBeVisible();
@@ -337,7 +337,7 @@ test.describe('Panels', () => {
       // by dashboard, so the panel form that was on screen is replaced.
       await expect(page.getByRole('heading', { name: elsewhere, level: 2 })).toBeVisible();
       const toRead = uniqueTitle('To read');
-      await press(page.getByRole('button', { name: 'Add a panel' }), isMobile);
+      await press(page.getByRole('button', { name: '+ Add a panel' }), isMobile);
       await page.getByLabel('Name of the new panel').fill(toRead);
       await page.getByLabel('Name of the new panel').press('Enter');
       await expect(page.getByRole('region', { name: toRead })).toBeVisible();

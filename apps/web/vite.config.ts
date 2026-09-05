@@ -74,7 +74,7 @@ export default defineConfig({
         description: 'Unified inbox and dashboards',
         start_url: '/',
         display: 'standalone',
-        background_color: '#e3e1f2',
+        background_color: '#edebf7',
         theme_color: '#6f62b5',
         icons: [
           {
