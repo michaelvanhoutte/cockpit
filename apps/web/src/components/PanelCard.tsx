@@ -118,7 +118,13 @@ export function PanelCard({
       // No fill and no edge of its own: the panel is the sheet, and only the
       // list inside it goes down into it ("Cockpit Shell Explorations",
       // artboard 2c). `relative` stays for the resize grip alone.
-      className="relative flex min-w-0 flex-col"
+      //
+      // `@container` so what is inside can be drawn to the panel's own width
+      // rather than the screen's - the header does, below. It has to be here
+      // rather than on the header, because a container query asks about an
+      // *ancestor*: on the header it would size the header's contents and not
+      // the header itself.
+      className="@container relative flex min-w-0 flex-col"
     >
       <header
         // `=== null` rather than falsy: an emptied rename box is still an open
@@ -135,7 +141,20 @@ export function PanelCard({
         }}
         // On the sheet rather than on the list: no fill, no rule under it, and
         // the space above it is what separates one panel from the one above.
-        className="flex items-center gap-2 px-4 pt-3 pb-2"
+        //
+        // Drawn to the panel's own width rather than the screen's, because that
+        // is what it has to fit in: three panels across a laptop's dashboard are
+        // narrower than one panel on a phone, and a layout made for a wide screen
+        // is squeezed rather than cut off - so the app's tightest headers are on
+        // its widest screens.
+        //
+        // The margin closes with the count (below), at the same width and for
+        // the same reason: a panel this narrow is spending forty percent of
+        // itself on padding and a menu, and it is spending it on its own name.
+        // It stops matching the rows underneath there, which carry `px-4` of
+        // their own - a fair trade at a width where those rows are showing two
+        // characters of a title.
+        className="flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2"
       >
         {renaming !== null ? (
           <form
@@ -173,17 +192,31 @@ export function PanelCard({
           </form>
         ) : (
           <>
-            {/* The same heading the Inbox's carries in the band above it
-                (components/InboxPanel.tsx): small, uppercase and in the accent,
-                because a header on the sheet has no fill or rule to say it is a
-                header and the letterform has to do it alone. */}
-            <h3 className="min-w-0 shrink truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
-              {panel.name}
-            </h3>
-            {/* How much is on it, said the way the Inbox says it. A header with
-                no fill has room for it, and it is the one thing about a panel
-                you would otherwise have to count. */}
-            <span className="mr-auto shrink-0 text-xs tabular-nums text-ink-faint">{items.length}</span>
+            {/* The name and the count travel together, so the menu sits at the
+                panel's edge whether or not the count is drawn. */}
+            <div className="mr-auto flex min-w-0 items-center gap-2">
+              {/* The same heading the Inbox's carries in the band above it
+                  (components/InboxPanel.tsx): small, uppercase and in the accent,
+                  because a header on the sheet has no fill or rule to say it is a
+                  header and the letterform has to do it alone. */}
+              <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
+                {panel.name}
+              </h3>
+              {/* How much is on it, said the way the Inbox says it - until the
+                  panel is too narrow to say all three things, and then this is
+                  the one that goes. Everything else in the header is either the
+                  panel's name or the only way to rename, move or delete it; the
+                  count is the one thing the list underneath already shows.
+
+                  Two hundred pixels because that is where it stops paying for
+                  itself: the padding, the menu and the two gaps already take
+                  seventy-six of them, and the count another seventeen, so below
+                  this the name is being truncated to make room for a number the
+                  list underneath spells out. */}
+              <span className="shrink-0 text-xs tabular-nums text-ink-faint @max-[200px]:hidden">
+                {items.length}
+              </span>
+            </div>
             <RowMenu
               label={`Actions for ${panel.name}`}
               entries={[
