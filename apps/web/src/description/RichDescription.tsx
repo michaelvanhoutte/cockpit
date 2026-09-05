@@ -195,6 +195,11 @@ export default function RichDescription({ initial, onChange, editable }: RichDes
    */
   useEffect(() => {
     editor.current?.action((ctx) => ctx.get(editorViewCtx).setProps({ editable: () => editable }));
+    // And the address being typed is given up rather than hidden. Kept, it
+    // comes back when the save fails - half-written, and taking the cursor off
+    // the message saying the save failed, which is the one thing on the form
+    // worth reading at that moment.
+    if (!editable) setAsking(null);
   }, [editable, ready]);
 
   /**

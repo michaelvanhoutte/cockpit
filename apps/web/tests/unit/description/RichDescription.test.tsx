@@ -78,6 +78,29 @@ describe('Item editing', () => {
       await waitFor(() => expect(box).toHaveAttribute('contenteditable', 'false'));
     });
 
+    /**
+     * A save that did not land keeps the form open and says why. An address
+     * half-typed before Save was pressed used to be waiting when it came back -
+     * and being autofocused, it took the cursor off that message.
+     */
+    it('gives up an address being typed rather than hiding it', async () => {
+      const box = (editable: boolean) => (
+        <RichDescription initial="Tolerances" onChange={() => {}} editable={editable} />
+      );
+      const { rerender } = render(box(true));
+      await screen.findByLabelText('Description');
+      const user = userEvent.setup();
+      const link = screen.getByRole('button', { name: 'link' });
+      await waitFor(() => expect(link).toBeEnabled());
+      await user.click(link);
+      await user.type(screen.getByLabelText('Address'), 'example.com/half');
+
+      rerender(box(false));
+      rerender(box(true));
+
+      expect(screen.queryByLabelText('Address')).toBeNull();
+    });
+
     it('opens again once the save has landed', async () => {
       const box = (editable: boolean) => (
         <RichDescription initial="Tolerances" onChange={() => {}} editable={editable} />
