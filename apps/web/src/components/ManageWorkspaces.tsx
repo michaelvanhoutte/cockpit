@@ -5,15 +5,21 @@ import type { Workspace, WorkspaceList, WorkspaceTheme } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand, useSendCommand, workspacesQuery } from '../api/queries';
 import { movedBy, movedTo } from '../reorder';
-import { DeleteQuestion } from '../components/DeleteQuestion';
-import { LoadFailure } from '../components/LoadFailure';
-import { RowMenu } from '../components/Menu';
-import { RowForm, wasOnTheRow } from '../components/RowForm';
+import { DeleteQuestion } from './DeleteQuestion';
+import { LoadFailure } from './LoadFailure';
+import { CloseWindow, ManageWindow } from './ManageWindow';
+import { RowMenu } from './Menu';
+import { RowForm, wasOnTheRow } from './RowForm';
 
 /**
- * Where workspaces are managed. It lists them, makes new ones, renames them,
- * colors them, puts them in the order they appear across the top of the screen,
- * and deletes them.
+ * Where workspaces are managed: listing them, making new ones, changing a
+ * name and a colour, putting them in the order they appear across the top of
+ * the screen, and deleting them.
+ *
+ * **A window over the workspace you are in, not a page of its own**
+ * (`components/ManageWindow.tsx`, which is where that reason lives). It was a
+ * page, and the page is what made the app's chrome degrade into a second,
+ * worse header whenever you opened it.
  *
  * **A row keeps its shape**, exactly as in the list of dashboards: what can be
  * done to a workspace is in its own menu, and both the things that change one -
@@ -45,7 +51,16 @@ import { RowForm, wasOnTheRow } from '../components/RowForm';
  * that was refused instead of at the bottom of the page. The form keeps its own
  * (`saveForm`), because a Save is up to two changes rather than one.
  */
-export function WorkspaceSettingsPage() {
+export function ManageWorkspaces({
+  open,
+  onClose,
+  returnFocusTo,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** The control it was opened from, which gets the focus back. */
+  returnFocusTo?: HTMLElement | null | undefined;
+}) {
   const { data, error, refetch } = useQuery(workspacesQuery);
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
@@ -273,6 +288,18 @@ export function WorkspaceSettingsPage() {
     command.reset();
   };
 
+  /**
+   * Closing it forgets what was half-typed and what was refused, for the
+   * reason the dashboards' window gives: this stays mounted between openings,
+   * so a refusal that is merely hidden comes back the next time over a name
+   * nobody has touched.
+   */
+  const close = () => {
+    stopAsking();
+    setName('');
+    onClose();
+  };
+
   const create = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
@@ -387,10 +414,15 @@ export function WorkspaceSettingsPage() {
       : null;
 
   return (
-    /* No heading of its own: the tab in the band above says which page this is,
-       the same way the current dashboard tab does inside a workspace
-       (`components/Tabs.tsx`). */
-    <div className="flex flex-col gap-6">
+    <ManageWindow
+      title="Manage workspaces"
+      open={open}
+      onClose={close}
+      // Not while a change is in flight, or the refusal it might come back
+      // with would have nowhere left to appear.
+      canClose={!command.isPending && !saving}
+      returnFocusTo={returnFocusTo}
+    >
       {/* Above the list, not after it. The list has no ceiling - it is every
           workspace the account has ever made - so a box below it is a control
           whose reachability depends on how much you already own, and it is the
@@ -399,7 +431,7 @@ export function WorkspaceSettingsPage() {
           1040px viewport: on screen by 39 pixels, which is under half a row.
           Nothing about that was visible in what the page renders, only in where
           it ended up. */}
-      <form onSubmit={create} className="flex flex-col gap-2">
+      <form onSubmit={create} className="mt-4 flex flex-col gap-2">
         <div className="flex gap-2">
           <input
             value={name}
@@ -424,7 +456,7 @@ export function WorkspaceSettingsPage() {
         )}
       </form>
 
-      <section className="rounded-lg bg-surface shadow-panel">
+      <section className="-mx-2 mt-4 min-h-0 flex-1 overflow-y-auto">
         <ul ref={listRef}>
           {shown.map((ws, index) => (
             <li
@@ -620,7 +652,8 @@ export function WorkspaceSettingsPage() {
           </p>
         )}
       </section>
-    </div>
+      <CloseWindow disabled={command.isPending || saving} />
+    </ManageWindow>
   );
 }
 

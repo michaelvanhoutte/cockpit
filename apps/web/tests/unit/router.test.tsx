@@ -5,7 +5,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import type { Dashboard, Workspace } from '@cockpit/shared';
 import { createAppRouter } from '../../src/router';
-import { NotSignedIn, fetchMe, fetchSnapshot, fetchUsers, fetchWorkspaces } from '../../src/api/client';
+import {
+  NotSignedIn,
+  fetchMe,
+  fetchSnapshot,
+  fetchUsers,
+  fetchWorkspaces,
+  sendCommand,
+} from '../../src/api/client';
 
 /**
  * F1: where the app sends you is a decision the router makes from the list of
@@ -24,12 +31,14 @@ vi.mock('../../src/api/client', async (importOriginal) => ({
   fetchSnapshot: vi.fn(),
   fetchMe: vi.fn(),
   fetchUsers: vi.fn(),
+  sendCommand: vi.fn(),
 }));
 
 const readsWorkspaces = vi.mocked(fetchWorkspaces);
 const readsSnapshot = vi.mocked(fetchSnapshot);
 const readsWhoIAm = vi.mocked(fetchMe);
 const readsUsers = vi.mocked(fetchUsers);
+const sends = vi.mocked(sendCommand);
 
 const SIGNED_IN = { user: { id: 'user-michael', name: 'Michael' } };
 
@@ -170,9 +179,32 @@ describe('Workspace management', () => {
       await open(at, []);
 
       // The invitation is the box you type the name into, not a screen whose
-      // only content is a link to it.
+      // only content is a link to it - and it is a screen of its own rather
+      // than a page under the shell, because the shell is drawn inside a
+      // workspace and this account has none (pages/FirstWorkspacePage.tsx).
       expect(await screen.findByLabelText('Name of the new workspace')).toBeVisible();
-      expect(screen.getByText('No workspaces yet. Make your first one above.')).toBeVisible();
+      expect(screen.queryByRole('navigation', { name: 'Workspaces' })).toBeNull();
+    });
+
+    it('opens the workspace you make there, rather than sending you back', async () => {
+      // The screen is reached with an empty list in hand, and the workspace
+      // route checks its id against that list - so making one and going to it
+      // without re-reading first lands you back on the invitation, and making a
+      // workspace reads as doing nothing.
+      const user = userEvent.setup();
+      await open('/', []);
+      const box = await screen.findByLabelText('Name of the new workspace');
+
+      const made: Workspace = { ...work, id: 'ws-made', name: 'Bookkeeping' };
+      sends.mockImplementation(async () => {
+        // The server has it from now on, which is what the re-read must find.
+        readsWorkspaces.mockResolvedValue({ workspaces: [made] });
+        return { ok: true, applied: true };
+      });
+      await user.type(box, 'Bookkeeping');
+      await user.click(screen.getByRole('button', { name: 'New workspace' }));
+
+      expect(await screen.findByRole('navigation', { name: 'Dashboards' })).toBeVisible();
     });
   });
 });
@@ -213,17 +245,6 @@ describe('Triage', () => {
       // navigation, and the tab it no longer needs has gone.
       expect(screen.getByRole('heading', { name: 'Research' })).toBeVisible();
       expect(within(bar).queryByRole('link', { name: 'Inbox' })).toBeNull();
-    });
-
-    it('is not there on the page reached without a workspace', async () => {
-      // The workspaces settings page is where the first workspace is made, so
-      // there is no workspace to have an Inbox.
-      withRoomForTheInbox();
-
-      await open('/settings/workspaces', [work, personal]);
-
-      expect(await screen.findByLabelText('Name of the new workspace')).toBeVisible();
-      expect(inboxColumn()).toBeNull();
     });
 
     it('is a view of its own where there is no room to put it beside', async () => {

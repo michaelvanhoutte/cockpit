@@ -2,6 +2,7 @@ import { type Page } from '@playwright/test';
 import { themeOf } from '@cockpit/shared';
 import {
   chooseRowAction,
+  closeWindow,
   dashboardBar,
   deleteWorkspace,
   dragRowOnto,
@@ -14,6 +15,7 @@ import {
   tabOnIsWhollyInView,
   test,
   uniqueTitle,
+  workspaceTab,
   workspaceTabs,
 } from './support/app';
 
@@ -60,6 +62,7 @@ test.describe('Workspace management', () => {
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
 
+      await expect(page.getByRole('dialog', { name: 'Manage workspaces' })).toBeVisible();
       const box = page.getByLabel('Name of the new workspace');
       // All of it, rather than any of it. `toBeInViewport()` on its own passes
       // on a single visible pixel, and that is what it was doing: ten
@@ -78,10 +81,13 @@ test.describe('Workspace management', () => {
 
       // In the header, not merely somewhere on the settings page: being able to
       // switch to it is the whole point of having made it.
-      const tab = page.locator('header').getByRole('link', { name });
+      const tab = workspaceTab(page, name);
       await expect(tab).toBeVisible();
       await expectNoSidewaysScroll(page);
 
+      // The window is over the workspace rather than instead of it, so it has
+      // to be shut before the header underneath can be pressed.
+      await closeWindow(page, isMobile);
       await press(tab, isMobile);
       // Open, on a view of itself: a workspace opens on the view it was last
       // on, and a new one has never been opened, so that is its first
@@ -90,51 +96,47 @@ test.describe('Workspace management', () => {
     });
   });
 
-  test.describe('the chrome keeps its shape when you leave a workspace', () => {
+  test.describe('managing the account does not take the workspace away', () => {
     /**
-     * F3 and only F3: heights and insets are what a browser computes, and the
-     * whole claim is that two addresses of the same app agree about them. In
-     * jsdom every rectangle is zero pixels tall in the same place, so nothing
-     * below this tier can tell the two apart at all.
+     * F3 and only F3: what the shell is painted in, and how tall it is, are
+     * things a browser computes. In jsdom every rectangle is zero pixels tall
+     * in the same place, so nothing below this tier can tell a shell that
+     * changed from one that did not.
      */
-    test('draws the same header and band on a settings page, and keeps the page off the edge', async ({
+    test('leaves the header, its colour and the workspace behind the window', async ({
       page,
       isMobile,
     }) => {
-      /** How far down the screen the chrome reaches - the header and the band under it. */
-      const chromeEnds = () =>
+      /** The header and the band under it, as they are painted right now. */
+      const chrome = () =>
         page.evaluate(() => {
           const header = document.querySelector('header')!;
-          return Math.round(header.nextElementSibling!.getBoundingClientRect().bottom);
+          const band = header.nextElementSibling!;
+          return {
+            colour: getComputedStyle(header).backgroundColor,
+            ends: Math.round(band.getBoundingClientRect().bottom),
+          };
         });
 
       await openFirstWorkspace(page, isMobile);
-      const insideAWorkspace = await chromeEnds();
+      const before = await chrome();
 
       await openSettings(page, isMobile);
 
-      // The band used to be drawn only inside a workspace, so opening the
-      // settings took forty pixels off the chrome between two addresses of the
-      // same app - and the page then headed itself, on the sheet, in a style
-      // nothing else uses.
-      expect(await chromeEnds()).toBe(insideAWorkspace);
-      await expect(
-        page.getByRole('navigation', { name: 'Settings' }).getByRole('link', {
-          name: 'Manage workspaces',
-        }),
-      ).toBeVisible();
+      // The workspaces were a page, and reaching it took the shell somewhere it
+      // has no state for: no workspace to colour the header, fill a tab or
+      // offer Capture… So the list opens over the workspace instead, and none
+      // of that moves.
+      expect(await chrome()).toEqual(before);
+      // By selector, for the reason `workspaceTab` gives: a modal hides what is
+      // behind it from assistive technology, and the point here is that the
+      // header is still on the screen.
+      await expect(page.locator('header button', { hasText: 'Capture' })).toBeVisible();
 
-      // And the list is a page rather than a sheet of panels: it stands clear
-      // of the window's sides instead of running into them.
-      const room = await page
-        .getByRole('listitem')
-        .first()
-        .evaluate((row) => {
-          const box = row.getBoundingClientRect();
-          return { left: Math.round(box.left), right: Math.round(window.innerWidth - box.right) };
-        });
-      expect(room.left).toBeGreaterThan(8);
-      expect(room.right).toBeGreaterThan(8);
+      // And closing it puts you back with nothing to reload.
+      await closeWindow(page, isMobile);
+      await expect(dashboardBar(page)).toBeVisible();
+      expect(await chrome()).toEqual(before);
     });
   });
 
@@ -146,14 +148,14 @@ test.describe('Workspace management', () => {
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(before);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-      await expect(page.locator('header').getByRole('link', { name: before })).toBeVisible();
+      await expect(workspaceTab(page, before)).toBeVisible();
 
       await chooseRowAction(page, before, 'Edit…', isMobile);
       await page.getByLabel(`Name of ${before}`).fill(after);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
 
-      await expect(page.locator('header').getByRole('link', { name: after })).toBeVisible();
-      await expect(page.locator('header').getByRole('link', { name: before })).toHaveCount(0);
+      await expect(workspaceTab(page, after)).toBeVisible();
+      await expect(workspaceTab(page, before)).toHaveCount(0);
       await expectNoSidewaysScroll(page);
     });
   });
@@ -190,7 +192,7 @@ test.describe('Workspace management', () => {
       for (const name of [first, second]) {
         await page.getByLabel('Name of the new workspace').fill(name);
         await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-        await expect(page.locator('header').getByRole('link', { name })).toBeVisible();
+        await expect(workspaceTab(page, name)).toBeVisible();
       }
       // Made one after the other, so the second is after the first - which is
       // the thing the move is about to change.
@@ -266,7 +268,8 @@ test.describe('Workspace management', () => {
       await chooseRowAction(page, mine, 'Edit…', isMobile);
       await press(page.getByRole('button', { name: `Olive for ${mine}` }), isMobile);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
-      await press(page.locator('header').getByRole('link', { name: mine }), isMobile);
+      await closeWindow(page, isMobile);
+      await press(workspaceTab(page, mine), isMobile);
       await expect(dashboardBar(page)).toBeVisible();
 
       // Repainted, without a reload anywhere in the walk.
@@ -284,7 +287,7 @@ test.describe('Workspace management', () => {
       await expect.poll(() => groundOf(page)).toBe(asRgb(themeOf(OLIVE_TINT).ground));
 
       // And switching away takes the colour with it. Polled for the same reason.
-      await press(page.locator('header').getByRole('link', { name: 'Work' }), isMobile);
+      await press(workspaceTab(page, 'Work'), isMobile);
       await expect(dashboardBar(page)).toBeVisible();
       await expect.poll(() => groundOf(page)).toBe(firstGround);
     });
@@ -302,7 +305,11 @@ test.describe('Workspace management', () => {
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
 
       // Look at it, so what is deleted is the workspace being viewed.
-      const tab = page.locator('header').getByRole('link', { name });
+      const tab = workspaceTab(page, name);
+      await expect(tab).toBeVisible();
+      // The window is over the workspace rather than instead of it, so it has
+      // to be shut before the header underneath can be pressed.
+      await closeWindow(page, isMobile);
       await press(tab, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
       const itsUrl = page.url();
@@ -358,13 +365,16 @@ test.describe('Workspace management', () => {
       for (const name of names) {
         await page.getByLabel('Name of the new workspace').fill(name);
         await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-        await expect(page.locator('header').getByRole('link', { name })).toBeVisible();
+        await expect(workspaceTab(page, name)).toBeVisible();
       }
 
       // The last one made is the last one in the strip, which is the one most
       // likely to be outside it.
       const last = names[names.length - 1]!;
-      await press(page.locator('header').getByRole('link', { name: last }), isMobile);
+      // The window is over the workspace rather than instead of it, so it has
+      // to be shut before the header underneath can be pressed.
+      await closeWindow(page, isMobile);
+      await press(workspaceTab(page, last), isMobile);
       await expect(dashboardBar(page)).toBeVisible();
 
       await expectNoSidewaysScroll(page);

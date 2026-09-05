@@ -217,13 +217,25 @@ export async function deleteWorkspace(page: Page, name: string, isMobile: boolea
 }
 
 /**
- * The workspace tabs across the top, left to right - which is the order this
- * whole thing is about ("Reorder workspaces", issue 31). Read from the header
- * rather than from the settings list, because the settings page is where a
+ * One workspace's tab in the header, and all of them left to right - which is
+ * the order the reordering is about ("Reorder workspaces", issue 31). Read
+ * from the header rather than from the list, because the window is where a
  * workspace is moved and the tabs are where the move is for.
+ *
+ * **By selector rather than by role**, which is not a style choice. The
+ * management windows are modals, so while one is open the browser hides
+ * everything behind it from assistive technology and a role query finds
+ * nothing in the header at all - correctly, and not at all the same as the
+ * tab having gone. These walks are about what is on the screen, and the tabs
+ * are on it, behind a dimmed overlay; `toHaveCount(0)` written as a role query
+ * would have passed for the wrong reason.
  */
+export function workspaceTab(page: Page, name: string): Locator {
+  return page.locator('nav[aria-label="Workspaces"] a').filter({ hasText: name });
+}
+
 export async function workspaceTabs(page: Page): Promise<string[]> {
-  return page.getByRole('navigation', { name: 'Workspaces' }).getByRole('link').allTextContents();
+  return page.locator('nav[aria-label="Workspaces"] a').allTextContents();
 }
 
 /**
@@ -309,16 +321,22 @@ export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
 }
 
 /**
- * Opens the workspace settings page through the header's menu. Used as
- * arrangement by the walks about renaming and deleting; the walk about
- * *reaching* the settings asserts its own way through those two controls
- * rather than calling this, because a helper that both arranges and asserts is
- * a helper that can make its own test vacuous.
+ * Opens the workspaces window through the header's menu. Used as arrangement
+ * by the walks about renaming and deleting; the walk about *reaching* it
+ * asserts its own way through those two controls rather than calling this,
+ * because a helper that both arranges and asserts is a helper that can make
+ * its own test vacuous.
  */
 export async function openSettings(page: Page, isMobile: boolean): Promise<void> {
   await press(page.getByRole('button', { name: 'Settings' }), isMobile);
   await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
-  await expect(page.getByLabel('Name of the new workspace')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Manage workspaces' })).toBeVisible();
+}
+
+/** Shuts whichever management window is open, so the workspace behind is reachable again. */
+export async function closeWindow(page: Page, isMobile: boolean): Promise<void> {
+  await press(page.getByRole('button', { name: 'Done' }), isMobile);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 }
 
 /**

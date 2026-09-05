@@ -12,11 +12,10 @@ import { INBOX, browserStore, rememberView, rememberedIn, viewToOpen } from './l
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
 import { DashboardPage } from './pages/DashboardPage';
+import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
 import { Layout } from './pages/Layout';
 import { LogonPage } from './pages/LogonPage';
 import { WorkspacePage } from './pages/WorkspacePage';
-import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage';
-import { ItemTypeSettingsPage } from './pages/ItemTypeSettingsPage';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -50,17 +49,20 @@ async function orTheLogonPage<T>(read: Promise<T>): Promise<T> {
 
 /**
  * Where you go when you have not said which workspace: the first one you have,
- * or - when the last one has been deleted - the page that makes one. The
- * settings page *is* the invitation: it says there are none and the box to type
- * a name into is right under it. Anything else would be a screen whose only
- * content is a link to that one.
+ * or - when there are none - the screen that makes one.
+ *
+ * That screen hangs off the root rather than off the shell, because the shell
+ * is only ever drawn inside a workspace: an account with none has nothing for
+ * the header to wear or mark (pages/FirstWorkspacePage.tsx). It used to be the
+ * workspaces settings page, which is what made that page have to exist without
+ * one at all.
  */
 const somewhereThatWorks = async (queryClient: QueryClient) => {
   const { workspaces } = await orTheLogonPage(queryClient.ensureQueryData(workspacesQuery));
   const first = workspaces[0];
   throw first
     ? redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } })
-    : redirect({ to: '/settings/workspaces' });
+    : redirect({ to: '/start' });
 };
 
 /**
@@ -104,6 +106,30 @@ const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/signin',
   component: LogonPage,
+});
+
+/**
+ * The screen for an account with no workspaces, beside the logon page rather
+ * than under the shell: both are the screens that exist when there is no
+ * workspace to draw the app around.
+ *
+ * It reads the list rather than trusting whoever sent you: hanging off the
+ * root means it is outside the shell's sign-in check, so a signed-out visit
+ * straight to this address would otherwise get a box whose every press is
+ * refused. Reading it also answers the other direction - an account that has
+ * workspaces after all is sent to one rather than invited to make its first.
+ */
+const startRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/start',
+  beforeLoad: async ({ context }) => {
+    const { workspaces } = await orTheLogonPage(
+      context.queryClient.ensureQueryData(workspacesQuery),
+    );
+    const first = workspaces[0];
+    if (first) throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
+  },
+  component: FirstWorkspacePage,
 });
 
 /**
@@ -215,36 +241,17 @@ export const dashboardRoute = createRoute({
 });
 
 /*
- * There is no address for managing the dashboards. They are renamed and
- * deleted over the workspace, in a dialog the bar's own menu opens
- * (components/ManageDashboards.tsx), so there is no screen to navigate to and
- * nothing to come back from.
+ * There is no address for managing the dashboards, the workspaces or the
+ * types. All three are windows over the workspace you are in, opened from a
+ * menu (components/ManageWindow.tsx), so there is no screen to navigate to and
+ * nothing to come back from - and the shell keeps its one state, which is
+ * being inside a workspace.
  */
-
-/** Reached from the header's menu; the home of everything per-workspace. */
-const workspaceSettingsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/workspaces',
-  component: WorkspaceSettingsPage,
-});
-
-/** Reached from the header's menu, beside the workspaces page: types belong to the account. */
-const itemTypeSettingsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/types',
-  component: ItemTypeSettingsPage,
-});
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
-  appRoute.addChildren([
-    indexRoute,
-    workspaceRoute,
-    inboxRoute,
-    dashboardRoute,
-    workspaceSettingsRoute,
-    itemTypeSettingsRoute,
-  ]),
+  startRoute,
+  appRoute.addChildren([indexRoute, workspaceRoute, inboxRoute, dashboardRoute]),
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {

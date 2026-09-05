@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -11,8 +11,9 @@ import { DashboardBar } from '../components/DashboardBar';
 import { InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
+import { ManageTypes } from '../components/ManageTypes';
+import { ManageWorkspaces } from '../components/ManageWorkspaces';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
-import { SettingsBar } from '../components/Tabs';
 import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -90,6 +91,25 @@ function TheShell() {
   const { data } = useQuery(workspacesQuery);
   const params = useParams({ strict: false });
   const roomForTheInbox = useRoomForTheInbox();
+
+  /**
+   * Which of the account's two lists is open over the workspace, and the
+   * control it was opened from - the header's own menu, which has nothing to
+   * return the focus to by itself.
+   *
+   * Over the workspace rather than at an address of their own
+   * (`components/ManageWindow.tsx`): the shell has one state, which is being
+   * inside a workspace, and a page reached without one made it degrade into a
+   * header wearing none of the workspace's colour, control or selected tab.
+   */
+  const [managing, setManaging] = useState<'workspaces' | 'types' | null>(null);
+  const settingsMenu = useRef<HTMLButtonElement>(null);
+  /**
+   * That the entry just chosen opens a window, so the menu closing must not
+   * pull the focus back onto its own control - it would take it straight off
+   * the window that has just opened.
+   */
+  const opening = useRef(false);
 
   /**
    * Who is signed in - and, when it comes back refused, that nobody is.
@@ -379,20 +399,38 @@ function TheShell() {
               an icon with a hover and a focus state does without inventing a
               second look for the one menu in the header. */}
           <DropdownMenu.Root>
-            <MenuTrigger label="Settings" onChrome />
-            <MenuContent>
-              <DropdownMenu.Item asChild>
-                <Link to="/settings/workspaces" className={menuItemClass}>
-                  Manage workspaces
-                </Link>
+            <MenuTrigger label="Settings" onChrome ref={settingsMenu} />
+            <MenuContent
+              onCloseAutoFocus={(event) => {
+                const claimed = opening.current;
+                opening.current = false;
+                if (claimed) event.preventDefault();
+              }}
+            >
+              {/* Entries rather than links: both open a window over the
+                  workspace instead of replacing it, so managing either is a
+                  detour and not a journey - and there is no address to come
+                  back from. */}
+              <DropdownMenu.Item
+                className={menuItemClass}
+                onSelect={() => {
+                  opening.current = true;
+                  setManaging('workspaces');
+                }}
+              >
+                Manage workspaces
               </DropdownMenu.Item>
-              {/* Beside the workspaces page rather than inside one: types
-                  belong to the account ("Manage the types, and put them in the
-                  order you want", issue 156). */}
-              <DropdownMenu.Item asChild>
-                <Link to="/settings/types" className={menuItemClass}>
-                  Manage types
-                </Link>
+              {/* Beside the workspaces rather than inside one: types belong to
+                  the account ("Manage the types, and put them in the order you
+                  want", issue 156). */}
+              <DropdownMenu.Item
+                className={menuItemClass}
+                onSelect={() => {
+                  opening.current = true;
+                  setManaging('types');
+                }}
+              >
+                Manage types
               </DropdownMenu.Item>
               {/* Who you are, and the way out. Both in the menu rather than on
                   the bar: the tabs are the thing you use all day and the header
@@ -414,15 +452,6 @@ function TheShell() {
           selected workspace tab joins onto and because the band belongs to the
           workspace rather than to either column under it.
 
-          **It is drawn at every address under the shell**, and what is in it is
-          what you are switching between where you are: the workspace's
-          dashboards inside one, the settings pages when you are in none. It
-          used to be drawn only inside a workspace, so opening the settings
-          took forty pixels off the chrome between two addresses of the same
-          app - and the settings page then headed itself with a heading of its
-          own on the sheet, which is a second way of naming the screen you are
-          on. The current tab is that name now, in the one place that says it.
-
           **The dashboard tabs inside it start where the dashboard starts.**
           They used to run from the left edge, which put them above the Inbox -
           and the Inbox is the workspace's, identical on every dashboard, so
@@ -434,42 +463,32 @@ function TheShell() {
           Inbox there is no column to head, and the screen it opens instead
           carries its name itself (pages/WorkspacePage.tsx).
 
-          Where you are in no workspace there is no Inbox and no dashboard, so
-          the band holds the settings pages instead. */}
-      <div
-        // As tall as a menu control standing on it - `pt-1` above one of the
-        // 36px triggers, with its own `mb-1` under it - which is what the
-        // dashboards' side of the band comes to on its own. Said here so the
-        // settings' side, which has no menu in it, comes to the same thing:
-        // otherwise the chrome is ten pixels shorter on one of two addresses of
-        // the same app, which is the whole reason the band is drawn on both.
-        className="flex min-h-11 w-full items-end"
-        // Inset the same way the header above it is, so the Inbox's heading
-        // still lines up with the column it heads and the first dashboard tab
-        // does not go under a sideways phone's notch.
-        style={{
-          backgroundColor: theme.bar,
-          paddingInline: 'var(--edge-left) var(--edge-right)',
-        }}
-      >
-        {params.workspaceId ? (
-          <>
-            {roomForTheInbox && (
-              <div className="ml-1 w-1/5 min-w-70 max-w-105 shrink-0 bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5">
-                <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
-              </div>
-            )}
-            <DashboardBar
-              workspaceId={params.workspaceId}
-              tint={theme.color}
-              ground={theme.ground}
-              openDashboardId={params.dashboardId ?? null}
-            />
-          </>
-        ) : (
-          <SettingsBar tint={theme.color} ground={theme.ground} />
-        )}
-      </div>
+          The shell is only ever drawn inside a workspace now, so there is
+          always a workspace for this band to belong to. */}
+      {params.workspaceId && (
+        <div
+          className="flex w-full items-end"
+          // Inset the same way the header above it is, so the Inbox's heading
+          // still lines up with the column it heads and the first dashboard tab
+          // does not go under a sideways phone's notch.
+          style={{
+            backgroundColor: theme.bar,
+            paddingInline: 'var(--edge-left) var(--edge-right)',
+          }}
+        >
+          {roomForTheInbox && (
+            <div className="ml-1 w-1/5 min-w-70 max-w-105 shrink-0 bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5">
+              <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
+            </div>
+          )}
+          <DashboardBar
+            workspaceId={params.workspaceId}
+            tint={theme.color}
+            ground={theme.ground}
+            openDashboardId={params.dashboardId ?? null}
+          />
+        </div>
+      )}
       {/* Left-aligned and full width, matching the header: pages get the whole
           screen instead of a centred column with empty gutters either side.
 
@@ -534,21 +553,23 @@ function TheShell() {
         )}
         {/* Same bottom inset as the Inbox column, for the same reason. */}
         <div className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
-          {params.workspaceId ? (
-            <Outlet />
-          ) : (
-            /* A settings page is read rather than worked in, so it is a column
-               of prose width rather than a sheet of panels: a row stretched
-               across a wide screen puts a workspace's name and the menu acting
-               on it two thousand pixels apart, and the four pixels of seam that
-               a panel wants leave the text against the window's edge. Said here
-               rather than on each page, so the two cannot drift apart. */
-            <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
-              <Outlet />
-            </div>
-          )}
+          <Outlet />
         </div>
       </main>
+
+      {/* The account's own two lists, over the workspace rather than instead
+          of it. Here rather than in a page, because there is no page: the
+          shell is the one thing that is always drawn inside a workspace. */}
+      <ManageWorkspaces
+        open={managing === 'workspaces'}
+        onClose={() => setManaging(null)}
+        returnFocusTo={settingsMenu.current}
+      />
+      <ManageTypes
+        open={managing === 'types'}
+        onClose={() => setManaging(null)}
+        returnFocusTo={settingsMenu.current}
+      />
 
       {/* The Item's form, drawn over whatever the address below resolves to and
           opened by that same address (`itemForm.tsx`). Here rather than in the

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../../../src/pages/Layout';
 
@@ -30,6 +31,11 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
 
 vi.mock('../../../src/api/queries', () => ({
+  // The shell draws the account's two management windows over the workspace
+  // (pages/Layout.tsx). They are shut here - nothing in these cases opens
+  // one - but they are mounted, so the hooks they call have to answer.
+  useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
+  useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
   // Signed in, so the shell renders rather than sending itself to the logon
   // page - which is what this case needs on screen to look at.
   meQuery: {
@@ -81,13 +87,14 @@ describe('Workspace management', () => {
     });
   });
 
-  describe('the band under the workspace tabs names where you are, wherever you are', () => {
-    it('holds the settings pages when no workspace is open', async () => {
-      // The band was drawn only inside a workspace, so leaving one took it off
-      // the screen and the settings page headed itself instead, with a heading
-      // of its own on the sheet. One place names the screen you are on; these
-      // mocks name no workspace, which is what a settings address is.
-      render(
+  describe('the account\u2019s lists open over the workspace rather than replacing it', () => {
+    it.each(['Manage workspaces', 'Manage types'])('opens %s from the header\u2019s menu', async (entry) => {
+      // Both were pages, and reaching one took the shell somewhere it has no
+      // state for: no workspace to colour the header, fill a tab or offer
+      // Capture\u2026 So the header stays exactly as it is and the list is drawn
+      // over it, which is what the dashboards' list already did.
+      const user = userEvent.setup();
+      const { container } = render(
         <QueryClientProvider
           client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
         >
@@ -95,9 +102,17 @@ describe('Workspace management', () => {
         </QueryClientProvider>,
       );
 
-      const band = await screen.findByRole('navigation', { name: 'Settings' });
-      expect(within(band).getByText('Manage workspaces')).toBeVisible();
-      expect(within(band).getByText('Manage types')).toBeVisible();
+      await user.click(await screen.findByRole('button', { name: 'Settings' }));
+      await user.click(await screen.findByRole('menuitem', { name: entry }));
+
+      expect(await screen.findByRole('dialog', { name: entry })).toBeVisible();
+      // The workspace is still behind it, tab and all: the point of a window
+      // over the shell is that the shell does not change. Queried through the
+      // DOM rather than by role, because an open modal hides everything behind
+      // it from assistive technology - which is exactly what it should do, and
+      // is not the same as the shell having gone.
+      const header = container.querySelector('header')!;
+      expect(within(header).getByText(A_NAME_THAT_LOOKS_LIKE_MARKUP)).toBeInTheDocument();
     });
   });
 });

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { WorkspaceSettingsPage } from '../../../src/pages/WorkspaceSettingsPage';
+import { ManageWorkspaces } from '../../../src/components/ManageWorkspaces';
 import { CommandRefused } from '../../../src/api/client';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import { useCommand, useSendCommand, type CommandArgs } from '../../../src/api/queries';
@@ -120,7 +120,7 @@ function showPage(answer: {
   } as never);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <WorkspaceSettingsPage />
+      <ManageWorkspaces open onClose={() => undefined} />
     </QueryClientProvider>,
   );
   return {
@@ -251,7 +251,8 @@ describe('Workspace management', () => {
 
       fireEvent.doubleClick(await screen.findByRole('button', { name: 'Actions for Work' }));
 
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      // Named, because the list itself is a dialog over the workspace now.
+      expect(screen.queryByRole('dialog', { name: 'Edit Work' })).not.toBeInTheDocument();
     });
 
     it('starts from the name and the colour the workspace already has', async () => {
@@ -305,7 +306,7 @@ describe('Workspace management', () => {
         name: 'rename_workspace',
         payload: { workspaceId: 'ws-work', name: 'Bookkeeping' },
       });
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: 'Edit Work' })).not.toBeInTheDocument();
     });
 
     it('asks for all four colours of the theme picked, not the one on the swatch', async () => {
