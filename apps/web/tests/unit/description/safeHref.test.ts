@@ -16,6 +16,11 @@ describe('Item editing', () => {
       { situation: 'a web address', typed: 'https://example.com/a?b=1', kept: 'https://example.com/a?b=1' },
       { situation: 'a web address without the s', typed: 'http://example.com', kept: 'http://example.com' },
       { situation: 'an email address', typed: 'mailto:ana@example.com', kept: 'mailto:ana@example.com' },
+      // The refusal offers "a web address or an email address", so a bare one
+      // has to become a link to mail rather than to a host called example.com
+      // with a username in front of it.
+      { situation: 'an email address written bare', typed: 'ana@example.com', kept: 'mailto:ana@example.com' },
+      { situation: 'a web address that carries an email address', typed: 'example.com/a?to=ana@example.com', kept: 'https://example.com/a?to=ana@example.com' },
       // What actually gets pasted out of an address bar or a chat message.
       { situation: 'a bare host, as pasted', typed: 'example.com/runbook', kept: 'https://example.com/runbook' },
       { situation: 'surrounding whitespace', typed: '  https://example.com  ', kept: 'https://example.com' },

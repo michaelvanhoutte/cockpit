@@ -250,10 +250,10 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 | Capture: entry point → note persisted (excluding typing) | **< 2s** |
 | Panel interactions (filter, drag, reorder, switch dashboard) | **< 100ms** |
 | Initial JS bundle (compressed) | **< 200KB**, hard CI gate |
-| Any one lazy chunk (compressed) | **< 200KB**, same gate, charged separately |
+| Any one file fetched separately (compressed) | **< 200KB**, same gate, charged on its own |
 | Snapshot revalidation after cold open | background, never blocking paint |
 
-**A lazy chunk gets its own line because charging it to the entry would defeat the point of splitting it.** The gate reads `apps/web/dist` after a build and measures each JavaScript asset on its own; what makes a chunk lazy — nothing in the HTML references it — is also what keeps it off the cold-open path. Today the entry is 173KB and the editor's chunk is 135KB, so a single combined budget would be failing already.
+**A lazy chunk gets its own line because charging it to the entry would defeat the point of splitting it.** Today the entry is 173KB and the editor's chunk is 135KB, so a single combined budget would be failing already. The gate (`scripts/bundle-budget.mjs`) reads every JavaScript file under `apps/web/dist` after a build and splits them by what `index.html` names: what it names is the initial bundle, and everything else is charged on its own. **Every file lands on one line or the other**, which is what keeps the service worker and its registration script from being missed — the PWA plugin writes those beside `assets/` rather than inside it, and the document references one of them.
 
 Two standing rules follow: **never block paint on auth** (paint the cached snapshot, verify the session in the background; long-lived sessions with silent refresh, no OAuth redirect on the hot path), and **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 

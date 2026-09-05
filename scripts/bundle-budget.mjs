@@ -10,11 +10,17 @@
 //
 
 import { gzipSync } from 'node:zlib';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { BUDGET_BYTES, asALine, referencedByTheDocument, whatTheBundleCosts } from './lib/bundle-budget.mjs';
+import {
+  BUDGET_BYTES,
+  asALine,
+  javascriptIn,
+  referencedByTheDocument,
+  whatTheBundleCosts,
+} from './lib/bundle-budget.mjs';
 
 const dist = join(dirname(fileURLToPath(import.meta.url)), '..', 'apps', 'web', 'dist');
 
@@ -26,23 +32,15 @@ try {
   process.exit(1);
 }
 
-const assetsDir = join(dist, 'assets');
-let built;
-try {
-  built = readdirSync(assetsDir);
-} catch {
-  console.error(`No ${assetsDir}. That is a build that failed quietly, not a small one.`);
-  process.exit(1);
-}
-
-const assets = built
-  .filter((file) => file.endsWith('.js'))
+const assets = javascriptIn(dist).map((file) => ({
+  file,
   // Level 9 rather than the default, because it is what a CDN serves and the
   // budget is about what the browser downloads.
-  .map((file) => ({ file, bytes: gzipSync(readFileSync(join(assetsDir, file)), { level: 9 }).length }));
+  bytes: gzipSync(readFileSync(join(dist, file)), { level: 9 }).length,
+}));
 
 if (assets.length === 0) {
-  console.error(`No JavaScript in ${assetsDir}. That is a build that failed quietly, not a small one.`);
+  console.error(`No JavaScript under ${dist}. That is a build that failed quietly, not a small one.`);
   process.exit(1);
 }
 
@@ -51,9 +49,9 @@ const cap = `${(report.budget / 1024).toFixed(0)}KB`;
 
 console.log(`Initial bundle, compressed: ${(report.initialBytes / 1024).toFixed(1)}KB of ${cap}`);
 for (const chunk of report.initial.sort((a, b) => b.bytes - a.bytes)) console.log(`  ${asALine(chunk)}`);
-if (report.lazy.length > 0) {
-  console.log(`\nFetched later, each charged on its own against ${cap}:`);
-  for (const chunk of report.lazy.sort((a, b) => b.bytes - a.bytes)) console.log(`  ${asALine(chunk)}`);
+if (report.separate.length > 0) {
+  console.log(`\nFetched separately, each charged on its own against ${cap}:`);
+  for (const chunk of report.separate.sort((a, b) => b.bytes - a.bytes)) console.log(`  ${asALine(chunk)}`);
 }
 
 if (report.over.length === 0) process.exit(0);

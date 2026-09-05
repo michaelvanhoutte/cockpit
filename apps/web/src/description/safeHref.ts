@@ -51,10 +51,25 @@ function isAMachineWithAPort(before: string, after: string): boolean {
 }
 
 /**
+ * Whether an address with no scheme is somebody's mail rather than a website.
+ *
+ * The refusal this module writes offers "a web address or an email address", so
+ * a bare `ana@example.com` has to become one - `https://ana@example.com` is a
+ * link to `example.com` carrying a username, which is not what was meant and
+ * does not fail loudly enough to be noticed.
+ *
+ * A path rules it out, because `example.com/a?to=ana@example.com` is a website.
+ */
+function isSomebodysMail(address: string): boolean {
+  return /^[^\s/@]+@[^\s/@]+\.[^\s/@]+$/.test(address);
+}
+
+/**
  * The address to store, or `null` where it is refused.
  *
  * Something with no scheme at all is a host - `example.com/a`, which is what
- * gets pasted - and becomes `https://`. A scheme that is not on the list is
+ * gets pasted - and becomes `https://`, or `mailto:` where it is somebody's
+ * mail rather than a website. A scheme that is not on the list is
  * refused rather than repaired: guessing at what `javascript:alert(1)` meant to
  * be is how a refusal becomes a redirect.
  *
@@ -71,7 +86,7 @@ export function safeHref(typed: string): string | null {
   if (!forReadingTheScheme) return null;
 
   const named = /^([a-z][a-z0-9+.-]*):(.*)$/is.exec(forReadingTheScheme);
-  if (!named) return `https://${address}`;
+  if (!named) return isSomebodysMail(address) ? `mailto:${address}` : `https://${address}`;
 
   const scheme = named[1] ?? '';
   const afterTheColon = named[2] ?? '';

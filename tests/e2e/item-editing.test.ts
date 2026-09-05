@@ -88,8 +88,10 @@ test.describe('Item editing', () => {
       await expect(titleBox(page)).toHaveValue('');
       await press(form(page).getByText('What was captured'), isMobile);
       // The paragraph the disclosure holds, not the heading, which now carries
-      // the same label because the item has no title yet.
-      await expect(form(page).getByRole('paragraph')).toHaveText(thought);
+      // the same label because the item has no title yet - and scoped to the
+      // disclosure, because the description's editor writes paragraphs of its
+      // own the moment it arrives, which is a race against this line.
+      await expect(form(page).getByRole('group').getByRole('paragraph')).toHaveText(thought);
 
       const named = uniqueTitle('Part 11');
       await titleBox(page).fill(named);
