@@ -11,7 +11,6 @@ import { chooseLayout, chosenFor } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
   drawnArrangement,
-  fittedToScreen,
   layoutToDraw,
   madeForThisScreen,
   movedBefore,
@@ -227,7 +226,7 @@ export function PanelBoard({
    * A new layout is made silently when there is none, because "change the
    * layout you are on" is not an answer when you are not on one.
    */
-  const propose = (next: PanelPlacement[], { from = null }: { from?: HTMLElement | null } = {}) => {
+  const propose = (next: PanelPlacement[]) => {
     // Against what has been *sent* - or the store, where nothing has - rather
     // than against what is drawn. Three cases have to come out right, and only
     // this comparison gets all three: a corner drag is drawn on every pointer
@@ -245,7 +244,11 @@ export function PanelBoard({
     if (sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
     setDraft(next);
-    askedFrom.current = from;
+    // Nothing to give the focus back to. Every gesture that gets here now is a
+    // drag or a menu entry that keeps its own focus, so the question that may
+    // follow has no control it was opened from - which is also why the option
+    // that carried one is gone with "Fit to this screen".
+    askedFrom.current = null;
     if (!drawnWith) {
       saveArrangement(layoutForThisScreen(), screenWidth, next);
       return;
