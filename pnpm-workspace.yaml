@@ -7,3 +7,25 @@ packages:
 onlyBuiltDependencies:
   - esbuild
   - workerd
+
+# One line, in both copies of it: `Error inside ProxyWorker` joins the reasons
+# Wrangler's own `handleErrorEvent` already treats as non-fatal, rather than
+# exiting 1 on them.
+#
+# It is what killed the browser suite. Every walk opens the live-updates stream
+# and walks away from it, which the runtime reports as `Network connection
+# lost.`; occasionally that lands in `wrangler dev`'s own proxy and takes the
+# dev server down, leaving whichever walk was running to fail on a five-second
+# timeout. Three of the four CI browser failures of 4 and 5 September 2026 were
+# the Worker exiting that way, in a different walk each time, which is why they
+# read as several flaky specs. Upstream's own suggested fix
+# (cloudflare/workers-sdk#15317, open): a dev server that could not reach one
+# request is not one that should quit.
+#
+# **Pinned to the version on purpose.** Against any other, `pnpm install` fails
+# with ERR_PNPM_UNUSED_PATCH naming this line — re-make it (`pnpm patch
+# wrangler@<new>`, the same one line, `pnpm patch-commit`) or delete it because
+# upstream has fixed it. Keyed to the bare name instead, it would apply to
+# whatever resolved and vanish silently the first time the bundle moved.
+patchedDependencies:
+  wrangler@4.128.0: patches/wrangler@4.128.0.patch

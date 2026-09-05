@@ -118,6 +118,19 @@ export async function waitForApi(child, port, options = {}) {
 const ENDED_BADLY = 'If you think this is a bug then please create an issue';
 
 /**
+ * The one named failure that is not one, and so is read past like the stream
+ * errors above.
+ *
+ * It used to be the crash itself. The Wrangler patch (pnpm-workspace.yaml) made
+ * it non-fatal, which is what stopped the browser suite dying mid-run — and
+ * turned it into noise of exactly the shape this function prefers: one record
+ * per browser that walks away from the live-updates stream, dozens a run, each
+ * of them nearer the end of the log than whatever actually kills Wrangler next.
+ * Left in, the next crash would be reported as this one.
+ */
+const NO_LONGER_A_FAILURE = 'Error inside ProxyWorker';
+
+/**
  * The newest log Wrangler wrote in `dir` since `since`, or null if it wrote
  * none.
  *
@@ -166,12 +179,19 @@ export function newestLog(dir, since = 0) {
  * as a `cause`. Two E2E jobs died that way on 3 September 2026 and the console
  * said nothing either time, so the reason cost an artifact download each.
  *
+ * The reason it read out — `Error inside ProxyWorker: Network connection lost.`
+ * — is patched out of Wrangler now (pnpm-workspace.yaml), and this stays: it is
+ * what named the crash in the first place, and it is how the next one gets
+ * named too.
+ *
  * Read backwards from `ENDED_BADLY` so the ordinary stream errors above it are
  * never mistaken for the reason: the fatal is the *last* thing that happened,
  * and everything before that marker belongs to the run rather than to its end.
- * A named source is preferred over a printed line for the same reason - it only
+ * A named source is preferred over a printed line for the same reason - it
  * appears when a controller reported a failure, while `[ERROR]` is also what
- * every closed tab produces.
+ * every closed tab produces. `NO_LONGER_A_FAILURE` is the exception the patch
+ * created and the reason that "only" is now an "also": one named record that
+ * every closed tab does produce, so it is skipped rather than preferred.
  *
  * Pure, and takes the text rather than the path, so the shapes below can be
  * asserted without a Worker to kill.
@@ -183,7 +203,9 @@ export function fatalReason(log) {
 
   // `Error in <source>: <reason>` followed by the cause it was given, which is
   // where the sentence a human wants ("Network connection lost.") actually is.
-  const named = [...beforeTheEnd.matchAll(/^Error in [^\n:]+: (.+)$/gm)].at(-1);
+  const named = [...beforeTheEnd.matchAll(/^Error in [^\n:]+: (.+)$/gm)]
+    .filter((match) => !match[1].startsWith(NO_LONGER_A_FAILURE))
+    .at(-1);
   if (named) {
     const reason = named[1].trim();
     // Only within that record. The one after it is `=> Error contextual data`,

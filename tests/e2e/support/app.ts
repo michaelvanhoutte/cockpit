@@ -75,6 +75,11 @@ const noteIn = (info: TestInfo) => join(info.project.outputDir, NOTE);
  * cloudflare/workers-sdk#15317) and cost an artifact download and a log read
  * each to tell apart from real breakage.
  *
+ * **That one transient is patched out now** (pnpm-workspace.yaml), and this
+ * stays: the six runs of 5 September 2026 that pinned it down lost Vite three
+ * times to the same contention, so a half of the stack going away happens for
+ * more than one reason.
+ *
  * **It never turns a red run green.** The stack going away is a failure worth
  * seeing — it may be the application that has become unstable — so the walk
  * that discovers it still fails, and skipping only begins afterwards. That

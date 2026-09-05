@@ -197,11 +197,33 @@ const ENDED_BADLY = record(
 /** The ordinary noise: one per closed tab, twenty-five in a passing run. */
 const STREAM_ERRORS = record('error', 'X [ERROR] Uncaught Error: Network connection lost. ').repeat(25);
 
-/** The crash itself — an empty printed error, and the reason only in a cause. */
-const PROXY_WORKER_FATAL =
+/**
+ * The record that used to be the crash and is ordinary noise now, since the
+ * Wrangler patch (pnpm-workspace.yaml) stopped it ending the process. One per
+ * browser that walks away from the live-updates stream, so a run holds dozens
+ * — which is why the cases below repeat it rather than using it once.
+ */
+const PROXY_WORKER_NOISE = record(
+  'debug',
+  `Error in ProxyController: Error inside ProxyWorker
+ Error
+    at castErrorCause (/home/runner/work/cockpit/cockpit/node_modules/wrangler/wrangler-dist/cli.js:165148:19) {
+  cause: {
+    name: 'Error',
+    message: 'Network connection lost.',
+    stack: 'Error: Network connection lost.'
+  }
+}`,
+);
+
+/**
+ * A controller failure that does still end the run: an empty printed error
+ * with the reason only in a cause, which is the shape this function exists for.
+ */
+const CONTROLLER_FATAL =
   record(
     'debug',
-    `Error in ProxyController: Error inside ProxyWorker
+    `Error in ProxyController: Failed to start ProxyWorker
  Error
     at castErrorCause (/home/runner/work/cockpit/cockpit/node_modules/wrangler/wrangler-dist/cli.js:165148:19) {
   cause: {
@@ -215,9 +237,30 @@ const PROXY_WORKER_FATAL =
 describe('fatalReason', () => {
   it('names the source and the cause when a controller reported the failure', () => {
     assert.equal(
-      fatalReason(STREAM_ERRORS + PROXY_WORKER_FATAL + ENDED_BADLY),
-      'Error inside ProxyWorker: Network connection lost.',
+      fatalReason(STREAM_ERRORS + CONTROLLER_FATAL + ENDED_BADLY),
+      'Failed to start ProxyWorker: Network connection lost.',
       'the printed error is empty, so this sentence exists nowhere else',
+    );
+  });
+
+  it('passes over the ProxyWorker errors an ordinary run is full of, as it does the stream errors', () => {
+    // They stopped being failures when the Wrangler patch made them non-fatal
+    // (pnpm-workspace.yaml), and there are dozens per run - so by the time
+    // anything else kills the stack, the last of them sits between the real
+    // reason and the end of the log, and preferring it would name a closed tab
+    // as the cause of death.
+    assert.equal(
+      fatalReason(
+        PROXY_WORKER_NOISE.repeat(3) + record('error', 'X [ERROR] spawn UNKNOWN') + ENDED_BADLY,
+      ),
+      'spawn UNKNOWN',
+    );
+  });
+
+  it('still names a real controller failure that happened after them', () => {
+    assert.equal(
+      fatalReason(PROXY_WORKER_NOISE.repeat(3) + CONTROLLER_FATAL + ENDED_BADLY),
+      'Failed to start ProxyWorker: Network connection lost.',
     );
   });
 
@@ -316,8 +359,8 @@ describe('newestLog', () => {
 
 describe('exitReport', () => {
   it('gives the reason and the log to read when the log explains the death', () => {
-    const report = exitReport('test API', 1, '/logs/wrangler.log', PROXY_WORKER_FATAL + ENDED_BADLY);
-    assert.match(report, /the test API exited \(1\): Error inside ProxyWorker: Network connection lost\./);
+    const report = exitReport('test API', 1, '/logs/wrangler.log', CONTROLLER_FATAL + ENDED_BADLY);
+    assert.match(report, /the test API exited \(1\): Failed to start ProxyWorker: Network connection lost\./);
     assert.match(report, /\/logs\/wrangler\.log/);
   });
 

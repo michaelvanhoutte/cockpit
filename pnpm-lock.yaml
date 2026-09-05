@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  wrangler@4.128.0:
+    hash: acd1d9cbeecaac2ca1adffd64e831646421811e725660c04f0c09bd65f6e4628
+    path: patches/wrangler@4.128.0.patch
+
 importers:
 
   .:
@@ -65,7 +70,7 @@ importers:
         version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-istanbul@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@30.0.1)(vite@7.3.6(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
       wrangler:
         specifier: ^4.128.0
-        version: 4.128.0(@cloudflare/workers-types@5.20260902.1)
+        version: 4.128.0(patch_hash=acd1d9cbeecaac2ca1adffd64e831646421811e725660c04f0c09bd65f6e4628)(@cloudflare/workers-types@5.20260902.1)
 
   apps/web:
     dependencies:
@@ -7890,7 +7895,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  wrangler@4.128.0(@cloudflare/workers-types@5.20260902.1):
+  wrangler@4.128.0(patch_hash=acd1d9cbeecaac2ca1adffd64e831646421811e725660c04f0c09bd65f6e4628)(@cloudflare/workers-types@5.20260902.1):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.0
       '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260831.1)
