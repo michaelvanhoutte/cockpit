@@ -317,7 +317,7 @@ export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
  */
 export async function openSettings(page: Page, isMobile: boolean): Promise<void> {
   await press(page.getByRole('button', { name: 'Settings' }), isMobile);
-  await press(page.getByRole('menuitem', { name: 'Workspaces' }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
   await expect(page.getByLabel('Name of the new workspace')).toBeVisible();
 }
 
@@ -326,6 +326,9 @@ export async function openSettings(page: Page, isMobile: boolean): Promise<void>
  * entry ("Ask before deleting in a dialog, from the row's own menu", issue
  * 116). Both settings pages offer their rows the same way, so both walks reach
  * them the same way.
+ *
+ * This is also how a phone edits a row: the double-click that opens the same
+ * form with a mouse is a gesture a touchscreen has already spent on zooming.
  */
 export async function chooseRowAction(
   page: Page,
@@ -384,9 +387,9 @@ export function itemRow(page: Page, title: string): Locator {
 export async function capture(page: Page, title: string, isMobile: boolean): Promise<void> {
   await captureBox(page).fill(title);
   // The Inbox's own button, which captures into the workspace you are in. The
-  // header has a Capture… of its own, which asks nothing about where it goes
-  // ("Capture something before you know which workspace it belongs to", issue
-  // 165), so this has to say which of the two it means.
+  // header's Capture opens a screen of its own, where where it goes is a
+  // question rather than an assumption ("Capture Page", artboard 2a), so this
+  // has to say which of the two it means.
   await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
   await expect(itemRow(page, title)).toBeVisible();
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../../../src/pages/Layout';
 
@@ -36,13 +36,6 @@ vi.mock('../../../src/api/queries', () => ({
     queryKey: ['me'],
     queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
   },
-  // The header's capture window reads the account's types ('Capture something
-  // before you know which workspace it belongs to', issue 165). Empty here:
-  // what the window offers is CaptureForm's, proved on CaptureForm.
-  itemTypesQuery: {
-    queryKey: ['itemTypes'],
-    queryFn: () => Promise.resolve({ itemTypes: [] }),
-  },
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () =>
@@ -78,6 +71,26 @@ describe('Workspace management', () => {
 
       expect(await screen.findByText(A_NAME_THAT_LOOKS_LIKE_MARKUP)).toBeVisible();
       expect(container.querySelector('img')).toBeNull();
+    });
+  });
+
+  describe('the band under the workspace tabs names where you are, wherever you are', () => {
+    it('holds the settings pages when no workspace is open', async () => {
+      // The band was drawn only inside a workspace, so leaving one took it off
+      // the screen and the settings page headed itself instead, with a heading
+      // of its own on the sheet. One place names the screen you are on; these
+      // mocks name no workspace, which is what a settings address is.
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      const band = await screen.findByRole('navigation', { name: 'Settings' });
+      expect(within(band).getByText('Manage workspaces')).toBeVisible();
+      expect(within(band).getByText('Manage types')).toBeVisible();
     });
   });
 });

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ITEM_TYPE_COLORS } from '@cockpit/shared';
 import { ItemTypeSettingsPage } from '../../../src/pages/ItemTypeSettingsPage';
 import { CommandRefused } from '../../../src/api/client';
-import { useCommand, type CommandArgs } from '../../../src/api/queries';
+import { useCommand, useSendCommand, type CommandArgs } from '../../../src/api/queries';
 
 vi.mock('../../../src/api/loadFailure', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/loadFailure')>()),
@@ -40,6 +40,7 @@ const held = vi.hoisted(() => ({
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
+  useSendCommand: vi.fn(),
   itemTypesQuery: {
     queryKey: ['itemTypes'],
     queryFn: () => held.answer?.() ?? Promise.resolve({ itemTypes: held.types ?? [] }),
@@ -55,11 +56,18 @@ vi.mock('../../../src/api/queries', () => ({
 }));
 
 const mockUseCommand = vi.mocked(useCommand);
+const mockUseSendCommand = vi.mocked(useSendCommand);
 
 function showPage(answer: {
   succeeds: boolean;
   error?: Error;
   about?: CommandArgs;
+  /**
+   * Why the form's own Save is refused, if it is. The form sends through
+   * `useSendCommand` rather than the page's one mutation - a Save is up to
+   * two changes - so it is refused separately from everything else.
+   */
+  refusesTheForm?: Error;
 } = { succeeds: true }) {
   const mutate = vi.fn(
     (
@@ -70,6 +78,13 @@ function showPage(answer: {
       else options?.onError?.(answer.error ?? new Error('refused'));
     },
   );
+  /** What the form sends, and what comes back when it does. */
+  const saved = vi.fn((_args: CommandArgs) =>
+    answer.refusesTheForm
+      ? Promise.reject(answer.refusesTheForm)
+      : Promise.resolve({ ok: true, applied: true }),
+  );
+  mockUseSendCommand.mockReturnValue(saved as never);
   mockUseCommand.mockReturnValue({
     mutate,
     isPending: false,
@@ -82,8 +97,12 @@ function showPage(answer: {
       <ItemTypeSettingsPage />
     </QueryClientProvider>,
   );
-  return { mutate };
+  return { mutate, saved };
 }
+
+/** The row a type is on, which is what a double-click lands on. */
+const rowFor = async (name: string) =>
+  (await screen.findByRole('button', { name: `Actions for ${name}` })).closest('li')!;
 
 async function choose(user: ReturnType<typeof userEvent.setup>, row: string, entry: string) {
   await user.click(await screen.findByRole('button', { name: `Actions for ${row}` }));
@@ -130,17 +149,37 @@ describe('Capture', () => {
     });
   });
 
-  describe('changing a type here changes it wherever it is shown', () => {
+  describe('a type is edited on a form of its own, and nothing is sent until Save', () => {
+    it('opens the form on a double-click on the row', async () => {
+      showPage();
+
+      fireEvent.doubleClick(await rowFor('Thought'));
+
+      expect(await screen.findByRole('dialog', { name: 'Edit Thought' })).toBeVisible();
+    });
+
+    it('opens the form from the row’s own menu', async () => {
+      const user = userEvent.setup();
+      showPage();
+
+      await choose(user, 'Thought', 'Edit…');
+
+      expect(await screen.findByRole('dialog', { name: 'Edit Thought' })).toBeVisible();
+    });
+
     it('asks for the new name, for that row’s own type', async () => {
       const user = userEvent.setup();
-      const { mutate } = showPage();
+      const { saved } = showPage();
 
-      await choose(user, 'Thought', 'Rename');
-      await user.clear(screen.getByLabelText('New name for Thought'));
-      await user.type(screen.getByLabelText('New name for Thought'), '  Idea  ');
+      fireEvent.doubleClick(await rowFor('Thought'));
+      const box = await screen.findByLabelText('Name of Thought');
+      await user.clear(box);
+      await user.type(box, '  Idea  ');
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(mutate.mock.calls[0]![0]).toMatchObject({
+      // Only the name: a colour nobody touched must not be re-sent.
+      expect(saved).toHaveBeenCalledTimes(1);
+      expect(saved.mock.calls[0]![0]).toMatchObject({
         name: 'rename_item_type',
         payload: { typeId: 'type-thought', name: 'Idea' },
       });
@@ -148,35 +187,52 @@ describe('Capture', () => {
 
     it('asks for the colour picked, for that row’s own type', async () => {
       const user = userEvent.setup();
-      const { mutate } = showPage();
+      const { saved } = showPage();
 
+      fireEvent.doubleClick(await rowFor('Thought'));
       await user.click(
         await screen.findByRole('button', { name: `${ITEM_TYPE_COLORS[4]} for Thought` }),
       );
+      await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(mutate.mock.calls[0]![0]).toMatchObject({
+      expect(saved).toHaveBeenCalledTimes(1);
+      expect(saved.mock.calls[0]![0]).toMatchObject({
         name: 'set_item_type_color',
         payload: { typeId: 'type-thought', color: ITEM_TYPE_COLORS[4] },
       });
     });
 
+    it('sends nothing until Save', async () => {
+      // The swatches are a draft like the name is. They used to sit in the row
+      // and send a change on every press.
+      const user = userEvent.setup();
+      const { saved } = showPage();
+
+      fireEvent.doubleClick(await rowFor('Thought'));
+      await user.click(
+        await screen.findByRole('button', { name: `${ITEM_TYPE_COLORS[4]} for Thought` }),
+      );
+
+      expect(saved).not.toHaveBeenCalled();
+    });
+
     it('leaves what was typed where it is when the new name is refused', async () => {
       const user = userEvent.setup();
       showPage({
-        succeeds: false,
-        error: new CommandRefused(409, 'a type called Action already exists'),
-        about: {
-          name: 'rename_item_type',
-          payload: { typeId: 'type-thought' },
-        } as unknown as CommandArgs,
+        succeeds: true,
+        refusesTheForm: new CommandRefused(409, 'a type called Action already exists'),
       });
 
-      await choose(user, 'Thought', 'Rename');
-      await user.clear(screen.getByLabelText('New name for Thought'));
-      await user.type(screen.getByLabelText('New name for Thought'), 'Action');
+      fireEvent.doubleClick(await rowFor('Thought'));
+      const box = await screen.findByLabelText('Name of Thought');
+      await user.clear(box);
+      await user.type(box, 'Action');
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(screen.getByLabelText('New name for Thought')).toHaveValue('Action');
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'a type called Action already exists',
+      );
+      expect(screen.getByLabelText('Name of Thought')).toHaveValue('Action');
     });
   });
 

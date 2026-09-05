@@ -1,23 +1,25 @@
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { WORKSPACE_THEMES, uuidv7 } from '@cockpit/shared';
+import { WORKSPACE_THEMES, themeOf, uuidv7 } from '@cockpit/shared';
 import type { Workspace, WorkspaceList, WorkspaceTheme } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
-import { snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
+import { snapshotQuery, useCommand, useSendCommand, workspacesQuery } from '../api/queries';
 import { movedBy, movedTo } from '../reorder';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 import { LoadFailure } from '../components/LoadFailure';
 import { RowMenu } from '../components/Menu';
+import { RowForm, wasOnTheRow } from '../components/RowForm';
 
 /**
  * Where workspaces are managed. It lists them, makes new ones, renames them,
  * colors them, puts them in the order they appear across the top of the screen,
  * and deletes them.
  *
- * **A row keeps its shape**, exactly as in the list of dashboards: what
- * can be done to a workspace is in its own menu, renaming happens in the row,
- * and deleting asks in a dialog ("Ask before deleting in a dialog, from the
- * row's own menu", issue 116).
+ * **A row keeps its shape**, exactly as in the list of dashboards: what can be
+ * done to a workspace is in its own menu, and both the things that change one -
+ * its name and its colour - happen on a form over the page rather than in the
+ * row (`components/RowForm.tsx`). Deleting asks in a dialog ("Ask before
+ * deleting in a dialog, from the row's own menu", issue 116).
  *
  * **A workspace is moved two ways, and they are one change** ("Reorder
  * workspaces", issue 31). The grip at the left of a row drags it to a place;
@@ -34,20 +36,42 @@ import { RowMenu } from '../components/Menu';
  * message is talking to is the one that has to reach it first.
  *
  * A new workspace is still handed a color rather than asked for one, so it is
- * distinguishable in the tabs from the moment it exists; the swatches are for
- * changing it afterwards.
+ * distinguishable in the tabs from the moment it exists; the form is where it
+ * is changed afterwards.
  *
- * One `useCommand` for the whole page rather than one per control, so a refusal
- * can only belong to the last thing asked for - and `variables` says which
- * control that was, which is how the refusal ends up next to the thing that was
- * refused instead of at the bottom of the page.
+ * One `useCommand` for the controls on the page rather than one per control, so
+ * a refusal can only belong to the last thing asked for - and `variables` says
+ * which control that was, which is how the refusal ends up next to the thing
+ * that was refused instead of at the bottom of the page. The form keeps its own
+ * (`saveForm`), because a Save is up to two changes rather than one.
  */
 export function WorkspaceSettingsPage() {
   const { data, error, refetch } = useQuery(workspacesQuery);
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
-  /** The workspace being renamed and the name typed for it so far. */
-  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  /**
+   * The workspace whose form is open, and the draft in it: the name typed so
+   * far and the theme picked so far. Nothing here has been sent - Save is what
+   * sends it, and Cancel discards both halves together.
+   */
+  const [editing, setEditing] = useState<{
+    id: string;
+    name: string;
+    /**
+     * The theme picked, or null for one nobody has touched - which is not the
+     * same as the theme the workspace is wearing.
+     *
+     * A workspace can wear a tint the palette does not have, so the swatch the
+     * form shows pressed is looked up (`themeOf` falls back to the first) and
+     * is *not* what the workspace stores. Filling this in with that lookup
+     * would make every such workspace's name-only Save also repaint it, to a
+     * colour nobody chose.
+     */
+    theme: WorkspaceTheme | null;
+  } | null>(null);
+  /** That a Save is in flight, and why the last one did not happen. */
+  const [saving, setSaving] = useState(false);
+  const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
   /** The workspace whose delete is waiting to be confirmed. */
   const [deleting, setDeleting] = useState<string | null>(null);
   /**
@@ -57,18 +81,26 @@ export function WorkspaceSettingsPage() {
    */
   const [dragging, setDragging] = useState<{ id: string; to: number } | null>(null);
   /**
-   * The list itself, so a drag can ask where the rows actually are. Their
-   * heights differ - a row of swatches wraps on a narrow screen - so the place
-   * the pointer is over is measured rather than divided out of a total.
+   * The list itself, so a drag can ask where the rows actually are. Measured
+   * rather than divided out of a total, so a row that is not the height of
+   * every other row - a long name wrapping on a narrow screen - is still found
+   * where it actually is.
    */
   const listRef = useRef<HTMLUListElement>(null);
   /**
-   * The control the question was opened from, so the focus can go back to it.
-   * A ref rather than state: nothing on screen depends on it, and it is read
-   * only as the question closes.
+   * The control the question or the form was opened from, so the focus can go
+   * back to it. A ref rather than state: nothing on screen depends on it, and
+   * it is read only as the thing it opened closes.
    */
   const askedFrom = useRef<HTMLElement | null>(null);
   const command = useCommand();
+  /**
+   * The form sends its two changes one after the other and reads what came
+   * back, so it holds its own pending and refusal rather than the page's one
+   * mutation: `useCommand` has room for one change in flight, and a Save that
+   * moved both the name and the colour is two.
+   */
+  const send = useSendCommand();
 
   const workspaces = data?.workspaces ?? [];
   /**
@@ -103,6 +135,8 @@ export function WorkspaceSettingsPage() {
    * of asking about a name nothing holds.
    */
   const beingDeleted = workspaces.find((w) => w.id === deleting);
+  /** The workspace the form is open on, read from the list for the same reason. */
+  const beingEdited = workspaces.find((w) => w.id === editing?.id);
 
   /**
    * The order the rows are painted in: what the account holds, or - while a
@@ -176,8 +210,8 @@ export function WorkspaceSettingsPage() {
     // passes over.
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    // Starting one leaves the others, exactly as renaming and deleting do.
-    setRenaming(null);
+    // Starting one leaves the others, exactly as editing and deleting do.
+    closeForm();
     setDeleting(null);
     command.reset();
     setDragging({ id: workspaceId, to: from });
@@ -215,19 +249,26 @@ export function WorkspaceSettingsPage() {
   };
 
   /** Starting one leaves the other, so at most one row is ever asking something. */
-  const startRenaming = (ws: Workspace) => {
+  const startEditing = (ws: Workspace, openedFrom: HTMLElement | null) => {
     setDeleting(null);
     command.reset();
-    setRenaming({ id: ws.id, name: ws.name });
+    setSaveRefusal(null);
+    askedFrom.current = openedFrom;
+    setEditing({ id: ws.id, name: ws.name, theme: null });
   };
   const startDeleting = (ws: Workspace, openedFrom: HTMLElement | null) => {
-    setRenaming(null);
+    closeForm();
     command.reset();
     askedFrom.current = openedFrom;
     setDeleting(ws.id);
   };
+  /** The form goes, and the refusal it was showing goes with it. */
+  const closeForm = () => {
+    setEditing(null);
+    setSaveRefusal(null);
+  };
   const stopAsking = () => {
-    setRenaming(null);
+    closeForm();
     setDeleting(null);
     command.reset();
   };
@@ -252,42 +293,61 @@ export function WorkspaceSettingsPage() {
     );
   };
 
-  const rename = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!renaming) return;
-    const trimmed = renaming.name.trim();
-    if (!trimmed) return;
-    command.mutate(
-      {
-        name: 'rename_workspace',
-        payload: {
-          commandId: uuidv7(),
-          issuedAt: new Date().toISOString(),
-          workspaceId: renaming.id,
-          name: trimmed,
-        },
-      },
-      // Same as creating: the box closes only once the new name is really the
-      // workspace's, so a refused one is still there to be corrected.
-      { onSuccess: () => setRenaming(null) },
-    );
-  };
-
-  const chooseTheme = (workspaceId: string, theme: WorkspaceTheme) => {
-    command.mutate({
-      name: 'set_workspace_theme',
-      payload: {
-        commandId: uuidv7(),
-        issuedAt: new Date().toISOString(),
-        workspaceId,
-        // All four, because all four are what a workspace stores. The server
-        // still checks they are a theme from the palette.
-        color: theme.tint,
-        bar: theme.bar,
-        ground: theme.ground,
-        header: theme.header,
-      },
+  /**
+   * What the form has to send: the halves that actually moved, and nothing
+   * else. An untouched box must send no change at all, or it would carry the
+   * value the form was opened with over an edit made somewhere else in the
+   * meantime - and a colour nobody touched would bump the workspace's theme on
+   * every rename.
+   */
+  const saveForm = async () => {
+    if (!editing) return;
+    const was = workspaces.find((w) => w.id === editing.id);
+    if (!was) return;
+    const named = editing.name.trim();
+    if (!named) return;
+    const envelope = () => ({
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: editing.id,
     });
+
+    setSaving(true);
+    setSaveRefusal(null);
+    try {
+      if (named !== was.name) {
+        await send({ name: 'rename_workspace', payload: { ...envelope(), name: named } });
+      }
+      if (editing.theme && editing.theme.tint !== was.color) {
+        await send({
+          name: 'set_workspace_theme',
+          payload: {
+            ...envelope(),
+            // All four, because all four are what a workspace stores. The
+            // server still checks they are a theme from the palette.
+            color: editing.theme.tint,
+            bar: editing.theme.bar,
+            ground: editing.theme.ground,
+            header: editing.theme.header,
+          },
+        });
+      }
+      closeForm();
+    } catch (failure) {
+      // The form stays open with what was typed still in it, so a name the
+      // server would not take can be corrected rather than typed again.
+      //
+      // The name goes first and the colour second, so a refused colour leaves a
+      // rename that already landed - which is what the form now shows, since it
+      // compares against the list rather than against what it opened with.
+      setSaveRefusal(
+        failure instanceof CommandRefused
+          ? failure.message
+          : 'That did not reach the server. Try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmDelete = (workspaceId: string) => {
@@ -319,12 +379,7 @@ export function WorkspaceSettingsPage() {
    * rather than a guess.
    */
   const refusalFor = (
-    what:
-      | 'create_workspace'
-      | 'rename_workspace'
-      | 'delete_workspace'
-      | 'reorder_workspaces'
-      | 'set_workspace_theme',
+    what: 'create_workspace' | 'delete_workspace' | 'reorder_workspaces',
     id?: string,
   ) =>
     refusal && command.variables?.name === what && (!id || command.variables.payload.workspaceId === id)
@@ -332,9 +387,10 @@ export function WorkspaceSettingsPage() {
       : null;
 
   return (
+    /* No heading of its own: the tab in the band above says which page this is,
+       the same way the current dashboard tab does inside a workspace
+       (`components/Tabs.tsx`). */
     <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-semibold tracking-tight">Workspaces</h1>
-
       {/* Above the list, not after it. The list has no ceiling - it is every
           workspace the account has ever made - so a box below it is a control
           whose reachability depends on how much you already own, and it is the
@@ -373,6 +429,12 @@ export function WorkspaceSettingsPage() {
           {shown.map((ws, index) => (
             <li
               key={ws.id}
+              // A double-click opens the form, exactly as it does on an Item's
+              // row. Not a single click: a row here is dragged, and every drag
+              // begins with a press.
+              onDoubleClick={(event) => {
+                if (wasOnTheRow(event)) startEditing(ws, null);
+              }}
               className={`border-b border-black/5 px-4 py-2 last:border-b-0 ${
                 dragging?.id === ws.id
                   ? 'rounded-md bg-accent-tint shadow-panel'
@@ -418,114 +480,111 @@ export function WorkspaceSettingsPage() {
                   className="inline-block size-3 shrink-0 rounded-full"
                   style={{ backgroundColor: ws.color }}
                 />
-                {renaming?.id === ws.id ? (
-                  <form onSubmit={rename} className="flex min-w-0 flex-1 items-center gap-2">
-                    <input
-                      value={renaming.name}
-                      onChange={(e) => setRenaming({ id: ws.id, name: e.target.value })}
-                      aria-label={`New name for ${ws.name}`}
-                      maxLength={60}
-                      autoFocus
-                      className="min-w-0 flex-1 rounded-md border border-black/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-                    />
-                    <button type="submit" disabled={command.isPending} className={primaryButton}>
-                      Save
-                    </button>
-                    <button type="button" onClick={stopAsking} className={quietButton}>
-                      Cancel
-                    </button>
-                  </form>
-                ) : (
-                  <>
-                    <span className="min-w-0 flex-1 truncate text-sm">{ws.name}</span>
-                    <RowMenu
-                      label={`Actions for ${ws.name}`}
-                      entries={[
-                        { label: 'Rename', onSelect: () => startRenaming(ws) },
-                        // The keyboard's and the phone's way of moving a
-                        // workspace, and the ends say so rather than going
-                        // quiet: an entry that vanishes on the first row leaves
-                        // somebody hunting for a control that was there a moment
-                        // ago. `keepsFocus` because neither opens anything, and
-                        // this is the entry most likely to be wanted twice in a
-                        // row.
-                        {
-                          label: 'Move up',
-                          keepsFocus: true,
-                          unavailable: index === 0 ? 'It is already the first' : undefined,
-                          onSelect: () => move(ws.id, movedBy(order, ws.id, -1)),
-                        },
-                        {
-                          label: 'Move down',
-                          keepsFocus: true,
-                          unavailable:
-                            index === shown.length - 1 ? 'It is already the last' : undefined,
-                          onSelect: () => move(ws.id, movedBy(order, ws.id, 1)),
-                        },
-                        {
-                          label: 'Delete',
-                          destructive: true,
-                          onSelect: (openedFrom) => startDeleting(ws, openedFrom),
-                        },
-                      ]}
-                    />
-                  </>
-                )}
+                <span className="min-w-0 flex-1 truncate text-sm">{ws.name}</span>
+                <RowMenu
+                  label={`Actions for ${ws.name}`}
+                  entries={[
+                    // The name and the colour together, on a form of its own.
+                    // The only way in from a keyboard, and the comfortable one
+                    // on a phone, where a double-tap is already spent on
+                    // zooming - so it is not a lesser second path.
+                    {
+                      label: 'Edit…',
+                      onSelect: (openedFrom) => startEditing(ws, openedFrom),
+                    },
+                    // The keyboard's and the phone's way of moving a
+                    // workspace, and the ends say so rather than going
+                    // quiet: an entry that vanishes on the first row leaves
+                    // somebody hunting for a control that was there a moment
+                    // ago. `keepsFocus` because neither opens anything, and
+                    // this is the entry most likely to be wanted twice in a
+                    // row.
+                    {
+                      label: 'Move up',
+                      keepsFocus: true,
+                      unavailable: index === 0 ? 'It is already the first' : undefined,
+                      onSelect: () => move(ws.id, movedBy(order, ws.id, -1)),
+                    },
+                    {
+                      label: 'Move down',
+                      keepsFocus: true,
+                      unavailable:
+                        index === shown.length - 1 ? 'It is already the last' : undefined,
+                      onSelect: () => move(ws.id, movedBy(order, ws.id, 1)),
+                    },
+                    {
+                      label: 'Delete',
+                      destructive: true,
+                      onSelect: (openedFrom) => startDeleting(ws, openedFrom),
+                    },
+                  ]}
+                />
               </div>
-              {/* The palette, as a row of swatches. Each one shows the whole
-                  theme rather than a dot, and shows it stacked the way the
-                  screen stacks it: the header across the top, the bar the
-                  dashboard tabs sit on under it, and the ground filling the
-                  rest, with the tint on the ground. So what you are choosing
-                  looks like what you will get, including which way up it goes.
-                  Hidden while the row is being renamed, because that is the one
-                  thing that takes the row over; the question before a delete no
-                  longer does. */}
-              {renaming?.id !== ws.id && (
-                <div className="flex flex-wrap gap-1.5 pt-2 pl-6">
-                  {WORKSPACE_THEMES.map((theme) => (
-                    <button
-                      key={theme.name}
-                      type="button"
-                      onClick={() => chooseTheme(ws.id, theme)}
-                      disabled={command.isPending}
-                      aria-label={`${theme.name} for ${ws.name}`}
-                      aria-pressed={ws.color === theme.tint}
-                      title={theme.name}
-                      className={`flex size-6 flex-col justify-end overflow-hidden rounded-md border disabled:opacity-50 ${
-                        ws.color === theme.tint
-                          ? 'border-ink ring-2 ring-ink/20'
-                          : 'border-black/10 hover:border-black/30'
-                      }`}
-                      style={{
-                        backgroundImage: `linear-gradient(${theme.header} 0 30%, ${theme.bar} 30% 50%, ${theme.ground} 50% 100%)`,
-                      }}
-                    >
-                      <span
-                        className="mx-auto mb-1 block size-2 rounded-full"
-                        style={{ backgroundColor: theme.tint }}
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {/* A refused delete says so in the dialog that asked for it,
-                  which is still open; these three are asked for in the row. A
-                  refused move is the one that has to be read: the row has
-                  already gone back to where it was, and without a word for it
-                  that reads as the drag having missed. */}
-              {(refusalFor('rename_workspace', ws.id) ??
-                refusalFor('reorder_workspaces', ws.id) ??
-                refusalFor('set_workspace_theme', ws.id)) && (
+              {/* A refused delete says so in the dialog that asked for it, and
+                  a refused rename or colour on the form that asked - both are
+                  still open. A refused move is the one left to say here, and
+                  the one that has to be read: the row has already gone back to
+                  where it was, and without a word for it that reads as the drag
+                  having missed. */}
+              {refusalFor('reorder_workspaces', ws.id) && (
                 <p role="alert" className="pt-2 text-sm text-over">
-                  {refusalFor('rename_workspace', ws.id) ??
-                    refusalFor('reorder_workspaces', ws.id) ??
-                    refusalFor('set_workspace_theme', ws.id)}
+                  {refusalFor('reorder_workspaces', ws.id)}
                 </p>
               )}
             </li>
           ))}
         </ul>
+        {/* One form for the page: at most one row can be being edited, and it
+            covers the page while it is.
+
+            Drawn only while the workspace is still in the list, which is read
+            from the list rather than kept beside the draft: one deleted in
+            another tab is gone from the next list, and a form open on a name
+            nothing holds would save into nothing. */}
+        {beingEdited && editing && (
+          <RowForm
+            title={`Edit ${beingEdited.name}`}
+            name={editing.name}
+            nameLabel={`Name of ${beingEdited.name}`}
+            onName={(named) => setEditing({ ...editing, name: named })}
+            paletteLabel={`Colour of ${beingEdited.name}`}
+            palette={WORKSPACE_THEMES.map((theme) => (
+              /* Each swatch shows the whole theme rather than a dot, and shows
+                 it stacked the way the screen stacks it: the header across the
+                 top, the bar the dashboard tabs sit on under it, and the ground
+                 filling the rest, with the tint on the ground. So what you are
+                 choosing looks like what you will get, including which way up
+                 it goes. */
+              <button
+                key={theme.name}
+                type="button"
+                onClick={() => setEditing({ ...editing, theme })}
+                disabled={saving}
+                aria-label={`${theme.name} for ${beingEdited.name}`}
+                aria-pressed={pressed(editing.theme, beingEdited.color) === theme.tint}
+                title={theme.name}
+                className={`flex size-8 flex-col justify-end overflow-hidden rounded-md border disabled:opacity-50 ${
+                  pressed(editing.theme, beingEdited.color) === theme.tint
+                    ? 'border-ink ring-2 ring-ink/20'
+                    : 'border-black/10 hover:border-black/30'
+                }`}
+                style={{
+                  backgroundImage: `linear-gradient(${theme.header} 0 30%, ${theme.bar} 30% 50%, ${theme.ground} 50% 100%)`,
+                }}
+              >
+                <span
+                  className="mx-auto mb-1 block size-2.5 rounded-full"
+                  style={{ backgroundColor: theme.tint }}
+                />
+              </button>
+            ))}
+            refusal={saveRefusal}
+            saving={saving}
+            returnFocusTo={askedFrom.current}
+            onCancel={closeForm}
+            onSave={() => void saveForm()}
+          />
+        )}
         {/* One question for the page: at most one row can be asking, and the
             dialog covers the page while it is. */}
         {beingDeleted && (
@@ -565,10 +624,16 @@ export function WorkspaceSettingsPage() {
   );
 }
 
-const primaryButton =
-  'shrink-0 rounded-md bg-accent px-3 py-1 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50';
-const quietButton =
-  'shrink-0 rounded-md border border-black/10 px-3 py-1 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep';
+/**
+ * Which swatch the form shows pressed: the one picked, or - until one is -
+ * the theme the workspace's tint belongs to. Looked up rather than compared
+ * against the four fields it stores, so a workspace carrying surfaces from an
+ * older palette still has a swatch pressed rather than none; it is the same
+ * lookup the shell paints from (`pages/Layout.tsx`).
+ */
+function pressed(picked: WorkspaceTheme | null, wearing: string): string {
+  return (picked ?? themeOf(wearing)).tint;
+}
 
 /**
  * What deleting this workspace takes with it, said before it happens. The

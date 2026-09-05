@@ -13,6 +13,7 @@ import { LayoutPicker } from './LayoutPicker';
 import { ManageDashboards } from './ManageDashboards';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 import { NameQuestion } from './NameQuestion';
+import { bandTabClass } from './Tabs';
 
 /**
  * The bar under the workspace tabs: the workspace's dashboards, a `+` that adds
@@ -129,32 +130,17 @@ export function DashboardBar({
   };
 
   /*
-   * Rounded at the top only, and filled with the page's color when it is the
-   * one you are on, so the tab runs into the page under it with no line
-   * between them. The color arrives as a custom property rather than as a
-   * class because it is the workspace's and only known at runtime, and it goes
-   * through `.active` rather than through a comparison here so the router
-   * stays the one thing that decides which tab is current.
-   */
-  /*
+   * The look is `bandTabClass` (components/Tabs.tsx), which the settings tabs
+   * wear too: the band is one strip whatever is in it, and two copies of this
+   * string would be two strips that drift.
+   *
    * **The fill alone was not enough to say which one you are on.** The strip
    * and the page are one step apart by design, which is eight values of grey -
    * plenty to make a joined tab read as joined, and not nearly enough to make
    * it read as *selected* when you are looking for it. So the tab you are on
    * also carries the workspace's own colour along its top edge, which is the
    * one saturated thing on this bar and cannot be mistaken for a shade.
-   *
-   * It is an inset shadow rather than a border so the tab does not change
-   * height when it becomes the current one, which would shuffle the whole
-   * strip by two pixels on every switch.
-   *
-   * **The two states no longer share an ink.** The band is near-black now
-   * ("Cockpit Shell Explorations", artboard 2c) while the tab you are on is
-   * filled with the sheet, so an unselected tab takes the chrome's light set
-   * and the selected one takes the app's ink - not two weights of one colour.
    */
-  const tabClass =
-    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-chrome-ink-soft hover:bg-white/8 hover:text-chrome-ink [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-[inset_0_2px_0_0_var(--tab-mark)]';
 
   return (
     <nav
@@ -174,7 +160,7 @@ export function DashboardBar({
         <Link
           to="/w/$workspaceId/inbox"
           params={{ workspaceId }}
-          className={tabClass}
+          className={bandTabClass}
         >
           Inbox
         </Link>
@@ -187,7 +173,7 @@ export function DashboardBar({
           onDragOver={(event) => restOn(event, dashboard.id)}
           onDragLeave={leftIt}
           onDrop={droppedOnIt}
-          className={tabClass}
+          className={bandTabClass}
         >
           {dashboard.name}
         </Link>

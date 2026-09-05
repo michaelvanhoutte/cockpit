@@ -80,7 +80,7 @@ test.describe('Triage', () => {
       // Gone from the page reached without a workspace, which has no Inbox
       // to show.
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Workspaces' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
       await expect(page.getByLabel('Name of the new workspace')).toBeVisible();
       await expect(column).toHaveCount(0);
     });
