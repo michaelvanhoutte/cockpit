@@ -62,4 +62,34 @@ describe('Item editing', () => {
       expect(changes).toEqual([]);
     });
   });
+
+  describe('a description takes nothing more while it is being saved', () => {
+    /**
+     * The editor is built asynchronously, so a form that starts saving and then
+     * comes back to the formatted view builds a *new* editor with the save
+     * already in flight. That one came up writable: the effect that closes it
+     * had run once against an editor which did not exist yet, and had no reason
+     * to run again.
+     */
+    it('comes up closed when it is built during a save', async () => {
+      render(<RichDescription initial="Tolerances" onChange={() => {}} editable={false} />);
+
+      const box = await screen.findByLabelText('Description');
+      await waitFor(() => expect(box).toHaveAttribute('contenteditable', 'false'));
+    });
+
+    it('opens again once the save has landed', async () => {
+      const box = (editable: boolean) => (
+        <RichDescription initial="Tolerances" onChange={() => {}} editable={editable} />
+      );
+      const { rerender } = render(box(false));
+      await screen.findByLabelText('Description');
+
+      rerender(box(true));
+
+      await waitFor(() =>
+        expect(screen.getByLabelText('Description')).toHaveAttribute('contenteditable', 'true'),
+      );
+    });
+  });
 });

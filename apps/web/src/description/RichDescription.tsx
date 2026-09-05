@@ -182,12 +182,20 @@ export default function RichDescription({ initial, onChange, editable }: RichDes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Closed while a save is in flight, for the reason the other boxes are: what
-  // is sent is worked out before the round trip, so anything typed during it
-  // would be lost when the form closes.
+  /**
+   * Closed while a save is in flight, for the reason the other boxes are: what
+   * is sent is worked out before the round trip, so anything typed during it
+   * would be lost when the form closes.
+   *
+   * **`ready` is a dependency because the editor is built asynchronously.**
+   * Without it this runs once against a `null` editor and never again, so an
+   * editor built while a save was already in flight - press Save from the
+   * source view, then Formatted - came up writable, which is the case the rule
+   * above exists for.
+   */
   useEffect(() => {
     editor.current?.action((ctx) => ctx.get(editorViewCtx).setProps({ editable: () => editable }));
-  }, [editable]);
+  }, [editable, ready]);
 
   /**
    * Escape gives up the address being typed, and nothing else.

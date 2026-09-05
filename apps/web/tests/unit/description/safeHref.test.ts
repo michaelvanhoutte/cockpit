@@ -20,6 +20,11 @@ describe('Item editing', () => {
       { situation: 'a bare host, as pasted', typed: 'example.com/runbook', kept: 'https://example.com/runbook' },
       { situation: 'surrounding whitespace', typed: '  https://example.com  ', kept: 'https://example.com' },
       { situation: 'an address that only looks odd', typed: 'https://example.com/javascript:alert(1)', kept: 'https://example.com/javascript:alert(1)' },
+      // A colon is not a scheme. Read as one, the host in front of a port is an
+      // unknown scheme and the whole address is refused.
+      { situation: 'a bare host with a port', typed: 'example.com:8080/runbook', kept: 'https://example.com:8080/runbook' },
+      { situation: 'a machine on the network with a port', typed: 'localhost:3000', kept: 'https://localhost:3000' },
+      { situation: 'a web address with a port', typed: 'https://example.com:8443/a', kept: 'https://example.com:8443/a' },
     ])('$situation is kept', ({ typed, kept }) => {
       expect(safeHref(typed)).toBe(kept);
     });

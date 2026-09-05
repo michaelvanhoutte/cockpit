@@ -44,7 +44,16 @@ export function safeHref(typed: string): string | null {
   const address = withoutIgnoredCharacters(typed.trim());
   if (!address) return null;
 
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(address)?.[1];
-  if (!scheme) return `https://${address}`;
+  const named = /^([a-z][a-z0-9+.-]*):(.*)$/is.exec(address);
+  if (!named) return `https://${address}`;
+
+  // A colon does not make a scheme. `example.com:8080/a` and `localhost:3000`
+  // are hosts with a port, and a scheme may contain digits and dots, so reading
+  // everything before the colon as one refuses both of those as an unknown
+  // scheme. What follows a port is a number and then the end of the address or
+  // its path; nothing else here is.
+  const scheme = named[1] ?? '';
+  const afterTheColon = named[2] ?? '';
+  if (/^\d+(?:[/?#]|$)/.test(afterTheColon)) return `https://${address}`;
   return ALLOWED.has(`${scheme.toLowerCase()}:`) ? address : null;
 }
