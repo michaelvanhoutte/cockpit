@@ -1,4 +1,5 @@
-import { type Page } from '@playwright/test';
+import { type Page, type Response } from '@playwright/test';
+import type { CommandName } from '@cockpit/shared';
 import {
   ADA,
   chooseRowAction,
@@ -91,6 +92,34 @@ async function expectTheDashboardFits(page: Page): Promise<void> {
       message: `the dashboard scrolls sideways, in a ${(await room()).area}px column`,
     })
     .toBeLessThanOrEqual(0);
+}
+
+/**
+ * The server's answer to the one change an arrangement gesture sends, waited
+ * for from before the gesture is made.
+ *
+ * **Nothing on the page can stand in for this.** A dashboard draws the
+ * arrangement a gesture produces before it sends it, and drops that drawing
+ * once the store agrees (components/PanelBoard.tsx) - so the panels look
+ * identical either side of the save, and every assertion about where they are
+ * passes on a change that has not left the browser yet. What follows such a
+ * gesture in a walk therefore has to wait here, or it is racing a request.
+ *
+ * **It takes the next answer of that name, whichever gesture asked for it**, so
+ * it only says anything about the gesture it brackets if the walk's earlier
+ * changes have already been answered. Nothing here can check that; the caller
+ * has to have waited.
+ *
+ * `CommandName` rather than a bare string, because a wait for a name nothing
+ * sends does not fail - it hangs until the timeout, saying only that the
+ * response never came. Renaming the command breaks the typecheck instead.
+ */
+function answerTo(page: Page, command: CommandName): Promise<Response> {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/v1/commands/${command}`,
+  );
 }
 
 /**
@@ -238,6 +267,11 @@ test.describe('Panels', () => {
       // rather than `dragTo`.
       const grip = page.locator(`[data-resize-grip="${falcon}"]`);
       const corner = (await grip.boundingBox())!;
+      // Armed before the hand is lifted, because that is when the change goes -
+      // and after `expectLayouts`, which is what makes the next answer this
+      // gesture's rather than the move's. That call is load-bearing here, not
+      // only the assertion about the menu it looks like.
+      const kept = answerTo(page, 'save_layout');
       await page.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2);
       await page.mouse.down();
       await page.mouse.move(corner.x + 260, corner.y + corner.height / 2, { steps: 8 });
@@ -252,6 +286,15 @@ test.describe('Panels', () => {
       // Reloaded, because a resize that is only drawn survives every check on
       // the screen it was made on and is gone the next time the dashboard is
       // opened - which is the way it goes wrong, silently and later.
+      //
+      // **Waited for first, and the three checks above are not that wait**:
+      // every one of them is answered by the drawing the drag left behind
+      // (`answerTo`), so on a stack under load the reload arrived while the
+      // save was still in flight and cancelled it - the panel came back the
+      // width it started at, thirteen times in CI between 2 and 4 September
+      // 2026 on nine branches including `main`, always on the assertion below
+      // and never on the one above it.
+      await kept;
       await page.reload();
       await expect(panel).toBeVisible();
       await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThan(
