@@ -64,17 +64,14 @@ export function panelsAcross(availableWidth: number): number {
  * screen. Forty is under a tenth of the narrowest screen the app is drawn on,
  * so nothing that is really a different size can hide inside it.
  *
- * It no longer decides anything a person sees. Changing an arrangement used to
- * ask which layout to keep it in whenever this was false, and that question is
+ * Its one reader is the board, deciding whether two quick gestures on a
+ * dashboard with no layout are making the same one (PanelBoard,
+ * `layoutForThisScreen`). It used to answer a second question - whether a
+ * change had to stop and ask which layout to keep it in - and that question is
  * gone: you pick the layout you are on and every change goes into it ("Pick the
  * layout you are on, by name").
  */
 export const SAME_SCREEN_TOLERANCE = 40;
-
-/** Whether this layout is the one this screen is actually the width of. */
-export function madeForThisScreen(layout: Layout, screenWidth: number): boolean {
-  return Math.abs(layout.screenWidth - screenWidth) <= SAME_SCREEN_TOLERANCE;
-}
 
 /**
  * What to call a layout on screen: its name, or the width it was made for where

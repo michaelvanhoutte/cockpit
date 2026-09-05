@@ -1,13 +1,13 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { DEFAULT_PANEL_SIZE, uuidv7 } from '@cockpit/shared';
+import { uuidv7 } from '@cockpit/shared';
 import type { Layout, Panel } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { browserStore } from '../lastVisited';
 import { AUTOMATIC, useChosenLayout } from '../panels/chosenLayout';
 import {
-  fittedToScreen,
+  drawnArrangement,
   freeName,
   layoutLabel,
   layoutToDraw,
@@ -23,6 +23,16 @@ import { NameQuestion } from './NameQuestion';
  * label a screen reader announces are the same string.
  */
 const KEEPS_ONE = 'A dashboard keeps at least one layout';
+
+/**
+ * What the control is called to anything not looking at it: which layout is in
+ * use, and whether it was picked or arrived automatically - the two things the
+ * button says in type.
+ */
+function announced(drawnWith: Layout | null, automatic: boolean): string {
+  const which = drawnWith ? layoutLabel(drawnWith) : 'none yet';
+  return `Layout for this dashboard: ${which}${automatic ? ', chosen automatically' : ''}`;
+}
 
 /**
  * Which arrangement of this dashboard you are looking at, said out loud and
@@ -113,12 +123,13 @@ export function LayoutPicker({
     if (!naming) return;
     const name = naming.name.trim();
     if (!name) return;
-    const placements =
-      drawnWith?.placements ??
-      fittedToScreen(
-        panels.map((panel) => ({ panelId: panel.id, ...DEFAULT_PANEL_SIZE })),
-        screenWidth,
-      );
+    // The arrangement as it is *drawn*, not the one stored: `drawnArrangement`
+    // is what reconciles a layout against the panels beside it, dropping one it
+    // still names that is no longer there and appending one it has never heard
+    // of. Copying the stored list instead would make "from this one" a copy of
+    // something nobody is looking at - and a placement naming a panel that has
+    // gone is refused outright by the server.
+    const placements = drawnArrangement(drawnWith, panels, screenWidth);
     const layoutId = uuidv7();
     command.mutate(
       {
@@ -197,7 +208,10 @@ export function LayoutPicker({
       <DropdownMenu.Root>
         <DropdownMenu.Trigger
           ref={trigger}
-          aria-label="Layout for this dashboard"
+          // The name carries the value, not just the control: a label of
+          // "Layout for this dashboard" alone tells a screen reader that there
+          // is one and never which, and which is the whole point of it.
+          aria-label={announced(drawnWith, chosen === null)}
           // On the chrome, so it takes the chrome's light set rather than the
           // ink and accent tint every control on the sheet wears - both of
           // which are invisible on a near-black bar (Menu.tsx says why this is

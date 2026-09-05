@@ -7,7 +7,6 @@ import {
   layoutLabel,
   layoutToDraw,
   nameForScreen,
-  madeForThisScreen,
   movedBefore,
   movedBy,
   panelsAcross,
@@ -70,13 +69,6 @@ describe('Panels', () => {
       expect(layoutToDraw([elsewhere], 'today', 1280, null)).toBeNull();
     });
 
-    it.each([
-      { situation: 'the same width', screenWidth: 1280, same: true },
-      { situation: 'a scrollbar’s width away', screenWidth: 1265, same: true },
-      { situation: 'a different screen', screenWidth: 480, same: false },
-    ])('counts $situation as the screen it was made for: $same', ({ screenWidth, same }) => {
-      expect(madeForThisScreen(laptop, screenWidth)).toBe(same);
-    });
   });
 
   describe('rearranging for the screen keeps the order and fills the rows across it', () => {

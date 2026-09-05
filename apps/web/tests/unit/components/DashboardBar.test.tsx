@@ -489,7 +489,7 @@ describe('Layouts', () => {
    * what is being tested.
    */
   async function theControl(named: string) {
-    const control = await screen.findByRole('button', { name: 'Layout for this dashboard' });
+    const control = await screen.findByRole('button', { name: /^Layout for this dashboard/ });
     await waitFor(() => expect(control).toHaveTextContent(named));
     return control;
   }
@@ -499,7 +499,7 @@ describe('Layouts', () => {
       showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: [aLayout('l', 'Wide', 1280)] });
 
       expect(
-        await screen.findByRole('button', { name: 'Layout for this dashboard' }),
+        await screen.findByRole('button', { name: /^Layout for this dashboard/ }),
       ).toBeVisible();
       expect(screen.getByRole('button', { name: '+ Panel' })).toBeVisible();
     });
@@ -511,7 +511,7 @@ describe('Layouts', () => {
       showBar(['Dashboard 1'], { openDashboardId: null });
 
       await screen.findByRole('link', { name: 'Dashboard 1' });
-      expect(screen.queryByRole('button', { name: 'Layout for this dashboard' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Layout for this dashboard/ })).toBeNull();
       expect(screen.queryByRole('button', { name: '+ Panel' })).toBeNull();
     });
   });
@@ -542,6 +542,33 @@ describe('Layouts', () => {
       // automatic choice used to happen with nothing on screen admitting to it.
       if (saysAuto) expect(control).toHaveTextContent('Auto');
       else expect(control).not.toHaveTextContent('Auto');
+    });
+
+    it.each([
+      {
+        situation: 'the choice was made by the screen',
+        pick: null,
+        announced: /^Layout for this dashboard: Laptop, chosen automatically$/,
+      },
+      {
+        situation: 'a layout was picked by hand',
+        pick: 'wide',
+        announced: /^Layout for this dashboard: Wide$/,
+      },
+    ])('says which layout is in use to a screen reader too, when $situation', async ({
+      pick,
+      announced,
+    }) => {
+      // The label used to name the control and not its value, so anything not
+      // looking at the bar was told there was a layout control and never which
+      // layout - which is the whole of what it is for.
+      if (pick) localStorage.setItem('cockpit.layout.' + OPEN, pick);
+      showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)],
+      });
+
+      expect(await screen.findByRole('button', { name: announced })).toBeVisible();
     });
 
     it('draws a layout written before names existed as the width it was made for', async () => {
@@ -623,6 +650,23 @@ describe('Layouts', () => {
       // Making one and then having to pick it is two gestures for what reads
       // as one.
       expect(localStorage.getItem('cockpit.layout.' + OPEN)).toBe(asked.payload.layoutId);
+    });
+
+    it('copies the arrangement as drawn, not the one stored, so it cannot name a panel that has gone', async () => {
+      // The layout still names a panel the dashboard no longer has. The board
+      // reconciles that when it draws (`drawnArrangement`); the copy has to as
+      // well, or it sends a placement the server refuses outright.
+      const { user, mutate } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        panels: [],
+        layouts: [aLayout('laptop', 'Laptop', 1280)],
+      });
+
+      await user.click(await theControl('Laptop'));
+      await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
+      await user.click(screen.getByRole('button', { name: 'Create' }));
+
+      expect(mutate.mock.calls[0]![0].payload.placements).toEqual([]);
     });
 
     it('offers a name for the screen it is being made on, free on this dashboard', async () => {
