@@ -58,7 +58,7 @@ test.describe('Workspace management', () => {
       await openFirstWorkspace(page, isMobile);
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Workspaces' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
 
       const box = page.getByLabel('Name of the new workspace');
       // All of it, rather than any of it. `toBeInViewport()` on its own passes
@@ -90,6 +90,54 @@ test.describe('Workspace management', () => {
     });
   });
 
+  test.describe('the chrome keeps its shape when you leave a workspace', () => {
+    /**
+     * F3 and only F3: heights and insets are what a browser computes, and the
+     * whole claim is that two addresses of the same app agree about them. In
+     * jsdom every rectangle is zero pixels tall in the same place, so nothing
+     * below this tier can tell the two apart at all.
+     */
+    test('draws the same header and band on a settings page, and keeps the page off the edge', async ({
+      page,
+      isMobile,
+    }) => {
+      /** How far down the screen the chrome reaches - the header and the band under it. */
+      const chromeEnds = () =>
+        page.evaluate(() => {
+          const header = document.querySelector('header')!;
+          return Math.round(header.nextElementSibling!.getBoundingClientRect().bottom);
+        });
+
+      await openFirstWorkspace(page, isMobile);
+      const insideAWorkspace = await chromeEnds();
+
+      await openSettings(page, isMobile);
+
+      // The band used to be drawn only inside a workspace, so opening the
+      // settings took forty pixels off the chrome between two addresses of the
+      // same app - and the page then headed itself, on the sheet, in a style
+      // nothing else uses.
+      expect(await chromeEnds()).toBe(insideAWorkspace);
+      await expect(
+        page.getByRole('navigation', { name: 'Settings' }).getByRole('link', {
+          name: 'Manage workspaces',
+        }),
+      ).toBeVisible();
+
+      // And the list is a page rather than a sheet of panels: it stands clear
+      // of the window's sides instead of running into them.
+      const room = await page
+        .getByRole('listitem')
+        .first()
+        .evaluate((row) => {
+          const box = row.getBoundingClientRect();
+          return { left: Math.round(box.left), right: Math.round(window.innerWidth - box.right) };
+        });
+      expect(room.left).toBeGreaterThan(8);
+      expect(room.right).toBeGreaterThan(8);
+    });
+  });
+
   test.describe('a workspace you rename is called that everywhere you see it', () => {
     test('changes the name in the tabs, from the settings page', async ({ page, isMobile }) => {
       const before = uniqueTitle('Bookkeeping');
@@ -100,8 +148,8 @@ test.describe('Workspace management', () => {
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
       await expect(page.locator('header').getByRole('link', { name: before })).toBeVisible();
 
-      await chooseRowAction(page, before, 'Rename', isMobile);
-      await page.getByLabel(`New name for ${before}`).fill(after);
+      await chooseRowAction(page, before, 'Edit…', isMobile);
+      await page.getByLabel(`Name of ${before}`).fill(after);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
 
       await expect(page.locator('header').getByRole('link', { name: after })).toBeVisible();
@@ -213,8 +261,11 @@ test.describe('Workspace management', () => {
       // once all eight are taken - so that claim is true or false depending on
       // what ran before. It is the server's rule anyway, and is proved against
       // a real database in apps/api/tests/integration/http.
-      const row = page.getByRole('listitem').filter({ hasText: mine });
-      await press(row.getByRole('button', { name: `Olive for ${mine}` }), isMobile);
+      // Through the row's form, which is where a colour is chosen now: the
+      // swatches are a draft until Save, so nothing is sent by looking.
+      await chooseRowAction(page, mine, 'Edit…', isMobile);
+      await press(page.getByRole('button', { name: `Olive for ${mine}` }), isMobile);
+      await press(page.getByRole('button', { name: 'Save' }), isMobile);
       await press(page.locator('header').getByRole('link', { name: mine }), isMobile);
       await expect(dashboardBar(page)).toBeVisible();
 
