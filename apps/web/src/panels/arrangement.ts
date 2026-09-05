@@ -98,8 +98,19 @@ export function layoutLabel(layout: Layout): string {
  * nothing about what the arrangement is for. Four names covering the range is
  * what a person would say out loud, and every one of them is theirs to change.
  *
- * The boundaries are the ones `panelsAcross` already draws in the same range,
- * so the name changes where the arrangement does.
+ * **The boundaries are the sizes of thing a person means by those words** - a
+ * phone in the hand, a tablet, a laptop, a screen bigger than a laptop - and
+ * deliberately not `panelsAcross`'s. That looks like the obvious alignment and
+ * is not available: it answers a different question ("how many fit across"),
+ * from a different number (the width the *panels* have, which the Inbox takes a
+ * fifth of), so its steps fall at 630, 1050 and 1470 of a width this function
+ * never sees. A 600px screen is a *Tablet* here and one panel across there, and
+ * that is not a contradiction - the name says what you are looking at, the
+ * count says what fits on it.
+ *
+ * **Nothing branches on the answer.** It is a name offered once, at the moment
+ * a layout is made, and the person renames it from that moment on - so being
+ * approximate is the whole of what it costs.
  */
 export function nameForScreen(screenWidth: number): string {
   if (screenWidth < 560) return 'Phone';
