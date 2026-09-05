@@ -22,6 +22,8 @@ const WORK = {
 };
 
 // The address is what this file is about, so the mock renders `to` as one.
+const at = { pathname: '/capture' };
+
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
@@ -38,10 +40,14 @@ vi.mock('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
-  Outlet: () => null,
+  Outlet: () => <div data-testid="the-page" />,
   useParams: () => params,
   useNavigate: () => () => Promise.resolve(),
   useSearch: () => ({}),
+  // The address, because the shell asks which page this is rather than whether
+  // a workspace is named: Capture is in no workspace either.
+  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
+    select({ location: { pathname: at.pathname } }),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
@@ -77,8 +83,10 @@ async function theShell({
   // Null, not undefined: `inside: undefined` would take the default below and
   // quietly render the case it is meant to be the opposite of.
   inside = 'ws-work' as string | null,
-}: { workspaces?: unknown[]; inside?: string | null } = {}) {
+  address = '/capture',
+}: { workspaces?: unknown[]; inside?: string | null; address?: string } = {}) {
   held.workspaces = workspaces;
+  at.pathname = address;
   if (inside) params.workspaceId = inside;
   else delete params.workspaceId;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -91,13 +99,13 @@ async function theShell({
   // case is about the header holding *nothing*, and a list that has not
   // arrived yet looks exactly like that.
   await waitFor(() => expect(client.getQueryData(['workspaces'])).toBeDefined());
-  return within(container.querySelector('header')!);
+  return { header: within(container.querySelector('header')!), container };
 }
 
 describe('Capture', () => {
   describe('capture is the first tab in the header wherever there is a workspace to capture from', () => {
     it('opens the capture page, ahead of the workspaces and outside their strip', async () => {
-      const header = await theShell();
+      const { header } = await theShell();
 
       const capture = header.getByRole('link', { name: 'Capture' });
       expect(capture).toHaveAttribute('href', '/capture');
@@ -108,15 +116,47 @@ describe('Capture', () => {
     });
 
     it('is still there on a screen outside every workspace, which is where you go back from', async () => {
-      const header = await theShell({ inside: null });
+      const { header } = await theShell({ inside: null });
 
       expect(header.getByRole('link', { name: 'Capture' })).toBeInTheDocument();
     });
 
     it('is gone for an account with no workspaces, which has nowhere to capture from', async () => {
-      const header = await theShell({ workspaces: [] });
+      const { header } = await theShell({ workspaces: [] });
 
       expect(header.queryByRole('link', { name: 'Capture' })).toBeNull();
+    });
+  });
+
+  /**
+   * Capture is in no workspace, which is what it means - and the band under the
+   * workspace tabs and the column under that both used to read "no workspace"
+   * as "a settings page", so the page came up with Manage workspaces and Manage
+   * types over it and its sheet squeezed into a column of prose width. Found in
+   * the browser on staging.
+   *
+   * The settings row is here rather than in a file of its own because it is
+   * what makes this falsifiable: the band and the column still do the settings
+   * thing, on the addresses that are settings.
+   *
+   * jsdom lays nothing out, so the column is read off the class that constrains
+   * it - which is the whole of what that wrapper is.
+   */
+  describe('the capture page is a sheet like every other screen under the shell', () => {
+    // The case that told it apart from a settings page is gone with the
+    // settings pages: the account's lists are windows over the workspace now
+    // (components/ManageWindow.tsx), so no address is drawn any differently
+    // and there is nothing left for capture to be mistaken for.
+    it('keeps the band, so the chrome is the same height as everywhere else', async () => {
+      // Empty rather than absent: the band gained its minimum height so that
+      // leaving a workspace does not take forty pixels off the chrome, and a
+      // page drawn without one would put them straight back.
+      const { container } = await theShell({ inside: null, address: '/capture' });
+
+      const band = container.querySelector('header + div');
+      expect(band).not.toBeNull();
+      expect(band!.className).toContain('min-h-11');
+      expect(band!.textContent).toBe('');
     });
   });
 });

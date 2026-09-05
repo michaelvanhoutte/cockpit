@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, ITEM_TYPE_COLORS, uuidv7 } from '@cockpit/shared';
 import type { ItemType, ItemTypeList } from '@cockpit/shared';
@@ -64,6 +64,14 @@ export function ManageTypes({
   const [dragging, setDragging] = useState<{ id: string; to: number } | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
+  /**
+   * The window itself, which the focus goes back to when a delete has taken
+   * the row's menu with the row - the reason the workspaces' window keeps
+   * one, and the dashboards' before it.
+   */
+  const list = useRef<HTMLDivElement>(null);
+  /** That a delete has happened, so the focus is owed to the window. */
+  const focusTheList = useRef(false);
   const command = useCommand();
   /**
    * The form sends its two changes one after the other, so it holds its own
@@ -111,6 +119,14 @@ export function ManageTypes({
    * form open on a name nothing holds would save into nothing.
    */
   const beingEdited = types.find((type) => type.id === editing?.id);
+
+  /** The focus, once a delete has taken the question away with the row. */
+  useEffect(() => {
+    if (!focusTheList.current || beingDeleted) return;
+    focusTheList.current = false;
+    const frame = requestAnimationFrame(() => list.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [beingDeleted]);
 
   const order = types.map((type) => type.id);
   const shownOrder = dragging ? movedTo(order, dragging.id, dragging.to) : order;
@@ -257,7 +273,12 @@ export function ManageTypes({
   const confirmDelete = (typeId: string) => {
     command.mutate(
       { name: 'delete_item_type', payload: { ...envelope(), typeId } },
-      { onSuccess: () => setDeleting(null) },
+      {
+        onSuccess: () => {
+          setDeleting(null);
+          focusTheList.current = true;
+        },
+      },
     );
   };
 
@@ -286,6 +307,7 @@ export function ManageTypes({
       onClose={close}
       canClose={!command.isPending && !saving}
       returnFocusTo={returnFocusTo}
+      ref={list}
     >
       <p className="mt-2 text-sm text-ink-faint">
         What kind of thing an item is. A new one is made by naming it when you capture something.

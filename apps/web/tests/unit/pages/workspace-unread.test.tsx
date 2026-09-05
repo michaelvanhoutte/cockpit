@@ -42,6 +42,8 @@ const params: { workspaceId?: string; dashboardId?: string } = {
 /** Whether this screen is wide enough for the Inbox to have a column. */
 let room = true;
 
+const at = { pathname: '/w/ws-work' };
+
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
     <a className={className}>{children}</a>
@@ -54,6 +56,10 @@ vi.mock('@tanstack/react-router', () => ({
   // No item named, so the shell draws no form over itself - these cases are
   // about what the workspace says when it cannot be read.
   useSearch: () => ({}),
+  // The address, because the shell asks which page this is rather than whether
+  // a workspace is named: Capture is in no workspace either.
+  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
+    select({ location: { pathname: at.pathname } }),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));

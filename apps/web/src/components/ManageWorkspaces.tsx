@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, themeOf, uuidv7 } from '@cockpit/shared';
 import type { Workspace, WorkspaceList, WorkspaceTheme } from '@cockpit/shared';
@@ -108,7 +109,21 @@ export function ManageWorkspaces({
    * it is read only as the thing it opened closes.
    */
   const askedFrom = useRef<HTMLElement | null>(null);
+  /**
+   * The window itself, which the focus goes back to when a delete has
+   * happened: the row's menu it was asked from went with the row, and the
+   * question closes by ceasing to exist rather than by being dismissed, so
+   * nothing else puts it anywhere. Left alone it falls to the workspace
+   * behind the window, and the next Tab starts from the top of a screen you
+   * cannot see - the same hole the dashboards' list records.
+   */
+  const list = useRef<HTMLDivElement>(null);
+  /** That a delete has happened, so the focus is owed to the window. */
+  const focusTheList = useRef(false);
   const command = useCommand();
+  const navigate = useNavigate();
+  /** Which workspace you are looking at behind this, which a delete may take. */
+  const params = useParams({ strict: false });
   /**
    * The form sends its two changes one after the other and reads what came
    * back, so it holds its own pending and refusal rather than the page's one
@@ -152,6 +167,20 @@ export function ManageWorkspaces({
   const beingDeleted = workspaces.find((w) => w.id === deleting);
   /** The workspace the form is open on, read from the list for the same reason. */
   const beingEdited = workspaces.find((w) => w.id === editing?.id);
+
+  /**
+   * The focus, once a delete has taken the question away with the row.
+   *
+   * A frame later rather than in the answer itself: the question does not
+   * close so much as cease to exist, and its own focus scope puts the focus
+   * back as it unmounts - onto a row that is no longer there.
+   */
+  useEffect(() => {
+    if (!focusTheList.current || beingDeleted) return;
+    focusTheList.current = false;
+    const frame = requestAnimationFrame(() => list.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [beingDeleted]);
 
   /**
    * The order the rows are painted in: what the account holds, or - while a
@@ -387,7 +416,29 @@ export function ManageWorkspaces({
           workspaceId,
         },
       },
-      { onSuccess: () => setDeleting(null) },
+      {
+        onSuccess: async () => {
+          setDeleting(null);
+          focusTheList.current = true;
+          // Only the one you are looking at. Deleting any other leaves the
+          // screen behind this window exactly where it was.
+          if (params.workspaceId !== workspaceId) return;
+          // Re-read before going anywhere: `/` decides where to land from
+          // the list of workspaces, and the list in hand still holds the one
+          // just deleted - so without this it lands you straight back on it.
+          // Deleting is the one change that does not invalidate that list on
+          // its own (api/queries.ts, `afterChanging`), because a deleted
+          // workspace's snapshot is a 404 for good.
+          await queryClient.refetchQueries({ queryKey: ['workspaces'] });
+          // **The window stays open behind that**, minus the row: the row
+          // going is the confirmation, and a second delete should not cost
+          // opening this again. The workspace decides where to land, which is
+          // whichever one is left - or the screen that makes one, when none
+          // is (router.tsx, `somewhereThatWorks`).
+          void navigate({ to: '/' });
+
+        },
+      },
     );
   };
 
@@ -422,6 +473,7 @@ export function ManageWorkspaces({
       // with would have nowhere left to appear.
       canClose={!command.isPending && !saving}
       returnFocusTo={returnFocusTo}
+      ref={list}
     >
       {/* Above the list, not after it. The list has no ceiling - it is every
           workspace the account has ever made - so a box below it is a control

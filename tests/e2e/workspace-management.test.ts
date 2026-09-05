@@ -326,8 +326,22 @@ test.describe('Workspace management', () => {
       await expect(page.getByRole('button', { name: `Actions for ${name}` })).toHaveCount(0);
       await expectNoSidewaysScroll(page);
 
-      // Going back to where it was is not a dead end: a workspace you can work
-      // in, not a failed read of one that is gone.
+      // **The workspace behind the window moves on by itself**, without
+      // going anywhere by hand. The list used to be a page, so the workspace
+      // being deleted was never the one on the screen; it is a window over
+      // one now, and this walk asked for the address by hand afterwards -
+      // which passed while the app sat on a workspace that was not there,
+      // its tabs short one and its dashboards empty behind the window.
+      await expect.poll(() => page.url()).not.toBe(itsUrl);
+      // The list stays open on top of it, minus the row: the row going is
+      // the confirmation, and a second delete should not cost opening it
+      // again.
+      await expect(page.getByRole('dialog', { name: 'Manage workspaces' })).toBeVisible();
+      await closeWindow(page, isMobile);
+      await expect(dashboardBar(page)).toBeVisible();
+
+      // And the address it left is not a dead end either: a workspace you can
+      // work in, not a failed read of one that is gone.
       await page.goto(itsUrl);
       await expect(dashboardBar(page)).toBeVisible();
       expect(page.url()).not.toBe(itsUrl);

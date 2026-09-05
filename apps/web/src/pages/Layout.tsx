@@ -491,38 +491,47 @@ function TheShell() {
           Inbox there is no column to head, and the screen it opens instead
           carries its name itself (pages/WorkspacePage.tsx).
 
-          **Only where there is a workspace for it to belong to.** That is every
-          address under the shell but one: capture is deliberately in no
-          workspace ("Capture something before you know which workspace it
-          belongs to", issue 165) and heads itself, so there is no dashboard for
-          a tab and no Inbox to name. Managing the account is not an address at
-          all any more - it is a window over whatever you were on
-          (components/ManageWindow.tsx) - which is what stopped the chrome
-          having a second, workspace-less state to be drawn in. */}
-      {params.workspaceId && (
-        <div
-          className="flex w-full items-end"
-          // Inset the same way the header above it is, so the Inbox's heading
-          // still lines up with the column it heads and the first dashboard tab
-          // does not go under a sideways phone's notch.
-          style={{
-            backgroundColor: theme.bar,
-            paddingInline: 'var(--edge-left) var(--edge-right)',
-          }}
-        >
-          {roomForTheInbox && (
-            <div className="ml-1 w-1/5 min-w-70 max-w-105 shrink-0 bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5">
-              <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
-            </div>
-          )}
-          <DashboardBar
-            workspaceId={params.workspaceId}
-            tint={theme.color}
-            ground={theme.ground}
-            openDashboardId={params.dashboardId ?? null}
-          />
-        </div>
-      )}
+          **Drawn at every address under the shell, and empty where there is
+          nothing to put in it.** Capture is deliberately in no workspace
+          ("Capture something before you know which workspace it belongs to",
+          issue 165), so it has no dashboards to tab between and no Inbox to
+          head - and a band left out there would take forty pixels off the
+          chrome between two addresses of the same app, which is what its
+          minimum height is for ("Stop the capture page wearing the settings
+          pages' chrome", pull request 191). Managing the account is not an
+          address at all any more but a window over whatever you were on
+          (components/ManageWindow.tsx), which is what took away the shell's
+          other workspace-less state. */}
+      <div
+        // As tall as a menu control standing on it - `pt-1` above one of the
+        // 36px triggers, with its own `mb-1` under it - which is what the
+        // dashboards' side comes to on its own. Said here so an address with
+        // nothing to draw in the band comes to the same thing.
+        className="flex min-h-11 w-full items-end"
+        // Inset the same way the header above it is, so the Inbox's heading
+        // still lines up with the column it heads and the first dashboard tab
+        // does not go under a sideways phone's notch.
+        style={{
+          backgroundColor: theme.bar,
+          paddingInline: 'var(--edge-left) var(--edge-right)',
+        }}
+      >
+        {params.workspaceId && (
+          <>
+            {roomForTheInbox && (
+              <div className="ml-1 w-1/5 min-w-70 max-w-105 shrink-0 bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5">
+                <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
+              </div>
+            )}
+            <DashboardBar
+              workspaceId={params.workspaceId}
+              tint={theme.color}
+              ground={theme.ground}
+              openDashboardId={params.dashboardId ?? null}
+            />
+          </>
+        )}
+      </div>
       {/* Left-aligned and full width, matching the header: pages get the whole
           screen instead of a centred column with empty gutters either side.
 
@@ -585,21 +594,15 @@ function TheShell() {
             <InboxPanel workspaceId={params.workspaceId} />
           </aside>
         )}
-        {/* Same bottom inset as the Inbox column, for the same reason. */}
+        {/* Same bottom inset as the Inbox column, for the same reason.
+
+            Every address under the shell gets the sheet now. The two that
+            wanted a column of prose width instead were the settings pages, and
+            they are windows over the workspace rather than addresses
+            (components/ManageWindow.tsx) - so the shell no longer has to ask
+            which kind of page this is. */}
         <div className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
-          {params.workspaceId ? (
-            <Outlet />
-          ) : (
-            /* A settings page is read rather than worked in, so it is a column
-               of prose width rather than a sheet of panels: a row stretched
-               across a wide screen puts a workspace's name and the menu acting
-               on it two thousand pixels apart, and the four pixels of seam that
-               a panel wants leave the text against the window's edge. Said here
-               rather than on each page, so the two cannot drift apart. */
-            <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
-              <Outlet />
-            </div>
-          )}
+          <Outlet />
         </div>
       </main>
 

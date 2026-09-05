@@ -45,6 +45,22 @@ const held = vi.hoisted(() => ({
  */
 const list = vi.hoisted(() => ({ answer: null as null | (() => Promise<unknown>) }));
 
+/**
+ * Where the window sent the screen behind it, and which workspace that screen
+ * was on. The list is a window over a workspace now, so deleting the one you
+ * are looking at has to move it on ("Rename and delete a dashboard from a
+ * dashboard settings page", issue 90, whose list does the same for a dashboard).
+ */
+const wentTo = vi.hoisted(() => ({ calls: [] as unknown[] }));
+const lookingAt = vi.hoisted(() => ({ workspaceId: 'ws-somewhere-else' as string | undefined }));
+
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => (to: unknown) => {
+    wentTo.calls.push(to);
+  },
+  useParams: () => ({ workspaceId: lookingAt.workspaceId }),
+}));
+
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   useSendCommand: vi.fn(),
@@ -172,6 +188,10 @@ async function onScreen(): Promise<string[]> {
 beforeEach(() => {
   list.answer = null;
   held.answer = null;
+  wentTo.calls = [];
+  // Looking at some other workspace unless a case says otherwise, so only
+  // the case about deleting the one you are on has to think about it.
+  lookingAt.workspaceId = 'ws-somewhere-else';
 });
 
 describe('Workspace management', () => {
@@ -754,6 +774,37 @@ describe('Workspace management', () => {
       await expect.poll(onScreen).toEqual(['Work', 'Atlas', 'Personal']);
     });
 
+  });
+
+  describe('deleting the workspace you are looking at moves the screen behind on', () => {
+    it('goes somewhere that works when it was the one in the address', async () => {
+      // The list is a window over the workspace now, so deleting the one behind
+      // it leaves you looking at a workspace that is not there any more - the
+      // tabs lose it, the dashboards empty, and closing the window puts you on
+      // nothing. Where the app lands is the router's decision (router.tsx,
+      // `somewhereThatWorks`), which is why this asks for the address and not a
+      // particular workspace.
+      lookingAt.workspaceId = 'ws-work';
+      held.items = [];
+      const user = userEvent.setup();
+      showPage({ succeeds: true });
+
+      await choose(user, 'Work', 'Delete');
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Work' }));
+
+      await expect.poll(() => wentTo.calls).toEqual([{ to: '/' }]);
+    });
+
+    it('leaves the screen where it is when it was any other workspace', async () => {
+      held.items = [];
+      const user = userEvent.setup();
+      showPage({ succeeds: true });
+
+      await choose(user, 'Work', 'Delete');
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Work' }));
+
+      expect(wentTo.calls).toEqual([]);
+    });
   });
 
   describe('the workspaces you have are listed', () => {
