@@ -9,6 +9,10 @@ import {
   type Page,
   type TestInfo,
 } from '@playwright/test';
+// The one number the walk shares with the app: how long a finger has to rest
+// before the row is picked out. Read rather than repeated, so a change to the
+// gesture cannot leave the walk holding for the old length and passing anyway.
+import { HOLD_MS } from '../../../apps/web/src/hold';
 
 /**
  * Shared arrangement for the F3 walks. Not a page-object layer — F3 is
@@ -520,6 +524,49 @@ export async function swipeRow(page: Page, title: string, across: number): Promi
         touchPoints: touch(from + (across * step) / 8),
       });
     }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await cdp.detach();
+  }
+}
+
+/**
+ * Rests a finger on an item row and holds it still, which is how a selection
+ * starts on a phone ("Start a selection with a long press, so a phone can do it
+ * too", issue 170).
+ *
+ * A real touch through CDP, like `swipeRow` above and for the same reason:
+ * Playwright's touchscreen can only tap, and what has to be proved here is that
+ * the gesture a thumb makes reaches the handler as a `touch` pointer — which a
+ * synthetic event cannot say anything about.
+ *
+ * **It holds longer than the app asks for.** `HOLD_MS` is what the app waits;
+ * a walk that waited exactly that long would be racing its own timer, and the
+ * one thing worse than a slow test is one that fails for the wrong reason.
+ *
+ * **`swipeRow`'s warning about following a CDP touch with `press` does not
+ * hold here, and the difference is measured rather than assumed.** A swipe
+ * dispatches a stream — touchStart, eight moves, touchEnd — and after one of
+ * those Playwright's own `tap()` stops landing for the rest of the page's life.
+ * This dispatches a start and an end with nothing between, and the walk that
+ * uses it goes on to tap its way between the Inbox and a dashboard afterwards.
+ * If that ever stops being true the walk fails at the navigation rather than
+ * passing quietly, so this is a note for whoever reads the two together, not a
+ * risk being carried.
+ */
+export async function holdRow(page: Page, title: string): Promise<void> {
+  const row = itemRow(page, title);
+  await row.scrollIntoViewIfNeeded();
+  const box = await row.boundingBox();
+  if (!box) throw new Error(`cannot hold ${title}: it is not on screen`);
+  const at = [
+    { x: box.x + box.width / 2, y: box.y + box.height / 2, radiusX: 8, radiusY: 8, force: 1 },
+  ];
+
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at });
+    await page.waitForTimeout(HOLD_MS + 250);
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   } finally {
     await cdp.detach();

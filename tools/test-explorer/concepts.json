@@ -212,6 +212,7 @@
       "parent": "Across the app",
       "sourcePatterns": [
         "apps/web/src/selection.ts",
+        "apps/web/src/hold.ts",
         "apps/web/src/components/SelectionBar.tsx"
       ]
     },
