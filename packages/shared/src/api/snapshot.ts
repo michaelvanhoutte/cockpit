@@ -33,7 +33,7 @@ export const workspaceSnapshotSchema = z.object({
    * because the snapshot is the workspace's read model and the client switches
    * between dashboards without a round trip (architecture, "The read model:
    * persisted snapshot, revalidate, push"). It is also what lets a dashboard's
-   * settings page say how many panels deleting one takes with it, from the same
+   * dashboards window say how many panels deleting one takes with it, from the same
    * copy the bar is drawn from.
    */
   panels: z.array(panelSchema),

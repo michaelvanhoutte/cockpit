@@ -68,8 +68,8 @@ function paint(workspace: Painted | undefined): Painted {
  * and where there is room for it, it is a column down the left of every screen
  * - the dashboards and the Inbox's own alike - because it is the thing
  * everything else flows out of rather than one more view to switch to.
- * The workspaces settings page is reached without a workspace, so it has no
- * column: there is no Inbox to show.
+ * Capture is the one screen under the shell that is in no workspace, so it
+ * has no column: there is no Inbox to show.
  */
 /**
  * The shell, and the one thing that wraps it: every row drawn below here can
@@ -234,9 +234,9 @@ function TheShell() {
    * writes to `document.documentElement` has to remember to clean up after
    * itself when there is no workspace to be in at all.
    *
-   * With none - the settings page reached before any workspace exists - it
-   * falls back to the default theme rather than to nothing, so the app is never
-   * unpainted.
+   * With none - the moment before the list has arrived, and the capture screen,
+   * which is in no workspace on purpose - it falls back to the default theme
+   * rather than to nothing, so the app is never unpainted.
    */
   const theme = paint(active);
 
@@ -358,7 +358,7 @@ function TheShell() {
 
               The scrollbar itself is hidden, the way a tab strip's is
               everywhere: drag, trackpad and keyboard focus all still move it,
-              and the full list is on the settings page a click away, so the
+              and the full list is in the window the menu opens, so the
               bar would cost a permanent grey slab under the tabs to say
               something the tabs already show by being cut off. */}
           {/* Named, because it is not the only bar of links in this header: the

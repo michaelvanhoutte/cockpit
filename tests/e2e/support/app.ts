@@ -193,7 +193,8 @@ export async function openFirstWorkspace(page: Page, isMobile: boolean): Promise
 }
 
 /**
- * Deletes a workspace from the settings page, answering the question it asks.
+ * Deletes a workspace from the window it is managed in, answering the question
+ * it asks.
  *
  * Arrangement, not assertion: the walk about *deleting* one asserts its way
  * through these same steps rather than calling this, because a helper that both
@@ -340,9 +341,9 @@ export async function closeWindow(page: Page, isMobile: boolean): Promise<void> 
 }
 
 /**
- * Chooses what to do to one row of a settings page: its own menu, then the
+ * Chooses what to do to one row of a management window: its own menu, then the
  * entry ("Ask before deleting in a dialog, from the row's own menu", issue
- * 116). Both settings pages offer their rows the same way, so both walks reach
+ * 116). All three windows offer their rows the same way, so every walk reaches
  * them the same way.
  *
  * This is also how a phone edits a row: the double-click that opens the same

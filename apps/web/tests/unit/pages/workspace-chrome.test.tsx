@@ -236,7 +236,7 @@ describe('Workspace management', () => {
     });
 
     it('paints in the default theme where there is no workspace to be in, rather than in nothing', async () => {
-      // The workspaces settings page is reached without one.
+      // Capture is the screen under the shell that is in no workspace.
       const { container } = await theShell();
 
       expect(filledWith(container.querySelector('header'))).toBe(rgb(VIOLET.header));

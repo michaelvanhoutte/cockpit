@@ -37,7 +37,7 @@ function asRgb(hex: string): string {
  * It is not re-proving the naming rules, which
  * apps/api/tests/integration/http/workspace-management.test.ts owns against a
  * real database, nor the form's own behaviour, which
- * apps/web/tests/unit/pages/WorkspaceSettingsPage.test.tsx owns, nor where the
+ * apps/web/tests/unit/components/ManageWorkspaces.test.tsx owns, nor where the
  * router sends you when a workspace is gone, which
  * apps/web/tests/unit/router.test.tsx owns. One walk per capability - making
  * one, renaming one, deleting one - saying it works for a person.
@@ -70,7 +70,7 @@ test.describe('Workspace management', () => {
       // viewport, on screen by 39 pixels and by nothing anyone chose. How many
       // workspaces are there when this runs is decided by whatever ran before
       // it - the run shares one database - so the box is now above the list
-      // rather than after it (WorkspaceSettingsPage.tsx) and this can ask for
+      // rather than after it (ManageWorkspaces.tsx) and this can ask for
       // the whole control.
       await expect(box).toBeInViewport({ ratio: 1 });
       await expectNoSidewaysScroll(page);
@@ -79,7 +79,7 @@ test.describe('Workspace management', () => {
       await box.fill(name);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
 
-      // In the header, not merely somewhere on the settings page: being able to
+      // In the header, not merely somewhere in the window: being able to
       // switch to it is the whole point of having made it.
       const tab = workspaceTab(page, name);
       await expect(tab).toBeVisible();
@@ -143,7 +143,10 @@ test.describe('Workspace management', () => {
   });
 
   test.describe('a workspace you rename is called that everywhere you see it', () => {
-    test('changes the name in the tabs, from the settings page', async ({ page, isMobile }) => {
+    test('changes the name in the tabs, from the window it is managed in', async ({
+      page,
+      isMobile,
+    }) => {
       const before = uniqueTitle('Bookkeeping');
       const after = uniqueTitle('Accounts');
       await openFirstWorkspace(page, isMobile);
@@ -165,8 +168,8 @@ test.describe('Workspace management', () => {
   test.describe('a workspace you move is where you put it in the tabs', () => {
     /**
      * F3 for both halves, for different reasons. The menu's half has to be
-     * proved in the *header* - what the settings page sends is settled in
-     * apps/web/tests/unit/pages/WorkspaceSettingsPage.test.tsx, and that the
+     * proved in the *header* - what the window sends is settled in
+     * apps/web/tests/unit/components/ManageWorkspaces.test.tsx, and that the
      * server keeps the order in apps/api/tests/integration/http - and the
      * header is a different component on a page that was already open. The
      * drag exists nowhere below a browser at all: where the pointer is over
@@ -179,7 +182,7 @@ test.describe('Workspace management', () => {
      *
      * And put back afterwards, which the other walks here do not have to do
      * because they make one workspace rather than two. Four extra rows on the
-     * settings page once pushed the box for making a new one off the bottom of
+     * window once pushed the box for making a new one off the bottom of
      * a 480px screen and failed the walk above that says it is reachable there;
      * the box sits above the list now, so that is no longer what this is
      * guarding. What it guards is this walk itself: the two rows it drags are
@@ -400,7 +403,7 @@ test.describe('Workspace management', () => {
 
       // Put back, the way the reordering walks put theirs back. This is the
       // only walk that makes several at once, and every spec in a run shares
-      // one database: three left behind lengthen the settings page for every
+      // one database: three left behind lengthen the window's list for every
       // walk after this one, which is how this first went red - a later walk
       // on a phone found its own form pushed below the fold.
       await openSettings(page, isMobile);

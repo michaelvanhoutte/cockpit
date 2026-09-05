@@ -20,7 +20,7 @@ import {
  * It is not re-proving the naming rules, which
  * apps/api/tests/integration/http/item-types.test.ts owns against a real store,
  * nor the page's own behaviour, which
- * apps/web/tests/unit/pages/ItemTypeSettingsPage.test.tsx owns. One walk for
+ * apps/web/tests/unit/components/ManageTypes.test.tsx owns. One walk for
  * the capability, saying it works for a person.
  *
  * It renames a type it made itself. Every spec in a run shares one database

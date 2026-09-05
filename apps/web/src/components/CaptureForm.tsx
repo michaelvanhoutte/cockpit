@@ -19,7 +19,7 @@ import { typesOffered, typeToOffer } from '../itemTypes';
  * see which it is", issue 155). The types you already have are offered, the
  * ones you used last first, and a name matching none of them makes a new type -
  * which is the only way one comes into existence, because a type you need once
- * is not worth a trip to a settings page.
+ * is not worth a trip to the window they are managed in.
  *
  * **A text box with a list attached rather than a menu**, so one control does
  * both jobs: choosing from what is there and naming something that is not. A

@@ -7,7 +7,7 @@ import { z } from 'zod';
  * you are currently in").
  *
  * **Shared, because both ends need the same list for different halves of the
- * same rule.** The settings page draws the swatches from it; the server refuses
+ * same rule.** The workspaces window draws the swatches from it; the server refuses
  * anything that is not one of them. A palette living on only one side would be
  * a palette the other side could not hold anybody to.
  */
@@ -124,8 +124,8 @@ export const DEFAULT_WORKSPACE_THEME: WorkspaceTheme = WORKSPACE_THEMES[0]!;
  *
  * Looked up by tint because the tint is the one color a workspace has always
  * had: it is what the migration reads to give an existing workspace the rest of
- * its theme, and what the settings page reads to show which swatch is the
- * current one.
+ * its theme, and what the workspaces window reads to show which swatch is
+ * the current one.
  */
 export function themeOf(tint: string): WorkspaceTheme {
   return WORKSPACE_THEMES.find((theme) => theme.tint === tint) ?? DEFAULT_WORKSPACE_THEME;
