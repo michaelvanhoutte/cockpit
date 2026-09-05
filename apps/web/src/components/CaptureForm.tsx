@@ -31,23 +31,16 @@ export function CaptureForm({
   workspaceId,
   types,
   items,
-  decided = true,
-  autoFocus = false,
-  onCaptured,
 }: {
+  /**
+   * The workspace this row is inside, which is where what it captures belongs -
+   * it is the Inbox's row, so the question has already been answered. Capturing
+   * without answering it is the page's ("Capture something before you know
+   * which workspace it belongs to", issue 165).
+   */
   workspaceId: string;
   types: readonly ItemType[];
   items: readonly Item[];
-  /**
-   * Whether `workspaceId` is where what this captures *belongs*, or only where
-   * it was captured from ("Capture something before you know which workspace it
-   * belongs to", issue 165).
-   */
-  decided?: boolean;
-  /** True where the box is the only thing on screen. */
-  autoFocus?: boolean;
-  /** Told once the capture has been asked for, so a caller can react. */
-  onCaptured?: () => void;
 }) {
   const [message, setMessage] = useState('');
   const [typeName, setTypeName] = useState('');
@@ -84,15 +77,12 @@ export function CaptureForm({
     if (!trimmed) return;
 
     ask(
-      { message: trimmed, typeName, types, workspaceId, decided },
+      { message: trimmed, typeName, types, workspaceId, decided: true },
       {
         asking: () => {
           setMessage('');
           setRefused(null);
         },
-        // Told only once it landed, so a window closing on this does not close
-        // over a refusal nobody has read.
-        captured: () => onCaptured?.(),
         refused: (why) => {
           setMessage(trimmed);
           setRefused(why);
@@ -115,7 +105,6 @@ export function CaptureForm({
         onChange={(e) => setMessage(e.target.value)}
         placeholder="Capture a note or to-do…"
         aria-label="Capture a note or to-do"
-        autoFocus={autoFocus}
         className="min-w-0 flex-1 basis-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
       <input

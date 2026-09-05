@@ -22,6 +22,8 @@ const held = vi.hoisted(() => ({
   send: vi.fn(),
   /** The types the account holds, re-read after one is made. */
   types: [] as unknown[],
+  /** The workspaces the account holds, which another tab can delete one of. */
+  workspaces: [] as unknown[],
   items: [] as unknown[],
   /** What a capture is refused with, if it is. */
   refuses: null as Error | null,
@@ -38,19 +40,16 @@ vi.mock('../../../src/api/queries', () => ({
   },
   workspacesQuery: {
     queryKey: ['workspaces'],
-    queryFn: () =>
-      Promise.resolve({
-        workspaces: [
-          { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' },
-          { id: 'ws-home', tenantId: 'tenant', name: 'Home', color: '#3f8f78' },
-        ],
-      }),
+    queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
   },
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
     queryFn: () => Promise.resolve({ items: held.items }),
   }),
 }));
+
+const WORK = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' };
+const HOME = { id: 'ws-home', tenantId: 'tenant', name: 'Home', color: '#3f8f78' };
 
 function aType(name: string, at: number, color: string): ItemType {
   return {
@@ -85,6 +84,7 @@ async function thePage({
 } = {}) {
   held.types = types;
   held.items = items;
+  held.workspaces = [WORK, HOME];
   held.refuses = null;
   held.refusesTheType = null;
   localStorage.clear();
@@ -106,14 +106,15 @@ async function thePage({
     return Promise.resolve();
   });
 
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <CapturePage />
     </QueryClientProvider>,
   );
   // Nothing to choose from until the account's types and workspaces arrive.
   await screen.findByRole('button', { name: 'Action' });
-  return userEvent.setup();
+  return Object.assign(userEvent.setup(), { client });
 }
 
 const box = () => screen.getByLabelText('What is on your mind?');
@@ -181,6 +182,25 @@ describe('Capture', () => {
       // The type the account ended up holding, not the id this page invented:
       // another tab naming the same type first keeps its own row.
       expect(captured().payload.typeId).toBe(ERRAND.id);
+    });
+
+    it('falls back to Any workspace when the one chosen is deleted in another tab', async () => {
+      const user = await thePage();
+      await user.click(chip('Work'));
+
+      // Deleted elsewhere, and this page finds out the way every screen does -
+      // the list it is drawn from comes back without it.
+      held.workspaces = [HOME];
+      await user.client.invalidateQueries({ queryKey: ['workspaces'] });
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Work' })).toBeNull());
+
+      // Which is what the row now says, rather than nothing being chosen.
+      expect(chip('Any workspace')).toHaveAttribute('aria-pressed', 'true');
+      await user.type(box(), 'Where does this go');
+      await user.click(chip('Capture'));
+
+      expect(captured().payload.workspaceId).toBe('ws-home');
+      expect(captured().payload.workspaceDecided).toBe(false);
     });
 
     it('captures nothing at all for an empty note', async () => {

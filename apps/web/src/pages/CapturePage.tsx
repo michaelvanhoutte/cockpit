@@ -75,6 +75,14 @@ export function CapturePage() {
    */
   const chosen = naming.trim() ? undefined : typeNamed(known, typeName);
 
+  /**
+   * Where it belongs, as against which chip was pressed: a workspace deleted in
+   * another tab takes its chip off this row, and what was chosen then falls
+   * back to *Any workspace* rather than to a capture the server will refuse.
+   * The screen and the capture agree either way.
+   */
+  const belongsTo = workspaces.some((one) => one.id === where) ? where : null;
+
   // The type used last, filled in for you, for the reason the Inbox's row does
   // it: the type you want is nearly always the one you just used, and an empty
   // choice stays empty because clearing it is a thing somebody did on purpose.
@@ -98,8 +106,8 @@ export function CapturePage() {
         types: known,
         // The workspace chosen, or the one this was captured from - and the
         // difference between the two is the whole of `decided`.
-        workspaceId: where ?? from,
-        decided: where !== null,
+        workspaceId: belongsTo ?? from,
+        decided: belongsTo !== null,
       },
       {
         asking: () => {
@@ -110,7 +118,7 @@ export function CapturePage() {
           setNaming('');
           if (wanted) setTypeName(wanted);
           setJustCaptured((already) => [
-            { at: Date.now(), message: trimmed, typeId, typeName: wanted, workspaceId: where },
+            { at: Date.now(), message: trimmed, typeId, typeName: wanted, workspaceId: belongsTo },
             ...already,
           ]);
         },
@@ -209,13 +217,13 @@ export function CapturePage() {
         <Choice label="Where" optional>
           {/* First and selected to start with: the whole point of capturing
               here is not having to answer this yet. */}
-          <Chip name="Any workspace" chosen={where === null} onChoose={() => setWhere(null)} />
+          <Chip name="Any workspace" chosen={belongsTo === null} onChoose={() => setWhere(null)} />
           {workspaces.map((workspace: Workspace) => (
             <Chip
               key={workspace.id}
               name={workspace.name}
               dot={workspace.color}
-              chosen={where === workspace.id}
+              chosen={belongsTo === workspace.id}
               onChoose={() => setWhere(workspace.id)}
             />
           ))}
