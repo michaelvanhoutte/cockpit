@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
+import { themeOf } from '@cockpit/shared';
 import { ACCOUNT_NAME, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
@@ -62,35 +63,22 @@ describe('Workspace management', () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
         workspaces: [
-          {
-            id: 'ws-work',
-            tenantId: ACCOUNT_NAME,
-            name: 'Work',
-            color: '#6f62b5',
-            bar: '#dbd7ee',
-            ground: '#e3e1f2',
-            header: '#d2cdea',
-          },
-          {
-            id: 'ws-atlas',
-            tenantId: ACCOUNT_NAME,
-            name: 'Atlas Copco',
-            color: '#3a72c8',
-            bar: '#cbdef5',
-            ground: '#d8e5f7',
-            header: '#bed6f2',
-          },
-          {
-            id: 'ws-personal',
-            tenantId: ACCOUNT_NAME,
-            name: 'Personal',
-            color: '#c06a45',
-            bar: '#eedcc4',
-            ground: '#f2e5d4',
-            header: '#ead2b3',
-          },
+          // The colours are read off the palette rather than written out: the
+          // three surfaces are repainted by an account's own changes when the
+          // palette moves (`accounts/changes.ts`, `0010-workspace-ink`), and a
+          // copy of them here would say only that somebody remembered to edit
+          // this file.
+          { id: 'ws-work', tenantId: ACCOUNT_NAME, name: 'Work', ...wearing('#6f62b5') },
+          { id: 'ws-atlas', tenantId: ACCOUNT_NAME, name: 'Atlas Copco', ...wearing('#3a72c8') },
+          { id: 'ws-personal', tenantId: ACCOUNT_NAME, name: 'Personal', ...wearing('#c06a45') },
         ],
       });
     });
   });
 });
+
+/** A workspace's four colours, in the shape the wire carries them. */
+function wearing(tint: string) {
+  const theme = themeOf(tint);
+  return { color: theme.tint, bar: theme.bar, ground: theme.ground, header: theme.header };
+}

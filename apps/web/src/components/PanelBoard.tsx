@@ -227,10 +227,7 @@ export function PanelBoard({
    * A new layout is made silently when there is none, because "change the
    * layout you are on" is not an answer when you are not on one.
    */
-  const propose = (
-    next: PanelPlacement[],
-    { from = null, record = false }: { from?: HTMLElement | null; record?: boolean } = {},
-  ) => {
+  const propose = (next: PanelPlacement[], { from = null }: { from?: HTMLElement | null } = {}) => {
     // Against what has been *sent* - or the store, where nothing has - rather
     // than against what is drawn. Three cases have to come out right, and only
     // this comparison gets all three: a corner drag is drawn on every pointer
@@ -239,11 +236,13 @@ export function PanelBoard({
     // where the snapshot has it still has to be sent when an earlier one moved
     // it; and a gesture that really changes nothing must send nothing.
     //
-    // `record` is the exception, and it is "Fit to this screen" on a dashboard
-    // that has no layout: what it computes is exactly what such a dashboard is
-    // already drawn with (arrangement.ts), so nothing moves - and the point of
-    // pressing it, recording a layout for this screen, has still not happened.
-    if (!record && sameArrangement(next, sent.current ?? stored)) return;
+    // There used to be an exception for "Fit to this screen" on a dashboard
+    // with no layout - what it computed was what such a dashboard is already
+    // drawn with, so nothing moved and the point of the press, recording a
+    // layout, had not happened. That button is gone ("Cockpit Shell
+    // Explorations", artboard 2c) and with it the only gesture that meant
+    // anything while changing nothing.
+    if (sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
     setDraft(next);
     askedFrom.current = from;
@@ -339,94 +338,19 @@ export function PanelBoard({
   };
 
   return (
-    <div ref={measure} className="flex min-w-0 flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        {/* The name, for whoever is not looking at the screen. It used to be a
-            heading here as well as the tab above, which said the same thing
-            twice a centimetre apart ("Modernise the app shell", issue 125) -
-            and the tab is the one that says *which of several*, so the tab is
-            the one that stays. The controls after this keep their place by the
-            `mr-auto` moving onto the first of them. */}
-        <h2 className="sr-only">{dashboard.name}</h2>
-
-        {/* The name is asked for in a dialog rather than in a field grown here
-            (NewPanelQuestion): a box wide enough to read a title in pushed the
-            two controls after it onto a second row while it was open, so
-            starting to add a panel moved Layouts out from under the pointer -
-            and on a phone the bar was already two rows before it opened. */}
-        <button
-          type="button"
-          ref={addButton}
-          onClick={() => {
-            command.reset();
-            setNaming('');
-          }}
-          className="milled ml-auto shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep"
-        >
-          Add a panel
-        </button>
-
-        {/* The button the issue asks for: rearrange what is here for the screen
-            it is on now, keeping the order and filling rows left to right. It
-            goes through the same question as a drag, because it changes the
-            arrangement in exactly the same way. */}
-        <button
-          type="button"
-          disabled={shown.length === 0}
-          onClick={(e) =>
-            propose(fittedToScreen(shown, acrossWidth), {
-              from: e.currentTarget,
-              record: !drawnWith,
-            })
-          }
-          className="shrink-0 rounded-md border border-black/10 px-2.5 py-1 text-xs hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-        >
-          Fit to this screen
-        </button>
-
-        <DropdownMenu.Root>
-          <MenuTrigger label="Layouts" />
-          <MenuContent>
-            <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
-              Layout for this dashboard
-            </DropdownMenu.Label>
-            <DropdownMenu.RadioGroup
-              value={chosen ?? AUTOMATIC}
-              onValueChange={(value) => chooseFor(value === AUTOMATIC ? null : value)}
-            >
-              <DropdownMenu.RadioItem value={AUTOMATIC} className={menuItemClass}>
-                Whichever fits this screen
-              </DropdownMenu.RadioItem>
-              {its.map((layout) => (
-                <DropdownMenu.RadioItem
-                  key={layout.id}
-                  value={layout.id}
-                  className={menuItemClass}
-                >
-                  {`Made for ${layout.screenWidth} px`}
-                  {layout.id === drawnWith?.id && (
-                    <span className="block text-xs text-ink-faint">in use</span>
-                  )}
-                </DropdownMenu.RadioItem>
-              ))}
-            </DropdownMenu.RadioGroup>
-            {drawnWith && (
-              <DropdownMenu.Item
-                className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
-                onSelect={() => deleteLayout(drawnWith.id)}
-              >
-                {`Delete the ${drawnWith.screenWidth} px layout`}
-              </DropdownMenu.Item>
-            )}
-          </MenuContent>
-        </DropdownMenu.Root>
-      </div>
+    <div ref={measure} className="flex min-w-0 flex-col">
+      {/* The name, for whoever is not looking at the screen. It used to be a
+          heading here as well as the tab above, which said the same thing
+          twice a centimetre apart ("Modernise the app shell", issue 125) -
+          and the tab is the one that says *which of several*, so the tab is
+          the one that stays. */}
+      <h2 className="sr-only">{dashboard.name}</h2>
 
       {/* Only the arrangement's, and only where no question is holding it: a
           refused add is said inside the dialog that asked for the name, which
           is where the name still is. */}
       {refusalFor('save_layout') && !asking && (
-        <p role="alert" className="text-sm text-over">
+        <p role="alert" className="px-4 py-2 text-sm text-over">
           {refusalFor('save_layout')}
         </p>
       )}
@@ -434,10 +358,10 @@ export function PanelBoard({
       {panels.length === 0 ? (
         // An invitation rather than an apology: it says what a dashboard is for
         // instead of reporting that this one is empty ("Modernise the app
-        // shell", issue 125). No control of its own - Add panel is already in
-        // the bar above, and a second way to press the same thing is a second
-        // thing to keep in step.
-        <section className="rounded-lg bg-surface px-4 py-14 text-center shadow-panel">
+        // shell", issue 125). No control of its own - Add a panel is in the
+        // strip right under it, and a second way to press the same thing is a
+        // second thing to keep in step.
+        <section className="well px-4 py-14 text-center">
           <p className="mx-auto max-w-md text-sm text-ink-faint">
             A dashboard holds the panels you want in view — a slice of your work, kept where you can
             see it. This one has none yet.
@@ -507,6 +431,73 @@ export function PanelBoard({
           })}
         </div>
       )}
+
+      {/* The foot of the sheet: where a panel is made, and where the
+          arrangement it joins is chosen ("Cockpit Shell Explorations",
+          artboard 2c).
+
+          **Adding a panel happens where panels live.** It was a filled button
+          in a toolbar over the dashboard, which could say that a panel would
+          appear but not where; at the end of the arrangement it is the place the
+          new panel goes. It costs one hairline rule rather than a panel-sized
+          hole - an outlined full-width track was tried first and took too much
+          of the screen for something you press now and then.
+
+          **Layouts is here rather than in the band above**, which is where the
+          artboard draws it: the band is the shell's and is drawn on the Inbox
+          too, where there is no dashboard to have a layout, so folding these
+          entries into its menu would mean the page publishing entries up into
+          the shell. Beside adding a panel is the other true home - both are
+          about how this dashboard is arranged. */}
+      <div className="mt-1 flex items-center shadow-[inset_0_1px_0_0_rgb(93_82_148/0.28)]">
+        {/* The name is asked for in a dialog rather than in a field grown here
+            (NewPanelQuestion): a box wide enough to read a title in would push
+            the menu beside it out from under the pointer as it opened. */}
+        <button
+          type="button"
+          ref={addButton}
+          onClick={() => {
+            command.reset();
+            setNaming('');
+          }}
+          className="min-w-0 flex-1 self-stretch px-4 py-1.5 text-left text-xs font-medium text-accent-deep hover:bg-accent-tint"
+        >
+          + Add a panel
+        </button>
+
+        <DropdownMenu.Root>
+          <MenuTrigger label="Layouts" />
+          <MenuContent>
+            <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
+              Layout for this dashboard
+            </DropdownMenu.Label>
+            <DropdownMenu.RadioGroup
+              value={chosen ?? AUTOMATIC}
+              onValueChange={(value) => chooseFor(value === AUTOMATIC ? null : value)}
+            >
+              <DropdownMenu.RadioItem value={AUTOMATIC} className={menuItemClass}>
+                Whichever fits this screen
+              </DropdownMenu.RadioItem>
+              {its.map((layout) => (
+                <DropdownMenu.RadioItem key={layout.id} value={layout.id} className={menuItemClass}>
+                  {`Made for ${layout.screenWidth} px`}
+                  {layout.id === drawnWith?.id && (
+                    <span className="block text-xs text-ink-faint">in use</span>
+                  )}
+                </DropdownMenu.RadioItem>
+              ))}
+            </DropdownMenu.RadioGroup>
+            {drawnWith && (
+              <DropdownMenu.Item
+                className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
+                onSelect={() => deleteLayout(drawnWith.id)}
+              >
+                {`Delete the ${drawnWith.screenWidth} px layout`}
+              </DropdownMenu.Item>
+            )}
+          </MenuContent>
+        </DropdownMenu.Root>
+      </div>
 
       {/* Mounted whether or not it is open, unlike the questions below it: a
           dialog torn out from above is never told it closed, so it never gets

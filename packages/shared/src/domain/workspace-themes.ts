@@ -23,7 +23,7 @@ export const hexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/, 'a color is #rr
  * - `header` is the bar across the top, the deepest of the three surfaces.
  * - `bar` is the strip the dashboard tabs sit on, one step lighter than
  *   `header`.
- * - `ground` is the page behind the panels, the lightest.
+ * - `ground` is the sheet behind the panels, the lightest.
  *
  * The three surfaces run deepest at the top of the screen to lightest at the
  * bottom, and the two tab strips sit at the steps between them: the selected
@@ -31,6 +31,15 @@ export const hexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/, 'a color is #rr
  * selected dashboard tab is filled with `ground` and joins the page. That is
  * what makes the container hierarchy legible as depth rather than as two rows
  * of pills on one fill (functional definition, "Container hierarchy").
+ *
+ * **The two chrome surfaces are near-black and the sheet is near-white**, which
+ * is the whole of the step rather than three neighbouring tints of one hue.
+ * Chrome and content are different kinds of thing - one is where you are, the
+ * other is what you are working on - and the old palette said so with eight
+ * values of grey between them, which read as one pale surface with lines drawn
+ * on it. The consequence for everything drawn on the chrome is that its text
+ * and icons are a fixed light set rather than the app's ink, because a surface
+ * this dark cannot carry the ink and no theme is light enough to need it to.
  *
  * Four rather than one because that is what actually makes a workspace
  * recognisable at a glance, and one is all the app had: the tint drove a dot
@@ -61,31 +70,41 @@ export type WorkspaceTheme = z.infer<typeof workspaceThemeSchema>;
  * keep the fixed neutral and accent palette - so no choice here can make
  * anything unreadable.
  *
- * The first three are the prototype's own, so the seeded Work, Atlas Copco and
- * Personal keep the identity they have always had: its three tints from
- * `poc/prototype/app.js`, and the two grounds it hard-codes in
- * `poc/prototype/styles.css` beside the default one on `:root`. The other five
- * continue the same shape - the tints already in use, each given a ground and a
- * header at the lightness the first three sit at, in its own hue.
+ * The tints are the ones the app has always handed out and are not touched
+ * here: a tint is the colour a person already recognises in the tabs, and it is
+ * also the key the change that repaints a workspace's surfaces matches on
+ * (`accounts/changes.ts`, `0010-workspace-ink`).
  *
- * Every `bar` is the midpoint of its own theme's `header` and `ground`, which
- * is what "one step lighter" means when the two ends were the designed pair.
- * They are written out rather than computed for the reason the schema gives:
- * an entry stays tunable by hand without the others moving.
+ * **The three surfaces are one set of lightnesses in eight hues**, so a
+ * workspace is a near-black in its own colour rather than a near-black in
+ * violet, and switching workspace still repaints the shell in front of you.
+ *
+ * The lightnesses are artboard 2c's ("Cockpit Shell Explorations"); the
+ * saturation is not, and the difference is why. Drawn at the artboard's own
+ * thirteen percent, two themes are two or three values of blue apart on a
+ * near-black bar - measured in the running app, Violet and Blue were
+ * indistinguishable side by side, which takes away the one thing the surfaces
+ * are for. At around a third they read as a violet-black, a navy-black and a
+ * brown-black while staying dark enough for one fixed light set of text.
+ *
+ * Every `bar` is one step up from its own theme's `header`, which is what "one
+ * step lighter" means when both ends are near-black. They are written out
+ * rather than computed for the reason the schema gives: an entry stays tunable
+ * by hand without the others moving.
  *
  * The order is the order colors are handed out to new workspaces, so a
  * workspace is distinguishable from the moment it exists without anybody being
  * asked.
  */
 export const WORKSPACE_THEMES: readonly WorkspaceTheme[] = [
-  { name: 'Violet', tint: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
-  { name: 'Blue', tint: '#3a72c8', bar: '#cbdef5', ground: '#d8e5f7', header: '#bed6f2' },
-  { name: 'Terracotta', tint: '#c06a45', bar: '#eedcc4', ground: '#f2e5d4', header: '#ead2b3' },
-  { name: 'Teal', tint: '#3f8f78', bar: '#cbe4dc', ground: '#d9ece6', header: '#bcdcd2' },
-  { name: 'Magenta', tint: '#a8548c', bar: '#edd3e4', ground: '#f2dfec', header: '#e8c6dc' },
-  { name: 'Amber', tint: '#b58a2f', bar: '#eee2c2', ground: '#f2e9d3', header: '#e9dab0' },
-  { name: 'Cyan', tint: '#4f8fa8', bar: '#cde2eb', ground: '#dbeaf0', header: '#bfdae5' },
-  { name: 'Olive', tint: '#7d8f3f', bar: '#dde4c6', ground: '#e6ebd6', header: '#d3dcb6' },
+  { name: 'Violet', tint: '#6f62b5', bar: '#211d37', ground: '#edebf7', header: '#18152b' },
+  { name: 'Blue', tint: '#3a72c8', bar: '#1d2737', ground: '#ebf0f7', header: '#151e2b' },
+  { name: 'Terracotta', tint: '#c06a45', bar: '#37251d', ground: '#f7efeb', header: '#2b1c15' },
+  { name: 'Teal', tint: '#3f8f78', bar: '#1d372f', ground: '#ebf7f3', header: '#152b24' },
+  { name: 'Magenta', tint: '#a8548c', bar: '#371d2e', ground: '#f7ebf3', header: '#2b1523' },
+  { name: 'Amber', tint: '#b58a2f', bar: '#372f1d', ground: '#f7f3eb', header: '#2b2415' },
+  { name: 'Cyan', tint: '#4f8fa8', bar: '#1d3037', ground: '#ebf4f7', header: '#15252b' },
+  { name: 'Olive', tint: '#7d8f3f', bar: '#31371d', ground: '#f4f7eb', header: '#262b15' },
 ] as const;
 
 /**

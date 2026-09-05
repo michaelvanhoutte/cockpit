@@ -121,16 +121,11 @@ function clamp(value: number, low: number, high: number): number {
  * An arrangement made for the width the panels have: them in the order given,
  * filling rows left to right, each one an equal share of it.
  *
- * This is what "Fit to this screen" does and what a dashboard with no layout at
- * all is drawn with, which is deliberately the same function: the arrangement
- * you get before you have arranged anything should be the arrangement the
- * button would give you, rather than the button moving everything the first
- * time it is pressed.
- *
- * That does mean pressing it on a never-arranged dashboard changes nothing on
- * screen. It is not a no-op, though, and the board is careful about the
- * difference: what the press records is a *layout* for this screen, which is
- * the thing that was not there before.
+ * This is what a dashboard with no layout at all is drawn with. There used to be
+ * a "Fit to this screen" button that called it as well, on a dashboard already
+ * drawn this way - so it moved nothing and existed to record the layout; it is
+ * gone ("Cockpit Shell Explorations", artboard 2c), and a dashboard's first
+ * layout is now recorded by its first move or resize.
  *
  * Heights are left alone. Rearranging is about how many fit across; a panel
  * somebody made tall stays tall, and a phone layout does not silently flatten

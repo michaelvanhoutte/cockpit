@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { WorkspaceSnapshot } from '@cockpit/shared';
+import { DEFAULT_WORKSPACE_THEME, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { CaptureWindow } from '../../../src/components/CaptureWindow';
 
@@ -76,7 +76,7 @@ async function theWindow() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <CaptureWindow workspaceId="ws-work" />
+      <CaptureWindow workspaceId="ws-work" tint={DEFAULT_WORKSPACE_THEME.tint} />
     </QueryClientProvider>,
   );
   return userEvent.setup();
