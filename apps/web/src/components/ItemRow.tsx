@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { uuidv7, workspaceIsDecided, type Item, type ItemType } from '@cockpit/shared';
+import { itemLabel, uuidv7, workspaceIsDecided, type Item, type ItemType } from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { HOLD_MS, stillHolding } from '../hold';
@@ -16,6 +16,7 @@ export function ItemRow({
   onMoveTo,
   ordering,
   onAddTo,
+  onOpen,
   onRemoveFromHere,
   onMoveHere,
   selecting,
@@ -59,6 +60,14 @@ export function ItemRow({
    * remove it from.
    */
   onAddTo?: (openedFrom: HTMLElement | null) => void;
+  /**
+   * Asked to open this Item's form ("Edit an item's title and description on a
+   * form of its own", issue 159). Two ways in, neither the lesser: a
+   * double-click on the row, and **Open** in its menu - which is the only way a
+   * keyboard has and the comfortable way on a phone, where a double-tap is a
+   * gesture the browser has already spent on zooming.
+   */
+  onOpen?: () => void;
   onRemoveFromHere?: () => void;
   /**
    * Asked to make this the item's workspace ("Capture something before you know
@@ -114,7 +123,7 @@ export function ItemRow({
       {
         onSuccess: () =>
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” marked done`,
+            what: `“${itemLabel(item)}” marked done`,
             undo: () =>
               send({
                 name: 'set_done',
@@ -152,7 +161,7 @@ export function ItemRow({
       {
         onSuccess: () =>
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” dismissed`,
+            what: `“${itemLabel(item)}” dismissed`,
             undo: () =>
               send({
                 name: 'set_dismissed',
@@ -315,11 +324,33 @@ export function ItemRow({
       // this gesture is - and the reason there is no drag on touch at all,
       // where the same movement is a swipe.
       draggable
+      // A double-click opens the form. Not a single click: a row is dragged,
+      // swiped and dropped on, and every one of those begins with a press.
+      //
+      // **Only when the row itself was double-clicked**, which is two different
+      // questions because a React event bubbles through the component tree
+      // rather than the DOM one.
+      //
+      // *Inside this row at all*: the menu's entries are drawn in a portal on
+      // the body, so a double press on one reaches this handler while sitting
+      // nowhere near the `li` in the DOM. `contains` is what tells them apart -
+      // and it is not hypothetical, because an unavailable **Move up** keeps
+      // the menu open under the second press (`MoveAStep`).
+      //
+      // *And not on a control of the row's own*: the menu's three dots is a
+      // button inside the `li`, so containment alone would let a double press
+      // on it open the form as well as the menu.
+      onDoubleClick={(event) => {
+        const hit = event.target as Node;
+        if (!event.currentTarget.contains(hit)) return;
+        if ((hit as Element).closest?.('button')) return;
+        onOpen?.();
+      }}
       onDragStart={(event) => {
         event.dataTransfer.setData(ITEM_BEING_DRAGGED, item.id);
         // Its own type *and* text, because Firefox starts no drag at all
         // without something it recognises on the transfer.
-        event.dataTransfer.setData('text/plain', item.nextAction ?? item.title);
+        event.dataTransfer.setData('text/plain', itemLabel(item));
         event.dataTransfer.effectAllowed = 'move';
       }}
       style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
@@ -343,7 +374,7 @@ export function ItemRow({
         <input
           type="checkbox"
           checked={selecting.picked}
-          aria-label={`Select “${item.nextAction ?? item.title}”`}
+          aria-label={`Select “${itemLabel(item)}”`}
           // `onClick` rather than `onChange`, because whether shift was held is
           // what tells a range from a single pick and only the click carries it.
           onClick={(event) => {
@@ -379,7 +410,25 @@ export function ItemRow({
         />
       )}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm">{item.nextAction ?? item.title}</span>
+        <span className="flex min-w-0 items-center gap-1 text-sm">
+          <span className="truncate">{itemLabel(item)}</span>
+          {/* That there is something written about this Item, not what it says
+              - the description is paragraphs and this is a row. A mark rather
+              than a snippet, so the row keeps the height "Create an item on a
+              panel, edit it in place, and list every item plainly" (issue 140)
+              settled, and
+              titled rather than lettered because it has nothing to spell. */}
+          {item.description && (
+            <span
+              className="shrink-0 text-ink-faint"
+              title="Has a description"
+              aria-label="Has a description"
+              role="img"
+            >
+              ¶
+            </span>
+          )}
+        </span>
         {/* What it is and where it came from, on one line under the title. The
             two marks the status used to hold - the dot at the head of the row
             and the first word here - are what the type took ("Capture a thought
@@ -428,6 +477,18 @@ export function ItemRow({
             event.preventDefault();
           }}
         >
+          {onOpen && (
+            <DropdownMenu.Item
+              className={menuItemClass}
+              onSelect={() => {
+                // The form takes the focus itself, like the pickers below.
+                opening.current = true;
+                onOpen();
+              }}
+            >
+              Open
+            </DropdownMenu.Item>
+          )}
           {/* The common case in one press ("Capture something before you know
               which workspace it belongs to", issue 165): a row read in Work is
               usually Work's, and saying so should not cost a dialog listing

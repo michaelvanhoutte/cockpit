@@ -52,7 +52,8 @@ function anItemOf(type: ItemType | null, at: number): Item {
     sender: null,
     sourceTimestamp: null,
     title: `item ${at}`,
-    preview: null,
+    capturedMessage: null,
+    description: null,
     sourceResolvedAt: null,
     typeId: type?.id ?? null,
     nextAction: null,
@@ -116,7 +117,7 @@ describe('Capture', () => {
       await user.click(screen.getByRole('button', { name: 'Capture' }));
 
       const capture = asked(mutate, 'capture_item');
-      expect(capture.payload.title).toBe('Buy milk');
+      expect(capture.payload.message).toBe('Buy milk');
       expect(capture.payload.workspaceId).toBe('ws-work');
       expect(box).toHaveValue('');
     });

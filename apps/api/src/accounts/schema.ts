@@ -69,8 +69,10 @@ export const DEAD_STATUS_VALUE = 'to_process';
  *   of somebody else's;
  * - client-generated IDs (UUIDv7) as text primary keys;
  * - tombstones, not deletes (deleted_at / source_resolved_at);
- * - source-owned vs app-owned columns are separate groups on items:
- *   re-syncs overwrite source-owned columns unconditionally, never app-owned.
+ * - source-owned, app-owned and write-once columns are separate groups on
+ *   items: re-syncs overwrite source-owned columns unconditionally, never
+ *   app-owned, and never reach `captured_message`, which is written when the
+ *   item is made and not again.
  * Timestamps are ISO-8601 text; dates are YYYY-MM-DD text.
  *
  * The database enforces those conventions rather than trusting its callers to,
@@ -578,17 +580,25 @@ export const items = sqliteTable(
       .notNull()
       .default(true),
 
+    // -- write-once column --
+    capturedMessage: text('captured_message'),
+
     // -- source-owned columns --
     source: text('source').$type<Source>().notNull(),
     sourceId: text('source_id'),
     sourceLink: text('source_link'),
     sender: text('sender'),
     sourceTimestamp: text('source_timestamp'),
-    title: text('title').notNull(),
-    preview: text('preview'),
     sourceResolvedAt: text('source_resolved_at'),
 
     // -- app-owned columns --
+    // `preview` is deliberately absent though the column is still there: nothing
+    // reads or writes it from here on, and dropping it waits for a later release
+    // so a rollback still meets a schema its code can read (deployment,
+    // "Migrations and rollback"; "Drop the preview column, once nothing reads
+    // it", issue 161).
+    title: text('title').notNull(),
+    description: text('description'),
     /**
      * What kind of thing it is ("Capture a thought or an action, and see which
      * it is", issue 155). Nullable, which is what let it be added at all:

@@ -94,7 +94,7 @@ describe('Capture', () => {
       await user.type(await screen.findByLabelText('Capture a note or to-do'), 'Where does this go');
       await user.click(screen.getByRole('button', { name: 'Capture' }));
 
-      expect(captured().payload.title).toBe('Where does this go');
+      expect(captured().payload.message).toBe('Where does this go');
       expect(captured().payload.workspaceDecided).toBe(false);
       // The workspace it was captured from is still recorded: it is an honest
       // fact, and it is what the foreign key needs.

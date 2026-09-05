@@ -126,7 +126,7 @@ describe('Capture', () => {
         issuedAt: '2026-09-04T10:00:00.000Z',
         workspaceId: WORKSPACE_ID,
         itemId,
-        title: 'Maybe split the pricing page',
+        message: 'Maybe split the pricing page',
         typeId: thought.id,
       });
 

@@ -28,11 +28,17 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * `v3` because an item lost its status and gained a completion time and a type
- * ("An item is either yours to deal with or finished with", issue 154; "Capture
- * a thought or an action, and see which it is", issue 155), and a workspace's
- * stored copy gained the account's types beside its items. `v2` was a
- * workspace's fourth colour ("Modernise the app shell", issue 125).
+ * `v4` because an item's one text became three: `preview` is gone and a captured
+ * message and a description are in its place, and a title can now be empty
+ * ("Edit an item's title and description on a form of its own", issue 159). A
+ * copy from before it draws rows labelled by a title that is no longer the only
+ * label there is, with nothing behind the disclosure and no mark where a
+ * description would be. `v3` was an item losing its status and gaining a
+ * completion time and a type ("An item is either yours to deal with or finished
+ * with", issue 154; "Capture a thought or an action, and see which it is", issue
+ * 155), and a workspace's stored copy gaining the account's types beside its
+ * items. `v2` was a workspace's fourth colour ("Modernise the app shell", issue
+ * 125).
  *
  * **The buster has to move whenever the shape of what is stored does.** What is
  * restored here is never re-validated - the schemas parse responses on the way
@@ -48,7 +54,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v3';
+export const CACHE_BUSTER = 'v4';
 
 /**
  * The app, painted from the copy the last visit left behind and re-read behind

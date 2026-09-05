@@ -14,9 +14,48 @@ export const prioritySchema = z.enum(['low', 'normal', 'high']);
 export type Priority = z.infer<typeof prioritySchema>;
 
 /**
- * Source-owned vs app-owned fields are kept in separate groups (architecture §4.2):
- * a connector re-sync overwrites the source-owned group unconditionally and never
- * touches the app-owned group.
+ * An Item carries three texts, answering three different questions (functional
+ * definition, "An Item carries three texts"): `capturedMessage` is what arrived
+ * or what you said, `title` names the Item, `description` is what you have to
+ * say about it. Only the last two are editable.
+ *
+ * A title is one line and short, because it is a row label. The 200 is a product
+ * number, not a storage one - long enough for a mail subject, short enough to
+ * stay a label. Empty is allowed: a title is not required, and a title of
+ * nothing but blanks trims to empty rather than being refused, because there is
+ * nothing to refuse it for.
+ */
+export const itemTitleSchema = z
+  .string()
+  .trim()
+  .max(200)
+  .refine((title) => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(title), {
+    message: 'a title is a single line, without tabs or line breaks',
+  });
+
+/**
+ * A description is as long as it needs to be and holds line breaks, being the
+ * one text in the product meant to run to paragraphs. The cap is what stops one
+ * Item making the copy every device holds unreasonable; 60,000 is past anything
+ * typed by hand and short of a pasted mail thread. Over it is refused rather
+ * than cut, because repairing input is where the bypasses live.
+ *
+ * Not enforced by a CHECK: adding one to `items` means rebuilding the table
+ * (architecture, "A CHECK cannot be added to a table that already has
+ * children"), which that section says is not worth paying for a nullable column
+ * only the command handlers write.
+ */
+export const itemDescriptionSchema = z.string().trim().max(60_000);
+
+/**
+ * Fields are kept in three groups (architecture, "Schema conventions"): a
+ * connector re-sync overwrites the source-owned group unconditionally, never
+ * touches the app-owned group, and cannot reach `capturedMessage` at all, which
+ * is written once when the Item is made and never again.
+ *
+ * `title` is app-owned rather than source-owned even though a source proposes
+ * it: a subject seeds it at ingest and never afterwards, so renaming an Item
+ * survives the next poll.
  */
 export const itemSchema = z.object({
   id: z.uuid(),
@@ -43,18 +82,31 @@ export const itemSchema = z.object({
    */
   workspaceDecided: z.boolean(),
 
+  // -- write-once --
+  /** What arrived, or what you said, as it stood when the Item was made. */
+  capturedMessage: z.string().nullable(),
+
   // -- source-owned --
   source: sourceSchema,
   sourceId: z.string().nullable(),
   sourceLink: z.url().nullable(),
   sender: z.string().nullable(),
   sourceTimestamp: z.iso.datetime().nullable(),
-  title: z.string(),
-  preview: z.string().nullable(),
   /** Tombstone written by reconciliation when the source resolved/removed it. */
   sourceResolvedAt: z.iso.datetime().nullable(),
 
   // -- app-owned --
+  /**
+   * Permissive here, and capped on the way in (`setTitleSchema`), for the
+   * reason `typeId` below is permissive: what is stored has to render even
+   * where it predates a rule. `capture_item` accepted an uncapped title until
+   * this change, so a title longer than the cap can exist - and this shape is
+   * parsed for the whole snapshot at once, so refusing one would blank the
+   * workspace rather than draw one row oddly. The read model does not
+   * re-enforce what the write path already refuses.
+   */
+  title: z.string(),
+  description: z.string().nullable(),
   /**
    * What kind of thing this is ("Capture a thought or an action, and see which
    * it is", issue 155). Nullable: an item captured before types existed, and
@@ -90,6 +142,47 @@ export const itemSchema = z.object({
 });
 export type Item = z.infer<typeof itemSchema>;
 
+/** How much of the captured message can stand in for a label. */
+export const LABEL_LENGTH = 150;
+
+/** What a row says about an Item with nothing written in any of its three texts. */
+export const UNTITLED = 'Untitled';
+
+/**
+ * What a row shows: the next action, or the title, or the start of the captured
+ * message (functional definition, "A row shows the next action, or the title,
+ * or the first 150 characters of the captured message").
+ *
+ * Worked out where the row is drawn rather than stored as a fourth text, which
+ * would be free to go stale behind the three it stands for.
+ *
+ * **Blank counts as absent**, for the next action and the title alike: a title
+ * of spaces is stored as the empty string.
+ *
+ * **And when all three are blank it says so**, rather than returning nothing.
+ * An Item made before it had a captured message keeps its only text in its
+ * title, so clearing that title empties every one of the three - and a row, a
+ * drag and an offer to undo would each render as a gap where a name should be.
+ * There is no length at which an unlabelled row is better off unlabelled.
+ * **Runs of whitespace collapse**, because a captured message may run to
+ * paragraphs and a row is one line - and the cut has to land in the label a
+ * person sees, not 150 characters into one full of newlines.
+ */
+export function itemLabel(
+  item: Pick<Item, 'nextAction' | 'title' | 'capturedMessage'>,
+): string {
+  const oneLine = (text: string) => text.replace(/\s+/gu, ' ').trim();
+
+  const nextAction = oneLine(item.nextAction ?? '');
+  if (nextAction) return nextAction;
+
+  const title = oneLine(item.title);
+  if (title) return title;
+
+  const captured = oneLine(item.capturedMessage ?? '');
+  if (captured.length > LABEL_LENGTH) return `${captured.slice(0, LABEL_LENGTH)}…`;
+  return captured || UNTITLED;
+}
 /**
  * Whether this Item belongs to a Workspace at all yet, read so that a snapshot
  * older than the field answers *yes* rather than putting every Item it holds
@@ -98,7 +191,6 @@ export type Item = z.infer<typeof itemSchema>;
 export function workspaceIsDecided(item: Pick<Item, 'workspaceDecided'>): boolean {
   return item.workspaceDecided !== false;
 }
-
 
 /** What an Association can point at (functional definition §4.2). */
 export const associationKindSchema = z.enum(['person', 'project', 'topic']);

@@ -202,11 +202,23 @@ describe('Accounts', () => {
         const answer = await storeNamed(name).workspaces(name);
 
         expect(answer).toMatchObject({ status: 'ok' });
+        // The store is brought fully up to date by the read above whatever
+        // point it started from, so the texts added along the way are asked for
+        // at every point: an item written before they existed still reads, and
+        // holds nothing in them rather than being refused or rewritten.
         expect(
           await inStoreAsItIs(name, (sql) =>
-            sql.exec("SELECT title FROM items WHERE id = 'it-before'").toArray(),
+            sql
+              .exec("SELECT title, captured_message, description FROM items WHERE id = 'it-before'")
+              .toArray(),
           ),
-        ).toEqual([{ title: 'Captured before the update' }]);
+        ).toEqual([
+          {
+            title: 'Captured before the update',
+            captured_message: null,
+            description: null,
+          },
+        ]);
       },
     );
   });

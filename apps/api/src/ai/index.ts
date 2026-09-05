@@ -14,10 +14,10 @@ export interface AiService {
 /** Placeholder until the Claude-backed implementation lands with enrichment jobs. */
 export class NoopAiService implements AiService {
   async summarizeItem(item: Item): Promise<string> {
-    return item.preview ?? item.title;
+    return item.description ?? item.capturedMessage ?? item.title;
   }
 
   async extractNextAction(item: Item): Promise<string> {
-    return item.title;
+    return item.title || (item.capturedMessage ?? '');
   }
 }

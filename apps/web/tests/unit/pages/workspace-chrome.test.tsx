@@ -39,6 +39,9 @@ vi.mock('@tanstack/react-router', () => ({
   Outlet: () => null,
   useParams: () => params,
   useNavigate: () => () => Promise.resolve(),
+  // No item named, so the shell draws no form over itself - these cases are
+  // about the chrome.
+  useSearch: () => ({}),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));

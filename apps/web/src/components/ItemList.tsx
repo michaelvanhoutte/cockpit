@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
+import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
 import {
   snapshotQuery,
   useCommand,
@@ -17,6 +17,7 @@ import {
   ordersForFilingSeveral,
   orderWithItemAt,
 } from '../filing';
+import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
 import {
@@ -78,6 +79,7 @@ export function ItemList({
   emptyMessage: string;
 }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
+  const openItem = useOpenItem();
   // Every workspace, for the Inboxes the picker offers an item that belongs to
   // none of them. The same cached read the tabs above are already doing.
   const { data: allWorkspaces } = useQuery(workspacesQuery);
@@ -272,7 +274,7 @@ export function ItemList({
           setAsking(null);
           if (decides) return;
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” moved to ${nameOf(panelId)}`,
+            what: `“${itemLabel(item)}” moved to ${nameOf(panelId)}`,
             // Every panel it was on, not the first of them: a move takes an
             // item off all of them, so putting it back on one would lose the
             // rest - and an item can be on several since "Ask whether to move
@@ -321,7 +323,7 @@ export function ItemList({
       {
         onSuccess: () =>
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” moved in ${nameOf(panelId)}`,
+            what: `“${itemLabel(item)}” moved in ${nameOf(panelId)}`,
             undo: () =>
               send({
                 name: 'add_item_to_panel',
@@ -373,7 +375,7 @@ export function ItemList({
           setAsking(null);
           setAdding(null);
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” added to ${nameOf(panelId)}`,
+            what: `“${itemLabel(item)}” added to ${nameOf(panelId)}`,
             undo: () =>
               send({
                 name: 'remove_item_from_panel',
@@ -411,7 +413,7 @@ export function ItemList({
       {
         onSuccess: () =>
           offerToUndo({
-            what: `“${item.nextAction ?? item.title}” removed from ${nameOf(panelId)}`,
+            what: `“${itemLabel(item)}” removed from ${nameOf(panelId)}`,
             // Back on, in the order the panel was in - which still names it,
             // because that order was read before it was taken off.
             undo: () =>
@@ -784,6 +786,7 @@ export function ItemList({
                     command.reset();
                     setMoving(item);
                   }}
+                  onOpen={() => openItem(item.id)}
                   // The one you are looking at, which is the same move the
                   // picker makes with this workspace's Inbox chosen - the row
                   // decides whether to offer it at all.
@@ -855,7 +858,7 @@ export function ItemList({
       {asking && panelId && (
         <MoveOrAddQuestion
           open
-          itemTitle={asking.item.nextAction ?? asking.item.title}
+          itemTitle={itemLabel(asking.item)}
           panelName={nameOf(panelId)}
           // Closed by the change landing, not by the press: a refused move
           // leaves the question up with the reason on it, which is what the
@@ -876,7 +879,7 @@ export function ItemList({
 
       {adding && (
         <MoveToPicker
-          moving={{ title: adding.nextAction ?? adding.title }}
+          moving={{ title: itemLabel(adding) }}
           adding
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
@@ -899,7 +902,7 @@ export function ItemList({
 
       {moving && (
         <MoveToPicker
-          moving={{ title: moving.nextAction ?? moving.title }}
+          moving={{ title: itemLabel(moving) }}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
           workspaceId={workspaceId}
@@ -951,7 +954,7 @@ export function ItemList({
  */
 function whatMoved(moved: readonly Item[], asked: number, target: string): string {
   if (moved.length === 1 && asked === 1) {
-    return `“${moved[0]!.nextAction ?? moved[0]!.title}” moved to ${target}`;
+    return `“${itemLabel(moved[0]!)}” moved to ${target}`;
   }
   const how = moved.length === asked ? `${asked} items` : `${moved.length} of ${asked} items`;
   return `${how} moved to ${target}`;

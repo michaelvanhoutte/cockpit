@@ -67,10 +67,12 @@ import {
   ordersTypesExactly,
 } from '../domain/item-types.js';
 import {
+  applySetDescription,
   applySetDismissed,
   applySetDone,
   applySetNextAction,
   applySetPriority,
+  applySetTitle,
   associationFromCommand,
   captureItem,
   decideWorkspace,
@@ -1016,7 +1018,9 @@ export function runCommand<N extends CommandName>(
         | CommandPayload<'set_done'>
         | CommandPayload<'set_dismissed'>
         | CommandPayload<'set_next_action'>
-        | CommandPayload<'set_priority'>;
+        | CommandPayload<'set_priority'>
+        | CommandPayload<'set_title'>
+        | CommandPayload<'set_description'>;
       const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
       // Finishing with an item that belongs to no workspace, or dismissing one,
@@ -1031,7 +1035,11 @@ export function runCommand<N extends CommandName>(
             ? applySetDismissed(existing, cmd as CommandPayload<'set_dismissed'>)
             : name === 'set_next_action'
               ? applySetNextAction(existing, cmd as CommandPayload<'set_next_action'>)
-              : applySetPriority(existing, cmd as CommandPayload<'set_priority'>);
+              : name === 'set_title'
+                ? applySetTitle(existing, cmd as CommandPayload<'set_title'>)
+                : name === 'set_description'
+                  ? applySetDescription(existing, cmd as CommandPayload<'set_description'>)
+                  : applySetPriority(existing, cmd as CommandPayload<'set_priority'>);
 
       if (updated === null) {
         // Stale by last-write-wins: log the command, change nothing.

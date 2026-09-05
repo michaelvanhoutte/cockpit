@@ -1,7 +1,12 @@
 import { useCallback } from 'react';
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
-import type { CommandName, CommandPayload, WorkspaceSnapshot } from '@cockpit/shared';
+import type {
+  CommandName,
+  CommandPayload,
+  CommandResult,
+  WorkspaceSnapshot,
+} from '@cockpit/shared';
 import {
   fetchItemTypes,
   fetchMe,
@@ -141,6 +146,26 @@ const IS_BUILT_ON_THE_LAST_ONE = new Set<CommandName>([
  * the whole point of an undo is that it outlives one.
  */
 /**
+/**
+ * Sends a change and hands back what the server said about it - which is not
+ * always that it landed: a change made against an older version of an item is
+ * answered `{ ok: true, applied: false }` rather than refused, so a caller that
+ * reads only "it did not throw" cannot tell a save from a silent no-op. Callers
+ * with nothing to lose ignore the answer; one holding typed text does not.
+ */
+export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> {
+  const queryClient = useQueryClient();
+  return useCallback(
+    async (args: CommandArgs) => {
+      const answer = await sendCommand(args.name, args.payload as never);
+      await afterChanging(queryClient, args);
+      return answer;
+    },
+    [queryClient],
+  );
+}
+
+/**
  * The workspace's copy as it stands now, rather than as it stood when the
  * render asking began.
  *
@@ -165,17 +190,6 @@ export function useLatestSnapshot(): (workspaceId: string) => Promise<WorkspaceS
   const queryClient = useQueryClient();
   return useCallback(
     (workspaceId: string) => queryClient.fetchQuery(snapshotQuery(workspaceId)),
-    [queryClient],
-  );
-}
-
-export function useSendCommand(): (args: CommandArgs) => Promise<void> {
-  const queryClient = useQueryClient();
-  return useCallback(
-    async (args: CommandArgs) => {
-      await sendCommand(args.name, args.payload as never);
-      await afterChanging(queryClient, args);
-    },
     [queryClient],
   );
 }

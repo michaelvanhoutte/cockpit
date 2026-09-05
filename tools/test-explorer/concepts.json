@@ -156,6 +156,20 @@
       "sourcePatterns": []
     },
     {
+      "key": "Item editing",
+      "label": "Item editing",
+      "parent": "Workspaces",
+      "sourcePatterns": [
+        "apps/web/src/components/ItemForm.tsx",
+        "apps/web/src/itemForm.tsx",
+        "apps/web/src/router.tsx",
+        "packages/shared/src/domain/item.ts",
+        "packages/shared/src/commands.ts",
+        "apps/api/src/domain/items.ts",
+        "apps/web/src/components/ItemRow.tsx"
+      ]
+    },
+    {
       "key": "Workspace management",
       "label": "Workspace management",
       "parent": "Workspaces",

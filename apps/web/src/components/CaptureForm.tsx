@@ -47,7 +47,7 @@ export function CaptureForm({
   /** Told once the capture has been asked for, so a window can close itself. */
   onCaptured?: () => void;
 }) {
-  const [title, setTitle] = useState('');
+  const [message, setMessage] = useState('');
   const [typeName, setTypeName] = useState('');
   /** What the server said about the type, where it said anything. */
   const [refused, setRefused] = useState<string | null>(null);
@@ -91,7 +91,7 @@ export function CaptureForm({
    */
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = title.trim();
+    const trimmed = message.trim();
     if (!trimmed) return;
 
     const wanted = typeName.trim();
@@ -102,7 +102,7 @@ export function CaptureForm({
       // refusal can arrive during the call rather than after it, and the two
       // lines that used to sit below this one then wiped the message and the
       // note the error handler had just put back.
-      setTitle('');
+      setMessage('');
       setRefused(null);
       command.mutate(
         {
@@ -112,7 +112,7 @@ export function CaptureForm({
             issuedAt: new Date().toISOString(),
             workspaceId,
             itemId: uuidv7(),
-            title: trimmed,
+            message: trimmed,
             ...(typeId ? { typeId } : {}),
             // Sent only when it is false, so every other front door's command
             // reads exactly as it did before this landed.
@@ -134,7 +134,7 @@ export function CaptureForm({
            * to produce one.
            */
           onError: (error) => {
-            setTitle(trimmed);
+            setMessage(trimmed);
             setRefused(
               error instanceof CommandRefused
                 ? error.message
@@ -199,8 +199,8 @@ export function CaptureForm({
           the column ever gets ("Show the Inbox beside the dashboards instead
           of as a tab", issue 117). */}
       <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
         placeholder="Capture a note or to-do…"
         aria-label="Capture a note or to-do"
         autoFocus={autoFocus}

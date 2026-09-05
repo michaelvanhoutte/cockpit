@@ -44,19 +44,19 @@ test.describe('Offline', () => {
       // `/w/<workspace>/inbox`: the workspace is the segment after `/w/`, not
       // the last one, which now says which view of it is open.
       const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
-      const title = uniqueTitle('Arrived while nobody looked');
+      const message = uniqueTitle('Arrived while nobody looked');
       const sent = await page.request.post('/v1/commands/capture_item', {
         data: {
           commandId: crypto.randomUUID(),
           issuedAt: new Date().toISOString(),
           workspaceId,
           itemId: crypto.randomUUID(),
-          title,
+          message,
         },
       });
       expect(sent.ok(), `capturing from outside failed: ${sent.status()}`).toBe(true);
 
-      await expect(itemRow(page, title)).toBeVisible({ timeout: 30_000 });
+      await expect(itemRow(page, message)).toBeVisible({ timeout: 30_000 });
     });
   });
 });

@@ -3,10 +3,12 @@ import type {
   Association,
   CaptureItemCommand,
   Item,
+  SetDescriptionCommand,
   SetDismissedCommand,
   SetDoneCommand,
   SetNextActionCommand,
   SetPriorityCommand,
+  SetTitleCommand,
 } from '@cockpit/shared';
 
 /**
@@ -41,8 +43,12 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     sourceLink: null,
     sender: null,
     sourceTimestamp: null,
-    title: cmd.title,
-    preview: cmd.body ?? null,
+    // What was said is the captured message and nothing else. The title is left
+    // empty deliberately: naming a thought is a second act, and the row falls
+    // through to the captured message until somebody performs it (`itemLabel`).
+    capturedMessage: cmd.message,
+    title: '',
+    description: null,
     sourceResolvedAt: null,
     typeId: cmd.typeId ?? null,
     nextAction: cmd.nextAction ?? null,
@@ -128,6 +134,24 @@ export function applySetNextAction(item: Item, cmd: SetNextActionCommand): Item 
 export function applySetPriority(item: Item, cmd: SetPriorityCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
   return { ...item, priority: cmd.priority, updatedAt: cmd.issuedAt };
+}
+
+export function applySetTitle(item: Item, cmd: SetTitleCommand): Item | null {
+  if (isStale(item, cmd.issuedAt)) return null;
+  return { ...item, title: cmd.title, updatedAt: cmd.issuedAt };
+}
+
+/**
+ * The captured message is untouched here, and there is no handler that touches
+ * it: it is written by `captureItem` and never again (architecture, "Schema
+ * conventions"). That is the whole of its immutability - no trigger, because a
+ * column with no writer needs none.
+ */
+export function applySetDescription(item: Item, cmd: SetDescriptionCommand): Item | null {
+  if (isStale(item, cmd.issuedAt)) return null;
+  // An emptied description is a cleared one, so it is stored as absent rather
+  // than as an empty string nothing else in the product would distinguish.
+  return { ...item, description: cmd.description || null, updatedAt: cmd.issuedAt };
 }
 
 export function associationFromCommand(cmd: AssociateCommand, tenantId: string): Association {

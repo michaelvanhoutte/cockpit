@@ -25,7 +25,8 @@ function anItem(overrides: Partial<Item> = {}): Item {
     sender: null,
     sourceTimestamp: null,
     title: 'Make appointment with Novy',
-    preview: null,
+    capturedMessage: null,
+    description: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,
@@ -49,12 +50,16 @@ function anItem(overrides: Partial<Item> = {}): Item {
 function aRow({
   settles = false,
   onMoveTo,
+  onOpen,
+  ordering,
   onMoveHere,
   item = anItem(),
   selecting,
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
+  onOpen?: () => void;
+  ordering?: { at: number; of: number; onMove: (places: number) => void };
   onMoveHere?: () => void;
   item?: Item;
   selecting?: { picked: boolean; revealed: boolean; onPick: (withShift: boolean) => void };
@@ -62,7 +67,7 @@ function aRow({
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
   });
-  const send = vi.fn(() => Promise.resolve());
+  const send = vi.fn(() => Promise.resolve({ ok: true as const, applied: true }));
   mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
   mockUseSendCommand.mockReturnValue(send);
   render(
@@ -71,6 +76,8 @@ function aRow({
         item={item}
         workspaceId="ws-work"
         {...(onMoveTo ? { onMoveTo } : {})}
+        {...(onOpen ? { onOpen } : {})}
+        {...(ordering ? { ordering } : {})}
         {...(onMoveHere ? { onMoveHere } : {})}
         {...(selecting ? { selecting } : {})}
       />
@@ -339,12 +346,92 @@ describe('Triage', () => {
   });
 });
 
+/**
+ * F1: the row's own wiring. What a label *is* is a pure decision proved in
+ * packages/shared/tests/unit/domain/item.test.ts; what is asked here is that
+ * the row asks it, and that the two ways into the form both ask for this item.
+ */
+describe('Item editing', () => {
+  describe('a row shows the label the item has, and says whether there is more written about it', () => {
+    it('falls through to the captured message when there is no next action and no title', () => {
+      aRow({ item: anItem({ title: '', capturedMessage: 'Ask Novy about part 11' }) });
+
+      expect(screen.getByRole('listitem')).toHaveTextContent('Ask Novy about part 11');
+    });
+
+    it.each([
+      { situation: 'an item with a description', description: 'Tolerances', marked: true },
+      { situation: 'an item with none', description: null, marked: false },
+    ])('$situation', ({ description, marked }) => {
+      aRow({ item: anItem({ description }) });
+
+      expect(screen.queryByLabelText('Has a description') !== null).toBe(marked);
+    });
+  });
+
+  describe('a row opens its own form, from a double-click and from its menu', () => {
+    it('opens it on a double-click', async () => {
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+
+      fireEvent.doubleClick(screen.getByRole('listitem'));
+
+      expect(onOpen).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens it from the menu, which is the way a keyboard has', async () => {
+      const user = userEvent.setup();
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+
+      await choose(user, 'Open');
+
+      expect(onOpen).toHaveBeenCalledTimes(1);
+    });
+
+    // A double press on the menu control is easy to do by accident, and the
+    // event bubbles to the row: without a check on what was hit, it opened the
+    // menu and the form at once.
+    it('leaves the form shut when the double-click was on a control of its own', async () => {
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+
+      fireEvent.doubleClick(screen.getByLabelText('Item actions'));
+
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    // The menu's entries are drawn in a portal on the body, so a double press
+    // on one reaches the row's handler from outside the row. Reachable: an
+    // unavailable Move up keeps the menu open under the second press.
+    it('leaves the form shut when the double-click was on an entry in the open menu', async () => {
+      const user = userEvent.setup();
+      const onOpen = vi.fn();
+      aRow({ onOpen, ordering: { at: 0, of: 2, onMove: vi.fn() } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+      fireEvent.doubleClick(await screen.findByRole('menuitem', { name: /Move up/ }));
+
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    it('offers nothing to open where there is nowhere to open it', async () => {
+      const user = userEvent.setup();
+      aRow();
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(screen.queryByRole('menuitem', { name: 'Open' })).toBeNull();
+    });
+  });
+});
+
 describe('Triage', () => {
   describe('a row shows what type it is', () => {
     /** One row, rendered on its own, with the type it was given. */
     function aRowOf(itemType: ItemType | undefined) {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
-      mockUseSendCommand.mockReturnValue(vi.fn(() => Promise.resolve()));
+      mockUseSendCommand.mockReturnValue(vi.fn(() => Promise.resolve({ ok: true as const, applied: true })));
       return render(
         <ItemRow item={anItem({})} itemType={itemType} workspaceId="ws-work" />,
       );

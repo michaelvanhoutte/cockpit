@@ -56,6 +56,10 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_COMPLETED_AT,
     itemTypes(accountId),
     ITEM_WORKSPACE_DECIDED,
+    // Last, because it is the only one here that has not shipped: everything
+    // above is applied in accounts already, and a change that has shipped can
+    // never be reordered any more than it can be edited.
+    ITEM_TEXTS,
   ];
 }
 
@@ -430,7 +434,6 @@ const PANELS: Change = {
   ],
 };
 
-
 /**
  * The fourth workspace color: the strip the dashboard tabs sit on, one step
  * lighter than the header above it ("Modernise the app shell: a fourth
@@ -716,6 +719,50 @@ function itemTypes(accountId: string): Change {
 const ITEM_WORKSPACE_DECIDED: Change = {
   name: '0009-item-workspace-decided',
   statements: [
-    { sql: 'ALTER TABLE `items` ADD COLUMN `workspace_decided` integer DEFAULT 1 NOT NULL' },
+    { sql: 'ALTER TABLE `items` ADD COLUMN `workspace_decided` integer DEFAULT 1 NOT NULL' },  ],
+};
+
+/**
+ * The two texts an Item gains beside its title: `captured_message`, written
+ * once when the Item is made, and `description`, which the Item's form edits
+ * ("Edit an item's title and description on a form of its own", issue 159).
+ *
+ * **Two added columns and nothing else** - no backfill, no rebuild, and
+ * `preview` left exactly where it is. The failure-mode questions the `scoping`
+ * skill asks of a change that cannot put state back:
+ *
+ * - **Interrupted partway.** A change is applied atomically (up-to-date.ts):
+ *   its statements and the record that they ran commit together, so a failure
+ *   leaves neither column and the whole change is retried next time somebody
+ *   opens the account. That transaction is load-bearing here rather than a
+ *   nicety, exactly as for `0004-workspace-order`: SQLite has no
+ *   `ADD COLUMN IF NOT EXISTS`, so a half-applied change that left one column
+ *   behind could never be re-run.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left no column. Nothing is written to any row, so there is nothing a second
+ *   run could double.
+ * - **Data the new rules reject.** None, and none is moved. Both columns start
+ *   null on every row. `preview` is null everywhere already - the capture box
+ *   sent a title and nothing else - so there is no text in it to carry over,
+ *   and the text existing Items *do* have is in `title`, where the row label
+ *   still reads it (`itemLabel`). Backfilling `captured_message` from `title`
+ *   would duplicate every existing Item's one text into two columns to no end.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop, in
+ *   preview, in staging and in production alike. No seeding step differs.
+ * - **The windows it can be interrupted in.** Two, and both are safe because
+ *   this is additive. *Before it runs*, the code in front of it is the previous
+ *   release, which names neither column. *After it runs, with that release
+ *   promoted back*, its reads name a subset of the columns that exist, which
+ *   SQLite is happy with. The reverse - a release naming a column that is gone -
+ *   is what dropping `preview` would cause, which is why that waits for its own
+ *   release (deployment, "Migrations and rollback"; "Drop the preview column,
+ *   once nothing reads it", issue 161).
+ */
+const ITEM_TEXTS: Change = {
+  name: '0009-item-texts',
+  statements: [
+    { sql: 'ALTER TABLE `items` ADD COLUMN `captured_message` text' },
+    { sql: 'ALTER TABLE `items` ADD COLUMN `description` text' },
   ],
 };

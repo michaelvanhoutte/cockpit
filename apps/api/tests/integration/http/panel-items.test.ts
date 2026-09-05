@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
-import { ACCOUNT_WIDE } from '@cockpit/shared';
+import { ACCOUNT_WIDE, itemLabel } from '@cockpit/shared';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
 import { WORKSPACE_ID, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
@@ -60,7 +60,13 @@ async function inOrderOn(panelId: string): Promise<string[]> {
   return held.filings
     .filter((filing) => filing.panelId === panelId)
     .sort((a, b) => a.position - b.position)
-    .map((filing) => held.items.find((item) => item.id === filing.itemId)?.title ?? filing.itemId);
+    .map((filing) => {
+      // Named the way the product names them: what a row would show. These
+      // items are captured and never titled, so their label is their captured
+      // message - which is the text each case arranged them by.
+      const item = held.items.find((candidate) => candidate.id === filing.itemId);
+      return item ? itemLabel(item) : filing.itemId;
+    });
 }
 
 async function aDashboard(workspaceId: string = WORKSPACE_ID): Promise<string> {
@@ -75,9 +81,9 @@ async function aPanel(dashboardId: string, name: string, workspaceId = WORKSPACE
   return panelId;
 }
 
-async function anItem(title: string, workspaceId: string = WORKSPACE_ID): Promise<string> {
+async function anItem(message: string, workspaceId: string = WORKSPACE_ID): Promise<string> {
   const itemId = nextId();
-  expect((await send('capture_item', { workspaceId, itemId, title })).status).toBe(200);
+  expect((await send('capture_item', { workspaceId, itemId, message })).status).toBe(200);
   return itemId;
 }
 
@@ -502,20 +508,25 @@ describe('Panels', () => {
  * are pure decisions settled in apps/api/tests/unit/domain/items.test.ts.
  */
 describe('Capture', () => {
-  /** The titles in one workspace's Inbox: its open items filed on no panel. */
+  /**
+   * What one workspace's Inbox reads as: its open items filed on no panel,
+   * named the way the product names them - capture writes no title, so their
+   * label is their captured message (`itemLabel`).
+   */
   async function inboxOf(workspaceId: string): Promise<string[]> {
     const held = await snapshot(workspaceId);
     const filed = new Set(held.filings.map((filing) => filing.itemId));
     return held.items
       .filter((item) => !filed.has(item.id) && item.completedAt === null)
-      .map((item) => item.title)
+      .map((item) => itemLabel(item))
       .sort();
   }
 
-  async function anItemBelongingNowhere(title: string, from = WORKSPACE_ID): Promise<string> {
+  async function anItemBelongingNowhere(message: string, from = WORKSPACE_ID): Promise<string> {
     const itemId = nextId();
     expect(
-      (await send('capture_item', { workspaceId: from, itemId, title, workspaceDecided: false })).status,
+      (await send('capture_item', { workspaceId: from, itemId, message, workspaceDecided: false }))
+        .status,
     ).toBe(200);
     return itemId;
   }

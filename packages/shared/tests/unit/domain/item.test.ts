@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { itemSchema, workspaceNameSchema } from '../../../src/domain/item.js';
+import {
+  LABEL_LENGTH,
+  UNTITLED,
+  itemDescriptionSchema,
+  itemLabel,
+  itemSchema,
+  itemTitleSchema,
+  workspaceNameSchema,
+} from '../../../src/domain/item.js';
 
 /**
  * L1: which names are refused is a pure decision over a string, so this is
@@ -54,6 +62,101 @@ describe('Workspace management', () => {
   });
 });
 
+/**
+ * L1: what a row shows is a pure decision over an Item's three texts, worked
+ * out where the row is drawn rather than stored, so this is where it is
+ * decided. That a row actually asks it is one case in
+ * apps/web/tests/unit/components/ItemRow.test.tsx.
+ */
+describe('Item editing', () => {
+  describe('a row shows the next action, or the title, or the start of the captured message', () => {
+    const texts = (over: Partial<Parameters<typeof itemLabel>[0]>) => ({
+      nextAction: null,
+      title: '',
+      capturedMessage: null,
+      ...over,
+    });
+
+    it.each([
+      {
+        situation: 'a next action, which wins over both the others',
+        item: texts({
+          nextAction: 'Reply to Tom',
+          title: 'Part 11',
+          capturedMessage: 'Tom asked about part 11',
+        }),
+        shows: 'Reply to Tom',
+      },
+      {
+        situation: 'no next action but a title',
+        item: texts({ title: 'Part 11', capturedMessage: 'Tom asked about part 11' }),
+        shows: 'Part 11',
+      },
+      {
+        situation: 'neither, so the captured message stands in',
+        item: texts({ capturedMessage: 'Tom asked about part 11' }),
+        shows: 'Tom asked about part 11',
+      },
+      // Blank is absent, or a title of spaces would leave the row unreadable
+      // while a perfectly good captured message sat behind it.
+      {
+        situation: 'a title of nothing but blanks',
+        item: texts({ title: '   ', capturedMessage: 'Tom asked about part 11' }),
+        shows: 'Tom asked about part 11',
+      },
+      {
+        situation: 'a next action of nothing but blanks',
+        item: texts({ nextAction: ' ', title: 'Part 11' }),
+        shows: 'Part 11',
+      },
+      // Reachable on an Item made before it had a captured message: its only
+      // text is its title, so clearing that empties all three.
+      {
+        situation: 'nothing written anywhere',
+        item: texts({}),
+        shows: UNTITLED,
+      },
+      // A captured message runs to paragraphs and a row is one line, so the cut
+      // has to land in the label a person sees.
+      {
+        situation: 'a captured message written over several lines',
+        item: texts({ capturedMessage: 'Ask Tom\n\n  about part 11\t' }),
+        shows: 'Ask Tom about part 11',
+      },
+      {
+        situation: 'a captured message of exactly the length that fits',
+        item: texts({ capturedMessage: 'x'.repeat(LABEL_LENGTH) }),
+        shows: 'x'.repeat(LABEL_LENGTH),
+      },
+      {
+        situation: 'a captured message one character too long',
+        item: texts({ capturedMessage: 'x'.repeat(LABEL_LENGTH + 1) }),
+        shows: `${'x'.repeat(LABEL_LENGTH)}…`,
+      },
+    ])('$situation', ({ item, shows }) => {
+      expect(itemLabel(item)).toBe(shows);
+    });
+  });
+
+  describe('a title is a single line, and a description is as long as it needs to be', () => {
+    it.each([
+      { situation: 'a title over the limit', schema: 'title', typed: 'x'.repeat(201), accepted: false },
+      { situation: 'a title at the limit', schema: 'title', typed: 'x'.repeat(200), accepted: true },
+      { situation: 'a title of nothing at all', schema: 'title', typed: '', accepted: true },
+      // Trimmed before it is measured, so trailing blanks are not what puts a
+      // title over: they are not stored either.
+      { situation: 'a title at the limit with blanks around it', schema: 'title', typed: `  ${'x'.repeat(200)}  `, accepted: true },
+      { situation: 'a title broken over two lines', schema: 'title', typed: 'Part\n11', accepted: false },
+      { situation: 'a description over several lines', schema: 'description', typed: 'One\n\nTwo', accepted: true },
+      { situation: 'a description over the limit', schema: 'description', typed: 'x'.repeat(60_001), accepted: false },
+      { situation: 'a description at the limit', schema: 'description', typed: 'x'.repeat(60_000), accepted: true },
+    ])('$situation', ({ schema, typed, accepted }) => {
+      const of = schema === 'title' ? itemTitleSchema : itemDescriptionSchema;
+      expect(of.safeParse(typed).success).toBe(accepted);
+    });
+  });
+});
+
 describe('Capture', () => {
   /**
    * The shape read back is permissive on purpose: what is stored has to render
@@ -62,7 +165,7 @@ describe('Capture', () => {
    * every fixture used a uuid, so nothing here could have caught it.
    */
   describe('a workspace still opens when what it holds predates the rules', () => {
-    const anItem = (typeId: string | null) => ({
+    const anItem = (over: Record<string, unknown> = {}) => ({
       id: '018f0000-0000-7000-8000-000000000001',
       tenantId: 'tenant-default',
       workspaceId: 'ws-work',
@@ -72,10 +175,11 @@ describe('Capture', () => {
       sourceLink: null,
       sender: null,
       sourceTimestamp: null,
-      title: 'Make appointment with Novy',
-      preview: null,
+      capturedMessage: 'Make appointment with Novy',
+      title: '',
+      description: null,
       sourceResolvedAt: null,
-      typeId,
+      typeId: null,
       nextAction: null,
       completedAt: null,
       priority: null,
@@ -84,17 +188,25 @@ describe('Capture', () => {
       deletedAt: null,
       createdAt: '2026-09-04T10:00:00.000Z',
       updatedAt: '2026-09-04T10:00:00.000Z',
+      ...over,
     });
 
     it.each([
       // The two every account starts with have ids derived from the account's
       // own, so an item captured as one of them carries a type id that is not
       // a uuid and never was.
-      { situation: 'a type the account started with', typeId: 'tenant-default-type-thought' },
-      { situation: 'a type made by using it', typeId: '018f0000-0000-7000-8000-000000000002' },
-      { situation: 'no type at all', typeId: null },
-    ])('reads back an item of $situation', ({ typeId }) => {
-      expect(itemSchema.safeParse(anItem(typeId)).success).toBe(true);
+      { situation: 'a type the account started with', over: { typeId: 'tenant-default-type-thought' } },
+      { situation: 'a type made by using it', over: { typeId: '018f0000-0000-7000-8000-000000000002' } },
+      { situation: 'no type at all', over: { typeId: null } },
+      // Capture took an uncapped title until the cap existed, so a title over
+      // it can be sitting in a store right now. The whole snapshot is parsed at
+      // once, so refusing that one item would blank the workspace rather than
+      // draw one row oddly - the cap belongs on the way in, not on the way out.
+      { situation: 'a title longer than the cap', over: { title: 'x'.repeat(500) } },
+      { situation: 'a title with a line break in it', over: { title: 'Part\n11' } },
+      { situation: 'a description longer than the cap', over: { description: 'x'.repeat(70_000) } },
+    ])('reads back an item with $situation', ({ over }) => {
+      expect(itemSchema.safeParse(anItem(over)).success).toBe(true);
     });
   });
 });
