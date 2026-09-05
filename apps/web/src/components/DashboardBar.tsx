@@ -144,9 +144,14 @@ export function DashboardBar({
    * It is an inset shadow rather than a border so the tab does not change
    * height when it becomes the current one, which would shuffle the whole
    * strip by two pixels on every switch.
+   *
+   * **The two states no longer share an ink.** The band is near-black now
+   * ("Cockpit Shell Explorations", artboard 2c) while the tab you are on is
+   * filled with the sheet, so an unselected tab takes the chrome's light set
+   * and the selected one takes the app's ink - not two weights of one colour.
    */
   const tabClass =
-    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-ink-soft hover:bg-black/5 [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-[inset_0_2px_0_0_var(--tab-mark)]';
+    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-chrome-ink-soft hover:bg-white/8 hover:text-chrome-ink [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-[inset_0_2px_0_0_var(--tab-mark)]';
 
   return (
     <nav
@@ -197,7 +202,7 @@ export function DashboardBar({
           33), because this bar is also drawn on the Inbox, where there is no
           dashboard to have a layout. */}
       <DropdownMenu.Root>
-        <MenuTrigger label="Dashboard actions" className="mb-1 ml-auto" ref={barMenu} />
+        <MenuTrigger label="Dashboard actions" onChrome className="mb-1 ml-auto" ref={barMenu} />
         <MenuContent
           onCloseAutoFocus={(event) => {
             const claimed = opening.current;
@@ -319,7 +324,7 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
         type="button"
         onClick={() => setNaming(true)}
         aria-label="Add a dashboard"
-        className="mb-1 shrink-0 rounded-md px-2.5 py-1 text-sm text-ink-faint hover:bg-black/5 hover:text-ink"
+        className="mb-1 shrink-0 rounded-md px-2.5 py-1 text-sm text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink"
       >
         +
       </button>

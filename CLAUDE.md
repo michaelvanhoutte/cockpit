@@ -94,6 +94,14 @@ Run it from inside the repository, in the background, and carry on with somethin
 
 **Read what `main` has gained before finishing, not only what it has changed.** The rule above landed twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it.
 
+**A rule that changes while you are working is invisible unless you look for it.** This file is read into a session once, at the start, and never again, so a merge that rewrites it changes nothing about what the session believes. The draft rule above landed two and a half hours into "Edit an item's title and description on a form of its own" (pull request 163), written *because* of that branch, and it went on buying reviews for four more rounds across six merges of `main` that each read the conflicts and nothing else. After every merge, ask rather than remember:
+
+```bash
+git diff HEAD@{1} --stat -- CLAUDE.md .claude/
+```
+
+Anything it prints is a rule you are already working under and have not read.
+
 ## Where things are decided
 
 | Document | What it settles |

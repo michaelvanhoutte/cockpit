@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
@@ -20,7 +20,17 @@ import { Layout } from '../../../src/pages/Layout';
 const VIOLET = WORKSPACE_THEMES[0]!;
 const BLUE = WORKSPACE_THEMES[1]!;
 
+/**
+ * The surfaces the Violet workspace was wearing before the palette changed - a
+ * pale header over a pale ground, which is what a browser holding a stored copy
+ * of a workspace from an older release still has.
+ */
+const AN_OLDER_PALETTE = { bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
+
 const params: { workspaceId?: string } = {};
+/** What the two workspaces are wearing, so a case can hand them older colours. */
+const VIOLET_SURFACES = { bar: VIOLET.bar, ground: VIOLET.ground, header: VIOLET.header };
+const wearing: { violet: typeof VIOLET_SURFACES } = { violet: VIOLET_SURFACES };
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
@@ -52,7 +62,13 @@ vi.mock('../../../src/components/DashboardBar', () => ({
   ),
 }));
 
-vi.mock('../../../src/components/InboxPanel', () => ({ InboxPanel: () => null }));
+// The column itself is not what these cases are about; its heading is, because
+// the shell is what puts that in the band and names the column by it. The stub
+// renders the id it is handed, which is the whole of the wiring under test.
+vi.mock('../../../src/components/InboxPanel', () => ({
+  InboxPanel: () => null,
+  InboxHeading: ({ id }: { id?: string }) => <h2 id={id}>Inbox</h2>,
+}));
 
 vi.mock('../../../src/api/queries', () => ({
   meQuery: {
@@ -76,9 +92,7 @@ vi.mock('../../../src/api/queries', () => ({
             tenantId: 'tenant',
             name: 'Violet workspace',
             color: VIOLET.tint,
-            bar: VIOLET.bar,
-            ground: VIOLET.ground,
-            header: VIOLET.header,
+            ...wearing.violet,
           },
           {
             id: 'ws-blue',
@@ -129,8 +143,22 @@ function rgb(hex: string): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+/** A screen wide enough for the Inbox to be a column beside the dashboards. */
+function withRoomForTheInbox() {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: true,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }));
+}
+
 beforeEach(() => {
   delete params.workspaceId;
+  wearing.violet = VIOLET_SURFACES;
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('Workspace management', () => {
@@ -185,6 +213,21 @@ describe('Workspace management', () => {
       });
     });
 
+    it('paints a workspace wearing colours the palette no longer has in the theme its tint belongs to', async () => {
+      // A browser opening on a stored copy from before the palette changed, or
+      // a workspace whose tint was never in the palette at all. The chrome's
+      // text is a fixed light set now, so those older pale surfaces are not the
+      // wrong shade - they are a bar its own text cannot be read on.
+      wearing.violet = AN_OLDER_PALETTE;
+      params.workspaceId = 'ws-violet';
+
+      const { container, tab } = await theShell();
+
+      expect(filledWith(container.querySelector('header'))).toBe(rgb(VIOLET.header));
+      expect(filledWith(container.firstElementChild)).toBe(rgb(VIOLET.ground));
+      expect(filledWith(tab('Violet workspace'))).toBe(rgb(VIOLET.bar));
+    });
+
     it('paints in the default theme where there is no workspace to be in, rather than in nothing', async () => {
       // The workspaces settings page is reached without one.
       const { container } = await theShell();
@@ -192,6 +235,38 @@ describe('Workspace management', () => {
       expect(filledWith(container.querySelector('header'))).toBe(rgb(VIOLET.header));
       expect(filledWith(container.firstElementChild)).toBe(rgb(VIOLET.ground));
       expect(within(container).queryByTestId('dashboard-strip')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the Inbox is headed in the band, above the column it names', () => {
+    // F1: where the heading is drawn and what it names are the shell's own
+    // arrangement. How many items it counts is the Inbox's, and is asked in
+    // tests/unit/components/InboxPanel.test.tsx.
+    it('puts the name in the band beside the dashboard tabs, and names the column with it', async () => {
+      withRoomForTheInbox();
+      params.workspaceId = 'ws-blue';
+
+      const { container } = await theShell();
+
+      // In the band: the same element the dashboard tabs are inside.
+      const band = within(container).getByTestId('dashboard-strip').parentElement!;
+      const heading = within(band).getByRole('heading', { name: 'Inbox' });
+
+      // And it is what the column below answers to, rather than a label of its
+      // own that could drift from the words on screen.
+      const column = within(container).getByRole('complementary', { name: 'Inbox' });
+      expect(column.getAttribute('aria-labelledby')).toBe(heading.id);
+    });
+
+    it('leaves the band unheaded where there is no room for a column', async () => {
+      // A phone: the Inbox is a tab in the bar opening a screen of its own, and
+      // that screen carries its own name.
+      params.workspaceId = 'ws-blue';
+
+      const { container } = await theShell();
+
+      expect(within(container).queryByRole('heading', { name: 'Inbox' })).toBeNull();
+      expect(within(container).queryByRole('complementary')).toBeNull();
     });
   });
 });

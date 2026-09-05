@@ -25,13 +25,28 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 export function MenuTrigger({
   label,
   className,
+  onChrome = false,
   ref,
 }: {
   label: string;
   className?: string;
+  /**
+   * Whether this one sits on the chrome rather than on the sheet. The chrome is
+   * near-black in every theme, so the ink and the accent tint that a menu wears
+   * everywhere else are both invisible on it.
+   *
+   * A flag rather than a class passed in, because the two sets have to replace
+   * each other whole: `text-ink-faint` and `text-chrome-ink-faint` are
+   * utilities of the same specificity, so which one won would be decided by
+   * their order in the generated stylesheet rather than by the call site.
+   */
+  onChrome?: boolean;
   /** Held where something has to put the focus back on this control afterwards. */
   ref?: React.Ref<HTMLButtonElement>;
 }) {
+  const colors = onChrome
+    ? 'text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/10 data-[state=open]:text-chrome-ink'
+    : 'text-ink-faint hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-accent data-[state=open]:bg-accent-tint data-[state=open]:text-accent-deep';
   return (
     <DropdownMenu.Trigger
       ref={ref}
@@ -39,7 +54,7 @@ export function MenuTrigger({
       // 36px, comfortably past the 24px minimum target size and reachable with
       // a thumb, in a bar whose other controls are smaller than that: the
       // control is what has to be hittable, not the text beside it.
-      className={`inline-flex size-9 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-accent data-[state=open]:bg-accent-tint data-[state=open]:text-accent-deep${className ? ` ${className}` : ''}`}
+      className={`inline-flex size-9 shrink-0 items-center justify-center rounded-md focus-visible:outline-2 ${colors}${className ? ` ${className}` : ''}`}
     >
       <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden="true">
         <circle cx="8" cy="3.2" r="1.5" />

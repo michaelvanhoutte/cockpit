@@ -56,10 +56,11 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_COMPLETED_AT,
     itemTypes(accountId),
     ITEM_WORKSPACE_DECIDED,
+    ITEM_TEXTS,
     // Last, because it is the only one here that has not shipped: everything
     // above is applied in accounts already, and a change that has shipped can
     // never be reordered any more than it can be edited.
-    ITEM_TEXTS,
+    WORKSPACE_INK,
   ];
 }
 
@@ -764,5 +765,98 @@ const ITEM_TEXTS: Change = {
   statements: [
     { sql: 'ALTER TABLE `items` ADD COLUMN `captured_message` text' },
     { sql: 'ALTER TABLE `items` ADD COLUMN `description` text' },
+  ],
+};
+
+/**
+ * Every workspace repainted in the new palette: near-black chrome over a light
+ * sheet, in the workspace's own hue (artboard 2c of "Cockpit Shell
+ * Explorations"). The tint is not touched - it is the colour a person already
+ * recognises in the tabs, and it is the key every statement here matches on.
+ *
+ * **Why the rows have to be written rather than left to the client.** A
+ * workspace stores all three surfaces resolved, so the palette is a picker
+ * rather than a storage format - the reason is on the register migration that
+ * added the columns, `migrations/0007_giant_shape.sql`, under "Why columns and
+ * not a theme name". Named by file rather than by number because a bare `0007`
+ * read here is `0007-item-completed-at`, which is a different history entirely.
+ * That means a workspace made before this change carries the old pale surfaces
+ * for good unless something writes them, and the chrome's text is a fixed light
+ * set now - pale text on a pale bar is unreadable rather than merely wrong.
+ *
+ * **A workspace whose tint is in no theme is repainted too**, in the default
+ * theme's three surfaces, which is the opposite of what `0005-workspace-bar`
+ * decided for the same row. The reason the two differ is the reason above: back
+ * then an unmatched workspace kept a bar that was merely the wrong hue, and now
+ * it would keep a surface its own text cannot be read on. It still keeps its
+ * tint, so the one thing about it a person recognises is unchanged.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Interrupted partway.** It cannot be. A change is applied atomically
+ *   (up-to-date.ts): the statement and the record that it ran commit together,
+ *   so a failure leaves every row exactly as it was and the change is retried
+ *   whole next time somebody opens the account.
+ * - **Run again.** Only an unfinished change runs again, and this one is an
+ *   assignment keyed on the tint either way: a second run writes the same three
+ *   values over the same rows.
+ * - **Data the new rules reject.** None. There is no constraint on these
+ *   columns and no shape to violate; the `ELSE` branch above is what covers the
+ *   rows nothing else matches.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop, in
+ *   preview, in staging and in production alike.
+ * - **The windows it can be interrupted in.** One that matters, and it is not
+ *   in the database: a browser holding a stored copy of the workspace from
+ *   before the deploy paints the old pale chrome under the new light text until
+ *   the read behind it lands, which offline is a while. The shell closes that
+ *   itself by falling back to the theme a tint belongs to whenever the three
+ *   surfaces it was handed are not a palette theme (pages/Layout.tsx), so this
+ *   change is what makes the stored rows right rather than what makes the
+ *   screen readable.
+ */
+const WORKSPACE_INK: Change = {
+  name: '0010-workspace-ink',
+  statements: [
+    {
+      // One statement rather than eight, unlike `0005-workspace-bar`, because
+      // three columns move together here and eight statements would be
+      // twenty-four assignments in a shape that has to stay in step by eye.
+      sql: `UPDATE workspaces SET
+              header = CASE color
+                WHEN '#6f62b5' THEN '#18152b'
+                WHEN '#3a72c8' THEN '#151e2b'
+                WHEN '#c06a45' THEN '#2b1c15'
+                WHEN '#3f8f78' THEN '#152b24'
+                WHEN '#a8548c' THEN '#2b1523'
+                WHEN '#b58a2f' THEN '#2b2415'
+                WHEN '#4f8fa8' THEN '#15252b'
+                WHEN '#7d8f3f' THEN '#262b15'
+                ELSE '#18152b'
+              END,
+              bar = CASE color
+                WHEN '#6f62b5' THEN '#211d37'
+                WHEN '#3a72c8' THEN '#1d2737'
+                WHEN '#c06a45' THEN '#37251d'
+                WHEN '#3f8f78' THEN '#1d372f'
+                WHEN '#a8548c' THEN '#371d2e'
+                WHEN '#b58a2f' THEN '#372f1d'
+                WHEN '#4f8fa8' THEN '#1d3037'
+                WHEN '#7d8f3f' THEN '#31371d'
+                ELSE '#211d37'
+              END,
+              ground = CASE color
+                WHEN '#6f62b5' THEN '#edebf7'
+                WHEN '#3a72c8' THEN '#ebf0f7'
+                WHEN '#c06a45' THEN '#f7efeb'
+                WHEN '#3f8f78' THEN '#ebf7f3'
+                WHEN '#a8548c' THEN '#f7ebf3'
+                WHEN '#b58a2f' THEN '#f7f3eb'
+                WHEN '#4f8fa8' THEN '#ebf4f7'
+                WHEN '#7d8f3f' THEN '#f4f7eb'
+                ELSE '#edebf7'
+              END`,
+    },
   ],
 };

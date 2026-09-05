@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOutsideTheGate } from '../../../src/auth/gate.js';
+import { isOutsideTheGate, sessionCookieName } from '../../../src/auth/gate.js';
 
 /**
  * L1: which addresses answer without a sign-in is a decision about a string,
@@ -50,6 +50,34 @@ describe('Sign-in', () => {
       { situation: 'capturing a thought', path: '/v1/commands/capture_item' },
     ])('holds $situation behind it', ({ path }) => {
       expect(isOutsideTheGate(path)).toBe(false);
+    });
+  });
+
+  /**
+   * L1: which sign-in a request is carrying is decided from the address alone,
+   * before any register is read. The integration suite proves two Cockpits
+   * actually leave each other's sign-ins alone; this asks the half it cannot,
+   * which is what a deployed address is called - a browser holding a sign-in
+   * across a release is not something a test can run.
+   */
+  describe('two Cockpits open in one browser keep their sign-ins apart', () => {
+    it.each([
+      { situation: 'a Cockpit you are running', at: 'http://localhost:9182/v1/me' },
+      { situation: 'a second one running beside it', at: 'http://localhost:8987/v1/me' },
+      { situation: 'the one the browser suite drives', at: 'http://localhost:10089/v1/me' },
+    ])('tells $situation apart from the others', ({ at }) => {
+      expect(sessionCookieName(at)).toBe(`cockpit_session_${new URL(at).port}`);
+    });
+
+    it.each([
+      { situation: 'a deployment', at: 'https://cockpit.example.com/v1/me' },
+      // Written out, and dropped by `URL` before it is ever looked at. The
+      // deployed name has to be the one it has always been or a release signs
+      // everybody out at once.
+      { situation: 'a deployment naming the port it answers on', at: 'https://cockpit.example.com:443/v1/me' },
+      { situation: 'somewhere reached without TLS', at: 'http://cockpit.example.com:80/v1/me' },
+    ])('leaves the sign-in you already had at $situation alone', ({ at }) => {
+      expect(sessionCookieName(at)).toBe('cockpit_session');
     });
   });
 });

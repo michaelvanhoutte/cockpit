@@ -29,6 +29,26 @@ export type GatedEnv = { Bindings: Env; Variables: GateVariables };
 export const SESSION_COOKIE = 'cockpit_session';
 
 /**
+ * That name, with the address's port on it wherever there is one.
+ *
+ * **Cookies are not scoped by port**, and every `pnpm dev` worktree plus the
+ * browser suite's own stack is `localhost` to a browser (scripts/lib/ports.mjs
+ * moves the ports so several can run at once, which only isolates localStorage
+ * and IndexedDB). One name would therefore be one slot shared between them all,
+ * and since each stack has a register of its own, every other stack refuses the
+ * sign-in it finds there *and* deletes it on the way out - signing you out of
+ * the one it belonged to, whichever of them you were using.
+ *
+ * A deployed address has no port in it, and `URL` drops an explicitly written
+ * `:443` or `:80` as well, so a deployment keeps the bare name and no release
+ * changes what anybody is already holding.
+ */
+export function sessionCookieName(url: string): string {
+  const { port } = new URL(url);
+  return port ? `${SESSION_COOKIE}_${port}` : SESSION_COOKIE;
+}
+
+/**
  * The only paths that answer without a sign-in, and each is here for a stated
  * reason rather than by omission:
  *
@@ -81,7 +101,7 @@ export function gate(): MiddlewareHandler<GatedEnv> {
   return async (c, next) => {
     if (isOutsideTheGate(new URL(c.req.url).pathname)) return next();
 
-    const sessionId = getCookie(c, SESSION_COOKIE);
+    const sessionId = getCookie(c, sessionCookieName(c.req.url));
     const held = sessionId ? await sessionHeld(c.env, sessionId) : null;
     const now = new Date();
     const verdict = recogniseSession(held?.session, now);
@@ -134,7 +154,7 @@ export async function stillSignedIn(env: Env, sessionId: string): Promise<boolea
  * impossible everywhere except a deployment.
  */
 export function rememberSessionCookie(c: Context, sessionId: string): void {
-  setCookie(c, SESSION_COOKIE, sessionId, {
+  setCookie(c, sessionCookieName(c.req.url), sessionId, {
     httpOnly: true,
     sameSite: 'Lax',
     secure: new URL(c.req.url).protocol === 'https:',
@@ -144,7 +164,7 @@ export function rememberSessionCookie(c: Context, sessionId: string): void {
 }
 
 export function forgetSessionCookie(c: Context): void {
-  deleteCookie(c, SESSION_COOKIE, {
+  deleteCookie(c, sessionCookieName(c.req.url), {
     httpOnly: true,
     sameSite: 'Lax',
     secure: new URL(c.req.url).protocol === 'https:',

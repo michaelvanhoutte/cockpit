@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Filing, Item, WorkspaceSnapshot } from '@cockpit/shared';
-import { InboxPanel } from '../../../src/components/InboxPanel';
+import { InboxHeading, InboxPanel } from '../../../src/components/InboxPanel';
 
 /**
  * F1: what the Inbox holds is a view over the snapshot evaluated in the
@@ -16,6 +16,12 @@ import { InboxPanel } from '../../../src/components/InboxPanel';
  * its own on a narrow one ("Show the Inbox beside the dashboards instead of as
  * a tab", issue 117) - and what it holds cannot depend on which. Which of the
  * two a workspace shows is in tests/unit/router.test.tsx.
+ *
+ * The name and the count are a component of their own, because on a wide screen
+ * they are drawn in the dashboard band rather than over the column ("Cockpit
+ * Shell Explorations", artboard 2c). Both are rendered here, which is the pair
+ * a person actually sees; that the shell puts them in the two places is in
+ * tests/unit/pages/Layout.test.tsx.
  */
 const held = vi.hoisted(() => ({ items: [] as Item[], filings: [] as Filing[] }));
 
@@ -80,12 +86,16 @@ function anItem(title: string, completedAt: string | null = null): Item {
 async function showWorkspace(items: Item[], filings: Filing[] = []) {
   held.items = items;
   held.filings = filings;
-  render(
+  const { container } = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <InboxHeading workspaceId="ws-work" />
       <InboxPanel workspaceId="ws-work" />
     </QueryClientProvider>,
   );
-  return screen.findByRole('region', { name: 'Inbox' });
+  // The capture box is the Inbox's first row, and the first thing drawn once
+  // the snapshot has arrived - the heading is up before it, on no data at all.
+  await screen.findByLabelText('Capture a note or to-do');
+  return container;
 }
 
 describe('Triage', () => {

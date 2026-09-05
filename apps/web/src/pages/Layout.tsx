@@ -2,17 +2,18 @@ import { useCallback, useEffect } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
+import { DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf } from '@cockpit/shared';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, snapshotQuery, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
 import { CaptureWindow } from '../components/CaptureWindow';
 import { DashboardBar } from '../components/DashboardBar';
-import { InboxPanel } from '../components/InboxPanel';
+import { InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
 import { OpensItemForms } from '../itemForm';
+import { litForChrome } from '../chrome';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /** The default theme in the shape a workspace carries it. */
@@ -22,6 +23,40 @@ const DEFAULT_WORKSPACE_THEME_COLORS = {
   ground: DEFAULT_WORKSPACE_THEME.ground,
   header: DEFAULT_WORKSPACE_THEME.header,
 };
+
+/**
+ * The id of the Inbox's heading, which is in the band while the column it names
+ * is in the page below. Fixed rather than generated, because the two are in
+ * different components and only one of them can own a `useId`.
+ */
+const INBOX_HEADING = 'the-inbox';
+
+/** The four colors of a workspace, which is all the shell reads off one. */
+type Painted = typeof DEFAULT_WORKSPACE_THEME_COLORS;
+
+/**
+ * What to paint a workspace in: its own four colors where they are a theme the
+ * palette actually has, and otherwise the theme its tint belongs to.
+ *
+ * **The fallback is not decoration.** A workspace stores its surfaces resolved
+ * rather than as a theme name, so a copy of one held from before the palette
+ * changed carries the surfaces of the old palette - and the app paints from the
+ * stored copy before the read behind it lands, which offline is a while. Under
+ * the near-black chrome the text on it is a fixed light set, so those old pale
+ * surfaces are not merely the wrong shade: they are a bar whose own text cannot
+ * be read on it. Falling back to the tint's theme closes that window, and
+ * closes the same hole for a workspace wearing a tint the palette never had.
+ *
+ * The tint itself is never overridden. It is the one color a person already
+ * recognises in the tabs, and it is what the fallback is looked up by.
+ */
+function paint(workspace: Painted | undefined): Painted {
+  if (!workspace) return DEFAULT_WORKSPACE_THEME_COLORS;
+  const { color, bar, ground, header } = workspace;
+  if (isPaletteTheme({ tint: color, bar, ground, header })) return workspace;
+  const theme = themeOf(color);
+  return { color, bar: theme.bar, ground: theme.ground, header: theme.header };
+}
 
 /**
  * The app shell: workspace tabs on top (the workspace color identity from the
@@ -183,13 +218,25 @@ function TheShell() {
    * falls back to the default theme rather than to nothing, so the app is never
    * unpainted.
    */
-  const theme = active ?? DEFAULT_WORKSPACE_THEME_COLORS;
+  const theme = paint(active);
 
   return (
-    <div className="flex h-dvh flex-col" style={{ backgroundColor: theme.ground }}>
-      {/* The strip the phone's own status bar sits over, painted the
-          workspace's header colour so the colour reaches the physical top edge
-          rather than stopping at a letterbox (styles.css, `--edge-top`).
+    <div
+      className="flex h-dvh flex-col"
+      // `--ground` and `--tint` beside the fill, because two things drawn far
+      // below here are mixed from them rather than given them: the wells sunk
+      // into the sheet (styles.css) and the lit tint a dot wears on the chrome.
+      style={
+        {
+          backgroundColor: theme.ground,
+          '--ground': theme.ground,
+          '--tint': theme.color,
+        } as React.CSSProperties
+      }
+    >
+      {/* The strip the phone's own status bar sits over, painted the chrome's
+          own colour so the chrome reaches the physical top edge rather than
+          stopping at a letterbox (styles.css, `--edge-top`).
 
           Nothing is drawn in it, and it is outside the header rather than
           padding inside it, because the workspace's 3px tint stripe is the
@@ -231,9 +278,30 @@ function TheShell() {
               that left the strip showing one whole tab and a letter of the
               next. The workspaces are what the bar is for, so the wordmark is
               what gives way; the logon page still says whose app this is. */}
-          <span className="hidden shrink-0 pb-2 text-lg font-semibold tracking-tight sm:block">
+          <span className="hidden shrink-0 pb-2 text-lg font-semibold tracking-tight text-chrome-ink sm:block">
             Cockpit
           </span>
+
+          {/* First in the strip, ahead of every workspace, and ruled off from
+              them: what it captures belongs to no workspace, so it is not one
+              more of them and cannot sit among them ("Capture something before
+              you know which workspace it belongs to", issue 165; "Cockpit Shell
+              Explorations", artboard 2c). It was a filled button after the tabs,
+              which read as a control on the bar rather than as the first place
+              you land.
+
+              Outside the Workspaces navigation rather than inside it, for the
+              same reason: it is not a workspace, and the strip beside it scrolls
+              within itself, which would carry Capture off the screen. */}
+          {params.workspaceId && (
+            <>
+              <CaptureWindow workspaceId={params.workspaceId} tint={theme.color} />
+              <span
+                aria-hidden="true"
+                className="mx-2 mb-2 h-5 w-px shrink-0 self-end bg-white/15"
+              />
+            </>
+          )}
           {/* Scrolls within itself rather than widening the page. Until
               workspaces could be made, three of them fit any screen and this
               was a plain row; the fourth one pushed a 480px phone to 571px and
@@ -266,14 +334,37 @@ function TheShell() {
                   // with its own bar color and the strip below it is that same
                   // color, so the two are one surface and a rounded corner
                   // there would draw a seam across it.
+                  // The workspace's own colour along the top edge of the tab you
+                  // are on, for the reason the dashboard tab below carries one:
+                  // the header and the strip under it are four values of grey
+                  // apart, which is enough to read as joined and nowhere near
+                  // enough to read as *selected*. An inset shadow rather than a
+                  // border, so becoming current does not change the tab's
+                  // height and shuffle the strip.
                   className={`shrink-0 whitespace-nowrap rounded-t-lg px-3 pt-1.5 pb-2 text-sm ${
-                    here ? 'font-medium text-ink' : 'text-ink-soft hover:bg-black/5'
+                    here
+                      ? 'font-medium text-chrome-ink shadow-[inset_0_2px_0_0_var(--tab-mark)]'
+                      : 'text-chrome-ink-soft hover:bg-white/8 hover:text-chrome-ink'
                   }`}
-                  style={here ? { backgroundColor: ws.bar } : undefined}
+                  style={
+                    {
+                      // The band's own colour rather than the workspace's
+                      // stored one, so the tab you are on and the strip it runs
+                      // into are the same fill even when the stored copy is
+                      // from an older palette (`paint` above).
+                      ...(here ? { backgroundColor: theme.bar } : undefined),
+                      // Lifted towards white before it is drawn on the chrome
+                      // (`chrome.ts`), which is where the reason is.
+                      '--tab-mark': litForChrome(ws.color),
+                    } as React.CSSProperties
+                  }
                 >
                   <span
-                    className="mr-1.5 inline-block size-2 rounded-full align-middle"
-                    style={{ backgroundColor: ws.color }}
+                    className="mr-1.5 inline-block size-2 rounded-full align-middle bg-[var(--tab-mark)]"
+                    // Only the one you are in glows. It is the cheapest way to
+                    // say *this* workspace with a mark this small, and a bar of
+                    // glowing dots would say nothing at all.
+                    style={here ? { boxShadow: `0 0 8px ${ws.color}` } : undefined}
                   />
                   {ws.name}
                 </Link>
@@ -281,20 +372,13 @@ function TheShell() {
             })}
           </nav>
 
-          {/* Beside the workspaces rather than in one of them: what it makes
-              belongs to no workspace at all ("Capture something before you know
-              which workspace it belongs to", issue 165). Only where there is a
-              workspace to have been captured from, which is every screen except
-              the workspaces settings page. */}
-          {params.workspaceId && <CaptureWindow workspaceId={params.workspaceId} />}
-
           {/* The same control as every other menu in the app (components/
               Menu.tsx). It used to be a bordered pill, given that weight
               because three faint characters did not read as a control - which
               an icon with a hover and a focus state does without inventing a
               second look for the one menu in the header. */}
           <DropdownMenu.Root>
-            <MenuTrigger label="Settings" />
+            <MenuTrigger label="Settings" onChrome />
             <MenuContent>
               <DropdownMenu.Item asChild>
                 <Link to="/settings/workspaces" className={menuItemClass}>
@@ -332,18 +416,21 @@ function TheShell() {
           **The dashboard tabs inside it start where the dashboard starts.**
           They used to run from the left edge, which put them above the Inbox -
           and the Inbox is the workspace's, identical on every dashboard, so
-          tabs sitting over it said they governed something they do not. The
-          spacer is the Inbox's own width, so the two line up however wide the
-          column is; with no room for the Inbox there is no column to miss, and
-          no spacer.
+          tabs sitting over it said they governed something they do not. What
+          holds that space open is now the Inbox's own name and count, joined to
+          the column below it exactly as a selected tab is joined to the sheet
+          ("Cockpit Shell Explorations", artboard 2c): the band is a row of
+          headings, and the Inbox is the leftmost of them. With no room for the
+          Inbox there is no column to head, and the screen it opens instead
+          carries its name itself (pages/WorkspacePage.tsx).
 
           Only where there is a workspace to have dashboards: the settings page
           is reached without one, and there is then nothing for a tab to join. */}
       {params.workspaceId && (
         <div
-          className="flex w-full"
-          // Inset the same way the header above it is, so the spacer still
-          // lines up with the Inbox column below and the first dashboard tab
+          className="flex w-full items-end"
+          // Inset the same way the header above it is, so the Inbox's heading
+          // still lines up with the column it heads and the first dashboard tab
           // does not go under a sideways phone's notch.
           style={{
             backgroundColor: theme.bar,
@@ -351,7 +438,9 @@ function TheShell() {
           }}
         >
           {roomForTheInbox && (
-            <div aria-hidden="true" className="w-1/5 min-w-70 max-w-105 shrink-0" />
+            <div className="ml-1 w-1/5 min-w-70 max-w-105 shrink-0 bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5">
+              <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
+            </div>
           )}
           <DashboardBar
             workspaceId={params.workspaceId}
@@ -369,60 +458,62 @@ function TheShell() {
           which is the point of the split: a long Inbox never pushes the
           dashboard off the screen, and a tall dashboard never scrolls the
           Inbox away. */}
-      {/* The wash is here rather than on the shell, which is where it started
-          and where it could not be seen. Measured on the running app: the ramp
-          ran from the top of the shell, so its strongest fifth was behind the
-          opaque header and what was left began at four percent and faded to
-          nothing across four hundred pixels - about seven values of grey, split
-          up by the panels sitting on it. Present in the stylesheet, invisible
-          on the screen.
-
-          This element begins where the ground first becomes visible, and does
-          not scroll itself - its two columns do - so the wash stays put over a
-          moving page rather than sliding with it. */}
       {/* Above the columns and across both, because it is about the workspace
           they are both showing rather than about either of them. */}
       {workspaceUnread && (
-        // The page's own `px-3`, plus whatever the screen's sides take. Said
+        // The seam's own width, plus whatever the screen's sides take. Said
         // here rather than inherited, because this sits above `main` and so is
         // outside the one place the columns get it from - and written as
-        // Tailwind's own step rather than as 0.75rem, so it cannot drift from
-        // the `px-3` the columns below it keep.
+        // Tailwind's own step, so it cannot drift from the `p-1` below it.
         <div
-          className="pt-3"
+          className="pt-1"
           style={{
             paddingInline:
-              'calc(var(--spacing) * 3 + var(--edge-left)) calc(var(--spacing) * 3 + var(--edge-right))',
+              'calc(var(--spacing) + var(--edge-left)) calc(var(--spacing) + var(--edge-right))',
           }}
         >
           <LoadFailure error={workspace.error} onRetry={() => void workspace.refetch()} />
         </div>
       )}
-      {/* The side insets are said once here, for both columns, so a column is
-          not asked whether it is the one against the edge - which changes with
-          the width, since below 768px there is only one. The wash is painted
-          across the full width behind them either way. */}
+      {/* One sheet, in the workspace's ground, with the columns' own hollows the
+          only thing breaking it up ("Cockpit Shell Explorations", artboard 2c).
+          Four pixels of padding rather than twelve and twenty: the panels are
+          not cards floating with air around them any more, so the space between
+          them is a seam rather than a margin, and what it used to buy - room for
+          each card's shadow - is not needed by a surface that has none.
+
+          The side insets widen that seam rather than replacing it, and they are
+          said once here for both columns so neither is asked whether it is the
+          one against the edge - which changes with the width, since below 768px
+          there is only one. The sheet itself still runs to the screen's edge. */}
       <main
-        className="ground-wash flex w-full min-h-0 flex-1"
-        style={{ paddingInline: 'var(--edge-left) var(--edge-right)' }}
+        className="flex w-full min-h-0 flex-1 gap-1 p-1"
+        style={{
+          paddingInline:
+            'calc(var(--spacing) + var(--edge-left)) calc(var(--spacing) + var(--edge-right))',
+        }}
       >
         {params.workspaceId && roomForTheInbox && (
           <aside
-            aria-label="Inbox"
+            // Named by the heading up in the band rather than by a label of its
+            // own, so the name a person reads and the name a screen reader
+            // announces are the same string in one place.
+            aria-labelledby={INBOX_HEADING}
             // A fifth of the width, with a floor and a ceiling: 20% of a
             // 1280px screen is 256px, which an item row cannot hold, and 20%
             // of a very wide one is more Inbox than anybody asked for.
             // The bottom inset is padding on the scroller rather than on the
-            // shell: padding on the shell would end the column above the home
-            // indicator and leave a dead band there, where this lets the list
-            // scroll through it and still puts the last row clear of it.
-            className="w-1/5 min-w-70 max-w-105 shrink-0 overflow-y-auto pt-5 pb-[calc(1.25rem_+_var(--edge-bottom))] pl-3"
+            // sheet: padding on the sheet would end the well above the home
+            // indicator and leave a dead strip there, where this lets the well
+            // run to the screen's edge, the list scroll through it, and the
+            // last row still stop clear of it.
+            className="well-inbox w-1/5 min-w-70 max-w-105 shrink-0 overflow-y-auto pb-[var(--edge-bottom)]"
           >
             <InboxPanel workspaceId={params.workspaceId} />
           </aside>
         )}
         {/* Same bottom inset as the Inbox column, for the same reason. */}
-        <div className="min-w-0 flex-1 overflow-y-auto px-3 pt-5 pb-[calc(1.25rem_+_var(--edge-bottom))]">
+        <div className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
           <Outlet />
         </div>
       </main>
