@@ -37,10 +37,11 @@ import { PANEL_GAP, PANEL_ROW_HEIGHT, PanelCard } from './PanelCard';
  * anything has to remember. Nothing scales the type: a squeezed panel is a
  * narrower panel holding the same words.
  *
- * **Reordering happens here, not on a settings page**, and that is deliberate
- * rather than an inconsistency with workspaces and dashboards: dragging *is*
- * the editing, so it has to happen where the thing being edited is drawn. The
- * issue says so in as many words.
+ * **Reordering happens here, on the dashboard itself**, and that is deliberate
+ * rather than an inconsistency with workspaces and dashboards, which are
+ * reordered in a window opened from a menu: dragging *is* the editing, so it
+ * has to happen where the thing being edited is drawn. The issue says so in as
+ * many words.
  *
  * **One `useCommand` for the whole board** rather than one per control, so a
  * refusal can only belong to the last thing asked for - and `variables` says

@@ -16,8 +16,6 @@ const A_NAME_THAT_LOOKS_LIKE_MARKUP = '<img src=x onerror=alert(1)>';
 
 // The router itself is not under test, and `to`/`params` are its props rather
 // than an anchor's, so they stop here instead of being spread onto the DOM.
-const at = { pathname: '/settings/workspaces' };
-
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
     <a className={className}>{children}</a>
@@ -28,10 +26,6 @@ vi.mock('@tanstack/react-router', () => ({
   // No item named, so the shell draws no form over itself - these cases are
   // about the chrome.
   useSearch: () => ({}),
-  // The address, because the shell asks which page this is rather than whether
-  // a workspace is named: Capture is in no workspace either.
-  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
-    select({ location: { pathname: at.pathname } }),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));

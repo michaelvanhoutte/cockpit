@@ -58,7 +58,7 @@ vi.mock('../../../src/api/queries', () => ({
 const mockUseCommand = vi.mocked(useCommand);
 const mockUseSendCommand = vi.mocked(useSendCommand);
 
-function showPage(answer: {
+function showWindow(answer: {
   succeeds: boolean;
   error?: Error;
   about?: CommandArgs;
@@ -130,7 +130,7 @@ describe('Capture', () => {
       { situation: 'several', types: [ACTION, THOUGHT, QUESTION], shows: ['Action', 'Thought', 'Question'] },
     ])('$situation', async ({ types, shows }) => {
       held.types = types;
-      showPage();
+      showWindow();
 
       if (shows.length === 0) {
         expect(await screen.findByText(/No types yet/)).toBeVisible();
@@ -142,7 +142,7 @@ describe('Capture', () => {
 
     it('says nothing about an account whose types have not arrived', async () => {
       held.answer = () => Promise.reject(new Error('offline'));
-      showPage();
+      showWindow();
 
       expect(await screen.findByRole('button', { name: 'Try again' })).toBeVisible();
       expect(screen.queryByText(/No types yet/)).toBeNull();
@@ -151,7 +151,7 @@ describe('Capture', () => {
 
   describe('a type is edited on a form of its own, and nothing is sent until Save', () => {
     it('opens the form on a double-click on the row', async () => {
-      showPage();
+      showWindow();
 
       fireEvent.doubleClick(await rowFor('Thought'));
 
@@ -160,7 +160,7 @@ describe('Capture', () => {
 
     it('opens the form from the row’s own menu', async () => {
       const user = userEvent.setup();
-      showPage();
+      showWindow();
 
       await choose(user, 'Thought', 'Edit…');
 
@@ -169,7 +169,7 @@ describe('Capture', () => {
 
     it('asks for the new name, for that row’s own type', async () => {
       const user = userEvent.setup();
-      const { saved } = showPage();
+      const { saved } = showWindow();
 
       fireEvent.doubleClick(await rowFor('Thought'));
       const box = await screen.findByLabelText('Name of Thought');
@@ -187,7 +187,7 @@ describe('Capture', () => {
 
     it('asks for the colour picked, for that row’s own type', async () => {
       const user = userEvent.setup();
-      const { saved } = showPage();
+      const { saved } = showWindow();
 
       fireEvent.doubleClick(await rowFor('Thought'));
       await user.click(
@@ -206,7 +206,7 @@ describe('Capture', () => {
       // The swatches are a draft like the name is. They used to sit in the row
       // and send a change on every press.
       const user = userEvent.setup();
-      const { saved } = showPage();
+      const { saved } = showWindow();
 
       fireEvent.doubleClick(await rowFor('Thought'));
       await user.click(
@@ -218,7 +218,7 @@ describe('Capture', () => {
 
     it('leaves what was typed where it is when the new name is refused', async () => {
       const user = userEvent.setup();
-      showPage({
+      showWindow({
         succeeds: true,
         refusesTheForm: new CommandRefused(409, 'a type called Action already exists'),
       });
@@ -259,7 +259,7 @@ describe('Capture', () => {
       held.itemsByWorkspace = items;
       held.workspaces = Object.keys(items).length ? Object.keys(items).map((id) => ({ id })) : [{ id: 'ws-work' }];
       const user = userEvent.setup();
-      showPage();
+      showWindow();
 
       await choose(user, 'Thought', 'Delete');
 
@@ -269,7 +269,7 @@ describe('Capture', () => {
 
     it('sends nothing until the question is answered, then sends the delete', async () => {
       const user = userEvent.setup();
-      const { mutate } = showPage();
+      const { mutate } = showWindow();
 
       await choose(user, 'Thought', 'Delete');
       expect(mutate).not.toHaveBeenCalled();
@@ -291,7 +291,7 @@ describe('Capture', () => {
       { situation: 'moved down from the menu', row: 'Thought', entry: 'Move down', order: ['type-action', 'type-question', 'type-thought'] },
     ])('$situation', async ({ row, entry, order }) => {
       const user = userEvent.setup();
-      const { mutate } = showPage();
+      const { mutate } = showWindow();
 
       await choose(user, row, entry);
 
@@ -306,7 +306,7 @@ describe('Capture', () => {
       { situation: 'the last row', row: 'Question', entry: 'Move down', says: 'It is already the last' },
     ])('says why it cannot move from $situation, rather than going quiet', async ({ row, entry, says }) => {
       const user = userEvent.setup();
-      const { mutate } = showPage();
+      const { mutate } = showWindow();
 
       await user.click(await screen.findByRole('button', { name: `Actions for ${row}` }));
       const stuck = await screen.findByRole('menuitem', { name: `${entry}: ${says}` });
@@ -318,7 +318,7 @@ describe('Capture', () => {
 
     it('shows the move before the server agrees', async () => {
       const user = userEvent.setup();
-      showPage();
+      showWindow();
 
       await choose(user, 'Thought', 'Move up');
 
@@ -328,7 +328,7 @@ describe('Capture', () => {
 
     it('puts the row back and says why when the move is refused', async () => {
       const user = userEvent.setup();
-      showPage({
+      showWindow({
         succeeds: false,
         error: new CommandRefused(409, 'the types changed while they were being put in order'),
         about: {
