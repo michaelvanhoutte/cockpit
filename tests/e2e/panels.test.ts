@@ -43,7 +43,7 @@ async function ownDashboard(page: Page, isMobile: boolean): Promise<void> {
 }
 
 async function addPanel(page: Page, name: string, isMobile: boolean): Promise<void> {
-  await press(page.getByRole('button', { name: 'Add a panel' }), isMobile);
+  await press(page.getByRole('button', { name: '+ Add a panel' }), isMobile);
   await page.getByLabel('Name of the new panel').fill(name);
   await page.getByLabel('Name of the new panel').press('Enter');
   await expect(page.getByRole('region', { name })).toBeVisible();
@@ -167,9 +167,9 @@ test.describe('Panels', () => {
       await addPanel(page, second, isMobile);
       await addPanel(page, third, isMobile);
 
-      // Arranged for the screen it is on now, which stores the dashboard's
+      // Arranged on the screen it is on now, which stores the dashboard's
       // first layout - there is nothing to choose between, so nothing is asked.
-      await press(page.getByRole('button', { name: 'Fit to this screen' }), isMobile);
+      await chooseRowAction(page, third, isMobile ? 'Move up' : 'Move left', isMobile);
       await expect(page.getByText(/Keep the change where\?/)).toHaveCount(0);
       // Waited for by name rather than by a pause: the layout is what the next
       // half of this walk changes *from*, and pressing again before it landed
@@ -184,13 +184,16 @@ test.describe('Panels', () => {
       // the sideways-scroll check is really asserting.
       const wasWide = page.viewportSize()!.width > 700;
       await page.setViewportSize({ width: wasWide ? 420 : 1100, height: 800 });
-      await expect.poll(() => panelsOnScreen(page)).toEqual([first, second, third]);
+      await expect.poll(() => panelsOnScreen(page)).toEqual([first, third, second]);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
 
       // And a change made here is a change on a screen the layout was not made
-      // for, so it asks rather than quietly rewriting the other one.
-      await press(page.getByRole('button', { name: 'Fit to this screen' }), isMobile);
+      // for, so it asks rather than quietly rewriting the other one. The
+      // narrower of the two screens stacks the panels, so the direction the
+      // menu offers is the one that screen actually goes in.
+      const nowStacked = page.viewportSize()!.width < 768;
+      await chooseRowAction(page, third, nowStacked ? 'Move up' : 'Move left', isMobile);
       await expect(page.getByText(/Keep the change where\?/)).toBeVisible();
       await press(page.getByRole('button', { name: 'Make a layout for this screen' }), isMobile);
 
@@ -219,10 +222,13 @@ test.describe('Panels', () => {
       await ownDashboard(page, isMobile);
       const falcon = uniqueTitle('Project Falcon');
       await addPanel(page, falcon, isMobile);
-      // Arranged first, so the drag happens on a dashboard that already has a
-      // layout - which is the case a resize can be dropped in, and the one a
-      // freshly made dashboard does not reach.
-      await press(page.getByRole('button', { name: 'Fit to this screen' }), isMobile);
+      // A second panel, moved, so the drag happens on a dashboard that already
+      // has a layout - which is the case a resize can be dropped in, and the
+      // one a freshly made dashboard does not reach. A panel on its own has
+      // nowhere to move to, which is why there are two.
+      const reading = uniqueTitle('To read');
+      await addPanel(page, reading, isMobile);
+      await chooseRowAction(page, reading, 'Move left', isMobile);
       await expectLayouts(page, 1, isMobile);
       const panel = page.getByRole('region', { name: falcon });
       const before = (await panel.boundingBox())!;

@@ -288,7 +288,8 @@ describe('Triage', () => {
       // Twice: the column, and the screen that did not send you away. That is
       // the price of the guard, and it is a better screen than two addresses
       // bouncing off each other.
-      expect(await screen.findAllByRole('region', { name: 'Inbox' })).toHaveLength(2);
+      expect(await screen.findByRole('region', { name: 'Inbox' })).toBeVisible();
+      expect(inboxColumn()).toBeVisible();
     });
   });
 });

@@ -16,6 +16,9 @@ importers:
       '@cockpit/config':
         specifier: workspace:*
         version: link:packages/config
+      '@cockpit/shared':
+        specifier: workspace:*
+        version: link:packages/shared
       '@playwright/test':
         specifier: ^1.62.1
         version: 1.62.1

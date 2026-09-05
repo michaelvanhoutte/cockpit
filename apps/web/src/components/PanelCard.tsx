@@ -23,9 +23,16 @@ import { RowMenu } from './Menu';
  * read on every panel.
  */
 
-/** The height of one grid row, in pixels, and the gap between panels. */
+/**
+ * The height of one grid row, in pixels, and the gap between panels.
+ *
+ * **Four pixels, not twelve.** The gap used to be the air a floating card needs
+ * around its shadow; a panel is now a header on the sheet with its list sunk
+ * into it, so what is between two panels is a seam rather than a margin
+ * ("Cockpit Shell Explorations", artboard 2c).
+ */
 export const PANEL_ROW_HEIGHT = 80;
-export const PANEL_GAP = 12;
+export const PANEL_GAP = 4;
 
 export interface PanelCardProps {
   panel: Panel;
@@ -108,7 +115,10 @@ export function PanelCard({
         e.preventDefault();
         onDropOn();
       }}
-      className="relative flex min-w-0 flex-col rounded-lg bg-surface shadow-panel"
+      // No fill and no edge of its own: the panel is the sheet, and only the
+      // list inside it goes down into it ("Cockpit Shell Explorations",
+      // artboard 2c). `relative` stays for the resize grip alone.
+      className="relative flex min-w-0 flex-col"
     >
       <header
         // `=== null` rather than falsy: an emptied rename box is still an open
@@ -123,7 +133,9 @@ export function PanelCard({
           e.dataTransfer.effectAllowed = 'move';
           onPickUp();
         }}
-        className="flex items-center gap-2 border-b border-black/5 px-3 py-2"
+        // On the sheet rather than on the list: no fill, no rule under it, and
+        // the space above it is what separates one panel from the one above.
+        className="flex items-center gap-2 px-4 pt-3 pb-2"
       >
         {renaming !== null ? (
           <form
@@ -161,7 +173,17 @@ export function PanelCard({
           </form>
         ) : (
           <>
-            <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{panel.name}</h3>
+            {/* The same heading the Inbox's carries in the band above it
+                (components/InboxPanel.tsx): small, uppercase and in the accent,
+                because a header on the sheet has no fill or rule to say it is a
+                header and the letterform has to do it alone. */}
+            <h3 className="min-w-0 shrink truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
+              {panel.name}
+            </h3>
+            {/* How much is on it, said the way the Inbox says it. A header with
+                no fill has room for it, and it is the one thing about a panel
+                you would otherwise have to count. */}
+            <span className="mr-auto shrink-0 text-xs tabular-nums text-ink-faint">{items.length}</span>
             <RowMenu
               label={`Actions for ${panel.name}`}
               entries={[
@@ -175,8 +197,13 @@ export function PanelCard({
       </header>
 
       {/* No padding of its own: a row carries its own, so a list inside a panel
-          reads exactly as it does in the Inbox. */}
-      <div className="min-h-0 flex-1 overflow-auto">
+          reads exactly as it does in the Inbox.
+
+          The hollow in the sheet is here rather than on the panel, which is the
+          whole of the treatment: the header sits up on the sheet and the list
+          sits down in it, and a panel holding nothing is still a panel because
+          the hollow is what draws it. */}
+      <div className="well min-h-0 flex-1 overflow-auto">
         {/* Above the list rather than instead of it. Refusing a rename says
             nothing about what the panel holds, and hiding the items while
             somebody decides what else to call it takes away the thing they are
@@ -333,7 +360,9 @@ function ResizeGrip({
         // big is this panel now", so it is one command.
         if (size) onResize(size);
       }}
-      className="absolute bottom-0 right-0 size-5 cursor-nwse-resize touch-none rounded-br-lg border-b-2 border-r-2 border-black/15"
+      // Square, like the hollow it sits in the corner of - the panel it used to
+      // round off with is not a rounded card any more.
+      className="absolute bottom-0 right-0 size-5 cursor-nwse-resize touch-none border-b-2 border-r-2 border-black/15"
     />
   );
 }

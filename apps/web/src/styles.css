@@ -22,7 +22,18 @@
   --color-ink-soft: #595d6c;
   --color-ink-faint: #75798c;
   --color-surface: #f4f5fb;
-  --color-ground: #e3e1f2;
+  --color-ground: #edebf7;
+
+  /*
+   * What is drawn *on* the chrome, which is near-black in every theme now
+   * ("Cockpit Shell Explorations", artboard 2c): a light set, fixed rather than
+   * themed, for the same reason the ink below is fixed. Only the three surfaces
+   * and the tint move with the workspace; a second set of text colors per theme
+   * would be eight more chances for a tab to come out unreadable.
+   */
+  --color-chrome-ink: #f2f1f8;
+  --color-chrome-ink-soft: #a5a3b5;
+  --color-chrome-ink-faint: #8e8ca0;
   --color-accent: #6f62b5;
   --color-accent-deep: #5d5294;
   --color-accent-soft: #b5abfc;
@@ -52,14 +63,15 @@
   --radius-lg: 14px;
 
   /*
-   * Elevation, as a scale rather than as one ring. A panel used to be outlined
-   * on the ground with a single hairline, which reads as a drawing of a panel
-   * rather than as a panel: nothing advanced, nothing receded, and every
-   * surface sat at the same depth as the page.
+   * Elevation, as a scale rather than as one ring, for the things that really
+   * do float: a dialog, a menu, the row lifted under a drag.
    *
-   * Both keep the ring - it is what holds an edge against a tinted ground that
-   * a shadow alone goes muddy on - and add the two-layer drop underneath it: a
-   * tight contact shadow, then a wide soft one.
+   * **A panel is not one of them any more.** It used to be a card raised off
+   * the ground, which is a plausible reading of a panel and not the one the
+   * design settled on: the sheet is a single surface and each panel's list is
+   * sunk into it (`well` below), so nothing on a dashboard advances towards
+   * you. Depth without floating anything, and it is the only treatment of the
+   * three tried that survives a panel with nothing in it.
    */
   --shadow-panel: 0 0 0 1px color-mix(in srgb, #6f62b5 14%, #d3d6e2), 0 1px 2px rgb(41 43 49 / 0.05),
     0 6px 16px rgb(41 43 49 / 0.07);
@@ -90,19 +102,39 @@ body {
 }
 
 /*
- * The page behind the panels: the workspace's ground, with a low-contrast wash
- * down it so the canvas is lit rather than flat. The ground color itself is
- * set inline per workspace, so this only darkens it and never states a hue.
+ * A list sunk into the sheet: no radius, no border, and a shallow inner shadow
+ * along the top edge, so the sheet stays one surface and the list is a hollow
+ * in it rather than a card on it ("Cockpit Shell Explorations", artboard 2c).
+ * The header above it sits up on the sheet; only the list goes down.
  *
- * **Top to bottom, with no stop, and at eight percent.** It was five percent
- * faded out by forty percent of the height, which is a quarter of the effect
- * the mockup was approved on and put all of it where the content sits: the
- * panels cover the top of the page, so the only ground you actually see is the
- * margins and the empty area below - and the ramp had already run out by the
- * time it got there. Running the whole height puts the shift where the ground
- * is, and eight percent of the ink colour is about fifteen values of grey from
- * top to bottom, which is what the mockup's own swatch measured.
+ * **Mixed from the workspace's ground rather than stated**, because the ground
+ * is only known at runtime and there is exactly one sensible answer: the same
+ * hue, lifted towards white. The shell is what sets `--ground`, so a well is
+ * correct in whichever workspace it happens to be drawn in - and falls back to
+ * the default theme's rather than to nothing anywhere the shell is not, since
+ * an unresolvable `color-mix` is a transparent well rather than a wrong one.
+ *
+ * The wash that used to run down the page is gone with the cards it was lighting
+ * ("Modernise the app shell", issue 125): a sheet with hollows in it is already
+ * lit by them, and a gradient underneath made the shallowest of the two shadows
+ * unreadable at the bottom of a long dashboard.
  */
-@utility ground-wash {
-  background-image: linear-gradient(rgb(41 43 49 / 0.08), rgb(41 43 49 / 0));
+@utility well {
+  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 40%, white);
+  box-shadow:
+    inset 0 1px 3px rgb(41 43 49 / 0.14),
+    inset 0 0 0 1px rgb(41 43 49 / 0.07);
+}
+
+/*
+ * The Inbox's own well, which is the same hollow in the workspace's accent
+ * rather than in neutral ink. It is the one column that is the same on every
+ * screen of a workspace, and this is what says so without a second border
+ * treatment: a fraction more colour than the panels beside it.
+ */
+@utility well-inbox {
+  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 62%, white);
+  box-shadow:
+    inset 0 1px 3px rgb(93 82 148 / 0.16),
+    inset 0 0 0 1px rgb(93 82 148 / 0.1);
 }

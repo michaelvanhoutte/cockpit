@@ -355,9 +355,19 @@ export function captureBox(page: Page): Locator {
   return page.getByLabel('Capture a note or to-do');
 }
 
-/** The workspace's Inbox, holding everything still to deal with. */
+/**
+ * The workspace's Inbox, holding everything still to deal with.
+ *
+ * **Two roles, because the Inbox is two things depending on the width.** Where
+ * there is room it is a column beside the dashboards, which is complementary
+ * content and says so; where there is not, it is the screen a tab opens, which
+ * is a region of its own. Both are named by the same heading, so this asks for
+ * the name and takes either role.
+ */
 export function inbox(page: Page): Locator {
-  return page.getByRole('region', { name: 'Inbox' });
+  return page
+    .getByRole('complementary', { name: 'Inbox' })
+    .or(page.getByRole('region', { name: 'Inbox' }));
 }
 
 /** The row for one captured title, wherever it currently sits. */
@@ -393,7 +403,10 @@ export async function capture(page: Page, title: string, isMobile: boolean): Pro
  */
 export async function expectNothingSpillsOutOfTheInbox(page: Page): Promise<void> {
   const column = await page.evaluate(() => {
-    const inbox = document.querySelector('aside[aria-label="Inbox"]');
+    // Named by the heading up in the dashboard band rather than by a label of
+    // its own ("Cockpit Shell Explorations", artboard 2c), so the column is the
+    // only `aside` in the shell rather than the one wearing the name.
+    const inbox = document.querySelector('main > aside');
     return inbox ? { scrollWidth: inbox.scrollWidth, clientWidth: inbox.clientWidth } : null;
   });
   expect(column, 'there is no Inbox column on this screen to measure').not.toBeNull();

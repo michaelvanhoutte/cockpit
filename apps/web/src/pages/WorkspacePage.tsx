@@ -2,7 +2,7 @@ import { Navigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { inboxRoute } from '../router';
-import { InboxPanel } from '../components/InboxPanel';
+import { InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /**
@@ -37,5 +37,19 @@ export function WorkspacePage() {
     return <Navigate to="/w/$workspaceId" params={{ workspaceId }} replace />;
   }
 
-  return <InboxPanel workspaceId={workspaceId} />;
+  /* The heading is here rather than in the band, which is where it is on a
+     screen wide enough for the column: there is no column to head here, and the
+     band's leftmost slot is the column's own width, which this screen does not
+     have to give. */
+  return (
+    <section aria-labelledby={INBOX_HEADING} className="well-inbox">
+      <div className="px-4 pt-3 pb-2">
+        <InboxHeading workspaceId={workspaceId} id={INBOX_HEADING} />
+      </div>
+      <InboxPanel workspaceId={workspaceId} />
+    </section>
+  );
 }
+
+/** Its own, because on this screen the heading and the list are one component. */
+const INBOX_HEADING = 'the-inbox-screen';

@@ -146,7 +146,7 @@ async function choose(user: ReturnType<typeof userEvent.setup>, panel: string, e
  * move before it was only drawn - so the size the corner lands on is left to
  * the browser tier, which is the only place a real one exists.
  */
-function dragTheCornerOf(panelName: string) {
+function dragTheCornerOf(panelName: string, toX = 600) {
   const panel = screen.getByRole('region', { name: panelName });
   const grip = panel.querySelector('[data-resize-grip]') as HTMLElement;
   // A panel 300px across at whatever it spans, with its corner at the origin.
@@ -157,8 +157,8 @@ function dragTheCornerOf(panelName: string) {
   grip.releasePointerCapture = () => undefined;
 
   fireEvent.pointerDown(grip, { pointerId: 1, clientX: 300, clientY: 240 });
-  fireEvent.pointerMove(grip, { pointerId: 1, clientX: 600, clientY: 240 });
-  fireEvent.pointerUp(grip, { pointerId: 1, clientX: 600, clientY: 240 });
+  fireEvent.pointerMove(grip, { pointerId: 1, clientX: toX, clientY: 240 });
+  fireEvent.pointerUp(grip, { pointerId: 1, clientX: toX, clientY: 240 });
 }
 
 /** The arrangement the last save_layout carried, as panel ids in order. */
@@ -184,7 +184,7 @@ describe('Panels', () => {
       // Matched on the opening clause, so rewording the rest of the sentence
       // does not break the walk that only cares that the empty state is there.
       expect(screen.getByText(/A dashboard holds the panels you want in view/)).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Add a panel' })).toBeVisible();
+      expect(screen.getByRole('button', { name: '+ Add a panel' })).toBeVisible();
     });
   });
 
@@ -192,7 +192,7 @@ describe('Panels', () => {
     it('sends it without the blanks around it', async () => {
       const { user, mutate } = showBoard({ panels: [] });
 
-      await user.click(screen.getByRole('button', { name: 'Add a panel' }));
+      await user.click(screen.getByRole('button', { name: '+ Add a panel' }));
       await user.type(screen.getByLabelText('Name of the new panel'), '  Project Falcon  ');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
@@ -209,7 +209,7 @@ describe('Panels', () => {
       const { user } = showBoard({ panels: [] });
 
       expect(screen.queryByLabelText('Name of the new panel')).toBeNull();
-      await user.click(screen.getByRole('button', { name: 'Add a panel' }));
+      await user.click(screen.getByRole('button', { name: '+ Add a panel' }));
 
       expect(screen.getByRole('dialog')).toBeVisible();
       expect(screen.getByLabelText('Name of the new panel')).toHaveFocus();
@@ -236,7 +236,7 @@ describe('Panels', () => {
         ...(inFlight ? { variables: inFlight } : {}),
       });
 
-      await user.click(screen.getByRole('button', { name: 'Add a panel' }));
+      await user.click(screen.getByRole('button', { name: '+ Add a panel' }));
       await user.type(screen.getByLabelText('Name of the new panel'), 'Project Falcon');
       if (answer) await user.click(screen.getByRole('button', { name: answer }));
       else await user.keyboard('{Escape}');
@@ -248,7 +248,7 @@ describe('Panels', () => {
       // for because the focus is put back as the dialog comes down, a frame
       // after the answer.
       await waitFor(() =>
-        expect(screen.getByRole('button', { name: 'Add a panel' })).toHaveFocus(),
+        expect(screen.getByRole('button', { name: '+ Add a panel' })).toHaveFocus(),
       );
     });
   });
@@ -465,31 +465,17 @@ describe('Panels', () => {
       expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'To read']);
     });
 
-    it('records a layout for this screen the first time the button is pressed, though nothing moves', async () => {
-      // A dashboard with no layout is already drawn the way fitting it would
-      // draw it, so the press changes nothing on screen - and what it is for is
-      // the layout, which was not there before.
-      const { user, mutate } = showBoard();
-
-      await user.click(screen.getByRole('button', { name: 'Fit to this screen' }));
-
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('save_layout');
-      expect(asked.payload.screenWidth).toBe(1280);
-      expect(asked.payload.placements).toEqual([
-        { panelId: 'falcon', columns: 4, rows: 3 },
-        { panelId: 'reading', columns: 4, rows: 3 },
-      ]);
-    });
-
     it('changes the layout it just made rather than defining a second one at the same width', async () => {
       // Two gestures before the first has been re-read both find a dashboard
       // with no layout. A fresh id each time would leave the Layouts menu
       // listing the same width twice with nothing to tell the two apart.
-      const { user, mutate } = showBoard();
+      // Left in flight, which is the state two quick gestures happen in: the
+      // first is sent and not yet re-read, so the second still finds a
+      // dashboard with no layout.
+      const { user, mutate } = showBoard({ settles: false });
 
-      await user.click(screen.getByRole('button', { name: 'Fit to this screen' }));
       await choose(user, 'To read', 'Move left');
+      await choose(user, 'To read', 'Move right');
 
       expect(mutate).toHaveBeenCalledTimes(2);
       const [first] = mutate.mock.calls[0]!;
@@ -532,29 +518,16 @@ describe('Panels', () => {
       expect(asked.payload.placements[0].columns).toBeGreaterThan(4);
     });
 
-    it('sends nothing when the layout in use already holds this arrangement', async () => {
-      const { user, mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+    it('sends nothing when the gesture leaves the arrangement where it already was', async () => {
+      // A corner nudged and let go inside the step it started in: a gesture
+      // happened, and what it asks for is what the layout already holds. It
+      // must not be sent, or every twitch of a grip would be a change to
+      // answer the question about.
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
 
-      await user.click(screen.getByRole('button', { name: 'Fit to this screen' }));
+      dragTheCornerOf('Project Falcon', 300);
 
       expect(mutate).not.toHaveBeenCalled();
-    });
-
-    it('rearranges for this screen when the button is pressed, and asks the same question', async () => {
-      // Four across is what a 2560px layout holds; this screen fits three.
-      const { user, mutate } = showBoard({
-        layouts: [aLayout('wide', 2560, ['falcon', 'reading'], 3)],
-      });
-
-      await user.click(screen.getByRole('button', { name: 'Fit to this screen' }));
-      await user.click(screen.getByRole('button', { name: 'Make a layout for this screen' }));
-
-      const [asked] = mutate.mock.calls[0]!;
-      // Three across at 1280px, in the order the panels were already in.
-      expect(asked.payload.placements).toEqual([
-        { panelId: 'falcon', columns: 4, rows: 3 },
-        { panelId: 'reading', columns: 4, rows: 3 },
-      ]);
     });
   });
 
@@ -627,7 +600,7 @@ describe('Panels', () => {
         error: new CommandRefused(409, 'a panel called To read is already on this dashboard'),
         variables: { name: 'add_panel', payload: {} },
         act: async (user: ReturnType<typeof userEvent.setup>) => {
-          await user.click(screen.getByRole('button', { name: 'Add a panel' }));
+          await user.click(screen.getByRole('button', { name: '+ Add a panel' }));
           await user.type(screen.getByLabelText('Name of the new panel'), 'To read');
           await user.click(screen.getByRole('button', { name: 'Add' }));
         },
