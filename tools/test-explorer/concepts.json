@@ -134,7 +134,8 @@
         "apps/web/src/panels/useScreenWidth.ts",
         "apps/web/src/components/PanelBoard.tsx",
         "apps/web/src/components/PanelCard.tsx",
-        "apps/web/src/components/LayoutQuestion.tsx",
+        "apps/web/src/components/NameQuestion.tsx",
+        "apps/web/src/components/DashboardBar.tsx",
         "apps/api/src/domain/filings.ts",
         "apps/web/src/filing.ts",
         "apps/web/src/recentPanels.ts",
@@ -147,6 +148,22 @@
         "apps/web/src/pages/DashboardPage.tsx",
         "apps/web/src/components/Menu.tsx",
         "apps/web/src/components/DeleteQuestion.tsx"
+      ]
+    },
+    {
+      "key": "Layouts",
+      "label": "Layouts",
+      "parent": "Dashboards",
+      "sourcePatterns": [
+        "apps/web/src/components/LayoutPicker.tsx",
+        "apps/web/src/panels/chosenLayout.ts",
+        "apps/web/src/panels/arrangement.ts",
+        "apps/web/src/panels/useScreenWidth.ts",
+        "apps/web/src/components/DashboardBar.tsx",
+        "apps/api/src/domain/panels.ts",
+        "apps/api/src/accounts/changes.ts",
+        "packages/shared/src/domain/panel.ts",
+        "packages/shared/src/commands.ts"
       ]
     },
     {
