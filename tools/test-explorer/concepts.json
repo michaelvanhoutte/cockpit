@@ -1,5 +1,5 @@
 {
-  "$comment": "The area registry (docs/test-explorer-spec.md, \"The area registry\"). Rows are feature areas in product language, matching the outer `describe` convention in testing-strategy.md's \"Tests are named in the product's language, not the implementation's\" - undotted, not an entity ('Triage', not 'item.setStatus'). Labels are in the product's language, and docs/functional-definition.md's Glossary is where the words come from: a behaviour the Glossary has no word for gains one in the same change, as Menus, Deleting, Ordering, Live updates and Updating did. Not every label is itself a Glossary entry - some name an activity around one ('Workspace management'), and 'Across the app' and 'Infrastructure' name where a row sits rather than something the product does. A source file can match more than one area's sourcePatterns (apps/api/src/domain/items.ts backs Capture, Triage and Offline) - expected, not an overlap error; a file matching none falls into 'infrastructure' automatically. `pnpm --filter @cockpit/test-explorer check-concepts` fails when a test declares an area missing from this file. An empty sourcePatterns list declares an area ahead of the code that will own it, and holds the row at zero until then - the only thing that puts a row on the page with no test behind it. `parent` nests one entry under another, which is what makes the rows read as the product's own containment (Workspace > Inbox/Dashboards > Panels, per the functional definition's \"Container hierarchy\"). Workspaces, Inbox and Across the app hold other rows and own no code themselves; a row that holds others shows its own count and its subtree's, so collapsing one never reads as untested.",
+  "$comment": "The area registry (docs/test-explorer-spec.md, \"The area registry\"). Rows are feature areas in product language, matching the outer `describe` convention in testing-strategy.md's \"Tests are named in the product's language, not the implementation's\" - undotted, not an entity ('Triage', not 'item.setStatus'). Labels are in the product's language, and docs/functional-definition.md's Glossary is where the words come from: a behaviour the Glossary has no word for gains one in the same change, as Menus, Deleting, Ordering, Selection, Live updates and Updating did. Not every label is itself a Glossary entry - some name an activity around one ('Workspace management'), and 'Across the app' and 'Infrastructure' name where a row sits rather than something the product does. A source file can match more than one area's sourcePatterns (apps/api/src/domain/items.ts backs Capture, Triage and Offline) - expected, not an overlap error; a file matching none falls into 'infrastructure' automatically. `pnpm --filter @cockpit/test-explorer check-concepts` fails when a test declares an area missing from this file. An empty sourcePatterns list declares an area ahead of the code that will own it, and holds the row at zero until then - the only thing that puts a row on the page with no test behind it. `parent` nests one entry under another, which is what makes the rows read as the product's own containment (Workspace > Inbox/Dashboards > Panels, per the functional definition's \"Container hierarchy\"). Workspaces, Inbox and Across the app hold other rows and own no code themselves; a row that holds others shows its own count and its subtree's, so collapsing one never reads as untested.",
   "concepts": [
     {
       "key": "Accounts",
@@ -219,6 +219,15 @@
       "label": "Ordering",
       "parent": "Across the app",
       "sourcePatterns": ["apps/web/src/reorder.ts"]
+    },
+    {
+      "key": "Selection",
+      "label": "Selection",
+      "parent": "Across the app",
+      "sourcePatterns": [
+        "apps/web/src/selection.ts",
+        "apps/web/src/components/SelectionBar.tsx"
+      ]
     },
     {
       "key": "Live updates",

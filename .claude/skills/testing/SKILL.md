@@ -88,7 +88,7 @@ describe('Triage', () => {
 
 The runner then prints the statement list itself, so nothing is stored separately and nothing goes stale.
 
-**A feature area, not an entity and not a function.** `tools/test-explorer/concepts.json` is the list, and it nests the way the product does: `Accounts` (`Sign-in`, `User management`), `Workspaces` (`Inbox` — `Capture`, `Triage`; `Dashboards` — `Panels`, `Focus`; `Workspace management`, `Connector management`), `Across the app` (`Menus`, `Deleting`, `Ordering`, `Live updates`), `Associations`, `Offline`. Capitalised and undotted. `item.setStatus`, `command.idempotency` and `item.change` are all wrong for the same reason: they name an object or an operation.
+**A feature area, not an entity and not a function.** `tools/test-explorer/concepts.json` is the list, and it nests the way the product does: `Accounts` (`Sign-in`, `User management`), `Workspaces` (`Inbox` — `Capture`, `Triage`; `Dashboards` — `Panels`, `Focus`; `Workspace management`, `Connector management`), `Across the app` (`Menus`, `Deleting`, `Ordering`, `Selection`, `Live updates`, `Updating`), `Associations`, `Offline`. Capitalised and undotted. `item.setStatus`, `command.idempotency` and `item.change` are all wrong for the same reason: they name an object or an operation.
 
 **The area is not the file.** One file often spans two or three areas, and one area appears in several files at several levels. Group by what the rule is about.
 

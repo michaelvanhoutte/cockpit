@@ -4,6 +4,8 @@ import {
   filedOrderOnPanel,
   itemsInTheInbox,
   itemsOnPanel,
+  orderPuttingBack,
+  ordersForFilingSeveral,
   orderWithItemAt,
 } from '../../src/filing';
 
@@ -156,6 +158,113 @@ describe('Panels', () => {
       const filings = [filed('falcon', 'a', 0), filed('anna', 'b', 0)];
 
       expect(filedOrderOnPanel(filings, 'falcon')).toEqual(['a']);
+    });
+  });
+
+  describe('filing several onto a panel builds each order on the one before it', () => {
+    it.each([
+      {
+        situation: 'two onto a panel that holds two others',
+        held: ['x', 'y'],
+        filing: ['a', 'b'],
+        orders: [
+          ['a', 'x', 'y'],
+          ['a', 'b', 'x', 'y'],
+        ],
+      },
+      {
+        situation: 'onto a panel holding nothing',
+        held: [],
+        filing: ['a', 'b'],
+        orders: [['a'], ['a', 'b']],
+      },
+      {
+        situation: 'one of them already on the panel',
+        held: ['x', 'a', 'y'],
+        filing: ['a', 'b'],
+        orders: [
+          ['a', 'x', 'y'],
+          ['a', 'b', 'x', 'y'],
+        ],
+      },
+      {
+        situation: 'all of them already on the panel, in another order',
+        held: ['a', 'b'],
+        filing: ['b', 'a'],
+        orders: [
+          ['b', 'a'],
+          ['b', 'a'],
+        ],
+      },
+      { situation: 'one on its own', held: ['x'], filing: ['a'], orders: [['a', 'x']] },
+    ])('$situation', ({ held, filing, orders }) => {
+      expect(ordersForFilingSeveral(held, filing)).toEqual(orders);
+    });
+
+    it('names each item once in every order it sends', () => {
+      // The rule the shape check on the command holds the other side of: an
+      // order naming one item twice has no order in it, and it is the overlap
+      // between what is picked and what the panel holds that would produce one.
+      const orders = ordersForFilingSeveral(['x', 'a', 'y', 'b'], ['a', 'b', 'c']);
+
+      for (const order of orders) expect(new Set(order).size).toBe(order.length);
+    });
+
+    it('leaves the panel reading as the selection, then what it already held', () => {
+      const orders = ordersForFilingSeveral(['x', 'y'], ['a', 'b', 'c']);
+
+      expect(orders.at(-1)).toEqual(['a', 'b', 'c', 'x', 'y']);
+    });
+  });
+
+  describe('putting one back names everything the panel holds, in the places they had', () => {
+    it.each([
+      {
+        situation: 'the first of two going back',
+        was: ['x', 'a', 'y', 'b'],
+        heldNow: ['x', 'y'],
+        back: 'a',
+        order: ['x', 'a', 'y'],
+      },
+      {
+        situation: 'the second of two going back',
+        was: ['x', 'a', 'y', 'b'],
+        heldNow: ['x', 'a', 'y'],
+        back: 'b',
+        order: ['x', 'a', 'y', 'b'],
+      },
+      {
+        // The panel everything was filed onto is still holding the ones whose
+        // turn has not come; leaving them out is what gets an order refused.
+        situation: 'the panel is still holding one that has not been put back yet',
+        was: ['a', 'x'],
+        heldNow: ['a', 'b', 'x'],
+        back: 'a',
+        order: ['a', 'x', 'b'],
+      },
+      {
+        situation: 'a panel that held only what was taken',
+        was: ['a'],
+        heldNow: [],
+        back: 'a',
+        order: ['a'],
+      },
+    ])('$situation', ({ was, heldNow, back, order }) => {
+      expect(orderPuttingBack(was, heldNow, back)).toEqual(order);
+    });
+
+    it('names each item once, however the one arriving got there', () => {
+      // Putting one back onto the panel it was filed onto: it is already there,
+      // and an order naming it twice has no order in it.
+      const order = orderPuttingBack(['a', 'x'], ['a', 'b', 'x'], 'a');
+
+      expect(new Set(order).size).toBe(order.length);
+    });
+
+    it('leaves the arrangement it was in once the last one is back', () => {
+      const was = ['x', 'a', 'y', 'b'];
+
+      expect(orderPuttingBack(was, ['x', 'a', 'y'], 'b')).toEqual(was);
     });
   });
 });

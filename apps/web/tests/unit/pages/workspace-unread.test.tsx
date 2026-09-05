@@ -110,6 +110,8 @@ vi.mock('../../../src/api/queries', () => ({
   }),
   useCommand: () => ({ mutate: () => undefined, isPending: false }),
   useSendCommand: () => () => Promise.resolve(),
+  // Only read while a run of filings is in flight, which nothing here starts.
+  useLatestSnapshot: () => () => Promise.resolve({ filings: [] }),
 }));
 
 function theWorkspace() {

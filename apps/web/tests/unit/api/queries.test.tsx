@@ -1,9 +1,15 @@
+import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, focusManager, useQuery } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
-import { snapshotQuery, useCommand, type CommandArgs } from '../../../src/api/queries';
+import {
+  snapshotQuery,
+  useCommand,
+  useLatestSnapshot,
+  type CommandArgs,
+} from '../../../src/api/queries';
 import { fetchSnapshot, sendCommand } from '../../../src/api/client';
 
 /**
@@ -250,6 +256,48 @@ describe('Panels', () => {
       });
 
       await waitFor(() => expect(done.yet).toBe(true));
+    });
+  });
+});
+
+describe('Selection', () => {
+  describe('a run of changes reads the workspace as it stands, not as the screen last saw it', () => {
+    it('asks the server again when nothing is watching the workspace any more', async () => {
+      // The way back offered after filing several outlives the screen it was
+      // made on - the bar is mounted above the router - and each change it
+      // sends carries the panel's whole arrangement, built on what the panel
+      // holds by then. Marking the copy stale does not refetch a query nobody
+      // is watching, so reading the cache handed the undo an arrangement from
+      // before the filing and the server refused it.
+      const filed: WorkspaceSnapshot = {
+        ...snapshot,
+        filings: [{ panelId: 'p-falcon', itemId: 'i-bart', position: 0 }],
+      };
+      reads.mockReset();
+      reads.mockResolvedValue(filed);
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      // What the screen last held, and then left behind: in the cache, stale,
+      // and watched by nothing.
+      client.setQueryData(['snapshot', 'ws-work'], snapshot);
+      await client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'] });
+
+      let got: WorkspaceSnapshot | undefined;
+      function Reader() {
+        const latest = useLatestSnapshot();
+        useEffect(() => {
+          void Promise.resolve(latest('ws-work')).then((snapshot) => {
+            got = snapshot;
+          });
+        }, [latest]);
+        return null;
+      }
+      render(
+        <QueryClientProvider client={client}>
+          <Reader />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => expect(got?.filings).toEqual(filed.filings));
     });
   });
 });

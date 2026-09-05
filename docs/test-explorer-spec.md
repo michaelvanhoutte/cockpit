@@ -330,7 +330,9 @@ because they exist to hold other rows. Every remaining area owns real patterns, 
 with the work that created it. `Menus`,
 `Deleting`, `Ordering` and `Live updates` name the parts shared between features, and
 their rows start with real files and no rules — which is the report saying that a shared
-component is proven only through the features using it, one level too high.
+component is proven only through the features using it, one level too high. `Selection`
+and `Updating` are shared in the same way and arrived with rules of their own, so they
+never sat at zero.
 
 A describe naming an unregistered area is a build error at `--check-concepts` time. A
 `parent` naming an absent or cyclical key is a warning and renders as a root instead, so

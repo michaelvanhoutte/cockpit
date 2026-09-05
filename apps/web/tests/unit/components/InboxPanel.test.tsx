@@ -28,6 +28,8 @@ vi.mock('../../../src/api/queries', () => ({
     queryKey: ['workspaces'],
     queryFn: () => Promise.resolve({ workspaces: [] }),
   },
+  // Only read while a run of filings is in flight, which nothing here starts.
+  useLatestSnapshot: () => () => Promise.resolve({ filings: [] }),
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
