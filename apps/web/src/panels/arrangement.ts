@@ -141,7 +141,11 @@ export function freeName(taken: readonly Layout[], wanted: string): string {
   }
 }
 
-/** One dashboard's layouts, oldest recorded width first, which is how they are listed. */
+/**
+ * One dashboard's layouts, in the order the snapshot already holds them - which
+ * is by the width they were made at, narrowest first (repo.ts,
+ * `listLayoutsInWorkspace`). This filters and does not sort.
+ */
 export function layoutsOf(layouts: readonly Layout[], dashboardId: string): Layout[] {
   return layouts.filter((layout) => layout.dashboardId === dashboardId);
 }

@@ -187,6 +187,30 @@ export function PanelBoard({
           if (chosen && !its.some((layout) => layout.id === chosen)) choose(null);
           void settle();
         },
+        /**
+         * A refused arrangement is put back, rather than left on screen under
+         * the message saying it did not happen.
+         *
+         * The draft is what the grid draws while a change is in flight, and
+         * with only `onSuccess` wired it outlived a refusal: the panels stayed
+         * where the gesture put them, the notice above them said the change was
+         * refused, and the two disagreed until the next snapshot arrived. That
+         * is the same "looks like it worked" failure the questions elsewhere in
+         * the app are shaped to avoid.
+         *
+         * **Reachable rather than theoretical.** Two tabs on a dashboard with
+         * no layout, both on a screen of the same size, both dragging: the
+         * first records *Wide* and the second is refused for the name, because
+         * its own copy of the dashboard still has no layout to make the name
+         * free against. Dropping `sent` with the draft is what lets the same
+         * gesture be made again once the snapshot has caught up; `justMade` is
+         * deliberately kept, so the retry changes the layout this board made
+         * rather than defining a second one at the same width.
+         */
+        onError: () => {
+          setDraft(null);
+          sent.current = null;
+        },
       },
     );
     sent.current = [...placements];

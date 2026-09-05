@@ -76,6 +76,24 @@ export function LayoutPicker({
   const command = useCommand();
   const [chosen, choose] = useChosenLayout(browserStore(), dashboardId);
   const drawnWith = layoutToDraw(layouts, dashboardId, screenWidth, chosen);
+  /**
+   * The choice as it actually took effect, which is not always the one stored.
+   *
+   * A choice naming a layout another device has since deleted falls through to
+   * the closest remaining one (`layoutToDraw`), and deliberately nothing clears
+   * the stored id when that happens. So `chosen` can name a layout that is not
+   * there while the board draws a different one - and every reading of it here
+   * would then be wrong in the same direction: the control would drop the
+   * *Auto* badge and announce a hand-picked layout, and the menu's radio group
+   * would match neither *Automatic* nor any layout in the list and so mark
+   * nothing at all, which is the undifferentiated list this whole control
+   * exists to replace.
+   *
+   * Derived rather than repaired, because a render is not where a write to
+   * storage belongs. The dead id is cleared by the board the next time it saves
+   * an arrangement (PanelBoard).
+   */
+  const picked = drawnWith && chosen === drawnWith.id ? chosen : null;
 
   /**
    * The name being typed, and which question is asking for it - or null while
@@ -211,7 +229,7 @@ export function LayoutPicker({
           // The name carries the value, not just the control: a label of
           // "Layout for this dashboard" alone tells a screen reader that there
           // is one and never which, and which is the whole point of it.
-          aria-label={announced(drawnWith, chosen === null)}
+          aria-label={announced(drawnWith, picked === null)}
           // On the chrome, so it takes the chrome's light set rather than the
           // ink and accent tint every control on the sheet wears - both of
           // which are invisible on a near-black bar (Menu.tsx says why this is
@@ -221,7 +239,7 @@ export function LayoutPicker({
           {/* Which of the two ways you are on it, where you are on it that way.
               It is the one thing the old menu could not say, and it is why the
               automatic choice used to feel like magic. */}
-          {chosen === null && (
+          {picked === null && (
             <span className="shrink-0 text-[0.625rem] font-semibold uppercase tracking-[0.09em] text-[var(--tint)]">
               Auto
             </span>
@@ -243,7 +261,7 @@ export function LayoutPicker({
             Layout for this dashboard
           </DropdownMenu.Label>
           <DropdownMenu.RadioGroup
-            value={chosen ?? AUTOMATIC}
+            value={picked ?? AUTOMATIC}
             onValueChange={(value) => choose(value === AUTOMATIC ? null : value)}
           >
             <Chosen value={AUTOMATIC} name="Automatic">

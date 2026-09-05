@@ -106,9 +106,14 @@ function showBoard({
   settles?: boolean;
   pending?: boolean;
 } = {}) {
-  const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
-    if (!error && settles) options?.onSuccess?.();
-  });
+  const mutate = vi.fn(
+    (_args, options?: { onSuccess?: () => void; onError?: (error: Error) => void }) => {
+      // A refusal answers too, and answers differently: the board has to hear
+      // about it to put the arrangement back.
+      if (error) options?.onError?.(error);
+      else if (settles) options?.onSuccess?.();
+    },
+  );
   mockUseCommand.mockReturnValue({
     mutate,
     reset: vi.fn(),
@@ -473,6 +478,24 @@ describe('Panels', () => {
       // Still there to be corrected: the box does not close over a refusal, and
       // it still holds what was typed into it.
       expect(screen.getByLabelText(stillOpen)).toHaveValue(holding);
+    });
+
+    it('puts a refused arrangement back, rather than leaving it under the message', async () => {
+      // The draft is what the grid draws while a change is in flight. Left
+      // standing through a refusal, the panels say the change happened and the
+      // notice above them says it did not.
+      //
+      // Reachable: two tabs on a dashboard with no layout, both on a screen of
+      // the same size, both dragging - the second is refused for the name.
+      const { user } = showBoard({
+        error: new CommandRefused(409, 'a layout called Wide already arranges this dashboard'),
+        variables: { name: 'save_layout', payload: {} },
+      });
+
+      await choose(user, 'To read', 'Move left');
+
+      expect(screen.getByRole('alert')).toHaveTextContent('a layout called Wide already arranges');
+      expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'To read']);
     });
 
     it('says a refused arrangement above the board, which is the only place it belongs', async () => {

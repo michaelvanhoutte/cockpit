@@ -571,6 +571,29 @@ describe('Layouts', () => {
       expect(await screen.findByRole('button', { name: announced })).toBeVisible();
     });
 
+    it('falls back to Automatic when the layout you picked was deleted elsewhere', async () => {
+      // The stored choice outlives the layout it names: falling through to the
+      // closest remaining one is deliberate, and nothing clears the id. Read
+      // raw, that choice would drop the Auto badge, announce a hand-picked
+      // layout, and leave the menu marking neither Automatic nor any layout in
+      // it - which is the undifferentiated list this control replaces.
+      localStorage.setItem('cockpit.layout.' + OPEN, 'deleted-elsewhere');
+      const { user } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('laptop', 'Laptop', 1280)],
+      });
+
+      const control = await theControl('Laptop');
+      expect(control).toHaveTextContent('Auto');
+      expect(control).toHaveAccessibleName(/chosen automatically$/);
+
+      await user.click(control);
+      expect(screen.getByRole('menuitemradio', { name: /^Automatic/ })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      );
+    });
+
     it('draws a layout written before names existed as the width it was made for', async () => {
       // What old code writes for the seconds of a deploy that both versions
       // serve. A blank entry in the menu would be worse than the old label.
