@@ -4,7 +4,7 @@
  * chunk fetched later.
  *
  * **Two lines, not one.** Charging a lazy chunk to the entry would make
- * splitting pointless - the editor behind the Item's form is 140KB compressed
+ * splitting pointless - the editor behind the Item's form is 135KB compressed
  * and never on the cold-open path, and a single combined budget would be
  * failing today with nothing wrong. What makes a chunk lazy is exactly what
  * keeps it off that path: nothing the entry document references reaches it.

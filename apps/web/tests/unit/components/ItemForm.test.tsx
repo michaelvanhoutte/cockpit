@@ -32,7 +32,7 @@ vi.mock('../../../src/itemForm', () => ({
  * in it. This file is about what the form sends and what it does not; what the
  * editor keeps is tests/unit/description/syntax.test.ts, and when it appears is
  * tests/unit/components/DescriptionBox.test.tsx. Left real, every test here
- * would mount a 140KB editor to type one word into it.
+ * would mount a 135KB editor to type one word into it.
  */
 vi.mock('../../../src/description/RichDescription', () => ({
   default: ({

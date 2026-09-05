@@ -67,8 +67,8 @@ export interface RichDescriptionProps {
  * chosen on measured chunk size and measured round-trip fidelity
  * (docs/rich-text-options.md, "What the spike found").
  *
- * **This module is the lazy chunk.** It is 130KB compressed against a 200KB
- * budget the entry already spends 176KB of, so nothing on the cold-open path
+ * **This module is the lazy chunk.** It is 135KB compressed against a 200KB
+ * budget the entry already spends 173KB of, so nothing on the cold-open path
  * may import it - only `DescriptionBox` may, and only through `React.lazy`.
  *
  * What it may contain is `descriptionSyntax`, which is wider than this toolbar

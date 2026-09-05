@@ -174,7 +174,7 @@ The service worker serves the cached app shell locally, and the capture outbox f
 - **Tailwind** imposes no visual style: the prototype's palette, spacing, typography and workspace colors become design tokens in its config, and utilities stay co-located with the markup so deleting an element deletes its styling.
 - Both sit well inside the §7 bundle gate, Tailwind emitting only the utilities used and Radix tree-shaking per primitive.
 - **A form is a Radix `Dialog` whose open state is a route**, not component state (functional definition, "Editing more than one field at a time"). The router owns what is open and the dialog draws it, so the back button and a pasted link both work without either half being rewritten.
-- **The rich-text editor is lazy-loaded** ("Format a description, and edit its source", issue 160), like the Sentry browser SDK below (§9.2, "Observability"). Milkdown's chunk measures 130KB compressed — two thirds of the whole budget — so it loads behind the form rather than on the cold-open path, and the form is an async boundary with a loading state by design. Candidates, measured sizes and the decision are in [rich-text-options.md](rich-text-options.md).
+- **The rich-text editor is lazy-loaded** ("Format a description, and edit its source", issue 160), like the Sentry browser SDK below (§9.2, "Observability"). Milkdown's chunk measures 135KB compressed — two thirds of the whole budget — so it loads behind the form rather than on the cold-open path, and the form is an async boundary with a loading state by design. Candidates, measured sizes and the decision are in [rich-text-options.md](rich-text-options.md).
 
 ## 6. Backend architecture
 
@@ -253,7 +253,7 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 | Any one lazy chunk (compressed) | **< 200KB**, same gate, charged separately |
 | Snapshot revalidation after cold open | background, never blocking paint |
 
-**A lazy chunk gets its own line because charging it to the entry would defeat the point of splitting it.** The gate reads `apps/web/dist` after a build and measures each JavaScript asset on its own; what makes a chunk lazy — nothing in the HTML references it — is also what keeps it off the cold-open path. Today the entry is 176KB and the editor's chunk is 130KB, so a single combined budget would be failing already.
+**A lazy chunk gets its own line because charging it to the entry would defeat the point of splitting it.** The gate reads `apps/web/dist` after a build and measures each JavaScript asset on its own; what makes a chunk lazy — nothing in the HTML references it — is also what keeps it off the cold-open path. Today the entry is 173KB and the editor's chunk is 135KB, so a single combined budget would be failing already.
 
 Two standing rules follow: **never block paint on auth** (paint the cached snapshot, verify the session in the background; long-lived sessions with silent refresh, no OAuth redirect on the hot path), and **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 

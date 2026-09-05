@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 /**
  * F1: the form's description before, during and after the editor arrives.
  *
- * The editor is 140KB compressed and is fetched only once a form is open
+ * The editor is 135KB compressed and is fetched only once a form is open
  * (architecture, "Performance budgets"), so there is a window where the form is
  * on screen and the editor is not - and a case where it never comes. Both are
  * the form's own behaviour, which is what puts them here.

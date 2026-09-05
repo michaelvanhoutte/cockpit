@@ -91,7 +91,7 @@ Five Vite builds of the same React shell, differing only in what the lazy chunk 
 
 Bundlephobia was close on the first row and useless on the last: Tiptap's table extension reads as 4KB there and costs 17.5KB here. **Milkdown is smaller at both feature sets**, and the gap widens rather than closes with tables.
 
-The shape the numbers actually decide is the budget: the app's entry is **175.9KB gzip today against a 200KB gate**, so no candidate fits inline and the editor's own chunk needs its own budget line. That is the CI check this issue adds.
+The shape the numbers actually decide is the budget: the app's entry is **173KB gzip against a 200KB gate**, so no candidate fits inline and the editor's own chunk needs its own budget line. That is the CI check this issue adds.
 
 ### Fidelity, measured
 
