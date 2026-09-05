@@ -776,7 +776,10 @@ const ITEM_TEXTS: Change = {
  *
  * **Why the rows have to be written rather than left to the client.** A
  * workspace stores all three surfaces resolved, so the palette is a picker
- * rather than a storage format (0007 in the register's own history says why).
+ * rather than a storage format - the reason is on the register migration that
+ * added the columns, `migrations/0007_giant_shape.sql`, under "Why columns and
+ * not a theme name". Named by file rather than by number because a bare `0007`
+ * read here is `0007-item-completed-at`, which is a different history entirely.
  * That means a workspace made before this change carries the old pale surfaces
  * for good unless something writes them, and the chrome's text is a fixed light
  * set now - pale text on a pale bar is unreadable rather than merely wrong.
