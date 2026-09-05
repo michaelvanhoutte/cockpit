@@ -341,10 +341,11 @@ describe('Sign-in', () => {
       const refused = await SELF.fetch(`${NEXT_DOOR}/v1/me`, carrying(here));
 
       expect(refused.status).toBe(401);
-      // It takes nothing of this Cockpit's away on its way out - it holds none
-      // of it to take. Under one name for both, this very response is what
-      // signed you out here.
-      expect(refused.headers.get('set-cookie') ?? '').not.toContain('cockpit_session_9182');
+      // Nothing handed back at all, which is the discriminating half: it found
+      // none of its own to clear, so there is no `Set-Cookie` here to carry
+      // this Cockpit's away. Under one name for both it would have found this
+      // one, renewed it, and answered as somebody else.
+      expect(refused.headers.get('set-cookie')).toBeNull();
       expect((await SELF.fetch(`${HERE}/v1/me`, carrying(here))).status).toBe(200);
     });
 
