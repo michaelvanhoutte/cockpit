@@ -19,6 +19,7 @@
     "test:coverage": "pnpm -r test:coverage",
     "test:explorer": "pnpm --filter @cockpit/test-explorer generate",
     "test:explorer:check": "pnpm --filter @cockpit/test-explorer check-concepts",
+    "bundle:budget": "node scripts/bundle-budget.mjs",
     "branches:tidy": "node scripts/tidy-branches.mjs"
   },
   "devDependencies": {
