@@ -1,0 +1,148 @@
+/*
+ * What a description looks like while it is being written. Loaded from the
+ * editor's own module, so it arrives in the lazy chunk's stylesheet rather than
+ * on the cold-open path.
+ *
+ * Milkdown is headless: it ships a schema and no appearance at all, so
+ * everything a heading, a list, a table or a code block looks like is here.
+ * The first block is ProseMirror's own minimum - written out rather than
+ * imported from `prosemirror-view/style/prosemirror.css`, which is a package
+ * this app does not depend on directly and would be reaching through Milkdown
+ * to get at.
+ */
+
+.description-prose {
+  position: relative;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  outline: none;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0;
+  --description-gap: 0.75em;
+}
+
+.description-prose[contenteditable='false'] {
+  opacity: 0.5;
+}
+
+.description-prose pre {
+  white-space: pre-wrap;
+}
+
+.description-prose li {
+  position: relative;
+}
+
+/* The gap between blocks, applied between them rather than around each, so the
+   editor's first line sits against the top of its box. */
+.description-prose > * + * {
+  margin-top: var(--description-gap);
+}
+
+.description-prose h1,
+.description-prose h2,
+.description-prose h3,
+.description-prose h4,
+.description-prose h5,
+.description-prose h6 {
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.description-prose h1 {
+  font-size: 1.35em;
+}
+.description-prose h2 {
+  font-size: 1.2em;
+}
+.description-prose h3 {
+  font-size: 1.08em;
+}
+
+.description-prose a {
+  color: var(--color-accent-deep);
+  text-decoration: underline;
+}
+
+.description-prose ul,
+.description-prose ol {
+  padding-left: 1.5em;
+}
+
+.description-prose ul {
+  list-style: disc;
+}
+
+.description-prose ol {
+  list-style: decimal;
+}
+
+.description-prose li > * + * {
+  margin-top: 0.25em;
+}
+
+.description-prose blockquote {
+  border-left: 3px solid var(--color-accent-soft);
+  padding-left: 0.75em;
+  color: var(--color-ink-soft);
+}
+
+.description-prose code {
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  padding: 0.1em 0.3em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.description-prose pre {
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  padding: 0.6em 0.8em;
+  overflow-x: auto;
+}
+
+.description-prose pre code {
+  background: none;
+  padding: 0;
+}
+
+.description-prose hr {
+  border: 0;
+  border-top: 1px solid var(--color-accent-soft);
+}
+
+.description-prose img {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+/* A table has no button and is kept anyway (see RichDescription), so it has to
+   be legible when one arrives pasted. */
+.description-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.description-prose th,
+.description-prose td {
+  border: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent);
+  padding: 0.3em 0.5em;
+  vertical-align: top;
+  text-align: left;
+}
+
+.description-prose th {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  font-weight: 600;
+}
+
+/* Raw HTML in a description is kept as its own text rather than rendered
+   (docs/rich-text-options.md, "Two corrections to what is written above"), so
+   it needs to read as source rather than as prose. */
+.description-prose [data-type='html'] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  color: var(--color-ink-soft);
+}

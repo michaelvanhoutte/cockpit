@@ -114,6 +114,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - run: pnpm build
+      # The bundle gate (docs/architecture.md, "Performance budgets"): what a
+      # cold open fetches stays under 200KB compressed, and so does any one
+      # chunk fetched later, charged separately. Here rather than in its own job
+      # because it measures what the line above emitted, and a second job would
+      # have to build again to see it.
+      - run: pnpm bundle:budget
 
   scripts:
     name: Scripts
