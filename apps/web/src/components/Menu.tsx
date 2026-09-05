@@ -130,11 +130,12 @@ export interface MenuEntry {
 }
 
 /**
- * The menu a row of a settings page carries, holding what can be done to that
- * row ("Ask before deleting in a dialog, from the row's own menu", issue 116).
+ * The menu a row of one of the management windows carries, holding what can
+ * be done to that row ("Ask before deleting in a dialog, from the row's own
+ * menu", issue 116).
  *
- * One component rather than the same dozen lines on each settings page: what
- * the two pages offer differs, how a row offers it does not.
+ * One component rather than the same dozen lines in each window: what the
+ * three of them offer differs, how a row offers it does not.
  *
  * The entries are named for the action alone - "Rename", "Delete" - because the
  * control that opened them is named for the row, so a reader who cannot see the

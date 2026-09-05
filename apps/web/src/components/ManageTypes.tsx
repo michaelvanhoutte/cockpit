@@ -23,14 +23,12 @@ import { RowForm, wasOnTheRow } from './RowForm';
  * the order capture offers them in, and deletes them.
  *
  * **A sibling of the workspaces window, and the same window in every respect
- * that matters**: a row keeps its shape, what can be done to a type is in its own
- * menu, its name and its colour are edited together on a form over the page
- * (`components/RowForm.tsx`), deleting asks in a dialog, and a type is moved
- * two ways that are one change. Types are the fourth list of named things
- * in the app and the three before it are pages with rows and menus; making this
- * one a section of a page about something else is what would make it hard to
- * find. Both are windows over the workspace you are in rather than pages
- * (`components/ManageWindow.tsx`).
+ * that matters**: a row keeps its shape, what can be done to a type is in
+ * its own menu, its name and its colour are edited together on a form over
+ * it (`components/RowForm.tsx`), deleting asks in a dialog, and a type is
+ * moved two ways that are one change. It is a list of its own rather than a
+ * section of a window about something else, which is what would make it hard
+ * to find.
  *
  * **There is no box for making one**, which is the one way it differs. A type
  * comes into existence by being used, at capture ("Capture a thought or an

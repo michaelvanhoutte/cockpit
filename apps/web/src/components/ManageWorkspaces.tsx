@@ -24,8 +24,8 @@ import { RowForm, wasOnTheRow } from './RowForm';
  *
  * **A row keeps its shape**, exactly as in the list of dashboards: what can be
  * done to a workspace is in its own menu, and both the things that change one -
- * its name and its colour - happen on a form over the page rather than in the
- * row (`components/RowForm.tsx`). Deleting asks in a dialog ("Ask before
+ * its name and its colour - happen on a form over it rather than in the row
+ * (`components/RowForm.tsx`). Deleting asks in a dialog ("Ask before
  * deleting in a dialog, from the row's own menu", issue 116).
  *
  * **A workspace is moved two ways, and they are one change** ("Reorder
