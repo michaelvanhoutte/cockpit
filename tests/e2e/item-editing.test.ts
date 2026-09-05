@@ -238,12 +238,27 @@ test.describe('Item editing', () => {
         ).toContain(made);
       }
 
+      const address = () => form(page).getByRole('textbox', { name: 'Address' });
       const linked = await appliedTo(page, isMobile, async () => {
         await press(button('link'), isMobile);
-        await form(page).getByRole('textbox', { name: 'Address' }).fill('example.com/runbook');
+        await address().fill('example.com/runbook');
         await press(button('Add link'), isMobile);
       });
       expect(linked).toContain('[Tolerances](https://example.com/runbook)');
+
+      // And a link already made is edited rather than made again. Applying a
+      // mark that is already there removes it, so the obvious call takes the
+      // link off and drops the new address on the floor.
+      await show(page, 'Formatted', isMobile);
+      await putTheCaretInTheDescription(page, isMobile);
+      await press(button('link'), isMobile);
+      await expect(address()).toHaveValue('https://example.com/runbook');
+      await address().fill('example.com/handover');
+      await press(button('Add link'), isMobile);
+      await show(page, 'Source', isMobile);
+      await expect(descriptionBox(page)).toHaveValue(
+        /^\[Tolerances\]\(https:\/\/example\.com\/handover\)\s*$/,
+      );
     });
 
     test('by shortcut', async ({ page, isMobile }) => {

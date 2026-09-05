@@ -13,6 +13,7 @@ import {
   toggleEmphasisCommand,
   toggleLinkCommand,
   toggleStrongCommand,
+  updateLinkCommand,
   wrapInBulletListCommand,
   wrapInOrderedListCommand,
 } from '@milkdown/preset-commonmark';
@@ -242,7 +243,15 @@ export default function RichDescription({ initial, onChange, editable }: RichDes
       return;
     }
     setAsking(null);
-    editor.current?.action(callCommand(toggleLinkCommand.key, { href }));
+    // A link already there is *updated*, not toggled. `toggleLinkCommand` is
+    // ProseMirror's `toggleMark`, which decides add-or-remove from whether the
+    // range carries the mark at all and never looks at the address - so on a
+    // selection that is already a link it removes the link and drops the new
+    // address on the floor.
+    const already = hrefUnderTheCursor(editor.current) !== null;
+    editor.current?.action(
+      callCommand(already ? updateLinkCommand.key : toggleLinkCommand.key, { href }),
+    );
     focusTheEditor(editor.current);
   };
 
