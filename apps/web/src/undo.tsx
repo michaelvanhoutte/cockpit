@@ -168,7 +168,10 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // happened and is not an error, so it is announced without
           // interrupting what is being read.
           role="status"
-          className="fixed inset-x-0 bottom-0 z-50 flex justify-center p-4"
+          // Laid over the window rather than in the page, so nothing above it
+          // moves it off the home indicator: its own padding is what keeps the
+          // way back reachable (styles.css, `--edge-bottom`).
+          className="fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right))] pb-[calc(1rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))]"
         >
           <div className="flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
             <span className="min-w-0 flex-1 truncate">{failure ?? held.what}</span>

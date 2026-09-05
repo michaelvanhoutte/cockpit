@@ -234,15 +234,33 @@ function TheShell() {
         } as React.CSSProperties
       }
     >
+      {/* The strip the phone's own status bar sits over, painted the chrome's
+          own colour so the chrome reaches the physical top edge rather than
+          stopping at a letterbox (styles.css, `--edge-top`).
+
+          Nothing is drawn in it, and it is outside the header rather than
+          padding inside it, because the workspace's 3px tint stripe is the
+          header's top border: padding would leave the stripe at the very top
+          of the screen, three pixels of identity under forty-odd pixels of
+          status bar. This way the stripe starts where the status bar ends. */}
+      <div
+        className="shrink-0"
+        style={{ backgroundColor: theme.header, height: 'var(--edge-top)' }}
+      />
       {/* No bottom border: the strip below ends in the selected dashboard tab,
           which is filled with the ground and has to meet the page without a
-          line drawn between them. */}
+          line drawn between them.
+
+          The side insets are here rather than on the row inside, which has the
+          bar's own `px-3`: on a phone held sideways the notch eats one end of
+          the strip, and the workspace tabs are what would go under it. */}
       <header
         style={{
           backgroundColor: theme.header,
           borderTopColor: theme.color,
           borderTopWidth: 3,
           borderTopStyle: 'solid',
+          paddingInline: 'var(--edge-left) var(--edge-right)',
         }}
       >
         {/* Full width, not a centred column: the brand and the workspaces sit
@@ -409,7 +427,16 @@ function TheShell() {
           Only where there is a workspace to have dashboards: the settings page
           is reached without one, and there is then nothing for a tab to join. */}
       {params.workspaceId && (
-        <div className="flex w-full items-end" style={{ backgroundColor: theme.bar }}>
+        <div
+          className="flex w-full items-end"
+          // Inset the same way the header above it is, so the Inbox's heading
+          // still lines up with the column it heads and the first dashboard tab
+          // does not go under a sideways phone's notch.
+          style={{
+            backgroundColor: theme.bar,
+            paddingInline: 'var(--edge-left) var(--edge-right)',
+          }}
+        >
           {roomForTheInbox && (
             <div className="ml-1 w-1/5 min-w-70 max-w-105 shrink-0 bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5">
               <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
@@ -434,7 +461,17 @@ function TheShell() {
       {/* Above the columns and across both, because it is about the workspace
           they are both showing rather than about either of them. */}
       {workspaceUnread && (
-        <div className="px-1 pt-1">
+        // The seam's own width, plus whatever the screen's sides take. Said
+        // here rather than inherited, because this sits above `main` and so is
+        // outside the one place the columns get it from - and written as
+        // Tailwind's own step, so it cannot drift from the `p-1` below it.
+        <div
+          className="pt-1"
+          style={{
+            paddingInline:
+              'calc(var(--spacing) + var(--edge-left)) calc(var(--spacing) + var(--edge-right))',
+          }}
+        >
           <LoadFailure error={workspace.error} onRetry={() => void workspace.refetch()} />
         </div>
       )}
@@ -443,8 +480,19 @@ function TheShell() {
           Four pixels of padding rather than twelve and twenty: the panels are
           not cards floating with air around them any more, so the space between
           them is a seam rather than a margin, and what it used to buy - room for
-          each card's shadow - is not needed by a surface that has none. */}
-      <main className="flex w-full min-h-0 flex-1 gap-1 p-1">
+          each card's shadow - is not needed by a surface that has none.
+
+          The side insets widen that seam rather than replacing it, and they are
+          said once here for both columns so neither is asked whether it is the
+          one against the edge - which changes with the width, since below 768px
+          there is only one. The sheet itself still runs to the screen's edge. */}
+      <main
+        className="flex w-full min-h-0 flex-1 gap-1 p-1"
+        style={{
+          paddingInline:
+            'calc(var(--spacing) + var(--edge-left)) calc(var(--spacing) + var(--edge-right))',
+        }}
+      >
         {params.workspaceId && roomForTheInbox && (
           <aside
             // Named by the heading up in the band rather than by a label of its
@@ -454,12 +502,18 @@ function TheShell() {
             // A fifth of the width, with a floor and a ceiling: 20% of a
             // 1280px screen is 256px, which an item row cannot hold, and 20%
             // of a very wide one is more Inbox than anybody asked for.
-            className="well-inbox w-1/5 min-w-70 max-w-105 shrink-0 overflow-y-auto"
+            // The bottom inset is padding on the scroller rather than on the
+            // sheet: padding on the sheet would end the well above the home
+            // indicator and leave a dead strip there, where this lets the well
+            // run to the screen's edge, the list scroll through it, and the
+            // last row still stop clear of it.
+            className="well-inbox w-1/5 min-w-70 max-w-105 shrink-0 overflow-y-auto pb-[var(--edge-bottom)]"
           >
             <InboxPanel workspaceId={params.workspaceId} />
           </aside>
         )}
-        <div className="min-w-0 flex-1 overflow-y-auto">
+        {/* Same bottom inset as the Inbox column, for the same reason. */}
+        <div className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
           <Outlet />
         </div>
       </main>
