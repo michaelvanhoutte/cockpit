@@ -1,14 +1,19 @@
 import { useEffect, useId, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { ACCOUNT_WIDE, uuidv7, type Item, type ItemType } from '@cockpit/shared';
-import { CommandRefused } from '../api/client';
-import { itemTypesQuery, useCommand, useSendCommand } from '../api/queries';
-import { typeNamed, typesOffered, typeToOffer } from '../itemTypes';
+import type { Item, ItemType } from '@cockpit/shared';
+import { useCapture } from '../capture';
+import { typesOffered, typeToOffer } from '../itemTypes';
 
 /**
- * Fast capture (§5.4): today this posts capture_item directly; the
- * create-only outbox (local write first, flush when connectivity allows)
- * wraps this same command when the PWA capture work lands.
+ * Fast capture (§5.4) as the Inbox's first row: one line, a type beside it and
+ * a button ("Show one Inbox per workspace, with capture at the top of it",
+ * issue 89). Writing something down and seeing where it landed are the same
+ * place.
+ *
+ * **The narrow front door, deliberately.** The Capture page is where the same
+ * capture is asked in full - a note of several lines, the types as chips, the
+ * workspace as a row (pages/CapturePage.tsx) - and this row has to survive a
+ * 280px column, which chips and a paragraph box do not. What they must not
+ * differ about is what capturing *does*, which is why both run `useCapture`.
  *
  * **It asks what kind of thing this is** ("Capture a thought or an action, and
  * see which it is", issue 155). The types you already have are offered, the
@@ -37,25 +42,18 @@ export function CaptureForm({
    * Whether `workspaceId` is where what this captures *belongs*, or only where
    * it was captured from ("Capture something before you know which workspace it
    * belongs to", issue 165).
-   *
-   * True in the Inbox's own row, which is inside a workspace and has therefore
-   * already said which. False in the header's capture window, which is not.
    */
   decided?: boolean;
-  /** True in the window, where the box is the only thing on screen. */
+  /** True where the box is the only thing on screen. */
   autoFocus?: boolean;
-  /** Told once the capture has been asked for, so a window can close itself. */
+  /** Told once the capture has been asked for, so a caller can react. */
   onCaptured?: () => void;
 }) {
   const [message, setMessage] = useState('');
   const [typeName, setTypeName] = useState('');
   /** What the server said about the type, where it said anything. */
   const [refused, setRefused] = useState<string | null>(null);
-  /** True while the type is being made, so the button says so like any other. */
-  const [makingTheType, setMakingTheType] = useState(false);
-  const command = useCommand();
-  const send = useSendCommand();
-  const queryClient = useQueryClient();
+  const { ask, busy } = useCapture();
   const listId = useId();
 
   const offered = typesOffered(types, items);
@@ -75,15 +73,6 @@ export function CaptureForm({
   }, [opensOn?.id]);
 
   /**
-   * Captures it, making the type first where the name matches none.
-   *
-   * **The type is made and then looked up again rather than assumed.** The id
-   * generated here is only used if this request is what created the type; where
-   * another tab made one of that name first the store keeps its row and ignores
-   * this one, so capturing against the id invented here would name something
-   * nobody stored and be refused - and the note would be gone. Re-reading the
-   * types is what turns that race into two people agreeing on one type.
-   *
    * **The box is emptied only once the capture has been asked for**, and a
    * refusal on the way is said out loud. Clearing it first threw the note away
    * on any failure the type could produce - a name the server will not take,
@@ -94,99 +83,22 @@ export function CaptureForm({
     const trimmed = message.trim();
     if (!trimmed) return;
 
-    const wanted = typeName.trim();
-    const already = wanted ? typeNamed(types, wanted) : undefined;
-
-    const capture = (typeId: string | undefined) => {
-      // Emptied and cleared *before* the change is asked for, not after. A
-      // refusal can arrive during the call rather than after it, and the two
-      // lines that used to sit below this one then wiped the message and the
-      // note the error handler had just put back.
-      setMessage('');
-      setRefused(null);
-      command.mutate(
-        {
-          name: 'capture_item',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            workspaceId,
-            itemId: uuidv7(),
-            message: trimmed,
-            ...(typeId ? { typeId } : {}),
-            // Sent only when it is false, so every other front door's command
-            // reads exactly as it did before this landed.
-            ...(decided ? {} : { workspaceDecided: false }),
-          },
+    ask(
+      { message: trimmed, typeName, types, workspaceId, decided },
+      {
+        asking: () => {
+          setMessage('');
+          setRefused(null);
         },
-        {
-          // Told only once it landed, so a window closing on this does not
-          // close over a refusal nobody has read.
-          onSuccess: () => onCaptured?.(),
-          /**
-           * **The note goes back in the box**, which is the other half of
-           * emptying it before the answer comes.
-           *
-           * Capture must not wait on the network (architecture, "Performance
-           * budgets"), so the box is cleared the moment the change is asked
-           * for - and a capture the server then refuses used to take the note
-           * with it in silence. A workspace deleted in another tab is enough
-           * to produce one.
-           */
-          onError: (error) => {
-            setMessage(trimmed);
-            setRefused(
-              error instanceof CommandRefused
-                ? error.message
-                : 'That did not reach the server. Try again.',
-            );
-          },
+        // Told only once it landed, so a window closing on this does not close
+        // over a refusal nobody has read.
+        captured: () => onCaptured?.(),
+        refused: (why) => {
+          setMessage(trimmed);
+          setRefused(why);
         },
-      );
-    };
-
-    if (!wanted || already) {
-      capture(already?.id);
-      return;
-    }
-
-    setMakingTheType(true);
-    void (async () => {
-      try {
-        await send({
-          name: 'create_item_type',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            // The account, not the workspace this was captured in: a type
-            // belongs to the account, and the live-updates handler reads that
-            // to know every workspace's types have changed. Sending the
-            // workspace here left every other tab's list stale until an
-            // unrelated refetch happened to catch it up.
-            workspaceId: ACCOUNT_WIDE,
-            typeId: uuidv7(),
-            name: wanted,
-          },
-        });
-        // Whichever request made it, this is the one type now going by that name.
-        const made = typeNamed(
-          (await queryClient.fetchQuery(itemTypesQuery)).itemTypes,
-          wanted,
-        );
-        capture(made?.id);
-        setRefused(null);
-      } catch (error) {
-        // The note stays in the box, so it can be captured again once the type
-        // is named something the server will take.
-        setRefused(
-          error instanceof CommandRefused
-            ? error.message
-            : 'That did not reach the server. Try again.',
-        );
-      } finally {
-        setMakingTheType(false);
-      }
-    })();
+      },
+    );
   };
 
   return (
@@ -222,7 +134,7 @@ export function CaptureForm({
       </datalist>
       <button
         type="submit"
-        disabled={command.isPending || makingTheType}
+        disabled={busy}
         className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
       >
         Capture

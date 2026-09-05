@@ -113,6 +113,8 @@ Types are managed on their own page, a sibling of the workspaces one because the
 
 Capture is its first row ("Show one Inbox per workspace, with capture at the top of it", issue 89): writing something down and seeing where it landed are the same place. Its name and the number in it head the column from the Dashboard bar, in the leftmost slot of it, so the bar is a row of headings and the Inbox is the leftmost — which is what says the Inbox belongs to the Workspace rather than to a Dashboard. On a phone there is no column to head, and the screen the tab opens carries the name itself.
 
+**Capture is also a screen of its own**, reached from the header and belonging to no Workspace ("Capture Page", artboards 2a and 2c): a note of several lines, the Types as chips beside a box that names a new one, and a row of Workspaces that starts on *Any workspace*. Left there, the note waits in every Workspace's Inbox until somebody says where it belongs; the Workspace it was captured *from* is recorded either way. What it has just captured is listed under the box for as long as the screen is open. The Inbox's own row stays the narrow way in - it has a column to fit in, and asks the same capture in one line.
+
 Processing an Item means one or more of:
 
 - **Read and respond** — the content is readable in the app, and where the source supports it you can react or reply from here; otherwise the deep link (§6.1) takes you to the source.
