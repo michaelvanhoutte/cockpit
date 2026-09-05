@@ -1,9 +1,9 @@
 import { type Locator, type Page } from '@playwright/test';
 import {
   capture,
+  captureBox,
   dashboardBar,
   expect,
-  inbox,
   itemRow,
   openFirstWorkspace,
   openInbox,
@@ -172,10 +172,14 @@ test.describe('Screen edges', () => {
       await screenWithEdges(page, SIDEWAYS);
       await expectClearOfTheEdges(page, workspaceTabs(page), 'the workspace tabs', SIDEWAYS);
       // Two shapes, one Inbox: a column beside the dashboard where there is
-      // room for one, a tab in the bar where there is not. Either way it is
-      // what sits against the left edge under the tabs.
+      // room for one, a tab in the bar where there is not. Either way what
+      // sits against the left edge under the tabs is what you capture into.
+      //
+      // The box rather than the Inbox around it, because a list long enough to
+      // scroll is taller than the screen on purpose - measuring the panel would
+      // ask a scroller to fit, which is a different and wrong claim.
       if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
-      await expectClearOfTheEdges(page, inbox(page), 'the Inbox', SIDEWAYS);
+      await expectClearOfTheEdges(page, captureBox(page), 'the capture box', SIDEWAYS);
     });
 
     test('puts the end of a list clear of the home indicator', async ({ page, isMobile }) => {
@@ -205,21 +209,28 @@ test.describe('Screen edges', () => {
       await openFirstWorkspace(page, isMobile);
       await screenWithEdges(page, UPRIGHT);
 
-      // Read at a pixel rather than off an element: the claim is about what is
-      // painted at the top of the screen, and an element that is there but
-      // transparent satisfies every assertion made about the element.
+      // Read as a colour at a pixel rather than off a named element: what is
+      // asserted is what a person sees at the top of the screen, and which box
+      // happens to paint it is exactly the implementation detail this must not
+      // be written against. Transparent boxes are looked through, the way the
+      // screen does.
       const painted = await page.evaluate(() => {
-        const at = document.elementFromPoint(Math.floor(window.innerWidth / 2), 4);
+        const colourAt = (x: number, y: number) => {
+          for (let el = document.elementFromPoint(x, y); el; el = el.parentElement) {
+            const painting = getComputedStyle(el).backgroundColor;
+            if (painting && painting !== 'rgba(0, 0, 0, 0)' && painting !== 'transparent') {
+              return painting;
+            }
+          }
+          return 'nothing at all';
+        };
         const header = document.querySelector('header');
         return {
-          atTheTop: at ? getComputedStyle(at).backgroundColor : '',
+          atTheTop: colourAt(Math.floor(window.innerWidth / 2), 4),
           theBar: header ? getComputedStyle(header).backgroundColor : '',
         };
       });
-      expect(painted.atTheTop, 'nothing is painted above the header bar').not.toBe(
-        'rgba(0, 0, 0, 0)',
-      );
-      expect(painted.atTheTop, "the band above the bar is not the bar's colour").toBe(
+      expect(painted.atTheTop, "the top of the screen is not the header bar's colour").toBe(
         painted.theBar,
       );
     });

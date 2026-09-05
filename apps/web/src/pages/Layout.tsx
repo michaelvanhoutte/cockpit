@@ -196,7 +196,10 @@ function TheShell() {
           header's top border: padding would leave the stripe at the very top
           of the screen, three pixels of identity under forty-odd pixels of
           status bar. This way the stripe starts where the status bar ends. */}
-      <div className="shrink-0" style={{ backgroundColor: theme.header, height: 'var(--edge-top)' }} />
+      <div
+        className="shrink-0"
+        style={{ backgroundColor: theme.header, height: 'var(--edge-top)' }}
+      />
       {/* No bottom border: the strip below ends in the selected dashboard tab,
           which is filled with the ground and has to meet the page without a
           line drawn between them.
