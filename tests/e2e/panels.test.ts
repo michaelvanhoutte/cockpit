@@ -205,6 +205,63 @@ test.describe('Panels', () => {
     });
   });
 
+  test.describe('a panel too narrow for its name, its count and its menu gives the room to the name', () => {
+    // F3 for the reason the rest of this file is: the header is drawn to the
+    // panel's own width, which is a container query, and jsdom has neither a
+    // layout engine nor container queries - it would report the count as shown
+    // at every width, including the ones where it is not.
+    test('drops the count when the panel is squeezed, and keeps it where there is room', async ({
+      page,
+      isMobile,
+    }) => {
+      // Wide enough for three panels side by side, so the layout this records
+      // is one the narrow screen below has to squeeze into four columns each.
+      await page.setViewportSize({ width: 1600, height: 900 });
+      await ownDashboard(page, isMobile);
+      const waiting = uniqueTitle('Waiting on people');
+      const falcon = uniqueTitle('Project Falcon');
+      const reading = uniqueTitle('To read');
+      await addPanel(page, waiting, isMobile);
+      await addPanel(page, falcon, isMobile);
+      await addPanel(page, reading, isMobile);
+
+      const panel = page.getByRole('region', { name: waiting });
+      const count = panel.getByText('0', { exact: true });
+      await expect(count).toBeVisible();
+
+      // Recorded as this screen's layout, so narrowing squeezes it rather than
+      // arranging the panels afresh for the screen they are now on - which is
+      // how a panel ends up narrower than any screen would have made it.
+      await chooseRowAction(page, reading, 'Move left', isMobile);
+      await expectLayouts(page, 1, isMobile);
+
+      await page.setViewportSize({ width: 420, height: 800 });
+      await expect.poll(async () => (await panel.boundingBox())!.width).toBeLessThan(200);
+
+      // The count goes, because the list underneath already shows what is on
+      // the panel; the name and the menu stay, being the panel's own name and
+      // the only way to rename, move or delete it.
+      await expect(count).toBeHidden();
+      await expect(panel.getByRole('heading', { name: waiting })).toBeVisible();
+      await expect(page.getByRole('button', { name: `Actions for ${waiting}` })).toBeVisible();
+
+      // And the room it gave up goes to the name, which now has more of the
+      // header than everything else in it put together.
+      const room = await panel.evaluate((section) => {
+        const header = section.querySelector('header')!;
+        const name = header.querySelector('h3')!;
+        return {
+          header: header.getBoundingClientRect().width,
+          name: name.getBoundingClientRect().width,
+        };
+      });
+      expect(
+        room.name,
+        `the name has ${Math.round(room.name)}px of a ${Math.round(room.header)}px header`,
+      ).toBeGreaterThan(room.header - room.name);
+    });
+  });
+
   test.describe('a panel goes where you drag it and takes the size you drag it to', () => {
     // Desktop only, and the reason is the gesture rather than the screen: the
     // browser's own drag-and-drop is a mouse protocol, so dragging a panel
