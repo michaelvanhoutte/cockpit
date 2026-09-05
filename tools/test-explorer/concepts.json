@@ -62,6 +62,8 @@
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/CaptureForm.tsx",
+        "apps/web/src/pages/CapturePage.tsx",
+        "apps/web/src/capture.ts",
         "apps/web/src/pages/WorkspacePage.tsx",
         "apps/web/src/components/InboxPanel.tsx",
         "apps/api/src/domain/item-types.ts",

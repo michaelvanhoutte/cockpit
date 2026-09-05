@@ -6,7 +6,6 @@ import { DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf } from '@cockpit/share
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, snapshotQuery, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
-import { CaptureWindow } from '../components/CaptureWindow';
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { ItemForm } from '../components/ItemForm';
@@ -293,10 +292,39 @@ function TheShell() {
 
               Outside the Workspaces navigation rather than inside it, for the
               same reason: it is not a workspace, and the strip beside it scrolls
-              within itself, which would carry Capture off the screen. */}
-          {params.workspaceId && (
+              within itself, which would carry Capture off the screen.
+
+              **A tab now, not a window** ("Capture Page", artboard 2a): it goes
+              to a screen of its own (pages/CapturePage.tsx), so the ellipsis
+              that meant a window opens has gone with the window.
+
+              **Wherever there is a workspace to have been captured from**,
+              rather than only inside one - which is what lets it stay in the
+              strip while you are on it. With no workspaces at all there is
+              nowhere to capture from, and the address answers that by sending
+              you to the page that makes one (router.tsx).
+
+              **The same box a workspace tab has** - `pt-1.5 pb-2` and the same
+              top-rounded corners. The header is an `items-end` row, so its
+              height is whatever its tallest child is: six pixels of extra
+              padding here pushed the whole page down by six.
+
+              **Filled with the workspace's tint, which makes it the one
+              saturated tab in the strip.** It is not one of the workspaces, so
+              it does not take a workspace's fill; it is where you land before
+              you have chosen one, so it is not faint either. The ink on it is
+              the app's own dark ink rather than white, because the tint is
+              lifted for the chrome (`chrome.ts`) and a lifted tint is far too
+              light to carry white. */}
+          {(data?.workspaces.length ?? 0) > 0 && (
             <>
-              <CaptureWindow workspaceId={params.workspaceId} tint={theme.color} />
+              <Link
+                to="/capture"
+                className="shrink-0 self-end rounded-t-lg px-4 pt-1.5 pb-2 text-sm font-medium text-ink"
+                style={{ backgroundColor: litForChrome(theme.color) }}
+              >
+                Capture
+              </Link>
               <span
                 aria-hidden="true"
                 className="mx-2 mb-2 h-5 w-px shrink-0 self-end bg-white/15"

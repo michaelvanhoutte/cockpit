@@ -59,12 +59,16 @@ describe('Capture', () => {
   describe('capture says where an item belongs, or that nobody has said yet', () => {
     it.each([
       {
-        situation: 'a front door with no opinion, which is every one but the capture window',
+        situation: 'a front door with no opinion, which is every one but the Capture page',
         asked: {},
         decided: true,
       },
       { situation: 'the Inbox’s own row, inside a workspace', asked: { workspaceDecided: true }, decided: true },
-      { situation: 'the capture window, which is not', asked: { workspaceDecided: false }, decided: false },
+      {
+        situation: 'the Capture page, left on Any workspace',
+        asked: { workspaceDecided: false },
+        decided: false,
+      },
     ])('$situation', ({ asked, decided }) => {
       const item = captureItem(
         {

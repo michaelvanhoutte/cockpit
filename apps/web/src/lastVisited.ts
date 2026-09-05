@@ -25,6 +25,20 @@ export const INBOX: View = { on: 'inbox' };
 const KEY = 'cockpit.last-visited.';
 
 /**
+ * Which workspace you were last in, as against which view of it.
+ *
+ * **What the Capture page captures against.** An Item records the workspace it
+ * was captured from even while it belongs to none ("Capture something before
+ * you know which workspace it belongs to", issue 165), and the page belongs to
+ * no workspace - so the honest answer to "from where" is the workspace you were
+ * in when you went there.
+ *
+ * Under the same prefix as the views, so signing out forgets it with them; the
+ * suffix cannot collide with a workspace's, because those are uuids.
+ */
+const WORKSPACE_KEY = `${KEY}workspace`;
+
+/**
  * Where to open a workspace: what you were last on there if it is still there,
  * and its first dashboard otherwise.
  *
@@ -80,6 +94,36 @@ export function rememberView(
     // Nothing to do and nothing to say: not remembering is a smaller thing
     // than failing to switch.
   }
+}
+
+export function rememberWorkspace(store: Storage | undefined, workspaceId: string): void {
+  try {
+    store?.setItem(WORKSPACE_KEY, workspaceId);
+  } catch {
+    // A browser that refuses storage captures against the first workspace
+    // instead, which is where it would have opened anyway.
+  }
+}
+
+/**
+ * The workspace you were last in, where it is one you still have.
+ *
+ * Checked against the list rather than trusted: a workspace deleted in another
+ * tab, or on another device, is remembered here until something asks - and
+ * capturing against one that is gone is refused, taking the note with it.
+ */
+export function workspaceToCaptureFrom(
+  store: Storage | undefined,
+  workspaces: readonly { id: string }[],
+): string | undefined {
+  let remembered: string | null = null;
+  try {
+    remembered = store?.getItem(WORKSPACE_KEY) ?? null;
+  } catch {
+    remembered = null;
+  }
+  const still = workspaces.some((w) => w.id === remembered);
+  return still ? remembered! : workspaces[0]?.id;
 }
 
 /**

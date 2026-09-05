@@ -1,0 +1,316 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { Item, ItemType } from '@cockpit/shared';
+import { CommandRefused } from '../../../src/api/client';
+import { CapturePage } from '../../../src/pages/CapturePage';
+
+/**
+ * F1: the page is chips, a box and a list, and every rule here is what it sends
+ * and what it then shows. Nothing needs a browser - that a note captured
+ * without a workspace really does turn up in every workspace's Inbox is a
+ * query, proved against a real store in
+ * apps/api/tests/integration/http/panel-items.test.ts, and the walk from the
+ * header to the Inbox is tests/e2e/workspace-capture.test.ts.
+ *
+ * The API client is the only thing replaced, so the choreography under this -
+ * making a type and then capturing against it - is the real `useCapture`.
+ */
+const held = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  send: vi.fn(),
+  /** The types the account holds, re-read after one is made. */
+  types: [] as unknown[],
+  /** The workspaces the account holds, which another tab can delete one of. */
+  workspaces: [] as unknown[],
+  items: [] as unknown[],
+  /** What a capture is refused with, if it is. */
+  refuses: null as Error | null,
+  /** What making a type is refused with, if it is. */
+  refusesTheType: null as Error | null,
+}));
+
+vi.mock('../../../src/api/queries', () => ({
+  useCommand: () => ({ mutate: held.mutate, isPending: false }),
+  useSendCommand: () => held.send,
+  itemTypesQuery: {
+    queryKey: ['itemTypes'],
+    queryFn: () => Promise.resolve({ itemTypes: held.types }),
+  },
+  workspacesQuery: {
+    queryKey: ['workspaces'],
+    queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
+  },
+  snapshotQuery: (workspaceId: string) => ({
+    queryKey: ['snapshot', workspaceId],
+    queryFn: () => Promise.resolve({ items: held.items }),
+  }),
+}));
+
+const WORK = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' };
+const HOME = { id: 'ws-home', tenantId: 'tenant', name: 'Home', color: '#3f8f78' };
+
+function aType(name: string, at: number, color: string): ItemType {
+  return {
+    id: `11111111-1111-7111-8111-${String(at).padStart(12, '0')}`,
+    tenantId: 'tenant',
+    name,
+    color,
+    position: at,
+    createdAt: '2026-09-01T08:00:00.000Z',
+  } as ItemType;
+}
+
+const ACTION = aType('Action', 0, '#6f62b5');
+const THOUGHT = aType('Thought', 1, '#3a72c8');
+const READ_LATER = aType('Read later', 2, '#b58a2f');
+
+/**
+ * The page, with the account's types and with a workspace already remembered as
+ * the one you came from - which is what a capture that names no workspace is
+ * recorded against (`lastVisited.ts`).
+ */
+async function thePage({
+  types = [ACTION, THOUGHT, READ_LATER],
+  items = [] as Item[],
+  cameFrom = 'ws-home',
+  madeAs = types,
+}: {
+  types?: ItemType[];
+  items?: Item[];
+  cameFrom?: string | null;
+  madeAs?: ItemType[];
+} = {}) {
+  held.types = types;
+  held.items = items;
+  held.workspaces = [WORK, HOME];
+  held.refuses = null;
+  held.refusesTheType = null;
+  localStorage.clear();
+  if (cameFrom) localStorage.setItem('cockpit.last-visited.workspace', cameFrom);
+
+  // The real mutation calls back: `onSuccess` is what lists what was captured,
+  // and `onError` is what puts the note back and says why.
+  held.mutate = vi.fn(
+    (_args, options?: { onSuccess?: () => void; onError?: (e: Error) => void }) => {
+      if (held.refuses) options?.onError?.(held.refuses);
+      else options?.onSuccess?.();
+    },
+  );
+  held.send = vi.fn(() => {
+    // A type is made, and the account then holds it - which is what the capture
+    // re-reads to find out which id it ended up with.
+    if (held.refusesTheType) return Promise.reject(held.refusesTheType);
+    held.types = madeAs;
+    return Promise.resolve();
+  });
+
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <CapturePage />
+    </QueryClientProvider>,
+  );
+  // Nothing to choose from until the account's types and workspaces arrive.
+  await screen.findByRole('button', { name: 'Action' });
+  return Object.assign(userEvent.setup(), { client });
+}
+
+const box = () => screen.getByLabelText('What is on your mind?');
+const chip = (name: string) => screen.getByRole('button', { name });
+const captured = () =>
+  held.mutate.mock.calls.map(([args]) => args).find((args) => args.name === 'capture_item');
+const madeType = () =>
+  held.send.mock.calls.map(([args]) => args).find((args) => args.name === 'create_item_type');
+const justCaptured = () => screen.queryAllByRole('listitem');
+
+describe('Capture', () => {
+  beforeEach(() => {
+    held.mutate.mockClear();
+    held.send.mockClear();
+  });
+
+  describe('the capture page writes down a note, what kind of thing it is, and where it goes', () => {
+    it('captures against the workspace you came from, saying where it belongs is undecided', async () => {
+      const user = await thePage();
+
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+
+      expect(captured().payload.message).toBe('Ask Ada about the backup window');
+      // The workspace it was captured from is still recorded: it is an honest
+      // fact, and it is what the foreign key needs.
+      expect(captured().payload.workspaceId).toBe('ws-home');
+      expect(captured().payload.workspaceDecided).toBe(false);
+    });
+
+    it('opens on the type used last, and captures whichever chip is lit', async () => {
+      const user = await thePage();
+
+      // Lit before anything is pressed: the type you want is nearly always the
+      // one you just used.
+      expect(chip('Action')).toHaveAttribute('aria-pressed', 'true');
+      await user.click(chip('Thought'));
+      await user.type(box(), 'Maybe the onboarding is two screens');
+      await user.click(chip('Capture'));
+
+      expect(captured().payload.typeId).toBe(THOUGHT.id);
+    });
+
+    it('captures into a workspace once one is chosen, and says that is where it belongs', async () => {
+      const user = await thePage();
+
+      await user.click(chip('Work'));
+      await user.type(box(), 'Book the venue deposit');
+      await user.click(chip('Capture'));
+
+      expect(captured().payload.workspaceId).toBe('ws-work');
+      expect(captured().payload.workspaceDecided).toBeUndefined();
+    });
+
+    it('makes the type first when the name beside the chips is one nobody has', async () => {
+      const ERRAND = aType('Errand', 3, '#3f8f78');
+      const user = await thePage({ madeAs: [ACTION, THOUGHT, READ_LATER, ERRAND] });
+
+      await user.type(screen.getByLabelText('Name a new type'), 'Errand');
+      await user.type(box(), 'Pick up the parcel');
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(captured()).toBeDefined());
+      expect(madeType().payload.name).toBe('Errand');
+      // The type the account ended up holding, not the id this page invented:
+      // another tab naming the same type first keeps its own row.
+      expect(captured().payload.typeId).toBe(ERRAND.id);
+    });
+
+    it('falls back to Any workspace when the one chosen is deleted in another tab', async () => {
+      const user = await thePage();
+      await user.click(chip('Work'));
+
+      // Deleted elsewhere, and this page finds out the way every screen does -
+      // the list it is drawn from comes back without it.
+      held.workspaces = [HOME];
+      await user.client.invalidateQueries({ queryKey: ['workspaces'] });
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Work' })).toBeNull());
+
+      // Which is what the row now says, rather than nothing being chosen.
+      expect(chip('Any workspace')).toHaveAttribute('aria-pressed', 'true');
+      await user.type(box(), 'Where does this go');
+      await user.click(chip('Capture'));
+
+      expect(captured().payload.workspaceId).toBe('ws-home');
+      expect(captured().payload.workspaceDecided).toBe(false);
+    });
+
+    it('captures nothing at all for an empty note', async () => {
+      const user = await thePage();
+
+      await user.click(chip('Capture'));
+
+      expect(captured()).toBeUndefined();
+    });
+
+    it('captures on the key under the hand, without reaching for the button', async () => {
+      const user = await thePage();
+
+      await user.type(box(), 'Two lines{Shift>}{Enter}{/Shift}and a second');
+      await user.keyboard('{Control>}{Enter}{/Control}');
+
+      expect(captured().payload.message).toBe('Two lines\nand a second');
+    });
+  });
+
+  describe('the box empties for the next note, and a note that could not be captured comes back', () => {
+    it('empties once the capture has been asked for', async () => {
+      const user = await thePage();
+
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+
+      expect(box()).toHaveValue('');
+    });
+
+    it('puts the note back and says why when the capture is refused', async () => {
+      const user = await thePage();
+      held.refuses = new CommandRefused(404, 'workspace ws-home not found');
+
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+
+      expect(screen.getByRole('alert')).toHaveTextContent('workspace ws-home not found');
+      expect(box()).toHaveValue('Ask Ada about the backup window');
+      expect(justCaptured()).toHaveLength(0);
+    });
+
+    it('leaves the note in the box when the type it names is refused', async () => {
+      const user = await thePage();
+      held.refusesTheType = new CommandRefused(422, 'a type is named in 60 characters');
+
+      await user.type(screen.getByLabelText('Name a new type'), 'Errand');
+      await user.type(box(), 'Pick up the parcel');
+      await user.click(chip('Capture'));
+
+      await waitFor(() =>
+        expect(screen.getByRole('alert')).toHaveTextContent('a type is named in 60 characters'),
+      );
+      expect(captured()).toBeUndefined();
+      expect(box()).toHaveValue('Pick up the parcel');
+    });
+  });
+
+  describe('what you have just captured is listed under the box, newest first', () => {
+    it('says nothing at all until something has been captured', async () => {
+      await thePage();
+
+      expect(screen.queryByText('Just captured')).toBeNull();
+    });
+
+    it('lists the note with what kind of thing it is, where it went and how long ago', async () => {
+      const user = await thePage();
+
+      await user.click(chip('Work'));
+      await user.type(box(), 'Book the venue deposit');
+      await user.click(chip('Capture'));
+
+      const row = within(justCaptured()[0]!);
+      expect(row.getByText('Book the venue deposit')).toBeInTheDocument();
+      expect(row.getByText('Action')).toBeInTheDocument();
+      expect(row.getByText('Work')).toBeInTheDocument();
+      expect(row.getByText('now')).toBeInTheDocument();
+    });
+
+    it('says a note left for later belongs to no workspace yet', async () => {
+      const user = await thePage();
+
+      await user.type(box(), 'Where does this go');
+      await user.click(chip('Capture'));
+
+      expect(within(justCaptured()[0]!).getByText('Any workspace')).toBeInTheDocument();
+    });
+
+    it('puts the note just captured above the one before it', async () => {
+      const user = await thePage();
+
+      await user.type(box(), 'The first one');
+      await user.click(chip('Capture'));
+      await user.type(box(), 'The second one');
+      await user.click(chip('Capture'));
+
+      const rows = justCaptured();
+      expect(rows).toHaveLength(2);
+      expect(within(rows[0]!).getByText('The second one')).toBeInTheDocument();
+      expect(within(rows[1]!).getByText('The first one')).toBeInTheDocument();
+    });
+
+    it('lists nothing for a capture that was refused', async () => {
+      const user = await thePage();
+      held.refuses = new CommandRefused(404, 'workspace ws-home not found');
+
+      await user.type(box(), 'Where does this go');
+      await user.click(chip('Capture'));
+
+      expect(screen.queryByText('Just captured')).toBeNull();
+    });
+  });
+});

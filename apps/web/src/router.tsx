@@ -8,9 +8,17 @@ import {
 import { NotSignedIn } from './api/client';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { itemFormSearch } from './itemForm';
-import { INBOX, browserStore, rememberView, rememberedIn, viewToOpen } from './lastVisited';
+import {
+  INBOX,
+  browserStore,
+  rememberView,
+  rememberWorkspace,
+  rememberedIn,
+  viewToOpen,
+} from './lastVisited';
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
+import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { Layout } from './pages/Layout';
 import { LogonPage } from './pages/LogonPage';
@@ -185,6 +193,9 @@ export const inboxRoute = createRoute({
     if (!preload && !roomForTheInbox()) {
       rememberView(browserStore(), params.workspaceId, INBOX);
     }
+    // Which workspace you are in, whether or not the Inbox is a view to come
+    // back to here: it is what the Capture page captures against.
+    if (!preload) rememberWorkspace(browserStore(), params.workspaceId);
   },
   component: WorkspacePage,
 });
@@ -209,6 +220,7 @@ export const dashboardRoute = createRoute({
         on: 'dashboard',
         dashboardId: params.dashboardId,
       });
+      rememberWorkspace(browserStore(), params.workspaceId);
     }
   },
   component: DashboardPage,
@@ -220,6 +232,30 @@ export const dashboardRoute = createRoute({
  * (components/ManageDashboards.tsx), so there is no screen to navigate to and
  * nothing to come back from.
  */
+
+/**
+ * Capture, as a screen rather than as a window over one ("Capture something
+ * before you know which workspace it belongs to", issue 165).
+ *
+ * **Under the shell but outside every workspace**, which is what it means: what
+ * it makes belongs to no workspace until somebody says so, so no workspace tab
+ * is the one you are on and there is no Inbox column beside it - the Inbox it
+ * lands in is whichever one you go to next.
+ *
+ * With no workspace at all there is nowhere to capture *from*, and the page
+ * that makes one is the invitation, exactly as it is for the address above.
+ */
+const captureRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/capture',
+  beforeLoad: async ({ context }) => {
+    const { workspaces } = await orTheLogonPage(
+      context.queryClient.ensureQueryData(workspacesQuery),
+    );
+    if (workspaces.length === 0) throw redirect({ to: '/settings/workspaces' });
+  },
+  component: CapturePage,
+});
 
 /** Reached from the header's menu; the home of everything per-workspace. */
 const workspaceSettingsRoute = createRoute({
@@ -239,6 +275,7 @@ const routeTree = rootRoute.addChildren([
   signInRoute,
   appRoute.addChildren([
     indexRoute,
+    captureRoute,
     workspaceRoute,
     inboxRoute,
     dashboardRoute,

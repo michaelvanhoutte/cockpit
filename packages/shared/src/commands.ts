@@ -308,8 +308,9 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    *
    * Optional and true by default, so every front door that captures into a
    * named Workspace - the Inbox's own row, an SMS, a connector - keeps saying
-   * what it always said. Only the header's capture window sends `false`, which
-   * is the whole of what "I have not decided yet" means on the wire.
+   * what it always said. Only the Capture page sends `false`, and only while
+   * its Where row is left on *Any workspace*, which is the whole of what "I
+   * have not decided yet" means on the wire.
    *
    * The envelope's Workspace is still required and still has to exist: it is
    * where the Item was captured from, which is a fact worth keeping and the
