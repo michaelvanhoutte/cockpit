@@ -172,6 +172,19 @@ describe('Workspace management', () => {
       expect(await screen.findByRole('navigation', { name: 'Dashboards' })).toBeVisible();
     });
 
+    it('sends you to the logon page when the sign-in ends while you sit there', async () => {
+      // The route's own check runs once, on the way in. The shell watches for
+      // this the whole time it is on screen, and this screen hangs off the root
+      // rather than the shell - so without a watch of its own, a session that
+      // ended here turned every press into a refusal under the box with no way
+      // to the logon page.
+      readsWhoIAm.mockRejectedValue(new NotSignedIn('sign-in failed: 401'));
+
+      await open('/', []);
+
+      expect(await screen.findByText('Choose who you are.')).toBeVisible();
+    });
+
     it.each([
       { situation: 'from the start page', at: '/' },
       { situation: 'from a workspace that has been deleted', at: '/w/ws-deleted' },

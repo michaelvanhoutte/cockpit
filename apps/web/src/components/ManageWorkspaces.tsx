@@ -420,15 +420,34 @@ export function ManageWorkspaces({
         onSuccess: async () => {
           setDeleting(null);
           focusTheList.current = true;
-          // Only the one you are looking at. Deleting any other leaves the
-          // screen behind this window exactly where it was.
-          if (params.workspaceId !== workspaceId) return;
+          /*
+           * Only where the screen behind this window stops working, which is
+           * two cases rather than one.
+           *
+           * The one you are looking at is the obvious one. **The last one is
+           * the other**, and it does not name a workspace at all: capture is
+           * under the shell in no workspace (`pages/CapturePage.tsx`), so
+           * `params.workspaceId` is undefined there and a check for the one
+           * behind you passes straight over it. Deleting your last workspace
+           * from capture then left you on it with nothing to capture *from* -
+           * every press swallowed in silence, the tabs and the Capture link
+           * both gone from the header, and no way out but a reload. That was
+           * unreachable while this was a page, because opening it left
+           * capture first.
+           *
+           * `workspaces` is the list as it stands before the re-read below,
+           * and it still holds the workspace just deleted - deleting is the
+           * one change that does not invalidate the list on its own
+           * (api/queries.ts, `afterChanging`) - so one row means it was the
+           * last.
+           */
+          const wasTheOneBehind = params.workspaceId === workspaceId;
+          const wasTheLast = workspaces.length === 1;
+          if (!wasTheOneBehind && !wasTheLast) return;
           // Re-read before going anywhere: `/` decides where to land from
           // the list of workspaces, and the list in hand still holds the one
-          // just deleted - so without this it lands you straight back on it.
-          // Deleting is the one change that does not invalidate that list on
-          // its own (api/queries.ts, `afterChanging`), because a deleted
-          // workspace's snapshot is a 404 for good.
+          // just deleted - so without this it lands you straight back on it,
+          // or fails to notice the account is now empty.
           await queryClient.refetchQueries({ queryKey: ['workspaces'] });
           // **The window stays open behind that**, minus the row: the row
           // going is the confirmation, and a second delete should not cost

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_WORKSPACE_THEME, uuidv7 } from '@cockpit/shared';
-import { CommandRefused } from '../api/client';
-import { useCommand } from '../api/queries';
+import { CommandRefused, NotSignedIn } from '../api/client';
+import { meQuery, useCommand } from '../api/queries';
 
 /**
  * What an account with no workspaces is shown: the one thing it can do.
@@ -27,6 +27,24 @@ export function FirstWorkspacePage() {
   const command = useCommand();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  /**
+   * A sign-in that has gone, noticed while you are sitting here.
+   *
+   * **The route's own check is not enough, and cannot be.** It runs once, on
+   * the way in; the shell watches for this the whole time it is on screen
+   * (`pages/Layout.tsx`), and this screen hangs off the root rather than the
+   * shell, so nothing was watching. A session that ended while this was open
+   * turned every press into a refusal printed under the box, with no way to
+   * the logon page short of editing the address.
+   */
+  const { error: sessionFailure } = useQuery(meQuery);
+  const signedOut = sessionFailure instanceof NotSignedIn;
+  useEffect(() => {
+    if (!signedOut) return;
+    void navigate({ to: '/signin' });
+  }, [signedOut, navigate]);
+
 
   const create = (event: React.FormEvent) => {
     event.preventDefault();

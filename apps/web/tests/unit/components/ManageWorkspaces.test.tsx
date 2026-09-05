@@ -795,7 +795,26 @@ describe('Workspace management', () => {
       await expect.poll(() => wentTo.calls).toEqual([{ to: '/' }]);
     });
 
+    it('goes somewhere that works when it was the last one, from a screen naming none', async () => {
+      // Capture is under the shell in no workspace, so nothing in the address
+      // matches the row being deleted - and the account is empty afterwards,
+      // with nothing left to capture from. Left there, every press on that
+      // screen is swallowed and the header has no tab to leave by.
+      lookingAt.workspaceId = undefined;
+      held.items = [];
+      const user = userEvent.setup();
+      showPage({ succeeds: true });
+
+      await choose(user, 'Work', 'Delete');
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Work' }));
+
+      await expect.poll(() => wentTo.calls).toEqual([{ to: '/' }]);
+    });
+
     it('leaves the screen where it is when it was any other workspace', async () => {
+      // Three of them, so the one deleted is neither the one behind the
+      // window nor the last the account has.
+      showThree();
       held.items = [];
       const user = userEvent.setup();
       showPage({ succeeds: true });
