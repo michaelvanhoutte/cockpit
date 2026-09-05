@@ -189,6 +189,29 @@ export default function RichDescription({ initial, onChange, editable }: RichDes
     editor.current?.action((ctx) => ctx.get(editorViewCtx).setProps({ editable: () => editable }));
   }, [editable]);
 
+  /**
+   * Escape gives up the address being typed, and nothing else.
+   *
+   * **On `window`, in the capture phase, which is the only place this works.**
+   * The form is a Radix dialog, and Radix listens for Escape on the *document*
+   * in the capture phase - so it runs before anything inside the dialog sees
+   * the key, and neither `preventDefault` nor `stopPropagation` from the input
+   * reaches it. The capture phase starts at the window, one step earlier.
+   * Without this, Escape out of a link's address closes the form and throws the
+   * whole description away; the browser walk went red for exactly that.
+   */
+  useEffect(() => {
+    if (!asking) return;
+    const giveUpTheAddress = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setAsking(null);
+      focusTheEditor(editor.current);
+    };
+    window.addEventListener('keydown', giveUpTheAddress, true);
+    return () => window.removeEventListener('keydown', giveUpTheAddress, true);
+  }, [asking]);
+
   const apply = (command: Formatting) => {
     if (command === 'link') {
       askForAnAddress.current();
@@ -242,11 +265,6 @@ export default function RichDescription({ initial, onChange, editable }: RichDes
               if (event.key === 'Enter') {
                 event.preventDefault();
                 makeTheLink();
-              }
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                setAsking(null);
-                focusTheEditor(editor.current);
               }
             }}
             placeholder="https://"

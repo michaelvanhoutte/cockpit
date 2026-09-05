@@ -41,10 +41,15 @@ async function putTheCaretInTheDescription(page: Page, isMobile: boolean): Promi
  * that view is already up - and asking for the view you are on is a no-op
  * rather than a wait for a button that will never appear.
  */
+const other = { Source: 'Formatted', Formatted: 'Source' } as const;
+
 async function show(page: Page, which: 'Source' | 'Formatted', isMobile: boolean): Promise<void> {
   const toggle = form(page).getByRole('button', { name: which });
   if ((await toggle.count()) > 0) await press(toggle, isMobile);
+  // Named for the view it goes to, so the control now offering the other one is
+  // the proof the switch happened rather than the press having been skipped.
   if (which === 'Formatted') await theEditorIsThere(page);
+  await expect(form(page).getByRole('button', { name: other[which] })).toBeVisible();
 }
 
 /** An item of this walk's own, opened with its form on the description. */
@@ -281,6 +286,12 @@ test.describe('Item editing', () => {
       await expect(form(page).getByRole('alert')).toHaveText(
         'A link can only go to a web address or an email address.',
       );
+
+      // Escape gives up the address and nothing else. The form is a dialog that
+      // closes on Escape and discards what is in it, so an Escape that reached
+      // it from here would throw the whole description away.
+      await form(page).getByRole('textbox', { name: 'Address' }).press('Escape');
+      await expect(form(page).getByRole('textbox', { name: 'Address' })).toHaveCount(0);
       await show(page, 'Source', isMobile);
       await expect(descriptionBox(page)).toHaveValue('Tolerances');
     });
