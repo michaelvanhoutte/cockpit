@@ -314,7 +314,7 @@ describe('Sign-in', () => {
             issuedAt: AT,
             workspaceId: WORKSPACE_ID,
             itemId: '018f0000-0000-7000-8000-000000000004',
-            title: 'Captured while the Cockpit next door was open',
+            message: 'Captured while the Cockpit next door was open',
           }),
         }),
       );
@@ -325,10 +325,10 @@ describe('Sign-in', () => {
 
       // Michael's own store, so this fails rather than passes if the capture
       // went to the account of whoever signed in next door.
-      const titles = await inTheStore((sql) => [
-        ...sql.exec<{ title: string }>('SELECT title FROM items'),
+      const captured = await inTheStore((sql) => [
+        ...sql.exec<{ captured_message: string }>('SELECT captured_message FROM items'),
       ]);
-      expect(titles.map((row) => row.title)).toContain(
+      expect(captured.map((row) => row.captured_message)).toContain(
         'Captured while the Cockpit next door was open',
       );
     });
