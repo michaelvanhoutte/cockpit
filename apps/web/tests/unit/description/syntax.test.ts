@@ -60,11 +60,25 @@ describe('Item editing', () => {
       expect(await writtenAndReadBack(written)).toBe(kept);
     });
 
-    // The cap on a description (apps/web/src/components/ItemForm.tsx), so the
-    // longest one that can be stored is the longest one that has to survive.
+    /**
+     * The cap on a description (`DESCRIPTION_LIMIT` in ItemForm, and
+     * `itemDescriptionSchema` in packages/shared), so the longest one that can
+     * be stored is the longest one that has to survive.
+     *
+     * Built up to the cap rather than out of a paragraph count, because a count
+     * is a number that stops meaning 60,000 the moment the sentence inside it
+     * changes - five hundred of them was fifteen thousand characters, and the
+     * loose `toBeGreaterThan` guard here said nothing about it.
+     */
     it('sixty thousand characters', async () => {
-      const long = Array.from({ length: 500 }, (_, index) => `Paragraph ${index} with **bold**.`).join('\n\n');
-      expect(long.length).toBeGreaterThan(10_000);
+      const paragraph = (index: number) =>
+        `Paragraph ${index} with **bold** and a [link](https://example.com/${index}).`;
+      const paragraphs: string[] = [];
+      for (let index = 0; paragraphs.join('\n\n').length < 60_000; index += 1) {
+        paragraphs.push(paragraph(index));
+      }
+      const long = paragraphs.join('\n\n');
+      expect(long.length).toBeGreaterThanOrEqual(60_000);
 
       expect(await writtenAndReadBack(long)).toBe(`${long}\n`);
     });
