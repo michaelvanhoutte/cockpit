@@ -385,11 +385,14 @@ function TheShell() {
       {workspaceUnread && (
         // The page's own `px-3`, plus whatever the screen's sides take. Said
         // here rather than inherited, because this sits above `main` and so is
-        // outside the one place the columns get it from.
+        // outside the one place the columns get it from - and written as
+        // Tailwind's own step rather than as 0.75rem, so it cannot drift from
+        // the `px-3` the columns below it keep.
         <div
           className="pt-3"
           style={{
-            paddingInline: 'calc(0.75rem + var(--edge-left)) calc(0.75rem + var(--edge-right))',
+            paddingInline:
+              'calc(var(--spacing) * 3 + var(--edge-left)) calc(var(--spacing) * 3 + var(--edge-right))',
           }}
         >
           <LoadFailure error={workspace.error} onRetry={() => void workspace.refetch()} />
