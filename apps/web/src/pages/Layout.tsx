@@ -6,7 +6,6 @@ import { DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf } from '@cockpit/share
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, snapshotQuery, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
-import { CaptureWindow } from '../components/CaptureWindow';
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { ItemForm } from '../components/ItemForm';
@@ -313,10 +312,39 @@ function TheShell() {
 
               Outside the Workspaces navigation rather than inside it, for the
               same reason: it is not a workspace, and the strip beside it scrolls
-              within itself, which would carry Capture off the screen. */}
-          {params.workspaceId && (
+              within itself, which would carry Capture off the screen.
+
+              **A tab now, not a window** ("Capture Page", artboard 2a): it goes
+              to a screen of its own (pages/CapturePage.tsx), so the ellipsis
+              that meant a window opens has gone with the window.
+
+              **Wherever there is a workspace to have been captured from**,
+              rather than only inside one - which is what lets it stay in the
+              strip while you are on it. With no workspaces at all there is
+              nowhere to capture from, and the address answers that by sending
+              you to the page that makes one (router.tsx).
+
+              **The same box a workspace tab has** - `pt-1.5 pb-2` and the same
+              top-rounded corners. The header is an `items-end` row, so its
+              height is whatever its tallest child is: six pixels of extra
+              padding here pushed the whole page down by six.
+
+              **Filled with the workspace's tint, which makes it the one
+              saturated tab in the strip.** It is not one of the workspaces, so
+              it does not take a workspace's fill; it is where you land before
+              you have chosen one, so it is not faint either. The ink on it is
+              the app's own dark ink rather than white, because the tint is
+              lifted for the chrome (`chrome.ts`) and a lifted tint is far too
+              light to carry white. */}
+          {(data?.workspaces.length ?? 0) > 0 && (
             <>
-              <CaptureWindow workspaceId={params.workspaceId} tint={theme.color} />
+              <Link
+                to="/capture"
+                className="shrink-0 self-end rounded-t-lg px-4 pt-1.5 pb-2 text-sm font-medium text-ink"
+                style={{ backgroundColor: litForChrome(theme.color) }}
+              >
+                Capture
+              </Link>
               <span
                 aria-hidden="true"
                 className="mx-2 mb-2 h-5 w-px shrink-0 self-end bg-white/15"
@@ -463,8 +491,14 @@ function TheShell() {
           Inbox there is no column to head, and the screen it opens instead
           carries its name itself (pages/WorkspacePage.tsx).
 
-          The shell is only ever drawn inside a workspace now, so there is
-          always a workspace for this band to belong to. */}
+          **Only where there is a workspace for it to belong to.** That is every
+          address under the shell but one: capture is deliberately in no
+          workspace ("Capture something before you know which workspace it
+          belongs to", issue 165) and heads itself, so there is no dashboard for
+          a tab and no Inbox to name. Managing the account is not an address at
+          all any more - it is a window over whatever you were on
+          (components/ManageWindow.tsx) - which is what stopped the chrome
+          having a second, workspace-less state to be drawn in. */}
       {params.workspaceId && (
         <div
           className="flex w-full items-end"
@@ -553,7 +587,19 @@ function TheShell() {
         )}
         {/* Same bottom inset as the Inbox column, for the same reason. */}
         <div className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
-          <Outlet />
+          {params.workspaceId ? (
+            <Outlet />
+          ) : (
+            /* A settings page is read rather than worked in, so it is a column
+               of prose width rather than a sheet of panels: a row stretched
+               across a wide screen puts a workspace's name and the menu acting
+               on it two thousand pixels apart, and the four pixels of seam that
+               a panel wants leave the text against the window's edge. Said here
+               rather than on each page, so the two cannot drift apart. */
+            <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
+              <Outlet />
+            </div>
+          )}
         </div>
       </main>
 

@@ -130,8 +130,10 @@ test.describe('Workspace management', () => {
       expect(await chrome()).toEqual(before);
       // By selector, for the reason `workspaceTab` gives: a modal hides what is
       // behind it from assistive technology, and the point here is that the
-      // header is still on the screen.
-      await expect(page.locator('header button', { hasText: 'Capture' })).toBeVisible();
+      // header is still on the screen. Capture is a tab to a screen of its own
+      // ("Capture something before you know which workspace it belongs to",
+      // issue 165), so it is a link rather than a control.
+      await expect(page.locator('header a[href="/capture"]')).toBeVisible();
 
       // And closing it puts you back with nothing to reload.
       await closeWindow(page, isMobile);

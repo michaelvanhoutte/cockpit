@@ -71,6 +71,9 @@ vi.mock('../../../src/components/InboxPanel', () => ({
 }));
 
 vi.mock('../../../src/api/queries', () => ({
+  // The types window the shell now draws over the workspace reads them
+  // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
+  itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
   // The shell draws the account's two management windows over the workspace
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.
@@ -79,13 +82,6 @@ vi.mock('../../../src/api/queries', () => ({
   meQuery: {
     queryKey: ['me'],
     queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
-  },
-  // The header's capture window reads the account's types ('Capture something
-  // before you know which workspace it belongs to', issue 165). Empty here:
-  // what the window offers is CaptureForm's, proved on CaptureForm.
-  itemTypesQuery: {
-    queryKey: ['itemTypes'],
-    queryFn: () => Promise.resolve({ itemTypes: [] }),
   },
   workspacesQuery: {
     queryKey: ['workspaces'],

@@ -74,16 +74,12 @@ vi.mock('../../../src/roomForTheInbox', () => ({
  * the one the local copy exists for, so nothing may blank the screen over it.
  */
 vi.mock('../../../src/api/queries', () => ({
+  // The types window the shell now draws over the workspace reads them
+  // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
+  itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
   meQuery: {
     queryKey: ['me'],
     queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
-  },
-  // The header's capture window reads the account's types ('Capture something
-  // before you know which workspace it belongs to', issue 165). Empty here:
-  // what the window offers is CaptureForm's, proved on CaptureForm.
-  itemTypesQuery: {
-    queryKey: ['itemTypes'],
-    queryFn: () => Promise.resolve({ itemTypes: [] }),
   },
   workspacesQuery: {
     queryKey: ['workspaces'],
