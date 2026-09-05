@@ -161,6 +161,10 @@
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",
+        "apps/web/src/components/DescriptionBox.tsx",
+        "apps/web/src/description/RichDescription.tsx",
+        "apps/web/src/description/syntax.ts",
+        "apps/web/src/description/safeHref.ts",
         "apps/web/src/itemForm.tsx",
         "apps/web/src/router.tsx",
         "packages/shared/src/domain/item.ts",

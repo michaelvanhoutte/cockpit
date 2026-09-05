@@ -4,6 +4,7 @@ import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { itemLabel, uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
+import { DescriptionBox } from './DescriptionBox';
 import { useItemForm } from '../itemForm';
 
 /** What the two boxes hold, before anything is sent. */
@@ -239,16 +240,16 @@ function TheForm({
                   />
                 </label>
 
-                <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                  Description
-                  <textarea
-                    rows={12}
-                    disabled={saving}
-                    value={draft.description}
-                    onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                    className="mt-1 w-full resize-y rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-                  />
-                </label>
+                {/* Formatted, with the Markdown behind it one button away
+                    ("Format a description, and edit its source", issue 160).
+                    The editor is fetched behind this form rather than on the
+                    cold-open path, which is why this is a component and not a
+                    box: the states around that fetch are the bulk of it. */}
+                <DescriptionBox
+                  value={draft.description}
+                  onChange={(description) => setDraft({ ...draft, description })}
+                  editable={!saving}
+                />
 
                 {/* What was captured, out of the way until it is looked for. It
                     can never be edited, so it is a record rather than a

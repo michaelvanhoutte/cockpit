@@ -1,0 +1,36 @@
+{
+  "name": "rich-text-spike",
+  "private": true,
+  "type": "module",
+  "description": "Spike for issue 160: real chunk sizes and round-trip fidelity, Milkdown vs Tiptap. Outside the pnpm workspace on purpose (poc/ never runs in CI).",
+  "scripts": {
+    "sizes": "node measure.mjs",
+    "roundtrip": "vitest run"
+  },
+  "dependencies": {
+    "@milkdown/core": "7.22.1",
+    "@milkdown/ctx": "7.22.1",
+    "@milkdown/preset-commonmark": "7.22.1",
+    "@milkdown/preset-gfm": "7.22.1",
+    "@milkdown/utils": "7.22.1",
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-image": "3.31.3",
+    "@tiptap/extension-link": "3.31.3",
+    "@tiptap/extension-table": "3.31.3",
+    "@tiptap/markdown": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "jsdom": "^30.0.1",
+    "vite": "^7.1.0",
+    "vitest": "^4.1.10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

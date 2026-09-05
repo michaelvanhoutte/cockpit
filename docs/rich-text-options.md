@@ -1,6 +1,6 @@
 # Rich text for an Item description
 
-**Status: recommended, not decided.** The recommendation below turns on one number nobody has measured — see "What would establish the missing numbers".
+**Status: decided — Milkdown.** The spike ran; see "What the spike found", which is the section to read first. It confirmed the recommendation and corrected two claims below that were taken from published documentation and are false as of 7.22.1: Milkdown's `html` node escapes rather than injects, and both ProseMirror candidates now sanitise a link's rendered `href`.
 
 ## What has to be true
 
@@ -17,7 +17,7 @@
 
 | | Source view round-trip | Tables + images later | Compressed size | Raw HTML | jsdom |
 |---|---|---|---|---|---|
-| **Milkdown** (ProseMirror + remark) | re-serialised, normalised | preset swap (`preset-gfm`); images already in `preset-commonmark` | 104KB (`@milkdown/preset-commonmark` 7.22.1) | an `html` node exists in the preset — leave it out | needs Range mocks; selection untestable |
+| **Milkdown** (ProseMirror + remark) | re-serialised, normalised | preset swap (`preset-gfm`); images already in `preset-commonmark` | 104KB (`@milkdown/preset-commonmark` 7.22.1) | an `html` node exists in the preset, and escapes rather than injects | needs Range mocks; selection untestable |
 | **Tiptap 3** (ProseMirror) | re-serialised, normalised | first-party extensions + a serializer rule each | 105KB (`starter-kit` 3.31.0) + 18KB (`@tiptap/markdown`) | unrepresentable: not in the schema | needs Range mocks; selection untestable |
 | **Lexical** (Meta) | re-serialised; unmatched syntax survives as literal text | **both hand-written**: `@lexical/table` ships but its Markdown transformer does not, and there is no image node at all | 56KB core; `@lexical/markdown` 75KB, graphs overlap and cannot be summed | unrepresentable: node registry is an allowlist | **runs with no DOM** via `@lexical/headless` |
 | **`<textarea>` + preview** | **lossless — the stored text is the text** | free in the editor; the cost moves entirely to the renderer | renderer only (see below) | renderer's problem | trivial |
@@ -43,9 +43,9 @@ Figures are Bundlephobia's minified+gzip for the whole published dependency grap
 
 ### Security
 
-Tiptap and Lexical both make the unsafe case unrepresentable rather than sanitising it: a node absent from the schema (or from Lexical's registered node list) cannot exist in the document, so pasted `<script>` has nowhere to go, and both render into DOM they construct — no `dangerouslySetInnerHTML` anywhere. Milkdown is the same machinery with one exception worth naming: its CommonMark preset registers an `html` node, so it must be removed rather than relied on to be empty.
+Tiptap and Lexical both make the unsafe case unrepresentable rather than sanitising it: a node absent from the schema (or from Lexical's registered node list) cannot exist in the document, so pasted `<script>` has nowhere to go, and both render into DOM they construct — no `dangerouslySetInnerHTML` anywhere. Milkdown is the same machinery with one exception worth naming: its CommonMark preset registers an `html` node. The spike found that node renders its source as escaped text rather than as markup, which is what Cockpit wants — **keep it**, and see "Two corrections" for why removing it would be the worse trade.
 
-**None of the three validates a link's href.** `javascript:alert(1)` typed into the link dialog is accepted by all of them. Whichever wins, the URL scheme allowlist is a mark-level input rule Cockpit writes, tested at F1 — it is not free anywhere.
+**No candidate keeps a link's href out of the stored Markdown.** Milkdown and Tiptap both render an unsafe scheme as `href=""`, but `javascript:alert(1)` typed into the link dialog is stored as written by both. Whichever wins, the URL scheme allowlist is Cockpit's own, tested at F1 — it is not free anywhere.
 
 ### Testability and mobile
 
@@ -70,17 +70,58 @@ On mobile all three are comparable — ProseMirror's Android `MutationObserver` 
 
 1. **Markdown is Milkdown's document model, not an export format.** Constraint 2 is the hard one, and Milkdown is the only WYSIWYG candidate that was designed around it — remark parses and prints, ProseMirror only edits in between.
 2. **The growth path is a preset line.** Tables arrive as `@milkdown/preset-gfm`, images are already in `preset-commonmark`, and both round-trip through remark with no serializer written by us. Tiptap costs a package and a serialization rule per feature; Lexical costs a hand-written transformer for tables and a hand-written node *and* transformer for images.
-3. **It is the smallest of the three**, at 104KB against Tiptap's 105 + 18.
+3. **It is the smallest of the three**, at 104KB against Tiptap's 105 + 18 — and by more than that once measured (see "What the spike found").
 
 The trade-off, stated plainly: **Milkdown is much the smallest project of the three** — 11 npm releases in 2026 against Tiptap's 52 and Lexical's 172, thinner documentation, and a stack where a bug can land in Milkdown or in ProseMirror or in remark. Tiptap is the fallback and loses on nothing but constraint 2, where `@tiptap/markdown` is a first-party bolt-on shipped in October 2025 that its own release notes call early.
 
-## What would establish the missing numbers
+## What the spike found
 
-Everything above is published figures; nothing here has been built. One spike settles it: a Vite entry that lazy-imports each of Milkdown and Tiptap at the first formatting set, then again with tables and images, and read the real chunk sizes off the CI bundle report. Round-trip twenty real descriptions — the ones with pasted Notion tables — through each and diff the source view against the input.
+Built, in `poc/rich-text-spike/`: a Vite shell that lazy-imports each candidate at two feature sets, and a jsdom harness that round-trips twenty real descriptions through each and diffs the output against the input. Reports are committed beside it. **Milkdown wins on both axes the spike was run to settle**, so the recommendation stands.
+
+### The chunk, measured
+
+Five Vite builds of the same React shell, differing only in what the lazy chunk imports; figures are gzip level 9 of the emitted chunk.
+
+| Lazy chunk | gzip | brotli |
+|---|---|---|
+| **Milkdown** `preset-commonmark` | 105.8KB | 92.5KB |
+| **Milkdown** `+ preset-gfm` | **130.3KB** | 112.0KB |
+| **Tiptap** `starter-kit + markdown` | 135.8KB | 115.9KB |
+| **Tiptap** `+ extension-table + extension-image` | **153.3KB** | 130.2KB |
+
+Bundlephobia was close on the first row and useless on the last: Tiptap's table extension reads as 4KB there and costs 17.5KB here. **Milkdown is smaller at both feature sets**, and the gap widens rather than closes with tables.
+
+The shape the numbers actually decide is the budget: the app's entry is **175.9KB gzip today against a 200KB gate**, so no candidate fits inline and the editor's own chunk needs its own budget line. That is the CI check this issue adds.
+
+### Fidelity, measured
+
+Twenty descriptions in, the same text expected out. Both normalise — bullet markers unify, tables get padded — and neither moves the text a second time, so switching between the views repeatedly settles after one pass. What separates them is what does not come back:
+
+| | Milkdown (commonmark + gfm) | Tiptap (starter + markdown + table) |
+|---|---|---|
+| a table, extension present | padded, kept | padded, kept |
+| **a table, extension absent** | **kept as literal text** | **deleted, silently** |
+| `a < b`, `?a=1&b=2` | kept | **`a &lt; b`, `&amp;` — entity-corrupted** |
+| `<https://…>` autolink | kept | rewritten to `[url](url)` |
+| a bare `<b>bold</b>` | kept as text | **promoted to real bold** |
+| `<script>`, `<img onerror>` | kept as escaped text | deleted, whole line |
+| `\_escaped\_` | kept escaped | **unescaped into emphasis** |
+| 60,000 characters | kept | kept |
+
+Three of those are the issue's own rules failing on Tiptap. The deleted table is the exact failure the wider-than-the-toolbar decision exists to prevent — and Tiptap deletes it at the parse step, before any schema of ours can widen. `a < b` is worse than cosmetic: a description that goes near the editor comes back different from the one that was stored, and stays different.
+
+### Two corrections to what is written above
+
+- **Milkdown's `html` node is safe and worth keeping.** It renders raw HTML as escaped text in a `data-type="html"` span, so `<script>` is visible, inert, and still there on the way out. Removing it, as the Security section below advises, would trade that for Tiptap's behaviour: deletion.
+- **Both now validate a link's rendered `href`.** `sanitizeLinkHref` in `@milkdown/preset-commonmark` allows `http:`, `https:`, `mailto:`, `tel:` and `ftp:` and renders everything else as `href=""`; Tiptap's link extension does the same. **This does not make Cockpit's own check redundant**: both keep the original scheme in the *stored Markdown*, so `javascript:` typed into a link survives the save and is only defused at render — by that editor, in that version. The allowlist is still Cockpit's, applied where the link is made.
+
+### What the spike does not answer
+
+`@lexical/headless` was not built. Lexical was already third on size and on the growth path, and nothing measured here moves it up.
 
 ## What would change this
 
-- **The spike showing Milkdown's normalisation losing something Tiptap's does not**, or its documentation costing more agent time than the preset line saves. Either flips this to Tiptap.
+- ~~The spike showing Milkdown's normalisation losing something Tiptap's does not.~~ **Answered: it lost nothing, and Tiptap lost three things.** Milkdown's documentation costing more agent time than the preset line saves would still flip this to Tiptap.
 - **Milkdown going quiet.** A year without releases makes the bus factor real rather than a caveat; the exit is Tiptap, and it is not cheap, because the stored Markdown is portable but the extension code is not.
 - **Testability turning out to dominate.** If the selection and toolbar tests land mostly at the Playwright tier and hurt, `@lexical/headless` is worth the two hand-written transformers.
 - **Collaborative or multi-device concurrent editing appearing as a requirement.** That is a CRDT question, not a formatting one, and it re-opens the choice from the top.
