@@ -192,6 +192,11 @@ test.describe('Screen edges', () => {
       // scroll is taller than the screen on purpose - measuring the panel would
       // ask a scroller to fit, which is a different and wrong claim.
       if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      // Looked at before it is measured. The box lives at the top of a column
+      // that scrolls, and every walk in this run shares one Inbox, so by here
+      // the column can be a dozen pixels down - which puts the box above its
+      // own scroller rather than under anything.
+      await captureBox(page).scrollIntoViewIfNeeded();
       await expectClearOfTheEdges(page, captureBox(page), 'the capture box', SIDEWAYS);
     });
 
