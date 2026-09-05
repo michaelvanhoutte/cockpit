@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
-import { USER_ID, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  OTHER_USER_ID,
+  USER_ID,
+  WORKSPACE_ID,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, through the real Worker, because every rule here is about
@@ -219,6 +226,133 @@ describe('Sign-in', () => {
 
       const after = await SELF.fetch('http://cockpit.test/v1/workspaces', carrying(cookie));
       expect(after.status).toBe(401);
+    });
+  });
+
+  /**
+   * Two Cockpits open at once is the ordinary way this is developed - a
+   * `pnpm dev` per worktree, plus the browser suite's own stack - and to a
+   * browser all of them are `localhost`, differing only by a port it does not
+   * keep sign-ins apart by. So the jar below is one jar, holding what each of
+   * them handed over, exactly as a browser would send it to both.
+   *
+   * What this cannot arrange, and does not claim, is that the two hold separate
+   * registers: there is one Worker here. That is the right split anyway - which
+   * sign-in a request is *carrying* is decided from the address before any
+   * register is read, and that decision is what broke.
+   *
+   * Found by hand rather than by this suite: reads kept answering while adding
+   * a panel came back "sign in to continue" a second later, because a request
+   * to the Cockpit next door had emptied the one slot they shared on its way to
+   * refusing it.
+   */
+  describe('two Cockpits open in one browser leave each other’s sign-ins alone', () => {
+    const HERE = 'http://localhost:9182';
+    const NEXT_DOOR = 'http://localhost:8987';
+
+    /** What the browser puts in its jar for this address, `name=value`. */
+    async function signedInAt(at: string, userId: string): Promise<string> {
+      const res = await SELF.fetch(`${at}/v1/sign-in`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      expect(res.status).toBe(200);
+      return res.headers.get('set-cookie')!.split(';')[0]!;
+    }
+
+    /**
+     * One host, one jar: a browser sends every one of them to every one of
+     * them.
+     *
+     * The Cockpit next door's goes first, which is deliberate rather than
+     * arbitrary - under a single shared name that is the value that answers,
+     * so the rows below fail when this breaks instead of being right by luck
+     * of the order.
+     */
+    async function bothSignedIn(): Promise<string> {
+      const here = await signedInAt(HERE, USER_ID);
+      const nextDoor = await signedInAt(NEXT_DOOR, OTHER_USER_ID);
+      return `${nextDoor}; ${here}`;
+    }
+
+    /**
+     * Two people rather than one twice over, because that is what makes a wrong
+     * answer visible: with a single name the jar holds two values under it, one
+     * of them wins, and the Cockpit that loses answers as somebody else.
+     */
+    it.each([
+      { situation: 'the one you are working in', at: HERE, expected: 'Michael' },
+      { situation: 'the one open beside it', at: NEXT_DOOR, expected: 'Ada' },
+    ])('$situation says who you signed in to it as', async ({ at, expected }) => {
+      const jar = await bothSignedIn();
+
+      const res = await SELF.fetch(`${at}/v1/me`, carrying(jar));
+
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { user: { name: string } }).toMatchObject({
+        user: { name: expected },
+      });
+    });
+
+    /**
+     * The reported symptom, and the reason a change is checked beside a read:
+     * it looked like changes being refused while reads worked, and it was
+     * really whichever request happened to land after the one slot they shared
+     * had been taken.
+     */
+    it('files what you capture in the account you signed in to there', async () => {
+      const jar = await bothSignedIn();
+
+      const res = await SELF.fetch(
+        `${HERE}/v1/commands/capture_item`,
+        carrying(jar, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: '018f0000-0000-7000-8000-000000000003',
+            issuedAt: AT,
+            workspaceId: WORKSPACE_ID,
+            itemId: '018f0000-0000-7000-8000-000000000004',
+            title: 'Captured while the Cockpit next door was open',
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      // Michael's own store, so this fails rather than passes if the capture
+      // went to the account of whoever signed in next door.
+      const titles = await inTheStore((sql) => [
+        ...sql.exec<{ title: string }>('SELECT title FROM items'),
+      ]);
+      expect(titles.map((row) => row.title)).toContain(
+        'Captured while the Cockpit next door was open',
+      );
+    });
+
+    it('refusing a sign-in it was never given does not end the other one', async () => {
+      const here = await signedInAt(HERE, USER_ID);
+
+      // Only this Cockpit's, which is the state a browser is in the moment
+      // before you sign in to the one next door.
+      const refused = await SELF.fetch(`${NEXT_DOOR}/v1/me`, carrying(here));
+
+      expect(refused.status).toBe(401);
+      // It takes nothing of this Cockpit's away on its way out - it holds none
+      // of it to take. Under one name for both, this very response is what
+      // signed you out here.
+      expect(refused.headers.get('set-cookie') ?? '').not.toContain('cockpit_session_9182');
+      expect((await SELF.fetch(`${HERE}/v1/me`, carrying(here))).status).toBe(200);
+    });
+
+    it('signing out of one leaves you signed in to the other', async () => {
+      const jar = await bothSignedIn();
+
+      const out = await SELF.fetch(`${NEXT_DOOR}/v1/sign-out`, carrying(jar, { method: 'POST' }));
+      expect(out.status).toBe(200);
+
+      expect((await SELF.fetch(`${HERE}/v1/me`, carrying(jar))).status).toBe(200);
+      expect((await SELF.fetch(`${NEXT_DOOR}/v1/me`, carrying(jar))).status).toBe(401);
     });
   });
 

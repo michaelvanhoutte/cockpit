@@ -6,12 +6,18 @@ import { join } from 'node:path';
 //
 // The problem this exists for: several git worktrees of this repository are
 // open at once - one per issue being worked - and every one of them wants to
-// run `pnpm dev`. They do not fight over anything else. Each worktree already
-// has its own `apps/api/.wrangler/state`, so the databases are separate, and
-// Vite already takes the API's address from COCKPIT_API_ORIGIN, which is how
-// the browser tier pairs its Vite with its own Wrangler. Only the port numbers
-// were hard-coded, in four places, so the second worktree to start simply could
-// not.
+// run `pnpm dev`. Each worktree already has its own `apps/api/.wrangler/state`,
+// so the databases are separate, and Vite already takes the API's address from
+// COCKPIT_API_ORIGIN, which is how the browser tier pairs its Vite with its own
+// Wrangler. Only the port numbers were hard-coded, in four places, so the second
+// worktree to start simply could not.
+//
+// **Moving the ports does not separate everything a browser holds.** Cookies
+// are not scoped by port, so every stack here is one `localhost` to a browser
+// and they shared a single sign-in until the cookie was given a name per stack
+// (`sessionCookieName` in apps/api/src/auth/gate.ts). Anything else added per
+// worktree wants the same question asked of it, because the answer is not the
+// same as it is for localStorage and IndexedDB below.
 //
 // **The primary checkout keeps the documented ports.** It is the one the readme
 // is written for, and a linked worktree is by definition a second copy that
