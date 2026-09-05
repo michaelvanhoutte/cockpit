@@ -25,6 +25,10 @@ describe('Item editing', () => {
       { situation: 'a bare host with a port', typed: 'example.com:8080/runbook', kept: 'https://example.com:8080/runbook' },
       { situation: 'a machine on the network with a port', typed: 'localhost:3000', kept: 'https://localhost:3000' },
       { situation: 'a web address with a port', typed: 'https://example.com:8443/a', kept: 'https://example.com:8443/a' },
+      // What is stored is what was typed. Stripping the characters a browser
+      // ignores is for reading the scheme; done to the whole address it turns
+      // an ordinary shared-drive path into a different, broken one.
+      { situation: 'a space inside the path', typed: 'https://example.com/Shared Documents/plan.docx', kept: 'https://example.com/Shared Documents/plan.docx' },
     ])('$situation is kept', ({ typed, kept }) => {
       expect(safeHref(typed)).toBe(kept);
     });
@@ -40,6 +44,10 @@ describe('Item editing', () => {
       { situation: 'a javascript address with a tab in it', typed: 'java\tscript:alert(1)' },
       { situation: 'a javascript address with a zero-width space in it', typed: 'java​script:alert(1)' },
       { situation: 'a javascript address behind a newline', typed: '\njavascript:alert(1)' },
+      // A scheme is refused rather than repaired, and a body of digits does not
+      // make one a host: read as a port, `tel:` came back as a web address.
+      { situation: 'a telephone number', typed: 'tel:0201234567' },
+      { situation: 'a javascript address that is only digits', typed: 'javascript:1' },
       { situation: 'nothing at all', typed: '   ' },
     ])('$situation is refused', ({ typed }) => {
       expect(safeHref(typed)).toBeNull();

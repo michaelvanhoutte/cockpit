@@ -33,27 +33,48 @@ function withoutIgnoredCharacters(address: string): string {
 }
 
 /**
+ * Whether what sits in front of a colon is a machine rather than a scheme.
+ *
+ * A colon does not make a scheme: `example.com:8080/a` and `localhost:3000` are
+ * hosts with a port, and a scheme may itself contain digits and dots, so the
+ * two cannot be told apart by shape alone. What separates them here is that a
+ * host is named like one - it has a dot in it, or it is `localhost` - and that
+ * what follows the colon is a port and then the end of the address or its path.
+ *
+ * Anything else in front of a colon is a scheme, and goes to the allowlist:
+ * `tel:0201234567` is refused rather than turned into a web address, which is
+ * what a rule of "digits mean a port" did.
+ */
+function isAMachineWithAPort(before: string, after: string): boolean {
+  const named = before.includes('.') || before.toLowerCase() === 'localhost';
+  return named && /^\d+(?:[/?#]|$)/.test(after);
+}
+
+/**
  * The address to store, or `null` where it is refused.
  *
  * Something with no scheme at all is a host - `example.com/a`, which is what
  * gets pasted - and becomes `https://`. A scheme that is not on the list is
  * refused rather than repaired: guessing at what `javascript:alert(1)` meant to
  * be is how a refusal becomes a redirect.
+ *
+ * **What is stored is what was typed, minus the surrounding whitespace.** The
+ * ignorable characters are stripped to *read* the scheme and nowhere else,
+ * because a browser strips them the same way before it reads one - so the
+ * stripped form is what the allowlist has to judge, and the typed form is what
+ * the link has to keep. Storing the stripped form silently rewrote
+ * `https://example.com/Shared Documents/plan.docx` into a different address.
  */
 export function safeHref(typed: string): string | null {
-  const address = withoutIgnoredCharacters(typed.trim());
-  if (!address) return null;
+  const address = typed.trim();
+  const forReadingTheScheme = withoutIgnoredCharacters(address);
+  if (!forReadingTheScheme) return null;
 
-  const named = /^([a-z][a-z0-9+.-]*):(.*)$/is.exec(address);
+  const named = /^([a-z][a-z0-9+.-]*):(.*)$/is.exec(forReadingTheScheme);
   if (!named) return `https://${address}`;
 
-  // A colon does not make a scheme. `example.com:8080/a` and `localhost:3000`
-  // are hosts with a port, and a scheme may contain digits and dots, so reading
-  // everything before the colon as one refuses both of those as an unknown
-  // scheme. What follows a port is a number and then the end of the address or
-  // its path; nothing else here is.
   const scheme = named[1] ?? '';
   const afterTheColon = named[2] ?? '';
-  if (/^\d+(?:[/?#]|$)/.test(afterTheColon)) return `https://${address}`;
-  return ALLOWED.has(`${scheme.toLowerCase()}:`) ? address : null;
+  if (ALLOWED.has(`${scheme.toLowerCase()}:`)) return address;
+  return isAMachineWithAPort(scheme, afterTheColon) ? `https://${address}` : null;
 }

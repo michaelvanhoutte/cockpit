@@ -112,7 +112,7 @@ Three of those are the issue's own rules failing on Tiptap. The deleted table is
 
 ### Two corrections to what is written above
 
-- **Milkdown's `html` node is safe and worth keeping.** It renders raw HTML as escaped text in a `data-type="html"` span, so `<script>` is visible, inert, and still there on the way out. Removing it, as the Security section below advises, would trade that for Tiptap's behaviour: deletion.
+- **Milkdown's `html` node is safe and worth keeping.** It renders raw HTML as escaped text in a `data-type="html"` span, so `<script>` is visible, inert, and still there on the way out. This document used to say to remove it, on the strength of the preset registering the node at all; removing it would trade what is kept for Tiptap's behaviour, which is deletion. The Security section above now says so too.
 - **Both now validate a link's rendered `href`.** `sanitizeLinkHref` in `@milkdown/preset-commonmark` allows `http:`, `https:`, `mailto:`, `tel:` and `ftp:` and renders everything else as `href=""`; Tiptap's link extension does the same. **This does not make Cockpit's own check redundant**: both keep the original scheme in the *stored Markdown*, so `javascript:` typed into a link survives the save and is only defused at render — by that editor, in that version. The allowlist is still Cockpit's, applied where the link is made.
 
 ### What the spike does not answer
