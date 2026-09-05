@@ -15,6 +15,8 @@ const A_NAME_THAT_LOOKS_LIKE_MARKUP = '<img src=x onerror=alert(1)>';
 
 // The router itself is not under test, and `to`/`params` are its props rather
 // than an anchor's, so they stop here instead of being spread onto the DOM.
+const at = { pathname: '/settings/workspaces' };
+
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
     <a className={className}>{children}</a>
@@ -25,6 +27,10 @@ vi.mock('@tanstack/react-router', () => ({
   // No item named, so the shell draws no form over itself - these cases are
   // about the chrome.
   useSearch: () => ({}),
+  // The address, because the shell asks which page this is rather than whether
+  // a workspace is named: Capture is in no workspace either.
+  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
+    select({ location: { pathname: at.pathname } }),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
@@ -78,8 +84,9 @@ describe('Workspace management', () => {
     it('holds the settings pages when no workspace is open', async () => {
       // The band was drawn only inside a workspace, so leaving one took it off
       // the screen and the settings page headed itself instead, with a heading
-      // of its own on the sheet. One place names the screen you are on; these
-      // mocks name no workspace, which is what a settings address is.
+      // of its own on the sheet. One place names the screen you are on, and
+      // this is a settings address - which is what puts those two tabs in the
+      // band, rather than merely being outside a workspace.
       render(
         <QueryClientProvider
           client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}

@@ -2,8 +2,8 @@ import { Link } from '@tanstack/react-router';
 
 /**
  * The look every tab in the band under the workspace tabs wears - the
- * dashboards of the workspace you are in, and the settings pages when you are
- * in none.
+ * dashboards of the workspace you are in, and the two settings pages when you
+ * are on one of them.
  *
  * **One string, because the band is one thing.** The band was drawn only inside
  * a workspace, so leaving one took it off the screen and the chrome lost forty
@@ -23,8 +23,8 @@ export const bandTabClass =
   'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-chrome-ink-soft hover:bg-white/8 hover:text-chrome-ink [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-[inset_0_2px_0_0_var(--tab-mark)]';
 
 /**
- * What the band holds when you are in no workspace: the two settings pages,
- * as tabs, in the place the dashboards of a workspace sit.
+ * What the band holds on the settings pages: the two of them, as tabs, in the
+ * place the dashboards of a workspace sit.
  *
  * **They are the page's heading**, which is why there is no other one. A
  * settings page used to carry an `h1` on the sheet, so the app had two

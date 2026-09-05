@@ -32,6 +32,8 @@ const params: { workspaceId?: string } = {};
 const VIOLET_SURFACES = { bar: VIOLET.bar, ground: VIOLET.ground, header: VIOLET.header };
 const wearing: { violet: typeof VIOLET_SURFACES } = { violet: VIOLET_SURFACES };
 
+const at = { pathname: '/w/ws-violet' };
+
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
@@ -52,6 +54,10 @@ vi.mock('@tanstack/react-router', () => ({
   // No item named, so the shell draws no form over itself - these cases are
   // about the chrome.
   useSearch: () => ({}),
+  // The address, because the shell asks which page this is rather than whether
+  // a workspace is named: Capture is in no workspace either.
+  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
+    select({ location: { pathname: at.pathname } }),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));

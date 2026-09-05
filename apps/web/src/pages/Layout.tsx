@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
+import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf } from '@cockpit/shared';
 import { NotSignedIn, signOut } from '../api/client';
@@ -88,6 +88,21 @@ function TheShell() {
   const queryClient = useQueryClient();
   const { data } = useQuery(workspacesQuery);
   const params = useParams({ strict: false });
+  /**
+   * Whether this is one of the settings pages, which is what the band and the
+   * column under it are actually asking - not whether there is a workspace in
+   * the address.
+   *
+   * **The two are not the same question, and reading one for the other put the
+   * settings tabs on the Capture page.** Capture is in no workspace either -
+   * that is what it means (`pages/CapturePage.tsx`) - and it is neither of the
+   * things the settings pages are: it is a sheet rather than a column of prose,
+   * and it has nothing to switch between, since the tab you are on is up in the
+   * strip above.
+   */
+  const onSettings = useRouterState({
+    select: (state) => state.location.pathname.startsWith('/settings/'),
+  });
   const roomForTheInbox = useRoomForTheInbox();
 
   /**
@@ -462,8 +477,11 @@ function TheShell() {
           Inbox there is no column to head, and the screen it opens instead
           carries its name itself (pages/WorkspacePage.tsx).
 
-          Where you are in no workspace there is no Inbox and no dashboard, so
-          the band holds the settings pages instead. */}
+          On the settings pages there is no Inbox and no dashboard, so the band
+          holds those two pages instead; on Capture, which is also in no
+          workspace, it holds nothing and keeps its height, because the tab you
+          are on there is up in the strip above and there is nothing on the page
+          to switch between. */}
       <div
         // As tall as a menu control standing on it - `pt-1` above one of the
         // 36px triggers, with its own `mb-1` under it - which is what the
@@ -494,9 +512,9 @@ function TheShell() {
               openDashboardId={params.dashboardId ?? null}
             />
           </>
-        ) : (
+        ) : onSettings ? (
           <SettingsBar tint={theme.color} ground={theme.ground} />
-        )}
+        ) : null}
       </div>
       {/* Left-aligned and full width, matching the header: pages get the whole
           screen instead of a centred column with empty gutters either side.
@@ -562,18 +580,21 @@ function TheShell() {
         )}
         {/* Same bottom inset as the Inbox column, for the same reason. */}
         <div className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
-          {params.workspaceId ? (
-            <Outlet />
-          ) : (
+          {onSettings ? (
             /* A settings page is read rather than worked in, so it is a column
                of prose width rather than a sheet of panels: a row stretched
                across a wide screen puts a workspace's name and the menu acting
                on it two thousand pixels apart, and the four pixels of seam that
                a panel wants leave the text against the window's edge. Said here
-               rather than on each page, so the two cannot drift apart. */
+               rather than on each page, so the two cannot drift apart.
+
+               Every other address gets the sheet, including the ones outside a
+               workspace: Capture is a page of its own and still a sheet. */
             <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
               <Outlet />
             </div>
+          ) : (
+            <Outlet />
           )}
         </div>
       </main>
