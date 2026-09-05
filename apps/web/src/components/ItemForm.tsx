@@ -204,7 +204,11 @@ function TheForm({
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
         <Dialog.Content
           aria-describedby={undefined}
-          className="fixed left-1/2 top-1/2 flex max-h-[min(44rem,calc(100vh-2rem))] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          // Centred, and the tallest dialog in the app, so on a phone it fills
+          // the screen: the height it may grow to is measured inside the
+          // screen's own edges (styles.css, `--edge-top`), or the title runs
+          // under the status bar and Save under the home indicator.
+          className="fixed left-1/2 top-1/2 flex max-h-[min(44rem,calc(100vh_-_2rem_-_var(--edge-top)_-_var(--edge-bottom)))] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
         >
           {/* The label the row was showing, so the form says which item is open.
               "Item" alone over two empty boxes says nothing at all - and the

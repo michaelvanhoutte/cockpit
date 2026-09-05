@@ -199,6 +199,26 @@ test.describe('Screen edges', () => {
       await scrollToTheEndOfTheListHolding(page, last);
       await expectClearOfTheEdges(page, itemRow(page, last), 'the last row of the Inbox', UPRIGHT);
     });
+
+    test('keeps a form that fills the screen inside it', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Open on a short screen');
+      await capture(page, thought, isMobile);
+
+      // Short enough that the form's own ceiling is what decides its height
+      // rather than the room it needs: a dialog centred on a screen it fills
+      // hangs off both ends, which is a different way of being behind the
+      // status bar from the two questions pinned near the top.
+      const screen = page.viewportSize()!;
+      await page.setViewportSize({ width: screen.width, height: 400 });
+      await screenWithEdges(page, UPRIGHT);
+
+      await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
+      const form = page.getByRole('dialog');
+      await expect(form).toBeVisible();
+      await expectClearOfTheEdges(page, form, "the form for an item's title", UPRIGHT);
+    });
   });
 
   test.describe("the workspace's colour still runs to the edge of the screen", () => {

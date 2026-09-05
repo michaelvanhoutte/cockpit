@@ -256,7 +256,8 @@
         "apps/web/src/undo.tsx",
         "apps/web/src/components/NewPanelQuestion.tsx",
         "apps/web/src/components/ManageDashboards.tsx",
-        "apps/web/src/components/MoveToPicker.tsx"
+        "apps/web/src/components/MoveToPicker.tsx",
+        "apps/web/src/components/ItemForm.tsx"
       ]
     },
     {
