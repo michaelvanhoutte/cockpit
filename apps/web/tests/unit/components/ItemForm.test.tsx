@@ -27,6 +27,32 @@ vi.mock('../../../src/itemForm', () => ({
   useItemForm: () => ({ openItemId: held.openItemId, close: held.close }),
 }));
 
+/**
+ * The description's editor, replaced by a box that takes text and says what is
+ * in it. This file is about what the form sends and what it does not; what the
+ * editor keeps is tests/unit/description/syntax.test.ts, and when it appears is
+ * tests/unit/components/DescriptionBox.test.tsx. Left real, every test here
+ * would mount a 135KB editor to type one word into it.
+ */
+vi.mock('../../../src/description/RichDescription', () => ({
+  default: ({
+    initial,
+    onChange,
+    editable,
+  }: {
+    initial: string;
+    onChange: (markdown: string) => void;
+    editable: boolean;
+  }) => (
+    <textarea
+      aria-label="Description"
+      disabled={!editable}
+      value={initial}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
+}));
+
 vi.mock('../../../src/api/queries', () => ({
   useSendCommand: () => held.send,
   snapshotQuery: (workspaceId: string) => ({
@@ -73,7 +99,17 @@ async function theForm(item: Item = anItem()) {
     </QueryClientProvider>,
   );
   await screen.findByLabelText('Title');
+  await theEditorHasArrived();
   return userEvent.setup();
+}
+
+/**
+ * The editor is fetched behind the form, so for a tick the description is the
+ * read-only stand-in that says it is coming. Typing into that would be typing
+ * into nothing.
+ */
+async function theEditorHasArrived() {
+  await waitFor(() => expect(screen.getByLabelText('Description')).not.toHaveAttribute('readonly'));
 }
 
 const titleBox = () => screen.getByLabelText('Title');
@@ -160,6 +196,7 @@ describe('Item editing', () => {
       );
       const { rerender } = render(shell());
       await screen.findByLabelText('Title');
+      await theEditorHasArrived();
       const user = userEvent.setup();
       await user.type(descriptionBox(), 'Tolerances');
 
@@ -287,6 +324,7 @@ describe('Item editing', () => {
         </QueryClientProvider>,
       );
       await screen.findByLabelText('Title');
+      await theEditorHasArrived();
       expect(titleBox()).toHaveValue('Part 11');
 
       held.openItemId = 'item-2';
@@ -297,6 +335,7 @@ describe('Item editing', () => {
       );
 
       await waitFor(() => expect(titleBox()).toHaveValue('Part 12'));
+      await theEditorHasArrived();
       expect(descriptionBox()).toHaveValue('Its own');
     });
   });
