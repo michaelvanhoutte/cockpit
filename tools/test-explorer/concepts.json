@@ -248,6 +248,19 @@
       "sourcePatterns": ["apps/web/src/updating.ts", "apps/web/src/components/Updating.tsx"]
     },
     {
+      "key": "Screen edges",
+      "label": "Screen edges",
+      "parent": "Across the app",
+      "sourcePatterns": [
+        "apps/web/src/pages/Layout.tsx",
+        "apps/web/src/undo.tsx",
+        "apps/web/src/components/NewPanelQuestion.tsx",
+        "apps/web/src/components/ManageDashboards.tsx",
+        "apps/web/src/components/MoveToPicker.tsx",
+        "apps/web/src/components/ItemForm.tsx"
+      ]
+    },
+    {
       "key": "Associations",
       "label": "Associations",
       "sourcePatterns": [

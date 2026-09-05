@@ -131,7 +131,11 @@ export function MoveToPicker({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed left-1/2 top-1/2 flex max-h-[min(32rem,calc(100vh-2rem))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          // Centred, but tall enough to reach both ends of a phone when the
+          // list is long, so the height it may grow to is measured inside the
+          // screen's own edges - twice the larger of them, for the reason the
+          // item's form gives (ItemForm.tsx, and styles.css for the edges).
+          className="fixed left-1/2 top-1/2 flex max-h-[min(32rem,calc(100vh_-_2rem_-_2_*_max(var(--edge-top),var(--edge-bottom))))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
         >
           <Dialog.Title className="text-base font-semibold">
             {adding ? `Also show ${what} on` : `Move ${what} to`}
