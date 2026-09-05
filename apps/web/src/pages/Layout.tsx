@@ -12,6 +12,7 @@ import { InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
+import { SettingsBar } from '../components/Tabs';
 import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -382,7 +383,7 @@ function TheShell() {
             <MenuContent>
               <DropdownMenu.Item asChild>
                 <Link to="/settings/workspaces" className={menuItemClass}>
-                  Workspaces
+                  Manage workspaces
                 </Link>
               </DropdownMenu.Item>
               {/* Beside the workspaces page rather than inside one: types
@@ -390,7 +391,7 @@ function TheShell() {
                   order you want", issue 156). */}
               <DropdownMenu.Item asChild>
                 <Link to="/settings/types" className={menuItemClass}>
-                  Types
+                  Manage types
                 </Link>
               </DropdownMenu.Item>
               {/* Who you are, and the way out. Both in the menu rather than on
@@ -408,10 +409,19 @@ function TheShell() {
           </DropdownMenu.Root>
         </div>
       </header>
-      {/* The workspace's own band, under its tab and on the same color, so the
-          tab and this strip are one surface. Full width, because that is what
-          the selected workspace tab joins onto and because the band belongs to
-          the workspace rather than to either column under it.
+      {/* The band, under the workspace tabs and on the same color, so the tab
+          and this strip are one surface. Full width, because that is what the
+          selected workspace tab joins onto and because the band belongs to the
+          workspace rather than to either column under it.
+
+          **It is drawn at every address under the shell**, and what is in it is
+          what you are switching between where you are: the workspace's
+          dashboards inside one, the settings pages when you are in none. It
+          used to be drawn only inside a workspace, so opening the settings
+          took forty pixels off the chrome between two addresses of the same
+          app - and the settings page then headed itself with a heading of its
+          own on the sheet, which is a second way of naming the screen you are
+          on. The current tab is that name now, in the one place that says it.
 
           **The dashboard tabs inside it start where the dashboard starts.**
           They used to run from the left edge, which put them above the Inbox -
@@ -424,32 +434,42 @@ function TheShell() {
           Inbox there is no column to head, and the screen it opens instead
           carries its name itself (pages/WorkspacePage.tsx).
 
-          Only where there is a workspace to have dashboards: the settings page
-          is reached without one, and there is then nothing for a tab to join. */}
-      {params.workspaceId && (
-        <div
-          className="flex w-full items-end"
-          // Inset the same way the header above it is, so the Inbox's heading
-          // still lines up with the column it heads and the first dashboard tab
-          // does not go under a sideways phone's notch.
-          style={{
-            backgroundColor: theme.bar,
-            paddingInline: 'var(--edge-left) var(--edge-right)',
-          }}
-        >
-          {roomForTheInbox && (
-            <div className="ml-1 w-1/5 min-w-70 max-w-105 shrink-0 bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5">
-              <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
-            </div>
-          )}
-          <DashboardBar
-            workspaceId={params.workspaceId}
-            tint={theme.color}
-            ground={theme.ground}
-            openDashboardId={params.dashboardId ?? null}
-          />
-        </div>
-      )}
+          Where you are in no workspace there is no Inbox and no dashboard, so
+          the band holds the settings pages instead. */}
+      <div
+        // As tall as a menu control standing on it - `pt-1` above one of the
+        // 36px triggers, with its own `mb-1` under it - which is what the
+        // dashboards' side of the band comes to on its own. Said here so the
+        // settings' side, which has no menu in it, comes to the same thing:
+        // otherwise the chrome is ten pixels shorter on one of two addresses of
+        // the same app, which is the whole reason the band is drawn on both.
+        className="flex min-h-11 w-full items-end"
+        // Inset the same way the header above it is, so the Inbox's heading
+        // still lines up with the column it heads and the first dashboard tab
+        // does not go under a sideways phone's notch.
+        style={{
+          backgroundColor: theme.bar,
+          paddingInline: 'var(--edge-left) var(--edge-right)',
+        }}
+      >
+        {params.workspaceId ? (
+          <>
+            {roomForTheInbox && (
+              <div className="ml-1 w-1/5 min-w-70 max-w-105 shrink-0 bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5">
+                <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
+              </div>
+            )}
+            <DashboardBar
+              workspaceId={params.workspaceId}
+              tint={theme.color}
+              ground={theme.ground}
+              openDashboardId={params.dashboardId ?? null}
+            />
+          </>
+        ) : (
+          <SettingsBar tint={theme.color} ground={theme.ground} />
+        )}
+      </div>
       {/* Left-aligned and full width, matching the header: pages get the whole
           screen instead of a centred column with empty gutters either side.
 
@@ -514,7 +534,19 @@ function TheShell() {
         )}
         {/* Same bottom inset as the Inbox column, for the same reason. */}
         <div className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
-          <Outlet />
+          {params.workspaceId ? (
+            <Outlet />
+          ) : (
+            /* A settings page is read rather than worked in, so it is a column
+               of prose width rather than a sheet of panels: a row stretched
+               across a wide screen puts a workspace's name and the menu acting
+               on it two thousand pixels apart, and the four pixels of seam that
+               a panel wants leave the text against the window's edge. Said here
+               rather than on each page, so the two cannot drift apart. */
+            <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
+              <Outlet />
+            </div>
+          )}
         </div>
       </main>
 

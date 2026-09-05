@@ -3,11 +3,18 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, ITEM_TYPE_COLORS, uuidv7 } from '@cockpit/shared';
 import type { ItemType, ItemTypeList } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
-import { itemTypesQuery, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
+import {
+  itemTypesQuery,
+  snapshotQuery,
+  useCommand,
+  useSendCommand,
+  workspacesQuery,
+} from '../api/queries';
 import { movedBy, movedTo } from '../reorder';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 import { LoadFailure } from '../components/LoadFailure';
 import { RowMenu } from '../components/Menu';
+import { RowForm, wasOnTheRow } from '../components/RowForm';
 
 /**
  * Where types are managed ("Manage the types, and put them in the order you
@@ -16,8 +23,9 @@ import { RowMenu } from '../components/Menu';
  *
  * **A sibling of the workspaces page, and the same page in every respect that
  * matters**: a row keeps its shape, what can be done to a type is in its own
- * menu, renaming happens in the row, deleting asks in a dialog, and a type is
- * moved two ways that are one change. Types are the fourth list of named things
+ * menu, its name and its colour are edited together on a form over the page
+ * (`components/RowForm.tsx`), deleting asks in a dialog, and a type is moved
+ * two ways that are one change. Types are the fourth list of named things
  * in the app and the three before it are pages with rows and menus; making this
  * one a section of a page about something else is what would make it hard to
  * find.
@@ -32,12 +40,26 @@ export function ItemTypeSettingsPage() {
   const { data, error, refetch } = useQuery(itemTypesQuery);
   const workspaces = useQuery(workspacesQuery);
   const queryClient = useQueryClient();
-  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  /**
+   * The type whose form is open, and the draft in it: the name typed so far and
+   * the colour picked so far. Nothing here has been sent - Save is what sends
+   * it, and Cancel discards both halves together.
+   */
+  const [editing, setEditing] = useState<{ id: string; name: string; color: string } | null>(null);
+  /** That a Save is in flight, and why the last one did not happen. */
+  const [saving, setSaving] = useState(false);
+  const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ id: string; to: number } | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
   const command = useCommand();
+  /**
+   * The form sends its two changes one after the other, so it holds its own
+   * pending and refusal: `useCommand` has room for one change in flight, and a
+   * Save that moved both the name and the colour is two.
+   */
+  const send = useSendCommand();
 
   const types = data?.itemTypes ?? [];
   /**
@@ -72,6 +94,12 @@ export function ItemTypeSettingsPage() {
   });
 
   const beingDeleted = types.find((type) => type.id === deleting);
+  /**
+   * The type the form is open on, read from the list rather than kept beside
+   * the draft: one deleted in another tab is gone from the next list, and a
+   * form open on a name nothing holds would save into nothing.
+   */
+  const beingEdited = types.find((type) => type.id === editing?.id);
 
   const order = types.map((type) => type.id);
   const shownOrder = dragging ? movedTo(order, dragging.id, dragging.to) : order;
@@ -116,7 +144,7 @@ export function ItemTypeSettingsPage() {
     if (event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setRenaming(null);
+    closeForm();
     setDeleting(null);
     command.reset();
     setDragging({ id: typeId, to: from });
@@ -143,38 +171,70 @@ export function ItemTypeSettingsPage() {
     if (moved.some((id, i) => id !== order[i])) move(dragging.id, moved);
   };
 
-  const startRenaming = (type: ItemType) => {
+  const startEditing = (type: ItemType, openedFrom: HTMLElement | null) => {
     setDeleting(null);
     command.reset();
-    setRenaming({ id: type.id, name: type.name });
+    setSaveRefusal(null);
+    askedFrom.current = openedFrom;
+    setEditing({ id: type.id, name: type.name, color: type.color });
   };
   const startDeleting = (type: ItemType, openedFrom: HTMLElement | null) => {
-    setRenaming(null);
+    closeForm();
     command.reset();
     askedFrom.current = openedFrom;
     setDeleting(type.id);
   };
+  /** The form goes, and the refusal it was showing goes with it. */
+  const closeForm = () => {
+    setEditing(null);
+    setSaveRefusal(null);
+  };
   const stopAsking = () => {
-    setRenaming(null);
+    closeForm();
     setDeleting(null);
     command.reset();
   };
 
-  const rename = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!renaming) return;
-    const trimmed = renaming.name.trim();
-    if (!trimmed) return;
-    command.mutate(
-      { name: 'rename_item_type', payload: { ...envelope(), typeId: renaming.id, name: trimmed } },
-      // The box closes only once the new name is really the type's, so a
-      // refused one is still there to be corrected.
-      { onSuccess: () => setRenaming(null) },
-    );
-  };
+  /**
+   * What the form has to send: the halves that actually moved, and nothing
+   * else - an untouched box would otherwise carry the value the form was opened
+   * with over an edit made somewhere else in the meantime, and a colour nobody
+   * touched would be re-sent on every rename.
+   */
+  const saveForm = async () => {
+    if (!editing) return;
+    const was = types.find((type) => type.id === editing.id);
+    if (!was) return;
+    const named = editing.name.trim();
+    if (!named) return;
 
-  const chooseColor = (typeId: string, color: string) => {
-    command.mutate({ name: 'set_item_type_color', payload: { ...envelope(), typeId, color } });
+    setSaving(true);
+    setSaveRefusal(null);
+    try {
+      if (named !== was.name) {
+        await send({
+          name: 'rename_item_type',
+          payload: { ...envelope(), typeId: editing.id, name: named },
+        });
+      }
+      if (editing.color !== was.color) {
+        await send({
+          name: 'set_item_type_color',
+          payload: { ...envelope(), typeId: editing.id, color: editing.color },
+        });
+      }
+      closeForm();
+    } catch (failure) {
+      // The form stays open with what was typed still in it, so a name the
+      // server would not take can be corrected rather than typed again.
+      setSaveRefusal(
+        failure instanceof CommandRefused
+          ? failure.message
+          : 'That did not reach the server. Try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmDelete = (typeId: string) => {
@@ -193,7 +253,7 @@ export function ItemTypeSettingsPage() {
 
   /** The refusal belongs to the control that asked for it, exact because only one is ever in flight. */
   const refusalFor = (
-    what: 'rename_item_type' | 'set_item_type_color' | 'delete_item_type' | 'reorder_item_types',
+    what: 'delete_item_type' | 'reorder_item_types',
     id?: string,
   ) =>
     refusal &&
@@ -203,8 +263,10 @@ export function ItemTypeSettingsPage() {
       : null;
 
   return (
+    /* No heading of its own: the tab in the band above says which page this is,
+       the same way the current dashboard tab does inside a workspace
+       (`components/Tabs.tsx`). */
     <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-semibold tracking-tight">Types</h1>
       <p className="text-sm text-ink-faint">
         What kind of thing an item is. A new one is made by naming it when you capture something.
       </p>
@@ -214,6 +276,12 @@ export function ItemTypeSettingsPage() {
           {shown.map((type, index) => (
             <li
               key={type.id}
+              // A double-click opens the form, exactly as it does on an Item's
+              // row and on a workspace's. Not a single click: a row here is
+              // dragged, and every drag begins with a press.
+              onDoubleClick={(event) => {
+                if (wasOnTheRow(event)) startEditing(type, null);
+              }}
               className={`border-b border-black/5 px-4 py-2 last:border-b-0 ${
                 dragging?.id === type.id
                   ? 'rounded-md bg-accent-tint shadow-panel'
@@ -249,98 +317,87 @@ export function ItemTypeSettingsPage() {
                   className="inline-block size-3 shrink-0 rounded-full"
                   style={{ backgroundColor: type.color }}
                 />
-                {renaming?.id === type.id ? (
-                  <form onSubmit={rename} className="flex min-w-0 flex-1 items-center gap-2">
-                    <input
-                      value={renaming.name}
-                      onChange={(e) => setRenaming({ id: type.id, name: e.target.value })}
-                      aria-label={`New name for ${type.name}`}
-                      maxLength={60}
-                      autoFocus
-                      className="min-w-0 flex-1 rounded-md border border-black/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-                    />
-                    <button type="submit" disabled={command.isPending} className={primaryButton}>
-                      Save
-                    </button>
-                    <button type="button" onClick={stopAsking} className={quietButton}>
-                      Cancel
-                    </button>
-                  </form>
-                ) : (
-                  <>
-                    <span className="min-w-0 flex-1 truncate text-sm">{type.name}</span>
-                    <RowMenu
-                      label={`Actions for ${type.name}`}
-                      entries={[
-                        { label: 'Rename', onSelect: () => startRenaming(type) },
-                        {
-                          label: 'Move up',
-                          keepsFocus: true,
-                          unavailable: index === 0 ? 'It is already the first' : undefined,
-                          onSelect: () => move(type.id, movedBy(order, type.id, -1)),
-                        },
-                        {
-                          label: 'Move down',
-                          keepsFocus: true,
-                          unavailable:
-                            index === shown.length - 1 ? 'It is already the last' : undefined,
-                          onSelect: () => move(type.id, movedBy(order, type.id, 1)),
-                        },
-                        {
-                          label: 'Delete',
-                          destructive: true,
-                          onSelect: (openedFrom) => startDeleting(type, openedFrom),
-                        },
-                      ]}
-                    />
-                  </>
-                )}
+                <span className="min-w-0 flex-1 truncate text-sm">{type.name}</span>
+                <RowMenu
+                  label={`Actions for ${type.name}`}
+                  entries={[
+                    // The name and the colour together, on a form of its own -
+                    // the only way in from a keyboard, and the comfortable one
+                    // on a phone.
+                    {
+                      label: 'Edit…',
+                      onSelect: (openedFrom) => startEditing(type, openedFrom),
+                    },
+                    {
+                      label: 'Move up',
+                      keepsFocus: true,
+                      unavailable: index === 0 ? 'It is already the first' : undefined,
+                      onSelect: () => move(type.id, movedBy(order, type.id, -1)),
+                    },
+                    {
+                      label: 'Move down',
+                      keepsFocus: true,
+                      unavailable:
+                        index === shown.length - 1 ? 'It is already the last' : undefined,
+                      onSelect: () => move(type.id, movedBy(order, type.id, 1)),
+                    },
+                    {
+                      label: 'Delete',
+                      destructive: true,
+                      onSelect: (openedFrom) => startDeleting(type, openedFrom),
+                    },
+                  ]}
+                />
               </div>
-              {/* The palette, as a row of dots: a type wears one colour, which
-                  is the mark at the head of every row it labels, so a swatch
-                  showing anything more would be showing something that is not
-                  there. Hidden while the row is being renamed, the one thing
-                  that takes the row over. */}
-              {renaming?.id !== type.id && (
-                <div className="flex flex-wrap gap-1.5 pt-2 pl-6">
-                  {ITEM_TYPE_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => chooseColor(type.id, color)}
-                      disabled={command.isPending}
-                      aria-label={`${color} for ${type.name}`}
-                      aria-pressed={type.color === color}
-                      className={`flex size-6 items-center justify-center rounded-md border disabled:opacity-50 ${
-                        type.color === color
-                          ? 'border-ink ring-2 ring-ink/20'
-                          : 'border-black/10 hover:border-black/30'
-                      }`}
-                    >
-                      <span
-                        className="block size-3 rounded-full"
-                        style={{ backgroundColor: color }}
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {/* A refused delete says so in the dialog that asked for it. A
-                  refused move is the one that has to be read: the row has
-                  already gone back, and without a word that reads as the drag
-                  having missed. */}
-              {(refusalFor('rename_item_type', type.id) ??
-                refusalFor('reorder_item_types', type.id) ??
-                refusalFor('set_item_type_color', type.id)) && (
+              {/* A refused delete says so in the dialog that asked for it, and
+                  a refused rename or colour on the form that asked. A refused
+                  move is the one left to say here, and the one that has to be
+                  read: the row has already gone back, and without a word that
+                  reads as the drag having missed. */}
+              {refusalFor('reorder_item_types', type.id) && (
                 <p role="alert" className="pt-2 text-sm text-over">
-                  {refusalFor('rename_item_type', type.id) ??
-                    refusalFor('reorder_item_types', type.id) ??
-                    refusalFor('set_item_type_color', type.id)}
+                  {refusalFor('reorder_item_types', type.id)}
                 </p>
               )}
             </li>
           ))}
         </ul>
+        {/* One form for the page: at most one row can be being edited, and it
+            covers the page while it is. */}
+        {beingEdited && editing && (
+          <RowForm
+            title={`Edit ${beingEdited.name}`}
+            name={editing.name}
+            nameLabel={`Name of ${beingEdited.name}`}
+            onName={(named) => setEditing({ ...editing, name: named })}
+            paletteLabel={`Colour of ${beingEdited.name}`}
+            palette={ITEM_TYPE_COLORS.map((color) => (
+              /* A row of dots: a type wears one colour, which is the mark at
+                 the head of every row it labels, so a swatch showing anything
+                 more would be showing something that is not there. */
+              <button
+                key={color}
+                type="button"
+                onClick={() => setEditing({ ...editing, color })}
+                disabled={saving}
+                aria-label={`${color} for ${beingEdited.name}`}
+                aria-pressed={editing.color === color}
+                className={`flex size-8 items-center justify-center rounded-md border disabled:opacity-50 ${
+                  editing.color === color
+                    ? 'border-ink ring-2 ring-ink/20'
+                    : 'border-black/10 hover:border-black/30'
+                }`}
+              >
+                <span className="block size-4 rounded-full" style={{ backgroundColor: color }} />
+              </button>
+            ))}
+            refusal={saveRefusal}
+            saving={saving}
+            returnFocusTo={askedFrom.current}
+            onCancel={closeForm}
+            onSave={() => void saveForm()}
+          />
+        )}
         {beingDeleted && (
           <DeleteQuestion
             open
@@ -375,11 +432,6 @@ export function ItemTypeSettingsPage() {
     </div>
   );
 }
-
-const primaryButton =
-  'shrink-0 rounded-md bg-accent px-3 py-1 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50';
-const quietButton =
-  'shrink-0 rounded-md border border-black/10 px-3 py-1 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep';
 
 /**
  * What deleting this type takes with it, said before it happens. The items keep

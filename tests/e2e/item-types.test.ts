@@ -44,13 +44,19 @@ test.describe('Capture', () => {
       await expect(itemRow(page, thought).getByText(kind)).toBeVisible();
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Types' }), isMobile);
-      await expect(page.getByRole('heading', { name: 'Types' })).toBeVisible();
+      await press(page.getByRole('menuitem', { name: 'Manage types' }), isMobile);
+      // The tab in the band is what names the page - there is no heading of
+      // its own, because one place says which screen you are on.
+      await expect(
+        page.getByRole('navigation', { name: 'Settings' }).getByRole('link', {
+          name: 'Manage types',
+        }),
+      ).toBeVisible();
       await expectNoSidewaysScroll(page);
 
       const renamed = uniqueTitle('Renamed');
-      await chooseRowAction(page, kind, 'Rename', isMobile);
-      await page.getByLabel(`New name for ${kind}`).fill(renamed);
+      await chooseRowAction(page, kind, 'Edit…', isMobile);
+      await page.getByLabel(`Name of ${kind}`).fill(renamed);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('button', { name: `Actions for ${renamed}` })).toBeVisible();
 

@@ -317,7 +317,7 @@ export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
  */
 export async function openSettings(page: Page, isMobile: boolean): Promise<void> {
   await press(page.getByRole('button', { name: 'Settings' }), isMobile);
-  await press(page.getByRole('menuitem', { name: 'Workspaces' }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
   await expect(page.getByLabel('Name of the new workspace')).toBeVisible();
 }
 
@@ -326,6 +326,9 @@ export async function openSettings(page: Page, isMobile: boolean): Promise<void>
  * entry ("Ask before deleting in a dialog, from the row's own menu", issue
  * 116). Both settings pages offer their rows the same way, so both walks reach
  * them the same way.
+ *
+ * This is also how a phone edits a row: the double-click that opens the same
+ * form with a mouse is a gesture a touchscreen has already spent on zooming.
  */
 export async function chooseRowAction(
   page: Page,

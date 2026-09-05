@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WorkspaceSettingsPage } from '../../../src/pages/WorkspaceSettingsPage';
 import { CommandRefused } from '../../../src/api/client';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
-import { useCommand, type CommandArgs } from '../../../src/api/queries';
+import { useCommand, useSendCommand, type CommandArgs } from '../../../src/api/queries';
 
 /**
  * `LoadFailure` asks the world two questions it cannot answer from the error
@@ -47,6 +47,7 @@ const list = vi.hoisted(() => ({ answer: null as null | (() => Promise<unknown>)
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
+  useSendCommand: vi.fn(),
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () =>
@@ -62,6 +63,7 @@ vi.mock('../../../src/api/queries', () => ({
 }));
 
 const mockUseCommand = vi.mocked(useCommand);
+const mockUseSendCommand = vi.mocked(useSendCommand);
 
 /**
  * The page, with a `useCommand` that answers however the case needs. `about` is
@@ -78,6 +80,13 @@ function showPage(answer: {
    * overlapping, and is what a real change does anyway.
    */
   answersLater?: boolean;
+  /**
+   * Why the form's own Save is refused, if it is. The form sends its changes
+   * through `useSendCommand` rather than through the page's one mutation - a
+   * Save is up to two changes - so it is refused separately from everything
+   * else on the page.
+   */
+  refusesTheForm?: Error;
 }) {
   const waiting: ((error: Error) => void)[] = [];
   const mutate = vi.fn(
@@ -95,6 +104,13 @@ function showPage(answer: {
   const refuseEverythingSent = () => {
     for (const fail of waiting.splice(0)) fail(answer.error ?? new Error('refused'));
   };
+  /** What the form sends, and what comes back when it does. */
+  const saved = vi.fn((_args: CommandArgs) =>
+    answer.refusesTheForm
+      ? Promise.reject(answer.refusesTheForm)
+      : Promise.resolve({ ok: true, applied: true }),
+  );
+  mockUseSendCommand.mockReturnValue(saved as never);
   mockUseCommand.mockReturnValue({
     mutate,
     isPending: false,
@@ -109,10 +125,15 @@ function showPage(answer: {
   );
   return {
     mutate,
+    saved,
     refuseEverythingSent,
     box: screen.getByLabelText('Name of the new workspace'),
   };
 }
+
+/** The row a workspace is on, which is what a double-click lands on. */
+const rowFor = async (name: string) =>
+  (await screen.findByRole('button', { name: `Actions for ${name}` })).closest('li')!;
 
 const newWorkspaceButton = () => screen.getByRole('button', { name: 'New workspace' });
 
@@ -203,81 +224,202 @@ describe('Workspace management', () => {
     });
   });
 
-  describe('renaming a workspace asks for the name you typed, for that workspace', () => {
-    it('asks for the name without the blanks around it, then closes the box', async () => {
-      const user = userEvent.setup();
-      const { mutate } = showPage({ succeeds: true });
+  describe('a workspace is edited on a form of its own, and nothing is sent until Save', () => {
+    it('opens the form on a double-click on the row', async () => {
+      showPage({ succeeds: true });
 
-      await choose(user, 'Work', 'Rename');
-      const box = screen.getByLabelText('New name for Work');
+      fireEvent.doubleClick(await rowFor('Work'));
+
+      expect(await screen.findByRole('dialog', { name: 'Edit Work' })).toBeVisible();
+    });
+
+    it('opens the form from the row’s own menu', async () => {
+      // The only way in from a keyboard, and the comfortable one on a phone,
+      // where a double-tap is already spent on zooming.
+      const user = userEvent.setup();
+      showPage({ succeeds: true });
+
+      await choose(user, 'Work', 'Edit…');
+
+      expect(await screen.findByRole('dialog', { name: 'Edit Work' })).toBeVisible();
+    });
+
+    it('leaves the form shut when the double-click was on a control of the row’s own', async () => {
+      // The menu's three dots is a button inside the row, so a double press on
+      // it must open the menu and nothing else.
+      showPage({ succeeds: true });
+
+      fireEvent.doubleClick(await screen.findByRole('button', { name: 'Actions for Work' }));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('starts from the name and the colour the workspace already has', async () => {
+      // So changing a typo is an edit rather than typing the whole name again,
+      // and the form says what the workspace is rather than only what it could
+      // be.
+      showPage({ succeeds: true });
+
+      fireEvent.doubleClick(await rowFor('Work'));
+
+      expect(await screen.findByLabelText('Name of Work')).toHaveValue('Work');
+      expect(screen.getByRole('button', { name: 'Violet for Work' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      expect(screen.getByRole('button', { name: 'Teal for Work' })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+    });
+
+    it('sends nothing until Save', async () => {
+      // The swatches are a draft like the name is. They used to sit in the row
+      // and send a change on every press, so looking at a colour was a change
+      // you could take back only by making another one.
+      const user = userEvent.setup();
+      const { saved } = showPage({ succeeds: true });
+
+      fireEvent.doubleClick(await rowFor('Work'));
+      await user.type(await screen.findByLabelText('Name of Work'), 'ing');
+      await user.click(screen.getByRole('button', { name: 'Teal for Work' }));
+
+      expect(saved).not.toHaveBeenCalled();
+    });
+
+    it('asks for the name without the blanks around it, and for nothing else', async () => {
+      const user = userEvent.setup();
+      const { saved } = showPage({ succeeds: true });
+
+      fireEvent.doubleClick(await rowFor('Work'));
+      const box = await screen.findByLabelText('Name of Work');
       await user.clear(box);
       await user.type(box, '  Bookkeeping  ');
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(mutate).toHaveBeenCalledTimes(1);
-      expect(mutate.mock.calls[0]![0]).toMatchObject({
+      // Only the name: a colour nobody touched must not be re-sent, or every
+      // rename would carry the theme the form opened with over a colour chosen
+      // somewhere else in the meantime.
+      expect(saved).toHaveBeenCalledTimes(1);
+      expect(saved.mock.calls[0]![0]).toMatchObject({
         name: 'rename_workspace',
         payload: { workspaceId: 'ws-work', name: 'Bookkeeping' },
       });
-      expect(screen.queryByLabelText('New name for Work')).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('starts from the name the workspace already has', async () => {
-      // So changing a typo is an edit, not typing the whole name again.
-      const user = userEvent.setup();
-      showPage({ succeeds: true });
-
-      await choose(user, 'Work', 'Rename');
-
-      expect(screen.getByLabelText('New name for Work')).toHaveValue('Work');
-    });
-
-    it('asks for nothing when the box is emptied', async () => {
-      const user = userEvent.setup();
-      const { mutate } = showPage({ succeeds: true });
-
-      await choose(user, 'Work', 'Rename');
-      await user.clear(screen.getByLabelText('New name for Work'));
-      await user.click(screen.getByRole('button', { name: 'Save' }));
-
-      expect(mutate).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('choosing a colour for a workspace asks for the whole theme, for that workspace', () => {
-    it('asks for all four of its colours, not the one on the swatch', async () => {
+    it('asks for all four colours of the theme picked, not the one on the swatch', async () => {
       // Four, because four is what a workspace stores: the tint on the dot, the
       // header across the top, the strip the dashboard tabs sit on, and the
       // page behind the panels. A picker that sent only the tint would leave
       // the page it is meant to change behind.
       const user = userEvent.setup();
-      const { mutate } = showPage({ succeeds: true });
+      const { saved } = showPage({ succeeds: true });
       const chosen = WORKSPACE_THEMES[4]!;
 
+      fireEvent.doubleClick(await rowFor('Work'));
       await user.click(await screen.findByRole('button', { name: `${chosen.name} for Work` }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(mutate.mock.calls[0]![0]).toEqual({
+      expect(saved).toHaveBeenCalledTimes(1);
+      expect(saved.mock.calls[0]![0]).toMatchObject({
         name: 'set_workspace_theme',
-        payload: expect.objectContaining({
+        payload: {
           workspaceId: 'ws-work',
           color: chosen.tint,
           bar: chosen.bar,
           ground: chosen.ground,
           header: chosen.header,
-        }),
+        },
       });
     });
 
-    it('shows which one the workspace is already wearing', async () => {
-      // So the row says what it is, not only what it could be.
-      showPage({ succeeds: true });
+    it('asks for both when both were changed', async () => {
+      const user = userEvent.setup();
+      const { saved } = showPage({ succeeds: true });
 
-      const wearing = await screen.findByRole('button', { name: 'Violet for Work' });
-      expect(wearing).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('button', { name: 'Teal for Work' })).toHaveAttribute(
+      fireEvent.doubleClick(await rowFor('Work'));
+      await user.type(await screen.findByLabelText('Name of Work'), 'ing');
+      await user.click(screen.getByRole('button', { name: 'Teal for Work' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(saved.mock.calls.map((call) => call[0]!.name)).toEqual([
+        'rename_workspace',
+        'set_workspace_theme',
+      ]);
+    });
+
+    it('asks for nothing when the box is emptied', async () => {
+      const user = userEvent.setup();
+      const { saved } = showPage({ succeeds: true });
+
+      fireEvent.doubleClick(await rowFor('Work'));
+      await user.clear(await screen.findByLabelText('Name of Work'));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(saved).not.toHaveBeenCalled();
+    });
+
+    it('discards the name and the colour together when the form is cancelled', async () => {
+      // Cancel means cancel, for both halves: neither is sent, and neither is
+      // still in the form when it is opened again.
+      const user = userEvent.setup();
+      const { saved } = showPage({ succeeds: true });
+
+      fireEvent.doubleClick(await rowFor('Work'));
+      await user.type(await screen.findByLabelText('Name of Work'), 'ing');
+      await user.click(screen.getByRole('button', { name: 'Teal for Work' }));
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      fireEvent.doubleClick(await rowFor('Work'));
+
+      expect(saved).not.toHaveBeenCalled();
+      expect(await screen.findByLabelText('Name of Work')).toHaveValue('Work');
+      expect(screen.getByRole('button', { name: 'Violet for Work' })).toHaveAttribute(
         'aria-pressed',
-        'false',
+        'true',
       );
+    });
+
+    it('leaves the colour alone on a workspace wearing a tint the palette does not have', async () => {
+      // The form shows a swatch pressed for such a workspace - the theme its
+      // tint falls back to - and that swatch is not what the workspace stores.
+      // Taking it for a colour the person had chosen would repaint every
+      // workspace from an older palette on a Save that only changed its name.
+      const user = userEvent.setup();
+      list.answer = () =>
+        Promise.resolve({
+          workspaces: [{ ...workspace, color: '#123456', bar: '#eee', ground: '#fff', header: '#ddd' }],
+        });
+      const { saved } = showPage({ succeeds: true });
+
+      fireEvent.doubleClick(await rowFor('Work'));
+      const box = await screen.findByLabelText('Name of Work');
+      await user.clear(box);
+      await user.type(box, 'Bookkeeping');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(saved.mock.calls.map((call) => call[0]!.name)).toEqual(['rename_workspace']);
+    });
+
+    it('keeps the form open and says why when a Save is refused', async () => {
+      // The one case where closing would throw work away: what was typed is
+      // still there to be corrected.
+      const user = userEvent.setup();
+      showPage({
+        succeeds: true,
+        refusesTheForm: new CommandRefused(409, 'a workspace called Personal already exists'),
+      });
+
+      fireEvent.doubleClick(await rowFor('Work'));
+      const box = await screen.findByLabelText('Name of Work');
+      await user.clear(box);
+      await user.type(box, 'Personal');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'a workspace called Personal already exists',
+      );
+      expect(screen.getByLabelText('Name of Work')).toHaveValue('Personal');
     });
   });
 
@@ -491,32 +633,6 @@ describe('Workspace management', () => {
       },
     );
 
-    it('says why a rename was refused, next to the name that was refused', async () => {
-      const user = userEvent.setup();
-      showPage({
-        succeeds: false,
-        error: new CommandRefused(409, 'a workspace called Personal already exists'),
-        about: {
-          name: 'rename_workspace',
-          payload: { commandId: 'c', issuedAt: 'now', workspaceId: 'ws-work', name: 'Personal' },
-        },
-      });
-
-      await choose(user, 'Work', 'Rename');
-      const box = screen.getByLabelText('New name for Work');
-      await user.clear(box);
-      await user.type(box, 'Personal');
-      await user.click(screen.getByRole('button', { name: 'Save' }));
-
-      // In the row, not merely somewhere on the page: a refusal at the bottom
-      // of the settings page next to the box for making a *new* workspace
-      // reads as being about that box.
-      expect(within(screen.getByRole('listitem')).getByRole('alert')).toHaveTextContent(
-        'a workspace called Personal already exists',
-      );
-      expect(box).toHaveValue('Personal');
-    });
-
     it('says why a delete was refused in the question that asked for it, which stays open', async () => {
       // A dialog that closed and left the message behind on the page would
       // make a refusal look like a delete that had worked.
@@ -637,35 +753,6 @@ describe('Workspace management', () => {
       await expect.poll(onScreen).toEqual(['Work', 'Atlas', 'Personal']);
     });
 
-    it('says why a colour was refused, next to the workspace it was for', async () => {
-      const user = userEvent.setup();
-      const chosen = WORKSPACE_THEMES[5]!;
-      showPage({
-        succeeds: false,
-        error: new CommandRefused(400, 'that is not one of the themes'),
-        about: {
-          name: 'set_workspace_theme',
-          payload: {
-            commandId: 'c',
-            issuedAt: 'now',
-            workspaceId: 'ws-work',
-            color: chosen.tint,
-            bar: chosen.bar,
-            ground: chosen.ground,
-            header: chosen.header,
-          },
-        },
-      });
-
-      await user.click(await screen.findByRole('button', { name: `${chosen.name} for Work` }));
-
-      expect(within(screen.getByRole('listitem')).getByRole('alert')).toHaveTextContent(
-        'that is not one of the themes',
-      );
-      // The swatches are still there to try another one; nothing was taken away
-      // because a colour was refused.
-      expect(screen.getByRole('button', { name: `${chosen.name} for Work` })).toBeVisible();
-    });
   });
 
   describe('the workspaces you have are listed', () => {
