@@ -1,17 +1,37 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
-import { snapshotQuery, useCommand, useSendCommand, workspacesQuery } from '../api/queries';
+import {
+  snapshotQuery,
+  useCommand,
+  useLatestSnapshot,
+  useSendCommand,
+  workspacesQuery,
+} from '../api/queries';
 import { CommandRefused } from '../api/client';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
-import { filedOrderOnPanel, itemsOnPanel, orderWithItemAt } from '../filing';
+import {
+  filedOrderOnPanel,
+  itemsOnPanel,
+  orderPuttingBack,
+  ordersForFilingSeveral,
+  orderWithItemAt,
+} from '../filing';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
+import {
+  afterClicking,
+  NOTHING_PICKED,
+  pickedInTheList,
+  useOnlyOneListSelecting,
+  type Selection,
+} from '../selection';
 import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
 import { typeOf } from '../itemTypes';
 import { MoveOrAddQuestion } from './MoveOrAddQuestion';
 import { MoveToPicker } from './MoveToPicker';
+import { SelectionBar } from './SelectionBar';
 
 /**
  * A list of items, in the Inbox or on a panel, and the one way to move one out
@@ -66,11 +86,81 @@ export function ItemList({
   const types = data?.itemTypes ?? [];
   const command = useCommand();
   const send = useSendCommand();
+  const latestSnapshot = useLatestSnapshot();
   const offerToUndo = useUndo();
   const [moving, setMoving] = useState<Item | null>(null);
   /** The item being added to a second panel from its menu, if any. */
   const [adding, setAdding] = useState<Item | null>(null);
   const openedFrom = useRef<HTMLElement | null>(null);
+
+  /** The rows picked out of this list ("Select several items…", issue 169). */
+  const [selection, setSelection] = useState<Selection>(NOTHING_PICKED);
+  /** That the picker was opened by the bar rather than by a row's own menu. */
+  const [filingSeveral, setFilingSeveral] = useState(false);
+  /** That a filing of several is still going, so it cannot be asked for twice. */
+  const [filing, setFiling] = useState(false);
+  /** Why a filing of several stopped, if it stopped. */
+  const [filingRefusal, setFilingRefusal] = useState<string | null>(null);
+  /** Everything a selection put on screen, gone together. */
+  const stopSelecting = () => {
+    setSelection(NOTHING_PICKED);
+    setFilingSeveral(false);
+    setFilingRefusal(null);
+  };
+  const emptyTheOtherLists = useOnlyOneListSelecting(stopSelecting);
+
+  /** The picked rows this list shows, in the order it shows them. */
+  const picked = pickedInTheList(selection, items);
+
+  /**
+   * A row that leaves the list is not picked any more - **dropped, not merely
+   * hidden**.
+   *
+   * Reading the selection through what the list draws is enough for the count
+   * and the ticks, and it is not enough for the selection itself: a row can
+   * come *back*. Move one out from its own menu and undo that move, and it
+   * returned already ticked, with the bar's count up by one and the next Move
+   * to… quietly carrying an item nobody had picked.
+   */
+  useEffect(() => {
+    setSelection((was) => {
+      const shown = new Set(items.map((item) => item.id));
+      if ([...was.picked].every((id) => shown.has(id))) return was;
+      return {
+        picked: new Set([...was.picked].filter((id) => shown.has(id))),
+        // The row a shift-click reaches back to has to be one of these too.
+        reachingFrom:
+          was.reachingFrom && shown.has(was.reachingFrom) ? was.reachingFrom : null,
+      };
+    });
+  }, [items]);
+
+  /**
+   * **A refusal belongs to the selection it was about, and goes when that does.**
+   *
+   * Tied to the emptying rather than to the ways of emptying, because there are
+   * more of those than there look: Clear, unticking the last row, filing every
+   * one of them, and the rows being taken out of the list by somebody else. It
+   * was written into the handlers first and each one that got missed left an
+   * old message waiting above the next, unrelated selection.
+   */
+  useEffect(() => {
+    if (picked.length === 0) setFilingRefusal(null);
+  }, [picked.length]);
+
+  /**
+   * A selection belongs to the list it was made in and to the workspace it was
+   * made in. Changing dashboards draws different panels into the same board, so
+   * without this a panel could inherit the ticks of the one it replaced.
+   */
+  useEffect(() => {
+    setSelection(NOTHING_PICKED);
+    setFilingSeveral(false);
+    setFilingRefusal(null);
+    // `stopSelecting` is remade every render and this must run on a change of
+    // list, not on every one of them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, panelId]);
 
   /**
    * Every panel the item is on, and the whole order of each - what putting it
@@ -342,6 +432,175 @@ export function ItemList({
   };
 
   /**
+   * Files everything picked out of this list onto one panel, or back into the
+   * Inbox ("Select several items, and file them all in one go", issue 169).
+   *
+   * **One filing at a time, in the order the list shows them.** Each carries
+   * the panel's whole arrangement afterwards, so each has to be built on the
+   * one before it (`ordersForFilingSeveral`) - which is also why this awaits
+   * rather than sending them together.
+   *
+   * **It can stop part way, and that is a state rather than an accident.** A
+   * refusal stops the rest: what did move is filed and leaves the selection,
+   * what did not stays picked, so asking again files exactly the remainder. The
+   * way back offers what happened rather than what was asked for.
+   */
+  const fileSeveral = async (target: string | null) => {
+    const chosen = picked;
+    if (filing || chosen.length === 0) return;
+
+    // Read before anything moves, because afterwards it is gone - and read for
+    // all of them at once, so every order below describes the same moment.
+    const wasOn = new Map(chosen.map((item) => [item.id, whereItIs(item)] as const));
+    const orders = target
+      ? ordersForFilingSeveral(
+          filedOrderOnPanel(data?.filings ?? [], target),
+          chosen.map((item) => item.id),
+        )
+      : [];
+
+    setFiling(true);
+    setFilingRefusal(null);
+    const moved: Item[] = [];
+    try {
+      for (const [at, item] of chosen.entries()) {
+        await send({
+          name: 'move_item_to_panel',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: item.id,
+            panelId: target,
+            // The Inbox has no order - it is by age - so filing there sends none.
+            order: target ? orders[at]! : [],
+          },
+        });
+        moved.push(item);
+      }
+    } catch (error) {
+      setFilingRefusal(
+        error instanceof CommandRefused
+          ? error.message
+          : 'These could not all be moved. Try again.',
+      );
+    } finally {
+      setFiling(false);
+      // **The question is answered either way, so it closes either way.** A
+      // picker left open over a refusal seemed friendlier - the reason where
+      // the choice was, and the panels still there to try again - but it is a
+      // modal dialog, so while it is up nothing outside it can be clicked: the
+      // way back offered underneath it took one click to dismiss the dialog
+      // and a second to press, with the offer expiring on its own meanwhile.
+      // The bar says why instead, above the rows that are still picked.
+      setFilingSeveral(false);
+    }
+
+    if (moved.length === 0) return;
+    // Remembered only once something has happened, the way a single move does:
+    // a panel everything was refused for is not one you have been filing into.
+    if (target) rememberRecentPanel(browserStore(), workspaceId, target);
+    // Only what moved leaves the selection, so a filing that stopped leaves the
+    // remainder in front of you with the reason above it.
+    const filed = new Set(moved.map((item) => item.id));
+    setSelection((was) => ({
+      picked: new Set([...was.picked].filter((id) => !filed.has(id))),
+      reachingFrom: null,
+    }));
+
+    // **No way back once any of them belonged nowhere.** Filing an item that
+    // belongs to no workspace is also what decides where it belongs, and that
+    // question is asked once: undoing would take it off the panel and leave it
+    // in *this* workspace's Inbox rather than in every workspace's, which is
+    // not where it was. The single move withholds the offer for exactly this
+    // (`decides`), and one offer covers a whole run here - so one undecided
+    // item in the selection is enough to withhold it, rather than a bar that
+    // puts some of them back and quietly settles the rest.
+    if (moved.some((item) => !workspaceIsDecided(item))) return;
+    offerToUndo({
+      what: whatMoved(moved, chosen.length, nameOf(target)),
+      undo: () => putSeveralBack(moved, wasOn),
+    });
+  };
+
+  /**
+   * Puts back everything a filing of several took, onto the panels each was on.
+   *
+   * **One order per filing, each read from what the panel holds by then.** An
+   * order naming an item the panel does not hold is refused exactly as a stale
+   * one is, and half-way through this a panel holds neither what it held before
+   * nor what it will hold after - not least the panel everything was filed
+   * onto, which is still holding every item waiting its turn. Computing what
+   * that ought to be is how the overlap case was got wrong; asking is how it is
+   * got right.
+   */
+  const putSeveralBack = async (
+    moved: readonly Item[],
+    wasOn: ReadonlyMap<string, { panelId: string; order: string[] }[]>,
+  ) => {
+    /** What a panel holds at this moment, which each order has to name. */
+    const heldOn = async (panelId: string) =>
+      filedOrderOnPanel((await latestSnapshot(workspaceId)).filings ?? [], panelId);
+    const envelope = (itemId: string) => ({
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId,
+      itemId,
+    });
+
+    for (const item of moved) {
+      const panels = wasOn.get(item.id) ?? [];
+      // On no panel at all is the Inbox, which is the absence of a filing.
+      if (panels.length === 0) {
+        await send({
+          name: 'move_item_to_panel',
+          payload: { ...envelope(item.id), panelId: null, order: [] },
+        });
+        continue;
+      }
+      // The first is a move and the rest are adds, for the reason
+      // `putItBackOn` gives: the move takes it off wherever it is now, and each
+      // add puts it on one more without disturbing that.
+      const [first, ...rest] = panels;
+      await send({
+        name: 'move_item_to_panel',
+        payload: {
+          ...envelope(item.id),
+          panelId: first!.panelId,
+          order: orderPuttingBack(first!.order, await heldOn(first!.panelId), item.id),
+        },
+      });
+      for (const also of rest) {
+        await send({
+          name: 'add_item_to_panel',
+          payload: {
+            ...envelope(item.id),
+            panelId: also.panelId,
+            order: orderPuttingBack(also.order, await heldOn(also.panelId), item.id),
+          },
+        });
+      }
+    }
+  };
+
+  /** A tick clicked, which is a row picked or a span reached across. */
+  const pick = (item: Item, withShift: boolean) => {
+    // What this list *shows* as picked, not what it is holding: a selection
+    // whose every row has left the list draws no bar, so a list in that state
+    // is starting a selection rather than adding to one - and a list that did
+    // not say so would leave two bars on screen.
+    if (picked.length === 0) emptyTheOtherLists();
+    setSelection((was) =>
+      afterClicking(
+        items.map((row) => row.id),
+        was,
+        item.id,
+        withShift,
+      ),
+    );
+  };
+
+  /**
    * Which gap a dragged row is currently over, or null when nothing is being
    * dragged across this list. Drawn as a line between two rows.
    */
@@ -515,6 +774,11 @@ export function ItemList({
                   item={item}
                   itemType={typeOf(types, item)}
                   workspaceId={workspaceId}
+                  selecting={{
+                    picked: selection.picked.has(item.id),
+                    revealed: picked.length > 0,
+                    onPick: (withShift) => pick(item, withShift),
+                  }}
                   onMoveTo={(from) => {
                     openedFrom.current = from;
                     command.reset();
@@ -547,6 +811,47 @@ export function ItemList({
         )}
       </div>
 
+      {picked.length > 0 && (
+        <SelectionBar
+          count={picked.length}
+          filing={filing}
+          refusal={filingRefusal}
+          onMoveTo={() => {
+            setFilingRefusal(null);
+            setFilingSeveral(true);
+          }}
+          onClear={stopSelecting}
+        />
+      )}
+
+      {/* Only while there is something to move. The rows picked are re-derived
+          from what the list draws, so every one of them can leave while this is
+          open - finished on another device, filed from a phone - and a question
+          about no items has no answer: choosing a panel would send nothing and
+          say nothing, leaving Cancel as the only way out. */}
+      {filingSeveral && picked.length > 0 && (
+        <MoveToPicker
+          moving={{ several: picked.length }}
+          dashboards={data?.dashboards ?? []}
+          panels={data?.panels ?? []}
+          openDashboardId={openDashboardId}
+          recent={recentPanelsIn(browserStore(), workspaceId)}
+          open
+          workspaceId={workspaceId}
+          // No other workspace's Inbox offered, where a single move offers them
+          // for an item that belongs to none ("Capture something before you
+          // know which workspace it belongs to", issue 165): a selection can
+          // hold items that belong here and items that belong nowhere, and what
+          // "move these to Home" should mean for the mixture is a question
+          // nobody has been asked. So the Inbox here means this one.
+          onPick={(target) => void fileSeveral('panel' in target ? target.panel : null)}
+          onCancel={() => setFilingSeveral(false)}
+          // No refusal here: this closes as soon as the filing answers, and the
+          // bar says why over the rows that are still picked.
+          busy={filing}
+        />
+      )}
+
       {asking && panelId && (
         <MoveOrAddQuestion
           open
@@ -571,7 +876,7 @@ export function ItemList({
 
       {adding && (
         <MoveToPicker
-          itemTitle={adding.nextAction ?? adding.title}
+          moving={{ title: adding.nextAction ?? adding.title }}
           adding
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
@@ -594,7 +899,7 @@ export function ItemList({
 
       {moving && (
         <MoveToPicker
-          itemTitle={moving.nextAction ?? moving.title}
+          moving={{ title: moving.nextAction ?? moving.title }}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
           workspaceId={workspaceId}
@@ -633,6 +938,23 @@ export function ItemList({
       )}
     </>
   );
+}
+
+/**
+ * What the way back says a filing of several did.
+ *
+ * **What happened, not what was asked for.** A filing that stopped part way
+ * moved some of them, and a sentence saying six when four went would offer to
+ * undo two things that never happened. One row keeps its own title, because
+ * that is what a single move has always said and picking one row out is not a
+ * different act from moving it.
+ */
+function whatMoved(moved: readonly Item[], asked: number, target: string): string {
+  if (moved.length === 1 && asked === 1) {
+    return `“${moved[0]!.nextAction ?? moved[0]!.title}” moved to ${target}`;
+  }
+  const how = moved.length === asked ? `${asked} items` : `${moved.length} of ${asked} items`;
+  return `${how} moved to ${target}`;
 }
 
 /**

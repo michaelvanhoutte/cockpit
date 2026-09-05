@@ -36,7 +36,7 @@ export type MoveTarget = { panel: string } | { inboxOf: string };
  * list of rows, is losing your place.
  */
 export function MoveToPicker({
-  itemTitle,
+  moving,
   adding = false,
   dashboards,
   panels,
@@ -51,8 +51,16 @@ export function MoveToPicker({
   busy = false,
   returnFocusTo,
 }: {
-  /** What is being moved, so the question says which row it was asked from. */
-  itemTitle: string;
+  /**
+   * What is being moved, so the question says what it is about: one row's
+   * title, or how many were picked out of the list ("Select several items, and
+   * file them all in one go", issue 169).
+   *
+   * Two shapes rather than a title the caller has already made a sentence of,
+   * because only one of them is quoted - a title is the person's own words and
+   * a count is the app's.
+   */
+  moving: { title: string } | { several: number };
   /**
    * That this is showing the Item somewhere *as well* rather than moving it
    * ("Ask whether to move an item to a panel or add it to one", issue 142).
@@ -94,6 +102,10 @@ export function MoveToPicker({
   busy?: boolean;
   returnFocusTo?: HTMLElement | null;
 }) {
+  const what =
+    'title' in moving
+      ? `“${moving.title}”`
+      : `${moving.several} ${moving.several === 1 ? 'item' : 'items'}`;
   const groups = dashboardsInOrder(dashboards, openDashboardId).map((dashboard) => ({
     dashboard,
     panels: panels.filter((panel) => panel.dashboardId === dashboard.id),
@@ -122,7 +134,7 @@ export function MoveToPicker({
           className="fixed left-1/2 top-1/2 flex max-h-[min(32rem,calc(100vh-2rem))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
         >
           <Dialog.Title className="text-base font-semibold">
-            {adding ? `Also show “${itemTitle}” on` : `Move “${itemTitle}” to`}
+            {adding ? `Also show ${what} on` : `Move ${what} to`}
           </Dialog.Title>
 
           {refusal && (

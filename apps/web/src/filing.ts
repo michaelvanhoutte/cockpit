@@ -120,3 +120,66 @@ export function orderWithItemAt(
   const place = Math.max(0, Math.min(at, without.length));
   return [...without.slice(0, place), itemId, ...without.slice(place)];
 }
+
+/**
+ * The order each filing carries when several items are filed onto one panel at
+ * once ("Select several items, and file them all in one go", issue 169) - one
+ * per item, in the order they are sent.
+ *
+ * **Each is built on the one before it.** A filing carries the panel's whole
+ * arrangement afterwards and the server refuses one that is not this panel's
+ * (`orderIsNotOfThePanel`), so the second filing has to name the first item as
+ * well: by then it is on the panel.
+ *
+ * They land at the top in the order the list showed them, which is where a
+ * single move puts one - so after the last filing the panel reads as the
+ * selection, then whatever it already held.
+ *
+ * **An item already on the panel is named once rather than twice**, because an
+ * order naming one twice is refused as a shape. What is sent for it is still a
+ * *move*, not an add, so it comes off every other panel it was on - which is
+ * what moving it there means, and what the same item picked out on its own and
+ * moved from its row's menu already does. A reorder within one panel is the
+ * other gesture (`reorder`, which sends an add for exactly this reason).
+ */
+export function ordersForFilingSeveral(
+  held: readonly string[],
+  ids: readonly string[],
+): string[][] {
+  return ids.map((_, k) => {
+    const sent = ids.slice(0, k + 1);
+    return [...sent, ...held.filter((id) => !sent.includes(id))];
+  });
+}
+
+/**
+ * The arrangement a panel is put back into as one item returns to it ("Undo
+ * what just happened", issue 144).
+ *
+ * **Built from what the panel holds now, not from what it held before.** An
+ * order has to name exactly the panel's items plus the one arriving or it is
+ * refused, and half-way through putting several back a panel holds neither what
+ * it held before nor what it will hold after: the ones already returned are
+ * there, the ones still to come are not, and the panel that was *filed onto* is
+ * still holding every item waiting its turn. Only the live list knows which.
+ *
+ * `was` decides the order and not the membership: everything that is there
+ * again takes the place it had, and anything the panel has gained since - the
+ * items still waiting to be moved off it - goes after them, where their own
+ * turn will take them off anyway. So the last item back leaves the panel
+ * arranged exactly as it was.
+ */
+export function orderPuttingBack(
+  was: readonly string[],
+  heldNow: readonly string[],
+  itemId: string,
+): string[] {
+  // Named once, however it got there: the item arriving can already be on this
+  // panel, which is what putting one back onto the panel it was filed onto is.
+  const alsoThere = heldNow.filter((id) => id !== itemId);
+  const present = new Set([...alsoThere, itemId]);
+  return [
+    ...was.filter((id) => present.has(id)),
+    ...alsoThere.filter((id) => !was.includes(id)),
+  ];
+}

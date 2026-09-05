@@ -24,7 +24,9 @@ const held = vi.hoisted(() => ({
   /** Every workspace of the account, which the picker offers as Inboxes. */
   workspaces: [] as Workspace[],
   mutate: vi.fn(),
-  send: vi.fn(() => Promise.resolve()),
+  // Takes the change it is sent, so a test can answer differently per command -
+  // refuse the third, or actually file it (`sendThatFiles`).
+  send: vi.fn((_args?: unknown) => Promise.resolve()),
   error: null as Error | null,
   variables: undefined as { payload?: { itemId?: string } } | undefined,
   /** What the next change is refused with, if anything. */
@@ -69,6 +71,20 @@ vi.mock('../../../src/api/queries', async () => {
       queryKey: ['workspaces'],
       queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
     },
+    // What the panels hold *now*, which the orders a run of filings carries are
+    // built from. Reads `held` afresh, so a test whose `send` files something
+    // sees it here the way the real one sees the re-read.
+    useLatestSnapshot: () => (workspaceId: string) => Promise.resolve({
+      workspace: { id: workspaceId },
+      items: held.items,
+      dashboards: held.dashboards,
+      panels: held.panels,
+      layouts: [],
+      associations: [],
+      itemTypes: [],
+      filings: held.filings,
+      generatedAt: '2026-08-31T09:00:00.000Z',
+    }),
     snapshotQuery: (workspaceId: string) => ({
       queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
@@ -1044,6 +1060,517 @@ describe('Capture', () => {
       await user.click(within(dialog).getAllByRole('button', { name: 'Falcon' })[0]!);
 
       expect(screen.queryByRole('button', { name: 'Undo' }) !== null).toBe(offersTheWayBack);
+    });
+  });
+});
+
+/**
+ * Picking several rows out of a list and filing them together ("Select several
+ * items, and file them all in one go", issue 169).
+ *
+ * What a click on a tick *means* is tests/unit/selection.test.ts's, and the
+ * orders a filing of several carries are tests/unit/filing.test.ts's. What is
+ * asked here is the wiring: that every row offers a tick, that the bar shows
+ * what is picked, and that choosing a panel sends one filing per row carrying
+ * the order it was given. **The tick appearing on hover is not asked here at
+ * all** - jsdom has no hover, so that half is the browser walk's.
+ */
+
+const RENEW = anItem('11111111-1111-7111-8111-000000000002', 'Renew the domain');
+const CHASE = anItem('11111111-1111-7111-8111-000000000003', 'Chase the purchase order');
+const THREE = [BART, RENEW, CHASE];
+
+/** Picks a row out by its tick, which is what carries the row's name. */
+async function tick(user: ReturnType<typeof userEvent.setup>, item: Item, withShift = false) {
+  const box = screen.getByRole('checkbox', { name: `Select “${item.title}”` });
+  if (!withShift) {
+    await user.click(box);
+    return;
+  }
+  await user.keyboard('{Shift>}');
+  await user.click(box);
+  await user.keyboard('{/Shift}');
+}
+
+/** Move to… on the bar, which is a button where the row's own is a menu entry. */
+async function fileWhatIsPicked(
+  user: ReturnType<typeof userEvent.setup>,
+  // The Inbox's entry carries its hint in the same name, so it is reached by
+  // what it starts with rather than by the whole of it.
+  panel: string | RegExp,
+) {
+  await user.click(screen.getByRole('button', { name: 'Move to…' }));
+  const dialog = await screen.findByRole('dialog');
+  await user.click(within(dialog).getByRole('button', { name: panel }));
+}
+
+/** Every filing sent, as the panel it named and the order it carried. */
+function filingsSent(): { itemId: string; panelId: string | null; order: string[] }[] {
+  return (held.send.mock.calls as unknown as [{ name: string; payload: Record<string, unknown> }][])
+    .map(([args]) => args)
+    .filter((args) => args.name === 'move_item_to_panel')
+    .map(({ payload }) => ({
+      itemId: payload.itemId as string,
+      panelId: payload.panelId as string | null,
+      order: payload.order as string[],
+    }));
+}
+
+/**
+ * A `send` that really files, and refuses an order that is not the panel's.
+ *
+ * **Both halves are what makes a run of filings provable here.** Each order is
+ * built on what the panel holds by then, so a stub that changes nothing cannot
+ * tell a correct run from one that names the same list every time; and the
+ * server's rule - an order names exactly the panel's items plus the one
+ * arriving (`orderIsNotOfThePanel`) - is the thing that would refuse a wrong
+ * one, so a stub that accepts anything cannot tell either.
+ */
+function sendThatFiles() {
+  held.send = vi.fn((args: unknown) => {
+    const { name, payload } = args as {
+      name: string;
+      payload: { itemId: string; panelId: string | null; order: string[] };
+    };
+    if (payload.panelId) {
+      const on = held.filings
+        .filter((filing) => filing.panelId === payload.panelId)
+        .map((filing) => filing.itemId);
+      const expected = new Set([...on, payload.itemId]);
+      const named = new Set(payload.order);
+      if (named.size !== expected.size || [...named].some((id) => !expected.has(id))) {
+        return Promise.reject(
+          new CommandRefused(409, 'this panel changed while you were looking at it'),
+        );
+      }
+    }
+    // A move takes it off every panel first; an add leaves the others alone.
+    if (name === 'move_item_to_panel') {
+      held.filings = held.filings.filter((filing) => filing.itemId !== payload.itemId);
+    }
+    if (payload.panelId) {
+      const panelId = payload.panelId;
+      held.filings = [
+        ...held.filings.filter((filing) => filing.panelId !== panelId),
+        ...payload.order.map((itemId, position) => ({ panelId, itemId, position })),
+      ];
+    }
+    return Promise.resolve();
+  });
+}
+
+/** What a panel holds, in order, as the fake store has it. */
+function nowOn(panelId: string): string[] {
+  return held.filings
+    .filter((filing) => filing.panelId === panelId)
+    .sort((a, b) => a.position - b.position)
+    .map((filing) => filing.itemId);
+}
+
+/** Refuses every filing after the first `after` of them have gone through. */
+function refusesAfter(after: number) {
+  let sent = 0;
+  held.send = vi.fn(() => {
+    sent += 1;
+    return sent > after
+      ? Promise.reject(new CommandRefused(409, 'this panel changed while you were looking at it'))
+      : Promise.resolve();
+  });
+}
+
+describe('Selection', () => {
+  describe('what is picked out of a list is offered together, and only while something is picked', () => {
+    it('offers nothing until a row is picked', async () => {
+      await showList({ items: THREE });
+
+      expect(screen.queryByRole('button', { name: 'Move to…' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+    });
+
+    it.each([
+      { situation: 'one row picked', picking: [BART], says: '1 selected' },
+      { situation: 'two rows picked', picking: [BART, CHASE], says: '2 selected' },
+      { situation: 'every row picked', picking: THREE, says: '3 selected' },
+    ])('says $situation', async ({ picking, says }) => {
+      const user = await showList({ items: THREE });
+
+      for (const item of picking) await tick(user, item);
+
+      expect(screen.getByText(says)).toBeVisible();
+    });
+
+    it('goes away again when the last row is put back', async () => {
+      const user = await showList({ items: THREE });
+
+      await tick(user, BART);
+      await tick(user, BART);
+
+      expect(screen.queryByRole('button', { name: 'Move to…' })).not.toBeInTheDocument();
+    });
+
+    it('goes away when Clear is chosen, and nothing is sent', async () => {
+      const user = await showList({ items: THREE });
+      await tick(user, BART);
+      await tick(user, RENEW);
+
+      await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+      expect(screen.queryByText('2 selected')).not.toBeInTheDocument();
+      expect(held.send).not.toHaveBeenCalled();
+    });
+
+    it('empties the other list when a selection is started here', async () => {
+      // Two lists are drawn side by side - the Inbox beside a panel - and a
+      // selection belongs to one of them. Only provable with both on screen,
+      // which is why it is here rather than in selection.test.ts.
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={client}>
+          <UndoWhatJustHappened>
+            <ItemList
+              workspaceId="ws-work"
+              items={[BART]}
+              openDashboardId={null}
+              emptyMessage="Nothing to deal with."
+            />
+            <ItemList
+              workspaceId="ws-work"
+              items={[RENEW]}
+              openDashboardId={TODAY.id}
+              panelId="p-falcon"
+              emptyMessage="Nothing filed here yet."
+            />
+          </UndoWhatJustHappened>
+        </QueryClientProvider>,
+      );
+      await waitFor(() => expect(client.getQueryData(['snapshot', 'ws-work'])).toBeDefined());
+      const user = userEvent.setup();
+
+      await tick(user, BART);
+      expect(screen.getByText('1 selected')).toBeVisible();
+
+      await tick(user, RENEW);
+
+      // One bar, not two: the first list let go of what it was holding.
+      expect(screen.getAllByText('1 selected')).toHaveLength(1);
+      expect(screen.getByRole('checkbox', { name: `Select “${BART.title}”` })).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: `Select “${RENEW.title}”` })).toBeChecked();
+    });
+
+    it('does not pick a row up again when it comes back to the list', async () => {
+      // Leaving the list has to *drop* a row from the selection, not merely
+      // hide it: move one out from its own menu and undo that move, and it
+      // came back already ticked, with the count up by one and the next
+      // Move to… quietly carrying an item nobody had picked.
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const list = (items: Item[]) => (
+        <QueryClientProvider client={client}>
+          <UndoWhatJustHappened>
+            <ItemList
+              workspaceId="ws-work"
+              items={items}
+              openDashboardId={TODAY.id}
+              emptyMessage="Nothing to deal with."
+            />
+          </UndoWhatJustHappened>
+        </QueryClientProvider>
+      );
+      held.items = [BART, RENEW];
+      const { rerender } = render(list([BART, RENEW]));
+      await waitFor(() => expect(client.getQueryData(['snapshot', 'ws-work'])).toBeDefined());
+      const user = userEvent.setup();
+      await tick(user, BART);
+      await tick(user, RENEW);
+      expect(screen.getByText('2 selected')).toBeVisible();
+
+      // Gone from the list, and back again.
+      rerender(list([RENEW]));
+      await waitFor(() => expect(screen.getByText('1 selected')).toBeVisible());
+      rerender(list([BART, RENEW]));
+
+      expect(screen.getByText('1 selected')).toBeVisible();
+      expect(screen.getByRole('checkbox', { name: `Select “${BART.title}”` })).not.toBeChecked();
+    });
+
+    it('takes the question away when every row it was about has left the list', async () => {
+      // The rows picked are what the list still draws, so all of them can go
+      // while the question is open - finished on another device, filed from a
+      // phone. A question about no items has no answer: choosing a panel would
+      // send nothing and say nothing, leaving Cancel as the only way out.
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const list = (items: Item[]) => (
+        <QueryClientProvider client={client}>
+          <UndoWhatJustHappened>
+            <ItemList
+              workspaceId="ws-work"
+              items={items}
+              openDashboardId={TODAY.id}
+              emptyMessage="Nothing to deal with."
+            />
+          </UndoWhatJustHappened>
+        </QueryClientProvider>
+      );
+      const { rerender } = render(list([BART]));
+      await waitFor(() => expect(client.getQueryData(['snapshot', 'ws-work'])).toBeDefined());
+      const user = userEvent.setup();
+      await tick(user, BART);
+      await user.click(screen.getByRole('button', { name: 'Move to…' }));
+      expect(await screen.findByRole('dialog')).toBeVisible();
+
+      rerender(list([]));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+
+    it('reaches across the rows between when a tick is clicked holding shift', async () => {
+      // The wiring the pure rule cannot hold: that the click carries whether
+      // shift was down. Which rows a span covers is selection.test.ts's.
+      const user = await showList({ items: THREE });
+
+      await tick(user, BART);
+      await tick(user, CHASE, true);
+
+      expect(screen.getByText('3 selected')).toBeVisible();
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('filing what is picked files every row, in the order the list shows them', () => {
+    it('sends one filing per row, onto the panel picked, in the order the list shows them', async () => {
+      // **What each order contains is tests/unit/filing.test.ts's**, table-tested
+      // there including the shapes this arrangement has. What is asked here is
+      // the wiring, and `sendThatFiles` is what makes that provable without
+      // repeating the arithmetic: it refuses an order that is not the panel's,
+      // exactly as the server does, so a run that built them wrongly would not
+      // reach the arrangement asserted at the end.
+      held.items = THREE;
+      held.filings = [{ panelId: 'p-falcon', itemId: 'held-already', position: 0 }];
+      sendThatFiles();
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+
+      await tick(user, BART);
+      await tick(user, CHASE);
+      await fileWhatIsPicked(user, 'Falcon');
+
+      await waitFor(() => expect(filingsSent()).toHaveLength(2));
+      expect(filingsSent().map((filing) => filing.itemId)).toEqual([BART.id, CHASE.id]);
+      expect(filingsSent().every((filing) => filing.panelId === 'p-falcon')).toBe(true);
+      // The panel reads as the selection, then what it already held.
+      expect(nowOn('p-falcon')).toEqual([BART.id, CHASE.id, 'held-already']);
+    });
+
+    it('sends no order when they go back to the Inbox, which is by age', async () => {
+      held.items = THREE;
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+
+      await tick(user, BART);
+      await tick(user, RENEW);
+      await fileWhatIsPicked(user, /^Inbox/);
+
+      await waitFor(() => expect(filingsSent()).toHaveLength(2));
+      expect(filingsSent()).toEqual([
+        { itemId: BART.id, panelId: null, order: [] },
+        { itemId: RENEW.id, panelId: null, order: [] },
+      ]);
+    });
+
+    it('files one picked row exactly as its own menu would', async () => {
+      held.items = THREE;
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+
+      await tick(user, RENEW);
+      await fileWhatIsPicked(user, 'Falcon');
+
+      await waitFor(() => expect(filingsSent()).toHaveLength(1));
+      expect(filingsSent()[0]).toEqual({
+        itemId: RENEW.id,
+        panelId: 'p-falcon',
+        order: [RENEW.id],
+      });
+    });
+
+    it('empties the selection once they have all gone', async () => {
+      held.items = THREE;
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+
+      await tick(user, BART);
+      await tick(user, RENEW);
+      await fileWhatIsPicked(user, 'Falcon');
+
+      await waitFor(() => expect(screen.queryByText('2 selected')).not.toBeInTheDocument());
+    });
+  });
+
+  describe('a filing that is refused stops the rest, and what did not move stays picked', () => {
+    it('sends nothing after the one that was refused', async () => {
+      held.items = THREE;
+      refusesAfter(1);
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+
+      await fileWhatIsPicked(user, 'Falcon');
+
+      // Two: the one that went and the one that was refused. The third is
+      // never asked for.
+      await waitFor(() => expect(filingsSent()).toHaveLength(2));
+      expect(filingsSent()).toHaveLength(2);
+    });
+
+    it.each([
+      { situation: 'one of three went', after: 1, left: '2 selected' },
+      { situation: 'the very first was refused', after: 0, left: '3 selected' },
+    ])('leaves what did not move picked when $situation', async ({ after, left }) => {
+      held.items = THREE;
+      refusesAfter(after);
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+
+      await fileWhatIsPicked(user, 'Falcon');
+
+      expect(await screen.findByText(left)).toBeVisible();
+    });
+
+    it('takes the reason away with the selection it was about', async () => {
+      // A refusal outlives the picker it was shown in, so without this it came
+      // back over a later selection that had nothing to do with it: refuse a
+      // filing, cancel, Clear, then pick a different row and the old message
+      // was there waiting.
+      held.items = THREE;
+      refusesAfter(0);
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      await tick(user, BART);
+      await fileWhatIsPicked(user, 'Falcon');
+      await screen.findByText('this panel changed while you were looking at it');
+
+      // Unticking the last row rather than pressing Clear: the reason has to go
+      // with the selection however the selection goes, and Clear is the one
+      // route that used to be handled.
+      await tick(user, BART);
+      await tick(user, CHASE);
+
+      expect(screen.getByText('1 selected')).toBeVisible();
+      expect(
+        screen.queryByText('this panel changed while you were looking at it'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('closes the question, so the way back underneath it can be reached', async () => {
+      // The picker is a modal dialog: while it is up nothing outside it takes a
+      // click, and the offer to undo what *did* move is outside it. Leaving it
+      // open over the refusal cost one click to dismiss and a second to press,
+      // with the offer running out on its own in between.
+      held.items = THREE;
+      refusesAfter(1);
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+
+      await fileWhatIsPicked(user, 'Falcon');
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(await screen.findByRole('button', { name: 'Undo' })).toBeVisible();
+    });
+
+    it('says why, in the words it was refused in', async () => {
+      held.items = THREE;
+      refusesAfter(1);
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+
+      await fileWhatIsPicked(user, 'Falcon');
+
+      expect(
+        await screen.findByText('this panel changed while you were looking at it'),
+      ).toBeVisible();
+    });
+  });
+
+  describe('the way back after filing several offers what happened, not what was asked for', () => {
+    it.each([
+      { situation: 'all of them went', after: 3, says: '3 items moved to Falcon' },
+      { situation: 'only some of them went', after: 1, says: '1 of 3 items moved to Falcon' },
+    ])('$situation', async ({ after, says }) => {
+      held.items = THREE;
+      refusesAfter(after);
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+
+      await fileWhatIsPicked(user, 'Falcon');
+
+      expect(await screen.findByText(says)).toBeVisible();
+    });
+
+    it('offers nothing back when one of them belonged to no workspace yet', async () => {
+      // Filing such an item is also what settles where it belongs, and that
+      // question is asked once - so the way back could only leave it in this
+      // workspace's Inbox, not in every workspace's, which is not where it was.
+      // One offer covers the whole run, so one of them is enough to withhold
+      // it; the single move withholds it for the same reason.
+      const nowhere = {
+        ...anItem('11111111-1111-7111-8111-00000000000b', 'Where does this go'),
+        workspaceDecided: false,
+      };
+      held.items = [BART, nowhere];
+      const user = await showList({ items: [BART, nowhere], openDashboardId: TODAY.id });
+
+      await tick(user, BART);
+      await tick(user, nowhere);
+      await fileWhatIsPicked(user, 'Falcon');
+
+      await waitFor(() => expect(filingsSent()).toHaveLength(2));
+      expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    });
+
+    it('names the row itself when one was picked, the way a single move does', async () => {
+      held.items = THREE;
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+
+      await tick(user, RENEW);
+      await fileWhatIsPicked(user, 'Falcon');
+
+      expect(await screen.findByText('“Renew the domain” moved to Falcon')).toBeVisible();
+    });
+
+    it.each([
+      {
+        situation: 'both came off the same panel',
+        filings: [
+          { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+          { panelId: 'p-falcon', itemId: 'held-already', position: 1 },
+          { panelId: 'p-falcon', itemId: RENEW.id, position: 2 },
+        ],
+        onto: 'Anna',
+      },
+      {
+        // The overlap: one of them was already on the panel everything is
+        // filed onto, so while it is being put back that panel is still
+        // holding the other - which its order has to name or be refused.
+        situation: 'one was already on the panel they were filed onto',
+        filings: [
+          { panelId: 'p-anna', itemId: 'held-already', position: 0 },
+          { panelId: 'p-anna', itemId: BART.id, position: 1 },
+          { panelId: 'p-falcon', itemId: RENEW.id, position: 0 },
+        ],
+        onto: 'Anna',
+      },
+    ])('leaves every panel as it was when $situation', async ({ filings, onto }) => {
+      held.items = THREE;
+      held.filings = filings;
+      sendThatFiles();
+      const was = { falcon: nowOn('p-falcon'), anna: nowOn('p-anna') };
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      await tick(user, BART);
+      await tick(user, RENEW);
+      await fileWhatIsPicked(user, onto);
+      await screen.findByText(`2 items moved to ${onto}`);
+
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      // Nothing refused on the way back, and both panels arranged exactly as
+      // they were - which is the whole of what putting it back means.
+      await waitFor(() => expect(nowOn('p-falcon')).toEqual(was.falcon));
+      expect(nowOn('p-anna')).toEqual(was.anna);
+      expect(screen.queryByText(/could not|changed while/)).not.toBeInTheDocument();
     });
   });
 });
