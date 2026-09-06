@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { WorkspaceSettingsPage } from '../../../src/pages/WorkspaceSettingsPage';
+import { ManageWorkspaces } from '../../../src/components/ManageWorkspaces';
 import { CommandRefused } from '../../../src/api/client';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import { useCommand, useSendCommand, type CommandArgs } from '../../../src/api/queries';
@@ -45,6 +45,22 @@ const held = vi.hoisted(() => ({
  */
 const list = vi.hoisted(() => ({ answer: null as null | (() => Promise<unknown>) }));
 
+/**
+ * Where the window sent the screen behind it, and which workspace that screen
+ * was on. The list is a window over a workspace now, so deleting the one you
+ * are looking at has to move it on ("Rename and delete a dashboard from a
+ * dashboard settings page", issue 90, whose list does the same for a dashboard).
+ */
+const wentTo = vi.hoisted(() => ({ calls: [] as unknown[] }));
+const lookingAt = vi.hoisted(() => ({ workspaceId: 'ws-somewhere-else' as string | undefined }));
+
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => (to: unknown) => {
+    wentTo.calls.push(to);
+  },
+  useParams: () => ({ workspaceId: lookingAt.workspaceId }),
+}));
+
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   useSendCommand: vi.fn(),
@@ -70,7 +86,7 @@ const mockUseSendCommand = vi.mocked(useSendCommand);
  * the change a refusal belongs to, which is what the page uses to put the
  * refusal next to the control that asked for it.
  */
-function showPage(answer: {
+function showWindow(answer: {
   succeeds: boolean;
   error?: Error;
   about?: CommandArgs;
@@ -120,7 +136,7 @@ function showPage(answer: {
   } as never);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <WorkspaceSettingsPage />
+      <ManageWorkspaces open onClose={() => undefined} />
     </QueryClientProvider>,
   );
   return {
@@ -172,13 +188,17 @@ async function onScreen(): Promise<string[]> {
 beforeEach(() => {
   list.answer = null;
   held.answer = null;
+  wentTo.calls = [];
+  // Looking at some other workspace unless a case says otherwise, so only
+  // the case about deleting the one you are on has to think about it.
+  lookingAt.workspaceId = 'ws-somewhere-else';
 });
 
 describe('Workspace management', () => {
   describe('making a workspace asks for the name you typed and leaves the box ready for the next one', () => {
     it('asks for the name without the blanks around it, then empties the box', async () => {
       const user = userEvent.setup();
-      const { mutate, box } = showPage({ succeeds: true });
+      const { mutate, box } = showWindow({ succeeds: true });
 
       await user.type(box, '  Bookkeeping  ');
       await user.click(newWorkspaceButton());
@@ -193,7 +213,7 @@ describe('Workspace management', () => {
 
     it('asks for nothing when the box holds only blanks', async () => {
       const user = userEvent.setup();
-      const { mutate, box } = showPage({ succeeds: true });
+      const { mutate, box } = showWindow({ succeeds: true });
 
       await user.type(box, '   ');
       await user.click(newWorkspaceButton());
@@ -216,7 +236,7 @@ describe('Workspace management', () => {
      */
     it('puts the box before the list of them', async () => {
       showThree();
-      const { box } = showPage({ succeeds: true });
+      const { box } = showWindow({ succeeds: true });
       await onScreen();
 
       const list = screen.getByRole('list');
@@ -226,7 +246,7 @@ describe('Workspace management', () => {
 
   describe('a workspace is edited on a form of its own, and nothing is sent until Save', () => {
     it('opens the form on a double-click on the row', async () => {
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       fireEvent.doubleClick(await rowFor('Work'));
 
@@ -237,7 +257,7 @@ describe('Workspace management', () => {
       // The only way in from a keyboard, and the comfortable one on a phone,
       // where a double-tap is already spent on zooming.
       const user = userEvent.setup();
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       await choose(user, 'Work', 'Edit…');
 
@@ -247,18 +267,19 @@ describe('Workspace management', () => {
     it('leaves the form shut when the double-click was on a control of the row’s own', async () => {
       // The menu's three dots is a button inside the row, so a double press on
       // it must open the menu and nothing else.
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       fireEvent.doubleClick(await screen.findByRole('button', { name: 'Actions for Work' }));
 
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      // Named, because the list itself is a dialog over the workspace now.
+      expect(screen.queryByRole('dialog', { name: 'Edit Work' })).not.toBeInTheDocument();
     });
 
     it('starts from the name and the colour the workspace already has', async () => {
       // So changing a typo is an edit rather than typing the whole name again,
       // and the form says what the workspace is rather than only what it could
       // be.
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       fireEvent.doubleClick(await rowFor('Work'));
 
@@ -278,7 +299,7 @@ describe('Workspace management', () => {
       // and send a change on every press, so looking at a colour was a change
       // you could take back only by making another one.
       const user = userEvent.setup();
-      const { saved } = showPage({ succeeds: true });
+      const { saved } = showWindow({ succeeds: true });
 
       fireEvent.doubleClick(await rowFor('Work'));
       await user.type(await screen.findByLabelText('Name of Work'), 'ing');
@@ -289,7 +310,7 @@ describe('Workspace management', () => {
 
     it('asks for the name without the blanks around it, and for nothing else', async () => {
       const user = userEvent.setup();
-      const { saved } = showPage({ succeeds: true });
+      const { saved } = showWindow({ succeeds: true });
 
       fireEvent.doubleClick(await rowFor('Work'));
       const box = await screen.findByLabelText('Name of Work');
@@ -305,7 +326,7 @@ describe('Workspace management', () => {
         name: 'rename_workspace',
         payload: { workspaceId: 'ws-work', name: 'Bookkeeping' },
       });
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: 'Edit Work' })).not.toBeInTheDocument();
     });
 
     it('asks for all four colours of the theme picked, not the one on the swatch', async () => {
@@ -314,7 +335,7 @@ describe('Workspace management', () => {
       // page behind the panels. A picker that sent only the tint would leave
       // the page it is meant to change behind.
       const user = userEvent.setup();
-      const { saved } = showPage({ succeeds: true });
+      const { saved } = showWindow({ succeeds: true });
       const chosen = WORKSPACE_THEMES[4]!;
 
       fireEvent.doubleClick(await rowFor('Work'));
@@ -336,7 +357,7 @@ describe('Workspace management', () => {
 
     it('asks for both when both were changed', async () => {
       const user = userEvent.setup();
-      const { saved } = showPage({ succeeds: true });
+      const { saved } = showWindow({ succeeds: true });
 
       fireEvent.doubleClick(await rowFor('Work'));
       await user.type(await screen.findByLabelText('Name of Work'), 'ing');
@@ -351,7 +372,7 @@ describe('Workspace management', () => {
 
     it('asks for nothing when the box is emptied', async () => {
       const user = userEvent.setup();
-      const { saved } = showPage({ succeeds: true });
+      const { saved } = showWindow({ succeeds: true });
 
       fireEvent.doubleClick(await rowFor('Work'));
       await user.clear(await screen.findByLabelText('Name of Work'));
@@ -364,7 +385,7 @@ describe('Workspace management', () => {
       // Cancel means cancel, for both halves: neither is sent, and neither is
       // still in the form when it is opened again.
       const user = userEvent.setup();
-      const { saved } = showPage({ succeeds: true });
+      const { saved } = showWindow({ succeeds: true });
 
       fireEvent.doubleClick(await rowFor('Work'));
       await user.type(await screen.findByLabelText('Name of Work'), 'ing');
@@ -390,7 +411,7 @@ describe('Workspace management', () => {
         Promise.resolve({
           workspaces: [{ ...workspace, color: '#123456', bar: '#eee', ground: '#fff', header: '#ddd' }],
         });
-      const { saved } = showPage({ succeeds: true });
+      const { saved } = showWindow({ succeeds: true });
 
       fireEvent.doubleClick(await rowFor('Work'));
       const box = await screen.findByLabelText('Name of Work');
@@ -405,7 +426,7 @@ describe('Workspace management', () => {
       // The one case where closing would throw work away: what was typed is
       // still there to be corrected.
       const user = userEvent.setup();
-      showPage({
+      showWindow({
         succeeds: true,
         refusesTheForm: new CommandRefused(409, 'a workspace called Personal already exists'),
       });
@@ -465,7 +486,7 @@ describe('Workspace management', () => {
     ])('$situation', async ({ row, entry, moved, asks }) => {
       showThree();
       const user = userEvent.setup();
-      const { mutate } = showPage({ succeeds: true });
+      const { mutate } = showWindow({ succeeds: true });
 
       await choose(user, row, entry);
 
@@ -487,7 +508,7 @@ describe('Workspace management', () => {
       // a control that was there a moment ago.
       showThree();
       const user = userEvent.setup();
-      const { mutate } = showPage({ succeeds: true });
+      const { mutate } = showWindow({ succeeds: true });
 
       await user.click(await screen.findByRole('button', { name: `Actions for ${row}` }));
       const unavailable = await screen.findByRole('menuitem', { name: `${entry}: ${says}` });
@@ -504,7 +525,7 @@ describe('Workspace management', () => {
       // *before* it and would undo it.
       showThree();
       const user = userEvent.setup();
-      const { mutate } = showPage({ succeeds: true });
+      const { mutate } = showWindow({ succeeds: true });
       expect(await onScreen()).toEqual(['Work', 'Atlas', 'Personal']);
 
       await choose(user, 'Personal', 'Move up');
@@ -526,7 +547,7 @@ describe('Workspace management', () => {
     ])('$situation', async ({ items, asks }) => {
       held.items = Array.from({ length: items }, (_, i) => ({ id: `item-${i}` }));
       const user = userEvent.setup();
-      const { mutate } = showPage({ succeeds: true });
+      const { mutate } = showWindow({ succeeds: true });
 
       await choose(user, 'Work', 'Delete');
 
@@ -541,7 +562,7 @@ describe('Workspace management', () => {
     ])('sends nothing when the question is $situation', async ({ answer }) => {
       held.items = [{ id: 'item-0' }];
       const user = userEvent.setup();
-      const { mutate } = showPage({ succeeds: true });
+      const { mutate } = showWindow({ succeeds: true });
 
       await choose(user, 'Work', 'Delete');
       await screen.findByText('Delete Work and hide its 1 item?');
@@ -561,7 +582,7 @@ describe('Workspace management', () => {
       // not yet a question anybody can answer.
       held.answer = () => new Promise(() => {});
       const user = userEvent.setup();
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       await choose(user, 'Work', 'Delete');
 
@@ -573,7 +594,7 @@ describe('Workspace management', () => {
       // A count that failed is not a reason to trap someone in the dialog.
       held.answer = () => Promise.reject(new TypeError('Failed to fetch'));
       const user = userEvent.setup();
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       await choose(user, 'Work', 'Delete');
 
@@ -585,7 +606,7 @@ describe('Workspace management', () => {
     it('asks for the workspace to be deleted when the question is answered yes', async () => {
       held.items = [];
       const user = userEvent.setup();
-      const { mutate } = showPage({ succeeds: true });
+      const { mutate } = showWindow({ succeeds: true });
 
       await choose(user, 'Work', 'Delete');
       await user.click(await screen.findByRole('button', { name: 'Yes, delete Work' }));
@@ -622,7 +643,7 @@ describe('Workspace management', () => {
       '$situation',
       async ({ error, about, says }) => {
         const user = userEvent.setup();
-        const { box } = showPage({ succeeds: false, error, about });
+        const { box } = showWindow({ succeeds: false, error, about });
 
         await user.type(box, 'Work');
         await user.click(newWorkspaceButton());
@@ -638,7 +659,7 @@ describe('Workspace management', () => {
       // make a refusal look like a delete that had worked.
       held.items = [];
       const user = userEvent.setup();
-      showPage({
+      showWindow({
         succeeds: false,
         error: new CommandRefused(404, 'that workspace is not there'),
         about: {
@@ -662,7 +683,7 @@ describe('Workspace management', () => {
       // having missed rather than having been refused.
       showThree();
       const user = userEvent.setup();
-      showPage({
+      showWindow({
         succeeds: false,
         error: new CommandRefused(409, 'the workspaces changed while they were being put in order'),
         about: {
@@ -699,7 +720,7 @@ describe('Workspace management', () => {
           : Promise.reject(new TypeError('Failed to fetch'));
       };
       const user = userEvent.setup();
-      showPage({
+      showWindow({
         succeeds: false,
         error: new Error('Failed to fetch'),
         about: {
@@ -729,7 +750,7 @@ describe('Workspace management', () => {
       // Only asking the server settles it.
       showThree();
       const user = userEvent.setup();
-      const { refuseEverythingSent } = showPage({
+      const { refuseEverythingSent } = showWindow({
         succeeds: false,
         answersLater: true,
         error: new CommandRefused(409, 'the workspaces changed while they were being put in order'),
@@ -755,9 +776,59 @@ describe('Workspace management', () => {
 
   });
 
+  describe('deleting the workspace you are looking at moves the screen behind on', () => {
+    it('goes somewhere that works when it was the one in the address', async () => {
+      // The list is a window over the workspace now, so deleting the one behind
+      // it leaves you looking at a workspace that is not there any more - the
+      // tabs lose it, the dashboards empty, and closing the window puts you on
+      // nothing. Where the app lands is the router's decision (router.tsx,
+      // `somewhereThatWorks`), which is why this asks for the address and not a
+      // particular workspace.
+      lookingAt.workspaceId = 'ws-work';
+      held.items = [];
+      const user = userEvent.setup();
+      showWindow({ succeeds: true });
+
+      await choose(user, 'Work', 'Delete');
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Work' }));
+
+      await expect.poll(() => wentTo.calls).toEqual([{ to: '/' }]);
+    });
+
+    it('goes somewhere that works when it was the last one, from a screen naming none', async () => {
+      // Capture is under the shell in no workspace, so nothing in the address
+      // matches the row being deleted - and the account is empty afterwards,
+      // with nothing left to capture from. Left there, every press on that
+      // screen is swallowed and the header has no tab to leave by.
+      lookingAt.workspaceId = undefined;
+      held.items = [];
+      const user = userEvent.setup();
+      showWindow({ succeeds: true });
+
+      await choose(user, 'Work', 'Delete');
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Work' }));
+
+      await expect.poll(() => wentTo.calls).toEqual([{ to: '/' }]);
+    });
+
+    it('leaves the screen where it is when it was any other workspace', async () => {
+      // Three of them, so the one deleted is neither the one behind the
+      // window nor the last the account has.
+      showThree();
+      held.items = [];
+      const user = userEvent.setup();
+      showWindow({ succeeds: true });
+
+      await choose(user, 'Work', 'Delete');
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Work' }));
+
+      expect(wentTo.calls).toEqual([]);
+    });
+  });
+
   describe('the workspaces you have are listed', () => {
     it('shows each one by name', async () => {
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       expect(await screen.findByText(workspace.name)).toBeVisible();
     });
@@ -769,7 +840,7 @@ describe('Workspace management', () => {
     it('says what went wrong when the list could not be read', async () => {
       list.answer = () => Promise.reject(new TypeError('Failed to fetch'));
 
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       expect(await screen.findByRole('alert')).toHaveTextContent("Cockpit can't be reached");
       // The lie this rule exists to stop: an account whose list did not arrive
@@ -784,7 +855,7 @@ describe('Workspace management', () => {
       // lasted. An answer has to have arrived before either message is true.
       list.answer = () => new Promise(() => {});
 
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       expect(screen.queryByText(/No workspaces yet/)).not.toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -793,7 +864,7 @@ describe('Workspace management', () => {
     it('says there are none when the list arrived and was empty', async () => {
       list.answer = () => Promise.resolve({ workspaces: [] });
 
-      showPage({ succeeds: true });
+      showWindow({ succeeds: true });
 
       expect(await screen.findByText(/No workspaces yet/)).toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();

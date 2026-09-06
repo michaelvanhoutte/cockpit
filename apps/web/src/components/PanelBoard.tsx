@@ -41,9 +41,11 @@ import { PANEL_GAP, PanelCard } from './PanelCard';
  * a panel made wider pushed the next one onto a line of its own. Rows write the
  * decision down instead.
  *
- * **Reordering happens here, not on a settings page**, and that is deliberate
- * rather than an inconsistency with workspaces and dashboards: dragging *is*
- * the editing, so it has to happen where the thing being edited is drawn.
+ * **Reordering happens here, on the dashboard itself**, and that is deliberate
+ * rather than an inconsistency with workspaces and dashboards, which are
+ * reordered in a window opened from a menu: dragging *is* the editing, so it
+ * has to happen where the thing being edited is drawn. The issue says so in as
+ * many words.
  *
  * **One `useCommand` for the whole board** rather than one per control, so a
  * refusal can only belong to the last thing asked for - and `variables` says
