@@ -1,5 +1,5 @@
-import { DEFAULT_PANEL_SIZE } from '@cockpit/shared';
-import type { AddPanelCommand, Panel, PlacementInput, SaveLayoutCommand } from '@cockpit/shared';
+import { DEFAULT_CELL_SPAN } from '@cockpit/shared';
+import type { AddPanelCommand, Panel, RowInput, SaveLayoutCommand } from '@cockpit/shared';
 import { foldName, namedTheSame } from './names.js';
 
 /**
@@ -9,7 +9,8 @@ import { foldName, namedTheSame } from './names.js';
  *
  * A panel is a titled box on one dashboard ("Panels on a dashboard, with
  * per-screen-size layouts", issue 33). A layout is one arrangement of that
- * dashboard's panels, and a placement is where one panel sits in one layout.
+ * dashboard's panels: a list of rows, each holding the panels across it ("Rows
+ * of panels, not a grid that wraps").
  */
 
 /**
@@ -66,76 +67,94 @@ export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelR
   };
 }
 
+/** One Panel's place in a layout: which row, where along it, and its share of it. */
 export interface PlacementRow {
   tenantId: string;
   layoutId: string;
   panelId: string;
+  rowIndex: number;
   position: number;
-  columnSpan: number;
-  rowSpan: number;
+  span: number;
+}
+
+/** One row of a layout, and how tall it is - null being "as tall as what is in it". */
+export interface LayoutRowRow {
+  tenantId: string;
+  layoutId: string;
+  rowIndex: number;
+  height: number | null;
 }
 
 /**
- * The rows one layout's arrangement becomes: the list's own order written down
- * as `position`, because nothing else carries it.
+ * The rows and the placements one arrangement becomes.
  *
- * The index is used as written rather than renumbered from what was there
+ * **Both orders are written down rather than inferred**, because there are two:
+ * `rowIndex` says which row, `position` says where along it. The old shape had
+ * one flat `position` and let CSS decide where the lines fell, which is exactly
+ * what rows exist to stop.
+ *
+ * The indexes are used as written rather than renumbered from what was there
  * before, so an arrangement is always a whole answer and never a patch on one -
  * which is what makes saving the same layout twice land on the same rows.
  */
-export function placementRows(
+export function arrangementRows(
   tenantId: string,
   layoutId: string,
-  placements: readonly PlacementInput[],
-): PlacementRow[] {
-  return placements.map((placement, position) => ({
-    tenantId,
-    layoutId,
-    panelId: placement.panelId,
-    position,
-    columnSpan: placement.columns,
-    rowSpan: placement.rows,
-  }));
+  rows: readonly RowInput[],
+): { rows: LayoutRowRow[]; placements: PlacementRow[] } {
+  const placements: PlacementRow[] = [];
+  rows.forEach((row, rowIndex) => {
+    row.cells.forEach((cell, position) => {
+      placements.push({
+        tenantId,
+        layoutId,
+        panelId: cell.panelId,
+        rowIndex,
+        position,
+        span: cell.span,
+      });
+    });
+  });
+  return {
+    rows: rows.map((row, rowIndex) => ({ tenantId, layoutId, rowIndex, height: row.height })),
+    placements,
+  };
 }
 
 /**
- * The values one placement row binds, which is what decides how many of them
- * fit in a statement (`inBatchesOf`). Counted from `PlacementRow` above; a
+ * The values one row of each kind binds, which is what decides how many of them
+ * fit in a statement (`inBatchesOf`). Counted from the interfaces above; a
  * column added there is a value added here.
  */
 export const PLACEMENT_VALUES_PER_ROW = 6;
+export const LAYOUT_ROW_VALUES_PER_ROW = 4;
 
 /**
- * Where a newly added panel goes in a layout that already exists: last, at the
- * size of the panel already last in it.
+ * Where a newly added panel goes in a layout that already exists: in a row of
+ * its own, under everything already there.
  *
- * Copying rather than defaulting is what keeps a phone layout a phone layout. A
- * layout made at 480px has its panels a full twelve columns across, and a new
- * panel handed the default third of the grid would be 160px wide on the screen
- * it was supposed to fit - visibly wrong, and wrong in the layout you were not
- * looking at when you added it. With nothing to copy the default is the only
- * answer there is.
+ * **A row of its own rather than beside the last panel**, which is what the old
+ * shape did by appending to a flat list. A row is a decision about what belongs
+ * side by side, and nothing about adding a panel says it belongs beside any
+ * particular one - so it gets a line, full width, where it is impossible to
+ * miss and one drag from anywhere else. It also keeps a phone layout a phone
+ * layout without having to copy anything: one panel across is what a row of one
+ * *is*.
  */
 export function appendedPlacement(
   tenantId: string,
   layoutId: string,
   panelId: string,
-  existing: readonly PlacementRow[],
-): PlacementRow {
-  const last = existing.at(-1);
+  existingRows: readonly LayoutRowRow[],
+): { row: LayoutRowRow; placement: PlacementRow } {
+  // Past the end of what is there. One past the last *index* rather than the
+  // count, because the two part company the moment a row is removed: an
+  // arrangement is written whole, but a layout read back mid-change need not
+  // have contiguous indexes, and counting would collide with a row that exists.
+  const rowIndex = (existingRows.at(-1)?.rowIndex ?? -1) + 1;
   return {
-    tenantId,
-    layoutId,
-    panelId,
-    // Past the end of what is there, so it is drawn last. One past the last
-    // *position* rather than the count of rows, because the two part company
-    // the moment a panel is deleted: deleting one removes its placement without
-    // renumbering the survivors, so five panels minus two leaves three rows
-    // holding positions 0, 3 and 4 - and counting would put the newcomer at 3,
-    // beside a panel already there rather than after all of them.
-    position: (last?.position ?? -1) + 1,
-    columnSpan: last?.columnSpan ?? DEFAULT_PANEL_SIZE.columns,
-    rowSpan: last?.rowSpan ?? DEFAULT_PANEL_SIZE.rows,
+    row: { tenantId, layoutId, rowIndex, height: null },
+    placement: { tenantId, layoutId, panelId, rowIndex, position: 0, span: DEFAULT_CELL_SPAN },
   };
 }
 
@@ -153,5 +172,7 @@ export function panelsNotOn(
   cmd: SaveLayoutCommand,
 ): string[] {
   const known = new Set(live.map((panel) => panel.id));
-  return cmd.placements.map((p) => p.panelId).filter((panelId) => !known.has(panelId));
+  return cmd.rows
+    .flatMap((row) => row.cells.map((cell) => cell.panelId))
+    .filter((panelId) => !known.has(panelId));
 }

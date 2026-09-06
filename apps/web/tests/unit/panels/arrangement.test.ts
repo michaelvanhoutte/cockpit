@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { Layout, Panel, PanelPlacement } from '@cockpit/shared';
+import type { Layout, LayoutCell, LayoutRow, Panel } from '@cockpit/shared';
 import {
-  drawnArrangement,
-  fittedToScreen,
+  drawnRows,
   freeName,
   layoutLabel,
   layoutToDraw,
-  nameForScreen,
-  movedBefore,
+  movedBeside,
   movedBy,
-  panelsAcross,
-  resizedTo,
-  sameArrangement,
+  movedToOwnRow,
+  nameForScreen,
+  sharesOf,
 } from '../../../src/panels/arrangement';
 
 /**
@@ -24,21 +22,30 @@ import {
 function aLayout(
   id: string,
   screenWidth: number,
-  placements: PanelPlacement[] = [],
+  rows: LayoutRow[] = [],
   name = id,
 ): Layout {
-  return { id, tenantId: 'tenant', dashboardId: 'today', name, screenWidth, placements };
+  return { id, tenantId: 'tenant', dashboardId: 'today', name, screenWidth, rows };
+}
+
+function cell(panelId: string, span: number): LayoutCell {
+  return { panelId, span };
+}
+
+function aRow(cells: LayoutCell[], height: number | null = null): LayoutRow {
+  return { height, cells };
+}
+
+/** An arrangement as the panels on each line, which is what most of these are about. */
+function idsOf(rows: readonly LayoutRow[]): string[][] {
+  return rows.map((row) => row.cells.map((one) => one.panelId));
 }
 
 function aPanel(id: string): Panel {
   return { id, tenantId: 'tenant', dashboardId: 'today', name: id };
 }
 
-function at(panelId: string, columns: number, rows: number): PanelPlacement {
-  return { panelId, columns, rows };
-}
-
-describe('Panels', () => {
+describe('Layouts', () => {
   describe('a dashboard is drawn with the layout closest to the screen it is on, or the one you chose', () => {
     const phone = aLayout('phone', 480);
     const laptop = aLayout('laptop', 1280);
@@ -71,119 +78,261 @@ describe('Panels', () => {
 
   });
 
-  describe('rearranging for the screen keeps the order and fills the rows across it', () => {
+  describe('a row’s panels divide it in proportion to their spans', () => {
     it.each([
-      { situation: 'a phone', screenWidth: 480, across: 1, columns: 12 },
-      { situation: 'a small laptop', screenWidth: 1024, across: 2, columns: 6 },
-      { situation: 'a laptop', screenWidth: 1280, across: 3, columns: 4 },
-      { situation: 'a 4K screen', screenWidth: 2560, across: 4, columns: 3 },
-      // Narrower than one comfortable panel: one across is the floor, because
-      // half a panel is not a panel.
-      { situation: 'a screen narrower than one panel', screenWidth: 320, across: 1, columns: 12 },
-    ])('puts $across across on $situation', ({ screenWidth, across, columns }) => {
-      expect(panelsAcross(screenWidth)).toBe(across);
-
-      const fitted = fittedToScreen([at('a', 1, 3), at('b', 12, 5)], screenWidth);
-
-      // The order is kept - that is the issue's own wording - and only the
-      // width moves: a panel somebody made tall stays tall.
-      expect(fitted).toEqual([at('a', columns, 3), at('b', columns, 5)]);
+      { situation: 'two equal cells', spans: [6, 6], shares: [0.5, 0.5] },
+      { situation: 'one twice the other', spans: [8, 4], shares: [2 / 3, 1 / 3] },
+      // Spans are proportions, so what they add up to is not a rule: these two
+      // divide the row exactly as 6 and 6 do.
+      { situation: 'spans that add up to nothing in particular', spans: [1, 1], shares: [0.5, 0.5] },
+      { situation: 'a row of one, whatever its span', spans: [4], shares: [1] },
+      { situation: 'three unequal', spans: [6, 3, 3], shares: [0.5, 0.25, 0.25] },
+      // A stored arrangement should be drawn, not throw: dividing by nothing is
+      // the one way this arithmetic could fail.
+      { situation: 'spans stored as nonsense', spans: [0, 0], shares: [0.5, 0.5] },
+    ])('$situation', ({ spans, shares }) => {
+      expect(sharesOf(aRow(spans.map((span, at) => cell(`p${at}`, span))))).toEqual(shares);
     });
   });
 
   describe('the dashboard draws every panel it has, and only the panels it has', () => {
-    it('draws the layout’s own arrangement when it holds every panel', () => {
-      const layout = aLayout('laptop', 1280, [at('b', 8, 2), at('a', 4, 5)]);
+    it('draws the layout’s own rows when they hold every panel', () => {
+      const layout = aLayout('laptop', 1280, [
+        aRow([cell('falcon', 8), cell('anna', 4)], 300),
+        aRow([cell('reading', 12)]),
+      ]);
 
-      expect(drawnArrangement(layout, [aPanel('a'), aPanel('b')], 1280)).toEqual([
-        at('b', 8, 2),
-        at('a', 4, 5),
+      expect(drawnRows(layout, [aPanel('falcon'), aPanel('anna'), aPanel('reading')], 1280)).toEqual([
+        { height: 300, cells: [cell('falcon', 8), cell('anna', 4)] },
+        { height: null, cells: [cell('reading', 12)] },
       ]);
     });
 
-    it('appends a panel the layout has never heard of, at the size of what is last', () => {
+    it('gives a panel the layout has never heard of a row of its own', () => {
       // A panel added in another tab, against a layout saved before it existed.
-      // Dropping it would hide something a person made.
-      const layout = aLayout('phone', 480, [at('a', 12, 4)]);
+      // Dropping it would hide something a person made; putting it beside
+      // something would be a decision nobody took.
+      const layout = aLayout('phone', 480, [aRow([cell('a', 12)])]);
 
-      expect(drawnArrangement(layout, [aPanel('a'), aPanel('new')], 480)).toEqual([
-        at('a', 12, 4),
-        at('new', 12, 4),
+      expect(drawnRows(layout, [aPanel('a'), aPanel('new')], 480)).toEqual([
+        { height: null, cells: [cell('a', 12)] },
+        { height: null, cells: [cell('new', 12)] },
       ]);
     });
 
     it('leaves out a panel the layout still names but nothing has any more', () => {
-      const layout = aLayout('laptop', 1280, [at('a', 4, 3), at('gone', 4, 3)]);
+      const layout = aLayout('laptop', 1280, [aRow([cell('a', 6), cell('gone', 6)])]);
 
-      expect(drawnArrangement(layout, [aPanel('a')], 1280)).toEqual([at('a', 4, 3)]);
+      expect(drawnRows(layout, [aPanel('a')], 1280)).toEqual([
+        { height: null, cells: [cell('a', 6)] },
+      ]);
     });
 
-    it('clamps a stored place the grid could not draw, rather than refusing to draw at all', () => {
-      const layout = aLayout('laptop', 1280, [at('a', 99, 0), at('b', -3, 4.6)]);
+    it('drops a row whose last panel is gone, rather than drawing a blank line', () => {
+      const layout = aLayout('laptop', 1280, [
+        aRow([cell('a', 12)]),
+        aRow([cell('gone', 12)], 300),
+        aRow([cell('b', 12)]),
+      ]);
 
-      expect(drawnArrangement(layout, [aPanel('a'), aPanel('b')], 1280)).toEqual([
-        at('a', 12, 1),
-        at('b', 1, 5),
+      expect(drawnRows(layout, [aPanel('a'), aPanel('b')], 1280)).toEqual([
+        { height: null, cells: [cell('a', 12)] },
+        { height: null, cells: [cell('b', 12)] },
       ]);
     });
 
     it.each([
-      { situation: 'a dashboard with no layout at all', panels: ['a', 'b'], drawn: [at('a', 4, 3), at('b', 4, 3)] },
-      { situation: 'a dashboard with nothing on it', panels: [], drawn: [] },
-    ])('$situation is arranged for the screen it is on', ({ panels, drawn }) => {
-      // The same arrangement fitting it to this screen gives, deliberately:
-      // pressing it on a fresh dashboard should not appear to do nothing.
-      expect(drawnArrangement(null, panels.map(aPanel), 1280)).toEqual(drawn);
+      {
+        situation: 'a laptop, three across',
+        screenWidth: 1280,
+        panels: ['a', 'b', 'c', 'd'],
+        rows: [['a', 'b', 'c'], ['d']],
+      },
+      { situation: 'a phone, one across', screenWidth: 480, panels: ['a', 'b'], rows: [['a'], ['b']] },
+      { situation: 'a dashboard with nothing on it', screenWidth: 1280, panels: [], rows: [] },
+    ])('arranges a dashboard with no layout for the screen it is on: $situation', ({
+      screenWidth,
+      panels,
+      rows,
+    }) => {
+      // The one place the old wrapping rule survives, and it belongs there:
+      // before anybody has arranged a dashboard, how many fit at a size worth
+      // reading is the only answer available.
+      expect(drawnRows(null, panels.map(aPanel), screenWidth)).toEqual(
+        rows.map((row) => ({ height: null, cells: row.map((id) => cell(id, 12)) })),
+      );
     });
   });
 
-  describe('moving a panel puts it one place along, or where it was dropped', () => {
-    const three = [at('a', 4, 3), at('b', 4, 3), at('c', 4, 3)];
+  describe('a panel dropped beside another joins that one’s row', () => {
+    const two = [aRow([cell('a', 6), cell('b', 6)]), aRow([cell('c', 12)])];
 
     it.each([
-      { situation: 'one place earlier', panelId: 'b', places: -1, order: ['b', 'a', 'c'] },
-      { situation: 'one place later', panelId: 'b', places: 1, order: ['a', 'c', 'b'] },
-      { situation: 'earlier from the front', panelId: 'a', places: -1, order: ['a', 'b', 'c'] },
-      { situation: 'later from the back', panelId: 'c', places: 1, order: ['a', 'b', 'c'] },
-      { situation: 'a panel that is not there', panelId: 'z', places: -1, order: ['a', 'b', 'c'] },
-    ])('$situation', ({ panelId, places, order }) => {
-      expect(movedBy(three, panelId, places).map((p) => p.panelId)).toEqual(order);
+      { situation: 'before it', side: 'before' as const, order: [['c', 'a', 'b']] },
+      { situation: 'after it', side: 'after' as const, order: [['a', 'c', 'b']] },
+    ])('dropped $situation, and the row it left goes with it', ({ side, order }) => {
+      expect(idsOf(movedBeside(two, 'c', 'a', side))).toEqual(order);
+    });
+
+    it('shares the row it joins out evenly, so nothing has to explain the proportions', () => {
+      const uneven = [aRow([cell('a', 9), cell('b', 3)]), aRow([cell('c', 12)])];
+
+      expect(movedBeside(uneven, 'c', 'a', 'after')[0]!.cells).toEqual([
+        cell('a', 12),
+        cell('c', 12),
+        cell('b', 12),
+      ]);
+    });
+
+    it('keeps the proportions when the move is along the row it was already on', () => {
+      // Evening out is what a row does when *who is on it* changes. A reorder
+      // changes nothing about that, so flattening a row somebody set to 9 and 3
+      // would throw their proportions away from a gesture that only swapped two
+      // panels over.
+      const uneven = [aRow([cell('a', 9), cell('b', 3)])];
+
+      expect(movedBeside(uneven, 'b', 'a', 'before')[0]!.cells).toEqual([
+        cell('b', 3),
+        cell('a', 9),
+      ]);
+    });
+
+    it('keeps the row it left when something else is still on it', () => {
+      const three = [aRow([cell('a', 6), cell('b', 6)]), aRow([cell('c', 6), cell('d', 6)])];
+
+      expect(idsOf(movedBeside(three, 'c', 'a', 'before'))).toEqual([['c', 'a', 'b'], ['d']]);
     });
 
     it.each([
-      { situation: 'onto one behind it', panelId: 'a', onto: 'c', order: ['b', 'a', 'c'] },
-      { situation: 'onto one in front of it', panelId: 'c', onto: 'a', order: ['c', 'a', 'b'] },
-      { situation: 'onto itself', panelId: 'b', onto: 'b', order: ['a', 'b', 'c'] },
-      { situation: 'onto one that is not there', panelId: 'b', onto: 'z', order: ['a', 'b', 'c'] },
-    ])('dropped $situation', ({ panelId, onto, order }) => {
-      // Dragging left to right is the case that lands one place short if the
-      // target's index is read before the panel is taken out of the list.
-      expect(movedBefore(three, panelId, onto).map((p) => p.panelId)).toEqual(order);
+      { situation: 'onto itself', panelId: 'a', beside: 'a' },
+      { situation: 'onto one that is not there', panelId: 'a', beside: 'nobody' },
+      { situation: 'a panel that is not there', panelId: 'nobody', beside: 'a' },
+    ])('leaves everything where it was when dropped $situation', ({ panelId, beside }) => {
+      expect(movedBeside(two, panelId, beside, 'after')).toEqual(two);
+    });
+
+    it('refuses a fifth panel on a row, and says so by changing nothing', () => {
+      // Four across is where a panel stops being a box you read. It is the
+      // gestures that hold that line, not the store.
+      const full = [
+        aRow([cell('a', 3), cell('b', 3), cell('c', 3), cell('d', 3)]),
+        aRow([cell('e', 12)]),
+      ];
+
+      expect(movedBeside(full, 'e', 'a', 'after')).toEqual(full);
+    });
+
+    it('lets a panel move within a row that is already full', () => {
+      // The row is full, but nothing is joining it: this is a reorder, and
+      // refusing it would make a full row one you cannot rearrange.
+      const full = [aRow([cell('a', 3), cell('b', 3), cell('c', 3), cell('d', 3)])];
+
+      expect(idsOf(movedBeside(full, 'd', 'a', 'before'))).toEqual([['d', 'a', 'b', 'c']]);
     });
   });
 
-  describe('resizing a panel stops at the edges of the grid rather than refusing', () => {
+  describe('a panel dropped in the gap between two rows gets a row of its own', () => {
+    const three = [aRow([cell('a', 12)]), aRow([cell('b', 12)]), aRow([cell('c', 12)])];
+
     it.each([
-      { situation: 'wider', size: { columns: 5 }, ends: at('a', 5, 3) },
-      { situation: 'wider than the grid', size: { columns: 30 }, ends: at('a', 12, 3) },
-      { situation: 'narrower than one column', size: { columns: 0 }, ends: at('a', 1, 3) },
-      { situation: 'taller than any screen', size: { rows: 40 }, ends: at('a', 4, 8) },
-      { situation: 'shorter than one row', size: { rows: -2 }, ends: at('a', 4, 1) },
-    ])('$situation', ({ size, ends }) => {
-      expect(resizedTo([at('a', 4, 3), at('b', 4, 3)], 'a', size)).toEqual([ends, at('b', 4, 3)]);
+      { situation: 'above everything', at: 0, order: [['c'], ['a'], ['b']] },
+      { situation: 'between the first two', at: 1, order: [['a'], ['c'], ['b']] },
+      { situation: 'below everything', at: 3, order: [['a'], ['b'], ['c']] },
+    ])('dropped $situation', ({ at, order }) => {
+      expect(idsOf(movedToOwnRow(three, 'c', at))).toEqual(order);
+    });
+
+    it('lands where the pointer is when the panel is dragged down past its own row', () => {
+      // Taking the panel out drops the row it was alone on, which moves every
+      // gap below it up one. Without allowing for that, a panel dragged down
+      // lands one row short of where it was let go - and a drop target is
+      // exactly where that would go unnoticed.
+      expect(idsOf(movedToOwnRow(three, 'a', 2))).toEqual([['b'], ['a'], ['c']]);
+    });
+
+    it('takes a panel out of a shared row onto a line of its own', () => {
+      const shared = [aRow([cell('a', 6), cell('b', 6)]), aRow([cell('c', 12)])];
+
+      expect(idsOf(movedToOwnRow(shared, 'b', 2))).toEqual([['a'], ['c'], ['b']]);
+    });
+
+    it('changes nothing when it already has that line to itself', () => {
+      expect(movedToOwnRow(three, 'b', 1)).toEqual(three);
     });
   });
 
-  describe('an arrangement that says the same thing as the one on screen is not a change', () => {
+  describe('moving from the panel’s own menu is the move a drag makes, without a pointer', () => {
     it.each([
-      { situation: 'nothing moved', other: [at('a', 4, 3), at('b', 4, 3)], same: true },
-      { situation: 'one panel is wider', other: [at('a', 5, 3), at('b', 4, 3)], same: false },
-      { situation: 'two panels swapped', other: [at('b', 4, 3), at('a', 4, 3)], same: false },
-      { situation: 'a panel was added', other: [at('a', 4, 3), at('b', 4, 3), at('c', 4, 3)], same: false },
-    ])('$situation', ({ other, same }) => {
-      expect(sameArrangement([at('a', 4, 3), at('b', 4, 3)], other)).toBe(same);
+      {
+        situation: 'left along its row',
+        rows: [[['a', 'b']], [['c']]],
+        panelId: 'b',
+        places: -1,
+        order: [['b', 'a'], ['c']],
+      },
+      {
+        situation: 'right along its row',
+        rows: [[['a', 'b']], [['c']]],
+        panelId: 'a',
+        places: 1,
+        order: [['b', 'a'], ['c']],
+      },
+      {
+        situation: 'left off the front of its row, onto a line above',
+        rows: [[['a', 'b']]],
+        panelId: 'a',
+        places: -1,
+        order: [['a'], ['b']],
+      },
+      {
+        situation: 'right off the end of its row, onto a line below',
+        rows: [[['a', 'b']]],
+        panelId: 'b',
+        places: 1,
+        order: [['a'], ['b']],
+      },
+      {
+        situation: 'up, from a row it already has to itself',
+        rows: [[['a']], [['b']]],
+        panelId: 'b',
+        places: -1,
+        order: [['b'], ['a']],
+      },
+      {
+        situation: 'down, from a row it already has to itself',
+        rows: [[['a']], [['b']]],
+        panelId: 'a',
+        places: 1,
+        order: [['b'], ['a']],
+      },
+      {
+        situation: 'up from the very top, which is nowhere',
+        rows: [[['a']], [['b']]],
+        panelId: 'a',
+        places: -1,
+        order: [['a'], ['b']],
+      },
+      {
+        situation: 'down from the very bottom, which is nowhere',
+        rows: [[['a']], [['b']]],
+        panelId: 'b',
+        places: 1,
+        order: [['a'], ['b']],
+      },
+      {
+        situation: 'a panel that is not there',
+        rows: [[['a']]],
+        panelId: 'nobody',
+        places: 1,
+        order: [['a']],
+      },
+    ])('$situation', ({ rows, panelId, places, order }) => {
+      const arrangement = rows.map(([ids]) => aRow(ids!.map((id) => cell(id, 12))));
+
+      expect(idsOf(movedBy(arrangement, panelId, places))).toEqual(order);
     });
   });
+
 
   describe('a layout is known by its name, and by the width it was made for where it has none', () => {
     it.each([

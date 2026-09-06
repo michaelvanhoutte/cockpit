@@ -1,29 +1,38 @@
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { ACCOUNT_WIDE, uuidv7, type ItemType } from '@cockpit/shared';
+import { uuidv7 } from '@cockpit/shared';
 import { CommandRefused } from './api/client';
-import { itemTypesQuery, useCommand, useSendCommand } from './api/queries';
-import { typeNamed } from './itemTypes';
+import { useCommand } from './api/queries';
 
 /**
- * Capturing a note, making the type first where the name matches none - the
- * one piece of choreography behind every front door in the app.
+ * Capturing a note - the one piece of choreography behind every front door in
+ * the app.
  *
  * **Here rather than in either surface that runs it**, because there are two:
  * the Inbox's own row (components/CaptureForm.tsx) and the Capture page
  * (pages/CapturePage.tsx). They ask the question differently - one line and a
- * list against a page of chips - and the answer they send has to be the same
- * one, or the two disagree about what naming a type does.
+ * dropdown against a page of chips - and the answer they send has to be the
+ * same one.
+ *
+ * **It used to make the type first**, where the name typed matched none of the
+ * account's, and that was the only way a type came into existence. Types are
+ * now made in the window they are managed in ("Make a type where types are
+ * managed, not while capturing", issue 203), so capture chooses among the types
+ * there are and nothing else: what arrives here is a type's id, or none.
  */
 
 /** What is being captured, once the surface has read it off the screen. */
 export interface WhatToCapture {
   /** The note, already trimmed and known not to be empty. */
   message: string;
-  /** The type it was given, by name. Empty for none. */
-  typeName: string;
-  /** The types the account holds, which is what a name is matched against. */
-  types: readonly ItemType[];
+  /**
+   * The type it was given, or undefined for none.
+   *
+   * An id rather than a name, which is what changed when capture stopped making
+   * types: a name was an answer that might not name anything yet, and this
+   * cannot be. The surface is what checks it against the types it is showing,
+   * so one deleted in another tab arrives here as undefined rather than as an
+   * id the server would refuse.
+   */
+  typeId: string | undefined;
   /** The workspace it is captured against - where it belongs, or came from. */
   workspaceId: string;
   /**
@@ -72,98 +81,45 @@ const wentWrong = (error: unknown) =>
   error instanceof CommandRefused ? error.message : 'That did not reach the server. Try again.';
 
 /**
- * `ask` captures; `busy` is true while either request is out, so a button can
- * say so.
- *
- * **The type is made and then looked up again rather than assumed.** The id
- * generated here is only used if this request is what created the type; where
- * another tab made one of that name first the store keeps its row and ignores
- * this one, so capturing against the id invented here would name something
- * nobody stored and be refused - and the note would be gone. Re-reading the
- * types is what turns that race into two people agreeing on one type.
+ * `ask` captures; `busy` is true while the request is out, so a button can say
+ * so.
  */
 export function useCapture(): {
   ask: (what: WhatToCapture, answers: CaptureAnswers) => void;
   busy: boolean;
 } {
   const command = useCommand();
-  const send = useSendCommand();
-  const queryClient = useQueryClient();
-  /** True while the type is being made, so the button says so like any other. */
-  const [makingTheType, setMakingTheType] = useState(false);
 
   const ask = (what: WhatToCapture, answers: CaptureAnswers) => {
-    const capture = (typeId: string | undefined) => {
-      answers.asking?.();
-      command.mutate(
-        {
-          name: 'capture_item',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            workspaceId: what.workspaceId,
-            itemId: uuidv7(),
-            message: what.message,
-            ...(typeId ? { typeId } : {}),
-            // Sent only when it is false, so every front door that captures
-            // into a named workspace reads exactly as it did before this
-            // landed.
-            ...(what.decided ? {} : { workspaceDecided: false }),
-          },
+    answers.asking?.();
+    command.mutate(
+      {
+        name: 'capture_item',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: what.workspaceId,
+          itemId: uuidv7(),
+          message: what.message,
+          ...(what.typeId ? { typeId: what.typeId } : {}),
+          // Sent only when it is false, so every front door that captures
+          // into a named workspace reads exactly as it did before this
+          // landed.
+          ...(what.decided ? {} : { workspaceDecided: false }),
         },
-        {
-          onSuccess: () => answers.captured?.(typeId),
-          /**
-           * **The note goes back in the box**, which is the other half of
-           * emptying it before the answer comes. A workspace deleted in
-           * another tab is enough to produce one, and the note used to go with
-           * it in silence.
-           */
-          onError: (error) => answers.refused(wentWrong(error)),
-        },
-      );
-    };
-
-    const wanted = what.typeName.trim();
-    const already = wanted ? typeNamed(what.types, wanted) : undefined;
-    if (!wanted || already) {
-      capture(already?.id);
-      return;
-    }
-
-    setMakingTheType(true);
-    void (async () => {
-      try {
-        await send({
-          name: 'create_item_type',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            // The account, not the workspace this was captured in: a type
-            // belongs to the account, and the live-updates handler reads that
-            // to know every workspace's types have changed. Sending the
-            // workspace here left every other tab's list stale until an
-            // unrelated refetch happened to catch it up.
-            workspaceId: ACCOUNT_WIDE,
-            typeId: uuidv7(),
-            name: wanted,
-          },
-        });
-        // Whichever request made it, this is the one type now going by that name.
-        const made = typeNamed(
-          (await queryClient.fetchQuery(itemTypesQuery)).itemTypes,
-          wanted,
-        );
-        capture(made?.id);
-      } catch (error) {
-        // The note stays in the box, so it can be captured again once the type
-        // is named something the server will take.
-        answers.refused(wentWrong(error));
-      } finally {
-        setMakingTheType(false);
-      }
-    })();
+      },
+      {
+        onSuccess: () => answers.captured?.(what.typeId),
+        /**
+         * **The note goes back in the box**, which is the other half of
+         * emptying it before the answer comes. A workspace deleted in another
+         * tab is enough to produce one, and the note used to go with it in
+         * silence.
+         */
+        onError: (error) => answers.refused(wentWrong(error)),
+      },
+    );
   };
 
-  return { ask, busy: command.isPending || makingTheType };
+  return { ask, busy: command.isPending };
 }

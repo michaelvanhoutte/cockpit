@@ -6,6 +6,7 @@ import {
   itemRow,
   openInbox,
   press,
+  switchTo,
   test,
   uniqueTitle,
 } from './support/app';
@@ -32,39 +33,6 @@ import type { Page } from '@playwright/test';
  */
 const CAPTURED_FROM = 'Work';
 const ELSEWHERE = 'Atlas Copco';
-
-/** The workspace tabs across the top, which is how another workspace is reached. */
-function workspaceTab(page: Page, name: string) {
-  return page.getByRole('navigation', { name: 'Workspaces' }).getByRole('link', { name });
-}
-
-/**
- * Switches workspace, and waits until the new one is really the one on screen.
- *
- * **The waiting is the point, and nothing else in this walk can do it.** The
- * note it follows is drawn in *every* workspace's Inbox until it is settled -
- * which is the rule under test - so "the note is in the Inbox" is true before
- * the switch as well as after, and cannot say the switch has happened. Without
- * this the walk pressed Move to this workspace on the workspace it had just
- * left: measured on CI, Atlas Copco's snapshot took 126ms to arrive and the
- * walk was seven milliseconds quicker, so the item was settled into the
- * workspace it was captured in and never left that Inbox.
- *
- * **It waits for the address to get deeper, not to change.** A tab's own
- * address is `/w/<id>`, and the router puts that in the bar before it does any
- * of the work - the failing run had `/w/ws-atlas` up a twentieth of a second
- * before the bad press. `/w/<id>` then redirects to the view the workspace was
- * last on, from a `beforeLoad` that awaits the workspace and its dashboards
- * (router.tsx), so a *deeper* address is the page saying it holds this
- * workspace's snapshot - which is the same snapshot the Inbox is drawn from.
- */
-async function switchTo(page: Page, name: string, isMobile: boolean): Promise<void> {
-  const tab = workspaceTab(page, name);
-  const workspace = await tab.getAttribute('href');
-  if (!workspace) throw new Error(`the tab for ${name} has no address to wait for`);
-  await press(tab, isMobile);
-  await page.waitForURL((url) => url.pathname.startsWith(`${workspace}/`));
-}
 
 /**
  * Goes to the capture page from the header and writes a note there, without

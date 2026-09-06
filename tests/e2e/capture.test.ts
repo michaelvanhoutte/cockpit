@@ -50,29 +50,20 @@ test.describe('Capture', () => {
 
       const thought = uniqueTitle('Maybe split the pricing page');
       await captureBox(page).fill(thought);
-      await kind.fill('Thought');
+      // Chosen from the types the account has, which is all this row offers -
+      // one is made in the window they are managed in ("Make a type where types
+      // are managed, not while capturing", issue 203), and that walk is
+      // tests/e2e/item-types.test.ts.
+      // One of the two every account starts with ("Call the two standard types
+      // Task and Note", issue 194) rather than a name this walk invents:
+      // capture chooses among the types there are.
+      await kind.selectOption({ label: 'Note' });
       await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
 
       // The word under the title, which is one of the two marks the type took
       // from the status ("Capture a thought or an action, and see which it
       // is", issue 155).
-      await expect(itemRow(page, thought).getByText('Thought')).toBeVisible();
-      await expectNoSidewaysScroll(page);
-    });
-
-    test('makes a type by naming one that is not there, and captures as it', async ({
-      page,
-      isMobile,
-    }) => {
-      await openInbox(page, isMobile);
-
-      const made = uniqueTitle('Kind');
-      const thought = uniqueTitle('Why is this slow?');
-      await captureBox(page).fill(thought);
-      await page.getByLabel('What kind of thing this is').fill(made);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
-
-      await expect(itemRow(page, thought).getByText(made)).toBeVisible();
+      await expect(itemRow(page, thought).getByText('Note')).toBeVisible();
       await expectNoSidewaysScroll(page);
     });
   });

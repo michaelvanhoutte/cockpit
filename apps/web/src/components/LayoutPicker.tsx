@@ -7,7 +7,7 @@ import { useCommand } from '../api/queries';
 import { browserStore } from '../lastVisited';
 import { AUTOMATIC, useChosenLayout } from '../panels/chosenLayout';
 import {
-  drawnArrangement,
+  drawnRows,
   freeName,
   layoutLabel,
   layoutToDraw,
@@ -141,13 +141,13 @@ export function LayoutPicker({
     if (!naming) return;
     const name = naming.name.trim();
     if (!name) return;
-    // The arrangement as it is *drawn*, not the one stored: `drawnArrangement`
+    // The arrangement as it is *drawn*, not the one stored: `drawnRows`
     // is what reconciles a layout against the panels beside it, dropping one it
     // still names that is no longer there and appending one it has never heard
     // of. Copying the stored list instead would make "from this one" a copy of
     // something nobody is looking at - and a placement naming a panel that has
     // gone is refused outright by the server.
-    const placements = drawnArrangement(drawnWith, panels, screenWidth);
+    const rows = drawnRows(drawnWith, panels, screenWidth);
     const layoutId = uuidv7();
     command.mutate(
       {
@@ -160,10 +160,9 @@ export function LayoutPicker({
           layoutId,
           name,
           screenWidth,
-          placements: placements.map((placement) => ({
-            panelId: placement.panelId,
-            columns: placement.columns,
-            rows: placement.rows,
+          rows: rows.map((row) => ({
+            height: row.height,
+            cells: row.cells.map((cell) => ({ panelId: cell.panelId, span: cell.span })),
           })),
         },
       },
