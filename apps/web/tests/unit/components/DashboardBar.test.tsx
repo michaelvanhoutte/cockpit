@@ -455,7 +455,7 @@ describe('Layouts', () => {
       dashboardId: OPEN,
       name,
       screenWidth,
-      placements: [{ panelId: 'falcon', columns: 4, rows: 3 }],
+      rows: [{ height: null, cells: [{ panelId: 'falcon', span: 12 }] }],
     };
   }
 
@@ -669,7 +669,9 @@ describe('Layouts', () => {
       expect(asked.name).toBe('save_layout');
       expect(asked.payload.screenWidth).toBe(1280);
       // A copy, which is what "from this one" means.
-      expect(asked.payload.placements).toEqual([{ panelId: 'falcon', columns: 4, rows: 3 }]);
+      expect(asked.payload.rows).toEqual([
+        { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+      ]);
       // Making one and then having to pick it is two gestures for what reads
       // as one.
       expect(localStorage.getItem('cockpit.layout.' + OPEN)).toBe(asked.payload.layoutId);
@@ -689,7 +691,7 @@ describe('Layouts', () => {
       await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
       await user.click(screen.getByRole('button', { name: 'Create' }));
 
-      expect(mutate.mock.calls[0]![0].payload.placements).toEqual([]);
+      expect(mutate.mock.calls[0]![0].payload.rows).toEqual([]);
     });
 
     it('offers a name for the screen it is being made on, free on this dashboard', async () => {

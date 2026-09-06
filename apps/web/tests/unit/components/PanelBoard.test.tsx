@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
@@ -38,14 +38,19 @@ function aPanel(id: string, name: string): Panel {
   return { id, tenantId: 'tenant', dashboardId: 'today', name };
 }
 
-function aLayout(id: string, screenWidth: number, panelIds: string[], columns = 4): Layout {
+/**
+ * A layout of one row holding every panel, side by side - which is what the
+ * flat arrangement these cases were written against drew at this width, so a
+ * panel still has somewhere to move left to.
+ */
+function aLayout(id: string, screenWidth: number, panelIds: string[]): Layout {
   return {
     id,
     tenantId: 'tenant',
     dashboardId: 'today',
     name: id,
     screenWidth,
-    placements: panelIds.map((panelId) => ({ panelId, columns, rows: 3 })),
+    rows: [{ height: null, cells: panelIds.map((panelId) => ({ panelId, span: 12 })) }],
   };
 }
 
@@ -143,34 +148,62 @@ async function choose(user: ReturnType<typeof userEvent.setup>, panel: string, e
 }
 
 /**
- * Drags a panel's corner to the right and lets go.
+ * What a panel drag carries. Without one every handler reads `types` off null
+ * and the drop is a no-op - which a test expecting *no* change would pass on,
+ * for entirely the wrong reason.
  *
- * The two halves of the browser the grip needs are stood in for here, and only
- * those: jsdom implements no pointer capture and no layout, so a grip pressed
- * in it captures nothing and measures a panel zero pixels wide. What is under
- * test is the board's half - that letting go of a drag is *sent*, where every
- * move before it was only drawn - so the size the corner lands on is left to
- * the browser tier, which is the only place a real one exists.
+ * Empty, because a panel drag is the absence of `ITEM_BEING_DRAGGED`: that mark
+ * is what a row of a panel's list carries, and it is how a panel being moved is
+ * told apart from an item being filed.
  */
-function dragTheCornerOf(panelName: string, toX = 600) {
-  const panel = screen.getByRole('region', { name: panelName });
-  const grip = panel.querySelector('[data-resize-grip]') as HTMLElement;
-  // A panel 300px across at whatever it spans, with its corner at the origin.
-  panel.getBoundingClientRect = () =>
-    ({ left: 0, top: 0, width: 300, height: 240 }) as DOMRect;
-  grip.setPointerCapture = () => undefined;
-  grip.hasPointerCapture = () => true;
-  grip.releasePointerCapture = () => undefined;
+const dataTransfer = { types: [] as string[], setData: () => undefined, effectAllowed: '' };
 
-  fireEvent.pointerDown(grip, { pointerId: 1, clientX: 300, clientY: 240 });
-  fireEvent.pointerMove(grip, { pointerId: 1, clientX: toX, clientY: 240 });
-  fireEvent.pointerUp(grip, { pointerId: 1, clientX: toX, clientY: 240 });
+/**
+ * Picks a panel up by its header and drops it on one side of another.
+ *
+ * The half of the browser the drag needs is stood in for here, and only that
+ * half: jsdom performs no drag and measures every element as zero pixels wide,
+ * so which side of a panel the pointer was on is handed over rather than
+ * measured. What is under test is the board's half - what the drop *means* -
+ * and the browser tier is where a real pointer exists.
+ */
+function dropOnto(panelName: string, ontoName: string, side: 'before' | 'after') {
+  const picked = screen.getByRole('region', { name: panelName });
+  fireEvent.dragStart(within(picked).getByRole('heading').parentElement!, { dataTransfer });
+  // Measured after the pick-up, not before: picking a panel up opens the seams,
+  // which redraws the board - and a stub put on a node before that is a stub on
+  // whatever React decides to keep. jsdom measures everything as zero wide, so
+  // without this every drop reads as landing on the right-hand half.
+  const onto = screen.getByRole('region', { name: ontoName });
+  onto.getBoundingClientRect = () => ({ left: 0, width: 100 }) as DOMRect;
+  // Built rather than fired with an init, because jsdom implements no
+  // `DragEvent`: testing-library falls back to a plain `Event`, which carries
+  // `dataTransfer` across but silently drops `clientX` - and a missing one
+  // compares as `undefined < 50`, so every drop would read as the right-hand
+  // half and the two sides would be one case wearing two names.
+  const dropped = createEvent.drop(onto, { dataTransfer });
+  Object.defineProperty(dropped, 'clientX', { value: side === 'before' ? 10 : 90 });
+  fireEvent(onto, dropped);
 }
 
-/** The arrangement the last save_layout carried, as panel ids in order. */
-function sentOrder(mutate: ReturnType<typeof vi.fn>): string[] {
+/** The same, let go in the gap above row `at` rather than on a panel. */
+function dropInSeam(panelName: string, at: number) {
+  const picked = screen.getByRole('region', { name: panelName });
+  fireEvent.dragStart(within(picked).getByRole('heading').parentElement!, { dataTransfer });
+  fireEvent.drop(screen.getAllByTestId('row-seam')[at]!, { dataTransfer });
+}
+
+/** The arrangement the last save_layout carried, as the panels on each line. */
+function sentRows(mutate: ReturnType<typeof vi.fn>): string[][] {
   const [asked] = mutate.mock.calls.at(-1)!;
-  return asked.payload.placements.map((p: { panelId: string }) => p.panelId);
+  return asked.payload.rows.map((row: { cells: { panelId: string }[] }) =>
+    row.cells.map((cell) => cell.panelId),
+  );
+}
+
+/** The same, flattened, for the cases that are about the order and not the lines. */
+function sentOrder(mutate: ReturnType<typeof vi.fn>): string[] {
+  return sentRows(mutate).flat();
 }
 
 beforeEach(() => {
@@ -412,34 +445,25 @@ describe('Panels', () => {
       expect(sentOrder(mutate)).toEqual(['falcon', 'reading']);
     });
 
-    it('sends the size a corner was dragged to, which was only drawn while the hand moved', async () => {
-      // Every pointer move draws the new size without sending it, so by the
-      // time the hand stops the board is already showing what letting go is
-      // about to send. Measured against what is *drawn*, that release looks
-      // like no change at all and the resize is silently never stored - it
-      // survives on screen and is gone on the next reload.
-      const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
-        settles: false,
-      });
-
-      dragTheCornerOf('Project Falcon');
-
-      const [asked] = mutate.mock.calls.at(-1)!;
-      expect(asked.name).toBe('save_layout');
-      expect(asked.payload.placements[0].columns).toBeGreaterThan(4);
-    });
-
     it('sends nothing when the gesture leaves the arrangement where it already was', async () => {
-      // A corner nudged and let go inside the step it started in: a gesture
-      // happened, and what it asks for is what the layout already holds. It
-      // must not be sent, or every twitch of a grip would be a change to
-      // answer the question about.
+      // Dropped back where it already is - before the panel it is already
+      // before. A gesture happened, and what it asks for is what the layout
+      // already holds; sending it would make every abandoned drag a write.
       const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
 
-      dragTheCornerOf('Project Falcon', 300);
+      dropOnto('Project Falcon', 'To read', 'before');
 
       expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('puts a dropped panel on a line of its own when it is let go in the gap', async () => {
+      // The seam between two rows is the gesture that makes a row, and it is
+      // the one thing the wrapping grid had no way to express.
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+
+      dropInSeam('To read', 0);
+
+      expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
     });
   });
 

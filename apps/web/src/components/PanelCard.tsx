@@ -1,5 +1,4 @@
-import { useRef } from 'react';
-import type { Item, Panel, PanelPlacement } from '@cockpit/shared';
+import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
@@ -40,12 +39,16 @@ export interface PanelCardProps {
   workspaceId: string;
   /** What is filed on this panel, in order. */
   items: readonly Item[];
-  placement: PanelPlacement;
-  /** "Move left" on a screen with panels side by side, "Move up" on one without. */
+  /** "Move left" while it shares its row, "Move up" while it has the row to itself. */
   sideBySide: boolean;
-  /** Where this panel is in the arrangement, so the ends can say they are ends. */
-  at: number;
-  of: number;
+  /**
+   * Whether there is anywhere left to move it, which with rows is not a
+   * question about its place in one: a panel at the end of its row still has
+   * somewhere to go - a line of its own below it - so the only panel with
+   * nowhere left is the first cell of the first row, or the last of the last.
+   */
+  first: boolean;
+  last: boolean;
   /** True while this panel is the one being renamed, which happens in its own header. */
   renaming: string | null;
   onRenamingChange: (name: string) => void;
@@ -54,13 +57,9 @@ export interface PanelCardProps {
   onStopRenaming: () => void;
   onDelete: (openedFrom: HTMLElement | null) => void;
   onMove: (places: number) => void;
-  /** One size, at the end of a gesture: what is kept. */
-  onResize: (size: { columns?: number; rows?: number }) => void;
-  /** The size as the corner is still moving: shown, not kept. */
-  onResizing: (size: { columns?: number; rows?: number }) => void;
-  /** The drag: which panel was picked up, and which one it was dropped in front of. */
+  /** The drag: this panel was picked up, or something was dropped beside it. */
   onPickUp: () => void;
-  onDropOn: () => void;
+  onDropOn: (side: 'before' | 'after') => void;
   /** Why the last change to this panel did not happen, if it did not. */
   refusal: string | null;
   busy: boolean;
@@ -70,10 +69,9 @@ export function PanelCard({
   panel,
   workspaceId,
   items,
-  placement,
   sideBySide,
-  at,
-  of,
+  first,
+  last,
   renaming,
   onRenamingChange,
   onStartRenaming,
@@ -81,23 +79,15 @@ export function PanelCard({
   onStopRenaming,
   onDelete,
   onMove,
-  onResize,
-  onResizing,
   onPickUp,
   onDropOn,
   refusal,
   busy,
 }: PanelCardProps) {
-  const box = useRef<HTMLElement>(null);
 
   return (
     <section
-      ref={box}
       aria-label={panel.name}
-      style={{
-        gridColumn: `span ${placement.columns}`,
-        gridRow: `span ${placement.rows}`,
-      }}
       // The whole panel is the drop target while only its header is the handle:
       // aiming at a two-line strip is a fiddly drop, and the thing being aimed
       // at is the place, not the grip.
@@ -113,7 +103,12 @@ export function PanelCard({
       onDrop={(e) => {
         if (e.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
         e.preventDefault();
-        onDropOn();
+        // Which side of this panel it was let go on, so dropping onto the left
+        // half puts it before and the right half after. The whole panel is one
+        // target rather than two: a half is still a comfortable thing to aim
+        // at, and a seam between two panels would be four pixels.
+        const box = e.currentTarget.getBoundingClientRect();
+        onDropOn(e.clientX < box.left + box.width / 2 ? 'before' : 'after');
       }}
       // No fill and no edge of its own: the panel is the sheet, and only the
       // list inside it goes down into it ("Cockpit Shell Explorations",
@@ -124,7 +119,7 @@ export function PanelCard({
       // rather than on the header, because a container query asks about an
       // *ancestor*: on the header it would size the header's contents and not
       // the header itself.
-      className="@container relative flex min-w-0 flex-col"
+      className="@container flex min-w-0 flex-col"
     >
       <header
         // `=== null` rather than falsy: an emptied rename box is still an open
@@ -221,7 +216,7 @@ export function PanelCard({
               label={`Actions for ${panel.name}`}
               entries={[
                 { label: 'Rename', onSelect: onStartRenaming },
-                ...movesFor({ at, of, sideBySide }, onMove),
+                ...movesFor({ first, last, sideBySide }, onMove),
                 { label: 'Delete', destructive: true, onSelect: onDelete },
               ]}
             />
@@ -255,13 +250,6 @@ export function PanelCard({
         />
       </div>
 
-      <ResizeGrip
-        panelName={panel.name}
-        box={box}
-        columns={placement.columns}
-        onResizing={onResizing}
-        onResize={onResize}
-      />
     </section>
   );
 }
@@ -282,21 +270,23 @@ export function PanelCard({
  * between two presses of "Move left" is losing your place in the dashboard.
  */
 function movesFor(
-  where: { at: number; of: number; sideBySide: boolean },
+  where: { first: boolean; last: boolean; sideBySide: boolean },
   onMove: (places: number) => void,
 ) {
-  const first = where.at === 0;
-  const last = where.at === where.of - 1;
   return [
     {
       label: where.sideBySide ? 'Move left' : 'Move up',
       places: -1,
-      unavailable: first ? `This panel is already ${where.sideBySide ? 'first' : 'at the top'}` : undefined,
+      unavailable: where.first
+        ? `This panel is already ${where.sideBySide ? 'first' : 'at the top'}`
+        : undefined,
     },
     {
       label: where.sideBySide ? 'Move right' : 'Move down',
       places: 1,
-      unavailable: last ? `This panel is already ${where.sideBySide ? 'last' : 'at the bottom'}` : undefined,
+      unavailable: where.last
+        ? `This panel is already ${where.sideBySide ? 'last' : 'at the bottom'}`
+        : undefined,
     },
   ].map(({ label, places, unavailable }) => ({
     label,
@@ -304,98 +294,4 @@ function movesFor(
     keepsFocus: true,
     onSelect: () => onMove(places),
   }));
-}
-
-/**
- * The corner you drag to resize.
- *
- * **Pointer events rather than mouse events**, so the same handler is the whole
- * gesture on a trackpad and on a touchscreen, and `setPointerCapture` is what
- * keeps the drag alive when the pointer leaves the corner - which it does
- * immediately, that being the point of dragging.
- *
- * **The panel measures itself.** One grid column is the panel's own width
- * divided by the columns it spans, so nothing has to be told how wide the grid
- * is or how much padding the page has; a row is a fixed height, so that one is
- * a constant. Both include the gap, which is why it is added on either side of
- * the division rather than ignored.
- *
- * **Hidden from anything that is not a pointer**, deliberately: a control
- * announced to a screen reader that it cannot then operate is worse than one
- * that is not announced. That leaves resizing as a pointer gesture only - the
- * menu carried step-at-a-time entries until they were taken out as clutter, so
- * a keyboard has no way to resize a panel today.
- */
-function ResizeGrip({
-  panelName,
-  box,
-  columns,
-  onResizing,
-  onResize,
-}: {
-  panelName: string;
-  box: React.RefObject<HTMLElement | null>;
-  columns: number;
-  onResizing: (size: { columns?: number; rows?: number }) => void;
-  onResize: (size: { columns?: number; rows?: number }) => void;
-}) {
-  /**
-   * The size the corner is currently over, kept here so that letting go can
-   * send it. A ref rather than state: what is on screen is already being
-   * redrawn by `onResizing`, and this only has to survive until the pointer is
-   * released.
-   */
-  const dragged = useRef<{ columns: number; rows: number } | null>(null);
-
-  /** Where the corner is now, in whole grid steps, or null if nothing can be measured. */
-  const sizeUnder = (clientX: number, clientY: number) => {
-    const measured = box.current?.getBoundingClientRect();
-    if (!measured || measured.width === 0) return null;
-    // One column is the panel's own width divided by the columns it spans, so
-    // nothing has to be told how wide the grid is; a row is a fixed height, so
-    // that one is a constant. The gap sits between them, which is why it is
-    // added on either side of the division rather than ignored.
-    const columnUnit = (measured.width + PANEL_GAP) / columns;
-    return {
-      columns: Math.round((clientX - measured.left + PANEL_GAP) / columnUnit),
-      rows: Math.round((clientY - measured.top + PANEL_GAP) / (PANEL_ROW_HEIGHT + PANEL_GAP)),
-    };
-  };
-
-  return (
-    <div
-      aria-hidden="true"
-      data-resize-grip={panelName}
-      onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId);
-        e.preventDefault();
-        // Nothing carried over from a gesture that ended without a release - a
-        // cancelled drag leaves its size behind, and a later press with no
-        // movement would send it as a resize nobody just made.
-        dragged.current = null;
-      }}
-      onPointerMove={(e) => {
-        if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-        const size = sizeUnder(e.clientX, e.clientY);
-        if (!size) return;
-        // Shown, not kept. A command per pointer move would be a dozen writes
-        // for one gesture, each one racing the re-read that follows it - and
-        // the one that lands last decides what the panel ends up as, which is
-        // not necessarily where the hand stopped.
-        dragged.current = size;
-        onResizing(size);
-      }}
-      onPointerUp={(e) => {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-        const size = dragged.current;
-        dragged.current = null;
-        // Where the hand stopped, sent once. A gesture is one answer to "how
-        // big is this panel now", so it is one command.
-        if (size) onResize(size);
-      }}
-      // Square, like the hollow it sits in the corner of - the panel it used to
-      // round off with is not a rounded card any more.
-      className="absolute bottom-0 right-0 size-5 cursor-nwse-resize touch-none border-b-2 border-r-2 border-black/15"
-    />
-  );
 }

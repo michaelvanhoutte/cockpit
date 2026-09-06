@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { GRID_COLUMNS, uuidv7 } from '@cockpit/shared';
-import type { Dashboard, Filing, Item, Layout, Panel, PanelPlacement } from '@cockpit/shared';
+import { uuidv7 } from '@cockpit/shared';
+import type { Dashboard, Filing, Item, Layout, LayoutRow, Panel } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { itemsOnPanel } from '../filing';
@@ -9,36 +9,41 @@ import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
-  drawnArrangement,
+  drawnRows,
   layoutLabel,
   layoutsOf,
   layoutToDraw,
-  movedBefore,
+  movedBeside,
   movedBy,
+  movedToOwnRow,
   nameForScreen,
-  panelsAcross,
-  resizedTo,
   sameArrangement,
+  sharesOf,
   SAME_SCREEN_TOLERANCE,
 } from '../panels/arrangement';
 import { DeleteQuestion } from './DeleteQuestion';
-import { PANEL_GAP, PANEL_ROW_HEIGHT, PanelCard } from './PanelCard';
+import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { PANEL_GAP, PanelCard } from './PanelCard';
 
 /**
- * A dashboard's panels, on the grid one of its layouts arranges them on
- * ("Panels on a dashboard, with per-screen-size layouts", issue 33).
+ * A dashboard's panels, on the rows one of its layouts arranges them into
+ * ("Rows of panels, not a grid that wraps").
  *
- * **The grid is always the whole width of the page**, twelve columns of an
- * equal share of it, so the dashboard cannot scroll sideways on any screen and
- * a layout made for a wider one is squeezed rather than cut off - which is the
- * issue's last rule, expressed as the shape of the grid rather than as a case
- * anything has to remember. Nothing scales the type: a squeezed panel is a
- * narrower panel holding the same words.
+ * **A row is a grid of its own**, so its panels share one height and divide its
+ * width between them - which is what makes a row a row rather than a line the
+ * panels happen to have landed on. The board is the rows, stacked, and it
+ * cannot scroll sideways on any screen: every row is the full width, and a
+ * layout made for a wider one is squeezed rather than cut off. Nothing scales
+ * the type: a squeezed panel is a narrower panel holding the same words.
+ *
+ * **Which panels share a line is what a person decided**, and it used to be
+ * decided by CSS: panels flowed left to right and wrapped at twelve columns, so
+ * a panel made wider pushed the next one onto a line of its own. Rows write the
+ * decision down instead.
  *
  * **Reordering happens here, not on a settings page**, and that is deliberate
  * rather than an inconsistency with workspaces and dashboards: dragging *is*
- * the editing, so it has to happen where the thing being edited is drawn. The
- * issue says so in as many words.
+ * the editing, so it has to happen where the thing being edited is drawn.
  *
  * **One `useCommand` for the whole board** rather than one per control, so a
  * refusal can only belong to the last thing asked for - and `variables` says
@@ -93,26 +98,32 @@ export function PanelBoard({
    * under the hand that moved it, and it is dropped once the store has been
    * re-read and agrees.
    */
-  const [draft, setDraft] = useState<PanelPlacement[] | null>(null);
+  const [draft, setDraft] = useState<LayoutRow[] | null>(null);
   /**
    * The last arrangement actually sent, which is not the same as the last one
    * drawn: a corner still being dragged is drawn every pointer move and sent
    * only when the hand stops. Comparing a new gesture against what is *drawn*
    * would make the release of that drag look like no change at all and drop it.
    */
-  const sent = useRef<PanelPlacement[] | null>(null);
+  const sent = useRef<LayoutRow[] | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  /** Which panel is being dragged. A ref: nothing on screen depends on it. */
-  const dragging = useRef<string | null>(null);
+  /**
+   * Which panel is being dragged, or null.
+   *
+   * State rather than a ref, unlike before: the seams between rows are four
+   * pixels of gap, which is not a target a hand can hit, so they open up while
+   * a drag is on - and something on screen depending on it is exactly what a
+   * ref cannot do. One redraw per pick-up, not one per pointer move.
+   */
+  const [dragging, setDragging] = useState<string | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
   const askedFrom = useRef<HTMLElement | null>(null);
 
   const its = layoutsOf(layouts, dashboard.id);
   const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth, chosen);
-  const stored = drawnArrangement(drawnWith, panels, acrossWidth);
+  const stored = drawnRows(drawnWith, panels, acrossWidth);
   const shown = draft ?? stored;
-  const sideBySide = panelsAcross(acrossWidth) > 1;
   /**
    * Read from the list rather than kept beside the id, for the reason the list
    * of dashboards does it: a panel deleted in another tab is gone
@@ -152,7 +163,7 @@ export function PanelBoard({
     layoutId: string,
     nameIfNew: string,
     screenWidthOfLayout: number,
-    placements: readonly PanelPlacement[],
+    rows: readonly LayoutRow[],
   ) => {
     command.mutate(
       {
@@ -168,10 +179,12 @@ export function PanelBoard({
           // the old one back.
           name: nameIfNew,
           screenWidth: screenWidthOfLayout,
-          placements: placements.map((placement) => ({
-            panelId: placement.panelId,
-            columns: placement.columns,
-            rows: placement.rows,
+          // Named field by field rather than sent as read, so a row that
+          // arrived from a snapshot with something extra on it cannot carry
+          // that back into a command the schema then refuses.
+          rows: rows.map((row) => ({
+            height: row.height,
+            cells: row.cells.map((cell) => ({ panelId: cell.panelId, span: cell.span })),
           })),
         },
       },
@@ -213,7 +226,7 @@ export function PanelBoard({
         },
       },
     );
-    sent.current = [...placements];
+    sent.current = [...rows];
   };
 
   /**
@@ -252,21 +265,12 @@ export function PanelBoard({
    * A layout is still made silently when the dashboard has none, because there
    * is nothing to change and nothing worth interrupting a drag to ask.
    */
-  const propose = (next: PanelPlacement[]) => {
+  const propose = (next: LayoutRow[]) => {
     // Against what has been *sent* - or the store, where nothing has - rather
-    // than against what is drawn. Three cases have to come out right, and only
-    // this comparison gets all three: a corner drag is drawn on every pointer
-    // move and sent once at the end, so measuring its release against what is
-    // drawn would make it look like no change; a gesture that puts a panel back
-    // where the snapshot has it still has to be sent when an earlier one moved
+    // than against what is drawn: a gesture that puts a panel back where the
+    // snapshot has it still has to be sent when an earlier one moved
     // it; and a gesture that really changes nothing must send nothing.
     //
-    // There used to be an exception for "Fit to this screen" on a dashboard
-    // with no layout - what it computed was what such a dashboard is already
-    // drawn with, so nothing moved and the point of the press, recording a
-    // layout, had not happened. That button is gone ("Cockpit Shell
-    // Explorations", artboard 2c) and with it the only gesture that meant
-    // anything while changing nothing.
     if (sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
     setDraft(next);
@@ -356,67 +360,104 @@ export function PanelBoard({
           </p>
         </section>
       ) : (
-        <div
-          // `minmax(0, 1fr)` rather than `1fr`, which is the whole of "never
-          // scrolls sideways": a bare `1fr` is `minmax(auto, 1fr)`, so one long
-          // unbroken word inside a panel would widen its column and take the
-          // page with it.
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
-            gridAutoRows: `${PANEL_ROW_HEIGHT}px`,
-            gap: PANEL_GAP,
-          }}
-        >
-          {shown.map((placement, at) => {
-            const panel = panels.find((one) => one.id === placement.panelId);
-            if (!panel) return null;
+        <div className="flex min-w-0 flex-col">
+          {shown.map((row, rowIndex) => {
+            const shares = sharesOf(row);
             return (
-              <PanelCard
-                key={panel.id}
-                panel={panel}
-                workspaceId={workspaceId}
-                items={itemsOnPanel(items, filings, panel.id)}
-                placement={placement}
-                sideBySide={sideBySide}
-                at={at}
-                of={shown.length}
-                renaming={renaming?.id === panel.id ? renaming.name : null}
-                onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
-                onStartRenaming={() => {
-                  command.reset();
-                  setDeleting(null);
-                  setRenaming({ id: panel.id, name: panel.name });
+              // Keyed by where the row is, not by what is on it. A row has no
+              // identity of its own - it is the line, and the panels are what
+              // move between lines - so keying it by its cells would remount
+              // every panel in a row the moment two of them swapped: the focus
+              // would leave the menu somebody was pressing, a half-typed rename
+              // would go, and a scrolled list would jump to the top.
+              <Fragment key={rowIndex}>
+                <RowSeam
+                  at={rowIndex}
+                  dragging={dragging !== null}
+                  onDrop={(at) => {
+                    const picked = dragging;
+                    setDragging(null);
+                    if (picked) propose(movedToOwnRow(shown, picked, at));
+                  }}
+                />
+                <div
+                  // A row is a grid of its own, so its panels share one height
+                // without anything being told what that height is - which is
+                // what a row *is*. `minmax(0, …)` rather than a bare fraction
+                // is the whole of "never scrolls sideways": a bare `1fr` is
+                // `minmax(auto, 1fr)`, so one long unbroken word inside a panel
+                // would widen its column and take the page with it.
+                //
+                // No height yet: a row is as tall as what is on it until
+                // somebody drags its edge, which is the next slice.
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: shares
+                    .map((share) => `minmax(0, ${share}fr)`)
+                    .join(' '),
+                  gap: PANEL_GAP,
                 }}
-                onRename={renamePanel}
-                onStopRenaming={() => {
-                  setRenaming(null);
-                  command.reset();
-                }}
-                onDelete={(openedFrom) => {
-                  command.reset();
-                  setRenaming(null);
-                  askedFrom.current = openedFrom;
-                  setDeleting(panel.id);
-                }}
-                onMove={(places) => propose(movedBy(shown, panel.id, places))}
-                onResize={(size) => propose(resizedTo(shown, panel.id, size))}
-                // Drawn while the corner is still moving, and not sent: the
-                // command goes when the hand stops.
-                onResizing={(size) => setDraft(resizedTo(shown, panel.id, size))}
-                onPickUp={() => {
-                  dragging.current = panel.id;
-                }}
-                onDropOn={() => {
-                  const picked = dragging.current;
-                  dragging.current = null;
-                  if (picked) propose(movedBefore(shown, picked, panel.id));
-                }}
-                refusal={refusalFor('rename_panel', panel.id) ?? refusalFor('delete_panel', panel.id)}
-                busy={command.isPending}
-              />
+              >
+                {row.cells.map((cell, at) => {
+                  const panel = panels.find((one) => one.id === cell.panelId);
+                  if (!panel) return null;
+                  return (
+                    <PanelCard
+                      key={panel.id}
+                      panel={panel}
+                      workspaceId={workspaceId}
+                      items={itemsOnPanel(items, filings, panel.id)}
+                      sideBySide={row.cells.length > 1}
+                      first={rowIndex === 0 && at === 0}
+                      last={rowIndex === shown.length - 1 && at === row.cells.length - 1}
+                      renaming={renaming?.id === panel.id ? renaming.name : null}
+                      onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
+                      onStartRenaming={() => {
+                        command.reset();
+                        setDeleting(null);
+                        setRenaming({ id: panel.id, name: panel.name });
+                      }}
+                      onRename={renamePanel}
+                      onStopRenaming={() => {
+                        setRenaming(null);
+                        command.reset();
+                      }}
+                      onDelete={(openedFrom) => {
+                        command.reset();
+                        setRenaming(null);
+                        askedFrom.current = openedFrom;
+                        setDeleting(panel.id);
+                      }}
+                      onMove={(places) => propose(movedBy(shown, panel.id, places))}
+                      onPickUp={() => setDragging(panel.id)}
+                      onDropOn={(where) => {
+                        const picked = dragging;
+                        setDragging(null);
+                        if (!picked) return;
+                        propose(movedBeside(shown, picked, panel.id, where));
+                      }}
+                      refusal={
+                        refusalFor('rename_panel', panel.id) ?? refusalFor('delete_panel', panel.id)
+                      }
+                      busy={command.isPending}
+                    />
+                  );
+                })}
+                </div>
+              </Fragment>
             );
           })}
+          {/* The gap under the last row, so a panel can be dropped below
+              everything rather than only between two things. */}
+          <RowSeam
+            at={shown.length}
+            dragging={dragging !== null}
+            onDrop={(at) => {
+              const picked = dragging;
+              setDragging(null);
+              if (picked) propose(movedToOwnRow(shown, picked, at));
+            }}
+          />
         </div>
       )}
 
@@ -436,6 +477,66 @@ export function PanelBoard({
         />
       )}
 
+    </div>
+  );
+}
+
+/**
+ * The gap between two rows, and the place a panel is dropped to get a row of
+ * its own.
+ *
+ * **Four pixels is the gap, and four pixels is not a target.** The seam is the
+ * space between rows at rest - a seam rather than a margin, which is what the
+ * sheet is drawn as ("Cockpit Shell Explorations", artboard 2c) - and it opens
+ * to something a hand can hit only while a panel is actually being dragged.
+ * Nothing is added to the page the rest of the time.
+ *
+ * It lights up under the pointer rather than only accepting the drop, because a
+ * drop target that gives no sign is a gesture you find out about afterwards.
+ */
+function RowSeam({
+  at,
+  dragging,
+  onDrop,
+}: {
+  /** Which gap this is: 0 above the first row, `rows.length` below the last. */
+  at: number;
+  /** Whether a panel is in the air, which is when this is worth hitting. */
+  dragging: boolean;
+  onDrop: (at: number) => void;
+}) {
+  const [under, setUnder] = useState(false);
+  return (
+    <div
+      // `PANEL_GAP` at rest, and room for a hand while a drag is on. The height
+      // is on the box rather than on a child so the rows either side really do
+      // move apart, which is the affordance: a gap that opens is a gap saying
+      // something can go in it.
+      data-testid="row-seam"
+      style={{ height: dragging ? 22 : PANEL_GAP }}
+      className="shrink-0 transition-[height] duration-100"
+      onDragOver={(event) => {
+        // A row of a panel's list crosses this on its way in, and is not a
+        // panel being moved between rows.
+        if (event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+        event.preventDefault();
+        setUnder(true);
+      }}
+      onDragLeave={() => setUnder(false)}
+      onDrop={(event) => {
+        if (event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+        event.preventDefault();
+        setUnder(false);
+        onDrop(at);
+      }}
+    >
+      {dragging && (
+        <div
+          className={`mx-1 h-full rounded-full transition-colors ${
+            under ? 'bg-accent' : 'bg-accent/15'
+          }`}
+        />
+      )}
     </div>
   );
 }
