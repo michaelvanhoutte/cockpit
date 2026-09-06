@@ -7,8 +7,16 @@ import {
   WORKSPACE_ID,
   inTheStore,
   seedRegister,
+  signInAs,
   startFromEmpty,
 } from '../seed.js';
+import {
+  issuerIsForgotten,
+  issuerIsReachable,
+  issuerWillIdentify,
+  issuerWillRefuseTheExchange,
+  type Claims,
+} from '../issuer.js';
 
 /**
  * Integration level, through the real Worker, because every rule here is about
@@ -26,19 +34,43 @@ import {
 
 const AT = '2026-08-12T10:00:00.000Z';
 
-async function signIn(userId: string): Promise<Response> {
-  return SELF.fetch('http://cockpit.test/v1/sign-in', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ userId }),
+/**
+ * Pressing "Continue with Google": what the browser is sent to, and what it is
+ * left holding to come back with.
+ */
+async function startSignIn(): Promise<{ asked: URL; attempt: string }> {
+  const res = await SELF.fetch('http://cockpit.test/v1/sign-in/google', { redirect: 'manual' });
+  expect(res.status).toBe(302);
+  return {
+    asked: new URL(res.headers.get('location')!),
+    attempt: res.headers.get('set-cookie')!.split(';')[0]!,
+  };
+}
+
+/** Coming back from Google, carrying whatever the browser holds. */
+function comeBack(query: Record<string, string>, cookie?: string): Promise<Response> {
+  return SELF.fetch(`http://cockpit.test/v1/sign-in/google/callback?${new URLSearchParams(query)}`, {
+    redirect: 'manual',
+    ...(cookie ? { headers: { cookie } } : {}),
   });
 }
 
-/** The cookie a browser would be sending back after signing in. */
-async function signedInAs(userId: string): Promise<string> {
-  const res = await signIn(userId);
-  expect(res.status).toBe(200);
-  return res.headers.get('set-cookie')!.split(';')[0]!;
+/** The whole walk, as a browser makes it, for whoever the issuer says you are. */
+async function signInAsGoogleAccount(
+  claims: Omit<Claims, 'nonce'> & { nonce?: string },
+): Promise<Response> {
+  await issuerIsReachable();
+  const { asked, attempt } = await startSignIn();
+  issuerWillIdentify({ ...claims, nonce: claims.nonce ?? asked.searchParams.get('nonce')! });
+  return comeBack({ code: 'a-code', state: asked.searchParams.get('state')! }, attempt);
+}
+
+/** The session cookie an answer sets, or nothing where it set none. */
+function sessionIn(res: Response): string | undefined {
+  return res.headers
+    .getSetCookie()
+    .map((cookie) => cookie.split(';')[0]!)
+    .find((cookie) => cookie.startsWith('cockpit_session=') && !cookie.endsWith('='));
 }
 
 function carrying(cookie: string, init: RequestInit = {}): RequestInit {
@@ -60,60 +92,169 @@ beforeEach(async () => {
 });
 
 describe('Sign-in', () => {
-  describe('you choose who you are from the people Cockpit knows', () => {
-    it('offers their names and nothing else about them', async () => {
-      const res = await SELF.fetch('http://cockpit.test/v1/users');
+  describe('you sign in with Google, and only people already in the register get in', () => {
+    it('opens the account of somebody whose address the register holds', async () => {
+      const back = await signInAsGoogleAccount({ email: 'michael@example.com' });
 
-      expect(res.status).toBe(200);
-      const { users } = (await res.json()) as { users: Record<string, unknown>[] };
-      expect(users.map((u) => u.name)).toEqual(['Michael', 'Ada']);
-      // Which account somebody owns and what standing they hold are the two
-      // things this read must never carry: it answers before anybody has signed
-      // in, so whatever is in it is public.
-      for (const user of users) {
-        expect(Object.keys(user).sort()).toEqual(['id', 'name']);
-      }
+      expect(back.headers.get('location')).toBe('/');
+      const workspaces = await SELF.fetch('http://cockpit.test/v1/workspaces', {
+        headers: { cookie: sessionIn(back)! },
+      });
+      expect(workspaces.status).toBe(200);
     });
 
-    it('refuses a name that is nobody here', async () => {
-      const res = await signIn('user-nobody');
+    /**
+     * Proving who you are at Google is not being entitled to an account here:
+     * the register is the allowlist, and nothing on this path creates a person.
+     * The row count is the second half of that - a refusal that quietly made an
+     * account would still redirect the same way.
+     */
+    it('refuses an address the register does not hold, and writes nothing', async () => {
+      const before = await env.DB.prepare('SELECT count(*) AS n FROM users').first<{ n: number }>();
 
-      expect(res.status).toBe(404);
-      expect(res.headers.get('set-cookie')).toBeNull();
+      const back = await signInAsGoogleAccount({ email: 'stranger@example.com' });
+
+      expect(back.headers.get('location')).toBe('/signin?refused=unknown-account');
+      expect(sessionIn(back)).toBeUndefined();
+      expect(
+        await env.DB.prepare('SELECT count(*) AS n FROM users').first<{ n: number }>(),
+      ).toEqual(before);
+    });
+
+    /**
+     * An address Google has not checked is one anybody can claim, so an
+     * allowlist of addresses would be worth nothing without this.
+     */
+    it('refuses an address Google has not verified', async () => {
+      const back = await signInAsGoogleAccount({
+        email: 'michael@example.com',
+        emailVerified: false,
+      });
+
+      expect(back.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(back)).toBeUndefined();
+    });
+
+    /**
+     * The address is how somebody is recognised the first time and the Google
+     * account is how they are recognised afterwards, which is what stops a
+     * changed address locking a person out.
+     */
+    it('knows somebody by their Google account once they have signed in with it', async () => {
+      await signInAsGoogleAccount({ email: 'michael@example.com', subject: 'google|michael' });
+      await env.DB.prepare("UPDATE users SET email = ? WHERE id = 'user-michael'")
+        .bind('michael@somewhere-else.example.com')
+        .run();
+
+      const back = await signInAsGoogleAccount({
+        email: 'michael@somewhere-else.example.com',
+        subject: 'google|michael',
+      });
+
+      expect(back.headers.get('location')).toBe('/');
+    });
+
+    /**
+     * And the other half of the same rule: an address given to a new owner is
+     * not a way into the previous owner's account.
+     */
+    it('refuses a different Google account claiming an address that is already claimed', async () => {
+      await signInAsGoogleAccount({ email: 'michael@example.com', subject: 'google|michael' });
+
+      const back = await signInAsGoogleAccount({
+        email: 'michael@example.com',
+        subject: 'google|somebody-else',
+      });
+
+      expect(back.headers.get('location')).toBe('/signin?refused=unknown-account');
+      expect(sessionIn(back)).toBeUndefined();
     });
   });
 
   /**
-   * Login CSRF: another site making this browser sign in as somebody its owner
-   * did not choose, so that everything captured afterwards lands in a stranger's
-   * account.
-   *
-   * What stands between the two is that signing in declares `application/json`
-   * and the request is checked against that header, not merely parsed. It is
-   * worth a test rather than a comment because it is a *library's* behaviour:
-   * the obvious reading - "a form cannot produce a JSON body" - is false, since
-   * `enctype="text/plain"` is CORS-safelisted and a field named
-   * `{"userId":"…","junk":"` with a value of `"}` serializes to valid JSON. If a
-   * dependency bump ever made the body parse regardless of the header, nothing
-   * else here would notice.
+   * Every way a reply can be wrong is proved at
+   * tests/unit/auth/oidc.test.ts, against real tokens and a real key. What
+   * cannot be proved there is that any of it is asked on the way in, which is
+   * these two - one reply that belongs to another sign-in, and one issuer that
+   * will not answer.
    */
-  describe('signing in cannot be done by another site on your behalf', () => {
-    it.each([
-      {
-        situation: 'a form that dresses valid JSON up as plain text',
-        contentType: 'text/plain',
-      },
-      { situation: 'a delivery that says nothing about what it is', contentType: undefined },
-    ])('hands out no sign-in to $situation', async ({ contentType }) => {
-      const res = await SELF.fetch('http://cockpit.test/v1/sign-in', {
-        method: 'POST',
-        ...(contentType ? { headers: { 'content-type': contentType } } : {}),
-        // Exactly what the form above serializes to, stray `=` and all.
-        body: '{"userId":"user-ada","junk":"="}',
-      });
+  describe('a sign-in only completes for the browser that started it', () => {
+    it('refuses a reply carrying another sign-in’s proof', async () => {
+      await issuerIsReachable();
+      const { attempt } = await startSignIn();
 
-      expect(res.status).not.toBe(200);
-      expect(res.headers.get('set-cookie')).toBeNull();
+      const back = await comeBack({ code: 'a-code', state: 'a-state-from-somewhere-else' }, attempt);
+
+      expect(back.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(back)).toBeUndefined();
+    });
+
+    it('refuses a reply the browser was never given anything to prove', async () => {
+      await issuerIsReachable();
+      const { asked } = await startSignIn();
+
+      const back = await comeBack({ code: 'a-code', state: asked.searchParams.get('state')! });
+
+      expect(back.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(back)).toBeUndefined();
+    });
+
+    /**
+     * The attempt is spent before the reply is acted on, so a reply delivered
+     * twice - out of a browser's history, or by somebody who took the address -
+     * finds nothing to check itself against the second time.
+     */
+    it('refuses the same reply delivered twice', async () => {
+      await issuerIsReachable();
+      const { asked, attempt } = await startSignIn();
+      const reply = { code: 'a-code', state: asked.searchParams.get('state')! };
+      issuerWillIdentify({
+        email: 'michael@example.com',
+        nonce: asked.searchParams.get('nonce')!,
+      });
+      expect((await comeBack(reply, attempt)).headers.get('location')).toBe('/');
+
+      // The browser is no longer holding the attempt: what it sends the second
+      // time is the cookie the first answer deleted, which is nothing.
+      const again = await comeBack(reply);
+
+      expect(again.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(again)).toBeUndefined();
+    });
+
+    it('refuses when the issuer will not exchange the code', async () => {
+      await issuerIsReachable();
+      const { asked, attempt } = await startSignIn();
+      issuerWillRefuseTheExchange();
+
+      const back = await comeBack(
+        { code: 'a-code', state: asked.searchParams.get('state')! },
+        attempt,
+      );
+
+      expect(back.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(back)).toBeUndefined();
+    });
+
+    /**
+     * What the browser holds while it is away is a secret for as long as one
+     * sign-in takes: script must not be able to read it, and it must not
+     * outlive the sign-in it belongs to.
+     */
+    it('leaves the browser holding nothing script can read and nothing that lasts', async () => {
+      const res = await SELF.fetch('http://cockpit.test/v1/sign-in/google', { redirect: 'manual' });
+
+      const cookie = res.headers.get('set-cookie')!;
+      expect(cookie).toContain('HttpOnly');
+      expect(cookie).toContain('SameSite=Lax');
+      expect(Number(/Max-Age=(\d+)/.exec(cookie)![1])).toBeLessThanOrEqual(10 * 60);
+    });
+
+    it('starts a sign-in of its own for a browser already holding one', async () => {
+      const first = await signInAsGoogleAccount({ email: 'michael@example.com' });
+      const second = await signInAsGoogleAccount({ email: 'michael@example.com' });
+
+      expect(sessionIn(second)).not.toBe(sessionIn(first));
     });
   });
 
@@ -154,13 +295,20 @@ describe('Sign-in', () => {
       await expectRefusedInOurOwnWords(res);
     });
 
-    it.each([
-      { situation: 'the people to choose from', path: '/v1/users' },
-      { situation: 'the health check', path: '/health' },
-    ])('lets $situation through', async ({ path }) => {
-      const res = await SELF.fetch(`http://cockpit.test${path}`);
+    /**
+     * Two, where there used to be three: the list of people to choose from was
+     * the third, and it went with the picker. What is left is the health check,
+     * which is deliberately outside every gate, and the way in itself.
+     */
+    it('lets the health check through', async () => {
+      expect((await SELF.fetch('http://cockpit.test/health')).status).toBe(200);
+    });
 
-      expect(res.status).toBe(200);
+    it('lets somebody who is nobody yet start signing in', async () => {
+      await issuerIsReachable();
+      const res = await SELF.fetch('http://cockpit.test/v1/sign-in/google', { redirect: 'manual' });
+
+      expect(res.status).toBe(302);
     });
 
     /**
@@ -199,7 +347,7 @@ describe('Sign-in', () => {
      * waiting, which the runner's timeout turns into the failure it should be.
      */
     it('stops the live-updates stream it was holding open', { timeout: 30_000 }, async () => {
-      const cookie = await signedInAs(USER_ID);
+      const cookie = await signInAs(USER_ID);
       const stream = await SELF.fetch('http://cockpit.test/v1/events', carrying(cookie));
       expect(stream.status).toBe(200);
       const listening = stream.body!.getReader();
@@ -215,7 +363,7 @@ describe('Sign-in', () => {
     });
 
     it('refuses the very next request made with it', async () => {
-      const cookie = await signedInAs(USER_ID);
+      const cookie = await signInAs(USER_ID);
       expect((await SELF.fetch('http://cockpit.test/v1/workspaces', carrying(cookie))).status).toBe(
         200,
       );
@@ -252,15 +400,29 @@ describe('Sign-in', () => {
     const HERE = 'http://localhost:9182';
     const NEXT_DOOR = 'http://localhost:8987';
 
-    /** What the browser puts in its jar for this address, `name=value`. */
-    async function signedInAt(at: string, userId: string): Promise<string> {
-      const res = await SELF.fetch(`${at}/v1/sign-in`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      });
-      expect(res.status).toBe(200);
-      return res.headers.get('set-cookie')!.split(';')[0]!;
+    /**
+     * What the browser puts in its jar for this address, `name=value`.
+     *
+     * The whole flow at that address rather than at the test's usual one,
+     * because what is being asked about here is the *name* the cookie is given,
+     * and the name is derived from the address the request came in on.
+     */
+    async function signedInAt(at: string, email: string): Promise<string> {
+      await issuerIsReachable();
+      const started = await SELF.fetch(`${at}/v1/sign-in/google`, { redirect: 'manual' });
+      const asked = new URL(started.headers.get('location')!);
+      const attempt = started.headers.get('set-cookie')!.split(';')[0]!;
+
+      issuerWillIdentify({ email, nonce: asked.searchParams.get('nonce')! });
+      const back = await SELF.fetch(
+        `${at}/v1/sign-in/google/callback?code=a-code&state=${asked.searchParams.get('state')}`,
+        { headers: { cookie: attempt }, redirect: 'manual' },
+      );
+      expect(back.headers.get('location')).toBe('/');
+      return back.headers
+        .getSetCookie()
+        .map((cookie) => cookie.split(';')[0]!)
+        .find((cookie) => cookie.startsWith('cockpit_session'))!;
     }
 
     /**
@@ -273,8 +435,8 @@ describe('Sign-in', () => {
      * of the order.
      */
     async function bothSignedIn(): Promise<string> {
-      const here = await signedInAt(HERE, USER_ID);
-      const nextDoor = await signedInAt(NEXT_DOOR, OTHER_USER_ID);
+      const here = await signedInAt(HERE, 'michael@example.com');
+      const nextDoor = await signedInAt(NEXT_DOOR, 'ada@example.com');
       return `${nextDoor}; ${here}`;
     }
 
@@ -337,7 +499,7 @@ describe('Sign-in', () => {
     });
 
     it('refusing a sign-in it was never given does not end the other one', async () => {
-      const here = await signedInAt(HERE, USER_ID);
+      const here = await signedInAt(HERE, 'michael@example.com');
 
       // Only this Cockpit's, which is the state a browser is in the moment
       // before you sign in to the one next door.
@@ -365,7 +527,7 @@ describe('Sign-in', () => {
 
   describe('a sign-in lasts a set time and renews while you use it', () => {
     it('refuses a request carrying one whose time has run out', async () => {
-      const cookie = await signedInAs(USER_ID);
+      const cookie = await signInAs(USER_ID);
       // Straight to the register, because the only other way to arrange this is
       // to wait a month. What is under test is that the rules are consulted on
       // the request path, not what the rules say - that is settled at L1.

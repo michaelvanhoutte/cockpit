@@ -94,9 +94,9 @@ beforeAll(async () => {
   // reaches the application through a sign-in, so without a user there is
   // nobody for the last case here to make a workspace as.
   await env.DB.prepare(
-    'INSERT INTO users (id, name, account_id, role, created_at) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
   )
-    .bind('user-michael', 'Michael', TENANT_ID, 'admin', AT)
+    .bind('user-michael', 'Michael', TENANT_ID, 'admin', 'michael@example.com', AT)
     .run();
 });
 

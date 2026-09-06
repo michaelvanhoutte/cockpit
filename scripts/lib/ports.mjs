@@ -49,25 +49,29 @@ import { join } from 'node:path';
 export const DOCUMENTED_PORTS = Object.freeze({
   devWeb: 5173,
   devApi: 8787,
+  devIssuer: 8788,
   e2eWeb: 5273,
   e2eApi: 8887,
+  e2eIssuer: 8888,
 });
 
 /**
- * Where each derived port counts from. Four bands rather than one block of
- * four, so a worktree's web port still looks like a web port and its API port
- * like an API port in the line `pnpm dev` prints.
+ * Where each derived port counts from. A band each rather than one block, so a
+ * worktree's web port still looks like a web port and its API port like an API
+ * port in the line `pnpm dev` prints.
  *
  * Each band is `SLOTS` wide, they do not overlap each other, and none of them
- * contains any of the four above - which is what stops a worktree ever landing
+ * contains any of the documented ports above - which is what stops a worktree landing
  * on the primary checkout's ports. `every band is clear of the documented
  * ports` in ports.test.mjs is what holds that true if these numbers are edited.
  */
 export const BANDS = Object.freeze({
   devWeb: 5300,
   devApi: 8900,
+  devIssuer: 7300,
   e2eWeb: 6300,
   e2eApi: 9900,
+  e2eIssuer: 7900,
 });
 
 /** How many worktrees can be told apart before two share a slot. */
@@ -85,8 +89,10 @@ export const SLOTS = 512;
 export const OVERRIDES = Object.freeze({
   devWeb: { variable: 'COCKPIT_DEV_WEB_PORT', command: 'pnpm dev' },
   devApi: { variable: 'COCKPIT_DEV_API_PORT', command: 'pnpm dev' },
+  devIssuer: { variable: 'COCKPIT_DEV_ISSUER_PORT', command: 'pnpm dev' },
   e2eWeb: { variable: 'COCKPIT_E2E_WEB_PORT', command: 'pnpm test:e2e' },
   e2eApi: { variable: 'COCKPIT_E2E_API_PORT', command: 'pnpm test:e2e' },
+  e2eIssuer: { variable: 'COCKPIT_E2E_ISSUER_PORT', command: 'pnpm test:e2e' },
 });
 
 /**
@@ -152,8 +158,10 @@ export function portsFor(root, { linked = false, env = {} } = {}) {
   return {
     devWeb: port('devWeb'),
     devApi: port('devApi'),
+    devIssuer: port('devIssuer'),
     e2eWeb: port('e2eWeb'),
     e2eApi: port('e2eApi'),
+    e2eIssuer: port('e2eIssuer'),
   };
 }
 

@@ -30,6 +30,13 @@ import { HOLD_MS } from '../../../apps/web/src/hold';
  * until you have. Cookies are per browser context and Playwright gives each
  * test its own, so a walk is never carrying the sign-in of the one before it.
  *
+ * **Signing in leaves the application and comes back**, which is the real code
+ * flow: the browser is sent to an issuer, chooses a Google account there, and
+ * returns with something the Worker checks. The issuer is ours - a stub the
+ * stack starts (scripts/lib/stub-issuer.mjs) - because no test run can reach
+ * Google, and pointing at it is one line of configuration rather than a way
+ * into the application that only tests are supposed to know about.
+ *
  * What that does NOT give is isolation *within* a run. All the specs, under
  * both projects, share one stack and one database, so an item captured by the
  * first spec is still there when the second runs. There is no per-test reset
@@ -178,8 +185,23 @@ export const ADA = 'Ada';
  */
 export async function signIn(page: Page, name: string, isMobile: boolean): Promise<void> {
   await page.goto('/signin');
-  await press(page.getByRole('button', { name, exact: true }), isMobile);
+  await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
+  await press(page.getByRole('link', { name: addressOf(name), exact: true }), isMobile);
   await expect(dashboardBar(page)).toBeVisible();
+}
+
+/**
+ * The Google account each of the seeded people signs in with, as seed.sql gives
+ * it to them.
+ *
+ * The walks are written in names because that is what a person and the rest of
+ * the application deal in; the issuer only knows addresses, and this is the one
+ * place the two meet.
+ */
+export function addressOf(name: string): string {
+  const address = { [MICHAEL]: 'michael@example.com', [ADA]: 'ada@example.com' }[name];
+  if (!address) throw new Error(`no Google account is seeded for ${name}`);
+  return address;
 }
 
 /**

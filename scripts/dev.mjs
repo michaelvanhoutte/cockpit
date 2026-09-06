@@ -61,6 +61,7 @@ import { fileURLToPath } from 'node:url';
 import { halvesToRun, paint, run, start, supervise } from './lib/processes.mjs';
 import { howToFreeThePort, isLinkedWorktree, portsFor } from './lib/ports.mjs';
 import { assertPortFree } from './lib/stack.mjs';
+import { startStubIssuer } from './lib/stub-issuer.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -91,6 +92,15 @@ try {
   if (running.web) {
     await assertPortFree(ports.devWeb, 'web server', () => howToFreeThePort('devWeb', ports.devWeb));
   }
+  if (running.api) {
+    // Checked here with the other two rather than left to `listen` to discover,
+    // and for the same reason: what a taken port produces otherwise is a raw
+    // EADDRINUSE stack, where this says which port, what is likely holding it
+    // and how to move this checkout off it.
+    await assertPortFree(ports.devIssuer, 'sign-in server', () =>
+      howToFreeThePort('devIssuer', ports.devIssuer),
+    );
+  }
 
   if (only === null) {
     await run(['--filter', '@cockpit/api', 'db:migrate:local'], 'applying migrations', root);
@@ -106,9 +116,20 @@ try {
   process.exit(1);
 }
 
+/**
+ * Somebody to sign in with, since signing in is Google's answer and a worktree
+ * cannot ask Google (scripts/lib/stub-issuer.mjs). It runs inside this process
+ * rather than beside it: there is nothing to build, nothing to watch, and one
+ * fewer server to be left behind by an interrupted run.
+ */
+const issuer = running.api
+  ? await startStubIssuer({ port: ports.devIssuer, seedPath: join(root, 'apps/api/seed.sql') })
+  : null;
+
 const addresses = [
   running.api ? `${paint('36', 'api')} http://localhost:${ports.devApi}` : null,
   running.web ? `${paint('35', 'web')} http://localhost:${ports.devWeb}` : null,
+  issuer ? `${paint('33', 'sign-in')} ${issuer.origin}` : null,
 ].filter(Boolean);
 console.log(`\n${addresses.join('   ')}   (Ctrl+C to stop)\n`);
 
@@ -116,7 +137,31 @@ const halves = [];
 if (running.api) {
   halves.push(
     start(
-      ['--filter', '@cockpit/api', 'exec', 'wrangler', 'dev', '--port', String(ports.devApi)],
+      [
+        '--filter',
+        '@cockpit/api',
+        'exec',
+        'wrangler',
+        'dev',
+        '--port',
+        String(ports.devApi),
+        // What a deployed environment holds as secrets, and does not hold at
+        // all in the case of OIDC_ISSUER: it is what points this stack at the
+        // issuer above instead of at Google (apps/api/src/auth/issuer.ts).
+        // Passed rather than written to .dev.vars so there is no file to leave
+        // behind pointing a later run somewhere nobody chose.
+        '--var',
+        `OIDC_ISSUER:${issuer.origin}`,
+        '--var',
+        'GOOGLE_CLIENT_ID:cockpit-local',
+        '--var',
+        'GOOGLE_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+        // Where a sign-in comes back to: the address a person has open, which
+        // is Vite's when both halves are running and this Worker's when it is
+        // the only half there is (`pnpm dev:api`).
+        '--var',
+        `APP_ORIGIN:http://localhost:${running.web ? ports.devWeb : ports.devApi}`,
+      ],
       'api',
       '36',
       root,
