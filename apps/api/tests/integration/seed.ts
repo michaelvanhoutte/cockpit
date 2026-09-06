@@ -30,6 +30,29 @@ export const OTHER_USER_ID = 'user-ada';
 /** One of the workspaces every account starts with. */
 export const WORKSPACE_ID = 'ws-work';
 
+/**
+ * *Task*, one of the two types every account starts with, by the id the store
+ * derives from the account's own name (src/accounts/changes.ts). Every capture
+ * names a type, so every test that captures needs one, and this is the one that
+ * is there without arranging anything.
+ *
+ * Per account rather than one constant, because a capture into somebody else's
+ * account may not name a type of this one.
+ */
+export const taskTypeIn = (accountName: string) => `${accountName}-type-action`;
+export const TASK_TYPE_ID = taskTypeIn(ACCOUNT_NAME);
+
+/**
+ * Which account a seeded person belongs to. It throws on anybody else rather
+ * than falling back, so a third user added here fails where the mapping is
+ * missing instead of quietly capturing against somebody else's types.
+ */
+export function accountOf(userId: string): string {
+  if (userId === USER_ID) return ACCOUNT_NAME;
+  if (userId === OTHER_USER_ID) return OTHER_ACCOUNT_NAME;
+  throw new Error(`seed.ts does not know which account ${userId} belongs to`);
+}
+
 export async function seedRegister(): Promise<void> {
   await env.DB.batch([
     env.DB.prepare('INSERT OR IGNORE INTO tenants (id, name, created_at) VALUES (?, ?, ?)').bind(

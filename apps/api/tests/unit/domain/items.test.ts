@@ -14,6 +14,8 @@ const LATEST = '2026-08-12T10:00:02.000Z';
 const request = {
   commandId: '018f0000-0000-7000-8000-000000000001',
   workspaceId: 'ws-work',
+  // Every capture names what kind of thing it is, so every one built here does.
+  typeId: 'tenant-default-type-action',
 };
 
 function anItem(overrides: Partial<Item> = {}): Item {

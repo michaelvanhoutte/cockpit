@@ -50,7 +50,10 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     title: '',
     description: null,
     sourceResolvedAt: null,
-    typeId: cmd.typeId ?? null,
+    // Every capture names one, so nothing is defaulted here. The column stays
+    // nullable for the Items that have no Type - captured before Types
+    // existed, or labelled with one since deleted.
+    typeId: cmd.typeId,
     nextAction: cmd.nextAction ?? null,
     completedAt: null,
     priority: null,

@@ -321,14 +321,25 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
   nextAction: z.string().optional(),
   /**
    * What kind of thing it is ("Capture a thought or an action, and see which it
-   * is", issue 155). Optional, because a capture from a front door that has no
-   * picker - a dictated note, a connector - still has to land.
+   * is", issue 155).
+   *
+   * **Required**, because every Item has a Type: it was optional while the
+   * pickers offered *No type*, and both of them now make it an answer you
+   * cannot avoid giving. A front door with no picker - a dictated note, a
+   * connector - captures nothing until something can answer for it, which is
+   * what auto-detection is for (docs/ideas.md, "Capture and the task creator");
+   * an optional field here would have let one write the untyped Items the
+   * pickers just stopped writing.
+   *
+   * The read model is deliberately not the same shape: an Item whose Type was
+   * deleted has none, so `itemSchema` keeps it nullable and a row with no type
+   * is still drawn.
    *
    * The envelope's plain string rather than a uuid: it names a type that
    * already exists, and the two every account starts with have ids derived from
    * the account's own.
    */
-  typeId: z.string().min(1).optional(),
+  typeId: z.string().min(1),
   /**
    * Whether the envelope's Workspace is where this Item *belongs*, or merely
    * where it was captured from ("Capture something before you know which

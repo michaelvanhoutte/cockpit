@@ -92,10 +92,11 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
       <div className="border-b border-black/5 px-4 py-3">
         <CaptureForm
           workspaceId={workspaceId}
-          // `?? []` for the reason the filings above carry one: a stored
-          // snapshot can predate the field, and capture with no types to
-          // offer is a box you can type a name into rather than a crash.
-          types={data.itemTypes ?? []}
+          // Handed over as it is, `undefined` and all: a stored snapshot can
+          // predate the field, and the row has to tell that apart from an
+          // account that really has no types - it says "no types yet" for the
+          // second and waits quietly for the first.
+          types={data.itemTypes}
           items={data.items}
         />
       </div>
