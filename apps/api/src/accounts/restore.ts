@@ -156,7 +156,7 @@ export function writeRows(
  * it. A backup is a file on somebody's disk, so this is a state that can really
  * arrive rather than one that cannot.
  */
-function nowhereToPutThem(backup: AccountBackup, order: readonly string[]): void {
+export function nowhereToPutThem(backup: AccountBackup, order: readonly string[]): void {
   const exists = new Set(order);
   const orphaned = Object.entries(backup.tables)
     .filter(([table, rows]) => rows.length > 0 && !exists.has(table))
@@ -181,7 +181,11 @@ function nowhereToPutThem(backup: AccountBackup, order: readonly string[]): void
  * gained, and both land as a restore that reports success having lost data.
  * Which is the one thing a backup exists to prevent.
  */
-function sameShapeThroughout(table: string, rows: readonly Row[], columns: readonly string[]): void {
+export function sameShapeThroughout(
+  table: string,
+  rows: readonly Row[],
+  columns: readonly string[],
+): void {
   // A row with no columns at all is refused rather than skipped. Skipping it
   // dropped the whole table - every row of it - and answered 200, which is the
   // failure this function is next to `nowhereToPutThem` to prevent. The wire

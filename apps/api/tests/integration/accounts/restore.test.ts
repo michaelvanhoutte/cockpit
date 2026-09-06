@@ -370,24 +370,14 @@ describe('Backup', () => {
      * is a real state. Taking the first row's list and reading the rest through
      * it writes NULL for a column a later row lacks and drops one it gained,
      * both landing as a restore that reports success having lost data.
+     *
+     * One example here, not the branches. Which shapes of row disagree - a
+     * column gained, one missing, none at all - is a decision about plain data
+     * and is asked at tests/unit/accounts/restore.test.ts, where the ways they
+     * can differ cost nothing to arrange. What is left for this tier is the
+     * half that cannot be asked there: a throw inside the transaction becoming
+     * a 400, with the account left as it was.
      */
-    /**
-     * The same silent skip one line further up. A row is an open record as far
-     * as the wire schema can tell, so `{}` is a valid one - and skipping the
-     * table for having no columns dropped every row it held and answered 200.
-     */
-    it('refuses a table whose rows carry no columns at all', async () => {
-      await captureInto(USER_ID, 'mine');
-      const taken = await backUp(ACCOUNT_NAME);
-      const empty = { ...taken, tables: { ...taken.tables, workspaces: [{}, {}] } };
-
-      const res = await restore(ACCOUNT_NAME, empty, { force: true });
-
-      expect(res.status).toBe(400);
-      expect(((await res.json()) as { error: string }).error).toContain('no columns at all');
-      expect(messagesIn(await backUp(ACCOUNT_NAME))).toContain('mine');
-    });
-
     it('refuses a table whose rows do not all carry the same columns', async () => {
       await captureInto(USER_ID, 'mine');
       const taken = await backUp(ACCOUNT_NAME);
@@ -459,18 +449,24 @@ describe('Backup', () => {
       expect((await useAccount(OTHER_USER_ID)).length).toBeGreaterThan(0);
     });
 
-    it.each([
-      {
-        situation: 'a user already here owning a different account',
-        user: { id: USER_ID, name: 'Michael', account_id: 'somewhere-else', role: 'admin', email: 'new@example.com', google_subject: null, created_at: AT },
-        says: 'owning',
-      },
-      {
-        situation: 'an address already here under another name',
-        user: { id: 'user-someone-else', name: 'Someone', account_id: ACCOUNT_NAME, role: 'user', email: 'michael@example.com', google_subject: null, created_at: AT },
-        says: 'address',
-      },
-    ])('refuses $situation, and writes nothing', async ({ user, says }) => {
+    /**
+     * One collision, not all three. The route answers every disagreement the
+     * same way - a 409 carrying the message the plan made - so a second case
+     * here would re-prove `planRegisterRestore`, which
+     * tests/unit/accounts/register-restore.test.ts already asks exhaustively.
+     * What this proves is the wiring: a collision reaches a 409 and the
+     * register is not written to on the way.
+     */
+    it('refuses a user already here owning a different account, and writes nothing', async () => {
+      const user = {
+        id: USER_ID,
+        name: 'Michael',
+        account_id: 'somewhere-else',
+        role: 'admin',
+        email: 'new@example.com',
+        google_subject: null,
+        created_at: AT,
+      };
       const before = await env.DB.prepare('SELECT * FROM users ORDER BY id').all();
 
       const res = await asOperator('/v1/admin/restore/register', {
@@ -480,7 +476,7 @@ describe('Backup', () => {
       });
 
       expect(res.status).toBe(409);
-      expect(((await res.json()) as { error: string }).error).toContain(says);
+      expect(((await res.json()) as { error: string }).error).toContain('owning');
       expect((await env.DB.prepare('SELECT * FROM users ORDER BY id').all()).results).toEqual(
         before.results,
       );
