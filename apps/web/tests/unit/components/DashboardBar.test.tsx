@@ -636,6 +636,20 @@ describe('Layouts', () => {
       });
     });
 
+    it('goes back to the screen’s own layout when you press the one it would draw', async () => {
+      // Pressing the nearest layout is the way out of a pick, and the only one
+      // from the menu - which is why it is stored even though it changes
+      // nothing on its own. Without it the press would be a no-op and *Wide*
+      // would still be drawn on a screen whose own layout is *Laptop*.
+      picked('wide', 'laptop');
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+
+      await user.click(await theControl('Wide'));
+      await user.click(screen.getByRole('menuitemradio', { name: /^Laptop/ }));
+
+      await theControl('Laptop');
+    });
+
     it('draws a layout written before names existed as the width it was made for', async () => {
       // What old code writes for the seconds of a deploy that both versions
       // serve. A blank entry in the menu would be worse than the old label.

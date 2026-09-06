@@ -87,8 +87,9 @@ export function LayoutPicker({
    *
    * What the pick records is the answer it is overriding rather than a width,
    * so it expires when that answer changes and not before (`LayoutPick`). The
-   * layout you press is stored even where it is already the nearest: pressing
-   * it is not a no-op if a later resize would have moved you off it.
+   * layout you press is stored even where it is already the nearest: that is
+   * what lets pressing it clear a pick standing on a different layout, which is
+   * how you get back to the screen's own answer without leaving the menu.
    */
   const pickFromMenu = (layoutId: string) =>
     choose({ layoutId, whileNearestIs: nearest?.id ?? layoutId });
