@@ -422,8 +422,12 @@ const routes = app
     async (c) => c.json(await change(c, 'rename_panel', c.req.valid('json')), 200),
   )
   .openapi(commandRoute('delete_panel'), async (c) => c.json(await change(c, 'delete_panel', c.req.valid('json')), 200))
-  .openapi(commandRoute('save_layout'), async (c) => c.json(await change(c, 'save_layout', c.req.valid('json')), 200))
-  .openapi(commandRoute('delete_layout'), async (c) => c.json(await change(c, 'delete_layout', c.req.valid('json')), 200))
+  .openapi(commandRoute('save_layout', { conflict: 'The dashboard already has a layout by that name' }), async (c) => c.json(await change(c, 'save_layout', c.req.valid('json')), 200))
+  .openapi(
+    commandRoute('rename_layout', { conflict: 'The dashboard already has a layout by that name' }),
+    async (c) => c.json(await change(c, 'rename_layout', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('delete_layout', { conflict: 'A dashboard keeps at least one layout' }), async (c) => c.json(await change(c, 'delete_layout', c.req.valid('json')), 200))
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c, 'capture_item', c.req.valid('json')), 200))

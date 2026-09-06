@@ -125,6 +125,8 @@ const commandSenders = {
   delete_panel: (p: CommandPayload<'delete_panel'>) =>
     api.v1.commands.delete_panel.$post({ json: p }),
   save_layout: (p: CommandPayload<'save_layout'>) => api.v1.commands.save_layout.$post({ json: p }),
+  rename_layout: (p: CommandPayload<'rename_layout'>) =>
+    api.v1.commands.rename_layout.$post({ json: p }),
   delete_layout: (p: CommandPayload<'delete_layout'>) =>
     api.v1.commands.delete_layout.$post({ json: p }),
   capture_item: (p: CommandPayload<'capture_item'>) => api.v1.commands.capture_item.$post({ json: p }),

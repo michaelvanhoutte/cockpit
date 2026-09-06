@@ -28,6 +28,21 @@ export function panelNamed(
   return namedTheSame(live, name, except);
 }
 
+/**
+ * The layout of *this dashboard* already going by this name, or undefined.
+ *
+ * The same scope a panel's title uses, one level down from a dashboard's name:
+ * two dashboards of one workspace may each have a *Wide* ("Pick the layout you
+ * are on, by name").
+ */
+export function layoutNamed(
+  its: readonly { id: string; name: string }[],
+  name: string,
+  except?: string,
+): { id: string; name: string } | undefined {
+  return namedTheSame(its, name, except);
+}
+
 export interface PanelRow extends Panel {
   foldedName: string;
   createdAt: string;

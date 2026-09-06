@@ -1,0 +1,1348 @@
+<title>Cockpit Panel Rows</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  /* ------------------------------------------------------------------
+     Cockpit's own tokens (apps/web/src/styles.css), in the warm workspace
+     tint of the screenshot this answers. The accent stays the app's fixed
+     purple: only the three surfaces and the tint move with the workspace.
+     One committed visual world — the product's — painted explicitly rather
+     than inherited from the host.
+     ------------------------------------------------------------------ */
+  :root {
+    --chrome-deep: #2a1f1a;
+    --chrome-bar: #34271f;
+    --chrome-ink: #f4efec;
+    --chrome-ink-soft: #b6a79e;
+    --chrome-ink-faint: #97867c;
+
+    --ground: #f7efe8;
+    --sheet: #fbf5f1;
+    --well: #fdfaf8;
+
+    --ink: #2c2622;
+    --ink-soft: #5f564f;
+    --ink-faint: #8a7f77;
+    --hair: rgb(44 38 34 / 0.13);
+    --hair-soft: rgb(44 38 34 / 0.07);
+
+    --accent: #6f62b5;
+    --accent-deep: #5d5294;
+    --accent-tint: #ece9fb;
+    --tint: #d08a52;
+
+    --over: #bf5d55;
+    --task: #3f8f78;
+    --waiting: #c98a4b;
+    --delegated: #4f8fa8;
+    --process: #6f62b5;
+    --reference: #b0b3c2;
+
+    --lab: #efe6df;
+    --lab-ink: #6b5f57;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--lab);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button { font: inherit; color: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ================= prototype tray ================= */
+
+  .tray {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 24px;
+    padding: 14px 20px;
+    border-bottom: 1px solid rgb(44 38 34 / 0.1);
+  }
+  .tray-name { display: flex; flex-direction: column; margin-right: auto; }
+  .tray-name b { font-size: 13px; font-weight: 600; }
+  .tray-name span { font-size: 12px; color: var(--lab-ink); }
+
+  .knob { display: flex; align-items: center; gap: 8px; }
+  .knob > label {
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--lab-ink);
+  }
+  .seg {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    background: rgb(255 255 255 / 0.6);
+    border: 1px solid rgb(44 38 34 / 0.12);
+    border-radius: 7px;
+  }
+  .seg button {
+    border: 0;
+    background: transparent;
+    border-radius: 5px;
+    padding: 3px 9px;
+    font-size: 12.5px;
+    color: var(--lab-ink);
+    white-space: nowrap;
+  }
+  .seg button:hover { background: rgb(255 255 255 / 0.9); color: var(--ink); }
+  .seg button[aria-pressed="true"] {
+    background: var(--chrome-deep);
+    color: var(--chrome-ink);
+    font-weight: 500;
+  }
+
+  /* ================= the app frame ================= */
+
+  /* The frame is drawn at the screen width being tried, and shrunk to fit the
+     window it is being looked at in - so a 1440px layout can be judged on a
+     laptop without the page itself scrolling sideways. */
+  .stage { padding: 26px 20px 0; display: flex; justify-content: center; overflow-x: auto; }
+  .frame {
+    width: 100%;
+    zoom: 1;
+    background: var(--ground);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgb(44 38 34 / 0.08), 0 16px 44px rgb(44 38 34 / 0.16);
+    transition: width 220ms cubic-bezier(.2,.7,.3,1);
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--chrome-deep);
+    padding: 7px 12px;
+  }
+  .wordmark { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: var(--chrome-ink); }
+  .ws {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 6px;
+    padding: 3px 9px;
+    font-size: 12.5px;
+    color: var(--chrome-ink-soft);
+  }
+  .ws.on { background: rgb(255 255 255 / 0.09); color: var(--chrome-ink); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+  .ws.on .dot { background: var(--tint); }
+
+  .tabbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    background: var(--chrome-bar);
+    padding: 5px 10px 0;
+  }
+  .tab {
+    border: 0;
+    background: transparent;
+    border-radius: 6px 6px 0 0;
+    padding: 4px 11px 6px;
+    font-size: 13px;
+    color: var(--chrome-ink-soft);
+    white-space: nowrap;
+  }
+  .tab:hover { background: rgb(255 255 255 / 0.08); color: var(--chrome-ink); }
+  .tab.on {
+    background: var(--ground);
+    color: var(--ink);
+    font-weight: 500;
+    box-shadow: inset 0 2px 0 0 var(--tint);
+  }
+
+  /* The proposal: the dashboard's own controls, on the right of its own bar. */
+  .cluster { margin-left: auto; display: flex; align-items: center; gap: 6px; padding-bottom: 5px; }
+  .chrome-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid rgb(255 255 255 / 0.16);
+    background: rgb(255 255 255 / 0.07);
+    border-radius: 6px;
+    padding: 3px 9px;
+    font-size: 12.5px;
+    color: var(--chrome-ink);
+    white-space: nowrap;
+  }
+  .chrome-btn:hover { background: rgb(255 255 255 / 0.14); }
+  .chrome-btn[hidden] { display: none; }
+  .caret { font-size: 9px; color: var(--chrome-ink-faint); }
+  .auto {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--tint);
+    font-weight: 600;
+  }
+  .layout-anchor { position: relative; }
+
+  /* ================= layout menu ================= */
+
+  .menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 40;
+    width: 300px;
+    background: var(--sheet);
+    border: 1px solid var(--hair);
+    border-radius: 9px;
+    padding: 5px;
+    box-shadow: 0 2px 4px rgb(44 38 34 / 0.08), 0 14px 34px rgb(44 38 34 / 0.2);
+  }
+  .menu[hidden] { display: none; }
+  .menu-label {
+    padding: 6px 9px 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-faint);
+  }
+  .menu-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    border-radius: 6px;
+    padding: 6px 9px;
+    text-align: left;
+    font-size: 13.5px;
+  }
+  .menu-item:hover:not(:disabled) { background: var(--accent-tint); color: var(--accent-deep); }
+  .menu-item:disabled { color: var(--ink-faint); cursor: default; }
+  .mark { width: 13px; flex: none; color: var(--accent); font-size: 12px; }
+  .grow { flex: 1; min-width: 0; }
+  .meta { font-size: 11.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; flex: none; }
+  .menu-item.danger { color: var(--over); }
+  .menu-item.danger:hover:not(:disabled) { background: rgb(191 93 85 / 0.1); }
+  .menu-sep { height: 1px; background: var(--hair-soft); margin: 5px 6px; }
+  .menu-note { padding: 4px 9px 8px; font-size: 11.5px; line-height: 1.45; color: var(--ink-faint); }
+  .menu-form { padding: 5px 6px 7px; display: flex; flex-direction: column; gap: 7px; }
+  .menu-form input {
+    font: inherit;
+    font-size: 13.5px;
+    padding: 5px 8px;
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    background: var(--well);
+    color: var(--ink);
+    outline: none;
+  }
+  .menu-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(111 98 181 / 0.18); }
+  .menu-form .buttons { display: flex; gap: 6px; justify-content: flex-end; }
+  .btn-quiet {
+    border: 1px solid var(--hair);
+    background: transparent;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .btn-quiet:hover { background: var(--accent-tint); color: var(--accent-deep); }
+  .btn-solid {
+    border: 0;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    padding: 4px 11px;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .btn-solid:hover { background: var(--accent-deep); }
+
+  /* ================= inbox + sheet ================= */
+
+  .below { display: flex; align-items: stretch; min-height: 470px; }
+  .inbox {
+    width: 250px;
+    flex: none;
+    border-right: 1px solid var(--hair-soft);
+    background: var(--sheet);
+    padding-bottom: 14px;
+  }
+  .inbox[hidden] { display: none; }
+  .inbox-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--hair-soft);
+  }
+  .capture { margin: 12px 12px 4px; display: flex; gap: 6px; }
+  .capture input {
+    font: inherit;
+    font-size: 12.5px;
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px;
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    background: var(--well);
+    outline: none;
+  }
+  .capture button {
+    border: 0;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+
+  .sheet { flex: 1; min-width: 0; padding: 10px 14px 22px; }
+  .board { display: flex; flex-direction: column; }
+
+  /* ================= a row ================= */
+
+  .strip {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  /* Every gap is somewhere a panel can be added: the seams between rows make a
+     row, the seams inside a row split it. Quiet until the pointer is in them,
+     because adding a panel is an occasional thing and a permanent + on every
+     edge would be a dozen controls looking for one press. */
+  .seam { position: relative; height: 13px; flex: none; }
+  .seam::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: rgb(111 98 181 / 0.3);
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .seam:hover::before, .seam:focus-within::before { opacity: 1; }
+  .seam-add {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 8;
+    border: 1px dashed rgb(111 98 181 / 0.5);
+    background: var(--ground);
+    color: var(--accent-deep);
+    border-radius: 999px;
+    padding: 2px 11px;
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.35;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .seam:hover .seam-add, .seam-add:focus-visible { opacity: 1; }
+  .seam-add:hover { background: var(--accent-tint); border-style: solid; }
+
+  /* Drag the bottom edge to set the row's height; double-click to fit. */
+  .row-grip {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -9px;
+    height: 10px;
+    cursor: ns-resize;
+    touch-action: none;
+  }
+  .row-grip::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 4px;
+    width: 42px;
+    height: 3px;
+    margin-left: -21px;
+    border-radius: 2px;
+    background: rgb(44 38 34 / 0.16);
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .row-grip:hover::after, .row-grip.live::after { opacity: 1; background: var(--accent); }
+
+  /* Drag the divider to give one panel more of the row than its neighbour. */
+  .col-grip {
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    width: 11px;
+    margin-left: -5.5px;
+    cursor: ew-resize;
+    touch-action: none;
+    z-index: 5;
+  }
+  .col-grip::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    margin-left: -1.5px;
+    border-radius: 2px;
+    background: rgb(44 38 34 / 0.16);
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .col-grip:hover::after, .col-grip.live::after { opacity: 1; background: var(--accent); }
+  /* The seams at either end of a row carry the + but nothing to resize. */
+  .col-grip.edge { cursor: default; }
+  .col-grip.edge::after { display: none; }
+
+  /* Centred down the seam rather than at the top of it, where the seams at
+     either end of a row would sit on the panel's own menu. */
+  .grip-add {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px dashed rgb(111 98 181 / 0.5);
+    background: var(--ground);
+    color: var(--accent-deep);
+    border-radius: 999px;
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .col-grip:hover .grip-add, .grip-add:focus-visible { opacity: 1; }
+  .grip-add:hover { background: var(--accent-tint); border-style: solid; }
+
+  /* ================= a panel ================= */
+
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-radius: 6px;
+  }
+  .panel.lifted {
+    background: var(--ground);
+    box-shadow: 0 2px 6px rgb(44 38 34 / 0.12), 0 18px 40px rgb(44 38 34 / 0.2);
+  }
+  .panel.lifted .p-head { cursor: grabbing; }
+
+  .p-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 8px 8px 6px 12px;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    border-radius: 6px 6px 0 0;
+  }
+  .p-head:hover { background: rgb(111 98 181 / 0.06); }
+  .p-name {
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.11em;
+    color: var(--accent-deep);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .p-count {
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+    margin-right: auto;
+    flex: none;
+  }
+  .p-more {
+    flex: none;
+    border: 0;
+    background: transparent;
+    color: var(--ink-faint);
+    border-radius: 5px;
+    padding: 0 5px;
+    font-size: 14px;
+    line-height: 1.3;
+  }
+  .p-more:hover { background: rgb(44 38 34 / 0.07); color: var(--ink); }
+
+  .well {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    background: var(--well);
+    border-radius: 4px;
+    box-shadow: inset 0 1px 2px rgb(44 38 34 / 0.06), 0 0 0 1px var(--hair-soft);
+  }
+
+  .row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 7px 11px;
+    border-bottom: 1px solid var(--hair-soft);
+  }
+  .row:last-child { border-bottom: 0; }
+  .sdot { width: 6px; height: 6px; border-radius: 50%; flex: none; transform: translateY(-1px); }
+  .txt { flex: 1; min-width: 0; }
+  .title { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { display: block; font-size: 11px; color: var(--ink-faint); }
+  .age { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; flex: none; }
+  .age.over { color: var(--over); font-weight: 500; }
+  .empty { padding: 14px 12px; font-size: 12.5px; color: var(--ink-faint); }
+
+  .ghost {
+    border: 1px dashed rgb(111 98 181 / 0.42);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--accent-deep);
+    font-size: 12.5px;
+    font-weight: 500;
+    padding: 12px;
+    width: 100%;
+  }
+  .ghost:hover { background: var(--accent-tint); border-style: solid; }
+  .ghost[hidden] { display: none; }
+
+  .squeezed { margin: 0 0 8px; font-size: 11.5px; color: var(--ink-faint); }
+  .squeezed[hidden] { display: none; }
+
+  /* ================= notes ================= */
+
+  .notes {
+    max-width: 64ch;
+    margin: 40px auto 60px;
+    padding: 0 20px;
+    color: var(--lab-ink);
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+  .notes h2 {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink);
+    margin: 0 0 12px;
+  }
+  .notes ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 8px; }
+  .notes b { color: var(--ink); font-weight: 600; }
+  .notes .open { margin-top: 22px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition-duration: 1ms !important; } }
+</style>
+
+<div class="tray">
+  <div class="tray-name">
+    <b>Panel rows prototype</b>
+    <span>Hover a gap to add · drag a panel header · drag a row's bottom edge or a divider to resize</span>
+  </div>
+
+  <div class="knob">
+    <label for="k-add">Add a panel</label>
+    <div class="seg" id="k-add">
+      <button data-add="bar">In the bar</button>
+      <button data-add="tile">Ghost tile</button>
+    </div>
+  </div>
+
+  <div class="knob">
+    <label for="k-width">Screen</label>
+    <div class="seg" id="k-width">
+      <button data-width="1440">Desktop</button>
+      <button data-width="1120">Laptop</button>
+      <button data-width="820">Tablet</button>
+      <button data-width="430">Phone</button>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="frame" id="frame">
+    <div class="topbar">
+      <span class="wordmark">Cockpit</span>
+      <span class="ws"><span class="dot"></span>Personal</span>
+      <span class="ws on"><span class="dot"></span>Work</span>
+    </div>
+
+    <div class="tabbar">
+      <button class="tab" id="tab-inbox" hidden>Inbox</button>
+      <button class="tab on">Project Falcon</button>
+      <button class="tab">Week ahead</button>
+      <button class="tab" style="color:var(--chrome-ink-faint)">+</button>
+      <div class="cluster">
+        <div class="layout-anchor">
+          <button class="chrome-btn" id="layout-btn" aria-haspopup="true" aria-expanded="false"></button>
+          <div class="menu" id="layout-menu" hidden></div>
+        </div>
+        <button class="chrome-btn" id="add-bar">+ Panel</button>
+      </div>
+    </div>
+
+    <div class="below">
+      <aside class="inbox" id="inbox">
+        <div class="inbox-head">
+          <span class="p-name">Inbox</span>
+          <span class="p-count" style="margin-right:0">4</span>
+        </div>
+        <div class="capture">
+          <input placeholder="Capture a note or to-do…" aria-label="Capture a note or to-do">
+          <button type="button">Capture</button>
+        </div>
+        <div id="inbox-list"></div>
+      </aside>
+
+      <main class="sheet">
+        <p class="squeezed" id="squeezed" hidden></p>
+        <div class="board" id="board"></div>
+        <button class="ghost" id="add-tile" hidden>+ Add a panel</button>
+      </main>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>What this is testing</h2>
+  <ul>
+    <li><b>A dashboard is a list of rows.</b> A row holds up to four panels, they always fill the whole width, and they always share one height — so there are no holes, no slivers and nothing to align by hand.</li>
+    <li><b>Every gap is somewhere a panel goes.</b> Hover between two rows for <i>+ Add a row</i>; hover a seam inside a row — either end, or between two panels — for a <code>+</code> that puts one in that row. A row never exists empty, so adding a row and putting something in it are one press.</li>
+    <li><b>Three gestures move and size things, and that is all there is.</b> Drag a panel into another row, or into the gap between two rows to make a row of its own. Drag a row's bottom edge to set its height — double-click it to fit the row to what is in it. Drag the divider between two panels to give one more of the row than the other: a row is twelve units, so two panels can sit 6/6, 8/4 or 9/3.</li>
+    <li><b>The layout is a thing you pick, not a side effect.</b> The dropdown on the right of the dashboard bar names the arrangement you are in, and <i>New layout…</i> is how one gets made — so nothing has to ask <i>"this layout was made for a 1463 px screen, keep the change where?"</i></li>
+    <li><b>Automatic is one visible entry, not the invisible default.</b> Pick it and the button reads <i>Auto · Wide</i>; change the screen and watch which layout it follows.</li>
+    <li><b>Where "Add a panel" goes</b> — in the dashboard's own bar, or as a tile at the end of the board. Switch between them above.</li>
+  </ul>
+  <p class="open"><b>Still open:</b> whether a phone gets a layout at all or just stacks every panel; whether a row's height should default to fitting its content; and whether the divider should snap to twelfths or to a coarser set.</p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var UNITS = 12;         // a row is twelve units wide
+  var MIN_SPAN = 2;       // a panel never gets less than a sixth of its row
+  var MAX_PER_ROW = 4;    // past four across a panel stops being a box you read
+  var FIT_CAP = 340;      // how tall a row grows on its own before it scrolls
+  var MIN_ROW = 110;
+  var MAX_ROW = 720;
+  var NARROW = 660;       // below this the sheet is one panel across
+  var THROTTLE = 120;
+
+  var PANELS = [
+    { id: 'falcon', name: 'Project Falcon', items: [
+      { t: 'Pricing sheet needs Anna’s sign-off', s: 'Action · Gmail', k: 'task', age: '2d' },
+      { t: 'Re: Falcon rollout timeline', s: 'Waiting on Ben', k: 'waiting', age: '5d' },
+      { t: '#cust-atlascopco — SSO thread', s: 'Slack', k: 'process', age: '1d' },
+      { t: 'Send revised SOW to legal', s: 'Action', k: 'task', age: '1d' },
+      { t: 'Kickoff notes — 12 Aug', s: 'Notion', k: 'reference', age: '24d' }
+    ] },
+    { id: 'anna', name: 'Anna', items: [
+      { t: 'Reply about Q4 pricing', s: 'Action · Gmail', k: 'task', age: '2d' },
+      { t: 'Headcount numbers for the plan', s: 'Waiting', k: 'waiting', age: '5d' },
+      { t: '1:1 agenda — Thursday', s: 'Notion', k: 'reference', age: '3d' }
+    ] },
+    { id: 'payments', name: 'Payments due', items: [
+      { t: 'Contractor invoice #2291 — €1,840', s: 'Overdue', k: 'waiting', age: '2d', over: true },
+      { t: 'Cloudflare — €412', s: 'Due 8 Sep', k: 'task', age: '3d' },
+      { t: 'Notion annual renewal — €288', s: 'Due 14 Sep', k: 'task', age: '9d' },
+      { t: 'Fastmail — €62', s: 'Due 19 Sep', k: 'task', age: '14d' }
+    ] },
+    { id: 'reading', name: 'Reading digest', items: [
+      { t: 'Local-first sync: three approaches compared', s: 'Highlight', k: 'reference', age: '1d' },
+      { t: 'What Durable Objects actually cost', s: 'Highlight', k: 'reference', age: '1d' },
+      { t: 'The case against feature flags', s: 'Highlight', k: 'reference', age: '2d' }
+    ] },
+    { id: 'waiting', name: 'Waiting on', items: [
+      { t: 'Legal review of the DPA', s: 'Delegated · Marieke', k: 'delegated', age: '6d' },
+      { t: 'Ben: repro for the SSE drop', s: 'Delegated', k: 'delegated', age: '2d' }
+    ] }
+  ];
+
+  var INBOX = [
+    { t: 'Renewal quote from Fastmail', s: 'Gmail', k: 'process', age: '2h' },
+    { t: 'Book the Antwerp trip', s: 'Action', k: 'task', age: '1d' },
+    { t: 'Jonas asked about the roadmap', s: 'Slack', k: 'process', age: '1d' },
+    { t: 'Read later: WebGPU compute intro', s: 'Reference', k: 'reference', age: '4d' }
+  ];
+
+  function cell(id, span) { return { id: id, span: span }; }
+  function strip(h, cells) { return { h: h, cells: cells }; }
+
+  var state = {
+    addWhere: 'bar',
+    frameWidth: 1440,
+    chosen: 'auto',
+    menuOpen: false,
+    naming: null,
+    layouts: [
+      { id: 'l-wide', name: 'Wide', madeAt: 1440, rows: [
+        strip(300, [cell('falcon', 8), cell('anna', 4)]),
+        strip(null, [cell('payments', 4), cell('waiting', 4), cell('reading', 4)])
+      ] },
+      { id: 'l-phone', name: 'Phone', madeAt: 430, rows: [
+        strip(null, [cell('anna', 12)]),
+        strip(280, [cell('falcon', 12)]),
+        strip(null, [cell('payments', 12)]),
+        strip(null, [cell('waiting', 12)]),
+        strip(null, [cell('reading', 12)])
+      ] }
+    ]
+  };
+
+  var frame = document.getElementById('frame');
+  var board = document.getElementById('board');
+  var inboxEl = document.getElementById('inbox');
+  var tabInbox = document.getElementById('tab-inbox');
+  var layoutBtn = document.getElementById('layout-btn');
+  var layoutMenu = document.getElementById('layout-menu');
+  var addBar = document.getElementById('add-bar');
+  var addTile = document.getElementById('add-tile');
+  var squeezed = document.getElementById('squeezed');
+
+  // ------------------------------------------------------------- the model
+
+  function panelById(id) {
+    for (var i = 0; i < PANELS.length; i++) if (PANELS[i].id === id) return PANELS[i];
+    return null;
+  }
+
+  function activeLayout() {
+    if (state.chosen !== 'auto') {
+      for (var i = 0; i < state.layouts.length; i++) {
+        if (state.layouts[i].id === state.chosen) return state.layouts[i];
+      }
+    }
+    return nearestLayout();
+  }
+
+  function nearestLayout() {
+    var best = state.layouts[0];
+    for (var i = 1; i < state.layouts.length; i++) {
+      var d = Math.abs(state.layouts[i].madeAt - state.frameWidth);
+      var bd = Math.abs(best.madeAt - state.frameWidth);
+      if (d < bd || (d === bd && state.layouts[i].madeAt < best.madeAt)) best = state.layouts[i];
+    }
+    return best;
+  }
+
+  function rows() { return activeLayout().rows; }
+  function roomForInbox() { return state.frameWidth >= 900; }
+  function boardWidth() { return state.frameWidth - (roomForInbox() ? 250 : 0) - 28; }
+  function isNarrow() { return boardWidth() < NARROW; }
+
+  /** Equal shares of the row, the remainder going to the panels on the left. */
+  function evenly(row) {
+    var n = row.cells.length;
+    if (!n) return;
+    var base = Math.floor(UNITS / n);
+    var extra = UNITS - base * n;
+    row.cells.forEach(function (c, i) { c.span = base + (i < extra ? 1 : 0); });
+  }
+
+  function rowOf(id) {
+    var rs = rows();
+    for (var i = 0; i < rs.length; i++) {
+      for (var j = 0; j < rs[i].cells.length; j++) if (rs[i].cells[j].id === id) return i;
+    }
+    return -1;
+  }
+
+  function takeOut(id) {
+    var rs = rows();
+    var i = rowOf(id);
+    if (i < 0) return;
+    rs[i].cells = rs[i].cells.filter(function (c) { return c.id !== id; });
+    if (!rs[i].cells.length) rs.splice(i, 1);
+    else evenly(rs[i]);
+  }
+
+  // ------------------------------------------------------------- rendering
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function statusColor(k) {
+    return { task: 'var(--task)', waiting: 'var(--waiting)', delegated: 'var(--delegated)',
+      process: 'var(--process)', reference: 'var(--reference)' }[k] || 'var(--reference)';
+  }
+
+  function itemHTML(it) {
+    return '<div class="row">' +
+      '<span class="sdot" style="background:' + statusColor(it.k) + '"></span>' +
+      '<span class="txt"><span class="title">' + esc(it.t) + '</span>' +
+      '<span class="sub">' + esc(it.s) + '</span></span>' +
+      '<span class="age' + (it.over ? ' over' : '') + '">' + esc(it.age) + '</span></div>';
+  }
+
+  function renderInbox() {
+    var show = roomForInbox();
+    inboxEl.hidden = !show;
+    tabInbox.hidden = show;
+    document.getElementById('inbox-list').innerHTML = INBOX.map(itemHTML).join('');
+  }
+
+  function renderLayoutButton() {
+    var lay = activeLayout();
+    layoutBtn.innerHTML = (state.chosen === 'auto' ? '<span class="auto">Auto</span>' : '') +
+      '<span>' + esc(lay.name) + '</span><span class="caret">▾</span>';
+    layoutBtn.setAttribute('aria-expanded', String(state.menuOpen));
+    layoutBtn.title = 'Layout for this dashboard';
+  }
+
+  function menuRow(value, on, name, meta) {
+    return '<button class="menu-item" data-pick="' + value + '">' +
+      '<span class="mark">' + (on ? '●' : '') + '</span>' +
+      '<span class="grow">' + name + '</span>' +
+      '<span class="meta">' + meta + '</span></button>';
+  }
+
+  function renderMenu() {
+    layoutMenu.hidden = !state.menuOpen;
+    if (!state.menuOpen) return;
+
+    if (state.naming) {
+      layoutMenu.innerHTML =
+        '<div class="menu-label">' +
+          (state.naming.mode === 'new' ? 'Name the new layout' : 'Rename this layout') + '</div>' +
+        '<form class="menu-form" id="name-form">' +
+          '<input id="name-input" maxlength="40" placeholder="Wide, Laptop, Phone…" ' +
+            'value="' + esc(state.naming.value) + '" aria-label="Layout name">' +
+          '<div class="buttons">' +
+            '<button type="button" class="btn-quiet" data-act="cancel">Cancel</button>' +
+            '<button type="submit" class="btn-solid">' +
+              (state.naming.mode === 'new' ? 'Create' : 'Rename') + '</button>' +
+          '</div></form>';
+      var input = document.getElementById('name-input');
+      document.getElementById('name-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        commitName(input.value.trim());
+      });
+      input.focus();
+      input.select();
+      return;
+    }
+
+    var lay = activeLayout();
+    var html = '<div class="menu-label">Layout for Project Falcon</div>';
+    html += menuRow('auto', state.chosen === 'auto', 'Automatic', 'now ' + esc(nearestLayout().name));
+    state.layouts.forEach(function (l) {
+      html += menuRow(l.id, state.chosen === l.id, esc(l.name), l.madeAt + ' px');
+    });
+    html += '<div class="menu-sep"></div>' +
+      '<button class="menu-item" data-act="new"><span class="mark">+</span>' +
+        '<span class="grow">New layout from this one…</span></button>' +
+      '<button class="menu-item" data-act="rename"><span class="mark">✎</span>' +
+        '<span class="grow">Rename “' + esc(lay.name) + '”</span></button>' +
+      '<button class="menu-item danger" data-act="delete"' +
+        (state.layouts.length < 2 ? ' disabled' : '') + '><span class="mark">×</span>' +
+        '<span class="grow">Delete “' + esc(lay.name) + '”</span></button>';
+    if (state.layouts.length < 2) {
+      html += '<div class="menu-note">A dashboard keeps at least one layout.</div>';
+    }
+    if (isNarrow()) {
+      html += '<div class="menu-note">This screen is narrow, so every row is drawn one panel across ' +
+        'whatever the layout stores.</div>';
+    }
+    layoutMenu.innerHTML = html;
+  }
+
+  /**
+   * A row with no height of its own is capped on the *list* rather than on the
+   * row: a cap on the row would leave the panels stretched past it and
+   * overflowing, where a cap on each list lets the grid make them all the
+   * height of the tallest and stop there.
+   */
+  function panelHTML(c, row) {
+    var panel = panelById(c.id);
+    if (!panel) return '';
+    var span = isNarrow() ? UNITS : c.span;
+    var wellStyle = row.h ? '' : ' style="max-height:' + FIT_CAP + 'px"';
+    var list = panel.items.length
+      ? panel.items.map(itemHTML).join('')
+      : '<p class="empty">Nothing filed here yet.</p>';
+    return '<section class="panel" data-id="' + c.id + '" style="grid-column:span ' + span + '">' +
+      '<div class="p-head" data-drag="' + c.id + '">' +
+        '<span class="p-name">' + esc(panel.name) + '</span>' +
+        '<span class="p-count">' + panel.items.length + '</span>' +
+        '<button class="p-more" title="Actions for ' + esc(panel.name) + '">⋮</button>' +
+      '</div>' +
+      '<div class="well"' + wellStyle + '>' + list + '</div>' +
+    '</section>';
+  }
+
+  /**
+   * One seam inside a row: the `+` that puts a panel here, and - where it has a
+   * panel on both sides - the divider that shares the row between them.
+   *
+   * `insertAt` is where in the row a panel added here would go; `between` is
+   * the pair being resized, or null at either end of the row.
+   */
+  function colSeamHTML(i, insertAt, percent, between, full) {
+    var edge = between === null;
+    var where = percent === 0 ? 'left:0;margin-left:0'
+      : percent === 100 ? 'left:100%;margin-left:-12px'
+      : 'left:' + percent + '%';
+    return '<div class="col-grip' + (edge ? ' edge' : '') + '" style="' + where + '"' +
+      (edge ? '' : ' data-colgrip="' + i + ':' + between + '"' +
+        ' title="Drag to share this row differently"') + '>' +
+      (full ? '' : '<button class="grip-add" data-addat="' + i + ':' + insertAt + '"' +
+        ' title="Add a panel to this row">+</button>') +
+      '</div>';
+  }
+
+  function stripHTML(row, i) {
+    var height = row.h ? ' style="height:' + row.h + 'px"' : '';
+    var html = '<div class="strip" data-row="' + i + '"' + height + '>';
+    row.cells.forEach(function (c) { html += panelHTML(c, row); });
+
+    if (!isNarrow()) {
+      var full = row.cells.length >= MAX_PER_ROW;
+      html += colSeamHTML(i, 0, 0, null, full);
+      var at = 0;
+      for (var j = 0; j < row.cells.length - 1; j++) {
+        at += row.cells[j].span;
+        html += colSeamHTML(i, j + 1, at / UNITS * 100, j, full);
+      }
+      html += colSeamHTML(i, row.cells.length, 100, null, full);
+    }
+    html += '<div class="row-grip" data-rowgrip="' + i + '" ' +
+      'title="Drag to set this row&#39;s height · double-click to fit"></div>';
+    html += '</div>';
+    return html;
+  }
+
+  function rowSeamHTML(i) {
+    return '<div class="seam">' +
+      '<button class="seam-add" data-addrow="' + i + '">+ Add a row</button></div>';
+  }
+
+  function renderBoard() {
+    squeezed.hidden = !isNarrow();
+    if (isNarrow()) squeezed.textContent = 'Narrow screen — one panel across.';
+    var html = '';
+    rows().forEach(function (row, i) { html += rowSeamHTML(i) + stripHTML(row, i); });
+    html += rowSeamHTML(rows().length);
+    board.innerHTML = html;
+    wireBoard();
+  }
+
+  /** Shrink the frame to whatever window it is being looked at in. */
+  function fitFrame() {
+    var stage = frame.parentElement;
+    var avail = stage.clientWidth - 40;
+    frame.style.zoom = String(Math.min(1, avail / state.frameWidth));
+  }
+
+  function render() {
+    frame.style.width = state.frameWidth + 'px';
+    fitFrame();
+    document.querySelectorAll('#k-add button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.add === state.addWhere));
+    });
+    document.querySelectorAll('#k-width button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(Number(b.dataset.width) === state.frameWidth));
+    });
+    addBar.hidden = state.addWhere !== 'bar';
+    addTile.hidden = state.addWhere !== 'tile';
+    renderInbox();
+    renderLayoutButton();
+    renderMenu();
+    renderBoard();
+  }
+
+  /** Re-render, then slide every panel from where it was to where it now is. */
+  function animated(mutate) {
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var before = {};
+    if (!reduce) {
+      board.querySelectorAll('.panel').forEach(function (el) {
+        before[el.dataset.id] = el.getBoundingClientRect();
+      });
+    }
+    mutate();
+    render();
+    if (reduce) return;
+    board.querySelectorAll('.panel').forEach(function (el) {
+      var b = before[el.dataset.id];
+      if (!b) return;
+      var a = el.getBoundingClientRect();
+      var dx = b.left - a.left, dy = b.top - a.top;
+      if (!dx && !dy) return;
+      el.style.transition = 'none';
+      el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      requestAnimationFrame(function () {
+        el.style.transition = 'transform 190ms cubic-bezier(.2,.7,.3,1)';
+        el.style.transform = '';
+      });
+    });
+  }
+
+  // -------------------------------------------------------------- gestures
+
+  var drag = null, rowDrag = null, colDrag = null;
+
+  function wireBoard() {
+    board.querySelectorAll('[data-drag]').forEach(function (h) {
+      h.addEventListener('pointerdown', startPanelDrag);
+    });
+    board.querySelectorAll('[data-rowgrip]').forEach(function (g) {
+      g.addEventListener('pointerdown', startRowDrag);
+      g.addEventListener('dblclick', fitRow);
+    });
+    board.querySelectorAll('[data-colgrip]').forEach(function (g) {
+      g.addEventListener('pointerdown', startColDrag);
+    });
+    board.querySelectorAll('[data-addrow]').forEach(function (b) {
+      b.addEventListener('click', function () { addPanel(Number(b.dataset.addrow), null); });
+    });
+    board.querySelectorAll('[data-addat]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var parts = b.dataset.addat.split(':');
+        addPanel(Number(parts[0]), Number(parts[1]));
+      });
+    });
+    if (drag) {
+      var el = board.querySelector('.panel[data-id="' + drag.id + '"]');
+      if (el) el.classList.add('lifted');
+    }
+  }
+
+  // --- moving a panel between and into rows
+
+  function startPanelDrag(e) {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    e.preventDefault();
+    drag = { id: e.currentTarget.dataset.drag, at: 0, key: '' };
+    var el = board.querySelector('.panel[data-id="' + drag.id + '"]');
+    if (el) el.classList.add('lifted');
+    window.addEventListener('pointermove', onPanelMove);
+    window.addEventListener('pointerup', endPanelDrag);
+    window.addEventListener('pointercancel', endPanelDrag);
+  }
+
+  /**
+   * Where the panel under the pointer would land: beside another panel, or in a
+   * row of its own. Anchored to a panel's id rather than to an index, because
+   * taking the dragged one out first can delete the row it came from and shift
+   * every index after it.
+   */
+  function landing(x, y) {
+    var strips = Array.prototype.slice.call(board.querySelectorAll('.strip'));
+    for (var i = 0; i < strips.length; i++) {
+      var r = strips[i].getBoundingClientRect();
+      var others = Array.prototype.slice.call(strips[i].querySelectorAll('.panel'))
+        .filter(function (el) { return el.dataset.id !== drag.id; });
+      if (y < r.top + 12) return others.length ? { mode: 'newBefore', anchor: others[0].dataset.id } : null;
+      if (y > r.bottom - 12) {
+        if (y > r.bottom + 12) continue;
+        return others.length ? { mode: 'newAfter', anchor: others[0].dataset.id } : null;
+      }
+      if (!others.length) return null;
+      for (var j = 0; j < others.length; j++) {
+        var cr = others[j].getBoundingClientRect();
+        if (x < cr.left + cr.width / 2) return { mode: 'before', anchor: others[j].dataset.id };
+      }
+      return { mode: 'after', anchor: others[others.length - 1].dataset.id };
+    }
+    var last = board.querySelector('.strip:last-of-type .panel:not([data-id="' + drag.id + '"])');
+    return last ? { mode: 'newAfter', anchor: last.dataset.id } : null;
+  }
+
+  /** True when the panel is already exactly where this landing would put it. */
+  function settled(t) {
+    var rs = rows();
+    var mine = rowOf(drag.id), theirs = rowOf(t.anchor);
+    if (mine < 0 || theirs < 0) return false;
+    if (t.mode === 'before' || t.mode === 'after') {
+      if (mine !== theirs) return false;
+      var cells = rs[mine].cells;
+      var a = cells.findIndex(function (c) { return c.id === drag.id; });
+      var b = cells.findIndex(function (c) { return c.id === t.anchor; });
+      return t.mode === 'before' ? a === b - 1 : a === b + 1;
+    }
+    if (rs[mine].cells.length !== 1) return false;
+    return t.mode === 'newBefore' ? mine === theirs - 1 : mine === theirs + 1;
+  }
+
+  function onPanelMove(e) {
+    if (!drag) return;
+    if (e.timeStamp - drag.at < THROTTLE) return;
+    var t = landing(e.clientX, e.clientY);
+    if (!t) return;
+    var key = t.mode + ':' + t.anchor;
+    if (key === drag.key || settled(t)) return;
+    drag.at = e.timeStamp;
+    drag.key = key;
+    animated(function () {
+      var rs = rows();
+      takeOut(drag.id);
+      var i = rowOf(t.anchor);
+      if (i < 0) return;
+      if (t.mode === 'newBefore' || t.mode === 'newAfter') {
+        rs.splice(t.mode === 'newBefore' ? i : i + 1, 0, strip(null, [cell(drag.id, UNITS)]));
+        return;
+      }
+      var row = rs[i];
+      if (row.cells.length >= MAX_PER_ROW) {
+        rs.splice(i + 1, 0, strip(null, [cell(drag.id, UNITS)]));
+        return;
+      }
+      var j = row.cells.findIndex(function (c) { return c.id === t.anchor; });
+      row.cells.splice(t.mode === 'before' ? j : j + 1, 0, cell(drag.id, 1));
+      evenly(row);
+    });
+  }
+
+  function endPanelDrag() {
+    window.removeEventListener('pointermove', onPanelMove);
+    window.removeEventListener('pointerup', endPanelDrag);
+    window.removeEventListener('pointercancel', endPanelDrag);
+    var el = drag && board.querySelector('.panel[data-id="' + drag.id + '"]');
+    drag = null;
+    if (el) el.classList.remove('lifted');
+  }
+
+  // --- the row's height
+
+  function startRowDrag(e) {
+    e.preventDefault();
+    var i = Number(e.currentTarget.dataset.rowgrip);
+    var el = board.querySelector('.strip[data-row="' + i + '"]');
+    if (!el) return;
+    e.currentTarget.classList.add('live');
+    rowDrag = { i: i, from: e.clientY, h: el.getBoundingClientRect().height, grip: e.currentTarget };
+    window.addEventListener('pointermove', onRowMove);
+    window.addEventListener('pointerup', endRowDrag);
+  }
+
+  function onRowMove(e) {
+    if (!rowDrag) return;
+    var next = rowDrag.h + (e.clientY - rowDrag.from);
+    rows()[rowDrag.i].h = Math.round(Math.min(MAX_ROW, Math.max(MIN_ROW, next)));
+    var el = board.querySelector('.strip[data-row="' + rowDrag.i + '"]');
+    if (el) {
+      el.style.height = rows()[rowDrag.i].h + 'px';
+      el.style.maxHeight = 'none';
+    }
+  }
+
+  function endRowDrag() {
+    window.removeEventListener('pointermove', onRowMove);
+    window.removeEventListener('pointerup', endRowDrag);
+    if (rowDrag) rowDrag.grip.classList.remove('live');
+    rowDrag = null;
+    render();
+  }
+
+  /** Double-click the edge and the row goes back to fitting what is in it. */
+  function fitRow(e) {
+    rows()[Number(e.currentTarget.dataset.rowgrip)].h = null;
+    render();
+  }
+
+  // --- how a row is shared between two panels
+
+  function startColDrag(e) {
+    // The `+` sits inside the divider; pressing it adds a panel rather than
+    // starting a resize of nought pixels.
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+    var parts = e.currentTarget.dataset.colgrip.split(':');
+    var i = Number(parts[0]), j = Number(parts[1]);
+    var el = board.querySelector('.strip[data-row="' + i + '"]');
+    if (!el) return;
+    e.currentTarget.classList.add('live');
+    colDrag = {
+      i: i, j: j, from: e.clientX,
+      unit: el.getBoundingClientRect().width / UNITS,
+      left: rows()[i].cells[j].span,
+      right: rows()[i].cells[j + 1].span,
+      grip: e.currentTarget
+    };
+    window.addEventListener('pointermove', onColMove);
+    window.addEventListener('pointerup', endColDrag);
+  }
+
+  function onColMove(e) {
+    if (!colDrag) return;
+    var moved = Math.round((e.clientX - colDrag.from) / colDrag.unit);
+    var pair = colDrag.left + colDrag.right;
+    var left = Math.min(pair - MIN_SPAN, Math.max(MIN_SPAN, colDrag.left + moved));
+    var row = rows()[colDrag.i];
+    if (row.cells[colDrag.j].span === left) return;
+    animated(function () {
+      row.cells[colDrag.j].span = left;
+      row.cells[colDrag.j + 1].span = pair - left;
+    });
+    var grip = board.querySelector('[data-colgrip="' + colDrag.i + ':' + colDrag.j + '"]');
+    if (grip) { colDrag.grip = grip; grip.classList.add('live'); }
+  }
+
+  function endColDrag() {
+    window.removeEventListener('pointermove', onColMove);
+    window.removeEventListener('pointerup', endColDrag);
+    if (colDrag) colDrag.grip.classList.remove('live');
+    colDrag = null;
+  }
+
+  // -------------------------------------------------------------- commands
+
+  var NEXT = ['Reading later', 'Hiring', 'This week', 'Ops', 'Invoices'];
+  var made = 0;
+
+  /**
+   * A new panel, in a row of its own at `atRow` - or, where `atCell` is given,
+   * inside the row already there.
+   *
+   * The real thing asks for a name here (NewPanelQuestion); this takes the next
+   * one off a list, because naming is not what is being tried out.
+   *
+   * **Only the layout on screen decides where it lands.** Every other layout
+   * gets it as a row at the end, which is what the app already does with a
+   * panel added elsewhere: a phone layout is one panel across, and a newcomer
+   * dropped into the middle of a row made for a 4K screen would be wrong on the
+   * one screen that layout was for.
+   */
+  function addPanel(atRow, atCell) {
+    var id = 'made-' + (++made);
+    PANELS.push({ id: id, name: NEXT[(made - 1) % NEXT.length], items: [] });
+    var mine = activeLayout();
+    animated(function () {
+      state.layouts.forEach(function (l) {
+        if (l !== mine) { l.rows.push(strip(null, [cell(id, UNITS)])); return; }
+        if (atCell === null || atCell === undefined) {
+          l.rows.splice(atRow, 0, strip(null, [cell(id, UNITS)]));
+          return;
+        }
+        var row = l.rows[atRow];
+        row.cells.splice(atCell, 0, cell(id, 1));
+        evenly(row);
+      });
+    });
+  }
+
+  function suggestName() {
+    var w = boardWidth();
+    if (w < 560) return 'Phone';
+    if (w < 900) return 'Tablet';
+    if (w < 1200) return 'Laptop';
+    return 'Wide';
+  }
+
+  function commitName(value) {
+    if (!value) return;
+    if (state.naming.mode === 'new') {
+      var from = activeLayout();
+      var copy = {
+        id: 'l-' + Date.now(), name: value, madeAt: state.frameWidth,
+        rows: from.rows.map(function (r) {
+          return strip(r.h, r.cells.map(function (c) { return cell(c.id, c.span); }));
+        })
+      };
+      state.layouts.push(copy);
+      state.chosen = copy.id;
+    } else {
+      activeLayout().name = value;
+    }
+    state.naming = null;
+    render();
+  }
+
+  function deleteLayout() {
+    if (state.layouts.length < 2) return;
+    var gone = activeLayout().id;
+    state.layouts = state.layouts.filter(function (l) { return l.id !== gone; });
+    state.chosen = 'auto';
+    render();
+  }
+
+  // ---------------------------------------------------------------- wiring
+
+  layoutBtn.addEventListener('click', function () {
+    state.menuOpen = !state.menuOpen;
+    state.naming = null;
+    render();
+  });
+
+  layoutMenu.addEventListener('click', function (e) {
+    var pick = e.target.closest('[data-pick]');
+    if (pick) {
+      state.chosen = pick.dataset.pick;
+      state.menuOpen = false;
+      render();
+      return;
+    }
+    var act = e.target.closest('[data-act]');
+    if (!act) return;
+    var what = act.dataset.act;
+    if (what === 'new') state.naming = { mode: 'new', value: suggestName() };
+    else if (what === 'rename') state.naming = { mode: 'rename', value: activeLayout().name };
+    else if (what === 'cancel') state.naming = null;
+    else if (what === 'delete') { state.menuOpen = false; deleteLayout(); return; }
+    render();
+  });
+
+  document.addEventListener('pointerdown', function (e) {
+    if (!state.menuOpen) return;
+    if (e.target.closest('#layout-menu') || e.target.closest('#layout-btn')) return;
+    state.menuOpen = false;
+    state.naming = null;
+    render();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && state.menuOpen) {
+      state.menuOpen = false;
+      state.naming = null;
+      render();
+    }
+  });
+
+  /** The two "just add one" entry points: a row of its own at the end. */
+  function addAtTheEnd() { addPanel(rows().length, null); }
+  addBar.addEventListener('click', addAtTheEnd);
+  addTile.addEventListener('click', addAtTheEnd);
+
+  document.getElementById('k-add').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-add]');
+    if (b) { state.addWhere = b.dataset.add; render(); }
+  });
+  document.getElementById('k-width').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-width]');
+    if (b) { state.frameWidth = Number(b.dataset.width); render(); }
+  });
+
+  window.addEventListener('resize', fitFrame);
+
+  render();
+})();
+</script>

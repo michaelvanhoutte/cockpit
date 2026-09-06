@@ -102,18 +102,39 @@ export const panelPlacementSchema = z.object({
 export type PanelPlacement = z.infer<typeof panelPlacementSchema>;
 
 /**
- * One arrangement of a Dashboard's Panels, and the screen width it was made
- * for.
+ * A Layout's name obeys exactly the rules a Panel's title does, by being the
+ * same schema: required, trimmed, single-line, at most 60 characters. What
+ * differs is only the scope uniqueness is decided in - the Dashboard, the same
+ * scope a Panel's title uses - and that is not a shape, so it is not here.
+ */
+export const layoutNameSchema = panelNameSchema;
+
+/**
+ * One arrangement of a Dashboard's Panels: what it is called, and the screen
+ * width it was made at.
  *
- * `screenWidth` is the width the layout was created at, not a breakpoint: the
- * issue asks for arbitrary widths, so there is no fixed set to belong to and
- * "which layout is this screen's" is a question about distance rather than
- * about membership.
+ * **The name is what a person picks it by** ("Pick the layout you are on, by
+ * name"). A Layout used to be identified by the width alone, which is a number
+ * nobody recognises: *Made for 1463 px* says nothing about what the arrangement
+ * is for, and the width it names is one a window is only accidentally.
+ *
+ * `screenWidth` is the width the Layout was created at, not a breakpoint, and
+ * it is now only read by the automatic choice: there is no fixed set of sizes
+ * to belong to, so "which Layout is this screen's" is a question about distance
+ * rather than about membership.
+ *
+ * **`name` is the permissive `z.string()`, and empty is a real value here.**
+ * This is the shape read *back*, and a Layout written by the code serving
+ * requests during the deploy that introduced the column carries no name at all;
+ * the screen draws such a Layout as the width it was made for rather than
+ * blanking the Dashboard it arranges. The rule that a name is required lives on
+ * the way in, on `saveLayoutSchema` and `renameLayoutSchema`.
  */
 export const layoutSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
   dashboardId: z.string(),
+  name: z.string().default(''),
   screenWidth: z.number(),
   /** In the order the Panels are drawn in, left to right and wrapping. */
   placements: z.array(panelPlacementSchema),

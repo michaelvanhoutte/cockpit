@@ -44,7 +44,10 @@ async function ownDashboard(page: Page, isMobile: boolean): Promise<void> {
 }
 
 async function addPanel(page: Page, name: string, isMobile: boolean): Promise<void> {
-  await press(page.getByRole('button', { name: '+ Add a panel' }), isMobile);
+  // In the dashboard's own bar, beside the control naming its layout ("Pick the
+  // layout you are on, by name"), rather than in a strip at the foot of the
+  // board.
+  await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
   await page.getByLabel('Name of the new panel').fill(name);
   await page.getByLabel('Name of the new panel').press('Enter');
   await expect(page.getByRole('region', { name })).toBeVisible();
@@ -122,17 +125,20 @@ function answerTo(page: Page, command: CommandName): Promise<Response> {
   );
 }
 
+/** The control at the right of the dashboard bar, which names the layout in use. */
+function layoutControl(page: Page) {
+  return page.getByRole('button', { name: 'Layout for this dashboard' });
+}
+
 /**
- * Opens the layouts menu, waits for one entry per layout plus the automatic
- * one, and closes it again - which is also how this walk waits for a layout to
- * have landed, since the menu is the only place the dashboard says how many it
- * has.
+ * Opens the layout menu, waits for one entry per layout plus *Automatic*, and
+ * closes it again - which is also how these walks wait for a layout to have
+ * landed, since the menu is the only place the dashboard says how many it has.
  */
 async function expectLayouts(page: Page, made: number, isMobile: boolean): Promise<void> {
-  await press(page.getByRole('button', { name: 'Layouts' }), isMobile);
+  await press(layoutControl(page), isMobile);
   // One entry per layout, plus the automatic choice at the top.
   await expect(page.getByRole('menuitemradio')).toHaveCount(made + 1);
-  await expect(page.getByText('in use')).toHaveCount(1);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menuitemradio')).toHaveCount(0);
 }
@@ -184,7 +190,7 @@ test.describe('Panels', () => {
   });
 
   test.describe('a dashboard is drawn to fit the screen it is on, whatever it was arranged for', () => {
-    test('never scrolls sideways, and asks which layout a change on another screen belongs to', async ({
+    test('never scrolls sideways, and keeps a change in the layout it is drawn with', async ({
       page,
       isMobile,
     }) => {
@@ -197,9 +203,9 @@ test.describe('Panels', () => {
       await addPanel(page, third, isMobile);
 
       // Arranged on the screen it is on now, which stores the dashboard's
-      // first layout - there is nothing to choose between, so nothing is asked.
+      // first layout and names it for that screen. Nothing is asked.
       await chooseRowAction(page, third, isMobile ? 'Move up' : 'Move left', isMobile);
-      await expect(page.getByText(/Keep the change where\?/)).toHaveCount(0);
+      await expect(page.getByRole('alertdialog')).toHaveCount(0);
       // Waited for by name rather than by a pause: the layout is what the next
       // half of this walk changes *from*, and pressing again before it landed
       // would be a change made against a dashboard that still had no layout -
@@ -217,17 +223,23 @@ test.describe('Panels', () => {
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
 
-      // And a change made here is a change on a screen the layout was not made
-      // for, so it asks rather than quietly rewriting the other one. The
-      // narrower of the two screens stacks the panels, so the direction the
-      // menu offers is the one that screen actually goes in.
+      // A layout for this screen, made by name rather than as the answer to a
+      // question about a drag. It is picked as it is made, so what is drawn
+      // afterwards is the new one.
+      await press(layoutControl(page), isMobile);
+      await press(page.getByRole('menuitem', { name: /^New layout from this one/ }), isMobile);
+      const named = uniqueTitle('Narrow');
+      await page.getByLabel('Name of the new layout').fill(named);
+      await page.getByLabel('Name of the new layout').press('Enter');
+      await expect(layoutControl(page)).toHaveText(new RegExp(named));
+
+      // Two layouts now, one per screen, and a change made here goes into the
+      // one on screen without asking. The narrower of the two screens stacks
+      // the panels, so the direction the menu offers is the one that screen
+      // actually goes in.
       const nowStacked = page.viewportSize()!.width < 768;
       await chooseRowAction(page, third, nowStacked ? 'Move up' : 'Move left', isMobile);
-      await expect(page.getByText(/Keep the change where\?/)).toBeVisible();
-      await press(page.getByRole('button', { name: 'Make a layout for this screen' }), isMobile);
-
-      // Two layouts now, one per screen, and the one made for this screen is
-      // the one being drawn with.
+      await expect(page.getByRole('alertdialog')).toHaveCount(0);
       await expectLayouts(page, 2, isMobile);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);

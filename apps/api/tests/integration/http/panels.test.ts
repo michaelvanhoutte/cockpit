@@ -66,11 +66,15 @@ async function saveLayout(
   layoutId: string,
   screenWidth: number,
   placements: { panelId: string; columns: number; rows: number }[],
+  name?: string,
 ) {
   return send('save_layout', {
     workspaceId: WORKSPACE_ID,
     dashboardId,
     layoutId,
+    // Read only when the save is the one creating the layout, so every case
+    // that does not care what it is called gets a name free on its dashboard.
+    name: name ?? `Layout ${(seq += 1)}`,
     screenWidth,
     placements,
   });
@@ -251,6 +255,10 @@ describe('Panels', () => {
         change: async (ctx: Context) => {
           const layoutId = nextId();
           await saveLayout(ctx.dashboardId, layoutId, 1280, []);
+          // A second one, so the first delete is not the one the dashboard
+          // keeps ("a dashboard keeps at least one layout") - that refusal is a
+          // 409 and would hide the 404 this case is about.
+          await saveLayout(ctx.dashboardId, nextId(), 480, []);
           await send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId });
           return send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId });
         },
@@ -310,7 +318,7 @@ describe('Panels', () => {
     });
   });
 
-  describe('a dashboard remembers one arrangement per screen size, and arranging it again replaces what it held', () => {
+  describe('a dashboard remembers an arrangement per layout, and arranging it again replaces what it held', () => {
     it('stores the panels in the order given, at the sizes given', async () => {
       const dashboardId = await aDashboard();
       const falcon = nextId();
@@ -516,4 +524,202 @@ describe('Panels', () => {
     }, 30_000);
   });
 
+});
+
+describe('Layouts', () => {
+  /** A dashboard with one panel and one layout arranging it, which is the shape most rules need. */
+  async function arranged(name: string, screenWidth = 1280) {
+    const dashboardId = await aDashboard();
+    const panelId = nextId();
+    expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
+    const layoutId = nextId();
+    const saved = await saveLayout(
+      dashboardId,
+      layoutId,
+      screenWidth,
+      [{ panelId, columns: 4, rows: 3 }],
+      name,
+    );
+    expect(saved.status).toBe(200);
+    return { dashboardId, panelId, layoutId };
+  }
+
+  describe('two layouts of one dashboard never go by the same name, and two dashboards may each have a Wide', () => {
+    it('stores the name without the blanks around it', async () => {
+      const { dashboardId } = await arranged('  Wide  ');
+
+      expect((await layoutsOf(dashboardId))[0]!.name).toBe('Wide');
+    });
+
+    it.each([
+      { situation: 'the same name', name: 'Wide' },
+      { situation: 'the same name in another capitalization', name: 'WIDE' },
+    ])('refuses a layout going by $situation, saying which', async ({ name }) => {
+      const { dashboardId, panelId } = await arranged('Wide');
+
+      const again = await saveLayout(
+        dashboardId,
+        nextId(),
+        2560,
+        [{ panelId, columns: 12, rows: 3 }],
+        name,
+      );
+
+      expect(again.status).toBe(409);
+      expect(await again.json()).toMatchObject({
+        error: 'a layout called Wide already arranges this dashboard',
+      });
+      expect(await layoutsOf(dashboardId)).toHaveLength(1);
+    });
+
+    it('lets another dashboard have a layout of the same name', async () => {
+      // One level further down than a dashboard's own name: the scope is the
+      // dashboard, the way a panel's title is.
+      await arranged('Wide');
+      const { dashboardId } = await arranged('Wide');
+
+      expect((await layoutsOf(dashboardId))[0]!.name).toBe('Wide');
+    });
+
+    it('leaves the name alone when an arrangement is saved onto a layout that exists', async () => {
+      // A board holding a name from before a rename must not put the old one
+      // back as a side effect of a drag, which is why renaming is its own
+      // command.
+      const { dashboardId, panelId, layoutId } = await arranged('Wide');
+      expect(
+        (await send('rename_layout', { workspaceId: WORKSPACE_ID, layoutId, name: 'The big one' }))
+          .status,
+      ).toBe(200);
+
+      const saved = await saveLayout(
+        dashboardId,
+        layoutId,
+        1280,
+        [{ panelId, columns: 6, rows: 3 }],
+        'Wide',
+      );
+
+      expect(saved.status).toBe(200);
+      const [layout] = await layoutsOf(dashboardId);
+      expect(layout!.name).toBe('The big one');
+      expect(layout!.placements).toEqual([{ panelId, columns: 6, rows: 3 }]);
+    });
+  });
+
+  describe('renaming a layout changes its name and nothing else', () => {
+    it('keeps the arrangement and the width it was made at', async () => {
+      const { dashboardId, panelId, layoutId } = await arranged('Wide', 2560);
+
+      const renamed = await send('rename_layout', {
+        workspaceId: WORKSPACE_ID,
+        layoutId,
+        name: '  The big one  ',
+      });
+
+      expect(renamed.status).toBe(200);
+      expect((await layoutsOf(dashboardId))[0]).toMatchObject({
+        name: 'The big one',
+        screenWidth: 2560,
+        placements: [{ panelId, columns: 4, rows: 3 }],
+      });
+    });
+
+    it('keeps a rename to the name it already has, recapitalized', async () => {
+      // The only row the new name folds onto is this layout's own, so it
+      // collides with nothing.
+      const { dashboardId, layoutId } = await arranged('Wide');
+
+      const renamed = await send('rename_layout', {
+        workspaceId: WORKSPACE_ID,
+        layoutId,
+        name: 'WIDE',
+      });
+
+      expect(renamed.status).toBe(200);
+      expect((await layoutsOf(dashboardId))[0]!.name).toBe('WIDE');
+    });
+
+    it('refuses a name another layout of the dashboard holds', async () => {
+      const { dashboardId, panelId } = await arranged('Wide');
+      const second = nextId();
+      expect(
+        (await saveLayout(dashboardId, second, 480, [{ panelId, columns: 12, rows: 3 }], 'Phone'))
+          .status,
+      ).toBe(200);
+
+      const renamed = await send('rename_layout', {
+        workspaceId: WORKSPACE_ID,
+        layoutId: second,
+        name: 'wide',
+      });
+
+      expect(renamed.status).toBe(409);
+      expect((await layoutsOf(dashboardId)).map((l) => l.name).sort()).toEqual(['Phone', 'Wide']);
+    });
+
+    it('renames once when the same rename is sent twice', async () => {
+      const { dashboardId, layoutId } = await arranged('Wide');
+      const commandId = nextId();
+      const once = { workspaceId: WORKSPACE_ID, layoutId, name: 'The big one', commandId };
+
+      expect(
+        (
+          await asUser('http://cockpit.test/v1/commands/rename_layout', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ issuedAt: AT, ...once }),
+          })
+        ).status,
+      ).toBe(200);
+      const replay = await asUser('http://cockpit.test/v1/commands/rename_layout', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ issuedAt: AT, ...once }),
+      });
+
+      expect(replay.status).toBe(200);
+      expect((await layoutsOf(dashboardId))[0]!.name).toBe('The big one');
+    });
+
+    it('refuses to rename a layout of another workspace’s dashboard', async () => {
+      // The id alone says nothing about who may address it.
+      const { layoutId } = await arranged('Wide');
+
+      const renamed = await send('rename_layout', {
+        workspaceId: '018f0000-0000-7000-8000-999999999999',
+        layoutId,
+        name: 'Mine now',
+      });
+
+      expect(renamed.status).toBe(404);
+    });
+  });
+
+  describe('a dashboard that has a layout keeps one', () => {
+    it('refuses to delete the only one, saying why', async () => {
+      const { dashboardId, layoutId } = await arranged('Wide');
+
+      const gone = await send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId });
+
+      expect(gone.status).toBe(409);
+      expect(await gone.json()).toMatchObject({
+        error: 'a dashboard keeps at least one layout',
+      });
+      expect(await layoutsOf(dashboardId)).toHaveLength(1);
+    });
+
+    it('deletes one of two, leaving the other to fall back to', async () => {
+      const { dashboardId, panelId, layoutId } = await arranged('Wide');
+      const phone = nextId();
+      expect(
+        (await saveLayout(dashboardId, phone, 480, [{ panelId, columns: 12, rows: 3 }], 'Phone'))
+          .status,
+      ).toBe(200);
+
+      const gone = await send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId });
+
+      expect(gone.status).toBe(200);
+      expect((await layoutsOf(dashboardId)).map((l) => l.name)).toEqual(['Phone']);
+    });
+  });
 });
