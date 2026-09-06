@@ -21,6 +21,7 @@ import {
   NotFoundInAccountError,
   RefusedByAccountError,
   RegisterDisagreesError,
+  RegisterRowUnusableError,
   RowsFromAnotherAccountError,
   backUpAccount,
   openAccount,
@@ -691,6 +692,12 @@ const routes = app
         200,
       );
     } catch (error) {
+      // A row nothing could write, whatever is here - a broken file rather than
+      // a disagreement, so it reads as the caller's to fix like every other
+      // malformed body, and not as something about this register.
+      if (error instanceof RegisterRowUnusableError) {
+        return c.json({ error: error.message }, 400);
+      }
       // The backup and this environment disagree about who somebody is, which
       // is not a thing a restore may decide.
       if (error instanceof RegisterDisagreesError) {

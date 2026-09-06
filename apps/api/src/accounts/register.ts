@@ -73,6 +73,13 @@ export interface RegisterPlan {
   tenantsToCreate: Record<string, unknown>[];
   usersToCreate: Record<string, unknown>[];
   collisions: string[];
+  /**
+   * Rows nothing could insert whatever the register holds - a row with no
+   * columns, or one missing what the plan itself reads. Separate from a
+   * collision because it is a broken file rather than a disagreement, and it
+   * answers differently.
+   */
+  unusable: string[];
 }
 
 export function planRegisterRestore(
@@ -91,10 +98,38 @@ export function planRegisterRestore(
   );
 
   const collisions: string[] = [];
+  const unusable: string[] = [
+    ...unusableRows('an account', incoming.tenants, ['id']),
+    ...unusableRows('a user', incoming.users, ['id', 'account_id']),
+  ];
+
   const tenantsToCreate = incoming.tenants.filter((row) => !tenantsById.has(row.id));
+
+  // **What this backup has already asked for**, kept beside what the register
+  // holds. Without it a file naming the same person twice - the same id, or two
+  // people sharing an address - passed both through as rows to create, and the
+  // register's own unique indexes refused the second at insert time, as a 500
+  // rather than as the collision it is. A backup is a file, so two rows saying
+  // different things about one person is a state that can really arrive.
+  const takenIds = new Set<unknown>();
+  const takenEmails = new Set<unknown>();
+  const takenSubjects = new Set<unknown>();
 
   const usersToCreate: Record<string, unknown>[] = [];
   for (const user of incoming.users) {
+    if (takenIds.has(user.id)) {
+      collisions.push(`the backup names user ${user.id} twice`);
+      continue;
+    }
+    if (user.email != null && takenEmails.has(user.email)) {
+      collisions.push(`the backup gives the address ${user.email} to more than one user`);
+      continue;
+    }
+    if (user.google_subject != null && takenSubjects.has(user.google_subject)) {
+      collisions.push(`the backup gives one Google account to more than one user`);
+      continue;
+    }
+
     const held = usersById.get(user.id);
     if (held) {
       // Present already. The one thing that cannot be waved through is the same
@@ -122,9 +157,52 @@ export function planRegisterRestore(
       continue;
     }
     usersToCreate.push(user);
+    takenIds.add(user.id);
+    if (user.email != null) takenEmails.add(user.email);
+    if (user.google_subject != null) takenSubjects.add(user.google_subject);
   }
 
-  return { tenantsToCreate, usersToCreate, collisions };
+  return { tenantsToCreate, usersToCreate, collisions, unusable };
+}
+
+/**
+ * Rows nothing could write, whatever the register holds.
+ *
+ * **The wire schema cannot catch these.** A row is an open record there, so
+ * `{}` is a valid one - the same gap `sameShapeThroughout` covers on the
+ * account side, and this is the register's half of it. Without it an empty row
+ * reached the insert, which built `INSERT INTO tenants () VALUES ()` and failed
+ * as a syntax error the route does not map: a 500 where a refusal belonged.
+ *
+ * The columns required are the ones this plan itself reads, so a row missing
+ * one cannot be reasoned about at all rather than merely being sparse - every
+ * other column is left to the register's own constraints.
+ */
+function unusableRows(
+  what: string,
+  rows: readonly Record<string, unknown>[],
+  needs: readonly string[],
+): string[] {
+  const said: string[] = [];
+  for (const [at, row] of rows.entries()) {
+    if (Object.keys(row).length === 0) {
+      said.push(`${what} at position ${at + 1} carries no columns at all`);
+      continue;
+    }
+    const missing = needs.filter((column) => row[column] == null);
+    if (missing.length > 0) {
+      said.push(`${what} at position ${at + 1} has no ${missing.join(' and no ')}`);
+    }
+  }
+  return said;
+}
+
+/** A row in the backup's register is one nothing could write, whatever is there. */
+export class RegisterRowUnusableError extends Error {
+  constructor(what: string) {
+    super(what);
+    this.name = 'RegisterRowUnusableError';
+  }
 }
 
 /** A backup's register could not be put back; the message says which rows disagreed. */
@@ -149,6 +227,14 @@ export class RegisterDisagreesError extends Error {
  */
 export async function restoreRegister(env: Env, incoming: RegisterBackup): Promise<RegisterPlan> {
   const plan = planRegisterRestore(await registerContents(env), incoming);
+  // Before the collisions, because a row nothing could write is a broken file
+  // rather than a disagreement, and saying "the register does not fit" of it
+  // would send somebody to look at the register.
+  if (plan.unusable.length > 0) {
+    throw new RegisterRowUnusableError(
+      `that register cannot be put back: ${plan.unusable.join('; ')}`,
+    );
+  }
   if (plan.collisions.length > 0) {
     throw new RegisterDisagreesError(
       `the backup's register does not fit this one: ${plan.collisions.join('; ')}`,

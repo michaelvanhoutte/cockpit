@@ -95,7 +95,7 @@ COCKPIT_BACKUP_TOKEN=... pnpm backup:restore --env local --from ./backups/2026-0
 COCKPIT_BACKUP_TOKEN=... pnpm backup:restore --env local --from ./backups/mine --user tenant-default --force
 ```
 
-**A restore replaces an account; it never merges into one.** An account that already holds data is refused unless `--force`, so nobody ends up with half of yesterday and half of today. Anything but `--env local` has to be confirmed by typing the environment's name, because staging is deliberately never re-seeded and production holds the only copy of anything real. Accounts go in before the register, so a user never exists pointing at a store that has not arrived; a run that stops partway says which accounts went in.
+**A restore replaces an account; it never merges into one**, and what that costs you — when it refuses, what has to be typed before a deployed environment is written to, and what is true if a run stops partway — is in [docs/deployment.md](docs/deployment.md), under "Migrations and rollback". Read it before pointing this at anything but `local`.
 
 ### Tidying up branches
 

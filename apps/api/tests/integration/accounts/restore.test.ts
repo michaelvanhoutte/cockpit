@@ -306,6 +306,23 @@ describe('Backup', () => {
       expect(((await res.json()) as { error: string }).error).toContain('not a backup');
     });
 
+    /**
+     * A 400 rather than the 409 a disagreement gets: a row nothing could write
+     * is a broken file, so saying "the register does not fit" of it would send
+     * somebody to look at the register. One example here; which rows are
+     * unusable is asked at tests/unit/accounts/register-restore.test.ts.
+     */
+    it('refuses a register row nothing could write, without blaming the register', async () => {
+      const res = await asOperator('/v1/admin/restore/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tenants: [{}], users: [] }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain('carries no columns');
+    });
+
     it('refuses a register that is not one', async () => {
       const res = await asOperator('/v1/admin/restore/register', {
         method: 'POST',

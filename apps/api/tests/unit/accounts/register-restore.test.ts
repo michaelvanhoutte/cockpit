@@ -82,6 +82,70 @@ describe('Backup', () => {
     });
   });
 
+  describe('restoring the register refuses a row nothing could write', () => {
+    /**
+     * The wire schema cannot catch these: a row is an open record there, so
+     * `{}` is a valid one - the same gap `sameShapeThroughout` covers on the
+     * account side. Without this an empty row reached the insert, which built
+     * `INSERT INTO tenants () VALUES ()` and failed as a syntax error nothing
+     * mapped: a 500 where a refusal belonged.
+     */
+    it.each([
+      {
+        situation: 'an account with no columns at all',
+        incoming: { tenants: [{}], users: [] },
+        says: /an account at position 1 carries no columns/,
+      },
+      {
+        situation: 'a user with no columns at all',
+        incoming: { tenants: [], users: [{}] },
+        says: /a user at position 1 carries no columns/,
+      },
+      {
+        situation: 'an account with no id',
+        incoming: { tenants: [{ name: 'Ada', created_at: AT }], users: [] },
+        says: /an account at position 1 has no id/,
+      },
+      {
+        situation: 'a user owning no account',
+        incoming: { tenants: [], users: [user({ account_id: null })] },
+        says: /a user at position 1 has no account_id/,
+      },
+      // Which one it is, said at once, rather than one refusal per re-run.
+      {
+        situation: 'a user with neither',
+        incoming: { tenants: [], users: [user({ id: null, account_id: null })] },
+        says: /has no id and no account_id/,
+      },
+    ])('refuses $situation', ({ incoming, says }) => {
+      const plan = planRegisterRestore(register(), register(incoming));
+
+      expect(plan.unusable).toHaveLength(1);
+      expect(plan.unusable[0]).toMatch(says);
+    });
+
+    it('says nothing about a register whose rows are all writable', () => {
+      const plan = planRegisterRestore(
+        register(),
+        register({ tenants: [{ id: 'tenant-ada', name: 'Ada', created_at: AT }], users: [user()] }),
+      );
+
+      expect(plan.unusable).toEqual([]);
+    });
+
+    // A sparse row is not an unusable one: the register's own constraints have
+    // the last word on every column this plan does not read.
+    it('allows a row carrying only what the plan reads', () => {
+      const plan = planRegisterRestore(
+        register(),
+        register({ tenants: [{ id: 'tenant-ada' }], users: [{ id: 'u', account_id: 'tenant-ada' }] }),
+      );
+
+      expect(plan.unusable).toEqual([]);
+      expect(plan.tenantsToCreate).toHaveLength(1);
+    });
+  });
+
   describe('restoring the register is refused where it and the backup disagree about who somebody is', () => {
     it.each([
       {
@@ -126,6 +190,56 @@ describe('Backup', () => {
 
       expect(plan.collisions).toEqual([]);
       expect(plan.usersToCreate.map((row) => row.id)).toEqual(['user-two']);
+    });
+
+    /**
+     * A backup is a file, so two rows saying different things about one person
+     * is a state that can really arrive. Only the register's own rows were
+     * looked at before, so a file naming somebody twice passed both through and
+     * the unique indexes refused the second at insert - a 500 where the
+     * collision this exists to report belonged.
+     */
+    it.each([
+      {
+        situation: 'the same user twice',
+        users: [user(), user({ name: 'Ada again' })],
+        says: /names user user-ada twice/,
+      },
+      {
+        situation: 'one address given to two people',
+        users: [user(), user({ id: 'user-bob', email: 'ada@example.com' })],
+        says: /address ada@example.com to more than one user/,
+      },
+      {
+        situation: 'one Google account given to two people',
+        users: [
+          user({ google_subject: 'g-1' }),
+          user({ id: 'user-bob', email: 'bob@example.com', google_subject: 'g-1' }),
+        ],
+        says: /Google account to more than one user/,
+      },
+    ])('refuses a backup naming $situation', ({ users, says }) => {
+      const plan = planRegisterRestore(register(), register({ users }));
+
+      expect(plan.collisions).toHaveLength(1);
+      expect(plan.collisions[0]).toMatch(says);
+      expect(plan.usersToCreate).toHaveLength(1);
+    });
+
+    // Two people waiting for a Google account is not two people sharing one.
+    it('lets a backup name several people with nothing to sign in by', () => {
+      const plan = planRegisterRestore(
+        register(),
+        register({
+          users: [
+            user({ id: 'user-one', email: null, google_subject: null }),
+            user({ id: 'user-two', email: null, google_subject: null }),
+          ],
+        }),
+      );
+
+      expect(plan.collisions).toEqual([]);
+      expect(plan.usersToCreate).toHaveLength(2);
     });
 
     it('reports every disagreement rather than stopping at the first', () => {

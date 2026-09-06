@@ -16,6 +16,7 @@ export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
 export {
   RegisterDisagreesError,
+  RegisterRowUnusableError,
   registerContents,
   registeredAccountNames,
   restoreRegister,
