@@ -114,10 +114,26 @@ export function CapturePage() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = message.trim();
-    // No type to give it is the one thing that stops a capture here rather than
-    // at the server: with none in the account there is nothing to press, and
-    // the row below says where to make one.
-    if (!trimmed || !from || !chosen) return;
+    // Nothing written is nothing to say anything about.
+    if (!trimmed) return;
+
+    /**
+     * **A capture this page cannot make is said out loud, never swallowed.**
+     * There is no type to give when the account has none, and none *yet* while
+     * the workspace this captures from is being read - which happens after the
+     * page is drawn as well as before, because that workspace changes when one
+     * is deleted while you sit here. The button is disabled through all of it,
+     * so it is the shortcut that arrives, and it used to return from here
+     * having done nothing and said nothing.
+     *
+     * That silence is issue 219 itself, and every fix that only narrows the
+     * window leaves the next window open: the note stays in the box either way,
+     * and this is what tells you why it is still there.
+     */
+    if (!from || !chosen) {
+      setRefused(answered && offered.length === 0 ? NO_TYPES : STILL_READING);
+      return;
+    }
 
     ask(
       {
@@ -308,6 +324,13 @@ export function CapturePage() {
 
 /** Fixed rather than generated: one heading, and only one of these on a screen. */
 const JUST_CAPTURED = 'just-captured';
+
+/**
+ * What the shortcut says when it arrives before the workspace this captures
+ * from has been read. Names the note as kept, because that is the question
+ * somebody who just pressed it is asking.
+ */
+export const STILL_READING = 'Still reading your workspace — your note is safe, try that again.';
 
 /**
  * The key that captures, said the way this keyboard says it. A Mac reads ⌘ and
