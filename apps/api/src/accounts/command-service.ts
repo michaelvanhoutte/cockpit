@@ -1,4 +1,4 @@
-import { and, eq, inArray, notExists, sql } from 'drizzle-orm';
+import { and, eq, exists, notExists, sql } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
@@ -595,10 +595,6 @@ export function runCommand<N extends CommandName>(
       // workspace is the one thing the app refuses to delete, because a
       // workspace with no dashboard has no view; a dashboard with no panels is
       // a dashboard you can put one on.
-      //
-      // The layouts this delete can empty a row of are this dashboard's, which
-      // is what bounds the sweep below to them.
-      const itsLayouts = listLayoutIds(db, tenantId, going.dashboardId);
       db.transaction((tx) => {
         // Out of every layout of the dashboard, in one statement: a layout is a
         // list of where the panels are, and one naming a panel nobody can see
@@ -621,27 +617,43 @@ export function runCommand<N extends CommandName>(
         // panel on one dashboard would quietly rewrite the arrangements of
         // every other, and whatever it found to remove there would be somebody
         // else's problem to explain.
-        if (itsLayouts.length > 0) {
-          tx.delete(layoutRows)
-            .where(
-              and(
-                eq(layoutRows.tenantId, tenantId),
-                inArray(layoutRows.layoutId, itsLayouts),
-                notExists(
-                  tx
-                    .select({ one: sql`1` })
-                    .from(panelPlacements)
-                    .where(
-                      and(
-                        eq(panelPlacements.layoutId, layoutRows.layoutId),
-                        eq(panelPlacements.rowIndex, layoutRows.rowIndex),
-                      ),
+        //
+        // A join rather than the ids read out and bound in: a dashboard's
+        // layouts are uncapped, and an `IN` list as long as them is a statement
+        // whose parameter count grows with the data - past a hundred of them
+        // every delete on that dashboard would throw, for good (architecture,
+        // "No statement's parameter count grows with the data", which names a
+        // workspace that stopped painting at a hundred layouts as one of the
+        // instances it was written for).
+        tx.delete(layoutRows)
+          .where(
+            and(
+              eq(layoutRows.tenantId, tenantId),
+              exists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(layouts)
+                  .where(
+                    and(
+                      eq(layouts.id, layoutRows.layoutId),
+                      eq(layouts.dashboardId, going.dashboardId),
                     ),
-                ),
+                  ),
               ),
-            )
-            .run();
-        }
+              notExists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(panelPlacements)
+                  .where(
+                    and(
+                      eq(panelPlacements.layoutId, layoutRows.layoutId),
+                      eq(panelPlacements.rowIndex, layoutRows.rowIndex),
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .run();
         tx.update(panels)
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))

@@ -875,5 +875,44 @@ describe('Layouts', () => {
         { height: null, cells: [{ panelId: falcon, span: 6 }] },
       ]);
     });
+
+    /**
+     * A store binds 100 values per statement (architecture, "No statement's
+     * parameter count grows with the data"), and dropping the emptied rows has
+     * to reach this dashboard's layouts without naming them one by one. A
+     * workspace that stopped painting at a hundred layouts is one of the
+     * instances that rule was written for, so this is the same limit again, one
+     * command along.
+     *
+     * A hundred and twenty rather than a hundred and one, so the case goes on
+     * being about the limit if the binding count per row moves.
+     */
+    it('drops the emptied rows on a dashboard with more layouts than a statement can name', async () => {
+      const dashboardId = await aDashboard();
+      const falcon = nextId();
+      const alone = nextId();
+      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
+      await addPanel(dashboardId, 'On its own line', { panelId: alone });
+      for (let n = 0; n < 120; n += 1) {
+        expect(
+          (
+            await saveRows(dashboardId, nextId(), 1280 + n, [
+              { height: null, cells: [{ panelId: falcon, span: 12 }] },
+              { height: null, cells: [{ panelId: alone, span: 12 }] },
+            ])
+          ).status,
+        ).toBe(200);
+      }
+
+      expect(
+        (await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: alone })).status,
+      ).toBe(200);
+
+      const its = await layoutsOf(dashboardId);
+      expect(its).toHaveLength(120);
+      expect(its.every((layout) => layout.rows.length === 1)).toBe(true);
+      // A hundred and twenty saves against the workers pool, past the default
+      // five seconds on requests alone.
+    }, 60_000);
   });
 });
