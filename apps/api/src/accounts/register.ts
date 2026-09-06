@@ -103,29 +103,42 @@ export function planRegisterRestore(
     ...unusableRows('a user', incoming.users, ['id', 'account_id']),
   ];
 
-  const tenantsToCreate = incoming.tenants.filter((row) => !tenantsById.has(row.id));
-
   // **What this backup has already asked for**, kept beside what the register
-  // holds. Without it a file naming the same person twice - the same id, or two
-  // people sharing an address - passed both through as rows to create, and the
-  // register's own unique indexes refused the second at insert time, as a 500
-  // rather than as the collision it is. A backup is a file, so two rows saying
-  // different things about one person is a state that can really arrive.
-  const takenIds = new Set<unknown>();
+  // holds. Without it a file naming the same thing twice passed both rows
+  // through as rows to create, and the register's own primary key or unique
+  // index refused the second at insert time, as a 500 rather than as the
+  // collision it is. A backup is a file, so two rows saying different things
+  // about one account or one person is a state that can really arrive.
+  //
+  // **Every uniqueness the register enforces needs one of these**, which is
+  // written here because it was got wrong twice: the check landed on users and
+  // not on accounts, five lines apart, under this same comment. The register
+  // enforces four - an account's id, a user's id, their address and their
+  // Google identity - and `alreadyClaimed` is each of them once.
+  const claimed = { tenant: new Set<unknown>(), user: new Set<unknown>() };
   const takenEmails = new Set<unknown>();
   const takenSubjects = new Set<unknown>();
 
+  const tenantsToCreate: Record<string, unknown>[] = [];
+  for (const account of incoming.tenants) {
+    if (alreadyClaimed(claimed.tenant, account.id)) {
+      collisions.push(`the backup names account ${account.id} twice`);
+      continue;
+    }
+    if (!tenantsById.has(account.id)) tenantsToCreate.push(account);
+  }
+
   const usersToCreate: Record<string, unknown>[] = [];
   for (const user of incoming.users) {
-    if (takenIds.has(user.id)) {
+    if (alreadyClaimed(claimed.user, user.id)) {
       collisions.push(`the backup names user ${user.id} twice`);
       continue;
     }
-    if (user.email != null && takenEmails.has(user.email)) {
+    if (user.email != null && alreadyClaimed(takenEmails, user.email)) {
       collisions.push(`the backup gives the address ${user.email} to more than one user`);
       continue;
     }
-    if (user.google_subject != null && takenSubjects.has(user.google_subject)) {
+    if (user.google_subject != null && alreadyClaimed(takenSubjects, user.google_subject)) {
       collisions.push(`the backup gives one Google account to more than one user`);
       continue;
     }
@@ -157,12 +170,22 @@ export function planRegisterRestore(
       continue;
     }
     usersToCreate.push(user);
-    takenIds.add(user.id);
-    if (user.email != null) takenEmails.add(user.email);
-    if (user.google_subject != null) takenSubjects.add(user.google_subject);
   }
 
   return { tenantsToCreate, usersToCreate, collisions, unusable };
+}
+
+/**
+ * Whether the backup has already claimed this value, remembering it if not.
+ *
+ * The claiming and the asking are one call on purpose: two lines that have to
+ * stay together are two lines one of them can be written without, which is how
+ * a check ended up covering users and not accounts.
+ */
+function alreadyClaimed(seen: Set<unknown>, value: unknown): boolean {
+  if (seen.has(value)) return true;
+  seen.add(value);
+  return false;
 }
 
 /**

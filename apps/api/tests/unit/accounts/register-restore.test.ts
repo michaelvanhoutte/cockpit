@@ -28,8 +28,13 @@ function user(over: Record<string, unknown> = {}): Record<string, unknown> {
   };
 }
 
+/**
+ * A register holding what it is given and nothing else. `??` rather than a
+ * spread, so a case that names only one of the two halves gets an empty other
+ * half instead of `undefined` for it.
+ */
 function register(over: Partial<RegisterBackup> = {}): RegisterBackup {
-  return { tenants: [], users: [], ...over };
+  return { tenants: over.tenants ?? [], users: over.users ?? [] };
 }
 
 describe('Backup', () => {
@@ -205,6 +210,17 @@ describe('Backup', () => {
         users: [user(), user({ name: 'Ada again' })],
         says: /names user user-ada twice/,
       },
+      // The one this was got wrong on: the check landed on users and not on
+      // accounts, five lines apart, under the comment saying why it exists.
+      {
+        situation: 'the same account twice',
+        tenants: [
+          { id: 'tenant-ada', name: 'Ada', created_at: AT },
+          { id: 'tenant-ada', name: 'Ada again', created_at: AT },
+        ],
+        users: [],
+        says: /names account tenant-ada twice/,
+      },
       {
         situation: 'one address given to two people',
         users: [user(), user({ id: 'user-bob', email: 'ada@example.com' })],
@@ -218,12 +234,39 @@ describe('Backup', () => {
         ],
         says: /Google account to more than one user/,
       },
-    ])('refuses a backup naming $situation', ({ users, says }) => {
-      const plan = planRegisterRestore(register(), register({ users }));
+    ])('refuses a backup naming $situation', ({ tenants = [], users, says }) => {
+      const plan = planRegisterRestore(register(), register({ tenants, users }));
 
       expect(plan.collisions).toHaveLength(1);
       expect(plan.collisions[0]).toMatch(says);
-      expect(plan.usersToCreate).toHaveLength(1);
+      // The second row is not queued either, so a caller that ignored the
+      // collisions still would not write it.
+      expect([...plan.tenantsToCreate, ...plan.usersToCreate]).toHaveLength(1);
+    });
+
+    /**
+     * The register enforces four uniquenesses and every one of them needs a
+     * check here, which is the thing this got wrong. Asked as a set so a fifth
+     * added to the schema fails here rather than at somebody's insert.
+     */
+    it('covers every uniqueness the register enforces', () => {
+      const everyKind = planRegisterRestore(
+        register(),
+        register({
+          tenants: [
+            { id: 't', name: 'a', created_at: AT },
+            { id: 't', name: 'b', created_at: AT },
+          ],
+          users: [
+            user({ id: 'u1', email: 'a@b.c', google_subject: 'g' }),
+            user({ id: 'u1', email: 'd@e.f', google_subject: 'h' }),
+            user({ id: 'u2', email: 'a@b.c', google_subject: 'i' }),
+            user({ id: 'u3', email: 'j@k.l', google_subject: 'g' }),
+          ],
+        }),
+      );
+
+      expect(everyKind.collisions).toHaveLength(4);
     });
 
     // Two people waiting for a Google account is not two people sharing one.
