@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
-import { OTHER_USER_ID, USER_ID, asUser, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  OTHER_USER_ID,
+  USER_ID,
+  accountOf,
+  asUser,
+  seedRegister,
+  startFromEmpty,
+  taskTypeIn,
+} from '../seed.js';
 
 /**
  * Integration level, through the real Worker, and this is the one rule that
@@ -50,6 +58,10 @@ async function captureThought(userId: string, workspaceId: string, message: stri
         workspaceId,
         itemId: nextId(),
         message,
+        // A type of the account being captured into, which is the point of
+        // deriving it from the person rather than sharing one constant: a
+        // capture naming another account's type is refused.
+        typeId: taskTypeIn(accountOf(userId)),
       }),
     },
     userId,

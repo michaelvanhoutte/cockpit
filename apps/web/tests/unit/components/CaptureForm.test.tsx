@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import type { Item, ItemType } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { CaptureForm } from '../../../src/components/CaptureForm';
+import { NO_TYPES } from '../../../src/itemTypes';
 import { useCommand } from '../../../src/api/queries';
 
 vi.mock('../../../src/api/queries', () => ({
@@ -61,7 +62,7 @@ function anItemOf(type: ItemType | null, at: number): Item {
  * note that did not land back in the box. `rerender` is how a type deleted in
  * another tab is arranged: the same row, one type fewer.
  */
-function aForm(types: ItemType[] = [ACTION, THOUGHT], items: Item[] = [], refuses?: Error) {
+function aForm(types: ItemType[] | null = [ACTION, THOUGHT], items: Item[] = [], refuses?: Error) {
   const mutate = vi.fn(
     (_args: unknown, answers?: { onSuccess?: () => void; onError?: (error: Error) => void }) => {
       if (refuses) answers?.onError?.(refuses);
@@ -70,9 +71,11 @@ function aForm(types: ItemType[] = [ACTION, THOUGHT], items: Item[] = [], refuse
   );
   mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const shown = (now: ItemType[]) => (
+  // Null is how a copy that does not carry the types at all is arranged, which
+  // the row has to tell apart from an account that has none.
+  const shown = (now: ItemType[] | null) => (
     <QueryClientProvider client={client}>
-      <CaptureForm workspaceId="ws-work" types={now} items={items} />
+      <CaptureForm workspaceId="ws-work" types={now ?? undefined} items={items} />
     </QueryClientProvider>
   );
   const { rerender } = render(shown(types));
@@ -80,17 +83,17 @@ function aForm(types: ItemType[] = [ACTION, THOUGHT], items: Item[] = [], refuse
     mutate,
     user: userEvent.setup(),
     /** The same row again, with whatever the account holds now. */
-    withTypes: (now: ItemType[]) => rerender(shown(now)),
+    withTypes: (now: ItemType[] | null) => rerender(shown(now)),
   };
 }
 
 const theTypeBox = () => screen.getByLabelText('What kind of thing this is');
+/** The box as it may not be there at all, which is what no types looks like. */
+const anyTypeBox = () => screen.queryByLabelText('What kind of thing this is');
 
-/** What the type box offers, in the order it offers them, without *No type*. */
+/** What the type box offers, in the order it offers them. */
 const offered = () =>
-  Array.from(theTypeBox().querySelectorAll('option'))
-    .map((option) => option.textContent)
-    .filter((name) => name !== 'No type');
+  Array.from(theTypeBox().querySelectorAll('option')).map((option) => option.textContent);
 
 const asked = (mutate: ReturnType<typeof vi.fn>, name: string) =>
   mutate.mock.calls.map(([args]) => args).find((args) => args.name === name);
@@ -155,13 +158,9 @@ describe('Capture', () => {
       aForm();
 
       expect(theTypeBox().tagName).toBe('SELECT');
-      // *No type* first, where *Any workspace* sits on the Capture page's own
-      // row: the way back to having said nothing comes before the answers.
-      expect([...theTypeBox().querySelectorAll('option')].map((o) => o.textContent)).toEqual([
-        'No type',
-        'Action',
-        'Thought',
-      ]);
+      // No *No type* at the head of it: every Item is some kind of thing, so
+      // the only answers are the account's own types.
+      expect(offered()).toEqual(['Action', 'Thought']);
     });
 
     it('asks to capture, and never to make a type', async () => {
@@ -186,22 +185,13 @@ describe('Capture', () => {
       expect(asked(mutate, 'capture_item').payload.typeId).toBe(THOUGHT.id);
     });
 
-    it('captures with no type when No type is chosen', async () => {
-      const { mutate, user } = aForm();
-
-      await user.type(screen.getByLabelText('Capture a note or to-do'), 'Buy milk');
-      await user.selectOptions(theTypeBox(), '');
-      await user.click(screen.getByRole('button', { name: 'Capture' }));
-
-      expect(asked(mutate, 'capture_item').payload.typeId).toBeUndefined();
-    });
-
     /**
      * The choice follows the list rather than being remembered beside it, which
      * is what stops a capture naming a type the account no longer has - the
-     * server refuses one of those, and the note would go with it.
+     * server refuses one of those, and the note would go with it. It falls back
+     * to the type used last rather than to none, because there is no none.
      */
-    it('captures with no type when the one chosen is deleted in another tab', async () => {
+    it('captures as the type used last when the one chosen is deleted in another tab', async () => {
       const { mutate, user, withTypes } = aForm();
 
       await user.type(screen.getByLabelText('Capture a note or to-do'), 'Buy milk');
@@ -209,8 +199,8 @@ describe('Capture', () => {
       withTypes([ACTION]);
       await user.click(screen.getByRole('button', { name: 'Capture' }));
 
-      expect(theTypeBox()).toHaveValue('');
-      expect(asked(mutate, 'capture_item').payload.typeId).toBeUndefined();
+      expect(theTypeBox()).toHaveValue(ACTION.id);
+      expect(asked(mutate, 'capture_item').payload.typeId).toBe(ACTION.id);
     });
   });
 
@@ -243,11 +233,37 @@ describe('Capture', () => {
       expect(theTypeBox()).toHaveValue(THOUGHT.id);
     });
 
-    it('offers nothing and asks for nothing when the account has no types yet', () => {
-      aForm([]);
+  });
 
-      expect(offered()).toEqual([]);
-      expect(theTypeBox()).toHaveValue('');
+  /**
+   * The one thing that stops this row capturing, and it is reachable: deleting
+   * every type of the account leaves the question with no answers, and a
+   * capture with no type is refused ("every Item has a Type").
+   */
+  describe('with no types to give it, capture says so instead of capturing', () => {
+    it('shows no box of types, says where one is made, and asks for nothing', async () => {
+      const { mutate, user } = aForm([]);
+
+      await user.type(screen.getByLabelText('Capture a note or to-do'), 'Buy milk');
+      await user.click(screen.getByRole('button', { name: 'Capture' }));
+
+      expect(anyTypeBox()).toBeNull();
+      expect(screen.getByText(NO_TYPES)).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Capture' })).toBeDisabled();
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The stored copy of a workspace can be older than the field that carries
+     * the account's types (components/InboxPanel.tsx), and "no types yet" is a
+     * claim about the account rather than about what has reached this column.
+     */
+    it('says nothing at all where this copy does not carry the types yet', () => {
+      aForm(null);
+
+      expect(anyTypeBox()).toBeNull();
+      expect(screen.queryByText(NO_TYPES)).toBeNull();
+      expect(screen.getByRole('button', { name: 'Capture' })).toBeDisabled();
     });
   });
 

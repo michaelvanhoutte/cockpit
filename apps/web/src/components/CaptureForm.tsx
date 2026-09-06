@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Item, ItemType } from '@cockpit/shared';
 import { useCapture } from '../capture';
-import { typesOffered, typeToOffer } from '../itemTypes';
+import { NO_TYPES, typesOffered } from '../itemTypes';
 
 /**
- * Fast capture (§5.4) as the Inbox's first row: one line, a type beside it and
- * a button ("Show one Inbox per workspace, with capture at the top of it",
- * issue 89). Writing something down and seeing where it landed are the same
+ * Fast capture (functional definition, "The Inbox and the triage flow") as the
+ * Inbox's first row: one line, a type beside it and a button ("Show one Inbox
+ * per workspace, with capture at the top of it", issue 89). Writing something down and seeing where it landed are the same
  * place.
  *
  * **The narrow front door, deliberately.** The Capture page is where the same
@@ -16,8 +16,9 @@ import { typesOffered, typeToOffer } from '../itemTypes';
  * differ about is what capturing *does*, which is why both run `useCapture`.
  *
  * **It asks what kind of thing this is** ("Capture a thought or an action, and
- * see which it is", issue 155). The types you already have are offered, the
- * ones you used last first, and *No type* is one of the answers.
+ * see which it is", issue 155), and there is no answer of *none*: every Item is
+ * some kind of thing, so the dropdown lists the types you already have, the
+ * ones you used last first, and opens on the one you used last.
  *
  * **A dropdown, where it was a text box with a list attached.** The box was
  * both jobs in one control - choosing from what is there and naming something
@@ -39,38 +40,43 @@ export function CaptureForm({
    * which workspace it belongs to", issue 165).
    */
   workspaceId: string;
-  types: readonly ItemType[];
+  /**
+   * The account's types, or undefined where this copy of the workspace does not
+   * carry them - a snapshot stored before the field existed (InboxPanel.tsx).
+   * The difference matters: undefined is *not known yet*, and an empty list is
+   * *the account has none*, which is the only one this row says out loud.
+   */
+  types: readonly ItemType[] | undefined;
   items: readonly Item[];
 }) {
   const [message, setMessage] = useState('');
-  /** The type chosen, by id, or the empty string for *No type*. */
+  /**
+   * The type picked, by id, or the empty string for *not picked one yet* -
+   * which is not an answer, only the absence of one. What that resolves to is
+   * `chosen` below.
+   */
   const [typeId, setTypeId] = useState('');
   /** What the server said about the capture, where it said anything. */
   const [refused, setRefused] = useState<string | null>(null);
   const { ask, busy } = useCapture();
 
-  const offered = typesOffered(types, items);
-  const opensOn = typeToOffer(types, items);
+  const offered = typesOffered(types ?? [], items);
+  /** Whether this copy of the workspace carries the account's types at all. */
+  const answered = types !== undefined;
 
   /**
-   * What is actually chosen, as against what was chosen: a type deleted in
-   * another tab is gone from the list a moment later, and both the dropdown and
-   * the capture fall back to *No type* rather than one showing a choice that is
-   * not there and the other sending an id the server would refuse.
+   * What is actually chosen, as against what was picked: one not picked yet and
+   * one deleted in another tab both fall back to the type used last, rather
+   * than the dropdown showing a choice that is not there and the capture
+   * sending an id the server would refuse. Derived rather than filled in, so a
+   * background reread of the snapshot cannot undo a pick somebody made on
+   * purpose.
+   *
+   * Undefined only where there is nothing to fall back to - an account with no
+   * types, or a copy that does not carry them yet - and this row waits either
+   * way, because there is no type to give.
    */
-  const chosen = offered.some((type) => type.id === typeId) ? typeId : '';
-
-  // The type used last, filled in for you. It follows the snapshot rather than
-  // being set once, so capturing something else and coming back offers what you
-  // just used - and *No type* stays chosen, because choosing it is a thing
-  // somebody did on purpose.
-  useEffect(() => {
-    setTypeId((already) => (already === '' && opensOn ? opensOn.id : already));
-    // Keyed on which type it is, not on the object: `typeToOffer` derives a
-    // fresh one from every snapshot, so keying on the object re-ran this on
-    // each background revalidation and undid a choice somebody made on purpose.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opensOn?.id]);
+  const chosen = offered.find((type) => type.id === typeId) ?? offered[0];
 
   /**
    * **The box is emptied only once the capture has been asked for**, and a
@@ -80,10 +86,10 @@ export function CaptureForm({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = message.trim();
-    if (!trimmed) return;
+    if (!trimmed || !chosen) return;
 
     ask(
-      { message: trimmed, typeId: chosen || undefined, workspaceId, decided: true },
+      { message: trimmed, typeId: chosen.id, workspaceId, decided: true },
       {
         asking: () => {
           setMessage('');
@@ -115,30 +121,39 @@ export function CaptureForm({
       />
       {/* `min-w-0` for the reason the box above it carries: a select is as wide
           as its widest option by default, and a type with a long name would
-          push the button out of a 280px column. */}
-      <select
-        value={chosen}
-        onChange={(e) => setTypeId(e.target.value)}
-        aria-label="What kind of thing this is"
-        className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-      >
-        {/* An answer of its own rather than a blank line: a note you have not
-            decided the kind of is a normal thing to capture, and it has to be
-            possible to go back to having said nothing. */}
-        <option value="">No type</option>
-        {offered.map((type) => (
-          <option key={type.id} value={type.id}>
-            {type.name}
-          </option>
-        ))}
-      </select>
+          push the button out of a 280px column.
+
+          Gone where there are no types, along with the *No type* line that used
+          to head it: every Item is some kind of thing, so an empty dropdown
+          would be a question with no answers rather than a way to say none. */}
+      {chosen && (
+        <select
+          value={chosen.id}
+          onChange={(e) => setTypeId(e.target.value)}
+          aria-label="What kind of thing this is"
+          className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+        >
+          {offered.map((type) => (
+            <option key={type.id} value={type.id}>
+              {type.name}
+            </option>
+          ))}
+        </select>
+      )}
       <button
         type="submit"
-        disabled={busy}
+        disabled={busy || !chosen}
         className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
       >
         Capture
       </button>
+      {/* Said where the dropdown was, so the row explains itself rather than
+          showing a button that does nothing - and only once this copy carries
+          the account's types, because "no types yet" is a claim about the
+          account rather than about what has reached this column. */}
+      {answered && offered.length === 0 && (
+        <p className="basis-full text-sm text-ink-faint">{NO_TYPES}</p>
+      )}
       {refused && (
         <p role="alert" className="basis-full text-sm text-over">
           {refused}
