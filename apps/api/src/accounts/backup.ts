@@ -21,8 +21,17 @@ import type { SqlStorage, SqlStorageValue } from '@cloudflare/workers-types';
 /** What one account's store holds, as it stands. */
 export interface AccountBackup {
   /**
-   * The changes this store had applied when it was read, oldest first. The
-   * shape its rows are in, and where a restore starts replaying.
+   * Which changes this store had applied when it was read - the shape its rows
+   * are in, and what a restore starts replaying from.
+   *
+   * **A set, not an order**, sorted by name only so that backing the same
+   * account up twice produces the same file. The ledger cannot say what order
+   * they ran in: it records a name and a timestamp, several changes apply
+   * inside the same millisecond, and the names do not sort into the order they
+   * are applied in anyway - `0009-item-workspace-decided` runs before
+   * `0009-item-texts` and sorts after it. Nothing needs the order from here,
+   * because a restore replays the code's own change list filtered to this set,
+   * which is ordered by construction.
    */
   changesApplied: string[];
   /** Every table the store holds, by name, each with all of its rows. */
@@ -139,6 +148,10 @@ function rowsOf(sql: SqlStorage, table: string): Row[] {
  * account exists in the register from the moment it is added and its store is
  * not created until somebody first touches it, so a backup taken in between
  * holds an account with nothing in it.
+ *
+ * Ordered by name for a file that does not change between two backups of an
+ * unchanged account, and for no other reason - see `changesApplied` on
+ * `AccountBackup` for why the order carries no meaning.
  */
 function changesApplied(sql: SqlStorage): string[] {
   const hasLedger = sql
@@ -146,7 +159,7 @@ function changesApplied(sql: SqlStorage): string[] {
     .toArray();
   if (hasLedger.length === 0) return [];
   return sql
-    .exec<{ name: string }>(`SELECT name FROM ${CHANGE_LEDGER} ORDER BY applied_at, name`)
+    .exec<{ name: string }>(`SELECT name FROM ${CHANGE_LEDGER} ORDER BY name`)
     .toArray()
     .map((row) => row.name);
 }

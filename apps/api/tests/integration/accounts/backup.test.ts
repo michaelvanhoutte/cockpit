@@ -178,11 +178,28 @@ describe('Backup', () => {
       expect(tables.commands!.length).toBeGreaterThan(0);
     });
 
+    /**
+     * Compared as a set rather than a sequence, because that is all the record
+     * is: several changes apply inside one millisecond and the names do not
+     * sort into the order they run in, so any order asserted here would be a
+     * coincidence that fails about twice in three runs. Asserting it as a
+     * sequence is exactly the bug this file caught in its own first draft.
+     */
     it('records which changes the account had applied', async () => {
       await useAccount(USER_ID);
 
+      expect((await backUp(ACCOUNT_NAME)).changesApplied.sort()).toEqual(
+        accountChanges(ACCOUNT_NAME)
+          .map((change) => change.name)
+          .sort(),
+      );
+    });
+
+    it('records the same thing each time an unchanged account is backed up', async () => {
+      await useAccount(USER_ID);
+
       expect((await backUp(ACCOUNT_NAME)).changesApplied).toEqual(
-        accountChanges(ACCOUNT_NAME).map((change) => change.name),
+        (await backUp(ACCOUNT_NAME)).changesApplied,
       );
     });
 
