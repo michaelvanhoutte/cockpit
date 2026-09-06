@@ -198,6 +198,27 @@ describe('Backup', () => {
      * count is asserted rather than assumed because the failure is silent: a
      * write that stops at the batch size leaves a store that looks restored.
      */
+    /**
+     * The number goes into the command's output as a claim about what
+     * happened, so it is counted by whatever did the writing rather than from
+     * the file - a backup routinely names tables it has no rows for.
+     */
+    it('reports what it wrote, not what the file named', async () => {
+      await captureInto(USER_ID, 'mine');
+      const taken = await backUp(ACCOUNT_NAME);
+      const withRows = Object.values(taken.tables).filter((rows) => rows.length > 0);
+      expect(Object.keys(taken.tables).length).toBeGreaterThan(withRows.length);
+      await emptyTheStore(ACCOUNT_NAME);
+
+      const res = await restore(ACCOUNT_NAME, taken);
+      expect(res.status).toBe(200);
+
+      expect(await res.json()).toEqual({
+        tablesWritten: withRows.length,
+        rowsWritten: withRows.reduce((all, rows) => all + rows.length, 0),
+      });
+    });
+
     it('puts back more rows than one statement can carry', async () => {
       for (let n = 0; n < 12; n += 1) await captureInto(USER_ID, `item ${n}`);
       const taken = await backUp(ACCOUNT_NAME);
@@ -318,6 +339,29 @@ describe('Backup', () => {
 
       expect(res.status).toBeGreaterThanOrEqual(400);
       expect(res.status).toBeLessThan(500);
+    });
+
+    /**
+     * The worst failure this command has: a restore that reports success and
+     * silently did not restore something. Replaying the change list is what
+     * creates the tables, so a backup whose rows outlive their schema - a
+     * `changesApplied` trimmed by hand, a file merged from two others - has rows
+     * with nowhere to go. Walking the schema and reading the file through it
+     * dropped them without a word, and answered with a count taken from the
+     * file that said they had been written.
+     */
+    it('refuses a backup holding rows for a table its changes do not create', async () => {
+      await captureInto(USER_ID, 'mine');
+      const taken = await backUp(ACCOUNT_NAME);
+      const orphaned = { changesApplied: [], tables: { items: taken.tables.items! } };
+
+      const res = await restore(ACCOUNT_NAME, orphaned, { force: true });
+
+      expect(res.status).toBe(400);
+      const { error } = (await res.json()) as { error: string };
+      expect(error).toContain('nowhere to go');
+      expect(error).toContain('items');
+      expect(messagesIn(await backUp(ACCOUNT_NAME))).toContain('mine');
     });
 
     /**

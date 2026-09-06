@@ -197,13 +197,13 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       };
     }
 
-    // What was actually written, not what the file happened to name: a backup
-    // routinely carries tables with no rows in them, and reporting those as
-    // written is a claim about what happened that is wrong on most restores.
-    const written = {
-      tablesWritten: Object.values(backup.tables).filter((rows) => rows.length > 0).length,
-      rowsWritten: Object.values(backup.tables).reduce((all, rows) => all + rows.length, 0),
-    };
+    // **Counted by whatever did the writing**, not worked out from the file
+    // beforehand. The first version of this counted `backup.tables` here, which
+    // read as the same number right up until the two disagreed: a table the
+    // replayed changes do not create is one `writeRows` cannot write, so a file
+    // whose rows outlive their schema was answered with a count saying they had
+    // been. `writeRows` now refuses that outright and returns what it did.
+    let written = { tablesWritten: 0, rowsWritten: 0 };
     try {
       this.ctx.storage.transactionSync(() => {
         dropAccountTables(sql, tablesParentsFirst(sql, held));
@@ -221,7 +221,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         // inside an open write transaction.
         const order = tablesParentsFirst(sql, accountTables(sql));
         deleteAllRows(sql, order);
-        writeRows(sql, backup, order);
+        written = writeRows(sql, backup, order);
 
         sql.exec(
           `CREATE TABLE IF NOT EXISTS ${CHANGE_LEDGER} (

@@ -110,7 +110,15 @@ export function deleteAllRows(sql: SqlStorage, parentsFirst: readonly string[]):
  * parameter count grows with the data". `inBatchesOf` is the same arithmetic
  * the command handlers use.
  */
-export function writeRows(sql: SqlStorage, backup: AccountBackup, order: readonly string[]): void {
+export function writeRows(
+  sql: SqlStorage,
+  backup: AccountBackup,
+  order: readonly string[],
+): { tablesWritten: number; rowsWritten: number } {
+  nowhereToPutThem(backup, order);
+
+  let tablesWritten = 0;
+  let rowsWritten = 0;
   for (const table of order) {
     const rows = backup.tables[table] ?? [];
     if (rows.length === 0) continue;
@@ -124,6 +132,38 @@ export function writeRows(sql: SqlStorage, backup: AccountBackup, order: readonl
       const params = batch.flatMap((row) => columns.map((column) => row[column] ?? null));
       sql.exec(`INSERT INTO "${quoted(table)}" (${columnList}) VALUES ${values}`, ...params);
     }
+    tablesWritten += 1;
+    rowsWritten += rows.length;
+  }
+  return { tablesWritten, rowsWritten };
+}
+
+/**
+ * That every table the backup has rows for exists to put them in.
+ *
+ * **Refused rather than skipped**, and this is the case that makes the counts
+ * worth returning rather than working out from the file. Replaying the change
+ * list is what creates the tables, so a backup whose rows outlive their schema
+ * - `changesApplied` trimmed by hand, a file merged from two others - has rows
+ * with nowhere to go. Walking the schema's tables and reading the file through
+ * them drops those rows without a word, and answers with a count taken from the
+ * file that says they were written.
+ *
+ * Which is the worst failure this command has: a restore that reports success
+ * and silently did not restore something, discovered when somebody looks for
+ * it. A backup is a file on somebody's disk, so this is a state that can really
+ * arrive rather than one that cannot.
+ */
+function nowhereToPutThem(backup: AccountBackup, order: readonly string[]): void {
+  const exists = new Set(order);
+  const orphaned = Object.entries(backup.tables)
+    .filter(([table, rows]) => rows.length > 0 && !exists.has(table))
+    .map(([table, rows]) => `${table} (${rows.length})`);
+  if (orphaned.length > 0) {
+    throw new Error(
+      `the backup holds rows for ${orphaned.join(', ')}, which the changes it records do not create` +
+        ' - so they have nowhere to go, and nothing was restored',
+    );
   }
 }
 
