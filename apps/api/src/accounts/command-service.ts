@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, exists, notExists, sql } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
@@ -8,6 +8,7 @@ import {
   DEAD_STATUS_VALUE,
   items,
   itemTypes,
+  layoutRows,
   layouts,
   panelItems,
   panelPlacements,
@@ -28,6 +29,7 @@ import {
   listFilingsOnPanel,
   listItemTypes,
   listLayoutIds,
+  listLayoutRows,
   listLayoutsOn,
   listPanels,
   listPlacements,
@@ -47,13 +49,14 @@ import {
   type Arriving,
 } from '../domain/filings.js';
 import {
+  LAYOUT_ROW_VALUES_PER_ROW,
   PLACEMENT_VALUES_PER_ROW,
   appendedPlacement,
+  arrangementRows,
   layoutNamed,
   panelFromCommand,
   panelNamed,
   panelsNotOn,
-  placementRows,
 } from '../domain/panels.js';
 import { inBatchesOf } from '../domain/statements.js';
 import {
@@ -529,7 +532,7 @@ export function runCommand<N extends CommandName>(
       // reason a new workspace's colour is picked here.
       const layoutIds = listLayoutIds(db, tenantId, dashboard.id);
       const appended = layoutIds.map((layoutId) =>
-        appendedPlacement(tenantId, layoutId, cmd.panelId, listPlacements(db, tenantId, layoutId)),
+        appendedPlacement(tenantId, layoutId, cmd.panelId, listLayoutRows(db, tenantId, layoutId)),
       );
       db.transaction((tx) => {
         // Named at the primary key for the reason a workspace's insert is: a
@@ -541,7 +544,13 @@ export function runCommand<N extends CommandName>(
           .values(panelFromCommand(cmd, tenantId))
           .onConflictDoNothing({ target: panels.id })
           .run();
-        for (const placement of appended) {
+        for (const { row, placement } of appended) {
+          // The row first: the placement points at it, and a row of its own is
+          // what a panel added to an existing layout gets (`appendedPlacement`).
+          tx.insert(layoutRows)
+            .values(row)
+            .onConflictDoNothing({ target: [layoutRows.layoutId, layoutRows.rowIndex] })
+            .run();
           tx.insert(panelPlacements)
             .values(placement)
             .onConflictDoNothing({
@@ -581,7 +590,7 @@ export function runCommand<N extends CommandName>(
       // A panel already deleted is not there to delete again, so the same
       // delete sent twice deletes one panel whether the replay carries the
       // original request id (caught at the top) or a fresh one (caught here).
-      panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      const going = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
       // A dashboard may end up with no panels at all. The last *dashboard* of a
       // workspace is the one thing the app refuses to delete, because a
       // workspace with no dashboard has no view; a dashboard with no panels is
@@ -594,6 +603,63 @@ export function runCommand<N extends CommandName>(
         // `panelPlacements` in schema.ts.
         tx.delete(panelPlacements)
           .where(and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.panelId, cmd.panelId)))
+          .run();
+        // And any row that was holding only this panel, in the same statement
+        // and the same transaction: a row is the panels across it, so one with
+        // none left is not an emptier arrangement but a line nothing draws.
+        // The screen drops such a row anyway (repo.ts, `rowsOf`), because a
+        // browser can be holding a copy from before this delete - but a state
+        // the store can be left in is a state somebody has to explain later,
+        // and this one need not exist at all.
+        //
+        // Bounded to this dashboard's layouts, which are the only ones this
+        // delete touched. Emptied by tenant it would be a sweep: deleting a
+        // panel on one dashboard would quietly rewrite the arrangements of
+        // every other, and whatever it found to remove there would be somebody
+        // else's problem to explain.
+        //
+        // A join rather than the ids read out and bound in: a dashboard's
+        // layouts are uncapped, and an `IN` list as long as them is a statement
+        // whose parameter count grows with the data - past a hundred of them
+        // every delete on that dashboard would throw, for good (architecture,
+        // "No statement's parameter count grows with the data", which names a
+        // workspace that stopped painting at a hundred layouts as one of the
+        // instances it was written for).
+        tx.delete(layoutRows)
+          .where(
+            and(
+              eq(layoutRows.tenantId, tenantId),
+              // Both halves carry `tenant_id` like every other query here does
+              // (architecture, "One store per account, and `tenant_id` stays").
+              // A store holds one account, so nothing else could match today -
+              // which is the reason to write it rather than to leave it out:
+              // the column is only ever a lock if it is always turned.
+              exists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(layouts)
+                  .where(
+                    and(
+                      eq(layouts.tenantId, tenantId),
+                      eq(layouts.id, layoutRows.layoutId),
+                      eq(layouts.dashboardId, going.dashboardId),
+                    ),
+                  ),
+              ),
+              notExists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(panelPlacements)
+                  .where(
+                    and(
+                      eq(panelPlacements.tenantId, tenantId),
+                      eq(panelPlacements.layoutId, layoutRows.layoutId),
+                      eq(panelPlacements.rowIndex, layoutRows.rowIndex),
+                    ),
+                  ),
+              ),
+            ),
+          )
           .run();
         tx.update(panels)
           .set({ deletedAt: cmd.issuedAt })
@@ -628,7 +694,7 @@ export function runCommand<N extends CommandName>(
         );
         if (alreadyCalledThat) throw new LayoutNameTakenError(alreadyCalledThat.name);
       }
-      const rows = placementRows(tenantId, cmd.layoutId, cmd.placements);
+      const arrangement = arrangementRows(tenantId, cmd.layoutId, cmd.rows);
       db.transaction((tx) => {
         tx.insert(layouts)
           .values({
@@ -651,15 +717,29 @@ export function runCommand<N extends CommandName>(
           .run();
         // Replaced whole rather than merged: an arrangement is an answer to
         // "where do these panels go now", so a panel left out of it has no
-        // place in this layout and its old row must not survive.
+        // place in this layout and its old row must not survive - and a row it
+        // no longer has is a line nothing would draw.
+        //
+        // Nothing enforces the order the two lists are written in - a cell
+        // names its row by number, not by a foreign key - so what keeps them
+        // agreeing is the transaction around both: nothing ever reads a layout
+        // with its rows gone and its cells still there. A cell whose row is
+        // missing all the same is a state the screen survives (repo.ts,
+        // `rowsOf`) rather than one this relies on being impossible.
         tx.delete(panelPlacements)
           .where(
             and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, cmd.layoutId)),
           )
           .run();
+        tx.delete(layoutRows)
+          .where(and(eq(layoutRows.tenantId, tenantId), eq(layoutRows.layoutId, cmd.layoutId)))
+          .run();
         // Several inserts rather than one, and inside this transaction rather
         // than beside it - see `inBatchesOf`, which carries both reasons.
-        for (const batch of inBatchesOf(rows, PLACEMENT_VALUES_PER_ROW)) {
+        for (const batch of inBatchesOf(arrangement.rows, LAYOUT_ROW_VALUES_PER_ROW)) {
+          tx.insert(layoutRows).values(batch).run();
+        }
+        for (const batch of inBatchesOf(arrangement.placements, PLACEMENT_VALUES_PER_ROW)) {
           tx.insert(panelPlacements).values(batch).run();
         }
         tx.insert(commands).values(commandRow).run();
@@ -723,6 +803,9 @@ export function runCommand<N extends CommandName>(
           .where(
             and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, cmd.layoutId)),
           )
+          .run();
+        tx.delete(layoutRows)
+          .where(and(eq(layoutRows.tenantId, tenantId), eq(layoutRows.layoutId, cmd.layoutId)))
           .run();
         tx.delete(layouts)
           .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, cmd.layoutId)))

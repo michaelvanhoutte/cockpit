@@ -61,11 +61,34 @@ async function addPanel(
   });
 }
 
+type Cell = { panelId: string; span: number };
+
+/**
+ * An arrangement of one row, which is what most cases here want: they are about
+ * what the store does with an arrangement rather than about which line a panel
+ * is on. `saveRows` is for the cases that are about the lines.
+ */
 async function saveLayout(
   dashboardId: string,
   layoutId: string,
   screenWidth: number,
-  placements: { panelId: string; columns: number; rows: number }[],
+  cells: Cell[],
+  name?: string,
+) {
+  return saveRows(
+    dashboardId,
+    layoutId,
+    screenWidth,
+    cells.length ? [{ height: null, cells }] : [],
+    name,
+  );
+}
+
+async function saveRows(
+  dashboardId: string,
+  layoutId: string,
+  screenWidth: number,
+  rows: { height: number | null; cells: Cell[] }[],
   name?: string,
 ) {
   return send('save_layout', {
@@ -76,8 +99,13 @@ async function saveLayout(
     // that does not care what it is called gets a name free on its dashboard.
     name: name ?? `Layout ${(seq += 1)}`,
     screenWidth,
-    placements,
+    rows,
   });
+}
+
+/** The cells of a layout's rows, flattened - what most cases assert against. */
+function cellsOf(layout: Layout | undefined): Cell[] {
+  return (layout?.rows ?? []).flatMap((row) => row.cells);
 }
 
 async function snapshot(workspaceId: string = WORKSPACE_ID): Promise<WorkspaceSnapshot> {
@@ -237,7 +265,7 @@ describe('Panels', () => {
           const stranger = nextId();
           await addPanel(elsewhere, 'Somewhere else', { panelId: stranger });
           return saveLayout(ctx.dashboardId, nextId(), 1280, [
-            { panelId: stranger, columns: 4, rows: 3 },
+            { panelId: stranger, span: 4 },
           ]);
         },
       },
@@ -274,16 +302,15 @@ describe('Panels', () => {
     });
 
     it.each([
-      { situation: 'a panel wider than the grid', columns: 13, rows: 3 },
-      { situation: 'a panel of no width at all', columns: 0, rows: 3 },
-      { situation: 'a panel taller than anything could show', columns: 4, rows: 99 },
-      { situation: 'a panel measured in half columns', columns: 4.5, rows: 3 },
-    ])('refuses an arrangement with $situation', async ({ columns, rows }) => {
+      { situation: 'a share bigger than a whole row', span: 13 },
+      { situation: 'a share of nothing at all', span: 0 },
+      { situation: 'a share measured in half columns', span: 4.5 },
+    ])('refuses an arrangement with $situation', async ({ span }) => {
       const dashboardId = await aDashboard();
       const panelId = nextId();
       await addPanel(dashboardId, aName(), { panelId });
 
-      const refused = await saveLayout(dashboardId, nextId(), 1280, [{ panelId, columns, rows }]);
+      const refused = await saveLayout(dashboardId, nextId(), 1280, [{ panelId, span }]);
 
       expect(refused.status).toBe(400);
       expect(await layoutsOf(dashboardId)).toEqual([]);
@@ -295,8 +322,8 @@ describe('Panels', () => {
       await addPanel(dashboardId, aName(), { panelId });
 
       const refused = await saveLayout(dashboardId, nextId(), 1280, [
-        { panelId, columns: 4, rows: 3 },
-        { panelId, columns: 8, rows: 3 },
+        { panelId, span: 4 },
+        { panelId, span: 8 },
       ]);
 
       expect(refused.status).toBe(400);
@@ -327,16 +354,21 @@ describe('Panels', () => {
       await addPanel(dashboardId, 'To read', { panelId: reading });
 
       await saveLayout(dashboardId, nextId(), 1280, [
-        { panelId: reading, columns: 8, rows: 2 },
-        { panelId: falcon, columns: 4, rows: 5 },
+        { panelId: reading, span: 8 },
+        { panelId: falcon, span: 4 },
       ]);
 
       expect(await layoutsOf(dashboardId)).toEqual([
         expect.objectContaining({
           screenWidth: 1280,
-          placements: [
-            { panelId: reading, columns: 8, rows: 2 },
-            { panelId: falcon, columns: 4, rows: 5 },
+          rows: [
+            {
+              height: null,
+              cells: [
+                { panelId: reading, span: 8 },
+                { panelId: falcon, span: 4 },
+              ],
+            },
           ],
         }),
       ]);
@@ -350,14 +382,14 @@ describe('Panels', () => {
       await addPanel(dashboardId, 'To read', { panelId: reading });
       const layoutId = nextId();
       await saveLayout(dashboardId, layoutId, 1280, [
-        { panelId: falcon, columns: 4, rows: 3 },
-        { panelId: reading, columns: 4, rows: 3 },
+        { panelId: falcon, span: 4 },
+        { panelId: reading, span: 4 },
       ]);
 
-      await saveLayout(dashboardId, layoutId, 1280, [{ panelId: falcon, columns: 12, rows: 3 }]);
+      await saveLayout(dashboardId, layoutId, 1280, [{ panelId: falcon, span: 12 }]);
 
-      expect((await layoutsOf(dashboardId))[0]?.placements).toEqual([
-        { panelId: falcon, columns: 12, rows: 3 },
+      expect(cellsOf((await layoutsOf(dashboardId))[0])).toEqual([
+        { panelId: falcon, span: 12 },
       ]);
     });
 
@@ -368,9 +400,9 @@ describe('Panels', () => {
       const falcon = nextId();
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       const layoutId = nextId();
-      await saveLayout(dashboardId, layoutId, 2560, [{ panelId: falcon, columns: 3, rows: 3 }]);
+      await saveLayout(dashboardId, layoutId, 2560, [{ panelId: falcon, span: 3 }]);
 
-      await saveLayout(dashboardId, layoutId, 480, [{ panelId: falcon, columns: 6, rows: 3 }]);
+      await saveLayout(dashboardId, layoutId, 480, [{ panelId: falcon, span: 6 }]);
 
       expect((await layoutsOf(dashboardId))[0]).toMatchObject({ screenWidth: 2560 });
     });
@@ -380,8 +412,8 @@ describe('Panels', () => {
       const falcon = nextId();
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
 
-      await saveLayout(dashboardId, nextId(), 2560, [{ panelId: falcon, columns: 3, rows: 3 }]);
-      await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, columns: 12, rows: 3 }]);
+      await saveLayout(dashboardId, nextId(), 2560, [{ panelId: falcon, span: 3 }]);
+      await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, span: 12 }]);
 
       expect((await layoutsOf(dashboardId)).map((layout) => layout.screenWidth)).toEqual([480, 2560]);
     });
@@ -410,7 +442,7 @@ describe('Panels', () => {
       const saved = await Promise.all(
         widths.map((screenWidth) =>
           saveLayout(dashboardId, nextId(), screenWidth, [
-            { panelId: falcon, columns: 3, rows: 3 },
+            { panelId: falcon, span: 3 },
           ]),
         ),
       );
@@ -421,29 +453,34 @@ describe('Panels', () => {
       expect(its).toHaveLength(widths.length);
       // Every one of them arrives with its arrangement, rather than the read
       // coming back short or empty.
-      expect(its.every((layout) => layout.placements.length === 1)).toBe(true);
+      expect(its.every((layout) => cellsOf(layout).length === 1)).toBe(true);
     });
   });
 
   describe('a panel added later joins every layout, and a deleted one leaves them all', () => {
-    it('appends the new panel to each of them, at the size of what is already there', async () => {
+    it('gives it a row of its own under each of them, rather than a place beside something', async () => {
+      // A row is a decision about what belongs side by side, and adding a panel
+      // says nothing about which panels it belongs beside - so it gets a line,
+      // full width, in every layout of the dashboard. Adding one on a laptop
+      // must not leave it missing from the phone layout until somebody
+      // rearranges that too.
       const dashboardId = await aDashboard();
       const falcon = nextId();
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
-      await saveLayout(dashboardId, nextId(), 2560, [{ panelId: falcon, columns: 3, rows: 3 }]);
-      await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, columns: 12, rows: 4 }]);
+      await saveLayout(dashboardId, nextId(), 2560, [{ panelId: falcon, span: 3 }]);
+      await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, span: 12 }]);
 
       const reading = nextId();
       await addPanel(dashboardId, 'To read', { panelId: reading });
 
-      expect((await layoutsOf(dashboardId)).map((layout) => layout.placements)).toEqual([
+      expect((await layoutsOf(dashboardId)).map((layout) => layout.rows)).toEqual([
         [
-          { panelId: falcon, columns: 12, rows: 4 },
-          { panelId: reading, columns: 12, rows: 4 },
+          { height: null, cells: [{ panelId: falcon, span: 12 }] },
+          { height: null, cells: [{ panelId: reading, span: 12 }] },
         ],
         [
-          { panelId: falcon, columns: 3, rows: 3 },
-          { panelId: reading, columns: 3, rows: 3 },
+          { height: null, cells: [{ panelId: falcon, span: 3 }] },
+          { height: null, cells: [{ panelId: reading, span: 12 }] },
         ],
       ]);
     });
@@ -455,19 +492,19 @@ describe('Panels', () => {
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       await addPanel(dashboardId, 'Gone by lunchtime', { panelId: doomed });
       await saveLayout(dashboardId, nextId(), 2560, [
-        { panelId: falcon, columns: 3, rows: 3 },
-        { panelId: doomed, columns: 3, rows: 3 },
+        { panelId: falcon, span: 3 },
+        { panelId: doomed, span: 3 },
       ]);
       await saveLayout(dashboardId, nextId(), 480, [
-        { panelId: doomed, columns: 12, rows: 3 },
-        { panelId: falcon, columns: 12, rows: 3 },
+        { panelId: doomed, span: 12 },
+        { panelId: falcon, span: 12 },
       ]);
 
       await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: doomed });
 
-      expect((await layoutsOf(dashboardId)).map((layout) => layout.placements)).toEqual([
-        [{ panelId: falcon, columns: 12, rows: 3 }],
-        [{ panelId: falcon, columns: 3, rows: 3 }],
+      expect((await layoutsOf(dashboardId)).map(cellsOf)).toEqual([
+        [{ panelId: falcon, span: 12 }],
+        [{ panelId: falcon, span: 3 }],
       ]);
     });
   });
@@ -478,8 +515,8 @@ describe('Panels', () => {
       const falcon = nextId();
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       const doomed = nextId();
-      await saveLayout(dashboardId, doomed, 2560, [{ panelId: falcon, columns: 3, rows: 3 }]);
-      await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, columns: 12, rows: 3 }]);
+      await saveLayout(dashboardId, doomed, 2560, [{ panelId: falcon, span: 3 }]);
+      await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, span: 12 }]);
 
       const gone = await send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId: doomed });
 
@@ -487,7 +524,7 @@ describe('Panels', () => {
       expect(await layoutsOf(dashboardId)).toEqual([
         expect.objectContaining({
           screenWidth: 480,
-          placements: [{ panelId: falcon, columns: 12, rows: 3 }],
+          rows: [{ height: null, cells: [{ panelId: falcon, span: 12 }] }],
         }),
       ]);
       expect((await panelsOn(dashboardId)).map((panel) => panel.name)).toEqual(['Project Falcon']);
@@ -505,19 +542,19 @@ describe('Panels', () => {
   describe('a dashboard is arranged however many panels are on it', () => {
     it('stores all forty in the order given, at the sizes given', async () => {
       const dashboardId = await aDashboard();
-      const wanted: { panelId: string; columns: number; rows: number }[] = [];
+      const wanted: Cell[] = [];
       for (let n = 0; n < 40; n += 1) {
         const panelId = nextId();
         expect((await addPanel(dashboardId, `Panel ${n}`, { panelId })).status).toBe(200);
-        // Sizes that differ per panel, so a row landing under another panel's
-        // place would show up as the wrong size rather than passing quietly.
-        wanted.push({ panelId, columns: (n % 12) + 1, rows: (n % 5) + 1 });
+        // Shares that differ per panel, so a cell landing under another's
+        // place would show up as the wrong share rather than passing quietly.
+        wanted.push({ panelId, span: (n % 12) + 1 });
       }
 
       const saved = await saveLayout(dashboardId, nextId(), 1280, wanted);
 
       expect(saved.status).toBe(200);
-      expect((await layoutsOf(dashboardId))[0]?.placements).toEqual(wanted);
+      expect(cellsOf((await layoutsOf(dashboardId))[0])).toEqual(wanted);
       // Forty panels is forty-two round trips, which is past the default five
       // seconds on its own - `startFromEmpty` empties the store before every
       // case, so this is the cost of the requests and not of what ran before.
@@ -537,7 +574,7 @@ describe('Layouts', () => {
       dashboardId,
       layoutId,
       screenWidth,
-      [{ panelId, columns: 4, rows: 3 }],
+      [{ panelId, span: 4 }],
       name,
     );
     expect(saved.status).toBe(200);
@@ -561,7 +598,7 @@ describe('Layouts', () => {
         dashboardId,
         nextId(),
         2560,
-        [{ panelId, columns: 12, rows: 3 }],
+        [{ panelId, span: 12 }],
         name,
       );
 
@@ -595,14 +632,14 @@ describe('Layouts', () => {
         dashboardId,
         layoutId,
         1280,
-        [{ panelId, columns: 6, rows: 3 }],
+        [{ panelId, span: 6 }],
         'Wide',
       );
 
       expect(saved.status).toBe(200);
       const [layout] = await layoutsOf(dashboardId);
       expect(layout!.name).toBe('The big one');
-      expect(layout!.placements).toEqual([{ panelId, columns: 6, rows: 3 }]);
+      expect(cellsOf(layout)).toEqual([{ panelId, span: 6 }]);
     });
   });
 
@@ -620,7 +657,7 @@ describe('Layouts', () => {
       expect((await layoutsOf(dashboardId))[0]).toMatchObject({
         name: 'The big one',
         screenWidth: 2560,
-        placements: [{ panelId, columns: 4, rows: 3 }],
+        rows: [{ height: null, cells: [{ panelId, span: 4 }] }],
       });
     });
 
@@ -643,7 +680,7 @@ describe('Layouts', () => {
       const { dashboardId, panelId } = await arranged('Wide');
       const second = nextId();
       expect(
-        (await saveLayout(dashboardId, second, 480, [{ panelId, columns: 12, rows: 3 }], 'Phone'))
+        (await saveLayout(dashboardId, second, 480, [{ panelId, span: 12 }], 'Phone'))
           .status,
       ).toBe(200);
 
@@ -712,7 +749,7 @@ describe('Layouts', () => {
       const { dashboardId, panelId, layoutId } = await arranged('Wide');
       const phone = nextId();
       expect(
-        (await saveLayout(dashboardId, phone, 480, [{ panelId, columns: 12, rows: 3 }], 'Phone'))
+        (await saveLayout(dashboardId, phone, 480, [{ panelId, span: 12 }], 'Phone'))
           .status,
       ).toBe(200);
 
@@ -721,5 +758,161 @@ describe('Layouts', () => {
       expect(gone.status).toBe(200);
       expect((await layoutsOf(dashboardId)).map((l) => l.name)).toEqual(['Phone']);
     });
+  });
+});
+
+describe('Layouts', () => {
+  describe('an arrangement is a list of rows, and which panels share a line is what it stores', () => {
+    it('keeps the panels on the lines they were put on', async () => {
+      // The whole of what rows add over the old flat list: three panels can be
+      // two-then-one or one-then-two, and nothing about the widths says which.
+      const dashboardId = await aDashboard();
+      const falcon = nextId();
+      const anna = nextId();
+      const reading = nextId();
+      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
+      await addPanel(dashboardId, 'Anna', { panelId: anna });
+      await addPanel(dashboardId, 'To read', { panelId: reading });
+
+      const saved = await saveRows(dashboardId, nextId(), 1280, [
+        { height: 300, cells: [{ panelId: falcon, span: 8 }, { panelId: anna, span: 4 }] },
+        { height: null, cells: [{ panelId: reading, span: 12 }] },
+      ]);
+
+      expect(saved.status).toBe(200);
+      expect((await layoutsOf(dashboardId))[0]?.rows).toEqual([
+        { height: 300, cells: [{ panelId: falcon, span: 8 }, { panelId: anna, span: 4 }] },
+        { height: null, cells: [{ panelId: reading, span: 12 }] },
+      ]);
+    });
+
+    it('replaces the rows whole, so one taken away is gone rather than merged', async () => {
+      const dashboardId = await aDashboard();
+      const falcon = nextId();
+      const anna = nextId();
+      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
+      await addPanel(dashboardId, 'Anna', { panelId: anna });
+      const layoutId = nextId();
+      await saveRows(dashboardId, layoutId, 1280, [
+        { height: null, cells: [{ panelId: falcon, span: 12 }] },
+        { height: 200, cells: [{ panelId: anna, span: 12 }] },
+      ]);
+
+      // The two of them on one line now, which is one row where there were two.
+      await saveRows(dashboardId, layoutId, 1280, [
+        { height: null, cells: [{ panelId: falcon, span: 6 }, { panelId: anna, span: 6 }] },
+      ]);
+
+      expect((await layoutsOf(dashboardId))[0]?.rows).toEqual([
+        { height: null, cells: [{ panelId: falcon, span: 6 }, { panelId: anna, span: 6 }] },
+      ]);
+    });
+
+    it('refuses a row with no panels on it, which is a line nothing draws', async () => {
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+      await addPanel(dashboardId, aName(), { panelId });
+
+      const refused = await saveRows(dashboardId, nextId(), 1280, [
+        { height: null, cells: [{ panelId, span: 12 }] },
+        { height: null, cells: [] },
+      ]);
+
+      expect(refused.status).toBe(400);
+      expect(await layoutsOf(dashboardId)).toEqual([]);
+    });
+
+    it('refuses one panel in two rows, which is one panel in two places', async () => {
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+      await addPanel(dashboardId, aName(), { panelId });
+
+      const refused = await saveRows(dashboardId, nextId(), 1280, [
+        { height: null, cells: [{ panelId, span: 12 }] },
+        { height: null, cells: [{ panelId, span: 12 }] },
+      ]);
+
+      expect(refused.status).toBe(400);
+      expect(await layoutsOf(dashboardId)).toEqual([]);
+    });
+
+    it.each([
+      { situation: 'taller than any screen could show', height: 721 },
+      { situation: 'too short to see what is on it', height: 109 },
+    ])('refuses a row $situation', async ({ height }) => {
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+      await addPanel(dashboardId, aName(), { panelId });
+
+      const refused = await saveRows(dashboardId, nextId(), 1280, [
+        { height, cells: [{ panelId, span: 12 }] },
+      ]);
+
+      expect(refused.status).toBe(400);
+    });
+
+    it('keeps a row a deleted panel shared, and drops the one it had to itself', async () => {
+      // Deleting a panel takes its cell out of every layout. A row that held
+      // others keeps them; a row that held only that panel is a line with
+      // nothing on it, and a blank line is not what a deleted panel should look
+      // like.
+      const dashboardId = await aDashboard();
+      const falcon = nextId();
+      const shared = nextId();
+      const alone = nextId();
+      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
+      await addPanel(dashboardId, 'Beside Falcon', { panelId: shared });
+      await addPanel(dashboardId, 'On its own line', { panelId: alone });
+      await saveRows(dashboardId, nextId(), 1280, [
+        { height: null, cells: [{ panelId: falcon, span: 6 }, { panelId: shared, span: 6 }] },
+        { height: null, cells: [{ panelId: alone, span: 12 }] },
+      ]);
+
+      await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: shared });
+      await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: alone });
+
+      expect((await layoutsOf(dashboardId))[0]?.rows).toEqual([
+        { height: null, cells: [{ panelId: falcon, span: 6 }] },
+      ]);
+    });
+
+    /**
+     * A store binds 100 values per statement (architecture, "No statement's
+     * parameter count grows with the data"), and dropping the emptied rows has
+     * to reach this dashboard's layouts without naming them one by one. A
+     * workspace that stopped painting at a hundred layouts is one of the
+     * instances that rule was written for, so this is the same limit again, one
+     * command along.
+     *
+     * A hundred and twenty rather than a hundred and one, so the case goes on
+     * being about the limit if the binding count per row moves.
+     */
+    it('drops the emptied rows on a dashboard with more layouts than a statement can name', async () => {
+      const dashboardId = await aDashboard();
+      const falcon = nextId();
+      const alone = nextId();
+      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
+      await addPanel(dashboardId, 'On its own line', { panelId: alone });
+      for (let n = 0; n < 120; n += 1) {
+        expect(
+          (
+            await saveRows(dashboardId, nextId(), 1280 + n, [
+              { height: null, cells: [{ panelId: falcon, span: 12 }] },
+              { height: null, cells: [{ panelId: alone, span: 12 }] },
+            ])
+          ).status,
+        ).toBe(200);
+      }
+
+      expect(
+        (await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: alone })).status,
+      ).toBe(200);
+
+      const its = await layoutsOf(dashboardId);
+      expect(its).toHaveLength(120);
+      expect(its.every((layout) => layout.rows.length === 1)).toBe(true);
+      // A hundred and twenty saves against the workers pool, past the default
+      // five seconds on requests alone.
+    }, 60_000);
   });
 });
