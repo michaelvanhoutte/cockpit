@@ -17,3 +17,12 @@ coverage/
 # Playwright (F3): failure artefacts, regenerated on every run
 test-results/
 playwright-report/
+
+# Backups, and the staging directory a run that did not finish leaves behind
+# (`pnpm backup:export`). A backup holds every user's address and Google
+# identity and every account's rows, and this repository is public. `--out` is
+# resolved against the working directory rather than the checkout, so one
+# written here is somebody choosing to; these two lines are what stops that
+# choice becoming a commit.
+backups/
+*.partial

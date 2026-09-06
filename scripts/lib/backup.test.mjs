@@ -155,6 +155,25 @@ describe('a backup refuses what it cannot write down faithfully', () => {
       /is not a backup - is something in front of this environment/,
     );
   });
+
+  // The register is asked for first, so it is the likeliest of the two to meet
+  // something answering in the environment's place - and it was the one call
+  // with no guard on it. Both ways in are covered because they fail
+  // differently: without `--user` the list is iterated, with it the list is
+  // asked whether it holds a name.
+  for (const { situation, only } of [
+    { situation: 'backing up everything', only: undefined },
+    { situation: 'backing up one account', only: 'tenant-a' },
+  ]) {
+    it(`refuses an answer that is not the register, ${situation}`, async () => {
+      const ask = async () => ({ please: 'sign in' });
+
+      await assert.rejects(
+        takeBackup({ ask, files: fakeFiles(), out: 'b', only, environment: 'staging' }),
+        /is not one - is something in front of this environment/,
+      );
+    });
+  }
 });
 
 describe('a backup that did not finish is not left looking finished', () => {

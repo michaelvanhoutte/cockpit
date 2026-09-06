@@ -105,7 +105,16 @@ const files = {
   },
 };
 
-const out = resolve(root, args.out);
+// Against the directory the command was run from, never against the repository
+// root. `resolve` only falls back to the working directory while the path it
+// has built is still relative, so passing an absolute `root` first silently
+// anchored every relative `--out` inside the checkout - and both documented
+// invocations pass a relative one. A backup holds every user's address and
+// Google identity and every account's rows, and this is a public repository, so
+// that put real data one `git add -A` from being committed. `.gitignore` now
+// names the two paths as well; this is the half that stops them being created
+// there at all.
+const out = resolve(args.out);
 if (existsSync(out)) {
   console.error(`${out} is already there. Backups are not written over; name a new directory.`);
   process.exit(2);

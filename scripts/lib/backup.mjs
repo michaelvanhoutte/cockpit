@@ -94,6 +94,7 @@ export function readArguments(argv) {
  */
 export async function takeBackup({ ask, files, out, only, environment, now = () => new Date() }) {
   const register = await ask('/v1/admin/backup/register');
+  readRegister(register);
   const accounts = only ? [only] : register.accounts;
 
   if (only && !register.accounts.includes(only)) {
@@ -144,6 +145,25 @@ function nameAsAFile(account) {
     );
   }
   return account;
+}
+
+/**
+ * That an answer is actually the register.
+ *
+ * The same guard as `readAccountFile`, on the request that is made *first* and
+ * is therefore the likeliest to meet something answering in the environment's
+ * place. Without it an answer shaped like anything else reaches `accounts` as
+ * `undefined` and throws `is not iterable`, or `Cannot read properties of
+ * undefined` on the `--user` path - which is the raw internal error the other
+ * guard exists to stop an operator seeing, left in place on the one call that
+ * had none.
+ */
+function readRegister(register) {
+  if (!register || typeof register !== 'object' || !Array.isArray(register.accounts)) {
+    throw new Error(
+      'reading the register got an answer that is not one - is something in front of this environment?',
+    );
+  }
 }
 
 /**
