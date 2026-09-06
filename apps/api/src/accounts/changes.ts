@@ -1239,12 +1239,13 @@ function standardTypes(accountId: string): Change {
  *   the ledger and the schema disagree.
  * - **Rows the new rule rejects.** None, and nothing is lost that was not
  *   already null. `preview` was only ever written from a `body` field on
- *   `capture_item` that no front door sent - issue 159 replaced it with
- *   `message`, which goes to `captured_message` - and `seed.sql` creates no
- *   items. That is a claim read off the code rather than off the data, so
- *   `SELECT COUNT(*) FROM items WHERE preview IS NOT NULL` is taken against
- *   every production account before this is promoted; rows that exist are
- *   somebody's text and need a decision, not a drop.
+ *   `capture_item` that no front door sent - "Edit an item's title and
+ *   description on a form of its own" (issue 159) replaced it with `message`,
+ *   which goes to `captured_message` - and `seed.sql` creates no items. That is
+ *   a claim read off the code rather than off the data, so the count is taken
+ *   over production's accounts before this is promoted (deployment, "Migrations
+ *   and rollback"); rows that exist are somebody's text and need a decision,
+ *   not a drop.
  * - **What each environment does.** The same thing: an account applies its
  *   outstanding changes inside the first request that opens it, on a laptop, in
  *   staging and in production alike. No seeding step differs.

@@ -321,6 +321,19 @@ commit does not un-apply anything**, so a rollback by promotion runs old code
 against a newer schema — exactly the case expand-contract makes safe and
 destructive migrations make fatal.
 
+**Every contract half puts a floor under how far back promotion can go**, and
+the floor is the release that stopped using what was removed. `preview` was
+dropped from `items` by `0014-drop-item-preview` ("Drop the preview column, once
+nothing reads it", issue 161); every release from "Edit an item's title and
+description on a form of its own" (issue 159) onwards reads a subset of the
+columns an account has, and anything older names `preview` and fails every Item
+read. Promoting back past the floor is recovered by a restore rather than by
+another promotion. **A contract half is also promoted only after the data has
+been read rather than reasoned about** — for that one,
+`SELECT COUNT(*) FROM items WHERE preview IS NOT NULL` over the accounts in a
+production `pnpm backup:export`, because "nothing writes it" is a claim about
+code and the rows are somebody's text.
+
 Rollback, in order of preference:
 
 1. **Re-promote the previous commit.** Run *Promote to production* with the previous `sha`. Fast, touches no data, safe because of expand-contract.
