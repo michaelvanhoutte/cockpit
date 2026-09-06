@@ -532,10 +532,26 @@ wrangler deploy --env staging
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy
 workflow: `seed.sql` puts the accounts *and the people who own them* in the
 register, neither of which the application has an onboarding flow to create. When
-onboarding exists, this step goes away. **Staging is deliberately never
-re-seeded**, because accumulated old data is the point of it — which means a
-staging database from before issue 86 has the two new tables and no rows in
-`users`, and nobody can sign in until the seed is run there once by hand.
+onboarding exists, this step goes away. Neither environment is seeded again
+afterwards — staging deliberately, because accumulated old data is the point of
+it, and production because a bootstrap is not a deploy step.
+
+**An environment bootstrapped before "Sign in by picking a name, each user in
+their own account" (issue 86) has an empty `users` table**, since that is the
+migration the table arrived in, and nobody there can sign in until somebody is
+put in it. Production hit this on 2026-09-06 while Google sign-in was promoted:
+it held `tenant-default` and no people at all. **Look before assuming a person is
+there**, because the way this presents is misleading — an `UPDATE` that matches
+no row changes nothing and says nothing, and the sign-in it was supposed to fix
+is refused as an account this Cockpit does not know.
+
+```bash
+wrangler d1 execute cockpit --remote --command "SELECT id, email FROM users"
+wrangler d1 execute cockpit --remote --command "INSERT OR IGNORE INTO users (id, name, account_id, role, email, created_at) VALUES ('user-michael', 'Michael', 'tenant-default', 'admin', 'you@gmail.com', '2026-08-12T00:00:00.000Z')"
+```
+
+`INSERT OR IGNORE`, so it is safe to run twice, and the account it names is the
+one that environment already has — the workspaces and items in it are untouched.
 
 **No sign-ins are seeded**, and `seed.sql` has no column for a secret to put in
 one: signing in is a Google account, and what the seed carries is a placeholder
