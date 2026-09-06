@@ -167,7 +167,7 @@ test.describe('Screen edges', () => {
       // takes the bottom half. Neither is answered - opening one is what puts
       // it on the screen, and this walk is about where it lands.
       await press(dashboardBar(page).getByRole('link', { name: 'Dashboard 1' }), isMobile);
-      await press(page.getByRole('button', { name: 'Add a panel' }), isMobile);
+      await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
       const naming = page.getByRole('dialog', { name: 'What is the new panel called?' });
       await expect(naming).toBeVisible();
       await expectClearOfTheEdges(page, naming, 'the question naming a new panel', UPRIGHT);

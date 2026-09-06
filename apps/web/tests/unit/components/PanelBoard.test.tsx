@@ -8,9 +8,9 @@ import { CommandRefused } from '../../../src/api/client';
 import { useCommand } from '../../../src/api/queries';
 
 /**
- * F1: what is under test is the board's own behaviour - what it sends, when it
- * asks which layout to keep a change in, and what it does with an answer it
- * does not like. Which arrangement a screen produces is settled in
+ * F1: what is under test is the board's own behaviour - what it sends, which
+ * layout it sends it into, and what it does with an answer it does not like.
+ * Which arrangement a screen produces is settled in
  * tests/unit/panels/arrangement.test.ts, and whether the store accepts what is
  * sent is settled against a real store in
  * apps/api/tests/integration/http/panels.test.ts. That the panels really fit
@@ -43,6 +43,7 @@ function aLayout(id: string, screenWidth: number, panelIds: string[], columns = 
     id,
     tenantId: 'tenant',
     dashboardId: 'today',
+    name: id,
     screenWidth,
     placements: panelIds.map((panelId) => ({ panelId, columns, rows: 3 })),
   };
@@ -105,9 +106,14 @@ function showBoard({
   settles?: boolean;
   pending?: boolean;
 } = {}) {
-  const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
-    if (!error && settles) options?.onSuccess?.();
-  });
+  const mutate = vi.fn(
+    (_args, options?: { onSuccess?: () => void; onError?: (error: Error) => void }) => {
+      // A refusal answers too, and answers differently: the board has to hear
+      // about it to put the arrangement back.
+      if (error) options?.onError?.(error);
+      else if (settles) options?.onSuccess?.();
+    },
+  );
   mockUseCommand.mockReturnValue({
     mutate,
     reset: vi.fn(),
@@ -177,79 +183,17 @@ afterEach(() => {
 });
 
 describe('Panels', () => {
-  describe('a dashboard with nothing on it says so, and invites a panel', () => {
-    it('offers the way to add one either way', async () => {
+  describe('a dashboard with nothing on it says what a dashboard is for', () => {
+    it('says it, and offers no control of its own', async () => {
       showBoard({ panels: [] });
 
       // Matched on the opening clause, so rewording the rest of the sentence
       // does not break the walk that only cares that the empty state is there.
       expect(screen.getByText(/A dashboard holds the panels you want in view/)).toBeVisible();
-      expect(screen.getByRole('button', { name: '+ Add a panel' })).toBeVisible();
-    });
-  });
-
-  describe('adding a panel asks for the title you typed, on the dashboard you are on', () => {
-    it('sends it without the blanks around it', async () => {
-      const { user, mutate } = showBoard({ panels: [] });
-
-      await user.click(screen.getByRole('button', { name: '+ Add a panel' }));
-      await user.type(screen.getByLabelText('Name of the new panel'), '  Project Falcon  ');
-      await user.click(screen.getByRole('button', { name: 'Add' }));
-
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('add_panel');
-      expect(asked.payload.name).toBe('Project Falcon');
-      expect(asked.payload.dashboardId).toBe('today');
-    });
-
-    it('asks in a form of its own, which is not on the dashboard until it is asked for', async () => {
-      // The bar carries the button and nothing else: a box wide enough to read
-      // a title in used to grow between it and Layouts, moving the controls
-      // after it while it was open.
-      const { user } = showBoard({ panels: [] });
-
-      expect(screen.queryByLabelText('Name of the new panel')).toBeNull();
-      await user.click(screen.getByRole('button', { name: '+ Add a panel' }));
-
-      expect(screen.getByRole('dialog')).toBeVisible();
-      expect(screen.getByLabelText('Name of the new panel')).toHaveFocus();
-    });
-
-    it.each([
-      { situation: 'cancelled', answer: 'Cancel', while: undefined },
-      { situation: 'dismissed with Escape', answer: null, while: undefined },
-      {
-        // It will not close over its own add, so that a refusal has somewhere
-        // to appear - but the board sends one change at a time from one place,
-        // and an arrangement still going out from a drag a moment earlier is
-        // not this form's business. Taking the whole board's word for it left
-        // a form nobody could get out of: Escape and the press outside are
-        // swallowed with the button.
-        situation: 'dismissed while an arrangement is still going out',
-        answer: null,
-        while: { name: 'save_layout', payload: {} },
-      },
-    ])('sends nothing and closes when it is $situation', async ({ answer, while: inFlight }) => {
-      const { user, mutate } = showBoard({
-        panels: [],
-        pending: inFlight !== undefined,
-        ...(inFlight ? { variables: inFlight } : {}),
-      });
-
-      await user.click(screen.getByRole('button', { name: '+ Add a panel' }));
-      await user.type(screen.getByLabelText('Name of the new panel'), 'Project Falcon');
-      if (answer) await user.click(screen.getByRole('button', { name: answer }));
-      else await user.keyboard('{Escape}');
-
-      expect(mutate).not.toHaveBeenCalled();
-      expect(screen.queryByLabelText('Name of the new panel')).toBeNull();
-      // Back on the control it was opened from, which is where the next press
-      // would go: dropped to the top of the page is losing your place. Waited
-      // for because the focus is put back as the dialog comes down, a frame
-      // after the answer.
-      await waitFor(() =>
-        expect(screen.getByRole('button', { name: '+ Add a panel' })).toHaveFocus(),
-      );
+      // The way to add one is in the dashboard's own bar (DashboardBar), which
+      // is the one strip on screen that is about this dashboard. A second
+      // control here would be a second thing to keep in step.
+      expect(screen.queryByRole('button', { name: /Add a panel/ })).toBeNull();
     });
   });
 
@@ -371,103 +315,71 @@ describe('Panels', () => {
     );
   });
 
-  describe('changing the arrangement on a screen the layout was not made for asks which one to change', () => {
-    it('keeps it without asking when the layout is this screen’s', async () => {
-      const { user, mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+  describe('changing the arrangement changes the layout you are on, and asks nothing', () => {
+    it.each([
+      {
+        situation: 'the layout is the one this screen was measured at',
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      },
+      {
+        // The case that used to stop and ask which layout to keep the change
+        // in. You picked the layout you are on, so the gesture means what it
+        // says and goes into it.
+        situation: 'the layout was made for a screen four times as wide',
+        layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
+      },
+    ])('changes the layout on screen when $situation', async ({ layouts }) => {
+      const { user, mutate } = showBoard({ layouts });
 
       await choose(user, 'To read', 'Move left');
 
-      expect(screen.queryByText(/Keep the change where\?/)).toBeNull();
+      expect(screen.queryByRole('alertdialog')).toBeNull();
       const [asked] = mutate.mock.calls[0]!;
-      expect(asked.payload.layoutId).toBe('laptop');
-      expect(asked.payload.screenWidth).toBe(1280);
-    });
-
-    it('keeps it without asking when the dashboard has no layout at all', async () => {
-      // There is no "change the layout you are on" when you are not on one.
-      const { user, mutate } = showBoard();
-
-      await choose(user, 'To read', 'Move left');
-
-      expect(screen.queryByText(/Keep the change where\?/)).toBeNull();
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('save_layout');
-      expect(asked.payload.screenWidth).toBe(1280);
-    });
-
-    it('asks, naming both widths, when the layout was made for another screen', async () => {
-      const { user, mutate } = showBoard({ layouts: [aLayout('wide', 2560, ['falcon', 'reading'])] });
-
-      await choose(user, 'To read', 'Move left');
-
-      expect(
-        screen.getByText('This layout was made for a 2560 px screen, and this one is 1280 px. Keep the change where?'),
-      ).toBeVisible();
-      // Nothing is sent until the question is answered.
-      expect(mutate).not.toHaveBeenCalled();
-      // And the change is on screen behind it: what is being asked is where to
-      // keep it, not whether it happened.
-      expect(panelOrderOnScreen()).toEqual(['To read', 'Project Falcon']);
-    });
-
-    it('changes the layout in use when that is the answer, keeping the width it was made at', async () => {
-      const { user, mutate } = showBoard({ layouts: [aLayout('wide', 2560, ['falcon', 'reading'])] });
-
-      await choose(user, 'To read', 'Move left');
-      await user.click(screen.getByRole('button', { name: 'Change this layout' }));
-
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.payload.layoutId).toBe('wide');
-      expect(asked.payload.screenWidth).toBe(2560);
+      expect(asked.payload.layoutId).toBe(layouts[0]!.id);
+      // The width it was made at is kept, not moved to this screen: that is
+      // what makes the automatic choice go on meaning something.
+      expect(asked.payload.screenWidth).toBe(layouts[0]!.screenWidth);
       expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
     });
 
-    it('defines a layout for this screen when that is the answer', async () => {
-      const { user, mutate } = showBoard({ layouts: [aLayout('wide', 2560, ['falcon', 'reading'])] });
+    it('sends a name for a layout that has none, rather than one the server must refuse', async () => {
+      // Every layout in a snapshot cached before names existed parses with an
+      // empty name, as does one old code wrote during the deploy - and a name
+      // is required on the way in. Sending the stored one would have the first
+      // drag after an upgrade refused for a field nobody typed.
+      const legacy = { ...aLayout('laptop', 1280, ['falcon', 'reading']), name: '' };
+      const { user, mutate } = showBoard({ layouts: [legacy] });
 
       await choose(user, 'To read', 'Move left');
-      await user.click(screen.getByRole('button', { name: 'Make a layout for this screen' }));
 
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.payload.layoutId).not.toBe('wide');
-      expect(asked.payload.screenWidth).toBe(1280);
-      expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
-    });
-
-    it('draws the layout it just made, even when another was picked by hand', async () => {
-      // A layout picked by hand is drawn ahead of the closest one, so a new
-      // layout saved while one is picked would be saved and then not drawn: the
-      // board goes back to the old one and the change reads as having reverted.
-      const { user, mutate } = showBoard({
-        layouts: [aLayout('phone', 480, ['falcon', 'reading']), aLayout('wide', 2560, ['reading', 'falcon'])],
-      });
-      await user.click(screen.getByRole('button', { name: 'Layouts' }));
-      await user.click(screen.getByRole('menuitemradio', { name: /Made for 2560 px/ }));
-
-      await choose(user, 'Project Falcon', 'Move left');
-      await user.click(screen.getByRole('button', { name: 'Make a layout for this screen' }));
-
-      const [asked] = mutate.mock.calls.at(-1)!;
-      expect(localStorage.getItem('cockpit.layout.today')).toBe(asked.payload.layoutId);
+      expect(mutate.mock.calls[0]![0].payload.name).toBe('1280 px');
     });
 
     it.each([
-      { situation: 'cancelled', answer: 'Cancel' },
-      { situation: 'dismissed with Escape', answer: null },
-    ])('sends nothing and puts the panels back when the question is $situation', async ({ answer }) => {
-      const { user, mutate } = showBoard({ layouts: [aLayout('wide', 2560, ['falcon', 'reading'])] });
+      // A phone stacks its panels, so the entry that moves one names the
+      // direction that screen actually goes in.
+      { situation: 'a phone', screenWidth: 390, named: 'Phone', move: 'Move up' },
+      { situation: 'a laptop', screenWidth: 1280, named: 'Wide', move: 'Move left' },
+    ])(
+      'makes a layout named for the screen when the dashboard has none, on $situation',
+      async ({ screenWidth, named, move }) => {
+        // There is nothing to change and nothing worth interrupting a drag to
+        // ask, so the first arrangement records one and names it itself.
+        screenIs(screenWidth);
+        const { user, mutate } = showBoard();
 
-      await choose(user, 'To read', 'Move left');
-      if (answer) await user.click(screen.getByRole('button', { name: answer }));
-      else await user.keyboard('{Escape}');
+        await choose(user, 'To read', move);
 
-      expect(mutate).not.toHaveBeenCalled();
-      expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'To read']);
-    });
+        const [asked] = mutate.mock.calls[0]!;
+        expect(asked.name).toBe('save_layout');
+        expect(asked.payload.name).toBe(named);
+        expect(asked.payload.screenWidth).toBe(screenWidth);
+      },
+    );
 
     it('changes the layout it just made rather than defining a second one at the same width', async () => {
       // Two gestures before the first has been re-read both find a dashboard
-      // with no layout. A fresh id each time would leave the Layouts menu
+      // with no layout. A fresh id each time would leave the layout menu
       // listing the same width twice with nothing to tell the two apart.
       // Left in flight, which is the state two quick gestures happen in: the
       // first is sent and not yet re-read, so the second still finds a
@@ -531,44 +443,6 @@ describe('Panels', () => {
     });
   });
 
-  describe('the layout a dashboard is drawn with is the closest to the screen, until you choose one', () => {
-    it('draws the one you chose, and remembers it for next time', async () => {
-      const { user, mutate } = showBoard({
-        layouts: [aLayout('phone', 480, ['falcon', 'reading']), aLayout('wide', 2560, ['reading', 'falcon'])],
-      });
-
-      await user.click(screen.getByRole('button', { name: 'Layouts' }));
-      await user.click(screen.getByRole('menuitemradio', { name: /Made for 2560 px/ }));
-
-      // Drawn with it: the wide layout has the panels the other way round.
-      expect(panelOrderOnScreen()).toEqual(['To read', 'Project Falcon']);
-      // And a change now belongs to that layout rather than to the closest one.
-      await choose(user, 'Project Falcon', 'Move left');
-      await user.click(screen.getByRole('button', { name: 'Change this layout' }));
-      expect(mutate.mock.calls.at(-1)![0].payload.layoutId).toBe('wide');
-    });
-
-    it('deletes the layout it is drawing, leaving the panels where they are', async () => {
-      const { user, mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
-
-      await user.click(screen.getByRole('button', { name: 'Layouts' }));
-      await user.click(screen.getByRole('menuitem', { name: 'Delete the 1280 px layout' }));
-
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('delete_layout');
-      expect(asked.payload.layoutId).toBe('laptop');
-    });
-
-    it('offers nothing to delete on a dashboard that has never been arranged', async () => {
-      const { user } = showBoard();
-
-      await user.click(screen.getByRole('button', { name: 'Layouts' }));
-
-      expect(screen.queryByRole('menuitem', { name: /^Delete the/ })).toBeNull();
-      expect(screen.getByRole('menuitemradio', { name: 'Whichever fits this screen' })).toBeVisible();
-    });
-  });
-
   describe('a change that could not happen says so where it was asked for', () => {
     it.each([
       {
@@ -595,19 +469,6 @@ describe('Panels', () => {
         stillOpen: 'New name for Project Falcon',
         holding: 'Project Falcon',
       },
-      {
-        situation: 'a title another panel already holds, on a panel being added',
-        error: new CommandRefused(409, 'a panel called To read is already on this dashboard'),
-        variables: { name: 'add_panel', payload: {} },
-        act: async (user: ReturnType<typeof userEvent.setup>) => {
-          await user.click(screen.getByRole('button', { name: '+ Add a panel' }));
-          await user.type(screen.getByLabelText('Name of the new panel'), 'To read');
-          await user.click(screen.getByRole('button', { name: 'Add' }));
-        },
-        says: 'a panel called To read is already on this dashboard',
-        stillOpen: 'Name of the new panel',
-        holding: 'To read',
-      },
     ])('$situation', async ({ error, variables, act, says, stillOpen, holding }) => {
       const { user } = showBoard({ error, variables });
 
@@ -619,7 +480,27 @@ describe('Panels', () => {
       expect(screen.getByLabelText(stillOpen)).toHaveValue(holding);
     });
 
-    it('keeps the layout question open and says why, rather than looking like it worked', async () => {
+    it('puts a refused arrangement back, rather than leaving it under the message', async () => {
+      // The draft is what the grid draws while a change is in flight. Left
+      // standing through a refusal, the panels say the change happened and the
+      // notice above them says it did not.
+      //
+      // Reachable: two tabs on a dashboard with no layout, both on a screen of
+      // the same size, both dragging - the second is refused for the name.
+      const { user } = showBoard({
+        error: new CommandRefused(409, 'a layout called Wide already arranges this dashboard'),
+        variables: { name: 'save_layout', payload: {} },
+      });
+
+      await choose(user, 'To read', 'Move left');
+
+      expect(screen.getByRole('alert')).toHaveTextContent('a layout called Wide already arranges');
+      expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'To read']);
+    });
+
+    it('says a refused arrangement above the board, which is the only place it belongs', async () => {
+      // Nothing asked for the arrangement in a box that could hold the answer -
+      // it came from a drag or a menu entry - so the board itself says it.
       const { user } = showBoard({
         layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
         error: new CommandRefused(404, 'panel reading is not on this dashboard'),
@@ -627,10 +508,8 @@ describe('Panels', () => {
       });
 
       await choose(user, 'To read', 'Move left');
-      await user.click(screen.getByRole('button', { name: 'Change this layout' }));
 
       expect(screen.getByRole('alert')).toHaveTextContent('panel reading is not on this dashboard');
-      expect(screen.getByText(/Keep the change where\?/)).toBeVisible();
     });
   });
 });

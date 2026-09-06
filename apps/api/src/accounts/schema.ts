@@ -391,13 +391,17 @@ export const panels = sqliteTable(
 );
 
 /**
- * A layout: one arrangement of a dashboard's panels, and the screen width it
- * was made at.
+ * A layout: one arrangement of a dashboard's panels, what it is called, and the
+ * screen width it was made at.
+ *
+ * **The name is what a person picks it by** ("Pick the layout you are on, by
+ * name"), so it is unique among a dashboard's layouts the way a panel's title
+ * is among its panels - two dashboards may each have a *Wide*.
  *
  * **`screen_width` is a width, not a breakpoint.** The issue asks for arbitrary
  * widths on purpose, so there is no fixed set of sizes to belong to and the
  * question "which layout is this screen's" is answered by distance rather than
- * by membership.
+ * by membership. It is now read only by the automatic choice.
  *
  * **Deleted for real, not tombstoned**, which is the one place this store
  * departs from "tombstones, not deletes" and is deliberate. A tombstone exists
@@ -416,10 +420,26 @@ export const layouts = sqliteTable(
     dashboardId: text('dashboard_id')
       .notNull()
       .references(() => dashboards.id, { onDelete: 'restrict' }),
+    /**
+     * Defaulted to the empty string, and that default is load-bearing exactly
+     * as `workspaces.folded_name`'s is: for the length of the deploy that adds
+     * these columns, old code is still creating layouts and knows nothing about
+     * them. What it leaves behind has to be a row the app can draw, and the app
+     * draws a layout with no name as the width it was made for.
+     */
+    name: text('name').notNull().default(''),
+    foldedName: text('folded_name').notNull().default(''),
     screenWidth: integer('screen_width').notNull(),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
+    /**
+     * Unique within the *dashboard*, the way a panel's title is: two dashboards
+     * of one workspace may each have a *Wide*. Not partial on a tombstone,
+     * because a layout is deleted for real rather than tombstoned - there is no
+     * dead row to exclude.
+     */
+    uniqueIndex('layouts_dashboard_folded_name').on(t.tenantId, t.dashboardId, t.foldedName),
     index('layouts_tenant_dashboard').on(t.tenantId, t.dashboardId),
     // Bounded, because the automatic choice is "the layout closest to this
     // screen": one absurd width would win that comparison everywhere or never.

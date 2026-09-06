@@ -3,8 +3,10 @@ import type { Layout, Panel, PanelPlacement } from '@cockpit/shared';
 import {
   drawnArrangement,
   fittedToScreen,
+  freeName,
+  layoutLabel,
   layoutToDraw,
-  madeForThisScreen,
+  nameForScreen,
   movedBefore,
   movedBy,
   panelsAcross,
@@ -19,8 +21,13 @@ import {
  * can make, and it is proved in the browser by tests/e2e/panels.test.ts.
  */
 
-function aLayout(id: string, screenWidth: number, placements: PanelPlacement[] = []): Layout {
-  return { id, tenantId: 'tenant', dashboardId: 'today', screenWidth, placements };
+function aLayout(
+  id: string,
+  screenWidth: number,
+  placements: PanelPlacement[] = [],
+  name = id,
+): Layout {
+  return { id, tenantId: 'tenant', dashboardId: 'today', name, screenWidth, placements };
 }
 
 function aPanel(id: string): Panel {
@@ -62,13 +69,6 @@ describe('Panels', () => {
       expect(layoutToDraw([elsewhere], 'today', 1280, null)).toBeNull();
     });
 
-    it.each([
-      { situation: 'the same width', screenWidth: 1280, same: true },
-      { situation: 'a scrollbar’s width away', screenWidth: 1265, same: true },
-      { situation: 'a different screen', screenWidth: 480, same: false },
-    ])('counts $situation as the screen it was made for: $same', ({ screenWidth, same }) => {
-      expect(madeForThisScreen(laptop, screenWidth)).toBe(same);
-    });
   });
 
   describe('rearranging for the screen keeps the order and fills the rows across it', () => {
@@ -184,4 +184,65 @@ describe('Panels', () => {
       expect(sameArrangement([at('a', 4, 3), at('b', 4, 3)], other)).toBe(same);
     });
   });
+
+  describe('a layout is known by its name, and by the width it was made for where it has none', () => {
+    it.each([
+      { situation: 'a layout somebody named', name: 'Wide', screenWidth: 1440, label: 'Wide' },
+      // What old code writes for the seconds of a deploy that both versions
+      // serve: the row is real, and the app draws it as every layout was drawn
+      // before names existed.
+      { situation: 'a layout written before names existed', name: '', screenWidth: 1440, label: '1440 px' },
+      { situation: 'a name that is only spaces', name: '   ', screenWidth: 480, label: '480 px' },
+    ])('$situation', ({ name, screenWidth, label }) => {
+      expect(layoutLabel(aLayout('l', screenWidth, [], name))).toBe(label);
+    });
+  });
+
+  describe('a layout made without being named is named for the size of screen it was made on', () => {
+    it.each([
+      { situation: 'a phone', screenWidth: 390, named: 'Phone' },
+      { situation: 'a small tablet', screenWidth: 700, named: 'Tablet' },
+      { situation: 'a laptop', screenWidth: 1100, named: 'Laptop' },
+      { situation: 'a 4K screen', screenWidth: 2560, named: 'Wide' },
+    ])('$situation', ({ screenWidth, named }) => {
+      expect(nameForScreen(screenWidth)).toBe(named);
+    });
+  });
+
+  describe('a name generated rather than typed is made free before it is sent', () => {
+    // The server refuses a name this dashboard already holds, and a drag is the
+    // worst place to learn that.
+    it.each([
+      { situation: 'nothing is called that yet', taken: [] as Layout[], wanted: 'Wide', free: 'Wide' },
+      {
+        situation: 'one already is',
+        taken: [aLayout('a', 2560, [], 'Wide')],
+        wanted: 'Wide',
+        free: 'Wide 2',
+      },
+      {
+        situation: 'the numbered one is taken too',
+        taken: [aLayout('a', 2560, [], 'Wide'), aLayout('b', 2400, [], 'Wide 2')],
+        wanted: 'Wide',
+        free: 'Wide 3',
+      },
+      {
+        situation: 'the name is taken in another capitalization',
+        taken: [aLayout('a', 2560, [], 'WIDE')],
+        wanted: 'Wide',
+        free: 'Wide 2',
+      },
+      // A layout old code left unnamed is drawn as its width, so that is the
+      // name it is really holding on this dashboard.
+      {
+        situation: 'an unnamed layout is drawn under the name being asked for',
+        taken: [aLayout('a', 1440, [], '')],
+        wanted: '1440 px',
+        free: '1440 px 2',
+      },
+    ])('$situation', ({ taken, wanted, free }) => {
+      expect(freeName(taken, wanted)).toBe(free);
+    });
+  });
+
 });

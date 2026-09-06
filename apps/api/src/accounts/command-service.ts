@@ -28,6 +28,7 @@ import {
   listFilingsOnPanel,
   listItemTypes,
   listLayoutIds,
+  listLayoutsOn,
   listPanels,
   listPlacements,
   listWorkspaces,
@@ -48,6 +49,7 @@ import {
 import {
   PLACEMENT_VALUES_PER_ROW,
   appendedPlacement,
+  layoutNamed,
   panelFromCommand,
   panelNamed,
   panelsNotOn,
@@ -216,6 +218,32 @@ export class LayoutNotFoundError extends Error {
   constructor(layoutId: string) {
     super(`layout ${layoutId} is not on this dashboard`);
     this.name = 'LayoutNotFoundError';
+  }
+}
+
+/**
+ * Its own kind rather than the panel one, for the reason that one is not the
+ * dashboard one: the message is what a person reads, and "a panel called Wide
+ * is already on this dashboard" names the wrong thing entirely.
+ */
+export class LayoutNameTakenError extends Error {
+  constructor(name: string) {
+    super(`a layout called ${name} already arranges this dashboard`);
+    this.name = 'LayoutNameTakenError';
+  }
+}
+
+/**
+ * The second delete Cockpit refuses, and for the reason the first does: a
+ * dashboard that has been arranged keeps that arrangement ("Pick the layout you
+ * are on, by name"). A dashboard nobody has arranged has no layout at all and
+ * is drawn fitted to the screen it is on, so what this protects is work
+ * somebody did rather than the existence of a row.
+ */
+export class LastLayoutError extends Error {
+  constructor() {
+    super('a dashboard keeps at least one layout');
+    this.name = 'LastLayoutError';
   }
 }
 
@@ -584,11 +612,22 @@ export function runCommand<N extends CommandName>(
       // another dashboard from one that never existed.
       const stranger = panelsNotOn(listPanels(db, tenantId, dashboard.id), cmd)[0];
       if (stranger) throw new PanelNotFoundError(stranger);
-      // An upsert, which is what carries the issue's question: a layout id the
-      // dashboard already has changes that layout, and a fresh one defines a
-      // new layout for this screen width.
+      // An upsert: a layout id the dashboard already has changes that layout,
+      // and a fresh one creates it. Which of the two it is is no longer a
+      // question anybody is asked - you pick the layout you are on and every
+      // change goes into it.
       const held = getLayout(db, tenantId, cmd.layoutId);
       if (held && held.dashboardId !== dashboard.id) throw new LayoutNotFoundError(cmd.layoutId);
+      // Only where this save is the one creating it. A save onto a layout that
+      // exists leaves the name alone, so the name it carries - which may be
+      // from a tab that has not seen a rename - cannot undo one.
+      if (!held) {
+        const alreadyCalledThat = layoutNamed(
+          listLayoutsOn(db, tenantId, dashboard.id),
+          cmd.name,
+        );
+        if (alreadyCalledThat) throw new LayoutNameTakenError(alreadyCalledThat.name);
+      }
       const rows = placementRows(tenantId, cmd.layoutId, cmd.placements);
       db.transaction((tx) => {
         tx.insert(layouts)
@@ -596,16 +635,18 @@ export function runCommand<N extends CommandName>(
             id: cmd.layoutId,
             tenantId,
             dashboardId: dashboard.id,
+            name: cmd.name,
+            foldedName: foldName(cmd.name),
             screenWidth: cmd.screenWidth,
             createdAt: cmd.issuedAt,
           })
-          // `DoNothing` is what records the width once and once only, and it is
-          // the whole of that rule rather than a guard on a branch: a layout
-          // records the width it was *created* at, so changing one from another
-          // screen has to leave that alone - defining a new layout is the other
-          // answer to the question, and it carries a new id. Named at the
-          // primary key rather than bare, so a collision on anything else would
-          // still raise.
+          // `DoNothing` is what records the name and the width once and once
+          // only, and it is the whole of that rule rather than a guard on a
+          // branch: a layout records the width it was *created* at, so changing
+          // one from another screen has to leave that alone - and its name is
+          // changed by `rename_layout` or not at all. Named at the primary key
+          // rather than bare, so a collision on anything else - the name index,
+          // in particular - would still raise.
           .onConflictDoNothing({ target: layouts.id })
           .run();
         // Replaced whole rather than merged: an arrangement is an answer to
@@ -625,6 +666,39 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
+    case 'rename_layout': {
+      const cmd = payload as CommandPayload<'rename_layout'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      const held = getLayout(db, tenantId, cmd.layoutId);
+      if (!held) throw new LayoutNotFoundError(cmd.layoutId);
+      // The layout has to be on a dashboard of *this* workspace, which is the
+      // same two-step every layout command takes: the id alone says nothing
+      // about who may address it.
+      if (!getDashboard(db, tenantId, cmd.workspaceId, held.dashboardId)) {
+        throw new LayoutNotFoundError(cmd.layoutId);
+      }
+      // Minus this layout's own row, so the name it already has, recapitalized,
+      // collides with nothing.
+      const alreadyCalledThat = layoutNamed(
+        listLayoutsOn(db, tenantId, held.dashboardId),
+        cmd.name,
+        cmd.layoutId,
+      );
+      if (alreadyCalledThat) throw new LayoutNameTakenError(alreadyCalledThat.name);
+      db.transaction((tx) => {
+        tx.update(layouts)
+          // `foldedName` alongside `name`, never on its own: it is what the
+          // unique index holds, so a rename writing only the name would leave
+          // the index guarding the old one.
+          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
+          .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, cmd.layoutId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'delete_layout': {
       const cmd = payload as CommandPayload<'delete_layout'>;
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
@@ -637,6 +711,10 @@ export function runCommand<N extends CommandName>(
       if (!getDashboard(db, tenantId, cmd.workspaceId, held.dashboardId)) {
         throw new LayoutNotFoundError(cmd.layoutId);
       }
+      // Counted here rather than left to a rule somewhere else, the way the
+      // last dashboard is: a dashboard that has been arranged keeps that
+      // arrangement.
+      if (listLayoutsOn(db, tenantId, held.dashboardId).length === 1) throw new LastLayoutError();
       db.transaction((tx) => {
         // Its placements first, which is what ON DELETE RESTRICT is for: what
         // happens to the rows pointing at this one is said here rather than

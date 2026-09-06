@@ -8,8 +8,11 @@ import { snapshotQuery, useCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
+import { layoutsOf } from '../panels/arrangement';
+import { LayoutPicker } from './LayoutPicker';
 import { ManageDashboards } from './ManageDashboards';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
+import { NameQuestion } from './NameQuestion';
 import { bandTabClass } from './Tabs';
 
 /**
@@ -176,19 +179,56 @@ export function DashboardBar({
         </Link>
       ))}
       <AddDashboard workspaceId={workspaceId} />
+
+      {/* The open dashboard's own controls, at the right of its own bar: which
+          arrangement you are looking at, and the way to put another panel on it
+          ("Pick the layout you are on, by name").
+
+          **Here rather than under the board**, which is where both used to be.
+          Adding a panel was a hairline strip at the foot of the sheet, so on a
+          dashboard whose panels did not fill the screen it was a rule across
+          the middle of an empty page with a link at one end of it; the layouts
+          menu sat beside it, which is the last place anybody looked for the
+          thing that decides what the whole board is. This bar is the one strip
+          on screen that is about *this dashboard*, and the tab whose
+          arrangement these name is an inch to the left.
+
+          **Only where a dashboard is open.** The bar is drawn on the Inbox as
+          well, where there is neither a layout to pick nor a dashboard to put a
+          panel on - which is exactly why these were kept off it before, and it
+          is answered by mounting them rather than by moving them. */}
+      {openDashboardId && (
+        <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
+          <LayoutPicker
+            // Keyed by the dashboard, for the reason the board is keyed by it
+            // (DashboardPage): the half-typed layout name and the open
+            // question belong to the dashboard being left. This bar is the
+            // shell's and stays mounted across a switch, so nothing else drops
+            // them.
+            key={openDashboardId}
+            workspaceId={workspaceId}
+            dashboardId={openDashboardId}
+            layouts={layoutsOf(data?.layouts ?? [], openDashboardId)}
+            panels={(data?.panels ?? []).filter((p) => p.dashboardId === openDashboardId)}
+          />
+          <AddPanel workspaceId={workspaceId} dashboardId={openDashboardId} />
+        </div>
+      )}
+
       {/* The way to what a dashboard has beyond its name. This was three dots
           that navigated - a menu's glyph on a link, so pressing three dots
           sometimes opened a menu and sometimes left the page. It is a menu now
           ("Open every menu from the same control", issue 115).
 
           This is the bar's menu, and it holds what is true of the whole bar:
-          one entry today, more later. Layouts were expected here and are not -
-          they went into the dashboard's own header beside the panels they
-          arrange ("Panels on a dashboard, with per-screen-size layouts", issue
-          33), because this bar is also drawn on the Inbox, where there is no
-          dashboard to have a layout. */}
+          one entry today, more later. */}
       <DropdownMenu.Root>
-        <MenuTrigger label="Dashboard actions" onChrome className="mb-1 ml-auto" ref={barMenu} />
+        <MenuTrigger
+          label="Dashboard actions"
+          onChrome
+          className={`mb-1${openDashboardId ? '' : ' ml-auto'}`}
+          ref={barMenu}
+        />
         <MenuContent
           onCloseAutoFocus={(event) => {
             const claimed = opening.current;
@@ -350,5 +390,90 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
         </p>
       )}
     </form>
+  );
+}
+
+/**
+ * The way to put another panel on the dashboard you are looking at.
+ *
+ * **In the bar rather than at the foot of the board** ("Pick the layout you are
+ * on, by name"). It was a hairline strip under the panels, which could say that
+ * a panel would appear but not where - and on a dashboard whose panels did not
+ * fill the screen it read as a rule drawn across the middle of an empty page.
+ *
+ * **The name is asked for in a dialog** (NameQuestion), not in a field grown
+ * here, unlike the `+` that adds a dashboard a few controls to the left. The
+ * difference is where the field would go: that one grows at the end of a bar,
+ * where the tab it is naming will be, while this one would grow between two
+ * controls and push the menu beside it out from under the pointer.
+ *
+ * The command is here rather than on the board because this is all it needs -
+ * the workspace and the dashboard - and the server puts the new panel into
+ * every layout of that dashboard itself (command-service.ts).
+ */
+function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboardId: string }) {
+  const [naming, setNaming] = useState<string | null>(null);
+  const command = useCommand();
+  const button = useRef<HTMLButtonElement>(null);
+
+  const refusal =
+    command.error instanceof CommandRefused
+      ? command.error.message
+      : command.error
+        ? 'That did not reach the server. Try again.'
+        : null;
+
+  const add = () => {
+    const trimmed = (naming ?? '').trim();
+    if (!trimmed) return;
+    command.mutate(
+      {
+        name: 'add_panel',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          dashboardId,
+          panelId: uuidv7(),
+          name: trimmed,
+        },
+      },
+      // Closed and emptied only once it worked, so a refused title is still
+      // there to be corrected rather than typed again.
+      { onSuccess: () => setNaming(null) },
+    );
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        ref={button}
+        onClick={() => {
+          command.reset();
+          setNaming('');
+        }}
+        className="mb-1 shrink-0 rounded-md border border-white/15 bg-white/6 px-2 py-1 text-xs text-chrome-ink hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft"
+      >
+        + Panel
+      </button>
+      <NameQuestion
+        open={naming !== null}
+        question="What is the new panel called?"
+        fieldLabel="Name of the new panel"
+        placeholder="Project Falcon, To read…"
+        submitLabel="Add"
+        name={naming ?? ''}
+        onNameChange={setNaming}
+        onSubmit={add}
+        onCancel={() => {
+          setNaming(null);
+          command.reset();
+        }}
+        refusal={refusal}
+        busy={command.isPending}
+        returnFocusTo={button.current}
+      />
+    </>
   );
 }
