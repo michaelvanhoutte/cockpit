@@ -213,6 +213,26 @@ describe('Backup', () => {
 
       expect(Object.keys((await backUp(ACCOUNT_NAME)).tables)).not.toContain('account_changes');
     });
+
+    /**
+     * Found by running the application rather than by a test: `pnpm dev`
+     * persists stores through miniflare, which keeps a `__miniflare_do_name`
+     * table beside the account's own. It was in every local backup, and it made
+     * an account nobody had ever opened report a row. Nothing in this pool
+     * creates that table, so the case is written as the rule it stands for -
+     * the runtime's tables are not the account's - rather than as its name.
+     */
+    it('holds none of the runtime’s own tables, only the account’s', async () => {
+      await useAccount(USER_ID);
+      await inStoreAsItIs(ACCOUNT_NAME, (sql) => {
+        sql.exec('CREATE TABLE IF NOT EXISTS _runtime_bookkeeping (id integer PRIMARY KEY) STRICT');
+        sql.exec('INSERT INTO _runtime_bookkeeping (id) VALUES (1)');
+      });
+
+      const names = Object.keys((await backUp(ACCOUNT_NAME)).tables);
+      expect(names).not.toContain('_runtime_bookkeeping');
+      expect(names).toContain('workspaces');
+    });
   });
 
   describe('a backup says whose every row is', () => {

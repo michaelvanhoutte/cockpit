@@ -79,9 +79,13 @@ const ACCOUNT_COLUMN = 'tenant_id';
  * a table nobody updated this file for - would not show up until somebody
  * needed the backup.
  *
- * SQLite's own tables and the runtime's are skipped: they describe the storage
- * rather than living in it, and are recreated by whatever the rows are restored
- * into.
+ * **Tables whose names begin with an underscore are the runtime's, not the
+ * account's**, and are skipped along with SQLite's own. `_cf_` is Cloudflare's
+ * prefix and `__miniflare_do_name` is one miniflare keeps locally - which is
+ * the reason the rule is the underscore rather than a list of prefixes: the
+ * miniflare table exists only under `pnpm dev`, so no test could have found it
+ * and a list would have been written from whatever the tests happened to see.
+ * Every table an account's changes create is a plain name.
  */
 export function readStoreAsItStands(sql: SqlStorage): AccountBackup {
   const tables: Record<string, Row[]> = {};
@@ -127,7 +131,9 @@ function tableNames(sql: SqlStorage): string[] {
   return sql
     .exec<{ name: string }>(
       `SELECT name FROM sqlite_master
-       WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'
+       WHERE type = 'table'
+         AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+         AND name NOT LIKE '\\_%' ESCAPE '\\'
        ORDER BY name`,
     )
     .toArray()

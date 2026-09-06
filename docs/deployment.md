@@ -326,7 +326,14 @@ Rollback, in order of preference:
 1. **Re-promote the previous commit.** Run *Promote to production* with the previous `sha`. Fast, touches no data, safe because of expand-contract.
 2. **Redeploy the previous Worker version** without git: `wrangler versions list` then `wrangler versions deploy <id>`. Use when the commit that shipped is not obvious.
 3. **Revert the commit** on `main`, let staging pick it up, then promote. The slowest, and right when the bad change should also leave the trunk.
-4. **D1 Time Travel** for data — 30 days of point-in-time recovery, so there is no separate backup to build: `wrangler d1 time-travel restore cockpit --timestamp <iso8601>`.
+4. **D1 Time Travel** for the register — 30 days of point-in-time recovery, in place: `wrangler d1 time-travel restore cockpit --timestamp <iso8601>`. It covers the register only, D1 being the only thing it speaks to, and it cannot produce a file or move one environment into another. **`pnpm backup:export` is the other half** and does both, across the register and every account's store ("Take a backup of an environment, or of one user", issue 208):
+
+```bash
+COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/2026-09-06
+COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/anna --user tenant-anna
+```
+
+Reading a backup back in is issue 209 and is not built, so today this is how data is inspected and moved, not yet how it is put back.
 
 ## 6. Secrets and access
 
@@ -337,6 +344,10 @@ they are non-inheritable:
 wrangler secret put <NAME>                 # production
 wrangler secret put <NAME> --env staging
 ```
+
+| Secret | What it is for |
+|---|---|
+| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. Put one in **both** environments — they are not inheritable, and an environment without one refuses those routes rather than opening them. `pnpm backup:export` reads the same value from `COCKPIT_BACKUP_TOKEN`, an environment variable rather than a flag so it stays out of shell history. Locally it goes in `apps/api/.dev.vars`, which is gitignored. |
 
 CI needs, in GitHub:
 
