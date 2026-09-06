@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ItemType, Workspace } from '@cockpit/shared';
 import { snapshotQuery, workspacesQuery } from '../api/queries';
-import { captureRoute } from '../router';
+import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
 import { NO_TYPES, typesOffered } from '../itemTypes';
 
@@ -33,10 +33,18 @@ export function CapturePage() {
    * The workspace this is captured *from*, which every Item records even while
    * it belongs to none ("Capture something before you know which workspace it
    * belongs to", issue 165). The page has no workspace of its own, so the
-   * honest answer is the one you were last in - decided by the route and handed
-   * down, so the snapshot it waited for is the one read below (router.tsx).
+   * honest answer is the one you were last in (`lastVisited.ts`).
+   *
+   * **Worked out on every render, against the list as it stands.** The route
+   * asks the same question to know which snapshot to wait for, and that is a
+   * different question: it is answered once, at load. This one has to keep
+   * being answered, because the workspace can go while you sit here - deleting
+   * one that is neither the last nor the screen behind you leaves you on this
+   * page on purpose (components/ManageWorkspaces.tsx), and a frozen answer
+   * would then point at a workspace whose snapshot is a 404, leaving nothing to
+   * capture with and no chip to say so.
    */
-  const { capturingFrom: from } = captureRoute.useRouteContext();
+  const from = workspaceToCaptureFrom(browserStore(), workspaces);
 
   /**
    * The workspace you came from, read for its types *and* its items: one read
@@ -47,7 +55,7 @@ export function CapturePage() {
    * drawn only once it can capture"). `itemTypesQuery` stays for the window
    * that manages them, which really is outside every workspace.
    */
-  const snapshot = useQuery(snapshotQuery(from));
+  const snapshot = useQuery({ ...snapshotQuery(from ?? ''), enabled: Boolean(from) });
 
   const known = snapshot.data?.itemTypes ?? [];
   const offered = typesOffered(known, snapshot.data?.items ?? []);

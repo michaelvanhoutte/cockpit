@@ -280,11 +280,14 @@ export const dashboardRoute = createRoute({
  * typed address, because coming from a workspace means the shell already holds
  * it.
  *
- * **And it hands that workspace down rather than leaving the page to work it
- * out again**, so the snapshot waited for here and the one read there cannot
- * come apart.
+ * **Which workspace that is gets asked here and again on the page**, and the
+ * two are not one decision to be made once: this one is "whose snapshot must
+ * be in hand before drawing", answered at load, and the page's is "which
+ * workspace is this capture recorded against", which has to keep being
+ * answered because a workspace can be deleted while you sit there
+ * (pages/CapturePage.tsx).
  */
-export const captureRoute = createRoute({
+const captureRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/capture',
   beforeLoad: async ({ context }) => {
@@ -296,7 +299,6 @@ export const captureRoute = createRoute({
     // answer falls back to the first one there is (`lastVisited.ts`).
     if (!from) throw redirect({ to: '/start' });
     await snapshotOf(context.queryClient, from);
-    return { capturingFrom: from };
   },
   component: CapturePage,
 });

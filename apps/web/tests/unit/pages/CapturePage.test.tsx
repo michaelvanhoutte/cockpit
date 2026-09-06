@@ -37,14 +37,6 @@ const held = vi.hoisted(() => ({
    * must not do - so it is a spy that never answers rather than a fixture.
    */
   asksForTypesOnTheirOwn: vi.fn(),
-  /** The workspace the route settled on, which it hands the page. */
-  cameFrom: 'ws-home',
-}));
-
-// The route decides which workspace this captures from and hands it down, so
-// the page needs that decision and not the router it came from.
-vi.mock('../../../src/router', () => ({
-  captureRoute: { useRouteContext: () => ({ capturingFrom: held.cameFrom }) },
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -104,10 +96,9 @@ const THOUGHT = aType('Thought', 1, '#3a72c8');
 const READ_LATER = aType('Read later', 2, '#b58a2f');
 
 /**
- * The page, with the account's types and with the workspace it captures from
- * already settled - which is the route's decision, handed down, and what a
- * capture that names no workspace is recorded against (`router.tsx`; which
- * workspace that is, apps/web/tests/unit/lastVisited.test.ts).
+ * The page, with the account's types and with a workspace already remembered as
+ * the one you came from - which is what a capture that names no workspace is
+ * recorded against (`lastVisited.ts`).
  */
 async function thePage({
   types = [ACTION, THOUGHT, READ_LATER],
@@ -126,7 +117,8 @@ async function thePage({
   held.items = items;
   held.workspaces = [WORK, HOME];
   held.refuses = null;
-  held.cameFrom = cameFrom;
+  localStorage.clear();
+  localStorage.setItem('cockpit.last-visited.workspace', cameFrom);
 
   // The real mutation calls back: `onSuccess` is what lists what was captured,
   // and `onError` is what puts the note back and says why.
@@ -241,6 +233,32 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       expect(captured().payload.workspaceId).toBe('ws-home');
+      expect(captured().payload.workspaceDecided).toBe(false);
+    });
+
+    /**
+     * The one *chosen* is the case above; this is the one it is captured
+     * **from**, which nobody chose and which the page falls back for in the
+     * same way (`workspaceToCaptureFrom`).
+     *
+     * Reachable while you sit on this page: deleting a workspace that is
+     * neither the last nor the screen behind you leaves you here on purpose
+     * (components/ManageWorkspaces.tsx), and the list comes back without it.
+     * A page holding the deleted one would read a snapshot that is a 404 for
+     * good, so there would be no type to give and the note would go in silence
+     * - which is what this whole change exists to stop.
+     */
+    it('captures against a workspace that is still there when the one it came from is deleted', async () => {
+      const user = await thePage({ cameFrom: 'ws-home' });
+
+      held.workspaces = [WORK];
+      await user.client.invalidateQueries({ queryKey: ['workspaces'] });
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Home' })).toBeNull());
+
+      await user.type(box(), 'Where does this go');
+      await user.keyboard('{Control>}{Enter}{/Control}');
+
+      expect(captured().payload.workspaceId).toBe('ws-work');
       expect(captured().payload.workspaceDecided).toBe(false);
     });
 
