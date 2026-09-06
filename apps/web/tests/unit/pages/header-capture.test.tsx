@@ -11,6 +11,9 @@ import { Layout } from '../../../src/pages/Layout';
 const params: { workspaceId?: string } = {};
 const held = { workspaces: [] as unknown[] };
 
+/** The address the shell is rendered at, which is what says which tab is on. */
+const at = { pathname: '/w/ws-work' };
+
 const WORK = {
   id: 'ws-work',
   tenantId: 'tenant',
@@ -20,9 +23,6 @@ const WORK = {
   ground: '#e3e1f2',
   header: '#d2cdea',
 };
-
-// The address is what this file is about, so the mock renders `to` as one.
-const at = { pathname: '/capture' };
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
@@ -44,8 +44,8 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => params,
   useNavigate: () => () => Promise.resolve(),
   useSearch: () => ({}),
-  // The address, because the shell asks which page this is rather than whether
-  // a workspace is named: Capture is in no workspace either.
+  // The address, because which tab is filled is a question about the page you
+  // are on rather than about the workspace you are in: capture is in none.
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({ location: { pathname: at.pathname } }),
 }));
@@ -58,6 +58,11 @@ vi.mock('../../../src/components/InboxPanel', () => ({
 }));
 
 vi.mock('../../../src/api/queries', () => ({
+  // The shell draws the account's two management windows over the workspace
+  // (pages/Layout.tsx). They are shut here - nothing in these cases opens
+  // one - but they are mounted, so the hooks they call have to answer.
+  useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
+  useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
   meQuery: {
     queryKey: ['me'],
     queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
@@ -78,7 +83,10 @@ async function theShell({
   // Null, not undefined: `inside: undefined` would take the default below and
   // quietly render the case it is meant to be the opposite of.
   inside = 'ws-work' as string | null,
-  address = '/capture',
+  // Derived rather than defaulted on its own, so a case cannot ask for a shell
+  // the router could not produce - capture carries no workspace, and a
+  // workspace address is never capture. Named only where a case is about it.
+  address = inside ? `/w/${inside}` : '/capture',
 }: { workspaces?: unknown[]; inside?: string | null; address?: string } = {}) {
   held.workspaces = workspaces;
   at.pathname = address;
@@ -114,7 +122,7 @@ describe('Capture', () => {
    */
   describe('capture wears the selected look only while you are on it', () => {
     it('is quiet while you are in a workspace, which is where the app opens', async () => {
-      const { header } = await theShell({ inside: 'ws-work', address: '/w/ws-work' });
+      const { header } = await theShell({ inside: 'ws-work' });
 
       const capture = header.getByRole('link', { name: 'Capture' });
       expect(filledWith(capture)).toBe('');
@@ -160,34 +168,22 @@ describe('Capture', () => {
 
   /**
    * Capture is in no workspace, which is what it means - and the band under the
-   * workspace tabs and the column under that both used to read "no workspace"
-   * as "a settings page", so the page came up with Manage workspaces and Manage
-   * types over it and its sheet squeezed into a column of prose width. Found in
-   * the browser on staging.
+   * workspace tabs once read "no workspace" as "a settings page", so Manage
+   * workspaces and Manage types came up over it and its sheet squeezed into a
+   * column of prose width. Found in the browser on staging.
    *
-   * The settings row is here rather than in a file of its own because it is
-   * what makes this falsifiable: the band and the column still do the settings
-   * thing, on the addresses that are settings.
-   *
-   * jsdom lays nothing out, so the column is read off the class that constrains
-   * it - which is the whole of what that wrapper is.
+   * The case that told capture apart from a settings page went with the
+   * settings pages: the account's lists are windows over the workspace now
+   * (components/ManageWindow.tsx), so no address is drawn differently from any
+   * other and there is nothing left for capture to be mistaken for. What is
+   * left to hold is the height, which is what that bug cost.
    */
-  describe('the capture page is a sheet of its own, not one of the settings pages', () => {
-    it.each([
-      { situation: 'the capture page', address: '/capture', settings: false },
-      { situation: 'a settings page', address: '/settings/types', settings: true },
-    ])('$situation', async ({ address, settings }) => {
-      const { container } = await theShell({ inside: null, address });
-
-      expect(Boolean(container.querySelector('nav[aria-label="Settings"]'))).toBe(settings);
-      expect(Boolean(container.querySelector('main .max-w-4xl'))).toBe(settings);
-    });
-
+  describe('the capture page is a sheet like every other screen under the shell', () => {
     it('keeps the band, so the chrome is the same height as everywhere else', async () => {
       // Empty rather than absent: the band gained its minimum height so that
       // leaving a workspace does not take forty pixels off the chrome, and a
       // page drawn without one would put them straight back.
-      const { container } = await theShell({ inside: null, address: '/capture' });
+      const { container } = await theShell({ inside: null });
 
       const band = container.querySelector('header + div');
       expect(band).not.toBeNull();

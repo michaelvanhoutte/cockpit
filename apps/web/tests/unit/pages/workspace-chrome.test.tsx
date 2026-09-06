@@ -32,8 +32,6 @@ const params: { workspaceId?: string } = {};
 const VIOLET_SURFACES = { bar: VIOLET.bar, ground: VIOLET.ground, header: VIOLET.header };
 const wearing: { violet: typeof VIOLET_SURFACES } = { violet: VIOLET_SURFACES };
 
-const at = { pathname: '/w/ws-violet' };
-
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
@@ -54,10 +52,10 @@ vi.mock('@tanstack/react-router', () => ({
   // No item named, so the shell draws no form over itself - these cases are
   // about the chrome.
   useSearch: () => ({}),
-  // The address, because the shell asks which page this is rather than whether
-  // a workspace is named: Capture is in no workspace either.
+  // Read by the shell to know whether Capture is the page you are on. These
+  // cases are inside a workspace, which is never that page.
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
-    select({ location: { pathname: at.pathname } }),
+    select({ location: { pathname: '/w/a-workspace' } }),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
@@ -77,6 +75,14 @@ vi.mock('../../../src/components/InboxPanel', () => ({
 }));
 
 vi.mock('../../../src/api/queries', () => ({
+  // The types window the shell now draws over the workspace reads them
+  // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
+  itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
+  // The shell draws the account's two management windows over the workspace
+  // (pages/Layout.tsx). They are shut here - nothing in these cases opens
+  // one - but they are mounted, so the hooks they call have to answer.
+  useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
+  useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
   meQuery: {
     queryKey: ['me'],
     queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
@@ -228,7 +234,7 @@ describe('Workspace management', () => {
     });
 
     it('paints in the default theme where there is no workspace to be in, rather than in nothing', async () => {
-      // The workspaces settings page is reached without one.
+      // Capture is the screen under the shell that is in no workspace.
       const { container } = await theShell();
 
       expect(filledWith(container.querySelector('header'))).toBe(rgb(VIOLET.header));

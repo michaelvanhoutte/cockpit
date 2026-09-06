@@ -2,6 +2,7 @@ import {
   ADA,
   MICHAEL,
   captureBox,
+  closeWindow,
   dashboardBar,
   expect,
   inbox,
@@ -11,6 +12,7 @@ import {
   signIn,
   test,
   uniqueTitle,
+  workspaceTab,
   whatTheBrowserStillHolds,
 } from './support/app';
 
@@ -120,8 +122,11 @@ test.describe('Accounts', () => {
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(workspace);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-      const mine = page.locator('header').getByRole('link', { name: workspace });
+      const mine = workspaceTab(page, workspace);
       await expect(mine).toBeVisible();
+      // The window is over the workspace rather than instead of it, so it has
+      // to be shut before the header underneath can be pressed.
+      await closeWindow(page, isMobile);
       await press(mine, isMobile);
       // Already beside the dashboards on the wide project; a tab to switch to
       // on the narrow one (issue 117, as above).
@@ -139,7 +144,7 @@ test.describe('Accounts', () => {
       await press(page.getByRole('button', { name: MICHAEL, exact: true }), isMobile);
 
       await expect(dashboardBar(page)).toBeVisible();
-      await expect(page.locator('header').getByRole('link', { name: workspace })).toHaveCount(0);
+      await expect(workspaceTab(page, workspace)).toHaveCount(0);
       await expect(itemRow(page, thought)).toHaveCount(0);
       // And it is genuinely Michael looking, rather than an empty screen.
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);

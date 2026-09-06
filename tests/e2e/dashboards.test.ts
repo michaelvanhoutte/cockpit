@@ -1,5 +1,7 @@
 import {
   chooseRowAction,
+  closeWindow,
+  workspaceTab,
   dashboardBar,
   expect,
   expectNoSidewaysScroll,
@@ -38,7 +40,11 @@ test.describe('Dashboards', () => {
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(workspace);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-      await press(page.locator('header').getByRole('link', { name: workspace }), isMobile);
+      await expect(workspaceTab(page, workspace)).toBeVisible();
+      // The window is over the workspace rather than instead of it, so it has
+      // to be shut before the header underneath can be pressed.
+      await closeWindow(page, isMobile);
+      await press(workspaceTab(page, workspace), isMobile);
       await expect(dashboardBar(page)).toBeInViewport();
       await expectNoSidewaysScroll(page);
 
@@ -91,7 +97,11 @@ test.describe('Dashboards', () => {
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(workspace);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-      await press(page.locator('header').getByRole('link', { name: workspace }), isMobile);
+      await expect(workspaceTab(page, workspace)).toBeVisible();
+      // The window is over the workspace rather than instead of it, so it has
+      // to be shut before the header underneath can be pressed.
+      await closeWindow(page, isMobile);
+      await press(workspaceTab(page, workspace), isMobile);
 
       const doomed = uniqueTitle('Recherche');
       await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);

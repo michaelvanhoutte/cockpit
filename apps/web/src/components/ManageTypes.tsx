@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, ITEM_TYPE_COLORS, uuidv7 } from '@cockpit/shared';
 import type { ItemType, ItemTypeList } from '@cockpit/shared';
@@ -11,24 +11,24 @@ import {
   workspacesQuery,
 } from '../api/queries';
 import { movedBy, movedTo } from '../reorder';
-import { DeleteQuestion } from '../components/DeleteQuestion';
-import { LoadFailure } from '../components/LoadFailure';
-import { RowMenu } from '../components/Menu';
-import { RowForm, wasOnTheRow } from '../components/RowForm';
+import { DeleteQuestion } from './DeleteQuestion';
+import { LoadFailure } from './LoadFailure';
+import { CloseWindow, ManageWindow } from './ManageWindow';
+import { RowMenu } from './Menu';
+import { RowForm, wasOnTheRow } from './RowForm';
 
 /**
  * Where types are managed ("Manage the types, and put them in the order you
  * want", issue 156). It lists them, renames them, recolours them, puts them in
  * the order capture offers them in, and deletes them.
  *
- * **A sibling of the workspaces page, and the same page in every respect that
- * matters**: a row keeps its shape, what can be done to a type is in its own
- * menu, its name and its colour are edited together on a form over the page
- * (`components/RowForm.tsx`), deleting asks in a dialog, and a type is moved
- * two ways that are one change. Types are the fourth list of named things
- * in the app and the three before it are pages with rows and menus; making this
- * one a section of a page about something else is what would make it hard to
- * find.
+ * **A sibling of the workspaces window, and the same window in every respect
+ * that matters**: a row keeps its shape, what can be done to a type is in
+ * its own menu, its name and its colour are edited together on a form over
+ * it (`components/RowForm.tsx`), deleting asks in a dialog, and a type is
+ * moved two ways that are one change. It is a list of its own rather than a
+ * section of a window about something else, which is what would make it hard
+ * to find.
  *
  * **There is no box for making one**, which is the one way it differs. A type
  * comes into existence by being used, at capture ("Capture a thought or an
@@ -36,7 +36,16 @@ import { RowForm, wasOnTheRow } from '../components/RowForm';
  * a trip here, and a second way to make one would be a second place for the
  * same name to be typed differently.
  */
-export function ItemTypeSettingsPage() {
+export function ManageTypes({
+  open,
+  onClose,
+  returnFocusTo,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** The control it was opened from, which gets the focus back. */
+  returnFocusTo?: HTMLElement | null | undefined;
+}) {
   const { data, error, refetch } = useQuery(itemTypesQuery);
   const workspaces = useQuery(workspacesQuery);
   const queryClient = useQueryClient();
@@ -53,6 +62,14 @@ export function ItemTypeSettingsPage() {
   const [dragging, setDragging] = useState<{ id: string; to: number } | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
+  /**
+   * The window itself, which the focus goes back to when a delete has taken
+   * the row's menu with the row - the reason the workspaces' window keeps
+   * one, and the dashboards' before it.
+   */
+  const list = useRef<HTMLDivElement>(null);
+  /** That a delete has happened, so the focus is owed to the window. */
+  const focusTheList = useRef(false);
   const command = useCommand();
   /**
    * The form sends its two changes one after the other, so it holds its own
@@ -100,6 +117,14 @@ export function ItemTypeSettingsPage() {
    * form open on a name nothing holds would save into nothing.
    */
   const beingEdited = types.find((type) => type.id === editing?.id);
+
+  /** The focus, once a delete has taken the question away with the row. */
+  useEffect(() => {
+    if (!focusTheList.current || beingDeleted) return;
+    focusTheList.current = false;
+    const frame = requestAnimationFrame(() => list.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [beingDeleted]);
 
   const order = types.map((type) => type.id);
   const shownOrder = dragging ? movedTo(order, dragging.id, dragging.to) : order;
@@ -237,10 +262,21 @@ export function ItemTypeSettingsPage() {
     }
   };
 
+  /** Closing it forgets what was refused, for the reason the workspaces' does. */
+  const close = () => {
+    stopAsking();
+    onClose();
+  };
+
   const confirmDelete = (typeId: string) => {
     command.mutate(
       { name: 'delete_item_type', payload: { ...envelope(), typeId } },
-      { onSuccess: () => setDeleting(null) },
+      {
+        onSuccess: () => {
+          setDeleting(null);
+          focusTheList.current = true;
+        },
+      },
     );
   };
 
@@ -263,15 +299,19 @@ export function ItemTypeSettingsPage() {
       : null;
 
   return (
-    /* No heading of its own: the tab in the band above says which page this is,
-       the same way the current dashboard tab does inside a workspace
-       (`components/Tabs.tsx`). */
-    <div className="flex flex-col gap-6">
-      <p className="text-sm text-ink-faint">
+    <ManageWindow
+      title="Manage types"
+      open={open}
+      onClose={close}
+      canClose={!command.isPending && !saving}
+      returnFocusTo={returnFocusTo}
+      ref={list}
+    >
+      <p className="mt-2 text-sm text-ink-faint">
         What kind of thing an item is. A new one is made by naming it when you capture something.
       </p>
 
-      <section className="rounded-lg bg-surface shadow-panel">
+      <section className="-mx-2 mt-4 min-h-0 flex-1 overflow-y-auto">
         <ul ref={listRef}>
           {shown.map((type, index) => (
             <li
@@ -429,7 +469,8 @@ export function ItemTypeSettingsPage() {
           </p>
         )}
       </section>
-    </div>
+      <CloseWindow disabled={command.isPending || saving} />
+    </ManageWindow>
   );
 }
 
