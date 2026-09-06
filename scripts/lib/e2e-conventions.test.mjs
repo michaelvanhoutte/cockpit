@@ -45,7 +45,12 @@ describe('tabsPressedWithoutWaiting', () => {
 
 describe('the browser walks', () => {
   it(`change workspace only through ${THE_WAY}`, () => {
-    const offences = readdirSync(walks)
+    // Recursive, because Playwright's `testMatch` is (`**/*.test.ts`, against
+    // `testDir: 'tests/e2e'`): a walk in a subdirectory would run and go
+    // unscanned, which is the one case this gate exists for. `.test.ts` rather
+    // than every file, which also keeps `support/app.ts` out - it is where the
+    // press belongs.
+    const offences = readdirSync(walks, { recursive: true })
       .filter((name) => name.endsWith('.test.ts'))
       .flatMap((name) =>
         tabsPressedWithoutWaiting(readFileSync(join(walks, name), 'utf8')).map(
