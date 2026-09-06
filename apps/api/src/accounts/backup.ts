@@ -108,9 +108,14 @@ export function foreignRows(backup: AccountBackup, accountName: string): Foreign
   const foreign: ForeignRow[] = [];
   for (const [table, rows] of Object.entries(backup.tables)) {
     for (const row of rows) {
-      // A table with no such column carries no claim about whose it is, so
-      // there is nothing here to disagree with.
-      if (!(ACCOUNT_COLUMN in row)) break;
+      // A row with no such column carries no claim about whose it is, so there
+      // is nothing here to disagree with.
+      //
+      // `continue` rather than `break`, though every row of a SQLite table has
+      // the same columns and the first one therefore settles it: this is the
+      // lock that catches what cannot happen, so resting it on something else
+      // that cannot happen is the wrong way round for one word.
+      if (!(ACCOUNT_COLUMN in row)) continue;
       if (row[ACCOUNT_COLUMN] !== accountName) {
         foreign.push({ table, tenantId: row[ACCOUNT_COLUMN] });
       }
