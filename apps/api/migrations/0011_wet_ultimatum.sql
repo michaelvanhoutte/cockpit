@@ -12,7 +12,7 @@
 -- **The backfill runs before the indexes**, so an environment holding two users
 -- with the same address stops the deploy rather than having one of them written
 -- over. Staging is deliberately never re-seeded and production was seeded once
--- by hand (docs/deployment.md, "Bootstrapping a new environment"), so what both
+-- by hand (docs/deployment.md, "Bootstrap runbook"), so what both
 -- hold is seed.sql's two people - but which environment holds what is exactly
 -- the thing not to assume.
 --

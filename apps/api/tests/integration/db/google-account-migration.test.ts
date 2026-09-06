@@ -11,7 +11,7 @@ import { env, applyD1Migrations } from 'cloudflare:test';
  * from an empty database with every migration applied, so the backfill has
  * nothing to find and its rows are never exercised at all. Staging is
  * deliberately never re-seeded and production was seeded once by hand
- * (docs/deployment.md, "Bootstrapping a new environment"), which is exactly why
+ * (docs/deployment.md, "Bootstrap runbook"), which is exactly why
  * what happens to rows that were already there is worth pinning.
  */
 const AT = '2026-08-12T10:00:00.000Z';
