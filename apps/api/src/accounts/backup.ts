@@ -60,8 +60,11 @@ export interface ForeignRow {
 /**
  * The store's own bookkeeping, which is not the account's data and is recorded
  * separately as `changesApplied`.
+ *
+ * Exported because a restore has to drop and rewrite it (`restore.ts`), and one
+ * name in one place is what keeps the two halves talking about the same table.
  */
-const CHANGE_LEDGER = 'account_changes';
+export const CHANGE_LEDGER = 'account_changes';
 
 /**
  * The column every row of an account's data carries, naming whose it is
@@ -89,11 +92,23 @@ const ACCOUNT_COLUMN = 'tenant_id';
  */
 export function readStoreAsItStands(sql: SqlStorage): AccountBackup {
   const tables: Record<string, Row[]> = {};
-  for (const name of tableNames(sql)) {
-    if (name === CHANGE_LEDGER) continue;
+  for (const name of accountTables(sql)) {
     tables[name] = rowsOf(sql, name);
   }
   return { changesApplied: changesApplied(sql), tables };
+}
+
+/**
+ * The tables that are the account's own: everything the store holds except the
+ * runtime's and its own ledger.
+ *
+ * One definition, because both halves need it and they must agree - a table a
+ * backup writes out is a table a restore has to clear, and a difference between
+ * those two lists is a table that survives a restore carrying the old
+ * account's rows.
+ */
+export function accountTables(sql: SqlStorage): string[] {
+  return tableNames(sql).filter((name) => name !== CHANGE_LEDGER);
 }
 
 /**
@@ -125,15 +140,19 @@ export function foreignRows(backup: AccountBackup, accountName: string): Foreign
 }
 
 /**
- * Says what is wrong in the words somebody reading the command's output needs.
+ * Which tables held rows belonging elsewhere, and how many of whose.
  *
  * **A table and a count per table, not a clause per row.** This becomes an HTTP
  * response body built in the Worker's memory, and a store that has somehow
  * accumulated foreign rows has no upper bound on how many - so a row-by-row
  * message would be megabytes to say one thing. Which tables, whose the rows
  * are, and how many, is the whole of what anybody acts on.
+ *
+ * The sentence around it is the caller's, because the two directions are
+ * different news: on the way out a store is holding something it should not, on
+ * the way in a file is being poured into the wrong account.
  */
-export function describeForeignRows(foreign: readonly ForeignRow[], accountName: string): string {
+export function countForeignRows(foreign: readonly ForeignRow[]): string {
   const perTable = new Map<string, { count: number; tenants: Set<string> }>();
   for (const row of foreign) {
     const seen = perTable.get(row.table) ?? { count: 0, tenants: new Set<string>() };
@@ -141,7 +160,7 @@ export function describeForeignRows(foreign: readonly ForeignRow[], accountName:
     seen.tenants.add(JSON.stringify(row.tenantId));
     perTable.set(row.table, seen);
   }
-  const named = [...perTable.entries()]
+  return [...perTable.entries()]
     .map(
       ([table, seen]) =>
         `${table} holds ${seen.count} row${seen.count === 1 ? '' : 's'} belonging to ${[
@@ -149,7 +168,21 @@ export function describeForeignRows(foreign: readonly ForeignRow[], accountName:
         ].join(', ')}`,
     )
     .join('; ');
-  return `account ${accountName} was not backed up: ${named}`;
+}
+
+/** Says what is wrong in the words somebody reading the command's output needs. */
+export function describeForeignRows(foreign: readonly ForeignRow[], accountName: string): string {
+  return `account ${accountName} was not backed up: ${countForeignRows(foreign)}`;
+}
+
+/** The same finding on the way in: a file being poured into the wrong account. */
+export function describeForeignRowsInBackup(
+  foreign: readonly ForeignRow[],
+  accountName: string,
+): string {
+  return `the backup is not this account's: ${countForeignRows(
+    foreign,
+  )}, and it was being restored into ${accountName}`;
 }
 
 function tableNames(sql: SqlStorage): string[] {

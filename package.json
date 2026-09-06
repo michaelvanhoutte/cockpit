@@ -20,6 +20,7 @@
     "test:explorer": "pnpm --filter @cockpit/test-explorer generate",
     "test:explorer:check": "pnpm --filter @cockpit/test-explorer check-concepts",
     "backup:export": "node scripts/backup-export.mjs",
+    "backup:restore": "node scripts/backup-restore.mjs",
     "bundle:budget": "node scripts/bundle-budget.mjs",
     "branches:tidy": "node scripts/tidy-branches.mjs"
   },

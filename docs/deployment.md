@@ -333,7 +333,13 @@ COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/202
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/anna --user tenant-anna
 ```
 
-Reading a backup back in is "Restore an environment, or one user, from a backup" (issue 209) and is not built, so today this is how data is inspected and moved, not yet how it is put back.
+And `pnpm backup:restore` puts one back, an environment or one user at a time:
+
+```bash
+COCKPIT_BACKUP_TOKEN=... pnpm backup:restore --env staging --from ./backups/2026-09-06 --force
+```
+
+**It replaces an account rather than merging into one**, so an account already holding data is refused without `--force`, and any target but `local` has to be confirmed by typing its name — staging is deliberately never re-seeded, so what has accumulated there is the point of it. Accounts are written before the register, so a user never exists pointing at a store that has not arrived, and a run that stops partway names the accounts that went in. A backup taken from a version newer than the one running is refused rather than half-applied.
 
 ## 6. Secrets and access
 

@@ -341,6 +341,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Google account** — the account somebody signs in with. The register holds the address they are allowed in by and, once they have signed in, the identity Google keys them by, so a changed address neither locks them out nor lets a new owner of it in.
 - **Sign out** — ending a sign-in deliberately. Cockpit forgets it and the browser is left holding nothing of what you were looking at.
 - **Backup** — a copy of everything an environment holds, written to local files: the register, and each Account's own data in a file of its own. Taken by an operator with a command, never from inside the app, and it holds no sign-ins — those are re-made by signing in, and putting an old one back would revive a sign-in somebody ended. Taking one changes nothing about the environment it reads.
+- **Restore** — putting a Backup back, a whole environment or one User's Account. It **replaces** an Account rather than merging into it: what that Account held is gone, which is why one that already holds anything is refused unless replacing it was asked for. The register is only ever added to — a User the Backup needs and the register lacks is created, one already there is left alone, and a Backup that disagrees with the register about who somebody is refuses rather than deciding.
 
 Six things the app does in the same way wherever it does them, named here because a shared behaviour with no word is one nobody can say is tested (`tools/test-explorer/concepts.json`):
 

@@ -9,14 +9,24 @@ import type {
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
-import type { AccountStoreRpc } from './rpc.js';
+import type { AccountStoreRpc, RestoreReport } from './rpc.js';
 import { accountChanges } from './changes.js';
 import {
+  CHANGE_LEDGER,
+  accountTables,
+  describeForeignRowsInBackup,
   foreignRows,
   readStoreAsItStands,
   type AccountBackup,
   type ForeignRow,
 } from './backup.js';
+import {
+  deleteAllRows,
+  dropAccountTables,
+  storeHoldsAnything,
+  tablesParentsFirst,
+  writeRows,
+} from './restore.js';
 import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations } from './events.js';
 import {
@@ -133,6 +143,152 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   exportAsItStands(accountName: string): { backup: AccountBackup; foreign: ForeignRow[] } {
     const backup = readStoreAsItStands(this.ctx.storage.sql);
     return { backup, foreign: foreignRows(backup, accountName) };
+  }
+
+  /**
+   * Puts the account back from a backup, replacing whatever is there.
+   *
+   * **All of it or none of it.** The drop, the replay, the emptying and the
+   * rows are one `transactionSync`, so a restore that fails partway leaves the
+   * account exactly as it was - which is the difference between a failed
+   * restore and an account holding half of two states with nothing able to say
+   * which half.
+   *
+   * The order is the whole design. Dropping first clears both the rows and the
+   * *shape*, since the backup carries a shape of its own. Replaying the change
+   * list the backup recorded rebuilds that shape - and puts a new account's
+   * starting data in on the way, which is why the tables are emptied before the
+   * backup's own rows go in. Bringing the account up to date happens last and
+   * outside the transaction, because it is the ordinary path every account
+   * takes after a deploy: if it fails there, the store sits at the backup's
+   * shape and the next request tries again, which is exactly what would happen
+   * to an account nobody had opened yet.
+   */
+  restoreFrom(
+    accountName: string,
+    backup: AccountBackup,
+    force: boolean,
+  ): Answer<RestoreReport> {
+    const changes = accountChanges(accountName);
+    const unknown = backup.changesApplied.filter(
+      (name) => !changes.some((change) => change.name === name),
+    );
+    if (unknown.length > 0) {
+      return {
+        status: 'refused',
+        what:
+          `the backup was taken from a newer version than this one is running: it records ` +
+          `${unknown.join(', ')}, which this version does not have. Restore it into a ` +
+          `deployment that has them.`,
+      };
+    }
+
+    const wrong = foreignRows(backup, accountName);
+    if (wrong.length > 0) {
+      return { status: 'refused', what: describeForeignRowsInBackup(wrong, accountName) };
+    }
+
+    const sql = this.ctx.storage.sql;
+    const held = accountTables(sql);
+    if (!force && storeHoldsAnything(sql, held)) {
+      return {
+        status: 'conflict',
+        what: `account ${accountName} already holds data - restoring over it has to be asked for`,
+      };
+    }
+
+    // **Counted by whatever did the writing**, not worked out from the file
+    // beforehand. The first version of this counted `backup.tables` here, which
+    // read as the same number right up until the two disagreed: a table the
+    // replayed changes do not create is one `writeRows` cannot write, so a file
+    // whose rows outlive their schema was answered with a count saying they had
+    // been. `writeRows` now refuses that outright and returns what it did.
+    let written = { tablesWritten: 0, rowsWritten: 0 };
+    try {
+      this.ctx.storage.transactionSync(() => {
+        dropAccountTables(sql, tablesParentsFirst(sql, held));
+        sql.exec(`DROP TABLE IF EXISTS ${CHANGE_LEDGER}`);
+
+        for (const change of changes.filter((one) => backup.changesApplied.includes(one.name))) {
+          for (const statement of change.statements) {
+            sql.exec(statement.sql, ...(statement.params ?? []));
+          }
+        }
+
+        // Worked out once and used three ways - to empty in child-first order
+        // and to write in parent-first - rather than rebuilt from the foreign
+        // keys for each, which asked SQLite the same question three times over
+        // inside an open write transaction.
+        const order = tablesParentsFirst(sql, accountTables(sql));
+        deleteAllRows(sql, order);
+        written = writeRows(sql, backup, order);
+
+        sql.exec(
+          `CREATE TABLE IF NOT EXISTS ${CHANGE_LEDGER} (
+             name text PRIMARY KEY NOT NULL,
+             applied_at text NOT NULL
+           ) STRICT`,
+        );
+        const at = new Date().toISOString();
+        for (const name of backup.changesApplied) {
+          sql.exec(`INSERT INTO ${CHANGE_LEDGER} (name, applied_at) VALUES (?, ?)`, name, at);
+        }
+      });
+    } catch (error) {
+      // **Logged as well as answered.** The body reaching here has been through
+      // the route's schema, so what is left to fail is a constraint the rows
+      // break - a file somebody edited - and that is the caller's to fix, which
+      // is why it answers as a refusal. But it is also where a fault of ours
+      // would surface, indistinguishable from the outside, so the underlying
+      // error goes to the logs rather than only into somebody's terminal.
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `restoring ${accountName} was undone: ${(error as Error).message}`,
+        }),
+      );
+      return { status: 'refused', what: `the restore was undone: ${(error as Error).message}` };
+    }
+
+    // The store now believes whatever the backup believed, so the memory of
+    // being up to date has to go with it, or the outstanding changes are never
+    // applied to what was just written.
+    this.#upToDate = false;
+
+    // **A backup of an account nobody had opened restores to one nobody has
+    // opened**, rather than to one that has been brought up to date. Bringing
+    // it up to date here would create the tables *and* seed a new account's
+    // three starting workspaces and its standard types - so restoring nothing
+    // would produce eight rows, and the account would no longer be what the
+    // backup held. Left alone, the first request creates it exactly as it does
+    // for any account that has never been touched, which is what it was.
+    //
+    // Found by running the command rather than by a test: the case only shows
+    // when a backup covers an account that exists in the register and has never
+    // been opened, which is the ordinary state of a newly added user.
+    if (backup.changesApplied.length === 0) return { status: 'ok', value: written };
+
+    // **The rows are in, so this answers `ok` however this goes.** Bringing an
+    // account up to date is the ordinary path every account takes after a
+    // deploy, and it failing here says the change list will not apply - which
+    // is true of every account, restored or not, and is fixed by fixing the
+    // change list rather than by restoring again.
+    //
+    // Answering with a failure instead would be the dangerous lie: the drop,
+    // the replay and the rows have already committed, so a caller told this
+    // account was not restored would re-run believing its data untouched, when
+    // it has in fact already been replaced. The warning says what is pending;
+    // the next request retries it, exactly as it would for an account nobody
+    // had opened yet.
+    try {
+      this.#bringUpToDate(accountName);
+    } catch (error) {
+      return {
+        status: 'ok',
+        value: { ...written, notUpToDate: (error as Error).message },
+      };
+    }
+    return { status: 'ok', value: written };
   }
 
   /**

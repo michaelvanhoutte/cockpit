@@ -18,11 +18,17 @@ import {
   ConflictInAccountError,
   NotFoundInAccountError,
   RefusedByAccountError,
+  RegisterDisagreesError,
+  RegisterRowUnusableError,
   RowsFromAnotherAccountError,
   backUpAccount,
   openAccount,
   registerContents,
   registeredAccountNames,
+  restoreAccount,
+  restoreRegister,
+  type AccountBackup,
+  type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
@@ -373,6 +379,71 @@ export function worthReporting(stream: { aborted: boolean; closed: boolean }): b
   return !stream.aborted && !stream.closed;
 }
 
+/**
+ * What the operator's restore routes accept.
+ *
+ * **They validate like every other route**, per this file's own rule that
+ * handlers are thin adapters which validate, call the account and serialize.
+ * The first draft of these two did not, and cast the parsed body instead - so
+ * every malformed body answered `500 internal error`, telling an operator
+ * nothing about a file they could fix. Worse than the message: the only reason
+ * a malformed body was not *destructive* was that the two guards which throw on
+ * one happen to run before the transaction opens. That is an accident of
+ * ordering rather than a property, and this is what makes it a property.
+ *
+ * A row is left as an open record because a backup's shape is the store's,
+ * which this layer deliberately knows nothing about - `restore.ts` checks the
+ * rows of a table agree with each other, and the database checks the rest.
+ */
+const rowSchema = z.record(z.string(), z.union([z.string(), z.number(), z.null()]));
+
+/**
+ * **`account` is required, and it is what says whose file this is.**
+ *
+ * A backup carries the name it was taken from, and until it was checked nothing
+ * anywhere compared that to the account being restored into: the rows' own
+ * `tenant_id` was doing the work, which holds for a file with rows in it and
+ * says nothing at all about one without any. A backup of an account nobody has
+ * opened is exactly that file, so somebody else's empty backup could be poured
+ * into a busy account - dropping every table it held and answering 200, having
+ * detected no violation because there were no rows to disagree.
+ */
+const accountBackupSchema = z.object({
+  account: z.string(),
+  changesApplied: z.array(z.string()),
+  tables: z.record(z.string(), z.array(rowSchema)),
+});
+
+const registerBackupSchema = z.object({
+  tenants: z.array(rowSchema),
+  users: z.array(rowSchema),
+});
+
+/**
+ * The same shape a backup file's name has to take (`scripts/lib/backup.mjs`).
+ * The register cannot be consulted here - an account is restored before its
+ * register row exists - so this is what stands between a typed name and a store
+ * created under it that nothing will ever address again.
+ */
+const accountNameSchema = z.string().regex(/^[A-Za-z0-9._-]+$/);
+
+/** Something a person can act on, rather than the whole of Zod's report. */
+function firstProblem(error: z.ZodError): string {
+  const first = error.issues[0];
+  if (!first) return 'it is the wrong shape';
+  const at = first.path.join('.');
+  return at ? `${at} ${first.message.toLowerCase()}` : first.message.toLowerCase();
+}
+
+/** A body that is not JSON at all is the same answer as one of the wrong shape. */
+async function readJsonBody(c: Context): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    return undefined;
+  }
+}
+
 // --- route registration ------------------------------------------------------
 // Chained so the exported AppType gives the web client end-to-end inference.
 
@@ -667,6 +738,74 @@ const routes = app
       // question about the data rather than about the request, so it says what
       // it found and refuses rather than backing up a mixture.
       if (error instanceof RowsFromAnotherAccountError) {
+        return c.json({ error: error.message }, 409);
+      }
+      throw error;
+    }
+  })
+  // Restoring, which is the half that destroys something. Accounts go in first
+  // and the register after, so a user never exists pointing at a store that has
+  // not arrived - the order is the caller's to keep, and the CLI keeps it.
+  .post('/v1/admin/restore/accounts/:name', async (c) => {
+    const accountName = c.req.param('name');
+    if (!accountNameSchema.safeParse(accountName).success) {
+      return c.json({ error: `${accountName} cannot be an account's name` }, 400);
+    }
+    const force = c.req.query('force') === 'true';
+    const read = accountBackupSchema.safeParse(await readJsonBody(c));
+    if (!read.success) {
+      return c.json({ error: `that is not a backup: ${firstProblem(read.error)}` }, 400);
+    }
+    // Before anything is dropped, and before the rows are looked at: a file
+    // says whose it is, and a file that says somebody else's may not be poured
+    // in however few rows it has to disagree with.
+    if (read.data.account !== accountName) {
+      return c.json(
+        {
+          error: `that is ${read.data.account}'s backup, and it was going into ${accountName} - nothing was restored`,
+        },
+        400,
+      );
+    }
+    const backup = read.data as AccountBackup;
+    try {
+      return c.json(await restoreAccount(c.env, accountName, backup, force), 200);
+    } catch (error) {
+      // Already holds data and nobody asked to replace it.
+      if (error instanceof ConflictInAccountError) {
+        return c.json({ error: error.message }, 409);
+      }
+      // A backup from a newer version, or one carrying another account's rows.
+      // The request is well formed and the answer is that this file may not go
+      // into this store, which is the caller's to fix.
+      if (error instanceof RefusedByAccountError) {
+        return c.json({ error: error.message }, 400);
+      }
+      throw error;
+    }
+  })
+  .post('/v1/admin/restore/register', async (c) => {
+    const read = registerBackupSchema.safeParse(await readJsonBody(c));
+    if (!read.success) {
+      return c.json({ error: `that is not a register: ${firstProblem(read.error)}` }, 400);
+    }
+    const incoming = read.data as RegisterBackup;
+    try {
+      const plan = await restoreRegister(c.env, incoming);
+      return c.json(
+        { accountsCreated: plan.tenantsToCreate.length, usersCreated: plan.usersToCreate.length },
+        200,
+      );
+    } catch (error) {
+      // A row nothing could write, whatever is here - a broken file rather than
+      // a disagreement, so it reads as the caller's to fix like every other
+      // malformed body, and not as something about this register.
+      if (error instanceof RegisterRowUnusableError) {
+        return c.json({ error: error.message }, 400);
+      }
+      // The backup and this environment disagree about who somebody is, which
+      // is not a thing a restore may decide.
+      if (error instanceof RegisterDisagreesError) {
         return c.json({ error: error.message }, 409);
       }
       throw error;

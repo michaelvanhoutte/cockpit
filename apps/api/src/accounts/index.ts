@@ -9,11 +9,19 @@ import type {
 import type { Env } from '../env.js';
 import { accountIsRegistered } from './register.js';
 import { describeForeignRows, type AccountBackup } from './backup.js';
+import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
-export { registerContents, registeredAccountNames } from './register.js';
+export {
+  RegisterDisagreesError,
+  RegisterRowUnusableError,
+  registerContents,
+  registeredAccountNames,
+  restoreRegister,
+} from './register.js';
+export type { RegisterBackup, RegisterPlan } from './register.js';
 
 /** The account is not in the register, so it has no data and never had any. */
 export class AccountNotInRegisterError extends Error {
@@ -135,6 +143,34 @@ export async function backUpAccount(env: Env, accountName: string): Promise<Acco
     throw new RowsFromAnotherAccountError(describeForeignRows(foreign, accountName));
   }
   return backup;
+}
+
+/**
+ * Puts one account's store back from a backup.
+ *
+ * **The register is deliberately not consulted**, which is the one place this
+ * differs from `backUpAccount` beside it. An account's store is restored
+ * *before* its register row is written, so that a user never exists pointing at
+ * data that has not arrived - which means at this moment the account is
+ * routinely not in the register yet, and requiring it would make restoring into
+ * an empty environment impossible.
+ *
+ * **What stands in for that check is the route, not this function.** A backup
+ * carries the name it was taken from, and `http/app.ts` refuses one whose name
+ * is not the account it is going into. That is what stops a file reaching the
+ * wrong store; the rows' own `tenant_id` (`foreignRows`) is a second lock
+ * behind it and not a substitute, because it can only disagree with rows that
+ * exist - a backup of an account nobody has opened has none, and used to pass
+ * straight through into whichever store was named.
+ */
+export async function restoreAccount(
+  env: Env,
+  accountName: string,
+  backup: AccountBackup,
+  force: boolean,
+): Promise<RestoreReport> {
+  const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
+  return unwrap(await store.restoreFrom(accountName, backup, force));
 }
 
 /** Turns the store's answer back into a value or the error that belongs to it. */

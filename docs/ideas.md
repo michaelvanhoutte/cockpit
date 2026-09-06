@@ -68,7 +68,7 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 - ~~**Roles from the start**, so role logic is in the code from the beginning rather than retrofitted.~~ *(Done as asked: every user carries `user` or `admin` since issue 86. Nothing enforces it, because there is no admin-only page yet — the admin section above brings the first gate.)*
 - **Multi-tenancy.**
 - **Audit trail.**
-- **Backup.** *(Half taken up: "Take a backup of an environment, or of one user" (issue 208) writes the register and every account's store to local JSON. Reading one back in is "Restore an environment, or one user, from a backup" (issue 209) and is not built, so a backup is how data is inspected and moved rather than how it is put back. D1 Time Travel still covers the register in place, and only the register — see "Migrations and rollback" in [deployment.md](deployment.md).)*
+- ~~**Backup.**~~ **Done**, in two: "Take a backup of an environment, or of one user" (issue 208) writes the register and every account's store to local JSON, and "Restore an environment, or one user, from a backup" (issue 209) puts one back. Both are operator commands — `pnpm backup:export` and `pnpm backup:restore` — and neither is reachable from the app. D1 Time Travel still covers the register in place, and only the register; see "Migrations and rollback" in [deployment.md](deployment.md). *(What is left is scheduling one, and somewhere off this machine to keep it.)*
 - **MCP server.**
 - **Per-connector rebuild and troubleshooting tools.**
 
