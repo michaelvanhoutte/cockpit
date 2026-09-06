@@ -306,6 +306,72 @@ describe('Accounts', () => {
       },
     );
   });
+
+  describe('an item carries the three texts it has and nothing left over from before', () => {
+    /**
+     * The text an Item used to show beside its title lived in `preview` until
+     * its title, the message it was captured from and its description became
+     * three of their own ("Edit an item's title and description on a form of
+     * its own", issue 159). Nothing has read or written it since, and
+     * `0014-drop-item-preview` is the release that takes it away.
+     *
+     * Integration rather than lower down because whether a column exists is a
+     * fact about a real schema, and against a store that already holds items
+     * rather than a new one: it is the only destructive change in the list, and
+     * a drop meeting an empty table would prove nothing about the rows.
+     */
+    it('a store brought fully up to date has let the old one go, and every item in it still reads', async () => {
+      const name = 'aged-store-item-texts-only';
+      await agedTo(name, justBefore('0014-drop-item-preview'));
+      await fillWithWhatIsAlreadyThere(name);
+
+      // Opening the store is what applies it, as the first request of the day
+      // does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql
+            .exec<{ name: string }>('PRAGMA table_info(items)')
+            .toArray()
+            .map((column) => column.name),
+        ),
+      ).not.toContain('preview');
+
+      // Read the way a workspace is read rather than out of the table, because
+      // what the drop could break is `itemColumns` naming a column that is gone
+      // - which only a read through the real query can show.
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok' });
+      expect(
+        snapshot.status === 'ok'
+          ? snapshot.value.items
+              // By id, because both fixture items were captured at the same
+              // moment and the read orders by that.
+              .map((item) => ({
+                id: item.id,
+                title: item.title,
+                capturedMessage: item.capturedMessage,
+                description: item.description,
+              }))
+              .sort((one, other) => one.id.localeCompare(other.id))
+          : [],
+      ).toEqual([
+        {
+          id: 'it-before',
+          title: 'Captured before the update',
+          capturedMessage: null,
+          description: null,
+        },
+        {
+          id: 'it-done-before',
+          title: 'Finished before the update',
+          capturedMessage: null,
+          description: null,
+        },
+      ]);
+    });
+  });
 });
 
 describe('Workspace management', () => {
