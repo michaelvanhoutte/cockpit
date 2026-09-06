@@ -1,4 +1,4 @@
-import { type Page, type Response } from '@playwright/test';
+import { type Locator, type Page, type Response } from '@playwright/test';
 import type { CommandName } from '@cockpit/shared';
 import {
   ADA,
@@ -374,5 +374,47 @@ test.describe('Panels', () => {
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
     });
+
+    test('takes a line of its own when it is let go in the gap between two rows', async ({
+      page,
+      isMobile,
+    }) => {
+      // The seam is four pixels of gap at rest and opens to something a hand
+      // can hit only while a panel is actually in the air, so whether it is a
+      // target at all is a question about a real drag against a real layout -
+      // the one claim in this gesture that no amount of firing events at the
+      // element can answer. The board's half of it, what the drop *means*, is
+      // settled in apps/web/tests/unit/components/PanelBoard.test.tsx.
+      await ownDashboard(page, isMobile);
+      const first = uniqueTitle('Project Falcon');
+      const second = uniqueTitle('To read');
+      await addPanel(page, first, isMobile);
+      await addPanel(page, second, isMobile);
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
+
+      // Aimed at where the gap above the row *is*, measured while the drag is
+      // on rather than beforehand: at rest it is four pixels, and a point
+      // picked from that would be off the seam the moment it opened.
+      const board = page.getByRole('region', { name: first });
+      await page.mouse.move(...(await centreOf(board.locator('header'))));
+      await page.mouse.down();
+      const seam = page.locator('main [data-testid="row-seam"]').first();
+      // Two moves, because a drag that jumps straight to its destination in one
+      // step gives the page nothing to react to: the seams open on the first.
+      await page.mouse.move(...(await centreOf(board)), { steps: 4 });
+      await page.mouse.move(...(await centreOf(seam)), { steps: 4 });
+      await page.mouse.up();
+
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first], [second]]);
+      await expectNoSidewaysScroll(page);
+      await expectTheDashboardFits(page);
+    });
   });
 });
+
+/** The middle of something, as the pair `page.mouse.move` takes. */
+async function centreOf(what: Locator): Promise<[number, number]> {
+  const box = await what.boundingBox();
+  if (!box) throw new Error('nothing to aim at');
+  return [box.x + box.width / 2, box.y + box.height / 2];
+}

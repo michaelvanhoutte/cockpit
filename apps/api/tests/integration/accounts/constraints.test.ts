@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
-import { ITEM_TYPE_COLORS } from '@cockpit/shared';
+import { ITEM_TYPE_COLORS, MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from '@cockpit/shared';
 import { ACCOUNT_NAME, WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
@@ -146,8 +146,8 @@ describe('Capture', () => {
             `SELECT name, strict FROM pragma_table_list
               WHERE schema = 'main'
                 AND name IN ('workspaces', 'dashboards', 'panels', 'layouts',
-                             'panel_placements', 'panel_items', 'items',
-                             'item_types', 'associations', 'commands')
+                             'layout_rows', 'panel_placements', 'panel_items',
+                             'items', 'item_types', 'associations', 'commands')
               ORDER BY name`,
           )
           .toArray(),
@@ -159,6 +159,7 @@ describe('Capture', () => {
         'dashboards',
         'item_types',
         'items',
+        'layout_rows',
         'layouts',
         'panel_items',
         'panel_placements',
@@ -184,6 +185,7 @@ describe('Capture', () => {
           'dashboards',
           'panels',
           'layouts',
+          'layout_rows',
           'panel_placements',
           'panel_items',
         ]) {
@@ -528,9 +530,18 @@ describe('Panels', () => {
       });
     }
 
+    // A pixel past each end, from the constants themselves: the floor has moved
+    // once already, and a literal one below where it used to be goes on passing
+    // while testing nothing.
     it.each([
-      { situation: 'a row taller than any screen could show', override: { height: 721 } },
-      { situation: 'a row too short to see what is in it', override: { height: 109 } },
+      {
+        situation: 'a row taller than any screen could show',
+        override: { height: MAX_ROW_HEIGHT + 1 },
+      },
+      {
+        situation: 'a row too short to see what is in it',
+        override: { height: MIN_ROW_HEIGHT - 1 },
+      },
       { situation: 'a row before the first one', override: { row_index: -1 } },
     ])('refuses $situation', async ({ override }) => {
       const layoutId = nextId();

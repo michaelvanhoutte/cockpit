@@ -95,17 +95,19 @@ export function PanelBoard({
    */
   const [chosen, choose] = useChosenLayout(browserStore(), dashboard.id);
   /**
-   * An arrangement that has been made but not yet stored - dragged or resized.
-   * It is what the grid draws while it exists, so the panel really does move
-   * under the hand that moved it, and it is dropped once the store has been
-   * re-read and agrees.
+   * An arrangement that has been made but not yet stored. It is what the board
+   * draws while it exists, so the panel really does move under the hand that
+   * moved it, and it is dropped once the store has been re-read and agrees.
    */
   const [draft, setDraft] = useState<LayoutRow[] | null>(null);
   /**
-   * The last arrangement actually sent, which is not the same as the last one
-   * drawn: a corner still being dragged is drawn every pointer move and sent
-   * only when the hand stops. Comparing a new gesture against what is *drawn*
-   * would make the release of that drag look like no change at all and drop it.
+   * The last arrangement actually sent, which is what a new gesture is compared
+   * against.
+   *
+   * Not what is *drawn*, and the difference is a gesture that puts the panels
+   * back where the store has them: after one move, that is a real second change
+   * and has to be sent, but against the drawn arrangement it would look like
+   * every panel already being where it was asked to go, and be dropped.
    */
   const sent = useRef<LayoutRow[] | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
@@ -298,6 +300,17 @@ export function PanelBoard({
     saveArrangement(layoutForThisScreen(), nameForScreen(screenWidth), screenWidth, next);
   };
 
+  /**
+   * A panel let go in the gap at `at`, which gives it a row of its own there.
+   * Every seam does the same thing, including the one under the last row, so
+   * they share a handler rather than each carrying a copy of it.
+   */
+  const dropInSeam = (at: number) => {
+    const picked = dragging;
+    setDragging(null);
+    if (picked) propose(movedToOwnRow(shown, picked, at));
+  };
+
   const renamePanel = () => {
     if (!renaming) return;
     const trimmed = renaming.name.trim();
@@ -352,8 +365,9 @@ export function PanelBoard({
       {panels.length === 0 ? (
         // An invitation rather than an apology: it says what a dashboard is for
         // instead of reporting that this one is empty ("Modernise the app
-        // shell", issue 125). No control of its own - Add a panel is in the
-        // strip right under it, and a second way to press the same thing is a
+        // shell", issue 125). No control of its own - Add a panel is on the
+        // dashboard's own bar, a centimetre above this ("Pick the layout you
+        // are on, by name"), and a second way to press the same thing is a
         // second thing to keep in step.
         <section className="well px-4 py-14 text-center">
           <p className="mx-auto max-w-md text-sm text-ink-faint">
@@ -373,112 +387,103 @@ export function PanelBoard({
               // would leave the menu somebody was pressing, a half-typed rename
               // would go, and a scrolled list would jump to the top.
               <Fragment key={rowIndex}>
-                <RowSeam
-                  at={rowIndex}
-                  dragging={dragging !== null}
-                  onDrop={(at) => {
-                    const picked = dragging;
-                    setDragging(null);
-                    if (picked) propose(movedToOwnRow(shown, picked, at));
-                  }}
-                />
+                <RowSeam at={rowIndex} dragging={dragging !== null} onDrop={dropInSeam} />
                 <div
                   // A row is a grid of its own, so its panels share one height
-                // without anything being told what that height is - which is
-                // what a row *is*. `minmax(0, …)` rather than a bare fraction
-                // is the whole of "never scrolls sideways": a bare `1fr` is
-                // `minmax(auto, 1fr)`, so one long unbroken word inside a panel
-                // would widen its column and take the page with it.
-                //
-                // As tall as what is on it, and never shorter than a row may
-                // be *set* to. The floor is not decoration: a panel's list is
-                // its drop target and is sized to fill the panel, so a row that
-                // shrank to its contents left an empty panel a sliver with half
-                // of it header - and filing an item into it stopped working
-                // where there was nothing left to aim at.
-                //
-                // A height of its own comes with the gesture that sets one,
-                // which is the next slice.
-                style={{
-                  minHeight: MIN_ROW_HEIGHT,
-                  display: 'grid',
-                  gridTemplateColumns: shares
-                    .map((share) => `minmax(0, ${share}fr)`)
-                    .join(' '),
-                  gap: PANEL_GAP,
-                }}
-              >
-                {row.cells.map((cell, at) => {
-                  const panel = panels.find((one) => one.id === cell.panelId);
-                  if (!panel) return null;
-                  return (
-                    <PanelCard
-                      key={panel.id}
-                      panel={panel}
-                      workspaceId={workspaceId}
-                      items={itemsOnPanel(items, filings, panel.id)}
-                      sideBySide={row.cells.length > 1}
-                      // Nowhere left to go, which is not the same as being at
-                      // the end of a row: a panel at the end of a row it
-                      // *shares* can still move onto a line of its own beyond
-                      // it, and that is the only way a keyboard has of making a
-                      // row. Only a panel alone on the first or last line has
-                      // run out of places.
-                      first={rowIndex === 0 && at === 0 && row.cells.length === 1}
-                      last={
-                        rowIndex === shown.length - 1 &&
-                        at === row.cells.length - 1 &&
-                        row.cells.length === 1
-                      }
-                      renaming={renaming?.id === panel.id ? renaming.name : null}
-                      onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
-                      onStartRenaming={() => {
-                        command.reset();
-                        setDeleting(null);
-                        setRenaming({ id: panel.id, name: panel.name });
-                      }}
-                      onRename={renamePanel}
-                      onStopRenaming={() => {
-                        setRenaming(null);
-                        command.reset();
-                      }}
-                      onDelete={(openedFrom) => {
-                        command.reset();
-                        setRenaming(null);
-                        askedFrom.current = openedFrom;
-                        setDeleting(panel.id);
-                      }}
-                      onMove={(places) => propose(movedBy(shown, panel.id, places))}
-                      onPickUp={() => setDragging(panel.id)}
-                      onLetGo={() => setDragging(null)}
-                      onDropOn={(where) => {
-                        const picked = dragging;
-                        setDragging(null);
-                        if (!picked) return;
-                        propose(movedBeside(shown, picked, panel.id, where));
-                      }}
-                      refusal={
-                        refusalFor('rename_panel', panel.id) ?? refusalFor('delete_panel', panel.id)
-                      }
-                      busy={command.isPending}
-                    />
-                  );
-                })}
+                  // without anything being told what that height is - which is
+                  // what a row *is*. `minmax(0, …)` rather than a bare fraction
+                  // is the whole of "never scrolls sideways": a bare `1fr` is
+                  // `minmax(auto, 1fr)`, so one long unbroken word inside a
+                  // panel would widen its column and take the page with it.
+                  //
+                  // **The height the row was given, where it has one.** A row
+                  // converted from the arrangement that came before this
+                  // carries the height its panels were drawn at
+                  // (changes.ts, `0012-panel-rows`), and a row nobody has ever
+                  // sized carries none - so drawing the stored one is what
+                  // makes "nothing changes size on the day this lands" true.
+                  // The *gesture* that sets one is the next slice; reading what
+                  // is already there is not.
+                  //
+                  // Never shorter than a row may be set to, whichever it is.
+                  // The floor is not decoration: a panel's list is its drop
+                  // target and is sized to fill the panel, so a row that shrank
+                  // to its contents left an empty panel a sliver with half of
+                  // it header - and filing an item into it stopped working
+                  // where there was nothing left to aim at.
+                  style={{
+                    height: row.height ?? undefined,
+                    minHeight: MIN_ROW_HEIGHT,
+                    display: 'grid',
+                    gridTemplateColumns: shares
+                      .map((share) => `minmax(0, ${share}fr)`)
+                      .join(' '),
+                    gap: PANEL_GAP,
+                  }}
+                >
+                  {row.cells.map((cell, at) => {
+                    const panel = panels.find((one) => one.id === cell.panelId);
+                    if (!panel) return null;
+                    return (
+                      <PanelCard
+                        key={panel.id}
+                        panel={panel}
+                        workspaceId={workspaceId}
+                        items={itemsOnPanel(items, filings, panel.id)}
+                        sideBySide={row.cells.length > 1}
+                        // Nowhere left to go, which is not the same as being at
+                        // the end of a row: a panel at the end of a row it
+                        // *shares* can still move onto a line of its own beyond
+                        // it, and that is the only way a keyboard has of making a
+                        // row. Only a panel alone on the first or last line has
+                        // run out of places.
+                        first={rowIndex === 0 && at === 0 && row.cells.length === 1}
+                        last={
+                          rowIndex === shown.length - 1 &&
+                          at === row.cells.length - 1 &&
+                          row.cells.length === 1
+                        }
+                        renaming={renaming?.id === panel.id ? renaming.name : null}
+                        onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
+                        onStartRenaming={() => {
+                          command.reset();
+                          setDeleting(null);
+                          setRenaming({ id: panel.id, name: panel.name });
+                        }}
+                        onRename={renamePanel}
+                        onStopRenaming={() => {
+                          setRenaming(null);
+                          command.reset();
+                        }}
+                        onDelete={(openedFrom) => {
+                          command.reset();
+                          setRenaming(null);
+                          askedFrom.current = openedFrom;
+                          setDeleting(panel.id);
+                        }}
+                        onMove={(places) => propose(movedBy(shown, panel.id, places))}
+                        onPickUp={() => setDragging(panel.id)}
+                        onLetGo={() => setDragging(null)}
+                        onDropOn={(where) => {
+                          const picked = dragging;
+                          setDragging(null);
+                          if (!picked) return;
+                          propose(movedBeside(shown, picked, panel.id, where));
+                        }}
+                        refusal={
+                          refusalFor('rename_panel', panel.id) ?? refusalFor('delete_panel', panel.id)
+                        }
+                        busy={command.isPending}
+                      />
+                    );
+                  })}
                 </div>
               </Fragment>
             );
           })}
           {/* The gap under the last row, so a panel can be dropped below
               everything rather than only between two things. */}
-          <RowSeam
-            at={shown.length}
-            dragging={dragging !== null}
-            onDrop={(at) => {
-              const picked = dragging;
-              setDragging(null);
-              if (picked) propose(movedToOwnRow(shown, picked, at));
-            }}
-          />
+          <RowSeam at={shown.length} dragging={dragging !== null} onDrop={dropInSeam} />
         </div>
       )}
 

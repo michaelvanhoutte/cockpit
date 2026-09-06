@@ -1,4 +1,4 @@
-import { and, eq, notExists, sql } from 'drizzle-orm';
+import { and, eq, inArray, notExists, sql } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
@@ -590,11 +590,15 @@ export function runCommand<N extends CommandName>(
       // A panel already deleted is not there to delete again, so the same
       // delete sent twice deletes one panel whether the replay carries the
       // original request id (caught at the top) or a fresh one (caught here).
-      panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      const going = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
       // A dashboard may end up with no panels at all. The last *dashboard* of a
       // workspace is the one thing the app refuses to delete, because a
       // workspace with no dashboard has no view; a dashboard with no panels is
       // a dashboard you can put one on.
+      //
+      // The layouts this delete can empty a row of are this dashboard's, which
+      // is what bounds the sweep below to them.
+      const itsLayouts = listLayoutIds(db, tenantId, going.dashboardId);
       db.transaction((tx) => {
         // Out of every layout of the dashboard, in one statement: a layout is a
         // list of where the panels are, and one naming a panel nobody can see
@@ -611,24 +615,33 @@ export function runCommand<N extends CommandName>(
         // browser can be holding a copy from before this delete - but a state
         // the store can be left in is a state somebody has to explain later,
         // and this one need not exist at all.
-        tx.delete(layoutRows)
-          .where(
-            and(
-              eq(layoutRows.tenantId, tenantId),
-              notExists(
-                tx
-                  .select({ one: sql`1` })
-                  .from(panelPlacements)
-                  .where(
-                    and(
-                      eq(panelPlacements.layoutId, layoutRows.layoutId),
-                      eq(panelPlacements.rowIndex, layoutRows.rowIndex),
+        //
+        // Bounded to this dashboard's layouts, which are the only ones this
+        // delete touched. Emptied by tenant it would be a sweep: deleting a
+        // panel on one dashboard would quietly rewrite the arrangements of
+        // every other, and whatever it found to remove there would be somebody
+        // else's problem to explain.
+        if (itsLayouts.length > 0) {
+          tx.delete(layoutRows)
+            .where(
+              and(
+                eq(layoutRows.tenantId, tenantId),
+                inArray(layoutRows.layoutId, itsLayouts),
+                notExists(
+                  tx
+                    .select({ one: sql`1` })
+                    .from(panelPlacements)
+                    .where(
+                      and(
+                        eq(panelPlacements.layoutId, layoutRows.layoutId),
+                        eq(panelPlacements.rowIndex, layoutRows.rowIndex),
+                      ),
                     ),
-                  ),
+                ),
               ),
-            ),
-          )
-          .run();
+            )
+            .run();
+        }
         tx.update(panels)
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
@@ -688,10 +701,12 @@ export function runCommand<N extends CommandName>(
         // place in this layout and its old row must not survive - and a row it
         // no longer has is a line nothing would draw.
         //
-        // The cells go before the rows they sit in, which is the order the
-        // foreign key wants, and the whole replacement is one transaction, so
-        // nothing ever reads a layout with its rows gone and its cells still
-        // there.
+        // Nothing enforces the order the two lists are written in - a cell
+        // names its row by number, not by a foreign key - so what keeps them
+        // agreeing is the transaction around both: nothing ever reads a layout
+        // with its rows gone and its cells still there. A cell whose row is
+        // missing all the same is a state the screen survives (repo.ts,
+        // `rowsOf`) rather than one this relies on being impossible.
         tx.delete(panelPlacements)
           .where(
             and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, cmd.layoutId)),

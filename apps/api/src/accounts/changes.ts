@@ -1008,6 +1008,12 @@ const PANEL_ROWS: Change = {
       // constants, for the reason `0005-panels` gives: a change that has
       // shipped may never be edited, so a constant that later moves would
       // rewrite this statement for the accounts that have not applied it yet.
+      //
+      // Which is what makes *lowering* `MIN_ROW_HEIGHT` a change of its own
+      // rather than an edit here: every store converted by this one keeps the
+      // CHECK below, so a floor the contract has dropped to would be refused by
+      // the database with a constraint error instead of a sentence. Raising it
+      // needs nothing - the old CHECK is merely looser than the new contract.
       sql: `CREATE TABLE \`layout_rows\` (
 	\`tenant_id\` text NOT NULL,
 	\`layout_id\` text NOT NULL,

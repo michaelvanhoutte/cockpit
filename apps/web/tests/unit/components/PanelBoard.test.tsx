@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { CommandRefused } from '../../../src/api/client';
@@ -502,6 +503,33 @@ describe('Panels', () => {
       dropInSeam('To read', 0);
 
       expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
+    });
+
+    it('draws a row at the height it was given, and one with none at the floor', async () => {
+      // The conversion from the arrangement that came before this hands every
+      // row the height its panels were drawn at (changes.ts, `0012-panel-rows`)
+      // so that nothing changes size on the day it lands - which only holds if
+      // the height is read back out. A row nobody has ever sized has none, and
+      // is as tall as what is on it, never below the floor.
+      showBoard({
+        layouts: [
+          {
+            ...aLayout('laptop', 1280, ['falcon']),
+            rows: [
+              { height: 248, cells: [{ panelId: 'falcon', span: 12 }] },
+              { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+            ],
+          },
+        ],
+      });
+
+      const rows = screen
+        .getAllByRole('region')
+        .map((panel) => (panel.parentElement as HTMLElement).style);
+
+      expect(rows[0]!.height).toBe('248px');
+      expect(rows[1]!.height).toBe('');
+      expect(rows[1]!.minHeight).toBe(`${MIN_ROW_HEIGHT}px`);
     });
 
     it('closes the gaps again when a panel is picked up and let go nowhere', async () => {

@@ -184,6 +184,19 @@ describe('Layouts', () => {
       ]);
     });
 
+    it('keeps the proportions when the move is along the row it was already on', () => {
+      // Evening out is what a row does when *who is on it* changes. A reorder
+      // changes nothing about that, so flattening a row somebody set to 9 and 3
+      // would throw their proportions away from a gesture that only swapped two
+      // panels over.
+      const uneven = [aRow([cell('a', 9), cell('b', 3)])];
+
+      expect(movedBeside(uneven, 'b', 'a', 'before')[0]!.cells).toEqual([
+        cell('b', 3),
+        cell('a', 9),
+      ]);
+    });
+
     it('keeps the row it left when something else is still on it', () => {
       const three = [aRow([cell('a', 6), cell('b', 6)]), aRow([cell('c', 6), cell('d', 6)])];
 

@@ -318,7 +318,6 @@ export function listLayoutIds(db: AccountDb, tenantId: string, dashboardId: stri
     .map((row) => row.id);
 }
 
-/** One layout's arrangement, in the order it is drawn in. */
 /**
  * One layout's rows, in order. What a panel being added needs: it goes in a row
  * of its own under everything already there, so the last index is the question.
@@ -341,6 +340,7 @@ export function listLayoutRows(
     .all();
 }
 
+/** One layout's cells, in the order they are drawn in: by row, then along it. */
 export function listPlacements(db: AccountDb, tenantId: string, layoutId: string): PlacementRow[] {
   return db
     .select({

@@ -299,11 +299,15 @@ function evenly(cells: readonly LayoutCell[]): LayoutCell[] {
 /**
  * The arrangement with one panel put beside another, in that one's row.
  *
- * The row it left is dropped if that emptied it, and the row it joins shares
- * itself out evenly. A row already full refuses, and says so by coming back
- * unchanged: four across is where a panel stops being a box you read
- * (`MOST_ACROSS`), and the gestures are where that rule lives - the store keeps
- * whatever it is given.
+ * The row it left is dropped if that emptied it, and the row it *joins* shares
+ * itself out evenly. **Only a row whose membership changed**: moving a panel
+ * along the row it is already on is a reorder, and evening that row out would
+ * throw away proportions somebody set on purpose from a gesture that changed
+ * who is on the line.
+ *
+ * A row already full refuses, and says so by coming back unchanged: four across
+ * is where a panel stops being a box you read (`MOST_ACROSS`), and the gestures
+ * are where that rule lives - the store keeps whatever it is given.
  */
 export function movedBeside(
   rows: readonly LayoutRow[],
@@ -328,7 +332,9 @@ export function movedBeside(
     panelId,
     span,
   });
-  next[landing.row]!.cells = evenly(next[landing.row]!.cells);
+  // Its own span is what it carries along a row it was already on, so two
+  // panels sharing a row 8/4 swap to 4/8 rather than flattening to 6/6.
+  if (moving.row !== target.row) next[landing.row]!.cells = evenly(next[landing.row]!.cells);
   return next;
 }
 
