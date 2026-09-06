@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ItemType, Workspace } from '@cockpit/shared';
-import { itemTypesQuery, snapshotQuery, workspacesQuery } from '../api/queries';
-import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
+import { snapshotQuery, workspacesQuery } from '../api/queries';
+import { captureRoute } from '../router';
 import { howLongAgo, useCapture } from '../capture';
 import { NO_TYPES, typesOffered } from '../itemTypes';
 
@@ -33,31 +33,33 @@ export function CapturePage() {
    * The workspace this is captured *from*, which every Item records even while
    * it belongs to none ("Capture something before you know which workspace it
    * belongs to", issue 165). The page has no workspace of its own, so the
-   * honest answer is the one you were last in (`lastVisited.ts`).
+   * honest answer is the one you were last in - decided by the route and handed
+   * down, so the snapshot it waited for is the one read below (router.tsx).
    */
-  const from = workspaceToCaptureFrom(browserStore(), workspaces);
+  const { capturingFrom: from } = captureRoute.useRouteContext();
 
-  const { data: types } = useQuery(itemTypesQuery);
   /**
-   * The workspace you came from, read for its items alone: which types you have
-   * been using is worked out from what you have captured (`itemTypes.ts`), and
-   * this page has no snapshot of its own to work it out from. It is the same
-   * query key the shell already holds, so it costs no request of its own where
-   * you came from a workspace - which is every way of getting here but a typed
-   * address.
+   * The workspace you came from, read for its types *and* its items: one read
+   * for both halves of the Type row, and the same query key the shell already
+   * holds. **Not the account's types as a resource of their own** - nothing
+   * ahead of this page fetches that one, so it arrived after the page was drawn
+   * and left it unable to capture (`CapturePage.test.tsx`, "the capture page is
+   * drawn only once it can capture"). `itemTypesQuery` stays for the window
+   * that manages them, which really is outside every workspace.
    */
-  const snapshot = useQuery({ ...snapshotQuery(from ?? ''), enabled: Boolean(from) });
+  const snapshot = useQuery(snapshotQuery(from));
 
-  const known = types?.itemTypes ?? [];
+  const known = snapshot.data?.itemTypes ?? [];
   const offered = typesOffered(known, snapshot.data?.items ?? []);
   /**
    * Whether the account has *said* what types it has, which is not the same as
    * this page having none to show: `?? []` above turns a question still in
    * flight into an empty list, and "No types yet" is a claim about the account
-   * rather than about what has arrived. The same guard the window that manages
-   * them carries, for the same reason (components/ManageTypes.tsx).
+   * rather than about what has arrived. Asked of the field rather than of the
+   * snapshot around it, because a stored copy can predate the field - the same
+   * guard the Inbox's row carries (components/CaptureForm.tsx).
    */
-  const answered = types !== undefined;
+  const answered = snapshot.data?.itemTypes !== undefined;
 
   const [message, setMessage] = useState('');
   /**
