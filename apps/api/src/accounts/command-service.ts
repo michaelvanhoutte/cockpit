@@ -983,23 +983,32 @@ export function runCommand<N extends CommandName>(
     case 'create_item_type': {
       const cmd = payload as CommandPayload<'create_item_type'>;
       const already = listItemTypes(db, tenantId);
-      // Naming one that is already there reuses it rather than refusing: the
-      // gesture is "this is a thought", and it means the same whether or not
-      // the type existed a moment ago ("Capture a thought or an action, and
-      // see which it is", issue 155). The command is still recorded, so a
-      // replay is still a replay.
-      const existing = itemTypeNamed(already, cmd.name);
+      // A name another type has is refused, exactly as a workspace's is. It
+      // used to reuse the existing type in silence, which was right while the
+      // only way to make one was naming it at capture - the gesture was "this
+      // is a thought", and it meant the same whether or not the type existed a
+      // moment ago. Making one is now a deliberate box in the window they are
+      // managed in ("Make a type where types are managed, not while capturing",
+      // issue 203), where a silent reuse is a button that appears to do
+      // nothing.
+      const alreadyCalledThat = itemTypeNamed(already, cmd.name);
+      if (alreadyCalledThat) throw new ItemTypeNameTakenError(alreadyCalledThat.name);
       db.transaction((tx) => {
-        if (!existing) {
-          tx.insert(itemTypes)
-            .values({
-              ...itemTypeFromCommand(cmd, tenantId, already, lastItemTypePosition(db, tenantId)),
-              foldedName: foldName(cmd.name),
-              deletedAt: null,
-            })
-            .onConflictDoNothing()
-            .run();
-        }
+        tx.insert(itemTypes)
+          .values({
+            ...itemTypeFromCommand(cmd, tenantId, already, lastItemTypePosition(db, tenantId)),
+            foldedName: foldName(cmd.name),
+            deletedAt: null,
+          })
+          // Bare, and unlike `create_workspace`'s, which names its primary key.
+          // Either conflict this can hit proves the request has already been
+          // granted: on the id, the same create replayed after its command row
+          // was lost; on the folded name, another tab that won the race past
+          // the check above. Both leave exactly one type going by that name, so
+          // answering "done" is true - which is the thing the workspaces' bare
+          // call could not promise.
+          .onConflictDoNothing()
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

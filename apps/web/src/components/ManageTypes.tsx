@@ -19,22 +19,24 @@ import { RowForm, wasOnTheRow } from './RowForm';
 
 /**
  * Where types are managed ("Manage the types, and put them in the order you
- * want", issue 156). It lists them, renames them, recolours them, puts them in
- * the order capture offers them in, and deletes them.
+ * want", issue 156). It lists them, makes them, renames them, recolours them,
+ * puts them in the order capture offers them in, and deletes them.
  *
  * **A sibling of the workspaces window, and the same window in every respect
- * that matters**: a row keeps its shape, what can be done to a type is in
- * its own menu, its name and its colour are edited together on a form over
- * it (`components/RowForm.tsx`), deleting asks in a dialog, and a type is
- * moved two ways that are one change. It is a list of its own rather than a
- * section of a window about something else, which is what would make it hard
- * to find.
+ * that matters**: a box above the list makes one, a row keeps its shape, what
+ * can be done to a type is in its own menu, its name and its colour are edited
+ * together on a form over it (`components/RowForm.tsx`), deleting asks in a
+ * dialog, and a type is moved two ways that are one change. It is a list of its
+ * own rather than a section of a window about something else, which is what
+ * would make it hard to find.
  *
- * **There is no box for making one**, which is the one way it differs. A type
- * comes into existence by being used, at capture ("Capture a thought or an
- * action, and see which it is", issue 155) - a type you need once is not worth
- * a trip here, and a second way to make one would be a second place for the
- * same name to be typed differently.
+ * **The box is where making one moved to** ("Make a type where types are
+ * managed, not while capturing", issue 203). A type used to come into existence
+ * by being named at capture, and only there; the rule that made that the only
+ * way has not changed, only which place it names - a type's name is typed in
+ * one place, so the same word cannot be spelled two ways. What capture had to
+ * be was fast, and "I want a new kind of thing" is the one thing it was asked
+ * to do that nobody is ever in a hurry about.
  */
 export function ManageTypes({
   open,
@@ -49,6 +51,8 @@ export function ManageTypes({
   const { data, error, refetch } = useQuery(itemTypesQuery);
   const workspaces = useQuery(workspacesQuery);
   const queryClient = useQueryClient();
+  /** The name of the type being made, which is all making one asks for. */
+  const [name, setName] = useState('');
   /**
    * The type whose form is open, and the draft in it: the name typed so far and
    * the colour picked so far. Nothing here has been sent - Save is what sends
@@ -262,10 +266,35 @@ export function ManageTypes({
     }
   };
 
-  /** Closing it forgets what was refused, for the reason the workspaces' does. */
+  /**
+   * Closing it forgets what was half-typed and what was refused, for the reason
+   * the workspaces' window gives: this stays mounted between openings, so a
+   * refusal that is merely hidden comes back the next time over a name nobody
+   * has touched.
+   */
   const close = () => {
     stopAsking();
+    setName('');
     onClose();
+  };
+
+  /**
+   * Makes one. No colour goes with it: which of the palette is free is a fact
+   * about the account rather than about the request, so the account picks it and
+   * the row's own Edit… changes it afterwards - the same bargain New workspace
+   * makes one list up.
+   */
+  const create = (e: React.FormEvent) => {
+    e.preventDefault();
+    const named = name.trim();
+    if (!named) return;
+    command.mutate(
+      { name: 'create_item_type', payload: { ...envelope(), typeId: uuidv7(), name: named } },
+      // Cleared only once it worked. A refusal - a name another type already
+      // has, most of all - leaves what was typed where it is, so it can be
+      // fixed rather than typed again.
+      { onSuccess: () => setName('') },
+    );
   };
 
   const confirmDelete = (typeId: string) => {
@@ -289,7 +318,7 @@ export function ManageTypes({
 
   /** The refusal belongs to the control that asked for it, exact because only one is ever in flight. */
   const refusalFor = (
-    what: 'delete_item_type' | 'reorder_item_types',
+    what: 'create_item_type' | 'delete_item_type' | 'reorder_item_types',
     id?: string,
   ) =>
     refusal &&
@@ -308,8 +337,40 @@ export function ManageTypes({
       ref={list}
     >
       <p className="mt-2 text-sm text-ink-faint">
-        What kind of thing an item is. A new one is made by naming it when you capture something.
+        What kind of thing an item is. Capture offers these, the ones you used last first.
       </p>
+
+      {/* Above the list, where the workspaces' window puts its own and for the
+          reason recorded there: the list has no ceiling, so a box below it is a
+          control whose reachability depends on how much you already own - and
+          it is the one control here an account with nothing needs most. */}
+      <form onSubmit={create} className="mt-4 flex flex-col gap-2">
+        <div className="flex gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            // Two examples rather than three: a third is cut off in the 198px
+            // this box gets on a 375px screen, and a hint that ends mid-word
+            // is worse than a shorter one. Found in the browser.
+            placeholder="Question, Decision…"
+            aria-label="Name of the new type"
+            maxLength={60}
+            className="min-w-0 flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+          />
+          <button
+            type="submit"
+            disabled={command.isPending || saving}
+            className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+          >
+            New type
+          </button>
+        </div>
+        {refusalFor('create_item_type') && (
+          <p role="alert" className="text-sm text-over">
+            {refusalFor('create_item_type')}
+          </p>
+        )}
+      </form>
 
       <section className="-mx-2 mt-4 min-h-0 flex-1 overflow-y-auto">
         <ul ref={listRef}>
@@ -464,9 +525,7 @@ export function ManageTypes({
           </div>
         )}
         {answered && types.length === 0 && (
-          <p className="px-4 py-4 text-sm text-ink-faint">
-            No types yet. Name one when you capture something.
-          </p>
+          <p className="px-4 py-4 text-sm text-ink-faint">No types yet. Make one above.</p>
         )}
       </section>
       <CloseWindow disabled={command.isPending || saving} />

@@ -1,30 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
-import { ACCOUNT_WIDE } from '@cockpit/shared';
 import type { Item, ItemType } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { CaptureForm } from '../../../src/components/CaptureForm';
-import { useCommand, useSendCommand } from '../../../src/api/queries';
-
-/**
- * The types the account has *after* a change, which is what the form re-reads
- * to find out which id the type it just named ended up with.
- */
-const afterwards = vi.hoisted(() => ({ types: [] as unknown[] }));
+import { useCommand } from '../../../src/api/queries';
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
-  useSendCommand: vi.fn(),
-  itemTypesQuery: {
-    queryKey: ['itemTypes'],
-    queryFn: () => Promise.resolve({ itemTypes: afterwards.types }),
-  },
 }));
 
 const mockUseCommand = vi.mocked(useCommand);
-const mockUseSendCommand = vi.mocked(useSendCommand);
 
 function aType(name: string, at: number): ItemType {
   return {
@@ -70,40 +57,46 @@ function anItemOf(type: ItemType | null, at: number): Item {
 /**
  * The form, with the types and items the workspace holds.
  *
- * `madeAs` is the type the account is holding by the time the form re-reads
- * them - which is how the case where another tab made the same type first is
- * arranged, since the id that comes back is then not the one this form
- * generated.
+ * `refuses` is what the account says back, so the row can be watched putting a
+ * note that did not land back in the box. `rerender` is how a type deleted in
+ * another tab is arranged: the same row, one type fewer.
  */
-function aForm(
-  types: ItemType[] = [ACTION, THOUGHT],
-  items: Item[] = [],
-  madeAs: ItemType[] = types,
-  refuses?: Error,
-) {
-  const mutate = vi.fn();
-  const send = vi.fn((_args: unknown) =>
-    refuses ? Promise.reject(refuses) : Promise.resolve(),
+function aForm(types: ItemType[] = [ACTION, THOUGHT], items: Item[] = [], refuses?: Error) {
+  const mutate = vi.fn(
+    (_args: unknown, answers?: { onSuccess?: () => void; onError?: (error: Error) => void }) => {
+      if (refuses) answers?.onError?.(refuses);
+      else answers?.onSuccess?.();
+    },
   );
-  afterwards.types = madeAs;
   mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
-  mockUseSendCommand.mockReturnValue(send as never);
-  render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <CaptureForm workspaceId="ws-work" types={types} items={items} />
-    </QueryClientProvider>,
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const shown = (now: ItemType[]) => (
+    <QueryClientProvider client={client}>
+      <CaptureForm workspaceId="ws-work" types={now} items={items} />
+    </QueryClientProvider>
   );
-  return { mutate, send, user: userEvent.setup() };
+  const { rerender } = render(shown(types));
+  return {
+    mutate,
+    user: userEvent.setup(),
+    /** The same row again, with whatever the account holds now. */
+    withTypes: (now: ItemType[]) => rerender(shown(now)),
+  };
 }
 
-/** What the type box offers, in the order it offers them. */
+const theTypeBox = () => screen.getByLabelText('What kind of thing this is');
+
+/** What the type box offers, in the order it offers them, without *No type*. */
 const offered = () =>
-  Array.from(document.querySelectorAll('datalist option')).map((option) =>
-    option.getAttribute('value'),
-  );
+  Array.from(theTypeBox().querySelectorAll('option'))
+    .map((option) => option.textContent)
+    .filter((name) => name !== 'No type');
 
 const asked = (mutate: ReturnType<typeof vi.fn>, name: string) =>
   mutate.mock.calls.map(([args]) => args).find((args) => args.name === name);
+
+const everythingAsked = (mutate: ReturnType<typeof vi.fn>) =>
+  mutate.mock.calls.map(([args]) => args.name);
 
 describe('Capture', () => {
   describe('capturing a thought sends it and leaves the box ready for the next one', () => {
@@ -152,77 +145,66 @@ describe('Capture', () => {
     });
   });
 
-  describe('an item is captured as the type you named, or as the one you used last', () => {
-    it('captures it as the type named', async () => {
-      const { mutate, user } = aForm();
+  /**
+   * The Inbox's half of the rule ("Make a type where types are managed, not
+   * while capturing", issue 203). The window that does make one owns the other
+   * half, in tests/unit/components/ManageTypes.test.tsx.
+   */
+  describe('a type is made where types are managed, and nowhere else', () => {
+    it('offers the types the account has, and nothing else', () => {
+      aForm();
 
-      await user.type(screen.getByLabelText('Capture a note or to-do'), 'Buy milk');
-      await user.clear(screen.getByLabelText('What kind of thing this is'));
-      await user.type(screen.getByLabelText('What kind of thing this is'), 'Thought');
-      await user.click(screen.getByRole('button', { name: 'Capture' }));
-
-      expect(asked(mutate, 'capture_item').payload.typeId).toBe(THOUGHT.id);
-      expect(asked(mutate, 'create_item_type')).toBeUndefined();
+      expect(offered()).toEqual(['Action', 'Thought']);
+      expect(theTypeBox().tagName).toBe('SELECT');
     });
 
-    it.each([
-      { situation: 'the same name', typed: 'Thought' },
-      { situation: 'a different capitalisation', typed: 'THOUGHT' },
-      { situation: 'the name with blanks round it', typed: '  thought  ' },
-    ])('reuses the type when given $situation', async ({ typed }) => {
+    it('asks to capture, and never to make a type', async () => {
       const { mutate, user } = aForm();
-
-      await user.type(screen.getByLabelText('Capture a note or to-do'), 'Buy milk');
-      await user.clear(screen.getByLabelText('What kind of thing this is'));
-      await user.type(screen.getByLabelText('What kind of thing this is'), typed);
-      await user.click(screen.getByRole('button', { name: 'Capture' }));
-
-      expect(asked(mutate, 'create_item_type')).toBeUndefined();
-      expect(asked(mutate, 'capture_item').payload.typeId).toBe(THOUGHT.id);
-    });
-
-    it.each([
-      {
-        situation: 'this request is what made it',
-        made: aType('Question', 2),
-      },
-      {
-        // The same name, a different id: another tab got there first and the
-        // store kept its row. Capturing against the id this form generated
-        // would name something nobody stored, and the note would be gone.
-        situation: 'another tab made it first',
-        made: { ...aType('Question', 9), id: 'made-by-somebody-else' },
-      },
-    ])('makes a new type and captures as the one now going by that name, when $situation', async ({ made }) => {
-      const { mutate, send, user } = aForm([ACTION, THOUGHT], [], [ACTION, THOUGHT, made]);
 
       await user.type(screen.getByLabelText('Capture a note or to-do'), 'Why is this slow?');
-      await user.clear(screen.getByLabelText('What kind of thing this is'));
-      await user.type(screen.getByLabelText('What kind of thing this is'), 'Question');
+      await user.selectOptions(theTypeBox(), THOUGHT.id);
       await user.click(screen.getByRole('button', { name: 'Capture' }));
 
-      expect(send).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'create_item_type',
-          // The account rather than this workspace, because a type belongs to
-          // the account - and it is what tells every other tab its list of
-          // types has changed.
-          payload: expect.objectContaining({ name: 'Question', workspaceId: ACCOUNT_WIDE }),
-        }),
-      );
-      await waitFor(() => expect(asked(mutate, 'capture_item')).toBeDefined());
-      expect(asked(mutate, 'capture_item').payload.typeId).toBe(made.id);
+      expect(everythingAsked(mutate)).toEqual(['capture_item']);
     });
+  });
 
-    it('captures with no type when the box was emptied', async () => {
+  describe('an item is captured as the type you chose, or as the one you used last', () => {
+    it('captures it as the type chosen', async () => {
       const { mutate, user } = aForm();
 
       await user.type(screen.getByLabelText('Capture a note or to-do'), 'Buy milk');
-      await user.clear(screen.getByLabelText('What kind of thing this is'));
+      await user.selectOptions(theTypeBox(), THOUGHT.id);
+      await user.click(screen.getByRole('button', { name: 'Capture' }));
+
+      expect(asked(mutate, 'capture_item').payload.typeId).toBe(THOUGHT.id);
+    });
+
+    it('captures with no type when No type is chosen', async () => {
+      const { mutate, user } = aForm();
+
+      await user.type(screen.getByLabelText('Capture a note or to-do'), 'Buy milk');
+      await user.selectOptions(theTypeBox(), '');
       await user.click(screen.getByRole('button', { name: 'Capture' }));
 
       expect(asked(mutate, 'capture_item').payload.typeId).toBeUndefined();
-      expect(asked(mutate, 'create_item_type')).toBeUndefined();
+    });
+
+    /**
+     * The choice follows the list rather than being remembered beside it, which
+     * is what stops a capture naming a type the account no longer has - the
+     * server refuses one of those, and the note would go with it.
+     */
+    it('captures with no type when the one chosen is deleted in another tab', async () => {
+      const { mutate, user, withTypes } = aForm();
+
+      await user.type(screen.getByLabelText('Capture a note or to-do'), 'Buy milk');
+      await user.selectOptions(theTypeBox(), THOUGHT.id);
+      withTypes([ACTION]);
+      await user.click(screen.getByRole('button', { name: 'Capture' }));
+
+      expect(theTypeBox()).toHaveValue('');
+      expect(asked(mutate, 'capture_item').payload.typeId).toBeUndefined();
     });
   });
 
@@ -252,23 +234,23 @@ describe('Capture', () => {
     it('opens on the type used last', () => {
       aForm([ACTION, THOUGHT], [anItemOf(THOUGHT, 0)]);
 
-      expect(screen.getByLabelText('What kind of thing this is')).toHaveValue('Thought');
+      expect(theTypeBox()).toHaveValue(THOUGHT.id);
     });
 
     it('offers nothing and asks for nothing when the account has no types yet', () => {
       aForm([]);
 
       expect(offered()).toEqual([]);
-      expect(screen.getByLabelText('What kind of thing this is')).toHaveValue('');
+      expect(theTypeBox()).toHaveValue('');
     });
   });
 
-  describe('a thought whose type could not be made stays in the box, and says why', () => {
+  describe('a thought that could not be captured stays in the box, and says why', () => {
     it.each([
       {
-        situation: 'the server refused the name',
-        refuses: new CommandRefused(400, 'a name is at most 60 characters'),
-        says: 'a name is at most 60 characters',
+        situation: 'the account refused it',
+        refuses: new CommandRefused(404, 'that workspace is not there any more'),
+        says: 'that workspace is not there any more',
       },
       {
         situation: 'the request never arrived',
@@ -276,19 +258,16 @@ describe('Capture', () => {
         says: 'That did not reach the server. Try again.',
       },
     ])('$situation', async ({ refuses, says }) => {
-      const { mutate, user } = aForm([ACTION, THOUGHT], [], [ACTION, THOUGHT], refuses);
+      const { user } = aForm([ACTION, THOUGHT], [], refuses);
 
       const box = screen.getByLabelText('Capture a note or to-do');
       await user.type(box, 'Why is this slow?');
-      await user.clear(screen.getByLabelText('What kind of thing this is'));
-      await user.type(screen.getByLabelText('What kind of thing this is'), 'Question');
       await user.click(screen.getByRole('button', { name: 'Capture' }));
 
       // The note is still there to be captured again, and the reason is on
       // screen - clearing it first threw it away with nothing said.
       expect(await screen.findByText(says)).toBeVisible();
       expect(box).toHaveValue('Why is this slow?');
-      expect(asked(mutate, 'capture_item')).toBeUndefined();
     });
   });
 });

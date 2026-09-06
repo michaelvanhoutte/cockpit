@@ -588,12 +588,12 @@ describe('Item editing', () => {
 
 describe('Capture', () => {
   /**
-   * Reuse and the race are both facts about a real store: whether a name is
-   * already taken is a query, and whether two of them can exist at once is what
-   * the unique index behind the check decides. The folding itself is proved
-   * without one in tests/unit/domain/item-types.test.ts.
+   * The refusal and the race are both facts about a real store: whether a name
+   * is already taken is a query, and whether two of them can exist at once is
+   * what the unique index behind the check decides. The folding itself is
+   * proved without one in tests/unit/domain/item-types.test.ts.
    */
-  describe('naming a type already there reuses it; naming a new one creates it', () => {
+  describe('a type is refused a name another type has, and made under any other', () => {
     const makeType = (name: string) => ({
       commandId: nextId(),
       issuedAt: '2026-09-04T10:00:00.000Z',
@@ -606,9 +606,9 @@ describe('Capture', () => {
       { situation: 'the exact name', named: 'Action' },
       { situation: 'a different capitalisation', named: 'ACTION' },
       { situation: 'the name with blanks round it', named: '  action  ' },
-    ])('leaves one type when it is named again with $situation', async ({ named }) => {
+    ])('refuses $situation, and leaves the one type going by it', async ({ named }) => {
       // Every account starts with Action and Thought, so this names one it has.
-      expect((await postChange('create_item_type', makeType(named))).status).toBe(200);
+      expect((await postChange('create_item_type', makeType(named))).status).toBe(409);
 
       expect(
         await inTheStore((sql) =>
@@ -630,12 +630,20 @@ describe('Capture', () => {
     it('leaves one type when two tabs name the same new one at once', async () => {
       // Two requests, two ids, one name, sent together: only the index behind
       // the check decides this, which is why it is here and not at L1.
+      //
+      // Which of the two is *told* the name is taken is not fixed, and the
+      // statuses are asserted loosely for that reason: the second is refused
+      // where it read the list after the first had written, and let through
+      // where it did not, the index then swallowing its write. Both are the
+      // right answer - the account ends up with the type that was asked for.
       const [first, second] = await Promise.all([
         postChange('create_item_type', makeType('Question')),
         postChange('create_item_type', makeType('Question')),
       ]);
 
-      expect([first.status, second.status]).toEqual([200, 200]);
+      expect([first.status, second.status]).toContain(200);
+      expect([200, 409]).toContain(first.status);
+      expect([200, 409]).toContain(second.status);
       expect(
         await inTheStore((sql) =>
           sql.exec("SELECT id FROM item_types WHERE folded_name = 'question'").toArray(),
