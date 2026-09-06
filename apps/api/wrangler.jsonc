@@ -103,7 +103,7 @@
   //
   // `vars` is not inheritable, so staging repeats both below.
   "vars": {
-    "GOOGLE_CLIENT_ID": "REPLACE-WITH-THE-PRODUCTION-CLIENT-ID.apps.googleusercontent.com",
+    "GOOGLE_CLIENT_ID": "1049607304950-0j1ssp9dn4cf35vjlfndtb45jgqof62a.apps.googleusercontent.com",
     "APP_ORIGIN": "https://cockpit.vanhoutte-michael.workers.dev"
   },
 
@@ -133,7 +133,7 @@
       // Its own Google client rather than production's, so a secret that leaks
       // from one environment cannot sign anybody in to the other.
       "vars": {
-        "GOOGLE_CLIENT_ID": "REPLACE-WITH-THE-STAGING-CLIENT-ID.apps.googleusercontent.com",
+        "GOOGLE_CLIENT_ID": "1049607304950-ebumoteu4kfk4emedo744gka6mnh74rg.apps.googleusercontent.com",
         "APP_ORIGIN": "https://cockpit-staging.vanhoutte-michael.workers.dev"
       }
     }
