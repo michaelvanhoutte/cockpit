@@ -115,9 +115,13 @@ const rowsFor: {
     table: 'panels',
     // Named out loud like the rows above, for the same reason: what the next
     // update meets should be a whole panel.
+    // Two, because the arrangement below needs two to have wrapped: one panel
+    // cannot show whether `0013-panel-rows` put the second on a line of its own
+    // or beside the first.
     sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
-          VALUES ('pn-before', ?, 'db-before', 'Before', 'before', ?)`,
-    params: (name) => [name, AT],
+          VALUES ('pn-before', ?, 'db-before', 'Before', 'before', ?),
+                 ('pn-wrapped', ?, 'db-before', 'Wrapped', 'wrapped', ?)`,
+    params: (name) => [name, AT, name, AT],
   },
   {
     table: 'layouts',
@@ -151,9 +155,30 @@ const rowsFor: {
     table: 'panel_placements',
     // After both of the above, which is the whole reason this is a list: the
     // placement points at the layout and the panel written just now.
+    //
+    // Two of them, wide enough that they cannot share a line: eight columns and
+    // then five is thirteen, past the grid, so the second wrapped. That is the
+    // arrangement `0013-panel-rows` has to convert into two rows rather than
+    // one, and a single placement could not tell a right conversion from a
+    // wrong one.
     sql: `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, position, column_span, row_span)
-          VALUES (?, 'ly-before', 'pn-before', 0, 4, 3)`,
-    params: (name) => [name],
+          VALUES (?, 'ly-before', 'pn-before', 0, 8, 3), (?, 'ly-before', 'pn-wrapped', 1, 5, 2)`,
+    params: (name) => [name, name],
+    // The columns the wrap was stored in are the ones that change takes away,
+    // so past it the same pair goes in as the rows they converted to - and a
+    // change added after it still meets a full table rather than an empty one.
+    once: {
+      column: 'span',
+      sql: `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
+            VALUES (?, 'ly-before', 'pn-before', 0, 0, 8), (?, 'ly-before', 'pn-wrapped', 1, 0, 5)`,
+      params: (name) => [name, name],
+    },
+  },
+  {
+    table: 'layout_rows',
+    sql: `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
+          VALUES (?, 'ly-before', 0, 248), (?, 'ly-before', 1, 164)`,
+    params: (name) => [name, name],
   },
   {
     table: 'items',
@@ -223,6 +248,21 @@ async function fillWithWhatIsAlreadyThere(name: string): Promise<void> {
  * and store.test.ts already opens one of those.
  */
 const updates = accountChanges('any-account-would-do');
+
+/**
+ * How far to age a store so that one named change is the next thing it applies.
+ *
+ * By name rather than by counting back from the end, because the end moves: a
+ * case pinned to `updates.length - 1` silently starts testing a different
+ * change the day one is added after it, and the fixtures it set up for the one
+ * it meant are then the wrong fixtures.
+ */
+function justBefore(change: string): number {
+  const at = updates.findIndex((update) => update.name === change);
+  expect(at, `no change called ${change}`).toBeGreaterThan(-1);
+  return at;
+}
+
 const points = updates
   .map((_, applied) => ({ applied, position: applied + 1, total: updates.length }))
   .filter(({ applied }) => applied > 0);
@@ -521,15 +561,14 @@ describe('Capture', () => {
 describe('Layouts', () => {
   describe('the layouts an account already had are named for the width they were made at', () => {
     /**
-     * The change that names them is applied to a store that has two layouts of
-     * one dashboard at the same width, which nothing ever stopped and which is
-     * exactly what the unique index it then creates would refuse.
+     * The change is applied to a store that has two layouts of one dashboard at
+     * the same width, which nothing ever stopped and which is exactly what the
+     * unique index it then creates would refuse.
      */
-    const BEFORE_THE_NAMES = updates.findIndex((update) => update.name === '0011-layout-names');
 
     it('numbers two of one width apart rather than failing the account', async () => {
       const name = 'aged-store-layout-names';
-      await agedTo(name, BEFORE_THE_NAMES);
+      await agedTo(name, justBefore('0011-layout-names'));
       await fillWithWhatIsAlreadyThere(name);
 
       // Opening the store is what applies it, as the first request of the day
@@ -545,6 +584,54 @@ describe('Layouts', () => {
       ).toEqual([
         { id: 'ly-before', name: '1280 px', folded_name: '1280 px' },
         { id: 'ly-twin', name: '1280 px (2)', folded_name: '1280 px (2)' },
+      ]);
+    });
+  });
+
+  describe('the lines a person arranged their panels onto survive becoming rows', () => {
+    /**
+     * The conversion's whole job. Which panels shared a line was decided by the
+     * widths and the order, and drawn by CSS wrapping at twelve columns - so it
+     * is real, and it exists nowhere but as a consequence. One row per panel
+     * would be simple and would flatten every dashboard anyone has.
+     */
+    it('puts a panel that wrapped onto the next line in a row of its own', async () => {
+      const name = 'aged-store-panel-rows';
+      await agedTo(name, justBefore('0013-panel-rows'));
+      // Eight columns and then five: thirteen is past the grid, so the second
+      // panel wrapped.
+      await fillWithWhatIsAlreadyThere(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql
+            .exec('SELECT panel_id, row_index, position, span FROM panel_placements ORDER BY row_index, position')
+            .toArray(),
+        ),
+      ).toEqual([
+        { panel_id: 'pn-before', row_index: 0, position: 0, span: 8 },
+        { panel_id: 'pn-wrapped', row_index: 1, position: 0, span: 5 },
+      ]);
+    });
+
+    it('gives each row the height of the tallest panel that was on it', async () => {
+      // So nothing on screen changes size on the day this lands: three grid
+      // rows is 3 * 84 - 4, and two is 2 * 84 - 4.
+      const name = 'aged-store-panel-row-heights';
+      await agedTo(name, justBefore('0013-panel-rows'));
+      await fillWithWhatIsAlreadyThere(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec('SELECT row_index, height FROM layout_rows ORDER BY row_index').toArray(),
+        ),
+      ).toEqual([
+        { row_index: 0, height: 248 },
+        { row_index: 1, height: 164 },
       ]);
     });
   });

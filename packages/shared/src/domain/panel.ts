@@ -29,22 +29,42 @@ import { workspaceNameSchema } from './item.js';
 export const GRID_COLUMNS = 12;
 
 /**
- * The tallest a Panel may be, in grid rows. A cap rather than no limit at all
- * because a row is a fixed height in pixels: without one, a resize could hand a
- * Panel a height no screen can show and nothing on the page would say why the
- * rest had vanished below it.
+ * The tallest and shortest a row may be set to, in pixels.
+ *
+ * A cap for the reason the old per-Panel one existed: without it a drag could
+ * hand a row a height no screen can show, and nothing on the page would say why
+ * what follows it had vanished.
+ *
+ * **The floor is the header plus a list, not the header.** A Panel's header is
+ * a fixed fifty-six pixels - its padding and its menu button - and it takes no
+ * items, so a floor near twice that leaves a well of about one row: too little
+ * to read, and too little to aim an item at. Filing one by dropping it on a
+ * short Panel missed the list and hit the header, which is not a drop target.
+ * A hundred and sixty leaves two rows under the header, which is the least that
+ * still reads as a list.
  */
-export const MAX_PANEL_ROWS = 8;
+export const MIN_ROW_HEIGHT = 160;
+export const MAX_ROW_HEIGHT = 720;
 
 /**
- * What a Panel is given when nothing has said otherwise - a new Panel appended
- * to a layout that has no Panel to copy from, and the arrangement a Dashboard
- * is drawn with before it has any layout at all.
+ * The most Panels the gestures will put across one row.
  *
- * A third of the grid and three rows: wide enough to read a list in, short
- * enough that three of them do not fill a laptop screen on their own.
+ * Four already means a 2560px screen giving each one 640px; past that they stop
+ * being boxes you read and become a strip of columns. It is a rule about the
+ * gestures rather than about the table - `cellInputSchema` says why - so a row
+ * converted from an arrangement that wrapped six narrow Panels onto one line is
+ * still drawn, six across.
  */
-export const DEFAULT_PANEL_SIZE = { columns: 4, rows: 3 } as const;
+export const MOST_ACROSS = 4;
+
+/**
+ * The share a Panel gets when nothing has said otherwise, which is an equal one:
+ * every cell of a row starts at the same span, so a row of three is three
+ * thirds. Any value would do - the spans are read as proportions - and twelve
+ * makes the whole numbers a divider drag moves between them the same twelfths
+ * the grid was always drawn in.
+ */
+export const DEFAULT_CELL_SPAN = 12;
 
 /**
  * A Panel's title obeys exactly the rules a Workspace's and a Dashboard's name
@@ -83,23 +103,42 @@ export const panelSchema = z.object({
 export type Panel = z.infer<typeof panelSchema>;
 
 /**
- * Where one Panel sits in one layout: how many columns across and how many rows
- * down. Its position in the row is not stored, because Panels flow left to
- * right and wrap - the *order* of this list is the arrangement, which is what
- * makes dragging one Panel past another a reorder rather than a move to a
- * coordinate.
+ * One Panel in one row of a layout, and how much of that row it takes.
  *
- * Deliberately permissive numbers, for the reason the names above are
- * permissive: a stored span outside today's limits should be clamped by the
- * screen drawing it, not turn the whole snapshot into a parse failure. The
- * limits are on the way in, on `placementInputSchema` below.
+ * **The span is a share, not a width.** A row's Panels divide it in proportion
+ * to their spans, so two cells of 6 and 6 take half each and so do two of 1 and
+ * 1 - what a span means is only ever "this much of the row, next to those".
+ * Requiring them to sum to twelve would be a second rule saying the same thing,
+ * and it would have to be repaired every time a Panel joined a row or left one.
+ *
+ * Deliberately permissive, for the reason the names above are: a stored span
+ * outside today's limits should be drawn by the screen rather than turn the
+ * whole snapshot into a parse failure. The limits are on the way in, on
+ * `cellInputSchema`.
  */
-export const panelPlacementSchema = z.object({
+export const layoutCellSchema = z.object({
   panelId: z.string(),
-  columns: z.number(),
-  rows: z.number(),
+  span: z.number(),
 });
-export type PanelPlacement = z.infer<typeof panelPlacementSchema>;
+export type LayoutCell = z.infer<typeof layoutCellSchema>;
+
+/**
+ * One row of a layout: the Panels across it, in order, and how tall it is.
+ *
+ * **Every Panel in a row is the same height**, which is the row's, so height is
+ * a property of the row rather than of each Panel in it - the thing a person
+ * drags is the line under the row, and one number is what that gesture means.
+ *
+ * `height` is null for "as tall as what is in it", which is what a row is until
+ * somebody says otherwise. Stored in pixels rather than in grid rows, because
+ * the gesture that sets it is a pointer dragging an edge; there is no unit
+ * between it and the screen for a number of rows to be worth.
+ */
+export const layoutRowSchema = z.object({
+  height: z.number().nullable().default(null),
+  cells: z.array(layoutCellSchema),
+});
+export type LayoutRow = z.infer<typeof layoutRowSchema>;
 
 /**
  * A Layout's name obeys exactly the rules a Panel's title does, by being the
@@ -136,22 +175,41 @@ export const layoutSchema = z.object({
   dashboardId: z.string(),
   name: z.string().default(''),
   screenWidth: z.number(),
-  /** In the order the Panels are drawn in, left to right and wrapping. */
-  placements: z.array(panelPlacementSchema),
+  /** The rows, top to bottom, each holding its Panels left to right. */
+  rows: z.array(layoutRowSchema).default([]),
 });
 export type Layout = z.infer<typeof layoutSchema>;
 
 /**
- * A placement on the way *in*, where the limits are real: a span outside the
- * grid is a request nothing could draw, so it is refused rather than clamped -
- * repairing input is where the bypasses live.
+ * A cell on the way *in*, where the limits are real: a share of nothing, or of
+ * more than a whole row, is a request nothing could draw, so it is refused
+ * rather than clamped - repairing input is where the bypasses live.
+ *
+ * **How many cells a row may hold is not here**, and that is deliberate. Four
+ * across is where a Panel stops being a box you read, so it is what the
+ * gestures refuse; a row that already holds more - one converted from an
+ * arrangement that wrapped six narrow Panels onto a line - is still a row, and
+ * refusing to store it would mean refusing to store what somebody already had.
  */
-export const placementInputSchema = z.object({
+export const cellInputSchema = z.object({
   panelId: z.string(),
-  columns: z.number().int().min(1).max(GRID_COLUMNS),
-  rows: z.number().int().min(1).max(MAX_PANEL_ROWS),
+  span: z.number().int().min(1).max(GRID_COLUMNS),
 });
-export type PlacementInput = z.infer<typeof placementInputSchema>;
+export type CellInput = z.infer<typeof cellInputSchema>;
+
+/**
+ * A row on the way in. An empty one is refused: a row is the Panels across it,
+ * so a row with none is not an emptier arrangement but a line nothing draws.
+ *
+ * The height is bounded for the reason a layout's width is - one absurd value
+ * would be a row no screen could show, and nothing on the page would say why
+ * what follows it had vanished.
+ */
+export const rowInputSchema = z.object({
+  height: z.number().int().min(MIN_ROW_HEIGHT).max(MAX_ROW_HEIGHT).nullable(),
+  cells: z.array(cellInputSchema).min(1),
+});
+export type RowInput = z.infer<typeof rowInputSchema>;
 
 /**
  * One Item filed on one Panel, and where it sits in that Panel's order

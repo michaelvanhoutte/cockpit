@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ITEM_TYPE_COLORS } from '@cockpit/shared';
+import { ACCOUNT_WIDE, ITEM_TYPE_COLORS } from '@cockpit/shared';
 import { ManageTypes } from '../../../src/components/ManageTypes';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand, type CommandArgs } from '../../../src/api/queries';
@@ -68,6 +69,8 @@ function showWindow(answer: {
    * two changes - so it is refused separately from everything else.
    */
   refusesTheForm?: Error;
+  /** Rendered so it can be closed and opened again, for what that forgets. */
+  reopenable?: boolean;
 } = { succeeds: true }) {
   const mutate = vi.fn(
     (
@@ -94,10 +97,26 @@ function showWindow(answer: {
   } as never);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <ManageTypes open onClose={() => undefined} />
+      {answer.reopenable ? <Reopenable /> : <ManageTypes open onClose={() => undefined} />}
     </QueryClientProvider>,
   );
   return { mutate, saved };
+}
+
+/**
+ * The window as the app really holds it: closing it leaves it mounted, which is
+ * the whole reason a name half-typed into it has to be cleared on the way out.
+ */
+function Reopenable() {
+  const [open, setOpen] = useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open it again
+      </button>
+      <ManageTypes open={open} onClose={() => setOpen(false)} />
+    </>
+  );
 }
 
 /** The row a type is on, which is what a double-click lands on. */
@@ -123,6 +142,96 @@ beforeEach(() => {
 });
 
 describe('Capture', () => {
+  /**
+   * The window's half of the rule ("Make a type where types are managed, not
+   * while capturing", issue 203). That neither capture surface makes one is the
+   * other half, in tests/unit/components/CaptureForm.test.tsx and
+   * tests/unit/pages/CapturePage.test.tsx. Whether a name is actually free is
+   * the account's rule, decided against a real unique index in
+   * apps/api/tests/integration/http/item-changes.test.ts.
+   */
+  describe('a type is made where types are managed, and nowhere else', () => {
+    const theBox = () => screen.getByLabelText('Name of the new type');
+
+    it('asks for a type of the name typed', async () => {
+      const user = userEvent.setup();
+      const { mutate } = showWindow();
+
+      await user.type(theBox(), '  Errand  ');
+      await user.click(screen.getByRole('button', { name: 'New type' }));
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate.mock.calls[0]![0]).toMatchObject({
+        name: 'create_item_type',
+        // Trimmed, and with no colour: which of the palette is free is a fact
+        // about the account, so the account picks it.
+        payload: { name: 'Errand' },
+      });
+      expect(mutate.mock.calls[0]![0]!.payload).not.toHaveProperty('color');
+    });
+
+    it('asks for nothing when the box holds only blanks', async () => {
+      const user = userEvent.setup();
+      const { mutate } = showWindow();
+
+      await user.type(theBox(), '   ');
+      await user.click(screen.getByRole('button', { name: 'New type' }));
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('empties the box once it worked', async () => {
+      const user = userEvent.setup();
+      showWindow();
+
+      await user.type(theBox(), 'Errand');
+      await user.click(screen.getByRole('button', { name: 'New type' }));
+
+      expect(theBox()).toHaveValue('');
+    });
+
+    it('leaves the name in the box, with why, when it is refused', async () => {
+      const user = userEvent.setup();
+      // A name another type already has is the refusal this box exists to
+      // show: it is the one a person can fix by typing.
+      showWindow({
+        succeeds: false,
+        error: new CommandRefused(409, 'a type called Action already exists'),
+        about: {
+          name: 'create_item_type',
+          payload: {
+            commandId: 'c',
+            issuedAt: 'now',
+            workspaceId: ACCOUNT_WIDE,
+            typeId: 't',
+            name: 'Action',
+          },
+        } as CommandArgs,
+      });
+
+      await user.type(theBox(), 'Action');
+      await user.click(screen.getByRole('button', { name: 'New type' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'a type called Action already exists',
+      );
+      expect(theBox()).toHaveValue('Action');
+    });
+
+    it('forgets the name half-typed into it when the window is closed', async () => {
+      const user = userEvent.setup();
+      showWindow({ succeeds: true, reopenable: true });
+
+      await user.type(theBox(), 'Erra');
+      await user.click(screen.getByRole('button', { name: 'Done' }));
+      await user.click(screen.getByRole('button', { name: 'Open it again' }));
+
+      // It stays mounted between openings, so a name merely hidden would come
+      // back over one nobody had touched.
+      expect(await screen.findByLabelText('Name of the new type')).toHaveValue('');
+    });
+  });
+
   describe('the types page lists every type of the account', () => {
     it.each([
       { situation: 'none', types: [] as unknown[], shows: [] as string[] },
