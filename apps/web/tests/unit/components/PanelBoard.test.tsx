@@ -669,6 +669,45 @@ describe('Panels', () => {
       expect(sentRows(mutate)).toEqual([['reading', 'falcon']]);
     });
 
+    it('puts the panels back and sends nothing when the drag is abandoned with Escape', async () => {
+      // Escape abandons the innermost thing that is open everywhere else in the
+      // app, and a drag in progress had nothing to abandon: the only way out
+      // was to drop the panel somewhere and move it back.
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      const handle = handleOf('To read');
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      layOut();
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: -11 });
+      expect(drawnLines()).toEqual([['reading'], ['falcon']]);
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(drawnLines()).toEqual([['falcon', 'reading']]);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('ends the drag when the panel is let go away from the board', async () => {
+      // The pointer is captured, so a release reaches the board wherever it
+      // lands - unless the browser refused the capture, which it is allowed to
+      // do. The board would then sit lifted around a drag that was over.
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      const handle = handleOf('To read');
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      layOut();
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: -11 });
+
+      fireEvent.pointerUp(window, { pointerId: 1 });
+
+      expect(seamsAreOpen()).toBe(false);
+      expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
+    });
+
     it('sends nothing for a drag that ends where it started', async () => {
       // Every wander that comes home is one of these, and sending it would
       // make a change out of a gesture that changed nothing.

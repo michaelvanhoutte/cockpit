@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT, uuidv7 } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, LayoutRow, Panel } from '@cockpit/shared';
@@ -15,7 +15,6 @@ import {
   layoutToDraw,
   movedBeside,
   movedBy,
-  movedToOwnRow,
   nameForScreen,
   sameArrangement,
   sharesOf,
@@ -333,11 +332,6 @@ export function PanelBoard({
   };
 
   /**
-   * A panel let go in the gap at `at`, which gives it a row of its own there.
-   * Every seam does the same thing, including the one under the last row, so
-   * they share a handler rather than each carrying a copy of it.
-   */
-  /**
    * The rows as they are on the page right now.
    *
    * Measured against the rows *as drawn*, which already show the preview - so
@@ -394,12 +388,18 @@ export function PanelBoard({
     }
   };
 
-  /** Where the pointer has got to, redrawn as the arrangement it is asking for. */
+  /**
+   * Where the pointer has got to, redrawn as the arrangement it is asking for.
+   *
+   * The page is measured out here rather than inside the update, because an
+   * updater has to be pure - React is free to run it twice - and reading the
+   * DOM is not. What goes in is a placement already decided.
+   */
   const dragTo = (point: { x: number; y: number }) => {
+    const placement = placementFor(point, rowsOnScreen());
+    if (!placement) return;
     setDragging((held) => {
       if (!held) return held;
-      const placement = placementFor(point, rowsOnScreen());
-      if (!placement) return held;
       const preview = arrangedWith(held.from, held.id, placement);
       // Same arrangement, same object: React redraws on a new array whether or
       // not anything in it moved, and a pointer move fires many times a
@@ -417,11 +417,42 @@ export function PanelBoard({
     propose(held.preview);
   };
 
-  const dropInSeam = (at: number) => {
-    const picked = dragging?.id ?? null;
+  /** A drag abandoned rather than dropped: the panels go back and nothing is sent. */
+  const abandon = () => {
+    draggingNow.current = false;
     setDragging(null);
-    if (picked) propose(movedToOwnRow(shown, picked, at));
   };
+
+  /**
+   * The two ends of a drag the board cannot hear on its own.
+   *
+   * **Let go somewhere else.** The pointer is captured, so a release reaches
+   * the board wherever it happens - unless the capture was refused, which is
+   * allowed to happen (`pickUp`). A release outside the board would then
+   * arrive nowhere, and the panels would sit lifted around a drag that is
+   * over, with the next press dropping one somewhere nobody aimed.
+   *
+   * **Escape**, which abandons the innermost open thing everywhere else in
+   * the app and had nothing to abandon here.
+   */
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') abandon();
+    };
+    window.addEventListener('pointerup', letGo);
+    window.addEventListener('pointercancel', abandon);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerup', letGo);
+      window.removeEventListener('pointercancel', abandon);
+      window.removeEventListener('keydown', onKey);
+    };
+    // `letGo` and `abandon` are rebuilt every render; what decides whether
+    // they are listening is the drag, and re-subscribing on every render of a
+    // board holding a drag would be a listener swapped per pointer move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging]);
 
   const renamePanel = () => {
     if (!renaming) return;
@@ -498,10 +529,7 @@ export function PanelBoard({
           onPointerUp={letGo}
           // The browser taking it back - a touch that became a scroll, the
           // window losing focus. The panels go back where they were.
-          onPointerCancel={() => {
-            draggingNow.current = false;
-            setDragging(null);
-          }}
+          onPointerCancel={abandon}
           className="flex min-w-0 flex-col"
         >
           {shown.map((row, rowIndex) => {

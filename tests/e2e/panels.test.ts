@@ -368,24 +368,20 @@ test.describe('Panels', () => {
       // pointer ends up is what decides the slot, so the left edge of the
       // first panel rather than its middle.
       const onto = page.getByRole('region', { name: first });
+      const box = (await onto.boundingBox())!;
       await page.mouse.move(
         ...(await centreOf(page.getByRole('region', { name: third }).locator('header'))),
       );
       await page.mouse.down();
 
-      // Onto the row the other two share. **Waited for before the next move
-      // rather than moved through**, and that is the walk's own hazard rather
-      // than the product's: the second aim is measured off a panel this move
-      // has just shifted, and a rectangle read before the board repainted put
-      // the pointer back where it began - a drag that had worked, asserted
-      // against coordinates from before it.
-      await page.mouse.move(...(await centreOf(onto)), { steps: 4 });
-      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, third, second]]);
-
-      // And on to the near edge of the first panel, which is the slot ahead of
-      // it. Measured now, from where that panel has ended up.
-      const box = (await onto.boundingBox())!;
-      await page.mouse.move(box.x + 4, box.y + box.height / 2, { steps: 4 });
+      // **One aim, held.** The panels move as the drag does, so the target
+      // moves too: a walk that steps to one panel's middle and then measures
+      // the next aim off a panel that step has just shifted is reading
+      // coordinates from a board that no longer exists, and lands wherever the
+      // churn leaves it. So this picks the slot ahead of the first panel once,
+      // from before the gesture, and holds the pointer there while the board
+      // settles under it.
+      await page.mouse.move(box.x + 4, box.y + box.height / 2, { steps: 8 });
 
       // **Drawn before it is dropped**, which is the whole of this gesture and
       // the one claim no arithmetic can make: the arrangement under the hand is
