@@ -755,6 +755,36 @@ describe('Panels', () => {
       expect(sentRows(mutate)).toEqual([['falcon', 'reading']]);
     });
 
+    it('starts the drag even where the browser refuses the pointer', async () => {
+      // Capture keeps the moves coming once the pointer has left the board, and
+      // the browser is free to refuse it for a pointer it does not consider
+      // active. Taken before the drag was recorded, that refusal threw and the
+      // line that begins the drag never ran - so the gesture silently did
+      // nothing at all. It is worth having and it is not worth the gesture.
+      const refused = vi
+        .spyOn(Element.prototype, 'setPointerCapture')
+        .mockImplementation(() => {
+          throw new DOMException('no such pointer', 'NotFoundError');
+        });
+      try {
+        const { mutate } = showBoard({
+          layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        });
+        const handle = handleOf('To read');
+
+        fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+        expect(seamsAreOpen()).toBe(true);
+
+        layOut();
+        fireEvent.pointerMove(boardEl(), { pointerId: 1, clientX: 300, clientY: -11 });
+        fireEvent.pointerUp(window, { pointerId: 1 });
+
+        expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
+      } finally {
+        refused.mockRestore();
+      }
+    });
+
     it('sends nothing for a drag that ends where it started', async () => {
       // Every wander that comes home is one of these, and sending it would
       // make a change out of a gesture that changed nothing.

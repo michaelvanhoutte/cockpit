@@ -36,7 +36,20 @@ export interface DrawnRow {
  */
 export type Placement =
   | { on: 'beside'; panelId: string; side: 'before' | 'after' }
-  | { on: 'ownRow'; at: number };
+  /**
+   * A row of its own, in the gap under the row this panel is on - or at the
+   * very top, where there is no row above the gap.
+   *
+   * **Named by a panel rather than numbered**, and that is the whole of why
+   * this type is shaped like this. The rows are measured as *drawn*, which is
+   * the preview; the placement is applied to the arrangement the drag started
+   * from. A panel's id means the same thing in both, and a row's index does
+   * not - so a numbered gap read off the preview pointed at a different gap
+   * in the arrangement it was applied to, the moment the drag had moved the
+   * panel off the row it started on. It snapped the preview home and a
+   * release there sent nothing.
+   */
+  | { on: 'ownRow'; under: string | null };
 
 /**
  * The placement the pointer is asking for.
@@ -70,13 +83,28 @@ export function placementFor(
 
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
-    if (point.y < row.top) return { on: 'ownRow', at: index };
+    if (point.y < row.top) return inTheGapUnder(rows[index - 1], dragged);
     if (point.y <= row.bottom) {
       const placement = alongTheRow(point.x, row, index);
       return placement.on === 'beside' && placement.panelId === dragged ? null : placement;
     }
   }
-  return { on: 'ownRow', at: rows.length };
+  return inTheGapUnder(rows[rows.length - 1], dragged);
+}
+
+/**
+ * A row of its own in the gap under `above`, named by the last panel on that
+ * row - or at the top of the board, where the gap has no row above it.
+ *
+ * Null where that panel is the one being dragged, for the reason a slot
+ * naming it is: the gap under a row the panel is already alone on is where it
+ * already is, and there is nothing to change.
+ */
+function inTheGapUnder(above: DrawnRow | undefined, dragged: string): Placement | null {
+  if (!above) return { on: 'ownRow', under: null };
+  const last = above.cells[above.cells.length - 1];
+  if (!last) return { on: 'ownRow', under: null };
+  return last.panelId === dragged ? null : { on: 'ownRow', under: last.panelId };
 }
 
 /**
@@ -91,7 +119,8 @@ function alongTheRow(x: number, row: DrawnRow, index: number): Placement {
   // A row with nothing across it is not a row the board draws, but a row whose
   // panels have all been deleted in another tab can be one for a frame.
   const last = row.cells[row.cells.length - 1];
-  if (!last) return { on: 'ownRow', at: index };
+  if (!last) return { on: 'ownRow', under: null };
+  void index;
 
   for (const cell of row.cells) {
     if (x < cell.left + (cell.right - cell.left) / 2) {
@@ -116,7 +145,15 @@ export function arrangedWith(
   panelId: string,
   placement: Placement,
 ): LayoutRow[] {
-  return placement.on === 'beside'
-    ? movedBeside(rows, panelId, placement.panelId, placement.side)
-    : movedToOwnRow(rows, panelId, placement.at);
+  if (placement.on === 'beside') {
+    return movedBeside(rows, panelId, placement.panelId, placement.side);
+  }
+  // The gap is named by the panel above it, so where that panel is *here* is
+  // what decides which gap this is - the arrangement measured and the one
+  // moved are two different arrangements, and only a panel means the same in
+  // both. A panel that has gone since (deleted in another tab) leaves the
+  // arrangement alone rather than guessing at a line.
+  if (placement.under === null) return movedToOwnRow(rows, panelId, 0);
+  const above = rows.findIndex((row) => row.cells.some((cell) => cell.panelId === placement.under));
+  return above === -1 ? [...rows] : movedToOwnRow(rows, panelId, above + 1);
 }

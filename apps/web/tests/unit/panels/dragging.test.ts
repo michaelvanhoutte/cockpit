@@ -52,13 +52,19 @@ describe('Panels', () => {
       { situation: 'before the first panel', x: 10, y: 50, is: { on: 'beside', panelId: 'a', side: 'before' } },
       { situation: 'past the first panel’s middle', x: 290, y: 50, is: { on: 'beside', panelId: 'b', side: 'before' } },
       { situation: 'past the last panel’s middle', x: 590, y: 50, is: { on: 'beside', panelId: 'b', side: 'after' } },
-      { situation: 'the gap between two rows', x: 300, y: 110, is: { on: 'ownRow', at: 1 } },
-      { situation: 'above the first row', x: 300, y: -10, is: { on: 'ownRow', at: 0 } },
-      { situation: 'below the last row', x: 300, y: 400, is: { on: 'ownRow', at: 2 } },
+      { situation: 'the gap between two rows', x: 300, y: 110, is: { on: 'ownRow', under: 'b' } },
+      { situation: 'above the first row', x: 300, y: -10, is: { on: 'ownRow', under: null } },
     ])('$situation', ({ x, y, is }) => {
       // `c` is the panel being dragged in every one of these: it is on a row
       // of its own, so none of these positions is over it.
       expect(placementFor({ x, y }, rows, 'c')).toEqual(is);
+    });
+
+    it('names the gap under the last row by the panel on that row', () => {
+      // Dragging `a`, so the row below is somebody else's and the gap under it
+      // is a real place to go - unlike the same gap for `c`, which is already
+      // alone there.
+      expect(placementFor({ x: 300, y: 400 }, rows, 'a')).toEqual({ on: 'ownRow', under: 'c' });
     });
 
     it('asks for nothing on a dashboard with no rows to be over', () => {
@@ -95,12 +101,36 @@ describe('Panels', () => {
       expect(lines(next)).toEqual([['c', 'a', 'b']]);
     });
 
-    it('puts the panel on a line of its own at the gap', () => {
+    it('puts the panel on a line of its own at the top', () => {
       const rows = stored([['a', 'b']]);
 
-      const next = arrangedWith(rows, 'b', { on: 'ownRow', at: 0 });
+      const next = arrangedWith(rows, 'b', { on: 'ownRow', under: null });
 
       expect(lines(next)).toEqual([['b'], ['a']]);
+    });
+
+    it('puts the panel on a line of its own under the row the gap names', () => {
+      // The gap is named by the panel above it, so the same placement means
+      // the same gap in the arrangement it is measured against and the one it
+      // is applied to - which are two different arrangements while a drag is
+      // on. Numbered, it meant a different gap in each the moment the drag
+      // had moved the panel off the row it started on.
+      const rows = stored([['a'], ['b'], ['c']]);
+
+      const next = arrangedWith(rows, 'a', { on: 'ownRow', under: 'b' });
+
+      expect(lines(next)).toEqual([['b'], ['a'], ['c']]);
+    });
+
+    it('leaves the arrangement alone when the panel naming the gap has gone', () => {
+      // Deleted in another tab while the drag was on. Guessing at a line is
+      // worse than leaving the panels where they are.
+      const rows = stored([['a'], ['b']]);
+
+      expect(lines(arrangedWith(rows, 'a', { on: 'ownRow', under: 'gone' }))).toEqual([
+        ['a'],
+        ['b'],
+      ]);
     });
 
     it('leaves the arrangement alone where the move cannot happen', () => {
@@ -115,13 +145,24 @@ describe('Panels', () => {
     });
 
     it('leaves the arrangement alone when it is asked for the line it is already alone on', () => {
-      // The two gaps either side of a row holding one panel are that panel's
-      // own line. They used to light up under the pointer and then do nothing,
+      // The gap either side of a row holding one panel is that panel's own
+      // line. They used to light up under the pointer and then do nothing,
       // which is what made the bars unreadable.
       const rows = stored([['a'], ['b']]);
 
-      expect(lines(arrangedWith(rows, 'b', { on: 'ownRow', at: 1 }))).toEqual([['a'], ['b']]);
-      expect(lines(arrangedWith(rows, 'b', { on: 'ownRow', at: 2 }))).toEqual([['a'], ['b']]);
+      expect(lines(arrangedWith(rows, 'b', { on: 'ownRow', under: 'a' }))).toEqual([
+        ['a'],
+        ['b'],
+      ]);
+    });
+
+    it('asks for nothing where the gap is the one under the panel being dragged', () => {
+      // The gap under a row the panel is already alone on is where it already
+      // is - and naming it after itself is the same meaningless placement a
+      // slot over itself would be.
+      const rows = drawn([['a'], ['b']]);
+
+      expect(placementFor({ x: 300, y: 110 }, rows, 'a')).toBeNull();
     });
   });
 });
