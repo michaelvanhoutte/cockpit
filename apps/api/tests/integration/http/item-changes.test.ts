@@ -603,17 +603,17 @@ describe('Capture', () => {
     });
 
     it.each([
-      { situation: 'the exact name', named: 'Action' },
-      { situation: 'a different capitalisation', named: 'ACTION' },
-      { situation: 'the name with blanks round it', named: '  action  ' },
+      { situation: 'the exact name', named: 'Task' },
+      { situation: 'a different capitalisation', named: 'TASK' },
+      { situation: 'the name with blanks round it', named: '  task  ' },
     ])('refuses $situation, and leaves the one type going by it', async ({ named }) => {
-      // Every account starts with Action and Thought, so this names one it has.
+      // Every account starts with Task and Note, so this names one it has.
       expect((await postChange('create_item_type', makeType(named))).status).toBe(409);
 
       expect(
         await inTheStore((sql) =>
           sql
-            .exec("SELECT name FROM item_types WHERE folded_name = 'action'")
+            .exec("SELECT name FROM item_types WHERE folded_name = 'task'")
             .toArray(),
         ),
       ).toHaveLength(1);
@@ -673,8 +673,8 @@ describe('Capture', () => {
       { situation: 'a type of this account', ofThisAccount: true, answers: 200 },
       { situation: 'a type nothing here has', ofThisAccount: false, answers: 404 },
     ])('$situation', async ({ ofThisAccount, answers }) => {
-      const [action] = await inTheStore((sql) =>
-        sql.exec<{ id: string }>("SELECT id FROM item_types WHERE folded_name = 'action'").toArray(),
+      const [task] = await inTheStore((sql) =>
+        sql.exec<{ id: string }>("SELECT id FROM item_types WHERE folded_name = 'task'").toArray(),
       );
       const itemId = nextId();
 
@@ -684,7 +684,7 @@ describe('Capture', () => {
         workspaceId: WORKSPACE_ID,
         itemId,
         message: 'Make appointment with Novy',
-        typeId: ofThisAccount ? action!.id : '018f0000-0000-7000-8000-999999999999',
+        typeId: ofThisAccount ? task!.id : '018f0000-0000-7000-8000-999999999999',
       });
 
       expect(response.status).toBe(answers);

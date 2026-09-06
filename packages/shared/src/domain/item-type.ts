@@ -4,9 +4,9 @@ import { hexColorSchema, WORKSPACE_THEMES } from './workspace-themes.js';
 
 /**
  * What kind of thing an Item is ("Capture a thought or an action, and see which
- * it is", issue 155). The Glossary has said since it was written that *Action*
- * and *Thought* are types of Item rather than separate objects; this is the
- * model catching up.
+ * it is", issue 155). The Glossary has said since it was written that a task
+ * and a note are types of Item rather than separate objects; this is the model
+ * catching up.
  *
  * **The set is open, and that is the cheaper of the two.** A fixed enum would
  * want a CHECK on `items`, and a CHECK cannot be altered into a table that has
@@ -53,12 +53,6 @@ export const ITEM_TYPE_COLORS: readonly string[] = WORKSPACE_THEMES.map((theme) 
 export const DEFAULT_ITEM_TYPE_COLOR: string = ITEM_TYPE_COLORS[0]!;
 
 /**
- * The two the Glossary already names, given to every account so that nothing
- * starts with an empty picker and the first capture has something to be.
- */
-export const STARTING_ITEM_TYPES: readonly string[] = ['Action', 'Thought'];
-
-/**
  * What a Type change names instead of a workspace.
  *
  * Types belong to the account, and the pages that manage them are outside any
@@ -73,9 +67,9 @@ export const ACCOUNT_WIDE = 'account';
 export const itemTypeSchema = z.object({
   /**
    * The permissive `z.string()` rather than a uuid, for the reason a
-   * Dashboard's id is permissive: the *Action* and *Thought* every account
-   * starts with have ids derived from the account's own, so they are not uuids
-   * and never were.
+   * Dashboard's id is permissive: the *Task* and *Note* every account starts
+   * with have ids derived from the account's own, so they are not uuids and
+   * never were.
    */
   id: z.string(),
   tenantId: z.string(),

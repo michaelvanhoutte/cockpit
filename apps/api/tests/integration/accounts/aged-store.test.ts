@@ -32,7 +32,10 @@ import { inStoreAsItIs, startFromEmpty, storeNamed } from '../seed.js';
  * **Adding an update means adding to `rowsFor` below** if it creates a table,
  * so that the next update meets a full one rather than an empty one. That is
  * the same discipline as writing the update itself, and it is what keeps this
- * gate from quietly becoming the empty-store test again.
+ * gate from quietly becoming the empty-store test again. An update that creates
+ * an *index* asks the other half of the same question: a row written to stand
+ * for something arranged before it has to stay writable after it, which is what
+ * `once` below is for.
  */
 
 const AT = '2026-08-12T10:00:00.000Z';
@@ -72,7 +75,19 @@ async function agedTo(name: string, applied: number): Promise<void> {
  * keys require. Keyed by table so that a store part-way through the list gets
  * rows in what it has and nothing else.
  */
-const rowsFor: { table: string; sql: string; params: (name: string) => string[] }[] = [
+const rowsFor: {
+  table: string;
+  sql: string;
+  params: (name: string) => string[];
+  /**
+   * Used in place of `sql` once the table has this column - for a row that was
+   * writable when it stood for something arranged before an update, and that
+   * the index the update goes on to create would refuse afterwards. Without it
+   * these rows only work at the points before that update, which is the half of
+   * the run they are least needed in.
+   */
+  once?: { column: string; sql: string; params: (name: string) => string[] };
+}[] = [
   // In foreign-key order, which is why this is a list and not a lookup.
   {
     table: 'workspaces',
@@ -121,6 +136,16 @@ const rowsFor: { table: string; sql: string; params: (name: string) => string[] 
     sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_width, created_at)
           VALUES ('ly-twin', ?, 'db-before', 1280, ?)`,
     params: (name) => [name, AT],
+    // Once that change has run, its index refuses a second layout of this
+    // dashboard with the empty name, so from there on the twin carries the
+    // name the change would have given it. It is still the second layout of
+    // one width, which is what every later update meets.
+    once: {
+      column: 'folded_name',
+      sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_width, created_at, name, folded_name)
+            VALUES ('ly-twin', ?, 'db-before', 1280, ?, '1280 px (2)', '1280 px (2)')`,
+      params: (name) => [name, AT],
+    },
   },
   {
     table: 'panel_placements',
@@ -179,8 +204,15 @@ async function fillWithWhatIsAlreadyThere(name: string): Promise<void> {
         .toArray()
         .map((row) => row.name),
     );
+    const hasColumn = (table: string, column: string) =>
+      sql
+        .exec<{ name: string }>(`PRAGMA table_info(${table})`)
+        .toArray()
+        .some((found) => found.name === column);
     for (const row of rowsFor) {
-      if (tables.has(row.table)) sql.exec(row.sql, ...row.params(name));
+      if (!tables.has(row.table)) continue;
+      const write = row.once && hasColumn(row.table, row.once.column) ? row.once : row;
+      sql.exec(write.sql, ...write.params(name));
     }
   });
 }
@@ -356,6 +388,134 @@ describe('Capture', () => {
       ]);
     });
   });
+
+  describe('the two types an account started with are called Task and Note', () => {
+    /**
+     * The rename is data rather than code - no read anywhere names either word
+     * ("Call the two standard types Task and Note", issue 194) - so the only
+     * thing that can go wrong is which rows it lands on and what the live-name
+     * index does about it. Every case here is a store that was already in use
+     * when it arrived, which is the only kind that has an *Action* to rename.
+     */
+    const BEFORE_THE_WORDS = updates.findIndex((update) => update.name === '0012-standard-types');
+
+    /** Every type the store holds, deleted ones included, in the order they are listed in. */
+    const typesOf = (name: string) =>
+      inStoreAsItIs(name, (sql) =>
+        sql
+          .exec(
+            `SELECT id, name, folded_name, color, position, deleted_at
+               FROM item_types ORDER BY position`,
+          )
+          .toArray(),
+      );
+
+    it('renames them and changes nothing else about them', async () => {
+      const name = 'aged-store-standard-types';
+      await agedTo(name, BEFORE_THE_WORDS);
+      await fillWithWhatIsAlreadyThere(name);
+
+      // Opening it is what brings it up to date, exactly as the first request
+      // of the day does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(await typesOf(name)).toEqual([
+        // The same two rows: the ids `0008-item-types` derived from the
+        // account's, the colours it gave them and the places it put them in.
+        // The ids are the load-bearing half - they are what every Item already
+        // captured as one of these points at, so keeping them is what makes
+        // this a rename rather than a new pair with the old ones orphaned.
+        {
+          id: `${name}-type-action`,
+          name: 'Task',
+          folded_name: 'task',
+          color: '#6f62b5',
+          position: 0,
+          deleted_at: null,
+        },
+        {
+          id: `${name}-type-thought`,
+          name: 'Note',
+          folded_name: 'note',
+          color: '#3a72c8',
+          position: 1,
+          deleted_at: null,
+        },
+        // The type this file writes into every table before the outstanding
+        // changes run, untouched: the rename names two rows and no others.
+        {
+          id: 'ty-before',
+          name: 'Before',
+          folded_name: 'before',
+          color: '#c06a45',
+          position: 7,
+          deleted_at: null,
+        },
+      ]);
+    });
+
+    it.each([
+      {
+        situation: 'one somebody had already renamed themselves',
+        store: 'aged-store-standard-types-renamed',
+        arrange: (name: string) => ({
+          sql: `UPDATE item_types SET name = 'Doing', folded_name = 'doing' WHERE id = ?`,
+          params: [`${name}-type-action`],
+        }),
+        expected: [{ name: 'Task', deleted_at: null }, { name: 'Note', deleted_at: null }],
+      },
+      {
+        situation: 'one somebody had deleted, whose name is shown nowhere either way',
+        store: 'aged-store-standard-types-deleted',
+        arrange: (name: string) => ({
+          sql: `UPDATE item_types SET deleted_at = ? WHERE id = ?`,
+          params: [AT, `${name}-type-action`],
+        }),
+        expected: [{ name: 'Task', deleted_at: AT }, { name: 'Note', deleted_at: null }],
+      },
+    ])('renames $situation', async ({ store: name, arrange, expected }) => {
+      await agedTo(name, BEFORE_THE_WORDS);
+      const { sql, params } = arrange(name);
+      await inStoreAsItIs(name, (store) => store.exec(sql, ...params));
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(await typesOf(name)).toMatchObject(expected);
+    });
+
+    it('refuses to run at all where the account has already named a type Task', async () => {
+      const name = 'aged-store-standard-types-taken';
+      await agedTo(name, BEFORE_THE_WORDS);
+      // A type this account named itself while *Task* was still free, in the
+      // lower case that proves what collides is the fold rather than the word
+      // as it is written. The index is what refuses the rename, and failing
+      // loudly is the chosen outcome: the alternative leaves store and code
+      // quietly disagreeing about what the standard types are called. It is
+      // recovered by rolling the release back - which never runs this change -
+      // renaming this one, and rolling forward.
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          `INSERT INTO item_types (id, tenant_id, name, folded_name, color, position, created_at)
+           VALUES ('ty-task', ?, 'task', 'task', '#c06a45', 5, ?)`,
+          name,
+          AT,
+        ),
+      );
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({
+        status: 'not-up-to-date',
+        failure: expect.stringContaining('0012-standard-types'),
+      });
+
+      // Nothing of it is left behind, so it is retried whole the moment the
+      // colliding name is given up.
+      expect((await typesOf(name)).map((type) => type.name)).toEqual([
+        'Action',
+        'Thought',
+        'task',
+      ]);
+    });
+  });
 });
 
 describe('Layouts', () => {
@@ -365,9 +525,11 @@ describe('Layouts', () => {
      * one dashboard at the same width, which nothing ever stopped and which is
      * exactly what the unique index it then creates would refuse.
      */
+    const BEFORE_THE_NAMES = updates.findIndex((update) => update.name === '0011-layout-names');
+
     it('numbers two of one width apart rather than failing the account', async () => {
       const name = 'aged-store-layout-names';
-      await agedTo(name, updates.length - 1);
+      await agedTo(name, BEFORE_THE_NAMES);
       await fillWithWhatIsAlreadyThere(name);
 
       // Opening the store is what applies it, as the first request of the day

@@ -54,13 +54,16 @@ test.describe('Capture', () => {
       // one is made in the window they are managed in ("Make a type where types
       // are managed, not while capturing", issue 203), and that walk is
       // tests/e2e/item-types.test.ts.
-      await kind.selectOption({ label: 'Thought' });
+      // One of the two every account starts with ("Call the two standard types
+      // Task and Note", issue 194) rather than a name this walk invents:
+      // capture chooses among the types there are.
+      await kind.selectOption({ label: 'Note' });
       await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
 
       // The word under the title, which is one of the two marks the type took
       // from the status ("Capture a thought or an action, and see which it
       // is", issue 155).
-      await expect(itemRow(page, thought).getByText('Thought')).toBeVisible();
+      await expect(itemRow(page, thought).getByText('Note')).toBeVisible();
       await expectNoSidewaysScroll(page);
     });
   });
