@@ -12,6 +12,8 @@
 // rather than a filter.
 //
 
+import { readAnswer, readFlags } from './operator.mjs';
+
 /** Where each environment answers. Production and staging are Workers of their own. */
 const WORKERS = Object.freeze({
   production: 'cockpit',
@@ -52,29 +54,9 @@ export function addressOf(environment, { subdomain, apiPort } = {}) {
  * every row of their store carries.
  */
 export function readArguments(argv) {
-  const takes = { '--env': 'environment', '--out': 'out', '--user': 'user' };
-  const args = { environment: undefined, out: undefined, user: undefined };
-  for (let i = 0; i < argv.length; i += 2) {
-    const flag = argv[i];
-    const field = takes[flag];
-    if (!field) {
-      throw new Error(`there is no ${flag} - the flags are --env, --out and --user`);
-    }
-    const value = argv[i + 1];
-    // A flag with nothing after it, rather than one silently taking the next
-    // flag as its value - which is how `--user --out x` would quietly back up
-    // an account called `--out`.
-    if (value === undefined || value.startsWith('--')) {
-      throw new Error(`${flag} was given nothing to go with it`);
-    }
-    // Said rather than taking the last quietly: the two environments differ in
-    // exactly the way that makes being surprised by which one was read
-    // expensive.
-    if (args[field] !== undefined) {
-      throw new Error(`${flag} was given twice - it takes one value`);
-    }
-    args[field] = value;
-  }
+  const args = readFlags(argv, {
+    takes: { '--env': 'environment', '--out': 'out', '--user': 'user' },
+  });
   if (!args.environment) throw new Error('--env says which environment to back up');
   if (!args.out) throw new Error('--out says where to write the backup');
   return args;
@@ -200,32 +182,9 @@ function listed(names) {
 }
 
 /**
- * What one answer from an operator route means.
- *
- * The two that are worth telling apart by hand are the secret and the account,
- * because they are the two things somebody typed. Everything else is reported
- * as it arrived rather than translated, since a backup that stops is going to
- * be read by whoever ran it.
+ * What one answer from an operator route means. Taking a backup meets no status
+ * the pair does not share, so it adds nothing to the common reading.
  */
-export function readRefusal({ status, body }) {
-  if (status === 401) {
-    return (
-      'refused: the operator secret was not accepted. It is BACKUP_TOKEN, set per ' +
-      'environment with `wrangler secret put BACKUP_TOKEN`, and given to this command ' +
-      'as COCKPIT_BACKUP_TOKEN.'
-    );
-  }
-  // A name that is not there, and a store holding somebody else's rows: both
-  // are the environment saying no for a reason it has already put in words.
-  if (status === 404 || status === 409) return `refused: ${message(body)}`;
-  if (status === 0) return 'nothing answered - is the environment up, and the address right?';
-  return `answered ${status}: ${message(body)}`;
-}
-
-function message(body) {
-  try {
-    return JSON.parse(body).error ?? body;
-  } catch {
-    return body;
-  }
+export function readRefusal(answer) {
+  return readAnswer(answer);
 }

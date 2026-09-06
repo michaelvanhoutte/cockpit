@@ -14,6 +14,7 @@ import { accountChanges } from './changes.js';
 import {
   CHANGE_LEDGER,
   accountTables,
+  describeForeignRowsInBackup,
   foreignRows,
   readStoreAsItStands,
   type AccountBackup,
@@ -21,10 +22,9 @@ import {
 } from './backup.js';
 import {
   deleteAllRows,
-  describeRowsFromElsewhere,
   dropAccountTables,
-  rowsFromElsewhere,
   storeHoldsAnything,
+  tablesParentsFirst,
   writeRows,
 } from './restore.js';
 import { createAccountDb, type AccountDb } from './client.js';
@@ -183,9 +183,9 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       };
     }
 
-    const wrong = rowsFromElsewhere(backup, accountName);
+    const wrong = foreignRows(backup, accountName);
     if (wrong.length > 0) {
-      return { status: 'refused', what: describeRowsFromElsewhere(wrong, accountName) };
+      return { status: 'refused', what: describeForeignRowsInBackup(wrong, accountName) };
     }
 
     const sql = this.ctx.storage.sql;
@@ -197,10 +197,16 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       };
     }
 
-    let written = { tablesWritten: 0, rowsWritten: 0 };
+    // What was actually written, not what the file happened to name: a backup
+    // routinely carries tables with no rows in them, and reporting those as
+    // written is a claim about what happened that is wrong on most restores.
+    const written = {
+      tablesWritten: Object.values(backup.tables).filter((rows) => rows.length > 0).length,
+      rowsWritten: Object.values(backup.tables).reduce((all, rows) => all + rows.length, 0),
+    };
     try {
       this.ctx.storage.transactionSync(() => {
-        dropAccountTables(sql, held);
+        dropAccountTables(sql, tablesParentsFirst(sql, held));
         sql.exec(`DROP TABLE IF EXISTS ${CHANGE_LEDGER}`);
 
         for (const change of changes.filter((one) => backup.changesApplied.includes(one.name))) {
@@ -209,8 +215,13 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
           }
         }
 
-        deleteAllRows(sql, accountTables(sql));
-        writeRows(sql, backup);
+        // Worked out once and used three ways - to empty in child-first order
+        // and to write in parent-first - rather than rebuilt from the foreign
+        // keys for each, which asked SQLite the same question three times over
+        // inside an open write transaction.
+        const order = tablesParentsFirst(sql, accountTables(sql));
+        deleteAllRows(sql, order);
+        writeRows(sql, backup, order);
 
         sql.exec(
           `CREATE TABLE IF NOT EXISTS ${CHANGE_LEDGER} (
@@ -222,13 +233,20 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         for (const name of backup.changesApplied) {
           sql.exec(`INSERT INTO ${CHANGE_LEDGER} (name, applied_at) VALUES (?, ?)`, name, at);
         }
-
-        written = {
-          tablesWritten: Object.keys(backup.tables).length,
-          rowsWritten: Object.values(backup.tables).reduce((all, rows) => all + rows.length, 0),
-        };
       });
     } catch (error) {
+      // **Logged as well as answered.** The body reaching here has been through
+      // the route's schema, so what is left to fail is a constraint the rows
+      // break - a file somebody edited - and that is the caller's to fix, which
+      // is why it answers as a refusal. But it is also where a fault of ours
+      // would surface, indistinguishable from the outside, so the underlying
+      // error goes to the logs rather than only into somebody's terminal.
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `restoring ${accountName} was undone: ${(error as Error).message}`,
+        }),
+      );
       return { status: 'refused', what: `the restore was undone: ${(error as Error).message}` };
     }
 

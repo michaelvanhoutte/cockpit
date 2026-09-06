@@ -247,6 +247,97 @@ describe('Backup', () => {
     });
   });
 
+  describe('restoring refuses anything that is not a backup, and says what is wrong with it', () => {
+    /**
+     * The routes validate like every other one, which the first draft of these
+     * two did not: a cast rather than a schema meant every malformed body
+     * answered `500 internal error`, saying nothing about a file somebody could
+     * fix. Worse than the message - the only reason a malformed body was not
+     * *destructive* was that the guards which throw on one happen to run before
+     * the transaction opens, which is an accident of ordering rather than a
+     * property.
+     */
+    it.each([
+      { situation: 'nothing in it', body: '{}' },
+      { situation: 'null', body: 'null' },
+      { situation: 'a bare string', body: '"a string"' },
+      { situation: 'not JSON at all', body: 'not json' },
+      { situation: 'a change list that is not a list', body: '{"changesApplied":"one","tables":{}}' },
+      { situation: 'tables that are not tables', body: '{"changesApplied":[],"tables":null}' },
+      {
+        situation: 'a table holding something other than rows',
+        body: '{"changesApplied":[],"tables":{"items":[1,2]}}',
+      },
+    ])('refuses $situation, and does not answer as though it broke', async ({ body }) => {
+      const res = await asOperator(`/v1/admin/restore/accounts/${ACCOUNT_NAME}?force=true`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      });
+
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain('not a backup');
+    });
+
+    it('refuses a register that is not one', async () => {
+      const res = await asOperator('/v1/admin/restore/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{"tenants":null,"users":[]}',
+      });
+
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain('not a register');
+    });
+
+    /**
+     * The register cannot be consulted here - an account is restored before its
+     * register row exists - so the name's shape is what stands between a typo
+     * and a store created under it that nothing will ever address again.
+     */
+    it.each([
+      { situation: 'a separator', name: 'a%2Fb' },
+      { situation: 'a space', name: 'a%20b' },
+      // Refused before the schema sees it: the router collapses a walk upwards
+      // out of the path, so it matches no route at all. Kept in the table
+      // because what matters is that no store is made under it, not which of
+      // the two refusals gets there first.
+      { situation: 'a walk upwards', name: '..' },
+    ])('makes no store for a name with $situation in it', async ({ name }) => {
+      const res = await asOperator(`/v1/admin/restore/accounts/${name}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{"changesApplied":[],"tables":{}}',
+      });
+
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBeLessThan(500);
+    });
+
+    /**
+     * A backup is a file on somebody's disk and may have been edited by hand -
+     * that is what the format is for - so rows disagreeing about their columns
+     * is a real state. Taking the first row's list and reading the rest through
+     * it writes NULL for a column a later row lacks and drops one it gained,
+     * both landing as a restore that reports success having lost data.
+     */
+    it('refuses a table whose rows do not all carry the same columns', async () => {
+      await captureInto(USER_ID, 'mine');
+      const taken = await backUp(ACCOUNT_NAME);
+      const [first] = taken.tables.workspaces!;
+      const ragged = {
+        ...taken,
+        tables: { ...taken.tables, workspaces: [first!, { ...first!, extra: 'unexpected' }] },
+      };
+
+      const res = await restore(ACCOUNT_NAME, ragged, { force: true });
+
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain('same columns');
+      expect(messagesIn(await backUp(ACCOUNT_NAME))).toContain('mine');
+    });
+  });
+
   describe('an account behind the current version is brought up to date once it is restored', () => {
     /**
      * The half the whole design rests on. A backup records the shape its rows

@@ -15,33 +15,14 @@
 //     is carrying on and leaving somebody to work out how far it got.
 //
 
+import { readAnswer, readFlags } from './operator.mjs';
+
 /** What the command was asked to do. */
 export function readArguments(argv) {
-  const takes = { '--env': 'environment', '--from': 'from', '--user': 'user' };
-  const flags = { '--force': 'force' };
-  const args = { environment: undefined, from: undefined, user: undefined, force: false };
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const flag = argv[i];
-    if (flags[flag]) {
-      args[flags[flag]] = true;
-      continue;
-    }
-    const field = takes[flag];
-    if (!field) {
-      throw new Error(`there is no ${flag} - the flags are --env, --from, --user and --force`);
-    }
-    const value = argv[i + 1];
-    if (value === undefined || value.startsWith('--')) {
-      throw new Error(`${flag} was given nothing to go with it`);
-    }
-    if (args[field] !== undefined) {
-      throw new Error(`${flag} was given twice - it takes one value`);
-    }
-    args[field] = value;
-    i += 1;
-  }
-
+  const args = readFlags(argv, {
+    takes: { '--env': 'environment', '--from': 'from', '--user': 'user' },
+    switches: { '--force': 'force' },
+  });
   if (!args.environment) throw new Error('--env says which environment to restore into');
   if (!args.from) throw new Error('--from says which backup to read');
   return args;
@@ -147,25 +128,15 @@ function listed(names) {
   return names.length ? names.join(', ') : 'no accounts at all';
 }
 
-/** What one refusal from a restore route means, in the words that help. */
-export function readRefusal({ status, body }) {
-  if (status === 401) {
-    return (
-      'refused: the operator secret was not accepted. It is BACKUP_TOKEN, set per ' +
-      'environment with `wrangler secret put BACKUP_TOKEN`, and given to this command ' +
-      'as COCKPIT_BACKUP_TOKEN.'
-    );
-  }
-  if (status === 409) return `refused: ${message(body)}\n\nPass --force to replace what is there.`;
-  if (status === 400) return `refused: ${message(body)}`;
-  if (status === 0) return 'nothing answered - is the environment up, and the address right?';
-  return `answered ${status}: ${message(body)}`;
-}
-
-function message(body) {
-  try {
-    return JSON.parse(body).error ?? body;
-  } catch {
-    return body;
-  }
+/**
+ * What one refusal from a restore route means.
+ *
+ * The one status restoring reads differently is 409, which is the only refusal
+ * in either command with a way forward - so it carries it, rather than leaving
+ * somebody to find `--force` in the help.
+ */
+export function readRefusal(answer) {
+  return readAnswer(answer, {
+    409: (why) => `refused: ${why}\n\nPass --force to replace what is there.`,
+  });
 }

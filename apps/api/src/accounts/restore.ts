@@ -77,8 +77,8 @@ export function tablesParentsFirst(sql: SqlStorage, tables: readonly string[]): 
  * stood when the backup was taken. Emptying would keep whatever shape is there
  * now and quietly restore old rows into a new schema.
  */
-export function dropAccountTables(sql: SqlStorage, tables: readonly string[]): void {
-  for (const table of [...tablesParentsFirst(sql, tables)].reverse()) {
+export function dropAccountTables(sql: SqlStorage, parentsFirst: readonly string[]): void {
+  for (const table of [...parentsFirst].reverse()) {
     sql.exec(`DROP TABLE IF EXISTS "${quoted(table)}"`);
   }
 }
@@ -95,8 +95,8 @@ export function dropAccountTables(sql: SqlStorage, tables: readonly string[]): v
  *
  * Children first, so nothing is deleted while a row still points at it.
  */
-export function deleteAllRows(sql: SqlStorage, tables: readonly string[]): void {
-  for (const table of [...tablesParentsFirst(sql, tables)].reverse()) {
+export function deleteAllRows(sql: SqlStorage, parentsFirst: readonly string[]): void {
+  for (const table of [...parentsFirst].reverse()) {
     sql.exec(`DELETE FROM "${quoted(table)}"`);
   }
 }
@@ -110,12 +110,13 @@ export function deleteAllRows(sql: SqlStorage, tables: readonly string[]): void 
  * parameter count grows with the data". `inBatchesOf` is the same arithmetic
  * the command handlers use.
  */
-export function writeRows(sql: SqlStorage, backup: AccountBackup): void {
-  const tables = Object.keys(backup.tables).filter((table) => backup.tables[table]!.length > 0);
-  for (const table of tablesParentsFirst(sql, tables)) {
-    const rows = backup.tables[table]!;
+export function writeRows(sql: SqlStorage, backup: AccountBackup, order: readonly string[]): void {
+  for (const table of order) {
+    const rows = backup.tables[table] ?? [];
+    if (rows.length === 0) continue;
     const columns = Object.keys(rows[0]!);
     if (columns.length === 0) continue;
+    sameShapeThroughout(table, rows, columns);
     const columnList = columns.map((column) => `"${quoted(column)}"`).join(', ');
 
     for (const batch of inBatchesOf(rows, columns.length)) {
@@ -126,57 +127,48 @@ export function writeRows(sql: SqlStorage, backup: AccountBackup): void {
   }
 }
 
-/** A row in the backup that says it belongs to another account. */
-export interface RowFromElsewhere {
-  table: string;
-  tenantId: unknown;
+/**
+ * That every row of a table carries the same columns, which is what lets the
+ * first one settle the insert for all of them.
+ *
+ * **Refused rather than filled in.** A backup is a file on somebody's disk and
+ * may have been edited or merged by hand - that is what the format is for - so
+ * rows disagreeing about their columns is a real state rather than an
+ * impossible one. Taking the first row's list and reading the rest through it
+ * writes NULL for a column a later row lacks and silently drops one it has
+ * gained, and both land as a restore that reports success having lost data.
+ * Which is the one thing a backup exists to prevent.
+ */
+function sameShapeThroughout(table: string, rows: readonly Row[], columns: readonly string[]): void {
+  const expected = [...columns].sort().join(',');
+  for (const [at, row] of rows.entries()) {
+    const found = Object.keys(row).sort().join(',');
+    if (found !== expected) {
+      throw new Error(
+        `the backup's ${table} rows do not all carry the same columns: row ${at + 1} has ` +
+          `${found || 'none'} where the first has ${expected}`,
+      );
+    }
+  }
 }
 
 /**
- * Which of a backup's rows do not belong to the account it is going into.
+ * **The lock on the way in is `foreignRows` from `backup.ts`, unchanged.**
  *
- * The same lock `backup.ts` turns on the way out, turned again on the way in -
- * and this is the direction that matters more. A backup is a file, so what
- * reaches here has been on somebody's disk and may have been edited; without
- * this, restoring one account's file into another's store would write rows
- * carrying a name that store's own queries then never match, leaving an account
- * that reads as empty while holding somebody else's data.
+ * It used to be written again here, which is how it was first built: the same
+ * loop over the same shape, under a second name. That is the wrong shape for
+ * this particular check - it is the second lock the architecture leans on, it
+ * is turned in two directions, and two copies of it drift in exactly the way
+ * nobody notices, because each direction is exercised by different tests. One
+ * function, two sentences (`describeForeignRows` on the way out,
+ * `describeForeignRowsInBackup` on the way in).
+ *
+ * The direction guarded here is the one that matters more. A backup is a file,
+ * so what reaches this point has been on somebody's disk and may have been
+ * edited; without the check, restoring one account's file into another's store
+ * writes rows carrying a name that store's own queries never match, leaving an
+ * account that reads as empty while holding somebody else's data.
  */
-export function rowsFromElsewhere(backup: AccountBackup, accountName: string): RowFromElsewhere[] {
-  const wrong: RowFromElsewhere[] = [];
-  for (const [table, rows] of Object.entries(backup.tables)) {
-    for (const row of rows) {
-      if (!(ACCOUNT_COLUMN in row)) continue;
-      if (row[ACCOUNT_COLUMN] !== accountName) {
-        wrong.push({ table, tenantId: row[ACCOUNT_COLUMN] });
-      }
-    }
-  }
-  return wrong;
-}
-
-/** Says which tables held rows belonging elsewhere, counted rather than listed. */
-export function describeRowsFromElsewhere(
-  wrong: readonly RowFromElsewhere[],
-  accountName: string,
-): string {
-  const perTable = new Map<string, { count: number; tenants: Set<string> }>();
-  for (const row of wrong) {
-    const seen = perTable.get(row.table) ?? { count: 0, tenants: new Set<string>() };
-    seen.count += 1;
-    seen.tenants.add(JSON.stringify(row.tenantId));
-    perTable.set(row.table, seen);
-  }
-  const named = [...perTable.entries()]
-    .map(
-      ([table, seen]) =>
-        `${table} holds ${seen.count} row${seen.count === 1 ? '' : 's'} belonging to ${[
-          ...seen.tenants,
-        ].join(', ')}`,
-    )
-    .join('; ');
-  return `the backup is not this account's: ${named}, and it was restored into ${accountName}`;
-}
 
 /** Whether the store already holds any of the account's own rows. */
 export function storeHoldsAnything(sql: SqlStorage, tables: readonly string[]): boolean {
