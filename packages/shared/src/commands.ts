@@ -349,8 +349,11 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 
 /**
- * A new Type, made by naming one that is not there yet ("Capture a thought or
- * an action, and see which it is", issue 155).
+ * A new Type, made in the window Types are managed in ("Make a type where types
+ * are managed, not while capturing", issue 203). Capture used to send this too,
+ * from any name matching none of the types on offer; it no longer makes one at
+ * all, so this has one caller and a name another Type already has is refused
+ * rather than quietly reused.
  *
  * It carries no colour: which one is free is a fact about the account rather
  * than about the request, so the store decides it. That is also what makes a

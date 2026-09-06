@@ -14,26 +14,22 @@ import { CapturePage } from '../../../src/pages/CapturePage';
  * apps/api/tests/integration/http/panel-items.test.ts, and the walk from the
  * header to the Inbox is tests/e2e/workspace-capture.test.ts.
  *
- * The API client is the only thing replaced, so the choreography under this -
- * making a type and then capturing against it - is the real `useCapture`.
+ * The API client is the only thing replaced, so what capturing does is the real
+ * `useCapture`.
  */
 const held = vi.hoisted(() => ({
   mutate: vi.fn(),
-  send: vi.fn(),
-  /** The types the account holds, re-read after one is made. */
+  /** The types the account holds, which another tab can delete one of. */
   types: [] as unknown[],
   /** The workspaces the account holds, which another tab can delete one of. */
   workspaces: [] as unknown[],
   items: [] as unknown[],
   /** What a capture is refused with, if it is. */
   refuses: null as Error | null,
-  /** What making a type is refused with, if it is. */
-  refusesTheType: null as Error | null,
 }));
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: held.mutate, isPending: false }),
-  useSendCommand: () => held.send,
   itemTypesQuery: {
     queryKey: ['itemTypes'],
     queryFn: () => Promise.resolve({ itemTypes: held.types }),
@@ -75,18 +71,15 @@ async function thePage({
   types = [ACTION, THOUGHT, READ_LATER],
   items = [] as Item[],
   cameFrom = 'ws-home',
-  madeAs = types,
 }: {
   types?: ItemType[];
   items?: Item[];
   cameFrom?: string | null;
-  madeAs?: ItemType[];
 } = {}) {
   held.types = types;
   held.items = items;
   held.workspaces = [WORK, HOME];
   held.refuses = null;
-  held.refusesTheType = null;
   localStorage.clear();
   if (cameFrom) localStorage.setItem('cockpit.last-visited.workspace', cameFrom);
 
@@ -98,14 +91,6 @@ async function thePage({
       else options?.onSuccess?.();
     },
   );
-  held.send = vi.fn(() => {
-    // A type is made, and the account then holds it - which is what the capture
-    // re-reads to find out which id it ended up with.
-    if (held.refusesTheType) return Promise.reject(held.refusesTheType);
-    held.types = madeAs;
-    return Promise.resolve();
-  });
-
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -121,14 +106,12 @@ const box = () => screen.getByLabelText('What is on your mind?');
 const chip = (name: string) => screen.getByRole('button', { name });
 const captured = () =>
   held.mutate.mock.calls.map(([args]) => args).find((args) => args.name === 'capture_item');
-const madeType = () =>
-  held.send.mock.calls.map(([args]) => args).find((args) => args.name === 'create_item_type');
+const everythingAsked = () => held.mutate.mock.calls.map(([args]) => args.name);
 const justCaptured = () => screen.queryAllByRole('listitem');
 
 describe('Capture', () => {
   beforeEach(() => {
     held.mutate.mockClear();
-    held.send.mockClear();
   });
 
   describe('the capture page writes down a note, what kind of thing it is, and where it goes', () => {
@@ -169,19 +152,34 @@ describe('Capture', () => {
       expect(captured().payload.workspaceDecided).toBeUndefined();
     });
 
-    it('makes the type first when the name beside the chips is one nobody has', async () => {
-      const ERRAND = aType('Errand', 3, '#3f8f78');
-      const user = await thePage({ madeAs: [ACTION, THOUGHT, READ_LATER, ERRAND] });
+    it('captures with no type when No type is chosen', async () => {
+      const user = await thePage();
 
-      await user.type(screen.getByLabelText('Name a new type'), 'Errand');
-      await user.type(box(), 'Pick up the parcel');
+      // Lit to start with is the type used last, so this is the way back to
+      // having said nothing - which is what the box that made a type used to
+      // be, by taking the light off every chip.
+      await user.click(chip('No type'));
+      await user.type(box(), 'Something I have not decided about');
       await user.click(chip('Capture'));
 
-      await waitFor(() => expect(captured()).toBeDefined());
-      expect(madeType().payload.name).toBe('Errand');
-      // The type the account ended up holding, not the id this page invented:
-      // another tab naming the same type first keeps its own row.
-      expect(captured().payload.typeId).toBe(ERRAND.id);
+      expect(captured().payload.typeId).toBeUndefined();
+    });
+
+    it('falls back to No type when the one chosen is deleted in another tab', async () => {
+      const user = await thePage();
+      await user.click(chip('Read later'));
+
+      held.types = [ACTION, THOUGHT];
+      await user.client.invalidateQueries({ queryKey: ['itemTypes'] });
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Read later' })).toBeNull());
+
+      // Which is what the row now says, rather than nothing being chosen - and
+      // what it captures against, rather than a type the account would refuse.
+      expect(chip('No type')).toHaveAttribute('aria-pressed', 'true');
+      await user.type(box(), 'Where does this go');
+      await user.click(chip('Capture'));
+
+      expect(captured().payload.typeId).toBeUndefined();
     });
 
     it('falls back to Any workspace when the one chosen is deleted in another tab', async () => {
@@ -243,19 +241,37 @@ describe('Capture', () => {
       expect(justCaptured()).toHaveLength(0);
     });
 
-    it('leaves the note in the box when the type it names is refused', async () => {
-      const user = await thePage();
-      held.refusesTheType = new CommandRefused(422, 'a type is named in 60 characters');
+  });
 
-      await user.type(screen.getByLabelText('Name a new type'), 'Errand');
-      await user.type(box(), 'Pick up the parcel');
+  /**
+   * The Capture page's half of the rule ("Make a type where types are managed,
+   * not while capturing", issue 203). The window that does make one owns the
+   * other half, in tests/unit/components/ManageTypes.test.tsx.
+   */
+  describe('a type is made where types are managed, and nowhere else', () => {
+    it('answers what kind of thing this is with chips alone', async () => {
+      await thePage();
+
+      // Nothing in the row is typed into: the dashed box that named a type has
+      // gone, and every answer left is one of the chips.
+      const row = within(screen.getByRole('group', { name: 'Type' }));
+      expect(row.queryAllByRole('textbox')).toEqual([]);
+      expect(row.getAllByRole('button').map((one) => one.textContent)).toEqual([
+        'No type',
+        'Action',
+        'Thought',
+        'Read later',
+      ]);
+    });
+
+    it('asks to capture, and never to make a type', async () => {
+      const user = await thePage();
+
+      await user.click(chip('Thought'));
+      await user.type(box(), 'Maybe the onboarding is two screens');
       await user.click(chip('Capture'));
 
-      await waitFor(() =>
-        expect(screen.getByRole('alert')).toHaveTextContent('a type is named in 60 characters'),
-      );
-      expect(captured()).toBeUndefined();
-      expect(box()).toHaveValue('Pick up the parcel');
+      expect(everythingAsked()).toEqual(['capture_item']);
     });
   });
 
