@@ -34,3 +34,16 @@ Range.prototype.getBoundingClientRect = () =>
     toJSON: () => ({}),
   }) as DOMRect;
 document.elementFromPoint = () => null;
+
+/**
+ * Pointer capture, which jsdom does not implement at all.
+ *
+ * A drag keeps receiving moves once the pointer has left the thing it started
+ * on - the panel moves out from under the hand almost immediately - and that is
+ * what capture is for. Without these two the first `pointerdown` of any drag
+ * throws, so this is what lets the gesture be driven here at all; what it
+ * cannot stand in for is the capture actually holding, which is a browser
+ * behaviour and an F3 walk.
+ */
+Element.prototype.setPointerCapture = function setPointerCapture() {};
+Element.prototype.releasePointerCapture = function releasePointerCapture() {};

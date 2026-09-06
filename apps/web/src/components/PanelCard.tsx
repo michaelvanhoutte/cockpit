@@ -56,16 +56,22 @@ export interface PanelCardProps {
   onStopRenaming: () => void;
   onDelete: (openedFrom: HTMLElement | null) => void;
   onMove: (places: number) => void;
-  /** The drag: this panel was picked up, or something was dropped beside it. */
-  onPickUp: () => void;
   /**
-   * The drag ended, wherever it ended. A drop is not the only way one can:
-   * letting go over the Inbox, off the window or on Escape all end it too, and
-   * the board holds what is being dragged - so without this the seams stay open
-   * after a drag nobody completed.
+   * That this is the panel in the air, so it can say so. The board knows
+   * which one it is; the card is what draws it.
    */
-  onLetGo: () => void;
-  onDropOn: (side: 'before' | 'after') => void;
+  lifted: boolean;
+  /**
+   * The grab, and the whole of what this reports.
+   *
+   * **The board takes the gesture from here**, pointer and all. A panel that
+   * moves to another row is drawn under a different parent, so React unmounts
+   * and remounts it - and a capture taken on this header goes with the node
+   * it was taken on. The drag would then answer the first move and die. The
+   * board's own element outlives every rearrangement, which is why it is the
+   * one that holds the pointer.
+   */
+  onPickUp: (pointerId: number) => void;
   /** Why the last change to this panel did not happen, if it did not. */
   refusal: string | null;
   busy: boolean;
@@ -85,9 +91,8 @@ export function PanelCard({
   onStopRenaming,
   onDelete,
   onMove,
+  lifted,
   onPickUp,
-  onLetGo,
-  onDropOn,
   refusal,
   busy,
 }: PanelCardProps) {
@@ -95,28 +100,12 @@ export function PanelCard({
   return (
     <section
       aria-label={panel.name}
-      // The whole panel is the drop target while only its header is the handle:
-      // aiming at a two-line strip is a fiddly drop, and the thing being aimed
-      // at is the place, not the grip.
-      //
-      // **Panels only.** A row of the list inside crosses this on its way in,
-      // and without the check it would arrive as a panel being dropped on a
-      // panel - which does nothing while no panel is being dragged, and
-      // reorders the dashboard when one was picked up and abandoned earlier.
-      onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
-        e.preventDefault();
-      }}
-      onDrop={(e) => {
-        if (e.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
-        e.preventDefault();
-        // Which side of this panel it was let go on, so dropping onto the left
-        // half puts it before and the right half after. The whole panel is one
-        // target rather than two: a half is still a comfortable thing to aim
-        // at, and a seam between two panels would be four pixels.
-        const box = e.currentTarget.getBoundingClientRect();
-        onDropOn(e.clientX < box.left + box.width / 2 ? 'before' : 'after');
-      }}
+      // Where a panel lands is measured off the rows rather than caught by a
+      // drop target of its own: a drag moves the panels as it goes
+      // (`panels/dragging.ts`), so the board reads the arrangement it is
+      // drawing and there is nothing here to hit. What is still dropped *on* a
+      // panel is an item, and that is the list's own target, further in.
+      data-panel-cell={panel.id}
       // No fill and no edge of its own: the panel is the sheet, and only the
       // list inside it goes down into it ("Cockpit Shell Explorations",
       // artboard 2c).
@@ -126,26 +115,50 @@ export function PanelCard({
       // rather than on the header, because a container query asks about an
       // *ancestor*: on the header it would size the header's contents and not
       // the header itself.
-      className="@container flex min-w-0 flex-col"
+      // Lifted, and saying so: the panel in the air is drawn back and outlined
+      // in its slot while the board moves it about. Without it the gesture had
+      // no sign at all that anything had been picked up.
+      className={`@container flex min-w-0 flex-col ${
+        lifted ? 'rounded-lg opacity-40 outline-2 outline-dashed outline-accent' : ''
+      }`}
     >
       <header
-        // `=== null` rather than falsy: an emptied rename box is still an open
-        // rename box, and a draggable header takes the pointer away from the
-        // input inside it - selecting what you typed would start a panel drag.
-        draggable={renaming === null}
-        onDragStart={(e) => {
-          // Firefox starts no drag at all without data on the transfer, and the
-          // panel being dragged is held in React state rather than read back
-          // from here - so this is the minimum that makes the gesture happen.
-          e.dataTransfer.setData('text/plain', panel.id);
-          e.dataTransfer.effectAllowed = 'move';
-          onPickUp();
+        // The handle, and a pointer gesture rather than the browser's own
+        // drag-and-drop.
+        //
+        // **The browser's drag gives a frozen picture of the panel**, which is
+        // the one thing this gesture must not do: the panels move as the
+        // pointer does, so what is under the hand has to be the board itself.
+        // It also drew the two gestures on this screen from one mechanism -
+        // an item being filed onto a panel is a drag too - and every target
+        // had to ask which of them was in the air. Items keep the browser's
+        // drag; a panel is moved with the pointer, and the two can no longer
+        // be mistaken for each other.
+        onPointerDown={(event) => {
+          // The primary button only: a right-click opens a menu, and dragging
+          // the panel out from under it would be nobody's intention.
+          if (event.button !== 0) return;
+          // Not while it is being renamed, and not on the menu: an emptied
+          // rename box is still an open one, and selecting what you typed must
+          // not carry the panel off. `closest` rather than a check on the
+          // target, because the menu's glyph is an SVG inside the button.
+          if (renaming !== null) return;
+          if ((event.target as Element).closest?.('button, input, form')) return;
+          // **And only for a press that really landed in this header.** The
+          // menu's entries are drawn in a portal on the body, but a React event
+          // bubbles through the component tree rather than the DOM one - so
+          // pressing Move left arrives here, nowhere near the header, and the
+          // `preventDefault` below took the press away from the menu. The menu
+          // then sat open over a modal overlay with nothing else on the page
+          // reachable. `contains` is what tells the two apart; an Item's row
+          // asks the same question for the same reason (`RowForm.tsx`,
+          // `wasOnTheRow`).
+          if (!event.currentTarget.contains(event.target as Node)) return;
+          // Otherwise the browser starts a text selection across whatever the
+          // drag passes over.
+          event.preventDefault();
+          onPickUp(event.pointerId);
         }}
-        // Whatever became of it. `dragend` fires on the panel that was picked
-        // up however the drag finished - dropped somewhere that takes it,
-        // dropped on the Inbox, let go off the window, cancelled with Escape -
-        // and it is the only one of those the board hears about.
-        onDragEnd={onLetGo}
         // On the sheet rather than on the list: no fill, no rule under it, and
         // the space above it is what separates one panel from the one above.
         //
@@ -161,7 +174,13 @@ export function PanelCard({
         // It stops matching the rows underneath there, which carry `px-4` of
         // their own - a fair trade at a width where those rows are showing two
         // characters of a title.
-        className="flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2"
+        // `cursor-grab` because the header is the handle and nothing else says
+        // so; `touch-none` is deliberately absent, so a finger still scrolls
+        // the page and the drag stays the pointer gesture the menu is the
+        // alternative to.
+        className={`flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 ${
+          renaming === null ? 'cursor-grab active:cursor-grabbing' : ''
+        }`}
       >
         {renaming !== null ? (
           <form
