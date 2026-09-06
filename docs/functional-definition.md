@@ -303,7 +303,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 
 ## 13. Scope per iteration (proposed)
 
-**Iteration 1 — follow-up tracking:** Workspaces, Dashboards and Panels (move/resize/title) with plain-English rule configuration (§6.2); the Item model with associations; read-only Gmail/Slack/Notion connectors limited to flagged and assigned items; fast capture of internal notes (issue 2, §2); Project, Person, Topic, Focus and Highlights panels; the four Focus horizons with overdue escalation; per-item AI summaries, next-action labels and suggested tags; local-first offline viewing with queued actions; source reconciliation (§10.1).
+**Iteration 1 — follow-up tracking:** Workspaces, Dashboards and Panels (move/title, on rows you size) with plain-English rule configuration (§6.2); the Item model with associations; read-only Gmail/Slack/Notion connectors limited to flagged and assigned items; fast capture of internal notes (issue 2, §2); Project, Person, Topic, Focus and Highlights panels; the four Focus horizons with overdue escalation; per-item AI summaries, next-action labels and suggested tags; local-first offline viewing with queued actions; source reconciliation (§10.1).
 
 **Iteration 2 — unified inbox:** the same connectors widened to the full stream; the triage inbox with its swipes and filing (§5); reading and replying in the app; flag-for-follow-up feeding the iteration 1 dashboards; notification-class email routing (#15); Payments due and Reading digest panels.
 

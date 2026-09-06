@@ -359,6 +359,10 @@ test.describe('Panels', () => {
       // one, and the only arrangement that can show a row being left behind.
       await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second], [third]]);
 
+      // Waited for from before the gesture, because the board draws the
+      // arrangement a drag produces before it sends it: every assertion below
+      // would pass on a change still sitting in the browser.
+      const saved = answerTo(page, 'save_layout');
       // The header is the handle; the panel is the target, and *where* on it
       // decides which side it lands - so the left tenth rather than the centre,
       // which is what `dragTo` aims at by default and reads as the right-hand
@@ -367,6 +371,7 @@ test.describe('Panels', () => {
         .getByRole('region', { name: third })
         .locator('header')
         .dragTo(page.getByRole('region', { name: first }), { targetPosition: { x: 8, y: 20 } });
+      expect((await saved).status()).toBe(200);
 
       // One row now, holding all three, and the line the third panel came from
       // has gone with it rather than staying behind as a blank.
@@ -395,6 +400,7 @@ test.describe('Panels', () => {
       // Aimed at where the gap above the row *is*, measured while the drag is
       // on rather than beforehand: at rest it is four pixels, and a point
       // picked from that would be off the seam the moment it opened.
+      const saved = answerTo(page, 'save_layout');
       const board = page.getByRole('region', { name: first });
       await page.mouse.move(...(await centreOf(board.locator('header'))));
       await page.mouse.down();
@@ -404,6 +410,7 @@ test.describe('Panels', () => {
       await page.mouse.move(...(await centreOf(board)), { steps: 4 });
       await page.mouse.move(...(await centreOf(seam)), { steps: 4 });
       await page.mouse.up();
+      expect((await saved).status()).toBe(200);
 
       await expect.poll(() => rowsOnScreen(page)).toEqual([[first], [second]]);
       await expectNoSidewaysScroll(page);
