@@ -11,8 +11,8 @@ import { env, applyD1Migrations } from 'cloudflare:test';
  * from an empty database with every migration applied, so the backfill has
  * nothing to find and its rows are never exercised at all. Staging is
  * deliberately never re-seeded and production was seeded once by hand
- * (docs/deployment.md, "Bootstrap runbook"), which is exactly why
- * what happens to rows that were already there is worth pinning.
+ * (docs/deployment.md, "Bootstrap runbook"), which is exactly why what happens
+ * to rows that were already there is worth pinning.
  */
 const AT = '2026-08-12T10:00:00.000Z';
 
@@ -35,6 +35,33 @@ function theRest() {
   return inject('migrations').filter((m) => m.name >= FIRST_WITH_A_GOOGLE_ACCOUNT);
 }
 
+interface Person {
+  id: string;
+  name: string;
+  email: string | null;
+  google_subject: string | null;
+}
+
+async function everybody(): Promise<Person[]> {
+  const { results } = await env.DB.prepare(
+    'SELECT id, name, email, google_subject FROM users ORDER BY id',
+  ).all<Person>();
+  return results;
+}
+
+/**
+ * The three states this file asks questions about, all reached in `beforeAll`
+ * because each is produced by an event that can only happen once. Reading them
+ * as they are made, rather than in the cases, is what keeps a case from
+ * depending on the one before it having run.
+ */
+let afterTheUpdate: Person[];
+let afterRunningItAgain: Person[];
+let secondRun: unknown;
+
+/** The address somebody is really given, the way the runbook gives one: by hand. */
+const ADA_FOR_REAL = 'ada@her-own-domain.example.net';
+
 beforeAll(async () => {
   await applyD1Migrations(env.DB, beforeAnybodyHadAGoogleAccount());
 
@@ -54,19 +81,43 @@ beforeAll(async () => {
   ]);
 
   await applyD1Migrations(env.DB, theRest());
+  afterTheUpdate = await everybody();
+
+  // Somebody is given their real address, which is the step the runbook says
+  // happens by hand once - and the thing a re-run must not undo.
+  await env.DB.prepare('UPDATE users SET email = ? WHERE id = ?')
+    .bind(ADA_FOR_REAL, 'user-ada')
+    .run();
+
+  // The deploy that failed after this file had already been applied, retried:
+  // its statements run again, not through `applyD1Migrations`, which keeps its
+  // own record of what it has applied and would do nothing at all.
+  const again = inject('migrations')
+    .filter((m) => m.name.startsWith('0011'))
+    .flatMap((m) => m.queries)
+    .map((query) => env.DB.prepare(query));
+  secondRun = await env.DB.batch(again).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  afterRunningItAgain = await everybody();
 });
 
 describe('Sign-in', () => {
   describe('people who were in the register before it could record a Google account keep their place in it', () => {
-    it('gives the two the register was started with an address', async () => {
-      const { results } = await env.DB.prepare(
-        "SELECT id, name, email FROM users WHERE id IN ('user-michael', 'user-ada') ORDER BY id",
-      ).all<{ id: string; name: string; email: string | null }>();
-
-      expect(results).toEqual([
-        { id: 'user-ada', name: 'Ada', email: 'ada@example.com' },
-        { id: 'user-michael', name: 'Michael', email: 'michael@example.com' },
-      ]);
+    it('gives the two the register was started with an address', () => {
+      expect(afterTheUpdate).toContainEqual({
+        id: 'user-michael',
+        name: 'Michael',
+        email: 'michael@example.com',
+        google_subject: null,
+      });
+      expect(afterTheUpdate).toContainEqual({
+        id: 'user-ada',
+        name: 'Ada',
+        email: 'ada@example.com',
+        google_subject: null,
+      });
     });
 
     /**
@@ -74,12 +125,42 @@ describe('Sign-in', () => {
      * told about - is how a person ends up allowed in under a name nobody chose.
      * A row with no address is simply one nobody can sign in as.
      */
-    it('leaves anybody it was not told about without one', async () => {
-      const row = await env.DB.prepare(
-        "SELECT name, email, google_subject FROM users WHERE id = 'user-anna'",
-      ).first<{ name: string; email: string | null; google_subject: string | null }>();
+    it('leaves anybody it was not told about without one', () => {
+      expect(afterTheUpdate).toContainEqual({
+        id: 'user-anna',
+        name: 'Anna',
+        email: null,
+        google_subject: null,
+      });
+    });
+  });
 
-      expect(row).toEqual({ name: 'Anna', email: null, google_subject: null });
+  /**
+   * A migration file that fails partway is re-run whole by the next deploy, so
+   * the half of this update that can fail on the data it finds is written to
+   * survive being run twice ("Record the Google account each user signs in
+   * with", issue 195). Nothing else exercises that: applying it once is what
+   * every other test in this folder does, and the guards that make the retry
+   * safe could be deleted without a single case going red.
+   */
+  describe('running the update a second time changes nobody', () => {
+    it('finishes rather than failing on what the first run left', () => {
+      expect(secondRun).toBeNull();
+    });
+
+    it('leaves an address somebody was really given alone', () => {
+      expect(afterRunningItAgain).toContainEqual({
+        id: 'user-ada',
+        name: 'Ada',
+        email: ADA_FOR_REAL,
+        google_subject: null,
+      });
+    });
+
+    it('leaves everybody else exactly as they were', () => {
+      expect(afterRunningItAgain.filter((person) => person.id !== 'user-ada')).toEqual(
+        afterTheUpdate.filter((person) => person.id !== 'user-ada'),
+      );
     });
   });
 });

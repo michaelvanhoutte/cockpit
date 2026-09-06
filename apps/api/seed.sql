@@ -31,8 +31,9 @@ VALUES ('tenant-default', 'Michael', '2026-08-12T00:00:00.000Z'),
 -- so no Google account can ever hold one of these. Locally that costs nothing,
 -- because signing in does not ask Google who you are yet. Putting a real address
 -- on a deployed environment is a step of "Sign in with Google, and retire the
--- list of names" (issue 196), by hand, and until then these two rows are people
--- nobody can sign in as.
+-- list of names" (issue 196), by hand. Until then these addresses do nothing at
+-- all: you sign in by picking a name off the logon page, and both of these
+-- people are as reachable as they were before the column existed.
 --
 -- `google_subject` is left empty for both, because it is not something to decide:
 -- it is what Google says about a person the first time they sign in.
