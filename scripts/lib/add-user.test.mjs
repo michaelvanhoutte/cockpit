@@ -73,8 +73,9 @@ describe('adding a user gives them an account of their own, ready to sign in to'
       address: 'anna@example.com',
       createdAt: '2026-09-06T09:00:00.000Z',
     });
-    // One write, so a person never exists pointing at an account that does not:
-    // the route puts both rows in a single batch.
+    // One write rather than two, so an interruption leaves the register
+    // untouched. What that write creates is still decided by the route, which
+    // is why the counts are checked below rather than the 200.
     assert.equal(env.written.length, 1);
     assert.equal(env.written[0].path, '/v1/admin/restore/register');
     assert.deepEqual(env.written[0].body, {

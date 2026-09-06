@@ -102,9 +102,12 @@ try {
       'made by the first request that opens the store, which is their first sign-in.',
   );
 } catch (error) {
-  // Nothing partial to report. The two rows go in one write, so either both are
-  // there or neither is, and every refusal above it happens before anything was
-  // written at all.
+  // The message is printed whole rather than summarised, because it is the only
+  // thing that says what was written. One request is atomic and the *operation*
+  // is not: the route decides which of the two rows are missing before it writes
+  // them, so a race that creates the account first lands the user row alone -
+  // committed, and nobody can put it back. `whatHappenedInstead` in
+  // scripts/lib/add-user.mjs is what names that, and this is where it is read.
   console.error(error.message);
   process.exit(1);
 }

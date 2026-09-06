@@ -14,9 +14,11 @@
 //
 // **Failure modes**, since this writes to a register nobody can un-write:
 //
-//   - *Stopping halfway.* There is one write, and the route puts both rows in a
-//     single `DB.batch`, so a person never exists pointing at an account that
-//     does not. Nothing else here changes anything.
+//   - *Stopping halfway.* There is one write, and the route puts whatever it
+//     decided to create in a single `DB.batch`, so an interruption leaves the
+//     register untouched. Nothing else here changes anything. **This is not the
+//     same as the operation being all-or-nothing** - what that batch holds is
+//     decided first, which is the third bullet.
 //   - *Running it twice.* Refused, naming what is already there. The second run
 //     writes nothing rather than adding a second Anna or moving the first.
 //   - *Between the read and the write.* The refusals below are decided against
