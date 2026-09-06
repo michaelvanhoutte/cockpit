@@ -229,6 +229,29 @@ describe('Updating', () => {
       await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     });
 
+    /**
+     * A refusal that keeps the server's own words rather than spelling the
+     * status in its message - which is what a refused change is, since those
+     * words are worth repeating to the person who made it. The status is on the
+     * error either way, and reading only the message would have made this half
+     * of the mechanism quietly not work.
+     */
+    it('reads the status off a refusal that does not spell it out', async () => {
+      const reload = vi.fn();
+      const client = newClient();
+      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', reload }, scratchMemory());
+
+      await reading(client, () =>
+        Promise.reject(
+          Object.assign(new Error('this address has been retired; the app needs a newer version'), {
+            status: 410,
+          }),
+        ),
+      );
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    });
+
     it.each([
       // The refusal every read gets when a visit has ended. Sending somebody to
       // the logon page is the app's answer to this, and taking the window for

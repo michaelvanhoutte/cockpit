@@ -310,6 +310,29 @@ describe('Sign-in', () => {
 
       expect(res.status).toBe(302);
     });
+
+    /**
+     * A delivery from a source is not somebody who can sign in - Slack and
+     * Gmail hold no cookie of ours and never will - so the gate must not be the
+     * thing that answers it. What authenticates one is the connector's own
+     * signature verification, behind this route rather than in front of it.
+     *
+     * Asserted as "answered by the connector layer" rather than as a status,
+     * because there are no connectors yet: an unknown one is a 404 today and a
+     * real one will be something else. What must never come back is the gate's
+     * refusal, and that is what would happen the day the first connector ships
+     * if this were left out.
+     */
+    it('lets a delivery from a source reach the connector that owns it', async () => {
+      const res = await SELF.fetch('http://cockpit.test/ingress/nobody/events', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+
+      expect(res.status).not.toBe(401);
+      expect((await res.json()) as { error: string }).toMatchObject({ error: 'unknown connector' });
+    });
   });
 
   /**
@@ -355,29 +378,6 @@ describe('Sign-in', () => {
       });
 
       expect(res.status).toBe(410);
-    });
-
-    /**
-     * A delivery from a source is not somebody who can sign in - Slack and
-     * Gmail hold no cookie of ours and never will - so the gate must not be the
-     * thing that answers it. What authenticates one is the connector's own
-     * signature verification, behind this route rather than in front of it.
-     *
-     * Asserted as "answered by the connector layer" rather than as a status,
-     * because there are no connectors yet: an unknown one is a 404 today and a
-     * real one will be something else. What must never come back is the gate's
-     * refusal, and that is what would happen the day the first connector ships
-     * if this were left out.
-     */
-    it('lets a delivery from a source reach the connector that owns it', async () => {
-      const res = await SELF.fetch('http://cockpit.test/ingress/nobody/events', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      });
-
-      expect(res.status).not.toBe(401);
-      expect((await res.json()) as { error: string }).toMatchObject({ error: 'unknown connector' });
     });
   });
 

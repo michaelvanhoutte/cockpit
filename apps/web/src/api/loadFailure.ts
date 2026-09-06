@@ -81,7 +81,14 @@ const STATUS = /failed: (\d{3})$/;
  * to drift apart.
  */
 export function statusOf(error: unknown): string | undefined {
-  return error instanceof Error ? STATUS.exec(error.message)?.[1] : undefined;
+  if (!(error instanceof Error)) return undefined;
+  // A refusal that carries the status rather than spelling it in the message,
+  // which `CommandRefused` does because it keeps the server's own words for the
+  // person who made the change. Read structurally rather than by importing the
+  // class: this module is what `api/client.ts` leans on for its failures, and
+  // the other way round would be a circle.
+  if ('status' in error && typeof error.status === 'number') return String(error.status);
+  return STATUS.exec(error.message)?.[1];
 }
 
 export async function diagnose(
