@@ -85,8 +85,9 @@ export function placementFor(
     const row = rows[index]!;
     if (point.y < row.top) return inTheGapUnder(rows[index - 1], dragged);
     if (point.y <= row.bottom) {
-      const placement = alongTheRow(point.x, row, index);
-      return placement.on === 'beside' && placement.panelId === dragged ? null : placement;
+      const placement = alongTheRow(point.x, row);
+      if (!placement) return null;
+      return placement.panelId === dragged ? null : placement;
     }
   }
   return inTheGapUnder(rows[rows.length - 1], dragged);
@@ -123,12 +124,16 @@ function inTheGapUnder(above: DrawnRow | undefined, dragged: string): Placement 
  * pixels. Past the last panel is after it, which is how a panel reaches the end
  * of a row it is joining.
  */
-function alongTheRow(x: number, row: DrawnRow, index: number): Placement {
+function alongTheRow(
+  x: number,
+  row: DrawnRow,
+): (Placement & { on: 'beside' }) | null {
   // A row with nothing across it is not a row the board draws, but a row whose
-  // panels have all been deleted in another tab can be one for a frame.
+  // panels have all been deleted in another tab can be one for a frame. Asking
+  // for nothing rather than for the top of the board: a row coming apart is no
+  // reason to move the panel in hand somewhere nobody pointed at.
   const last = row.cells[row.cells.length - 1];
-  if (!last) return { on: 'ownRow', under: null };
-  void index;
+  if (!last) return null;
 
   for (const cell of row.cells) {
     if (x < cell.left + (cell.right - cell.left) / 2) {

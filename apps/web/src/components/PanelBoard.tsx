@@ -139,7 +139,7 @@ export function PanelBoard({
    */
   const rowsRef = useRef<HTMLDivElement>(null);
   /**
-   * That a drag is on, known the instant it starts.
+   * Which panel is in hand, known the instant it is picked up - or null.
    *
    * **A ref beside the state, and not a duplicate of it.** The state is what
    * the board draws with; this is what the pointer handler asks, and the two
@@ -148,8 +148,13 @@ export function PanelBoard({
    * the pick-up for as long as that takes - and a move arriving in that window
    * reads `dragging` as null and is dropped. Under load every move of a quick
    * flick landed in it, and the drag did nothing at all.
+   *
+   * It holds the panel rather than a flag because the placement needs to know
+   * which panel is in hand to answer "the pointer is where it already is" -
+   * and reading that off the state instead left that answer disabled for
+   * exactly the moves this ref exists to catch.
    */
-  const draggingNow = useRef(false);
+  const draggingNow = useRef<string | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
   const askedFrom = useRef<HTMLElement | null>(null);
 
@@ -371,7 +376,7 @@ export function PanelBoard({
     command.reset();
     setRenaming(null);
     setDeleting(null);
-    draggingNow.current = true;
+    draggingNow.current = panelId;
     setDragging({ id: panelId, from: shown, preview: shown });
     // **After the drag has begun, and allowed to fail.** Capture is what keeps
     // the moves coming once the pointer has left the board - over the Inbox, or
@@ -396,7 +401,9 @@ export function PanelBoard({
    * DOM is not. What goes in is a placement already decided.
    */
   const dragTo = (point: { x: number; y: number }) => {
-    const placement = placementFor(point, rowsOnScreen(), dragging?.id ?? '');
+    const inHand = draggingNow.current;
+    if (!inHand) return;
+    const placement = placementFor(point, rowsOnScreen(), inHand);
     if (!placement) return;
     setDragging((held) => {
       if (!held) return held;
@@ -411,7 +418,7 @@ export function PanelBoard({
   /** Dropped. A drag that ends where it started asks for nothing. */
   const letGo = () => {
     const held = dragging;
-    draggingNow.current = false;
+    draggingNow.current = null;
     setDragging(null);
     if (!held || sameArrangement(held.preview, held.from)) return;
     propose(held.preview);
@@ -419,7 +426,7 @@ export function PanelBoard({
 
   /** A drag abandoned rather than dropped: the panels go back and nothing is sent. */
   const abandon = () => {
-    draggingNow.current = false;
+    draggingNow.current = null;
     setDragging(null);
   };
 
@@ -523,7 +530,6 @@ export function PanelBoard({
           ref={rowsRef}
           // The whole gesture, because this is what holds the pointer.
           onPointerMove={(event) => {
-            if (!draggingNow.current) return;
             dragTo({ x: event.clientX, y: event.clientY });
           }}
           onPointerUp={letGo}
