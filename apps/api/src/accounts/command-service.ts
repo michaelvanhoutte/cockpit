@@ -629,12 +629,18 @@ export function runCommand<N extends CommandName>(
           .where(
             and(
               eq(layoutRows.tenantId, tenantId),
+              // Both halves carry `tenant_id` like every other query here does
+              // (architecture, "One store per account, and `tenant_id` stays").
+              // A store holds one account, so nothing else could match today -
+              // which is the reason to write it rather than to leave it out:
+              // the column is only ever a lock if it is always turned.
               exists(
                 tx
                   .select({ one: sql`1` })
                   .from(layouts)
                   .where(
                     and(
+                      eq(layouts.tenantId, tenantId),
                       eq(layouts.id, layoutRows.layoutId),
                       eq(layouts.dashboardId, going.dashboardId),
                     ),
@@ -646,6 +652,7 @@ export function runCommand<N extends CommandName>(
                   .from(panelPlacements)
                   .where(
                     and(
+                      eq(panelPlacements.tenantId, tenantId),
                       eq(panelPlacements.layoutId, layoutRows.layoutId),
                       eq(panelPlacements.rowIndex, layoutRows.rowIndex),
                     ),
