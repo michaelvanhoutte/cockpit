@@ -10,6 +10,7 @@ import {
   openSettings,
   press,
   signIn,
+  switchTo,
   test,
   uniqueTitle,
   workspaceTab,
@@ -122,12 +123,11 @@ test.describe('Accounts', () => {
       await openSettings(page, isMobile);
       await page.getByLabel('Name of the new workspace').fill(workspace);
       await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-      const mine = workspaceTab(page, workspace);
-      await expect(mine).toBeVisible();
+      await expect(workspaceTab(page, workspace)).toBeVisible();
       // The window is over the workspace rather than instead of it, so it has
       // to be shut before the header underneath can be pressed.
       await closeWindow(page, isMobile);
-      await press(mine, isMobile);
+      await switchTo(page, workspace, isMobile);
       // Already beside the dashboards on the wide project; a tab to switch to
       // on the narrow one (issue 117, as above).
       if (isMobile) {

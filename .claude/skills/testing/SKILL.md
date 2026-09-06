@@ -164,7 +164,9 @@ If step 3 reveals a failure the tests missed, add the missing test before finish
 
 **Budget.** The fast tiers stay under 5 minutes locally, L1+F1 in seconds. Exceeding it makes restoring it priority work (push tests down the pyramid, delete redundant ones, parallelize), never resolved by skipping runs. Keep L3/F3 few and thin: before adding one, ask what it proves that nothing below can.
 
-**Flakiness.** Never retry-to-green; never weaken assertions, widen tolerances or add sleeps. Fix immediately or quarantine with an owner and an open bug; a test that stays quarantined is deleted. The cause found twice so far is a browser walk acting on what the app has drawn rather than on what it has kept — where nothing on screen tells the two apart, wait on the server's answer to the command (`answerTo`, `tests/e2e/panels.test.ts`).
+**Flakiness.** Never retry-to-green; never weaken assertions, widen tolerances or add sleeps. Fix immediately or quarantine with an owner and an open bug; a test that stays quarantined is deleted. The cause found three times so far is a browser walk acting on what the app has drawn rather than on what it has kept, and it has two answers. Where a gesture sends a change, wait on the server's answer to it (`answerTo`, `tests/e2e/panels.test.ts`). Where the walk navigates, wait for the navigation to have happened: the old workspace stays on screen and usable while the router reads the new one, so **every walk that changes workspace goes through `switchTo`** (`tests/e2e/support/app.ts`) rather than pressing the tab itself.
+
+**This class is invisible on a fast machine and shows at once under a slow API.** Delay every call in the `test` fixture — `page.route('**/v1/**', …)` with a 150ms wait — and run the suite. One pass of that turned up a fourth instance, which is a product bug rather than a walk: an item's form opens on text older than the save just made. Pinning to two cores also reproduces contention, but on Windows it mostly reproduces a native `node.exe` crash instead.
 
 ## This repo, today
 

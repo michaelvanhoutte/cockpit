@@ -8,6 +8,7 @@ import {
   openFirstWorkspace,
   openSettings,
   press,
+  switchTo,
   test,
   uniqueTitle,
 } from './support/app';
@@ -44,7 +45,7 @@ test.describe('Dashboards', () => {
       // The window is over the workspace rather than instead of it, so it has
       // to be shut before the header underneath can be pressed.
       await closeWindow(page, isMobile);
-      await press(workspaceTab(page, workspace), isMobile);
+      await switchTo(page, workspace, isMobile);
       await expect(dashboardBar(page)).toBeInViewport();
       await expectNoSidewaysScroll(page);
 
@@ -101,7 +102,7 @@ test.describe('Dashboards', () => {
       // The window is over the workspace rather than instead of it, so it has
       // to be shut before the header underneath can be pressed.
       await closeWindow(page, isMobile);
-      await press(workspaceTab(page, workspace), isMobile);
+      await switchTo(page, workspace, isMobile);
 
       const doomed = uniqueTitle('Recherche');
       await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
