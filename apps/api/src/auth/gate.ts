@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Env } from '../env.js';
+import type { Attempt } from './oidc.js';
 import { extendSession, sessionHeld, type Visitor } from './register.js';
 import { recogniseSession, SIGN_IN_LIFETIME_MS } from './session.js';
 
@@ -57,16 +58,26 @@ export function sessionCookieName(url: string): string {
  *   it precisely when its requests are getting nowhere, to tell a dead
  *   connection from a deployment that is answering, and the uptime monitor and
  *   the post-deploy assertion both read it.
- * - `/v1/users` is the logon page's list of names. It is what you read while
- *   you are still nobody, so it cannot be behind the thing it exists to get you
- *   through - which is why it carries names only and nothing else about a
- *   person.
- * - `/v1/sign-in` is how you stop being nobody.
+ * - `/v1/sign-in/google` is how you stop being nobody: it sends you to Google
+ *   to be asked who you are, and it is the only thing a person who is nobody
+ *   yet can usefully reach.
+ * - `/v1/sign-in/google/callback` is where Google sends you back, carrying
+ *   nothing this application will believe until it has checked it
+ *   (src/auth/oidc.ts).
  *
- * Exact matches, not prefixes. `/v1/users` opening `/v1/users/anything` would
- * be a hole nobody chose.
+ * **The list of people to choose from is gone from here**, along with the
+ * endpoint behind it: once it is no longer the way in, publishing who has an
+ * account is a leak rather than a necessity ("Sign in with Google, and retire
+ * the list of names", issue 196).
+ *
+ * Exact matches, not prefixes, so a path that merely starts with one of these
+ * is not a hole nobody chose.
  */
-export const PATHS_OUTSIDE_THE_GATE: readonly string[] = ['/health', '/v1/users', '/v1/sign-in'];
+export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
+  '/health',
+  '/v1/sign-in/google',
+  '/v1/sign-in/google/callback',
+];
 
 /**
  * The one prefix outside the gate, and the only thing here that is not an exact
@@ -165,6 +176,73 @@ export function rememberSessionCookie(c: Context, sessionId: string): void {
 
 export function forgetSessionCookie(c: Context): void {
   deleteCookie(c, sessionCookieName(c.req.url), {
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: new URL(c.req.url).protocol === 'https:',
+    path: '/',
+  });
+}
+
+/**
+ * The sign-in being attempted, kept where only the browser that started it can
+ * carry it back.
+ *
+ * **`sameSite: 'Lax'` is what makes this work at all**, and it is the one
+ * place in the application where that is load-bearing rather than a default:
+ * Google sends the browser back with a top-level navigation, which `Lax` sends
+ * cookies on and `Strict` does not - a `Strict` cookie here would make every
+ * sign-in look like one that never began.
+ *
+ * `httpOnly` because nothing in the page has any business reading it, and ten
+ * minutes because that is a generous length for choosing a Google account and a
+ * short one for a value that completes a sign-in.
+ */
+const ATTEMPT_COOKIE = 'cockpit_sign_in';
+const ATTEMPT_LIFETIME_S = 10 * 60;
+
+function attemptCookieName(url: string): string {
+  const { port } = new URL(url);
+  return port ? `${ATTEMPT_COOKIE}_${port}` : ATTEMPT_COOKIE;
+}
+
+export function rememberAttempt(c: Context, attempt: Attempt): void {
+  setCookie(c, attemptCookieName(c.req.url), JSON.stringify(attempt), {
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: new URL(c.req.url).protocol === 'https:',
+    path: '/',
+    maxAge: ATTEMPT_LIFETIME_S,
+  });
+}
+
+/**
+ * What the browser is carrying, or `null` - which is the same answer for a
+ * sign-in that was never started here, one whose ten minutes ran out, and one
+ * whose cookie has been tampered with.
+ */
+export function attemptHeld(c: Context): Attempt | null {
+  const held = getCookie(c, attemptCookieName(c.req.url));
+  if (!held) return null;
+  try {
+    const parsed: unknown = JSON.parse(held);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const { state, nonce, codeVerifier } = parsed as Record<string, unknown>;
+    if (typeof state !== 'string' || typeof nonce !== 'string' || typeof codeVerifier !== 'string') {
+      return null;
+    }
+    return { state, nonce, codeVerifier };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ends the attempt, whichever way it went. **An attempt is spent once**: the
+ * cookie goes before the reply is acted on, so the same reply delivered twice
+ * finds nothing to check itself against the second time.
+ */
+export function forgetAttempt(c: Context): void {
+  deleteCookie(c, attemptCookieName(c.req.url), {
     httpOnly: true,
     sameSite: 'Lax',
     secure: new URL(c.req.url).protocol === 'https:',

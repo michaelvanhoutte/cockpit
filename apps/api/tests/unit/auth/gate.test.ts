@@ -10,14 +10,14 @@ import { isOutsideTheGate, sessionCookieName } from '../../../src/auth/gate.js';
  * addresses something actually answers. This asks the half it cannot: what
  * happens at an address no route serves, where being outside the gate and being
  * refused both end in nothing useful and the difference is invisible from
- * outside. `/v1/users/anything` is the case the rule was written for.
+ * outside. `/v1/sign-in/google/x` is the case the rule was written for.
  */
 describe('Sign-in', () => {
   describe('the way in is exactly the addresses that have a reason to be open', () => {
     it.each([
       { situation: 'the health check', path: '/health' },
-      { situation: 'the people to choose from', path: '/v1/users' },
-      { situation: 'signing in', path: '/v1/sign-in' },
+      { situation: 'starting to sign in', path: '/v1/sign-in/google' },
+      { situation: 'coming back from Google', path: '/v1/sign-in/google/callback' },
       { situation: 'a delivery from a source', path: '/ingress/slack/events' },
       {
         // The prefix is what the connector's id and whatever the source appends
@@ -30,8 +30,9 @@ describe('Sign-in', () => {
     });
 
     it.each([
-      { situation: 'anything hung off the list of people', path: '/v1/users/anything' },
-      { situation: 'anything hung off signing in', path: '/v1/sign-in/x' },
+      { situation: 'the list of people that used to be the way in', path: '/v1/users' },
+      { situation: 'anything hung off signing in', path: '/v1/sign-in/google/x' },
+      { situation: 'the endpoint the name picker signed you in at', path: '/v1/sign-in' },
       {
         // Not a sub-path but a longer name, which a prefix check would let
         // through and an exact one does not.

@@ -1,6 +1,7 @@
 import {
   ADA,
   MICHAEL,
+  addressOf,
   captureBox,
   closeWindow,
   dashboardBar,
@@ -17,31 +18,43 @@ import {
 } from './support/app';
 
 /**
- * F3, because every claim here is about a whole browser: that clicking a name
- * puts a cookie somewhere a reload still finds it, and - the one that exists
- * nowhere below this tier - that switching people leaves nothing of the first
- * one on screen or in the browser's own persisted cache. That cache is
- * IndexedDB, written by the app itself, and jsdom does not have one.
+ * F3, because every claim here is about a whole browser: that a sign-in which
+ * *leaves the application and comes back* ends with a cookie a reload still
+ * finds, and - the one that exists nowhere below this tier - that switching
+ * people leaves nothing of the first one on screen or in the browser's own
+ * persisted cache. That cache is IndexedDB, written by the app itself, and
+ * jsdom does not have one.
  *
- * What the gate refuses, and what makes a sign-in still current, are settled far
- * more cheaply in apps/api/tests/integration/http/sign-in.test.ts and
- * apps/api/tests/unit/auth/session.test.ts, and are not re-proved here.
+ * The round trip is the reason this tier is worth the seconds: below it, the
+ * two halves of a sign-in are two function calls, and nothing checks that a
+ * real browser carries what it has to carry between them.
+ *
+ * Every way a reply can be wrong is settled far more cheaply in
+ * apps/api/tests/unit/auth/oidc.test.ts, what the gate refuses in
+ * apps/api/tests/integration/http/sign-in.test.ts, and what makes a sign-in
+ * still current in apps/api/tests/unit/auth/session.test.ts. None of it is
+ * re-proved here.
  */
 test.describe('Sign-in', () => {
-  test.describe('you sign in by choosing your name, and Cockpit remembers who you are', () => {
-    test('lists everyone, opens the workspaces of whoever you choose, and is still them after a reload', async ({
+  test.describe('you sign in with your Google account, and Cockpit remembers who you are', () => {
+    test('leaves for Google, comes back in your own workspaces, and is still you after a reload', async ({
       page,
       isMobile,
     }) => {
       await page.goto('/');
 
       // Sent to the logon page rather than to the app: nothing works until you
-      // have said who you are.
-      await expect(page.getByText('Choose who you are.')).toBeVisible();
-      await expect(page.getByRole('button', { name: MICHAEL, exact: true })).toBeVisible();
-      await expect(page.getByRole('button', { name: ADA, exact: true })).toBeVisible();
+      // have signed in - and the page offers one way to, with nothing on it
+      // about who else uses this Cockpit.
+      await expect(page.getByRole('link', { name: 'Continue with Google' })).toBeVisible();
+      await expect(page.getByText(MICHAEL, { exact: true })).toHaveCount(0);
 
-      await press(page.getByRole('button', { name: MICHAEL, exact: true }), isMobile);
+      await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
+
+      // Away from the application entirely, at the issuer, which is where the
+      // question "who are you" is actually answered.
+      await expect(page).toHaveURL(/\/authorize/);
+      await press(page.getByRole('link', { name: addressOf(MICHAEL), exact: true }), isMobile);
 
       await expect(dashboardBar(page)).toBeVisible();
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
@@ -53,6 +66,25 @@ test.describe('Sign-in', () => {
       await expect(dashboardBar(page)).toBeVisible();
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await expect(page.getByText(`Signed in as ${MICHAEL}`)).toBeVisible();
+    });
+
+    /**
+     * The register is the allowlist, so proving who you are at Google is not
+     * the same as having an account here - and being turned away has to say so
+     * on the page rather than looking like something that broke.
+     */
+    test('says so when the Google account is not one this Cockpit knows', async ({
+      page,
+      isMobile,
+    }) => {
+      await page.goto('/signin');
+      await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
+
+      await page.getByPlaceholder('somebody@example.com').fill('a-stranger@example.com');
+      await press(page.getByRole('button', { name: 'Continue' }), isMobile);
+
+      await expect(page.getByText(/not one this Cockpit knows/)).toBeVisible();
+      await expect(dashboardBar(page)).toHaveCount(0);
     });
   });
 
@@ -81,14 +113,15 @@ test.describe('Sign-in', () => {
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
 
-      await expect(page.getByText('Choose who you are.')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Continue with Google' })).toBeVisible();
       await expect(dashboardBar(page)).toHaveCount(0);
 
       // Off the screen is half of it. The other half is what a cold open would
-      // paint from, and it has to hold nothing but the public list of people.
+      // paint from, and it has to hold nothing at all: the list of people was
+      // the one thing kept back, and it went with the picker.
       await expect
         .poll(async () => (await whatTheBrowserStillHolds(page)).storedQueries)
-        .toEqual(['["users"]']);
+        .toEqual([]);
       expect((await whatTheBrowserStillHolds(page)).localKeys).toEqual([]);
     });
   });
@@ -139,9 +172,10 @@ test.describe('Accounts', () => {
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
-      await expect(page.getByText('Choose who you are.')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Continue with Google' })).toBeVisible();
 
-      await press(page.getByRole('button', { name: MICHAEL, exact: true }), isMobile);
+      await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
+      await press(page.getByRole('link', { name: addressOf(MICHAEL), exact: true }), isMobile);
 
       await expect(dashboardBar(page)).toBeVisible();
       await expect(workspaceTab(page, workspace)).toHaveCount(0);

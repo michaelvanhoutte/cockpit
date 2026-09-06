@@ -9,7 +9,6 @@ import {
   NotSignedIn,
   fetchMe,
   fetchSnapshot,
-  fetchUsers,
   fetchWorkspaces,
   sendCommand,
 } from '../../src/api/client';
@@ -30,14 +29,12 @@ vi.mock('../../src/api/client', async (importOriginal) => ({
   fetchWorkspaces: vi.fn(),
   fetchSnapshot: vi.fn(),
   fetchMe: vi.fn(),
-  fetchUsers: vi.fn(),
   sendCommand: vi.fn(),
 }));
 
 const readsWorkspaces = vi.mocked(fetchWorkspaces);
 const readsSnapshot = vi.mocked(fetchSnapshot);
 const readsWhoIAm = vi.mocked(fetchMe);
-const readsUsers = vi.mocked(fetchUsers);
 const sends = vi.mocked(sendCommand);
 
 const SIGNED_IN = { user: { id: 'user-michael', name: 'Michael' } };
@@ -144,7 +141,6 @@ beforeEach(() => {
   // Signed in unless a case says otherwise: the shell asks who you are on every
   // route, and a browser holding no answer would be sent to the logon page.
   readsWhoIAm.mockResolvedValue(SIGNED_IN);
-  readsUsers.mockResolvedValue([{ id: 'user-michael', name: 'Michael' }]);
   // Which view a workspace opens on is remembered in the browser, so each case
   // starts having remembered nothing.
   window.localStorage.clear();
@@ -182,7 +178,7 @@ describe('Workspace management', () => {
 
       await open('/', []);
 
-      expect(await screen.findByText('Choose who you are.')).toBeVisible();
+      expect(await screen.findByRole('link', { name: 'Continue with Google' })).toBeVisible();
     });
 
     it.each([
@@ -501,15 +497,8 @@ describe('Sign-in', () => {
       await openWithAStoredCopy();
 
       expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
-      expect(await screen.findByText('Choose who you are.')).toBeVisible();
+      expect(await screen.findByRole('link', { name: 'Continue with Google' })).toBeVisible();
       expect(screen.queryByRole('heading', { name: 'Dashboard 1' })).not.toBeInTheDocument();
-      // A logon page you can actually sign in from. That it lists anybody is
-      // not free: emptying what the browser was holding happens while this
-      // page's own read is in flight, and the browser walk in
-      // tests/e2e/sign-in.test.ts is what caught that going wrong - this level
-      // cannot produce the timing, and is here to say the page is usable at
-      // all rather than to guard that.
-      expect(await screen.findByRole('button', { name: 'Michael' })).toBeVisible();
     });
   });
 });

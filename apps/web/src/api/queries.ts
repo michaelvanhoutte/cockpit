@@ -11,25 +11,9 @@ import {
   fetchItemTypes,
   fetchMe,
   fetchSnapshot,
-  fetchUsers,
   fetchWorkspaces,
   sendCommand,
 } from './client';
-
-/**
- * The people to choose from on the logon page.
- *
- * No `staleTime`, deliberately, where every other read here has one: this is
- * the one query that survives a visit ending (`session/forget.ts`), so a stale
- * copy of it would outlive the sign-out that produced it and could still be on
- * screen a week later, listing somebody who has since been removed. It paints
- * from the copy in hand and re-reads behind it, which costs one request on the
- * one page where there is nothing else to do.
- */
-export const usersQuery = queryOptions({
-  queryKey: ['users'],
-  queryFn: fetchUsers,
-});
 
 /**
  * Who Cockpit believes you are.

@@ -3,7 +3,6 @@ import type { AppType } from '@cockpit/api';
 import {
   itemTypeListSchema,
   signedInSchema,
-  userListSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
   type CommandName,
@@ -11,7 +10,6 @@ import {
   type CommandResult,
   type ItemTypeList,
   type SignedIn,
-  type User,
   type WorkspaceList,
   type WorkspaceSnapshot,
 } from '@cockpit/shared';
@@ -59,17 +57,6 @@ export async function fetchItemTypes(): Promise<ItemTypeList> {
   return itemTypeListSchema.parse(await res.json());
 }
 
-/**
- * The people you can sign in as. The one read that answers before you are
- * anybody, so it is the one read that never has to handle being refused for
- * not being signed in.
- */
-export async function fetchUsers(): Promise<User[]> {
-  const res = await api.v1.users.$get();
-  if (!res.ok) throw refusal('users', res.status);
-  return userListSchema.parse(await res.json()).users;
-}
-
 /** Who Cockpit believes you are - and, when it refuses, that it believes you are nobody. */
 export async function fetchMe(): Promise<SignedIn> {
   const res = await api.v1.me.$get();
@@ -77,11 +64,14 @@ export async function fetchMe(): Promise<SignedIn> {
   return signedInSchema.parse(await res.json());
 }
 
-export async function signIn(userId: string): Promise<SignedIn> {
-  const res = await api.v1['sign-in'].$post({ json: { userId } });
-  if (!res.ok) throw refusal('sign-in', res.status);
-  return signedInSchema.parse(await res.json());
-}
+/**
+ * Signing in is a navigation, not a request: the browser leaves for Google and
+ * comes back to a page, so there is nothing here to await and nothing to parse.
+ *
+ * `location.assign` rather than a router navigation for the same reason - the
+ * destination is the Worker, not a route this application knows.
+ */
+export const SIGN_IN_PATH = '/v1/sign-in/google';
 
 export async function signOut(): Promise<void> {
   // Read before branching, and as a plain number: the typed client narrows the

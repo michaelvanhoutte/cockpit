@@ -352,10 +352,55 @@ workflows authenticate with — and it is listed here because a missing secret
 presents as a workflow that goes green having done nothing. The readme's
 *Development automation* section has the rest.
 
-**Nothing stands in front of either environment.** Cockpit's own sign-in is all
-there is on staging and on production, and until Google sign-in ships that
-sign-in is a list of names you pick from — an identity selector, not an
-authentication control. Anyone who can reach the URL can be anyone in the list.
+**Cockpit's own sign-in is all there is in front of either environment**, and
+since "Sign in with Google, and retire the list of names" (issue 196) that is a
+Google account checked against the register, which is the allowlist. Each
+environment has a Google client of its own, so a secret that leaks from one
+cannot sign anybody in to the other.
+
+| Kind | Name | Where |
+|---|---|---|
+| Variable | `GOOGLE_CLIENT_ID` | `apps/api/wrangler.jsonc`, per environment — not a secret |
+| Variable | `APP_ORIGIN` | same; must match a registered redirect URI exactly |
+| Secret | `GOOGLE_CLIENT_SECRET` | `wrangler secret put`, per environment |
+
+**`OIDC_ISSUER` is deliberately unset on both**, which means Google. Only local
+development and the browser suite set it, at the stub issuer they run
+(`scripts/lib/stub-issuer.mjs`), so that they drive the same flow without a
+bypass existing in the deployed application. Setting it on a deployed
+environment would point sign-in at whatever it named: treat it as a secret that
+happens not to be one.
+
+### A Google OAuth client
+
+Creating one is a person's job and costs nothing: a Google Cloud project needs
+no billing account, and `openid email` are not sensitive scopes, so no
+verification review stands between this and a working sign-in. Per environment,
+in the Google Cloud console:
+
+1. **A project**, or the existing one.
+2. **The consent screen** — external, with the application name and support
+   address. Nothing else is asked for.
+3. **An OAuth client**, type *Web application*, with exactly one authorised
+   redirect URI: `<APP_ORIGIN>/v1/sign-in/google/callback`. **No `localhost`
+   URI**, deliberately: development signs in against the stub issuer, and every
+   worktree has ports of its own that would each need registering.
+4. **The client id into `wrangler.jsonc`** for that environment, and the secret
+   into the platform:
+
+```bash
+wrangler secret put GOOGLE_CLIENT_SECRET                 # production
+wrangler secret put GOOGLE_CLIENT_SECRET --env staging
+```
+
+5. **A real address on each user in that environment's register**, since
+   `seed.sql` seeds placeholders that no Google account can hold (it is a public
+   repository). This is also the way back if a cutover locks everybody out:
+
+```bash
+wrangler d1 execute cockpit --remote \
+  --command "UPDATE users SET email = 'you@gmail.com' WHERE id = 'user-michael'"
+```
 
 **This is a recorded reversal, and it went both ways.** Both environments used to
 be gated with Cloudflare Access, production included, which was itself a
@@ -482,8 +527,10 @@ staging database from before issue 86 has the two new tables and no rows in
 `users`, and nobody can sign in until the seed is run there once by hand.
 
 **No sign-ins are seeded**, and `seed.sql` has no column for a secret to put in
-one. Signing in is choosing a name, which proves nothing, and nothing else stands
-in front of a deployed environment either — see "Secrets and access".
+one: signing in is a Google account, and what the seed carries is a placeholder
+address that no Google account can hold. Giving each person in a deployed
+environment their real address is a step of its own — see "A Google OAuth
+client" — and until it is taken, nobody there can sign in.
 
 **There is no seed step for an account's own data, and there cannot be.** Its
 workspaces, dashboards, panels, layouts, items and associations live in a Durable

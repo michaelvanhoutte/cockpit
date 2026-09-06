@@ -37,7 +37,20 @@ export default defineConfig({
       // vitest-pool-workers' own module evaluator needs Node builtins inside
       // the worker runtime; this is test-only and does not affect the
       // deployed Worker's compatibility flags in wrangler.jsonc.
-      miniflare: { compatibilityFlags: ['nodejs_compat'] },
+      miniflare: {
+        compatibilityFlags: ['nodejs_compat'],
+        // What a deployed environment holds as configuration and secrets. The
+        // issuer is one no test can reach on purpose: it is faked at the
+        // network boundary (tests/integration/issuer.ts), and naming a
+        // `.test` address here is what makes a real request out of the suite
+        // fail loudly rather than quietly reach Google.
+        bindings: {
+          OIDC_ISSUER: 'https://issuer.test',
+          GOOGLE_CLIENT_ID: 'cockpit-test',
+          GOOGLE_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',
+          APP_ORIGIN: 'http://cockpit.test',
+        },
+      },
     }),
   ],
 });
