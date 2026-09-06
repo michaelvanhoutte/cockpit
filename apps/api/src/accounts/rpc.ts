@@ -8,6 +8,7 @@ import type {
   Workspace,
 } from '@cockpit/shared';
 import type { AccountSnapshot, Answer } from './answer.js';
+import type { AccountBackup, ForeignRow } from './backup.js';
 
 /**
  * What one account's store answers to, as the Worker sees it across the
@@ -42,6 +43,23 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     name: N,
     payload: CommandPayload<N>,
   ): Awaitable<Answer<CommandResult>>;
+  /**
+   * The store as it stands, for a backup.
+   *
+   * **Not an `Answer`, unlike everything above.** The three things an `Answer`
+   * exists to carry cannot happen here: nothing is named that could be missing,
+   * nothing is created that could collide, and there is no bringing up to date
+   * to fail - this deliberately skips it, so that backing up every account does
+   * not migrate every account (`backup.ts`).
+   *
+   * `foreign` is separate from the backup rather than thrown, because what to
+   * do about a row belonging to somebody else is the caller's to decide and the
+   * rows are worth naming either way.
+   */
+  exportAsItStands(accountName: string): Awaitable<{
+    backup: AccountBackup;
+    foreign: ForeignRow[];
+  }>;
 }
 
 type Awaitable<T> = T | Promise<T>;

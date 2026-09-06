@@ -339,6 +339,7 @@ Each Item carries a *last-verified* timestamp, and a Panel can show how fresh it
 - **Role** — *user* or *admin*. Carried today and enforced nowhere; the first admin-only part of the app brings the check with it.
 - **Sign in** — saying which User you are. Today by choosing a name on the **logon page**, which proves nothing and is meant not to; passwords and Google sign-in replace that step later. A sign-in lasts a set time, renews while used, and expires on its own, and Cockpit says so rather than failing at you.
 - **Sign out** — ending a sign-in deliberately. Cockpit forgets it and the browser is left holding nothing of what you were looking at.
+- **Backup** — a copy of everything an environment holds, written to local files: the register, and each Account's own data in a file of its own. Taken by an operator with a command, never from inside the app, and it holds no sign-ins — those are re-made by signing in, and putting an old one back would revive a sign-in somebody ended. Taking one changes nothing about the environment it reads.
 
 Six things the app does in the same way wherever it does them, named here because a shared behaviour with no word is one nobody can say is tested (`tools/test-explorer/concepts.json`):
 
