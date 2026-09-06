@@ -77,7 +77,7 @@ rm -rf apps/api/.wrangler/state/v3/do
 
 Never fix it by renaming the change back to what the store recorded; that trades one stale ledger for another.
 
-### Taking a backup
+### Taking a backup, and putting one back
 
 Writes an environment to local JSON — the register, and each account's own store in a file of its own:
 
@@ -86,7 +86,16 @@ COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/202
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env local --out ./backups/mine --user tenant-default
 ```
 
-The secret is the environment's own `BACKUP_TOKEN`, which is what the operator routes are behind; locally it comes from `apps/api/.dev.vars` (copy `.dev.vars.example`). Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date. Reading one back in is not built yet ("Restore an environment, or one user, from a backup", issue 209).
+The secret is the environment's own `BACKUP_TOKEN`, which is what the operator routes are behind; locally it comes from `apps/api/.dev.vars` (copy `.dev.vars.example`). Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
+
+Putting one back is the same shape, and is the half that destroys something:
+
+```bash
+COCKPIT_BACKUP_TOKEN=... pnpm backup:restore --env local --from ./backups/2026-09-06
+COCKPIT_BACKUP_TOKEN=... pnpm backup:restore --env local --from ./backups/mine --user tenant-default --force
+```
+
+**A restore replaces an account; it never merges into one.** An account that already holds data is refused unless `--force`, so nobody ends up with half of yesterday and half of today. Anything but `--env local` has to be confirmed by typing the environment's name, because staging is deliberately never re-seeded and production holds the only copy of anything real. Accounts go in before the register, so a user never exists pointing at a store that has not arrived; a run that stops partway says which accounts went in.
 
 ### Tidying up branches
 

@@ -159,6 +159,34 @@ describe('Backup', () => {
     });
 
     /**
+     * Found by running the command, not by a test. An account in the register
+     * that nobody has opened backs up as nothing at all, and bringing it up to
+     * date on the way back in would create its tables *and* seed a new
+     * account's three starting workspaces and standard types - so restoring
+     * nothing produced eight rows. Left alone, the first request creates it
+     * exactly as it does for any untouched account, which is what it was.
+     */
+    it('puts back an account nobody had opened as one nobody has opened', async () => {
+      const taken = await backUp(OTHER_ACCOUNT_NAME);
+      expect(taken.tables).toEqual({});
+      expect(taken.changesApplied).toEqual([]);
+
+      expect((await restore(OTHER_ACCOUNT_NAME, taken)).status).toBe(200);
+
+      const now = await backUp(OTHER_ACCOUNT_NAME);
+      expect(now.tables).toEqual({});
+      expect(now.changesApplied).toEqual([]);
+    });
+
+    it('opens such an account normally afterwards', async () => {
+      const taken = await backUp(OTHER_ACCOUNT_NAME);
+      await restore(OTHER_ACCOUNT_NAME, taken);
+
+      // The first request creates it, exactly as it would have before.
+      expect((await useAccount(OTHER_USER_ID)).length).toBeGreaterThan(0);
+    });
+
+    /**
      * A row of a dozen columns fits six to a statement, so an account with
      * ordinary use in it already crosses the boundary several times over. The
      * count is asserted rather than assumed because the failure is silent: a
