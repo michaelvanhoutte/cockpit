@@ -113,8 +113,25 @@ export async function putBack({ ask, backup, only, force, say = () => {} }) {
     }
   }
 
-  const register = await ask('/v1/admin/restore/register', registerFor(backup, wanted));
-  return { accounts: done, ...register };
+  try {
+    const register = await ask('/v1/admin/restore/register', registerFor(backup, wanted));
+    return { accounts: done, ...register };
+  } catch (error) {
+    // **The same progress report, and this is where it matters most.** By now
+    // every account named above has been replaced and cannot be put back, so a
+    // refusal here that said only what the register objected to would leave
+    // somebody holding an environment they could not describe.
+    //
+    // What is true at this point is worth spelling out rather than leaving to
+    // be worked out: the data is in, the register was not written, and nobody
+    // can sign in to it until the disagreement is settled - which is a person's
+    // decision about who somebody is, not something to re-run at.
+    throw new Error(
+      `${error.message}\n\n${describeProgress(done)} Their data is in and cannot be put back. ` +
+        'The register was not written, so nobody can sign in to them yet - settle the ' +
+        'disagreement above and restore the register on its own.',
+    );
+  }
 }
 
 /**

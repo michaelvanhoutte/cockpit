@@ -88,6 +88,24 @@ describe('restoring puts the accounts back before the register', () => {
     });
   });
 
+  /**
+   * The moment the report matters most: every account has already been replaced
+   * and cannot be put back, so a refusal saying only what the register objected
+   * to leaves somebody holding an environment they cannot describe. It is also
+   * the guarantee docs/deployment.md makes - "a run that stops partway names the
+   * accounts that went in".
+   */
+  it('says which accounts are already in when the register refuses', async () => {
+    const env = accepting({ failOn: 'register' });
+
+    await assert.rejects(putBack({ ask: env.ask, backup: backupOf(), force: false }), (error) => {
+      assert.match(error.message, /Restored: tenant-a, tenant-b\./);
+      assert.match(error.message, /cannot be put back/);
+      assert.match(error.message, /register was not written/);
+      return true;
+    });
+  });
+
   it('says nothing was restored when the first account refuses', async () => {
     const env = accepting({ failOn: 'tenant-a' });
 
