@@ -660,11 +660,6 @@ export const items = sqliteTable(
     sourceResolvedAt: text('source_resolved_at'),
 
     // -- app-owned columns --
-    // `preview` is deliberately absent though the column is still there: nothing
-    // reads or writes it from here on, and dropping it waits for a later release
-    // so a rollback still meets a schema its code can read (deployment,
-    // "Migrations and rollback"; "Drop the preview column, once nothing reads
-    // it", issue 161).
     title: text('title').notNull(),
     description: text('description'),
     /**
