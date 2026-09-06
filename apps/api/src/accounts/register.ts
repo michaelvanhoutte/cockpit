@@ -62,12 +62,13 @@ export async function registerContents(env: Env): Promise<RegisterBackup> {
  * what was asked for - restoring one user would rename another. So the register
  * is brought up to what the backup needs and no further.
  *
- * **A collision is refused rather than resolved.** Three of them, and they are
- * three because the register enforces three separate uniqueness rules: the id,
- * the address, and the Google identity ("Record the Google account each user
- * signs in with", issue 195). Any of them held by a *different* user means the
- * backup and the environment disagree about who somebody is, which is not a
- * thing a restore may decide.
+ * **A collision is refused rather than resolved.** Four of them, and they are
+ * four because the register enforces four separate uniqueness rules: an
+ * account's id, a user's id, the address, and the Google identity ("Record the
+ * Google account each user signs in with", issue 195). Any of them held by
+ * something that is not the row claiming it means the backup and the
+ * environment disagree about who somebody is, which is not a thing a restore
+ * may decide.
  */
 export interface RegisterPlan {
   tenantsToCreate: Record<string, unknown>[];

@@ -21,7 +21,7 @@ import {
  *
  * The two things asked elsewhere are the two that are decisions rather than
  * writes: which register rows collide (`tests/unit/accounts/register-restore.test.ts`,
- * where three uniqueness rules branch and no register is needed to say so), and
+ * where four uniqueness rules branch and no register is needed to say so), and
  * what the command refuses before it starts (`scripts/lib/restore.test.mjs`).
  */
 

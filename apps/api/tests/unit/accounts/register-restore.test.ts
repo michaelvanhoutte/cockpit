@@ -5,12 +5,12 @@ import { planRegisterRestore, type RegisterBackup } from '../../../src/accounts/
  * Unit level, because what a restore may do to the register is a decision about
  * two lists of rows: which are already there, which are missing, and which say
  * something the register already says about somebody else. No register is
- * needed to ask that, and three separate uniqueness rules branch here - the id,
- * the address and the Google identity - which is more cases than it is worth
- * arranging a real register for.
+ * needed to ask that, and four separate uniqueness rules branch here - an
+ * account's id, a user's id, the address and the Google identity - which is
+ * more cases than it is worth arranging a real register for.
  *
- * The integration suite drives one of each through the route, which is what
- * proves the plan is wired to writes and to a 409.
+ * The integration suite drives one through the route, which is what proves the
+ * plan is wired to writes and to a 409.
  */
 
 const AT = '2026-09-01T10:00:00.000Z';
