@@ -118,19 +118,28 @@ export function CapturePage() {
     if (!trimmed) return;
 
     /**
-     * **A capture this page cannot make is said out loud, never swallowed.**
-     * There is no type to give when the account has none, and none *yet* while
-     * the workspace this captures from is being read - which happens after the
-     * page is drawn as well as before, because that workspace changes when one
-     * is deleted while you sit here. The button is disabled through all of it,
-     * so it is the shortcut that arrives, and it used to return from here
-     * having done nothing and said nothing.
+     * **A capture this page cannot make is said out loud, never swallowed** -
+     * and said as the reason it actually is, because the three do not have the
+     * same answer. The button is disabled through all of them, so it is the
+     * shortcut that arrives here, and it used to return having done nothing and
+     * said nothing: that silence is "Find out why the
+     * capture-into-a-named-workspace walk fails intermittently" (issue 219)
+     * itself, and every fix that only narrows a window leaves the next one
+     * open. The note stays in the box whichever it is, and this is what says
+     * why it is still there.
      *
-     * That silence is issue 219 itself, and every fix that only narrows the
-     * window leaves the next window open: the note stays in the box either way,
-     * and this is what tells you why it is still there.
+     * **Nowhere to capture into** is the account having no workspace left, not
+     * a read in flight: `from` falls back to the first workspace there is, so
+     * it is only empty when there are none (`lastVisited.ts`). Deleting your
+     * last one from another tab lands you here - this client is told the list
+     * changed and nothing sends you anywhere - and "try again" would be a
+     * promise nothing can keep.
      */
-    if (!from || !chosen) {
+    if (!from) {
+      setRefused(NO_WORKSPACE);
+      return;
+    }
+    if (!chosen) {
       setRefused(answered && offered.length === 0 ? NO_TYPES : STILL_READING);
       return;
     }
@@ -331,6 +340,14 @@ const JUST_CAPTURED = 'just-captured';
  * somebody who just pressed it is asking.
  */
 export const STILL_READING = 'Still reading your workspace — your note is safe, try that again.';
+
+/**
+ * And what it says when there is no workspace to capture into at all. Named
+ * where one is made, the way the types' line names where a type is made, rather
+ * than inviting a retry that cannot come good.
+ */
+export const NO_WORKSPACE =
+  'No workspace to capture into — your note is safe. Make one in Settings → Manage workspaces.';
 
 /**
  * The key that captures, said the way this keyboard says it. A Mac reads ⌘ and

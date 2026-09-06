@@ -71,13 +71,14 @@ function dashboardsOf(workspaceId: string): Dashboard[] {
  * `types` are the account's, which ride on every snapshot rather than being
  * read on their own (packages/shared/src/api/snapshot.ts); `until` holds the
  * snapshot back, for the one case that is about a page not being drawn before
- * it arrives.
+ * it arrives - called on the way in, so that case can tell when the read has
+ * been asked for without waiting on a clock.
  */
 async function open(
   at: string,
   have: Workspace[],
   boards: (workspaceId: string) => Dashboard[] = dashboardsOf,
-  { types = [], until }: { types?: ItemType[]; until?: Promise<void> } = {},
+  { types = [], until }: { types?: ItemType[]; until?: () => Promise<void> } = {},
 ) {
   readsWorkspaces.mockResolvedValue({ workspaces: have });
   // A workspace that is not there has no snapshot, exactly as the server has
@@ -100,7 +101,7 @@ async function open(
     // Answered already unless a case asked for it to be held: every other case
     // here is about what renders while some *other* read is in flight, and
     // making this one settle a tick later would shift all of them to serve one.
-    return until ? until.then(() => answer) : Promise.resolve(answer);
+    return until ? until().then(() => answer) : Promise.resolve(answer);
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // Through the address bar jsdom already has, rather than by replacing the
@@ -483,17 +484,28 @@ describe('Capture', () => {
      */
     it('waits for the workspace it captures from, rather than drawing an empty box', async () => {
       let answer!: () => void;
+      let wasAsked!: () => void;
       const held = new Promise<void>((resolve) => {
         answer = resolve;
       });
-
-      await open('/capture', [work, personal], dashboardsOf, { types: [TASK], until: held });
-      // Everything that *can* answer has, which is what makes the next line say
-      // something: without it the box is missing because nothing has rendered
-      // yet, and the case would pass whether or not the route waited.
-      await act(async () => {
-        await new Promise((settled) => setTimeout(settled, 0));
+      const askedFor = new Promise<void>((resolve) => {
+        wasAsked = resolve;
       });
+
+      await open('/capture', [work, personal], dashboardsOf, {
+        types: [TASK],
+        until: () => {
+          wasAsked();
+          return held;
+        },
+      });
+      // Waited for by the read itself rather than by a clock, which F1 may not
+      // touch (the testing skill, "L1/F1 may not touch"). Once the snapshot has
+      // been asked for, everything ahead of it has answered - so the next line
+      // says something, where without this the box would be missing only
+      // because nothing had rendered yet.
+      await askedFor;
+      await act(async () => {});
 
       // Not the box on its own, which is the page inviting a capture it would
       // throw away.

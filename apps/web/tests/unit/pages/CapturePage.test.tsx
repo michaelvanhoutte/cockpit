@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Item, ItemType } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
-import { CapturePage, STILL_READING } from '../../../src/pages/CapturePage';
+import { CapturePage, NO_WORKSPACE, STILL_READING } from '../../../src/pages/CapturePage';
 import { NO_TYPES } from '../../../src/itemTypes';
 
 /**
@@ -417,8 +417,9 @@ describe('Capture', () => {
     /**
      * The button is disabled through every one of these, so the shortcut is the
      * way in that arrives - and it used to return having done nothing and said
-     * nothing, which is issue 219 itself. Said out loud rather than swallowed,
-     * whichever of the two reasons it is.
+     * nothing, which is "Find out why the capture-into-a-named-workspace walk
+     * fails intermittently" (issue 219) itself. Said out loud rather than
+     * swallowed, whichever reason it is.
      */
     it.each([
       { situation: 'the account has none', types: [] as ItemType[], says: NO_TYPES },
@@ -432,6 +433,28 @@ describe('Capture', () => {
       expect(captured()).toBeUndefined();
       expect(screen.getByRole('alert')).toHaveTextContent(says);
       // Still there to try again with, which is what the words promise.
+      expect(box()).toHaveValue('Book the venue deposit');
+    });
+
+    /**
+     * A different answer, not a slower one: with the last workspace gone there
+     * is nowhere to capture *into*, and nothing is being read that could change
+     * that - so "try that again" would be a promise nothing can keep. Reached
+     * by deleting your last workspace elsewhere, since this client is only told
+     * the list changed (`api/useServerEvents.ts`) and nothing sends it anywhere.
+     */
+    it('says there is nowhere to capture into once the last workspace is gone', async () => {
+      const user = await thePage();
+
+      held.workspaces = [];
+      await user.client.invalidateQueries({ queryKey: ['workspaces'] });
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Work' })).toBeNull());
+
+      await user.type(box(), 'Book the venue deposit');
+      await user.keyboard('{Control>}{Enter}{/Control}');
+
+      expect(captured()).toBeUndefined();
+      expect(screen.getByRole('alert')).toHaveTextContent(NO_WORKSPACE);
       expect(box()).toHaveValue('Book the venue deposit');
     });
   });
