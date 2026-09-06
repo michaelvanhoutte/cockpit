@@ -52,6 +52,10 @@ vi.mock('@tanstack/react-router', () => ({
   // No item named, so the shell draws no form over itself - these cases are
   // about the chrome.
   useSearch: () => ({}),
+  // Read by the shell to know whether Capture is the page you are on. These
+  // cases are inside a workspace, which is never that page.
+  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
+    select({ location: { pathname: '/w/a-workspace' } }),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));

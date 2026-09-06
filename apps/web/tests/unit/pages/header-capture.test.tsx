@@ -11,6 +11,9 @@ import { Layout } from '../../../src/pages/Layout';
 const params: { workspaceId?: string } = {};
 const held = { workspaces: [] as unknown[] };
 
+/** The address the shell is rendered at, which is what says which tab is on. */
+const at = { pathname: '/w/ws-work' };
+
 const WORK = {
   id: 'ws-work',
   tenantId: 'tenant',
@@ -41,6 +44,10 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => params,
   useNavigate: () => () => Promise.resolve(),
   useSearch: () => ({}),
+  // The address, because which tab is filled is a question about the page you
+  // are on rather than about the workspace you are in: capture is in none.
+  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
+    select({ location: { pathname: at.pathname } }),
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
@@ -76,8 +83,13 @@ async function theShell({
   // Null, not undefined: `inside: undefined` would take the default below and
   // quietly render the case it is meant to be the opposite of.
   inside = 'ws-work' as string | null,
-}: { workspaces?: unknown[]; inside?: string | null } = {}) {
+  // Derived rather than defaulted on its own, so a case cannot ask for a shell
+  // the router could not produce - capture carries no workspace, and a
+  // workspace address is never capture. Named only where a case is about it.
+  address = inside ? `/w/${inside}` : '/capture',
+}: { workspaces?: unknown[]; inside?: string | null; address?: string } = {}) {
   held.workspaces = workspaces;
+  at.pathname = address;
   if (inside) params.workspaceId = inside;
   else delete params.workspaceId;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -93,7 +105,42 @@ async function theShell({
   return { header: within(container.querySelector('header')!), container };
 }
 
+/** The color an element is filled with, as the browser reports it back. */
+function filledWith(element: Element | null | undefined): string {
+  return (element as HTMLElement | null)?.style.backgroundColor ?? '';
+}
+
 describe('Capture', () => {
+  /**
+   * Which tab reads as the page you are on. The tab wore the selected look at
+   * all times, and the app opens inside a workspace, so on startup two tabs
+   * claimed to be the screen you were looking at; the reason it no longer does
+   * is in pages/Layout.tsx, at the tab itself.
+   *
+   * jsdom lays nothing out, so "reads as selected" is the fill and the weight
+   * it is drawn with, which is the whole of what the shell decides.
+   */
+  describe('capture wears the selected look only while you are on it', () => {
+    it('is quiet while you are in a workspace, which is where the app opens', async () => {
+      const { header } = await theShell({ inside: 'ws-work' });
+
+      const capture = header.getByRole('link', { name: 'Capture' });
+      expect(filledWith(capture)).toBe('');
+      expect(capture.className).toContain('text-chrome-ink-soft');
+      expect(capture.className).not.toContain('font-medium');
+    });
+
+    it('fills with the band’s own color on the capture page, so it runs into the strip below', async () => {
+      const { header, container } = await theShell({ inside: null, address: '/capture' });
+
+      const band = container.querySelector('header + div');
+      expect(filledWith(band)).not.toBe('');
+      const capture = header.getByRole('link', { name: 'Capture' });
+      expect(filledWith(capture)).toBe(filledWith(band));
+      expect(capture.className).toContain('font-medium');
+    });
+  });
+
   describe('capture is the first tab in the header wherever there is a workspace to capture from', () => {
     it('opens the capture page, ahead of the workspaces and outside their strip', async () => {
       const { header } = await theShell();

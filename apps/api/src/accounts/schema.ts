@@ -506,9 +506,9 @@ export const panelPlacements = sqliteTable(
 
 /**
  * What kind of thing an Item is ("Capture a thought or an action, and see which
- * it is", issue 155). Account-wide rather than per workspace: *Thought* means
- * the same in Work and in Personal, and a type name reveals nothing the
- * workspace boundary protects.
+ * it is", issue 155). Account-wide rather than per workspace: *Note* means the
+ * same in Work and in Personal, and a type name reveals nothing the workspace
+ * boundary protects.
  *
  * **Created whole, with every column it will ever need**, including two nothing
  * writes yet. Once `items.type_id` points here this table has children under
@@ -545,8 +545,8 @@ export const itemTypes = sqliteTable(
   (t) => [
     /**
      * Uniqueness on the folded name among live types, the same shape and for
-     * the same two reasons `workspaces` has one: `Thought` and `thought` are
-     * the same name, and deleting a type gives its name back.
+     * the same two reasons `workspaces` has one: `Note` and `note` are the
+     * same name, and deleting a type gives its name back.
      *
      * It is the lock behind the check rather than the answer: creating a type
      * by using its name folds through `foldName` like every other writer, and
