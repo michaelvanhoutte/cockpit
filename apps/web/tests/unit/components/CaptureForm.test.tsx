@@ -154,8 +154,14 @@ describe('Capture', () => {
     it('offers the types the account has, and nothing else', () => {
       aForm();
 
-      expect(offered()).toEqual(['Action', 'Thought']);
       expect(theTypeBox().tagName).toBe('SELECT');
+      // *No type* first, where *Any workspace* sits on the Capture page's own
+      // row: the way back to having said nothing comes before the answers.
+      expect([...theTypeBox().querySelectorAll('option')].map((o) => o.textContent)).toEqual([
+        'No type',
+        'Action',
+        'Thought',
+      ]);
     });
 
     it('asks to capture, and never to make a type', async () => {

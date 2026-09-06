@@ -63,11 +63,3 @@ export function typeToOffer(
 export function typeOf(types: readonly ItemType[], item: Item): ItemType | undefined {
   return item.typeId ? types.find((type) => type.id === item.typeId) : undefined;
 }
-
-/*
- * **Nothing here matches a type by name.** Whether a name is already taken is
- * decided against the real unique index, by the one place that makes a type
- * ("Make a type where types are managed, not while capturing", issue 203) - a
- * browser-side copy of the server's case folding would be a second answer to
- * that question, free to disagree with the first.
- */

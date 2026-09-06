@@ -287,7 +287,11 @@ export function ManageTypes({
   const create = (e: React.FormEvent) => {
     e.preventDefault();
     const named = name.trim();
-    if (!named) return;
+    // Not while one is already out: the button greys out, but Enter in the box
+    // submits the form whatever the button says, and a second create of the
+    // same name would now come back refused - naming the type the first press
+    // had just made.
+    if (!named || command.isPending) return;
     command.mutate(
       { name: 'create_item_type', payload: { ...envelope(), typeId: uuidv7(), name: named } },
       // Cleared only once it worked. A refusal - a name another type already

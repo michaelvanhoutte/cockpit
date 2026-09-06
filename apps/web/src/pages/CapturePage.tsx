@@ -86,9 +86,9 @@ export function CapturePage() {
    */
   const belongsTo = workspaces.some((one) => one.id === where) ? where : null;
 
-  // The type used last, filled in for you, for the reason the Inbox's row does
-  // it: the type you want is nearly always the one you just used, and an empty
-  // choice stays empty because clearing it is a thing somebody did on purpose.
+  // The type used last, lit for you, for the reason the Inbox's row does it:
+  // the type you want is nearly always the one you just used, and *No type*
+  // stays chosen, because choosing it is a thing somebody did on purpose.
   useEffect(() => {
     setTypeId((already) => (already === '' && opensOn ? opensOn.id : already));
     // Keyed on which type it is rather than on the object, which a fresh
