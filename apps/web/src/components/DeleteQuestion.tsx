@@ -11,8 +11,8 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
  * changed meaning between the press that asks and the press that answers, in
  * the one place in the app where that must never happen.
  *
- * **Cancel then Delete, in that order, always.** Both settings pages use this,
- * so the answer is in the same place whatever is being deleted.
+ * **Cancel then Delete, in that order, always.** All three management windows
+ * use this, so the answer is in the same place whatever is being deleted.
  *
  * **A refusal keeps the dialog open.** The confirming button is an ordinary
  * button rather than `AlertDialog.Action`, which would close the dialog on

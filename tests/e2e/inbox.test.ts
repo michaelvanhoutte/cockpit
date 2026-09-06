@@ -29,7 +29,7 @@ test.describe('Triage', () => {
     }) => {
       // The workspace that is already there, deliberately: this walk only
       // looks, so it needs no workspace of its own - and one more workspace is
-      // one more row on the settings page every later spec in the run then
+      // one more row in the workspaces window every later spec in the run then
       // pays for.
       await openFirstWorkspace(page, isMobile);
 
