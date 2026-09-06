@@ -204,15 +204,14 @@ async function fillWithWhatIsAlreadyThere(name: string): Promise<void> {
         .toArray()
         .map((row) => row.name),
     );
+    const hasColumn = (table: string, column: string) =>
+      sql
+        .exec<{ name: string }>(`PRAGMA table_info(${table})`)
+        .toArray()
+        .some((found) => found.name === column);
     for (const row of rowsFor) {
       if (!tables.has(row.table)) continue;
-      const columns = new Set(
-        sql
-          .exec<{ name: string }>(`PRAGMA table_info(${row.table})`)
-          .toArray()
-          .map((column) => column.name),
-      );
-      const write = row.once && columns.has(row.once.column) ? row.once : row;
+      const write = row.once && hasColumn(row.table, row.once.column) ? row.once : row;
       sql.exec(write.sql, ...write.params(name));
     }
   });
@@ -474,8 +473,7 @@ describe('Capture', () => {
         }),
         expected: [{ name: 'Task', deleted_at: AT }, { name: 'Note', deleted_at: null }],
       },
-    ])('renames $situation', async ({ store, arrange, expected }) => {
-      const name = store;
+    ])('renames $situation', async ({ store: name, arrange, expected }) => {
       await agedTo(name, BEFORE_THE_WORDS);
       const { sql, params } = arrange(name);
       await inStoreAsItIs(name, (store) => store.exec(sql, ...params));
@@ -488,9 +486,10 @@ describe('Capture', () => {
     it('refuses to run at all where the account has already named a type Task', async () => {
       const name = 'aged-store-standard-types-taken';
       await agedTo(name, BEFORE_THE_WORDS);
-      // A type this account named itself while *Task* was still free. The
-      // live-name index is what refuses the rename onto it, and failing loudly
-      // is the chosen outcome: the alternative leaves the store and the code
+      // A type this account named itself while *Task* was still free, in the
+      // lower case that proves what collides is the fold rather than the word
+      // as it is written. The index is what refuses the rename, and failing
+      // loudly is the chosen outcome: the alternative leaves store and code
       // quietly disagreeing about what the standard types are called. It is
       // recovered by rolling the release back - which never runs this change -
       // renaming this one, and rolling forward.
