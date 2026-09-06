@@ -14,7 +14,7 @@
 // "Secrets and access").
 //
 
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -85,7 +85,15 @@ async function ask(path) {
 const files = {
   async stage(out) {
     const staged = `${out}.partial`;
-    await rm(staged, { recursive: true, force: true });
+    // Refused rather than cleared away. What an interrupted run left there is
+    // evidence about how far it got, and this command is otherwise the one
+    // thing in the system that destroys nothing - a silent `rm -rf` of a path
+    // derived from what somebody typed would be a poor exception to that.
+    if (existsSync(staged)) {
+      throw new Error(
+        `${staged} is already there, left by a run that did not finish. Look at it or remove it, then try again.`,
+      );
+    }
     await mkdir(`${staged}/accounts`, { recursive: true });
     return staged;
   },

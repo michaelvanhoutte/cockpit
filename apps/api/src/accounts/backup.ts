@@ -119,10 +119,30 @@ export function foreignRows(backup: AccountBackup, accountName: string): Foreign
   return foreign;
 }
 
-/** Says what is wrong in the words somebody reading the command's output needs. */
+/**
+ * Says what is wrong in the words somebody reading the command's output needs.
+ *
+ * **A table and a count per table, not a clause per row.** This becomes an HTTP
+ * response body built in the Worker's memory, and a store that has somehow
+ * accumulated foreign rows has no upper bound on how many - so a row-by-row
+ * message would be megabytes to say one thing. Which tables, whose the rows
+ * are, and how many, is the whole of what anybody acts on.
+ */
 export function describeForeignRows(foreign: readonly ForeignRow[], accountName: string): string {
-  const named = foreign
-    .map((row) => `${row.table} holds a row belonging to ${JSON.stringify(row.tenantId)}`)
+  const perTable = new Map<string, { count: number; tenants: Set<string> }>();
+  for (const row of foreign) {
+    const seen = perTable.get(row.table) ?? { count: 0, tenants: new Set<string>() };
+    seen.count += 1;
+    seen.tenants.add(JSON.stringify(row.tenantId));
+    perTable.set(row.table, seen);
+  }
+  const named = [...perTable.entries()]
+    .map(
+      ([table, seen]) =>
+        `${table} holds ${seen.count} row${seen.count === 1 ? '' : 's'} belonging to ${[
+          ...seen.tenants,
+        ].join(', ')}`,
+    )
     .join('; ');
   return `account ${accountName} was not backed up: ${named}`;
 }

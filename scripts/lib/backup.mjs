@@ -6,9 +6,10 @@
 // tests supply fakes and drive the cases that matter, which are the ones where
 // something goes wrong partway.
 //
-// What a backup is, and why it is a directory rather than one file, is issue
-// 208. The short version: one file per account is what makes restoring a single
-// user a file operation rather than a filter.
+// What a backup is, and why it is a directory rather than one file, is "Take a
+// backup of an environment, or of one user" (issue 208). The short version: one
+// file per account is what makes restoring a single user a file operation
+// rather than a filter.
 //
 
 /** Where each environment answers. Production and staging are Workers of their own. */
@@ -66,6 +67,12 @@ export function readArguments(argv) {
     if (value === undefined || value.startsWith('--')) {
       throw new Error(`${flag} was given nothing to go with it`);
     }
+    // Said rather than taking the last quietly: the two environments differ in
+    // exactly the way that makes being surprised by which one was read
+    // expensive.
+    if (args[field] !== undefined) {
+      throw new Error(`${flag} was given twice - it takes one value`);
+    }
     args[field] = value;
   }
   if (!args.environment) throw new Error('--env says which environment to back up');
@@ -93,11 +100,16 @@ export async function takeBackup({ ask, files, out, only, environment, now = () 
     throw new Error(`no account ${only} in this environment - it holds ${listed(register.accounts)}`);
   }
 
+  // Before anything is created, so a register that cannot be written to disk
+  // stops the command rather than half of it.
+  for (const account of accounts) nameAsAFile(account);
+
   const staged = await files.stage(out);
   const taken = [];
   for (const account of accounts) {
     const file = await ask(`/v1/admin/backup/accounts/${encodeURIComponent(account)}`);
-    await files.write(`${staged}/accounts/${account}.json`, file);
+    readAccountFile(file, account);
+    await files.write(`${staged}/accounts/${nameAsAFile(account)}.json`, file);
     taken.push({ account, changesApplied: file.changesApplied, rows: countRows(file.tables) });
   }
 
@@ -111,6 +123,43 @@ export async function takeBackup({ ask, files, out, only, environment, now = () 
   });
   await files.settle(staged, out);
   return { accounts: taken };
+}
+
+/**
+ * The account's name, once it is known to be usable as a file name.
+ *
+ * **Refused rather than mangled**, because a backup is addressed by the name in
+ * it: quietly rewriting `a/b` to `a-b` would produce a file no restore could
+ * match back to an account. An account's name is a register id with no
+ * constraint on its shape - the rows are written by hand today - so a name
+ * carrying a separator or a walk upwards would otherwise put the file outside
+ * the staging directory, which is exactly what the staging directory exists to
+ * prevent.
+ */
+function nameAsAFile(account) {
+  if (!/^[A-Za-z0-9._-]+$/.test(account) || account === '.' || account === '..') {
+    throw new Error(
+      `account ${JSON.stringify(account)} cannot be written to a file of its own - ` +
+        'an account name has to be letters, digits, dots, dashes and underscores',
+    );
+  }
+  return account;
+}
+
+/**
+ * That an answer is actually an account's backup.
+ *
+ * A 200 is not on its own: an edge or a proxy can answer with JSON of its own,
+ * and without this the first thing to notice is `Object.values(undefined)`
+ * throwing somewhere in the middle - which reads as a bug in this command
+ * rather than as an environment answering oddly.
+ */
+function readAccountFile(file, account) {
+  if (!file || typeof file !== 'object' || !file.tables || !Array.isArray(file.changesApplied)) {
+    throw new Error(
+      `backing up ${account} got an answer that is not a backup - is something in front of this environment?`,
+    );
+  }
 }
 
 /**
@@ -146,8 +195,9 @@ export function readRefusal({ status, body }) {
       'as COCKPIT_BACKUP_TOKEN.'
     );
   }
-  if (status === 404) return `refused: ${message(body)}`;
-  if (status === 409) return `refused: ${message(body)}`;
+  // A name that is not there, and a store holding somebody else's rows: both
+  // are the environment saying no for a reason it has already put in words.
+  if (status === 404 || status === 409) return `refused: ${message(body)}`;
   if (status === 0) return 'nothing answered - is the environment up, and the address right?';
   return `answered ${status}: ${message(body)}`;
 }

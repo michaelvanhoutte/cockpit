@@ -109,6 +109,54 @@ describe('a backup holds every account in the register, or just the one asked fo
   });
 });
 
+describe('a backup refuses what it cannot write down faithfully', () => {
+  // An account's name is a register id with no constraint on its shape, and it
+  // becomes a file name. Refused rather than mangled: rewriting it would give a
+  // file no restore could match back to an account, and leaving it alone would
+  // put the file outside the staging directory the whole guarantee rests on.
+  //
+  // The awkward characters are written as escapes rather than as themselves, so
+  // that this file stays text - a raw one makes `grep` call the source binary
+  // and skip it, which is the mangling CLAUDE.md records having cost two files.
+  for (const { situation, account } of [
+    { situation: 'a separator in it', account: 'a/b' },
+    { situation: 'a walk upwards', account: '../escaped' },
+    { situation: 'nothing but a walk upwards', account: '..' },
+    { situation: 'a backslash in it', account: 'a\\b' },
+    { situation: 'a space in it', account: 'a b' },
+    { situation: 'a null byte in it', account: 'a\0b' },
+    { situation: 'a newline in it', account: 'a\nb' },
+    { situation: 'nothing in it at all', account: '' },
+  ]) {
+    it(`refuses an account with ${situation}, before anything is created`, async () => {
+      const files = fakeFiles();
+      const register = { ...REGISTER, accounts: [account] };
+
+      await assert.rejects(
+        takeBackup({ ask: answering({ register }).ask, files, out: 'b', environment: 'staging' }),
+        /cannot be written to a file of its own/,
+      );
+
+      assert.equal(files.written.size, 0);
+      assert.equal(files.settledTo, null);
+    });
+  }
+
+  // A 200 is not on its own proof that an environment answered - an edge or a
+  // proxy can answer with JSON of its own. Without this the first sign is a
+  // TypeError from somewhere in the middle, which reads as a bug in this
+  // command rather than as an environment answering oddly.
+  it('refuses an answer that is not a backup, and says what it suspects', async () => {
+    const ask = async (path) =>
+      path === '/v1/admin/backup/register' ? REGISTER : { please: 'sign in' };
+
+    await assert.rejects(
+      takeBackup({ ask, files: fakeFiles(), out: 'b', environment: 'staging' }),
+      /is not a backup - is something in front of this environment/,
+    );
+  });
+});
+
 describe('a backup that did not finish is not left looking finished', () => {
   it('is settled into place only once every account has been read', async () => {
     const files = fakeFiles();
@@ -280,6 +328,13 @@ describe('the command refuses what it cannot act on, and says why', () => {
       situation: 'a flag whose value is the next flag',
       argv: ['--user', '--out', 'b'],
       complaint: /--user was given nothing/,
+    },
+    // Said rather than taking the last quietly: the two deployed environments
+    // differ in exactly the way that makes being surprised expensive.
+    {
+      situation: 'an environment given twice',
+      argv: ['--env', 'staging', '--env', 'production', '--out', 'b'],
+      complaint: /--env was given twice/,
     },
   ]) {
     it(`refuses ${situation}`, () => {

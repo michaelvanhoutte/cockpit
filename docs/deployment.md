@@ -333,7 +333,7 @@ COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/202
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/anna --user tenant-anna
 ```
 
-Reading a backup back in is issue 209 and is not built, so today this is how data is inspected and moved, not yet how it is put back.
+Reading a backup back in is "Restore an environment, or one user, from a backup" (issue 209) and is not built, so today this is how data is inspected and moved, not yet how it is put back.
 
 ## 6. Secrets and access
 
