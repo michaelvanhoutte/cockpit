@@ -141,4 +141,81 @@ describe('Sign-in', () => {
       ).rejects.toThrow();
     });
   });
+
+  /**
+   * Nothing reads either column yet ("Record the Google account each user signs
+   * in with", issue 195), so the database is the whole of this rule: the
+   * sign-in that will read them is "Sign in with Google, and retire the list of
+   * names" (issue 196), and until it lands there is no
+   * interface through which any of these could be attempted.
+   */
+  describe('the register records who somebody is at Google', () => {
+    beforeEach(async () => {
+      await env.DB.batch([
+        env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)').bind(
+          'another-account',
+          'Someone',
+          AT,
+        ),
+        env.DB.prepare(
+          'INSERT INTO users (id, name, account_id, role, email, google_subject, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ).bind(
+          'user-someone',
+          'Someone',
+          'another-account',
+          'user',
+          'someone@example.com',
+          'google-someone',
+          AT,
+        ),
+      ]);
+    });
+
+    it('refuses a second person the same address', async () => {
+      await expect(
+        env.DB.prepare(
+          'INSERT INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+          .bind('user-impostor', 'Impostor', 'another-account', 'user', 'someone@example.com', AT)
+          .run(),
+      ).rejects.toThrow();
+    });
+
+    it('refuses a second person the same Google account', async () => {
+      await expect(
+        env.DB.prepare(
+          'INSERT INTO users (id, name, account_id, role, email, google_subject, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+          .bind(
+            'user-impostor',
+            'Impostor',
+            'another-account',
+            'user',
+            'impostor@example.com',
+            'google-someone',
+            AT,
+          )
+          .run(),
+      ).rejects.toThrow();
+    });
+
+    /**
+     * The case the unique indexes could easily have broken: a person's Google
+     * account is learned when they first sign in, so everybody starts without
+     * one, and an index that counted two absences as a clash would stop a
+     * second person ever being added.
+     */
+    it('lets any number of people be waiting for one', async () => {
+      await expect(
+        env.DB.batch([
+          env.DB.prepare(
+            'INSERT INTO users (id, name, account_id, role, created_at) VALUES (?, ?, ?, ?, ?)',
+          ).bind('user-anna', 'Anna', 'another-account', 'user', AT),
+          env.DB.prepare(
+            'INSERT INTO users (id, name, account_id, role, created_at) VALUES (?, ?, ?, ?, ?)',
+          ).bind('user-bram', 'Bram', 'another-account', 'user', AT),
+        ]),
+      ).resolves.toBeTruthy();
+    });
+  });
 });
