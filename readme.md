@@ -48,7 +48,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` applies the local D1 migrations, seeds the database, builds `apps/web/dist` if it has never been built (Wrangler refuses to start without it), then runs the API and the web app together, output prefixed per process, printing both addresses as it starts. Ctrl+C stops both, and either one exiting takes the other down rather than leaving half an app looking healthy. Every step is idempotent, so re-running is safe. `pnpm dev:api` and `pnpm dev:web` run one half alone, on the same ports; `pnpm build` for a real production build.
+`pnpm dev` applies the local D1 migrations, seeds the database, builds `apps/web/dist` if it has never been built (Wrangler refuses to start without it), then runs the API, the web app and the stub issuer you sign in against together, output prefixed per process, printing each address as it starts. Ctrl+C stops them, and either half of the app exiting takes the other down rather than leaving half of it looking healthy. Every step is idempotent, so re-running is safe. `pnpm dev:api` and `pnpm dev:web` run one half alone, on the same ports; `pnpm build` for a real production build.
 
 **In a git worktree the ports are different, and that is the point.** Several worktrees are often open at once and every one wants to run `pnpm dev`; nothing else about them collides, since each has its own database under `apps/api/.wrangler`, so only the ports had to move. A linked worktree gets its own set derived from its path (`scripts/lib/ports.mjs`), the same set every time, so a tab stays valid and the browser keeps the stored copy it painted from; the primary checkout keeps <http://localhost:8787> and <http://localhost:5173>, which is what the rest of this file names. The stub issuer you sign in against has a port of its own, and the browser tier's three move the same way, so two worktrees can run `pnpm test:e2e` at once. Read the addresses off the line `pnpm dev` prints, or pin them with `COCKPIT_DEV_WEB_PORT`, `COCKPIT_DEV_API_PORT` and `COCKPIT_DEV_ISSUER_PORT`.
 
@@ -190,7 +190,7 @@ Skills trigger themselves from their descriptions, which is the point of them li
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Migrates, seeds, builds `dist` if it has never been built, then runs both halves. |
+| `pnpm dev` | Migrates, seeds, builds `dist` if it has never been built, then runs both halves and the stub issuer. |
 | `pnpm branches:tidy` | Reaps the local branches and worktree metadata that squash-merging leaves behind. |
 | `pnpm typecheck`, `pnpm test`, `pnpm build` | The same three gates CI runs, so a red pipeline is reproducible locally. |
 | `scripts/health-check.mjs` | The post-deploy assertion against `/health`. It asks until the deployment says it is well or a minute is up, because the first request after a deploy is the one that brings an account store up to date. |

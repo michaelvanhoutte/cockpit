@@ -122,4 +122,31 @@ describe('the stub issuer signs people in the way Google does', () => {
     const asked = await fetch(`${issuer.origin}/authorize?state=s`);
     assert.equal(asked.status, 400);
   });
+
+  /**
+   * The page is rendered from a query string anybody can write, so what it
+   * writes back has to be the flow's own parameters and nothing else. Both
+   * halves have been wrong here: an unescaped value, and then a parameter whose
+   * *name* closed the attribute it was written into.
+   */
+  it('writes nothing into the page that a sign-in did not ask for', async () => {
+    const mischief = new URLSearchParams({
+      redirect_uri: REDIRECT,
+      state: 's',
+      code_challenge: 'c',
+      'x"><script>alert(1)</script': 'anything',
+      nonce: '"><script>alert(2)</script>',
+    });
+
+    const page = await (await fetch(`${issuer.origin}/authorize?${mischief}`)).text();
+
+    // Nothing got out of an attribute and became markup...
+    assert.equal(/<script/i.test(page), false);
+    // ...and the parameter that was not the flow's own is not on the page at
+    // all, which is the half escaping alone would not give.
+    assert.deepEqual(
+      [...page.matchAll(/<input[^>]*name="([^"]*)"/g)].map((match) => match[1]).sort(),
+      ['as', 'code_challenge', 'nonce', 'redirect_uri', 'state'],
+    );
+  });
 });

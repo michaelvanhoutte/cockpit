@@ -97,7 +97,7 @@ export async function startStubIssuer({ port, seedPath }) {
    * a redirect that happened by itself would prove a flow nobody drives.
    */
   function authorize(url, response) {
-    const ask = Object.fromEntries(url.searchParams);
+    const ask = whatWasAsked(url);
     if (!ask.redirect_uri || !ask.state || !ask.code_challenge) {
       return response.writeHead(400).end('a sign-in has to say where to come back to');
     }
@@ -105,7 +105,7 @@ export async function startStubIssuer({ port, seedPath }) {
     const buttons = accounts
       .map(
         (email) =>
-          `<li><a class="who" href="/authorize/pick?${new URLSearchParams({ ...ask, as: email })}">${email}</a></li>`,
+          `<li><a class="who" href="/authorize/pick?${new URLSearchParams({ ...ask, as: email })}">${escaped(email)}</a></li>`,
       )
       .join('');
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(
@@ -118,10 +118,7 @@ export async function startStubIssuer({ port, seedPath }) {
        <ul>${buttons}</ul>
        <form action="/authorize/pick"><input name="as" placeholder="somebody@example.com" required>
          ${Object.entries(ask)
-           .map(
-             ([name, value]) =>
-               `<input type="hidden" name="${name}" value="${String(value).replaceAll('"', '&quot;')}">`,
-           )
+           .map(([name, value]) => `<input type="hidden" name="${name}" value="${escaped(value)}">`)
            .join('')}
          <button>Continue</button></form>`,
     );
@@ -129,7 +126,7 @@ export async function startStubIssuer({ port, seedPath }) {
 
   /** Picking somebody: a code, and back to where the sign-in came from. */
   function pick(url, response) {
-    const ask = Object.fromEntries(url.searchParams);
+    const ask = whatWasAsked(url);
     const code = randomUUID();
     issued.set(code, {
       email: ask.as,
@@ -199,6 +196,48 @@ export async function startStubIssuer({ port, seedPath }) {
   await once(server, 'listening');
   issuer = `http://127.0.0.1:${server.address().port}`;
   return { origin: issuer, close: () => server.close() };
+}
+
+/**
+ * What a sign-in asked for: the parameters of the flow and nothing else.
+ *
+ * **An allowlist rather than everything that arrived**, because everything that
+ * arrived is a name *and* a value somebody else chose, and both end up in the
+ * page below. Escaping the values and interpolating the names was the version
+ * of this that shipped to review: a parameter *named* `x"><script>` closed the
+ * attribute and put script on the page. Only these names can be written now, so
+ * the question does not arise - and a stub nobody would attack is still a page
+ * a browser renders, on a port every worktree runs.
+ */
+const OF_THE_FLOW = [
+  'client_id',
+  'redirect_uri',
+  'response_type',
+  'scope',
+  'state',
+  'nonce',
+  'code_challenge',
+  'code_challenge_method',
+  'prompt',
+  'as',
+];
+
+function whatWasAsked(url) {
+  return Object.fromEntries(
+    OF_THE_FLOW.filter((name) => url.searchParams.has(name)).map((name) => [
+      name,
+      url.searchParams.get(name),
+    ]),
+  );
+}
+
+/** Text going into an attribute or a body, with what would end either taken out. */
+function escaped(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }
 
 function json(response, body, status = 200) {
