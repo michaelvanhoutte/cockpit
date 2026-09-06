@@ -18,6 +18,12 @@ describe('Sign-in', () => {
       { situation: 'the health check', path: '/health' },
       { situation: 'starting to sign in', path: '/v1/sign-in/google' },
       { situation: 'coming back from Google', path: '/v1/sign-in/google/callback' },
+      // Not because they are open, but because what they answer is "gone", and
+      // the browser that needs to hear it is holding no sign-in ("Update
+      // instead of failing when a build asks for an address that has been
+      // retired", issue 217).
+      { situation: 'the list of people that used to be the way in', path: '/v1/users' },
+      { situation: 'the address the name picker signed you in at', path: '/v1/sign-in' },
       { situation: 'a delivery from a source', path: '/ingress/slack/events' },
       {
         // The prefix is what the connector's id and whatever the source appends
@@ -43,9 +49,7 @@ describe('Sign-in', () => {
     });
 
     it.each([
-      { situation: 'the list of people that used to be the way in', path: '/v1/users' },
       { situation: 'anything hung off signing in', path: '/v1/sign-in/google/x' },
-      { situation: 'the endpoint the name picker signed you in at', path: '/v1/sign-in' },
       {
         // Not a sub-path but a longer name, which a prefix check would let
         // through and an exact one does not.

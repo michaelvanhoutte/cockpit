@@ -203,4 +203,52 @@ describe('Updating', () => {
       expect(screen.queryByRole('heading')).not.toBeInTheDocument();
     });
   });
+
+  /**
+   * The other way the server says "you are behind", and the one a shape it
+   * cannot read does not cover: this build asks for an address a later one
+   * dropped ("Update instead of failing when a build asks for an address that
+   * has been retired", issue 217). Every case here is a refusal, so what is
+   * being asked is which refusals mean *update* and which mean what they say.
+   */
+  describe('a read for something the server no longer has is a version behind, not a failure', () => {
+    /** The message shape apps/web/src/api/client.ts throws for a refusal. */
+    const refused = (status: number) => new Error(`workspaces failed: ${status}`);
+
+    async function reading(client: QueryClient, answer: () => Promise<unknown>): Promise<void> {
+      await client.fetchQuery({ queryKey: ['workspaces'], queryFn: answer }).catch(() => undefined);
+    }
+
+    it('fetches the new version when the address has been retired', async () => {
+      const reload = vi.fn();
+      const client = newClient();
+      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', reload }, scratchMemory());
+
+      await reading(client, () => Promise.reject(refused(410)));
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    });
+
+    it.each([
+      // The refusal every read gets when a visit has ended. Sending somebody to
+      // the logon page is the app's answer to this, and taking the window for
+      // an update instead would hide it.
+      { situation: 'a read refused for not being signed in', answer: () => Promise.reject(refused(401)) },
+      // Something answered badly, which is what "having trouble" is for: trying
+      // again can work, and reloading cannot.
+      { situation: 'a read the server could not complete', answer: () => Promise.reject(refused(503)) },
+      // Nothing answered at all - no status to read, and a reload would land on
+      // a browser that still has no connection.
+      { situation: 'a read nothing answered', answer: () => Promise.reject(new Error('Failed to fetch')) },
+    ])('leaves $situation to the app', async ({ answer }) => {
+      const reload = vi.fn();
+      const client = newClient();
+      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', reload }, scratchMemory());
+
+      await reading(client, answer);
+
+      expect(reload).not.toHaveBeenCalled();
+      expect(screen.getByText('Your workspace')).toBeVisible();
+    });
+  });
 });
