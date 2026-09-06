@@ -5,13 +5,14 @@ import type { Layout, Panel } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { browserStore } from '../lastVisited';
-import { AUTOMATIC, useChosenLayout } from '../panels/chosenLayout';
+import { useChosenLayout } from '../panels/chosenLayout';
 import {
   drawnRows,
   freeName,
   layoutLabel,
   layoutToDraw,
   nameForScreen,
+  nearestLayout,
 } from '../panels/arrangement';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -26,12 +27,14 @@ const KEEPS_ONE = 'A dashboard keeps at least one layout';
 
 /**
  * What the control is called to anything not looking at it: which layout is in
- * use, and whether it was picked or arrived automatically - the two things the
- * button says in type.
+ * use, which is the one thing the button says in type.
+ *
+ * It used to say how the layout was picked as well, because there was a mode to
+ * be in and being in it was invisible. There is no mode now, so there is
+ * nothing to announce beyond the name.
  */
-function announced(drawnWith: Layout | null, automatic: boolean): string {
-  const which = drawnWith ? layoutLabel(drawnWith) : 'none yet';
-  return `Layout for this dashboard: ${which}${automatic ? ', chosen automatically' : ''}`;
+function announced(drawnWith: Layout | null): string {
+  return `Layout for this dashboard: ${drawnWith ? layoutLabel(drawnWith) : 'none yet'}`;
 }
 
 /**
@@ -54,10 +57,10 @@ function announced(drawnWith: Layout | null, automatic: boolean): string {
  * Inbox too, where there is no dashboard to have a layout, so the shell only
  * mounts this where there is one (DashboardBar).
  *
- * **Automatic is an entry, not the absence of one.** It draws the layout whose
- * recorded width is closest to this screen - which is what the app always did
- * and never said - and the control shows both that it is on and which layout it
- * landed on.
+ * **The menu lists layouts and nothing else**, and the button names one without
+ * saying how it was picked ("Layouts follow the screen you are on"). Both used
+ * to carry the *Automatic* mode, which `layoutToDraw` says why there is no
+ * longer.
  */
 export function LayoutPicker({
   workspaceId,
@@ -74,26 +77,21 @@ export function LayoutPicker({
 }) {
   const screenWidth = useScreenWidth();
   const command = useCommand();
-  const [chosen, choose] = useChosenLayout(browserStore(), dashboardId);
-  const drawnWith = layoutToDraw(layouts, dashboardId, screenWidth, chosen);
+  const [pick, choose] = useChosenLayout(browserStore(), dashboardId);
+  const drawnWith = layoutToDraw(layouts, dashboardId, screenWidth, pick);
+  /** The app's own answer for this screen, which a pick overrides while it lasts. */
+  const nearest = nearestLayout(layouts, dashboardId, screenWidth);
+
   /**
-   * The choice as it actually took effect, which is not always the one stored.
+   * Picking one from the menu, scoped to the screen you are on.
    *
-   * A choice naming a layout another device has since deleted falls through to
-   * the closest remaining one (`layoutToDraw`), and deliberately nothing clears
-   * the stored id when that happens. So `chosen` can name a layout that is not
-   * there while the board draws a different one - and every reading of it here
-   * would then be wrong in the same direction: the control would drop the
-   * *Auto* badge and announce a hand-picked layout, and the menu's radio group
-   * would match neither *Automatic* nor any layout in the list and so mark
-   * nothing at all, which is the undifferentiated list this whole control
-   * exists to replace.
-   *
-   * Derived rather than repaired, because a render is not where a write to
-   * storage belongs. The dead id is cleared by the board the next time it saves
-   * an arrangement (PanelBoard).
+   * What the pick records is the answer it is overriding rather than a width,
+   * so it expires when that answer changes and not before (`LayoutPick`). The
+   * layout you press is stored even where it is already the nearest: pressing
+   * it is not a no-op if a later resize would have moved you off it.
    */
-  const picked = drawnWith && chosen === drawnWith.id ? chosen : null;
+  const pickFromMenu = (layoutId: string) =>
+    choose({ layoutId, whileNearestIs: nearest?.id ?? layoutId });
 
   /**
    * The name being typed, and which question is asking for it - or null while
@@ -169,8 +167,17 @@ export function LayoutPicker({
       {
         onSuccess: () => {
           // You are put on the layout you just made: making one and then having
-          // to pick it is two gestures for what reads as one.
-          choose(layoutId);
+          // to pick it is two gestures for what reads as one. On *this* screen
+          // only - a layout made on the laptop is not one the 4K screen should
+          // be left drawing, which is what putting you on it used to mean.
+          //
+          // It is recorded at this exact width, so it is what the width rule
+          // will answer once the snapshot has it, and the pick expires the
+          // moment you move. Unless a layout was already made at the same
+          // width: that one keeps the answer by coming first, and the pick is
+          // what holds you on the new one until you leave this screen.
+          const tie = layouts.find((layout) => layout.screenWidth === screenWidth);
+          choose({ layoutId, whileNearestIs: tie?.id ?? layoutId });
           setNaming(null);
         },
       },
@@ -210,10 +217,10 @@ export function LayoutPicker({
       },
       {
         onSuccess: () => {
-          // The choice goes with the layout. Leaving it would only fall through
-          // to the closest remaining one anyway (arrangement.ts), but a stored
+          // The pick goes with the layout. Leaving it would only fall through
+          // to the nearest remaining one anyway (arrangement.ts), but a stored
           // id naming nothing is a thing to explain later rather than now.
-          if (chosen === drawnWith.id) choose(null);
+          if (pick?.layoutId === drawnWith.id) choose(null);
           setDeleting(false);
         },
       },
@@ -228,21 +235,16 @@ export function LayoutPicker({
           // The name carries the value, not just the control: a label of
           // "Layout for this dashboard" alone tells a screen reader that there
           // is one and never which, and which is the whole point of it.
-          aria-label={announced(drawnWith, picked === null)}
+          aria-label={announced(drawnWith)}
           // On the chrome, so it takes the chrome's light set rather than the
           // ink and accent tint every control on the sheet wears - both of
           // which are invisible on a near-black bar (Menu.tsx says why this is
           // a set rather than a class).
           className="mb-1 flex max-w-52 shrink-0 items-center gap-1.5 rounded-md border border-white/15 bg-white/6 px-2 py-1 text-xs text-chrome-ink hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/12"
         >
-          {/* Which of the two ways you are on it, where you are on it that way.
-              It is the one thing the old menu could not say, and it is why the
-              automatic choice used to feel like magic. */}
-          {picked === null && (
-            <span className="shrink-0 text-[0.625rem] font-semibold uppercase tracking-[0.09em] text-[var(--tint)]">
-              Auto
-            </span>
-          )}
+          {/* The name and nothing else. A badge saying how the layout was
+              picked answered a question that only existed while there was a
+              mode to be in. */}
           <span className="truncate">{drawnWith ? layoutLabel(drawnWith) : 'No layout yet'}</span>
           <svg viewBox="0 0 10 6" className="size-2 shrink-0" aria-hidden="true">
             <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -259,18 +261,21 @@ export function LayoutPicker({
           <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
             Layout for this dashboard
           </DropdownMenu.Label>
+          {/* Marked against the layout actually drawn rather than against what
+              is stored, which is not the same thing and is why this reads
+              `drawnWith`: a pick expires by itself when you change screens, and
+              one naming a layout another device deleted falls through
+              (`layoutToDraw`). Either way the stored id would mark nothing at
+              all - an undifferentiated list, which is the fault this control
+              exists to fix. */}
           <DropdownMenu.RadioGroup
-            value={picked ?? AUTOMATIC}
-            onValueChange={(value) => choose(value === AUTOMATIC ? null : value)}
+            value={drawnWith?.id ?? ''}
+            onValueChange={pickFromMenu}
           >
-            <Chosen value={AUTOMATIC} name="Automatic">
-              {/* Which one it lands on, so choosing it is not a leap. */}
-              {drawnWith && `now ${layoutLabel(drawnWith)}`}
-            </Chosen>
             {layouts.map((layout) => (
               <Chosen key={layout.id} value={layout.id} name={layoutLabel(layout)}>
-                {/* The width is still worth saying - it is what Automatic
-                    compares - but as a note under the name rather than as the
+                {/* The width is worth saying - it is what the screen is matched
+                    against - but as a note under the name rather than as the
                     name itself. */}
                 {`made at ${layout.screenWidth} px`}
               </Chosen>
@@ -387,7 +392,7 @@ function Chosen({
 }: {
   value: string;
   name: string;
-  /** The line under the name: what Automatic lands on, or the width it was made at. */
+  /** The line under the name: the width the layout was made at. */
   children: React.ReactNode;
 }) {
   return (

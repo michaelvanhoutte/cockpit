@@ -440,7 +440,7 @@ describe('Panels', () => {
 
 /**
  * F1: the dashboard's own controls, which live at the right of its own bar
- * ("Pick the layout you are on, by name"). Which layout the automatic choice
+ * ("Layouts follow the screen you are on"). Which layout a screen
  * lands on is arithmetic and is settled in tests/unit/panels/arrangement.test.ts;
  * whether the server accepts a name is proved against a real store in
  * apps/api/tests/integration/http/panels.test.ts.
@@ -466,7 +466,7 @@ describe('Layouts', () => {
     name: 'Project Falcon',
   };
 
-  /** The width the picker reads, which is what the automatic choice compares. */
+  /** The width the picker reads, which is what a screen is matched on. */
   function screenIs(width: number) {
     Object.defineProperty(globalThis, 'innerWidth', {
       value: width,
@@ -516,82 +516,124 @@ describe('Layouts', () => {
     });
   });
 
-  describe('the control says which arrangement you are looking at, and how it was picked', () => {
-    it.each([
-      {
-        situation: 'nothing has been picked in this browser',
-        pick: null,
-        saysAuto: true,
-        andNames: 'Laptop',
-      },
-      {
-        situation: 'a layout was picked by hand',
-        pick: 'wide',
-        saysAuto: false,
-        andNames: 'Wide',
-      },
-    ])('$situation', async ({ pick, saysAuto, andNames }) => {
-      if (pick) localStorage.setItem('cockpit.layout.' + OPEN, pick);
-      showBar(['Dashboard 1'], {
-        openDashboardId: OPEN,
-        layouts: [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)],
-      });
+  describe('the control names the layout you are looking at, and its menu offers only layouts', () => {
+    /** A pick of `layoutId`, made on a screen whose nearest layout is `whileNearestIs`. */
+    function picked(layoutId: string, whileNearestIs: string) {
+      localStorage.setItem(
+        'cockpit.layout.' + OPEN,
+        JSON.stringify({ layoutId, whileNearestIs }),
+      );
+    }
 
-      const control = await theControl(andNames);
-      // Saying *which* of the two ways you are on it is the whole point: the
-      // automatic choice used to happen with nothing on screen admitting to it.
-      if (saysAuto) expect(control).toHaveTextContent('Auto');
-      else expect(control).not.toHaveTextContent('Auto');
+    const BOTH = [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)];
+
+    it.each([
+      { situation: 'nothing has been picked in this browser', pick: null, names: 'Laptop' },
+      {
+        situation: 'a layout was picked by hand, on this screen',
+        pick: ['wide', 'laptop'],
+        names: 'Wide',
+      },
+      // The screen moved out from under the pick, which is the feature: *Wide*
+      // was pressed on the 4K screen and this is the laptop, so the bar names
+      // the laptop's own layout rather than the one still stored.
+      {
+        situation: 'a layout picked on a screen you have since left',
+        pick: ['wide', 'wide'],
+        names: 'Laptop',
+      },
+      // The stored pick outlives the layout it names: falling through to the
+      // nearest remaining one is deliberate, and nothing clears the id.
+      {
+        situation: 'a picked layout another device deleted',
+        pick: ['deleted-elsewhere', 'laptop'],
+        names: 'Laptop',
+      },
+    ])('$situation', async ({ pick, names }) => {
+      if (pick) picked(pick[0]!, pick[1]!);
+      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+
+      await theControl(names);
+    });
+
+    it('says nothing about how the layout was picked, there being no mode to be in', async () => {
+      // The badge said which of two ways you were on a layout, and it went with
+      // the mode it was reporting on. A dashboard follows the screen now.
+      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+
+      expect(await theControl('Laptop')).not.toHaveTextContent('Auto');
     });
 
     it.each([
-      {
-        situation: 'the choice was made by the screen',
-        pick: null,
-        announced: /^Layout for this dashboard: Laptop, chosen automatically$/,
-      },
-      {
-        situation: 'a layout was picked by hand',
-        pick: 'wide',
-        announced: /^Layout for this dashboard: Wide$/,
-      },
-    ])('says which layout is in use to a screen reader too, when $situation', async ({
+      { situation: 'nothing has been picked', pick: null, announced: 'Laptop' },
+      { situation: 'a layout was picked by hand', pick: ['wide', 'laptop'], announced: 'Wide' },
+    ])('names the layout in use to a screen reader too, when $situation', async ({
       pick,
       announced,
     }) => {
       // The label used to name the control and not its value, so anything not
       // looking at the bar was told there was a layout control and never which
       // layout - which is the whole of what it is for.
-      if (pick) localStorage.setItem('cockpit.layout.' + OPEN, pick);
-      showBar(['Dashboard 1'], {
-        openDashboardId: OPEN,
-        layouts: [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)],
-      });
+      if (pick) picked(pick[0]!, pick[1]!);
+      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
 
-      expect(await screen.findByRole('button', { name: announced })).toBeVisible();
+      expect(
+        await screen.findByRole('button', {
+          name: new RegExp(`^Layout for this dashboard: ${announced}$`),
+        }),
+      ).toBeVisible();
     });
 
-    it('falls back to Automatic when the layout you picked was deleted elsewhere', async () => {
-      // The stored choice outlives the layout it names: falling through to the
-      // closest remaining one is deliberate, and nothing clears the id. Read
-      // raw, that choice would drop the Auto badge, announce a hand-picked
-      // layout, and leave the menu marking neither Automatic nor any layout in
-      // it - which is the undifferentiated list this control replaces.
-      localStorage.setItem('cockpit.layout.' + OPEN, 'deleted-elsewhere');
-      const { user } = showBar(['Dashboard 1'], {
-        openDashboardId: OPEN,
-        layouts: [aLayout('laptop', 'Laptop', 1280)],
-      });
+    it.each([
+      { situation: 'nothing has been picked', pick: null, marks: 'Laptop' },
+      { situation: 'a layout was picked by hand', pick: ['wide', 'laptop'], marks: 'Wide' },
+      // Read raw, a pick naming a layout that has gone would leave the menu
+      // marking nothing at all - the undifferentiated list this control exists
+      // to replace, one menu deeper.
+      {
+        situation: 'a picked layout another device deleted',
+        pick: ['deleted-elsewhere', 'laptop'],
+        marks: 'Laptop',
+      },
+    ])('marks the layout actually drawn, when $situation', async ({ pick, marks }) => {
+      if (pick) picked(pick[0]!, pick[1]!);
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
 
-      const control = await theControl('Laptop');
-      expect(control).toHaveTextContent('Auto');
-      expect(control).toHaveAccessibleName(/chosen automatically$/);
+      await user.click(await theControl(marks));
 
-      await user.click(control);
-      expect(screen.getByRole('menuitemradio', { name: /^Automatic/ })).toHaveAttribute(
+      expect(screen.getByRole('menuitemradio', { name: new RegExp(`^${marks}`) })).toHaveAttribute(
         'aria-checked',
         'true',
       );
+    });
+
+    it('lists the layouts and no entry that is not one', async () => {
+      // There was an *Automatic* row above them, meaning "draw whichever is
+      // nearest". Following the screen is what a dashboard does rather than a
+      // row you can be on, so the list is layouts and only layouts.
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+
+      await user.click(await theControl('Laptop'));
+
+      expect(screen.getAllByRole('menuitemradio').map((entry) => entry.textContent)).toEqual([
+        'Laptopmade at 1280 px',
+        'Widemade at 2560 px',
+      ]);
+    });
+
+    it('puts you on the layout you press, for as long as you are on this screen', async () => {
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+
+      await user.click(await theControl('Laptop'));
+      await user.click(screen.getByRole('menuitemradio', { name: /^Wide/ }));
+
+      await theControl('Wide');
+      // The answer it overrides, not the width it was pressed at: that is what
+      // makes it expire on the screen rather than on a resize.
+      expect(JSON.parse(localStorage.getItem('cockpit.layout.' + OPEN)!)).toEqual({
+        layoutId: 'wide',
+        whileNearestIs: 'laptop',
+      });
     });
 
     it('draws a layout written before names existed as the width it was made for', async () => {
@@ -667,13 +709,16 @@ describe('Layouts', () => {
     });
 
     it('makes a new one from the arrangement on screen, and puts you on it', async () => {
+      // The one layout it has was made for a wider screen than this one, so
+      // what is being made here is the nearest thing to 1280 the moment it
+      // lands - the ordinary case, with the tie below as the other one.
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
         panels: [FALCON],
-        layouts: [aLayout('laptop', 'Laptop', 1280)],
+        layouts: [aLayout('wide', 'Wide', 2560)],
       });
 
-      await user.click(await theControl('Laptop'));
+      await user.click(await theControl('Wide'));
       await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
       await user.click(screen.getByRole('button', { name: 'Create' }));
 
@@ -685,8 +730,36 @@ describe('Layouts', () => {
         { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
       ]);
       // Making one and then having to pick it is two gestures for what reads
-      // as one.
-      expect(localStorage.getItem('cockpit.layout.' + OPEN)).toBe(asked.payload.layoutId);
+      // as one - and on this screen only, since a layout made on the laptop is
+      // not one the 4K screen should be left drawing. It is recorded at this
+      // width, so it is what the screen will land on by itself.
+      expect(JSON.parse(localStorage.getItem('cockpit.layout.' + OPEN)!)).toEqual({
+        layoutId: asked.payload.layoutId,
+        whileNearestIs: asked.payload.layoutId,
+      });
+    });
+
+    it('puts you on a new one made at a width another layout already has', async () => {
+      // The tie-break hands the width rule to whichever came first, so the one
+      // just made is not what the screen would land on - and making a layout
+      // and not being put on it is the gesture failing in front of you. This
+      // is the case that makes recording the pick necessary at all.
+      const { user, mutate } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        panels: [FALCON],
+        layouts: [aLayout('laptop', 'Laptop', 1280)],
+      });
+
+      await user.click(await theControl('Laptop'));
+      await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
+      await user.click(screen.getByRole('button', { name: 'Create' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.payload.screenWidth).toBe(1280);
+      expect(JSON.parse(localStorage.getItem('cockpit.layout.' + OPEN)!)).toEqual({
+        layoutId: asked.payload.layoutId,
+        whileNearestIs: 'laptop',
+      });
     });
 
     it('copies the arrangement as drawn, not the one stored, so it cannot name a panel that has gone', async () => {

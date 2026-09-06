@@ -93,7 +93,7 @@ export function PanelBoard({
    * this is the page, that is the shell - so what they share is a store rather
    * than a prop one would have to be handed through the router.
    */
-  const [chosen, choose] = useChosenLayout(browserStore(), dashboard.id);
+  const [pick, choose] = useChosenLayout(browserStore(), dashboard.id);
   /**
    * An arrangement that has been made but not yet stored. It is what the board
    * draws while it exists, so the panel really does move under the hand that
@@ -159,7 +159,7 @@ export function PanelBoard({
   const askedFrom = useRef<HTMLElement | null>(null);
 
   const its = layoutsOf(layouts, dashboard.id);
-  const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth, chosen);
+  const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth, pick);
   const stored = drawnRows(drawnWith, panels, acrossWidth);
   // The preview while a drag is on, then a draft that has been sent and is
   // waiting for the store to agree, then what the store holds.
@@ -231,13 +231,15 @@ export function PanelBoard({
       {
         onSuccess: () => {
           // The board only ever saves into the layout it is drawing, so the
-          // choice is already right - except in one case: a choice naming a
-          // layout another device deleted is drawn by falling through to the
-          // closest remaining one (arrangement.ts), and this dashboard had
-          // none, so what was just made is not what is stored as picked. The
-          // dead id is cleared rather than repointed, because falling through
-          // is what *Automatic* is, and that is what the control should say.
-          if (chosen && !its.some((layout) => layout.id === chosen)) choose(null);
+          // pick is already right - except where it names a layout that is not
+          // there. Either half can go: another device deletes the layout you
+          // picked, or the one your pick was overriding. Both are already inert
+          // (arrangement.ts falls through to the nearest), so this only clears
+          // the value out rather than changing what is drawn - and it is
+          // cleared rather than repointed, because falling through is the
+          // dashboard following the screen, which is what it should be doing.
+          const alive = (id: string) => its.some((layout) => layout.id === id);
+          if (pick && !(alive(pick.layoutId) && alive(pick.whileNearestIs))) choose(null);
           void settle();
         },
         /**

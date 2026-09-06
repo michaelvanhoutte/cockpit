@@ -158,7 +158,7 @@ export const layoutNameSchema = panelNameSchema;
  * is for, and the width it names is one a window is only accidentally.
  *
  * `screenWidth` is the width the Layout was created at, not a breakpoint, and
- * it is now only read by the automatic choice: there is no fixed set of sizes
+ * it is now only read when a screen is matched to a Layout: there is no fixed set of sizes
  * to belong to, so "which Layout is this screen's" is a question about distance
  * rather than about membership.
  *
