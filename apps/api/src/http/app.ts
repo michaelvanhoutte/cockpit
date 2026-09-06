@@ -5,8 +5,6 @@ import {
   commandResultSchema,
   commandSchemas,
   signedInSchema,
-  signInSchema,
-  userListSchema,
   itemTypeListSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
@@ -35,18 +33,66 @@ import {
 import { checkHealth } from '../accounts/probe.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
+  attemptHeld,
+  forgetAttempt,
   forgetSessionCookie,
   gate,
+  rememberAttempt,
   rememberSessionCookie,
   stillSignedIn,
   type GatedEnv,
 } from '../auth/gate.js';
-import { endSession, listUsers, startSession } from '../auth/register.js';
+import { endpointsFor, exchangeCode, issuerFor, keysOf } from '../auth/issuer.js';
+import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
+import { endSession, signInWithGoogle } from '../auth/register.js';
 import { getConnector } from '../connectors/registry.js';
 
 type AppEnv = GatedEnv;
 
 const errorSchema = z.object({ error: z.string() });
+
+/**
+ * Where Google is told to send the browser back: this environment's own
+ * address, configured, and never taken from the request.
+ *
+ * **It is the address the person is looking at, which is not the address this
+ * Worker answers on.** In development they are two different servers - the
+ * browser is on Vite, which proxies `/v1` through - so a callback built from
+ * the request would take the browser off the application it is using and onto
+ * the Worker, where it would land on the last *built* copy of the app rather
+ * than the one being edited. Found by driving it, not by reading it.
+ *
+ * Configured rather than derived also settles the other half: it has to be
+ * character-for-character one of the redirect URIs registered with the Google
+ * client (docs/deployment.md, "A Google OAuth client"), and a Host header is
+ * something a request carries rather than something this application knows.
+ */
+function callbackUrl(c: Context): string {
+  return new URL('/v1/sign-in/google/callback', c.env.APP_ORIGIN).toString();
+}
+
+/**
+ * A sign-in that will not be completed, whether something was wrong with it or
+ * something broke.
+ *
+ * **Why goes to the log and never to the browser.** Each reason names something
+ * an attacker got wrong, and the person actually signing in can do nothing with
+ * any of them; the page says the sign-in failed and offers to start another.
+ * The one refusal they *can* act on - a Google account this Cockpit does not
+ * know - is the one the callback answers with a reason of its own.
+ */
+function refuse(c: Context, reason: string, cause?: unknown) {
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      message: `sign-in refused: ${reason}`,
+      ...(cause === undefined
+        ? {}
+        : { cause: cause instanceof Error ? cause.message : String(cause) }),
+    }),
+  );
+  return c.redirect('/signin?refused=failed', 302);
+}
 
 /** Thin adapters only: validate → call the account, serialize (architecture, "Hono + Zod on Cloudflare Workers"). */
 const app = new OpenAPIHono<AppEnv>({
@@ -152,72 +198,17 @@ const healthRoute = createRoute({
 // --- signing in --------------------------------------------------------------
 
 /**
- * The people to choose from. Outside the gate, because it is what you read
- * while you are still nobody, and carrying names only for the same reason:
- * anyone who can reach the logon page can read this, so which account somebody
- * owns and what role they hold are not in it.
+ * Signing in is two navigations, not a request the page makes, so neither of
+ * the two routes is declared here: a browser is sent to Google and comes back,
+ * and there is no JSON in either direction for a client to be typed against.
+ * They are registered with the rest of the routes below, beside the other two
+ * this is true of (the live-updates stream and webhook ingress).
+ *
+ * **The list of names is gone**, and so is the endpoint that served it. It was
+ * the one read that had to answer before anybody had signed in; now that
+ * proving who you are is Google's job, publishing who has an account here would
+ * be a leak with nothing to buy it.
  */
-const usersRoute = createRoute({
-  method: 'get',
-  path: '/v1/users',
-  responses: {
-    200: {
-      description: 'Everyone who can sign in to this Cockpit',
-      content: { 'application/json': { schema: userListSchema } },
-    },
-  },
-});
-
-/**
- * Signing in: you say which of them you are, and that is the whole proof.
- *
- * **This is an identity selector, not an authentication control**, and saying
- * so plainly is what keeps it from being mistaken for one later. It is also all
- * that stands in front of a deployed environment (docs/architecture.md, "App
- * login"). What replaces it is a single step - how we come to believe who you
- * are - because everything downstream of this handler is already the real
- * thing: a real session row, a real cookie, a real gate on every request.
- *
- * **There is no CSRF token here, and what stands in for one is the declared
- * content type.** The risk this endpoint would otherwise carry is login CSRF -
- * another site making a browser sign in as somebody its owner did not choose.
- *
- * The protection is *not* that a form cannot produce a JSON-shaped body: it
- * can. `enctype="text/plain"` is CORS-safelisted, needs no preflight, and a
- * field named `{"userId":"…","junk":"` with a value of `"}` serializes to
- * exactly `{"userId":"…","junk":"="}`, which parses. The protection is that
- * this route declares `application/json` and the validator checks the header
- * rather than only parsing the body, so a `text/plain` delivery is refused
- * before anything reads it - and `Content-Type: application/json` is one of the
- * headers a form cannot set, which is what forces the preflight this origin
- * answers no CORS headers to.
- *
- * That distinction is a library's behaviour rather than this file's, so it is
- * **pinned by a test** ("signing in cannot be done by another site on your
- * behalf", tests/integration/http/sign-in.test.ts) instead of being trusted to
- * a comment that a dependency bump could quietly falsify.
- *
- * When Google sign-in lands, the code flow's `state` parameter is what covers
- * this properly, and it is one of the risks "App login" records as deliberately
- * owned.
- */
-const signInRoute = createRoute({
-  method: 'post',
-  path: '/v1/sign-in',
-  request: {
-    body: { required: true, content: { 'application/json': { schema: signInSchema } } },
-  },
-  responses: {
-    200: {
-      description: 'Signed in, and the browser now holds the sign-in',
-      content: { 'application/json': { schema: signedInSchema } },
-    },
-    404: {
-      description: 'Nobody by that name',
-      content: { 'application/json': { schema: errorSchema } },
-    },
-  },
-});
 
 /** Ends this sign-in for good: the row goes, so the cookie names nothing. */
 const signOutRoute = createRoute({
@@ -433,16 +424,6 @@ async function readJsonBody(c: Context): Promise<unknown> {
 // Chained so the exported AppType gives the web client end-to-end inference.
 
 const routes = app
-  .openapi(usersRoute, async (c) => c.json({ users: await listUsers(c.env) }, 200))
-  .openapi(signInRoute, async (c) => {
-    const { userId } = c.req.valid('json');
-    const started = await startSession(c.env, userId, new Date());
-    // A name that is not on the list cannot be signed in as, and nothing was
-    // written on the way to finding that out.
-    if (!started) return c.json({ error: `no user ${userId}` }, 404);
-    rememberSessionCookie(c, started.sessionId);
-    return c.json({ user: started.user }, 200);
-  })
   .openapi(signOutRoute, async (c) => {
     await endSession(c.env, c.get('sessionId'));
     forgetSessionCookie(c);
@@ -560,6 +541,83 @@ const routes = app
   .openapi(commandRoute('set_description'), async (c) =>
     c.json(await change(c, 'set_description', c.req.valid('json')), 200),
   )
+  // --- signing in: two navigations, not two requests -------------------------
+  /**
+   * Sends the browser to Google to be asked who it is, keeping what it has to
+   * come back with.
+   */
+  .get('/v1/sign-in/google', async (c) => {
+    try {
+      const endpoints = await endpointsFor(issuerFor(c.env));
+      const attempt = newAttempt();
+      rememberAttempt(c, attempt);
+      const url = await authorizationUrl(
+        endpoints,
+        c.env.GOOGLE_CLIENT_ID,
+        callbackUrl(c),
+        attempt,
+      );
+      return c.redirect(url, 302);
+    } catch (error) {
+      return refuse(c, 'the issuer could not be reached', error);
+    }
+  })
+  /**
+   * Where Google sends the browser back.
+   *
+   * Everything arriving here came through the person signing in, so nothing is
+   * believed until it has been checked against the attempt this application
+   * started (src/auth/oidc.ts) - and the attempt is spent before any of it is
+   * acted on, so the same reply delivered twice gets nowhere the second time.
+   */
+  .get('/v1/sign-in/google/callback', async (c) => {
+    const attempt = attemptHeld(c);
+    forgetAttempt(c);
+    const reply = c.req.query();
+
+    const wrong = replyBelongsTo(attempt, reply);
+    // Somebody pressing cancel on Google's own screen is not a failure to
+    // report: they are simply back where they started.
+    if (wrong === 'the issuer refused the sign-in') return c.redirect('/signin', 302);
+    if (wrong) return refuse(c, wrong);
+
+    try {
+      const endpoints = await endpointsFor(issuerFor(c.env));
+      const idToken = await exchangeCode(
+        endpoints,
+        { clientId: c.env.GOOGLE_CLIENT_ID, clientSecret: c.env.GOOGLE_CLIENT_SECRET },
+        {
+          code: reply.code!,
+          codeVerifier: attempt!.codeVerifier,
+          redirectUri: callbackUrl(c),
+        },
+      );
+      if (!idToken) return refuse(c, 'the exchange was refused');
+
+      const verdict = await identityFrom(
+        idToken,
+        keysOf(endpoints),
+        {
+          issuer: endpoints.issuer,
+          clientId: c.env.GOOGLE_CLIENT_ID,
+          nonce: attempt!.nonce,
+        },
+        new Date(),
+      );
+      if (!verdict.identified) return refuse(c, verdict.refusal);
+
+      const signedIn = await signInWithGoogle(c.env, verdict.identity, new Date());
+      // Proving who you are at Google is not being entitled to an account here.
+      // This is the one refusal the person can act on, so it is the one the
+      // logon page is told about.
+      if (!signedIn) return c.redirect('/signin?refused=unknown-account', 302);
+
+      rememberSessionCookie(c, signedIn.sessionId);
+      return c.redirect('/', 302);
+    } catch (error) {
+      return refuse(c, 'the sign-in could not be finished', error);
+    }
+  })
   // --- push invalidation: an SSE doorbell, not a data channel ----------------
   .get('/v1/events', (c) =>
     streamSSE(

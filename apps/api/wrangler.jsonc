@@ -85,6 +85,28 @@
     }
   ],
 
+  // Signing in (docs/architecture.md, "App login: hand-rolled Google OIDC + own
+  // sessions"). Two things and not three: `GOOGLE_CLIENT_SECRET` is a secret,
+  // so it lives in the platform's secret store and is set per environment by
+  // hand (docs/deployment.md, "Secrets and access").
+  //
+  // **`OIDC_ISSUER` is deliberately absent**, here and in staging. Unset means
+  // Google (apps/api/src/auth/issuer.ts); local development and the browser
+  // suite set it to point at the stub issuer they run, which is what lets them
+  // drive the same flow. A deployed environment that set it would be signing
+  // people in against whatever it named, so it is configuration with the weight
+  // of a secret.
+  //
+  // `APP_ORIGIN` is where a sign-in comes back to, and has to be
+  // character-for-character one of the redirect URIs registered with the Google
+  // client.
+  //
+  // `vars` is not inheritable, so staging repeats both below.
+  "vars": {
+    "GOOGLE_CLIENT_ID": "1049607304950-0j1ssp9dn4cf35vjlfndtb45jgqof62a.apps.googleusercontent.com",
+    "APP_ORIGIN": "https://cockpit.vanhoutte-michael.workers.dev"
+  },
+
   "env": {
     // Staging: the only environment besides production where cron triggers and
     // queue consumers actually run, against a database that accumulates state.
@@ -107,7 +129,13 @@
           "database_id": "ce8bccd3-1e7f-4de0-9005-02e07b3c9ee9",
           "migrations_dir": "migrations"
         }
-      ]
+      ],
+      // Its own Google client rather than production's, so a secret that leaks
+      // from one environment cannot sign anybody in to the other.
+      "vars": {
+        "GOOGLE_CLIENT_ID": "1049607304950-ebumoteu4kfk4emedo744gka6mnh74rg.apps.googleusercontent.com",
+        "APP_ORIGIN": "https://cockpit-staging.vanhoutte-michael.workers.dev"
+      }
     }
   }
 

@@ -1,6 +1,7 @@
 import { abortAllDurableObjects, env, runInDurableObject, SELF } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
 import { PROBE_NAME } from '../../src/accounts/probe.js';
+import { issuerIsReachable, issuerWillIdentify } from './issuer.js';
 
 /**
  * What a test has to arrange before a request can succeed, what to put back
@@ -118,30 +119,77 @@ export async function startFromEmpty(): Promise<void> {
   signedIn.clear();
 }
 
-/** The cookie each user's sign-in produced, so a case signs in once and not per request. */
-const signedIn = new Map<string, string>();
+/**
+ * The cookie each user's sign-in produced, so a case signs in once and not per
+ * request.
+ *
+ * The *promise* rather than the cookie, so that two requests made at once - as
+ * the cases about two tabs doing something at the same time make them - wait on
+ * one sign-in instead of starting two. Two at once genuinely broke: a sign-in
+ * is a pair of requests with a secret carried between them, and interleaving
+ * two of them left each answering the other's.
+ */
+const signedIn = new Map<string, Promise<string>>();
 
 /**
- * Signs the user in the way the application does - through the real endpoint,
- * so the cookie a case carries is the one a browser would be holding rather
- * than a row a test wrote itself.
+ * The address each seeded person signs in with, as seed.sql gives it to them.
+ * Signing in is by Google account now, so a user id is no longer something you
+ * can sign in *as* - it is what the register calls whoever did.
  */
-export async function signInAs(userId: string = USER_ID): Promise<string> {
+const ADDRESSES: Record<string, string> = {
+  [USER_ID]: 'michael@example.com',
+  [OTHER_USER_ID]: 'ada@example.com',
+};
+
+/**
+ * Signs the user in the way the application does - the whole code flow, against
+ * the issuer faked at the network boundary (issuer.ts) - so the cookie a case
+ * carries is the one a browser would be holding rather than a row a test wrote
+ * itself.
+ *
+ * That distinction has earned its keep: the cookie's name depends on the
+ * address the request came in on, a session is a row with an expiry, and an
+ * arrangement that wrote either by hand would keep passing after the
+ * application stopped agreeing with it.
+ */
+export function signInAs(userId: string = USER_ID): Promise<string> {
   const held = signedIn.get(userId);
   if (held) return held;
 
-  const res = await SELF.fetch('http://cockpit.test/v1/sign-in', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ userId }),
-  });
-  if (!res.ok) throw new Error(`could not sign in as ${userId}: ${res.status}`);
-  const cookie = res.headers.get('set-cookie');
-  if (!cookie) throw new Error(`signing in as ${userId} set no cookie`);
+  // Recorded before it has finished, which is the whole point: a second caller
+  // arriving mid-flow waits on this one instead of starting a flow of its own.
+  const signingIn = signIn(userId);
+  signedIn.set(userId, signingIn);
+  return signingIn;
+}
 
-  // Just the name=value, which is all a browser sends back.
-  const sending = cookie.split(';')[0]!;
-  signedIn.set(userId, sending);
+async function signIn(userId: string): Promise<string> {
+  const email = ADDRESSES[userId];
+  if (!email) throw new Error(`no address is seeded for ${userId}`);
+
+  await issuerIsReachable();
+  const started = await SELF.fetch('http://cockpit.test/v1/sign-in/google', {
+    redirect: 'manual',
+  });
+  const asked = new URL(started.headers.get('location')!);
+  const attempt = started.headers.get('set-cookie')!.split(';')[0]!;
+
+  issuerWillIdentify({ email, nonce: asked.searchParams.get('nonce')! });
+  const back = await SELF.fetch(
+    `http://cockpit.test/v1/sign-in/google/callback?code=a-code&state=${asked.searchParams.get('state')}`,
+    { headers: { cookie: attempt }, redirect: 'manual' },
+  );
+  if (back.headers.get('location') !== '/') {
+    throw new Error(`could not sign in as ${userId}: ${back.headers.get('location')}`);
+  }
+
+  // The session cookie, and just the name=value, which is all a browser sends
+  // back. The attempt's own cookie is being deleted in the same answer.
+  const sending = back.headers
+    .getSetCookie()
+    .map((cookie) => cookie.split(';')[0]!)
+    .find((cookie) => cookie.startsWith('cockpit_session='));
+  if (!sending) throw new Error(`signing in as ${userId} set no session cookie`);
   return sending;
 }
 

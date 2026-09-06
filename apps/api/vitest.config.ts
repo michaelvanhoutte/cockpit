@@ -44,9 +44,21 @@ export default defineConfig({
       // an operator route has to carry it deliberately. An environment with no
       // secret set is the one state this cannot express, and it is asked at
       // tests/unit/auth/admin.test.ts instead.
+      //
+      // The rest is what a deployed environment holds as configuration for
+      // signing in. The issuer is one no test can reach on purpose: it is faked
+      // at the network boundary (tests/integration/issuer.ts), and naming a
+      // `.test` address here is what makes a real request out of the suite fail
+      // loudly rather than quietly reach Google.
       miniflare: {
         compatibilityFlags: ['nodejs_compat'],
-        bindings: { BACKUP_TOKEN: 'test-operator-secret' },
+        bindings: {
+          BACKUP_TOKEN: 'test-operator-secret',
+          OIDC_ISSUER: 'https://issuer.test',
+          GOOGLE_CLIENT_ID: 'cockpit-test',
+          GOOGLE_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',
+          APP_ORIGIN: 'http://cockpit.test',
+        },
       },
     }),
   ],
