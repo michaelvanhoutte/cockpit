@@ -6,12 +6,17 @@ import type { Env } from '../env.js';
  * sign-in.
  *
  * **Why not the signed-in user's role.** Every user carries `user` or `admin`
- * already, and this would be the first thing to enforce it - but on a deployed
- * environment signing in is choosing a name off a list, which proves nothing
- * (architecture, "App login"). Gating "hand me every account's data" on that
- * would put all of it one click from anyone who can reach the URL. A secret in
- * the platform's own store is not the identity model these routes eventually
- * want, and it is strictly stronger than the one that exists today.
+ * already, and this would be the first thing to enforce it - but a role is
+ * carried by a session, and whoever calls these holds none. They are a
+ * command-line tool: there is no browser to send to Google and back, so the
+ * sign-in these routes would have to check is one their caller cannot obtain.
+ *
+ * That reason survived the sign-in changing under it. This was first written
+ * when signing in meant picking a name off a list, and the argument then was
+ * that a role gate would put every account's data one click from anyone who
+ * reached the URL. Google sign-in has since landed ("Sign in with Google, and
+ * retire the list of names", issue 196) and that argument is gone, while the
+ * answer is the same one: a secret is what a caller with no session can carry.
  *
  * **An environment with no secret answers nothing here.** Absent is refused the
  * same as wrong, so forgetting to put the secret in a new environment leaves
