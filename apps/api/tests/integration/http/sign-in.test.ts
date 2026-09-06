@@ -335,6 +335,52 @@ describe('Sign-in', () => {
     });
   });
 
+  /**
+   * A browser holding an older build goes on asking for the addresses that
+   * build knew, and what it is told decides whether it recovers: a refusal is
+   * indistinguishable from "you are not signed in" and lands it on a failure
+   * panel, while `410` is read as "you are behind" and fetches the new version
+   * ("Update instead of failing when a build asks for an address that has been
+   * retired", issue 217, and apps/web/src/updating.ts, which owns that half).
+   */
+  describe('an address this Cockpit used to have says it is retired, to anyone who asks', () => {
+    /**
+     * The case that matters, and the reason these are outside the gate: the
+     * browser this exists for is on the logon page holding no sign-in, so an
+     * answer behind the gate would never reach it.
+     */
+    it.each([
+      { situation: 'the list of people it used to show', path: '/v1/users' },
+      { situation: 'the way it used to sign you in', path: '/v1/sign-in' },
+    ])('says $situation is gone, to a browser holding no sign-in', async ({ path }) => {
+      const res = await SELF.fetch(`http://cockpit.test${path}`);
+
+      expect(res.status).toBe(410);
+      expect((await res.json()) as { error: string }).toMatchObject({ error: expect.any(String) });
+    });
+
+    it('says the same to one holding a sign-in', async () => {
+      const res = await SELF.fetch('http://cockpit.test/v1/users', carrying(await signInAs(USER_ID)));
+
+      expect(res.status).toBe(410);
+    });
+
+    /**
+     * Every way of asking, because half of the browsers this exists for are
+     * making the request the other half are not - the list was read with a GET
+     * and signing in was a POST.
+     */
+    it('says so however it is asked', async () => {
+      const res = await SELF.fetch('http://cockpit.test/v1/sign-in', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userId: 'user-michael' }),
+      });
+
+      expect(res.status).toBe(410);
+    });
+  });
+
   describe('signing out ends the sign-in for good', () => {
     /**
      * The live-updates stream is the one thing that outlives its own admission:

@@ -1,3 +1,5 @@
+import { statusOf } from './api/loadFailure';
+
 /**
  * Picking up a new version of Cockpit (functional definition, Glossary,
  * "Updating").
@@ -39,9 +41,28 @@
  * asked for, and when saying so is the only honest thing left.
  */
 
-/** A shape the server sent that this build cannot read: the whole condition. */
+/**
+ * The two ways the server can tell this build it is behind.
+ *
+ * **A shape it cannot read** is the first, and was for a while the whole
+ * condition: the server answered something these schemas reject, so this build
+ * is older than what is answering it.
+ *
+ * **An address that has been retired** is the second, and it is the one a
+ * missing shape cannot cover ("Update instead of failing when a build asks for
+ * an address that has been retired", issue 217). A read this build makes and a
+ * later one does not gets no answer to misread - it gets a refusal - and
+ * without this that lands on the failure panel, where *Try again* runs the same
+ * doomed read for as long as anybody presses it. A build stranded that way on
+ * staging is what this exists for.
+ *
+ * `410` and not `404`: the server says an address is *gone* only for one it
+ * used to have (apps/api/src/auth/gate.ts), so it cannot be confused with a
+ * mistyped URL, and it is deliberately answerable without a sign-in, since a
+ * stranded browser may hold none.
+ */
 export function outOfDate(error: unknown): boolean {
-  return error instanceof Error && error.name === 'ZodError';
+  return (error instanceof Error && error.name === 'ZodError') || statusOf(error) === '410';
 }
 
 /** What came of asking for a newer version. */

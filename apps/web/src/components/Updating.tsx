@@ -20,23 +20,39 @@ interface Props {
  * written yet, and including the logon page, which is outside the shell
  * entirely.
  *
- * **Noticed from the query cache rather than reported by a component.** Every
- * read in the app goes through it, so one subscription sees a mismatch
- * whichever screen provoked it, and a page added tomorrow is covered by having
- * done nothing. Asked of the cache's own state rather than of the notification
- * it arrives in, so this does not depend on the shape of a library's events.
+ * **Noticed from the caches rather than reported by a component.** Every read
+ * and every change in the app goes through one of them, so two subscriptions
+ * see a mismatch whichever screen provoked it, and a page added tomorrow is
+ * covered by having done nothing. Asked of each cache's own state rather than
+ * of the notification it arrives in, so this does not depend on the shape of a
+ * library's events.
  */
 export function Updating({ children, versions, memory }: Props) {
   const queryClient = useQueryClient();
   const [gated, setGated] = useState(false);
 
   useEffect(() => {
-    const cache = queryClient.getQueryCache();
+    const reads = queryClient.getQueryCache();
+    // Changes as well as reads, because a build behind the server is behind it
+    // whichever kind of request finds out first - and a change is how several
+    // screens learn anything at all. Watching only reads left a build that
+    // *wrote* to an address the server had retired showing the refusal rather
+    // than taking the new version ("Update instead of failing when a build asks
+    // for an address that has been retired", issue 217).
+    const changes = queryClient.getMutationCache();
     const look = () => {
-      if (cache.getAll().some((read) => outOfDate(read.state.error))) setGated(true);
+      const behind =
+        reads.getAll().some((read) => outOfDate(read.state.error)) ||
+        changes.getAll().some((change) => outOfDate(change.state.error));
+      if (behind) setGated(true);
     };
     look();
-    return cache.subscribe(look);
+    const stopWatchingReads = reads.subscribe(look);
+    const stopWatchingChanges = changes.subscribe(look);
+    return () => {
+      stopWatchingReads();
+      stopWatchingChanges();
+    };
   }, [queryClient, memory]);
 
   if (!gated) return children;

@@ -61,6 +61,29 @@ function perStack(name: string, url: string): string {
 }
 
 /**
+ * Addresses this application used to have and no longer does.
+ *
+ * **They answer, rather than being refused**, and that is the whole point:
+ * a browser holding an older build goes on asking for them, and a refusal is
+ * indistinguishable to it from "you are not signed in" - which lands it on a
+ * failure panel offering *Try again* for a read that can never work again
+ * ("Update instead of failing when a build asks for an address that has been
+ * retired", issue 217). What they answer is `410`, which that build reads as
+ * "you are behind" and acts on by fetching the new version
+ * (apps/web/src/updating.ts).
+ *
+ * **Outside the gate for the same reason**: the browser this exists for is
+ * sitting on the logon page holding no sign-in at all, so an answer behind the
+ * gate would never reach it. Nothing is disclosed by saying an address used to
+ * exist - it is in the git history of a public repository either way.
+ *
+ * Both of these went with the list of names ("Sign in with Google, and retire
+ * the list of names", issue 196). A retired address is kept here until no
+ * browser can plausibly still be holding a build that asks for it.
+ */
+export const RETIRED_PATHS: readonly string[] = ['/v1/users', '/v1/sign-in'];
+
+/**
  * The only paths that answer without a sign-in, and each is here for a stated
  * reason rather than by omission:
  *
@@ -88,6 +111,7 @@ export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
   '/health',
   '/v1/sign-in/google',
   '/v1/sign-in/google/callback',
+  ...RETIRED_PATHS,
 ];
 
 /**

@@ -34,6 +34,7 @@ import {
   rememberAttempt,
   rememberSessionCookie,
   stillSignedIn,
+  RETIRED_PATHS,
   type GatedEnv,
 } from '../auth/gate.js';
 import { endpointsFor, exchangeCode, issuerFor, keysOf } from '../auth/issuer.js';
@@ -153,6 +154,29 @@ app.use('*', gate());
  * that can disagree. They did disagree once - `auth/admin.ts` records how.
  */
 app.use(`${ADMIN_PREFIX}*`, adminGate());
+
+/**
+ * What this application used to answer, saying so.
+ *
+ * Every method rather than the one each address used to have: what a retired
+ * address is retired for is every way of asking, and one that answered a `POST`
+ * while refusing a `GET` would leave half the browsers this exists for exactly
+ * where they were. The list is `auth/gate.ts`'s, read from there rather than
+ * written again, since an address that answers here without being waved through
+ * the gate answers nobody.
+ *
+ * **Registered here rather than in the chain below**, which is not tidiness:
+ * that chain is what `AppType` is inferred from, and a route registered on
+ * several paths at once widens the inference to a wildcard that swallows every
+ * other route with it - the typed client stops knowing that `/v1/workspaces`
+ * exists at all. Found by the compiler, in one line of this file, reported in
+ * seven of another.
+ */
+for (const path of RETIRED_PATHS) {
+  app.all(path, (c) =>
+    c.json({ error: 'this address has been retired; the app needs a newer version' }, 410),
+  );
+}
 
 
 // --- health -----------------------------------------------------------------

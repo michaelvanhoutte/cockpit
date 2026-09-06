@@ -71,6 +71,26 @@ export const realSurroundings: Surroundings = {
 /** `workspaces failed: 503` — the shape apps/web/src/api/client.ts throws. */
 const STATUS = /failed: (\d{3})$/;
 
+/**
+ * What the server answered, where the error carries it.
+ *
+ * Exported because two questions are asked of the same fact and neither owns
+ * it: whether a read failed for a reason worth showing (below), and whether it
+ * failed because this build is asking for something the server has retired
+ * (`src/updating.ts`). Two readings of one message shape is one place for them
+ * to drift apart.
+ */
+export function statusOf(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  // A refusal that carries the status rather than spelling it in the message,
+  // which `CommandRefused` does because it keeps the server's own words for the
+  // person who made the change. Read structurally rather than by importing the
+  // class: this module is what `api/client.ts` leans on for its failures, and
+  // the other way round would be a circle.
+  if ('status' in error && typeof error.status === 'number') return String(error.status);
+  return STATUS.exec(error.message)?.[1];
+}
+
 export async function diagnose(
   error: unknown,
   surroundings: Surroundings = realSurroundings,
@@ -81,7 +101,7 @@ export async function diagnose(
   // gate over the whole window rather than a notice on one screen, so
   // src/updating.ts owns the condition and this is never asked about it. If one
   // ever did get here it falls through to "having trouble", which is true.
-  const status = error instanceof Error ? STATUS.exec(error.message)?.[1] : undefined;
+  const status = statusOf(error);
   if (status) {
     // A 401 is Cockpit's own gate, which answers in the application's format
     // and is the only thing that does. Every other refusal is somebody else's,
