@@ -1,4 +1,4 @@
-import { check, index, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, index, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 /**
@@ -90,11 +90,19 @@ function isTimestamp(column: string) {
  * in now is what stops role logic being retrofitted through every query later.
  * The first admin-only page brings the check and the first test of it.
  *
- * **There is no secret on a user, and that is the current stage rather than an
- * oversight.** A passwordless list of names is an identity selector, not an
- * authentication control, and it is the only thing in front of a deployed
- * environment (docs/architecture.md, "App login"). When Google sign-in lands it
- * adds the columns it needs here; nothing else moves.
+ * **There is no secret on a user, and there will not be one.** Google-only and
+ * passwordless means no password storage, no reset flow and no email
+ * verification anywhere in the system (docs/architecture.md, "App login").
+ * What identifies a person instead is the two columns below.
+ *
+ * **Both are optional, and what enforces them is a unique index rather than
+ * NOT NULL** ("Record the Google account each user signs in with", issue 195).
+ * Requiring them would mean rebuilding this table, which is the manoeuvre that
+ * nearly emptied the register once ("Make the database enforce the schema
+ * conventions, not just the callers", issue 69) - and a row with no address
+ * needs no constraint to keep it out, because there is no address for a Google
+ * account to match. Nothing reads either column yet; the sign-in that does is
+ * "Sign in with Google, and retire the list of names" (issue 196).
  */
 export const users = sqliteTable(
   'users',
@@ -106,11 +114,47 @@ export const users = sqliteTable(
       .notNull()
       .references(() => tenants.id),
     role: text('role').notNull(),
+    /**
+     * The address of the Google account this person signs in with, which is
+     * what decides whether they are allowed in at all: the register is the
+     * allowlist, so an address that is not here cannot sign in.
+     *
+     * **An address is held as it is written, and the index that keeps two
+     * people from sharing one compares it the same way.** So whatever comes to
+     * write one - signing in, or adding a user from the command line - is what
+     * has to settle on a single spelling before it gets here, since two rows
+     * differing only in case would both be allowed in and only one of them
+     * would ever be found.
+     */
+    email: text('email'),
+    /**
+     * What Google calls this person, learned the first time they sign in.
+     *
+     * It is kept *as well as* the address because the two answer different
+     * questions: an address is what somebody is allowed in by, and can be
+     * changed or handed to a new owner, while this never changes and is never
+     * reissued. So the address is how somebody is recognised the first time and
+     * this is how they are recognised afterwards - which is what stops a
+     * changed address locking a person out, and stops a reassigned one
+     * inheriting their account.
+     */
+    googleSubject: text('google_subject'),
     createdAt: text('created_at').notNull(),
   },
-  () => [
+  (table) => [
     check('users_role_is_known', sql.raw(`role IN ('user', 'admin')`)),
     check('users_created_at_is_timestamp', isTimestamp('created_at')),
+    // Unique rather than merely indexed: two people sharing an address would be
+    // an ambiguous sign-in, and two sharing a Google identity is the same
+    // question asked the other way round. SQLite counts NULLs as distinct, so
+    // any number of users can be waiting for one.
+    //
+    // They are created by a migration of their own, after the one that adds the
+    // columns, because they are the only statements here that can fail on the
+    // data they find - and a file that fails partway is re-run whole by the next
+    // deploy, which `ALTER TABLE ADD COLUMN` cannot survive.
+    uniqueIndex('users_email').on(table.email),
+    uniqueIndex('users_google_subject').on(table.googleSubject),
   ],
 );
 

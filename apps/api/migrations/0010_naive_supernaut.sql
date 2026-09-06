@@ -1,0 +1,36 @@
+-- The register gains somewhere to record who a person is at Google: the address
+-- they are allowed in by, and the identity Google keys them by afterwards
+-- ("Record the Google account each user signs in with", issue 195). Nothing
+-- reads either column yet - the sign-in that does is "Sign in with Google, and
+-- retire the list of names", issue 196 - which is the
+-- point of shipping this on its own: it is the only part of that change
+-- touching data that cannot be put back.
+--
+-- **Both columns are optional, and what enforces them is a unique index** in
+-- the migration after this one, not NOT NULL here. Requiring them means
+-- rebuilding the table, which is the manoeuvre that nearly emptied the register
+-- once ("Make the database enforce the schema conventions, not just the
+-- callers", issue 69); and a row with no address cannot be signed in as anyway,
+-- because there is no address for a Google account to match. Nothing is
+-- declared STRICT here either: `users` already is, and ADD COLUMN leaves that
+-- alone.
+--
+-- **Two statements, and the split from 0011 is the reason they are safe.**
+-- Neither can fail on the data it finds - they are pure DDL - so the only way
+-- this file stops halfway is a database that has gone away, and the retry
+-- starts from a table that still has neither column. Nothing here is
+-- re-runnable once it has succeeded: SQLite has no ADD COLUMN IF NOT EXISTS,
+-- so a second run of a *finished* file fails on the duplicate column. That is
+-- why everything able to fail on data is in 0011, where every statement can be
+-- run again: a failure there is fixed and retried without this file being
+-- replayed.
+--
+-- **The four tables an account's data used to live in are deliberately not
+-- dropped**, though drizzle-kit emits exactly that when this is regenerated.
+-- Dropping them is a *contract* step belonging to a later release
+-- (docs/deployment.md, "Migrations and rollback"): promoting an earlier commit
+-- is the first way back from a bad deploy, and the rows they hold are what that
+-- code reads. The snapshots beside this file therefore still describe them, so
+-- the day that release is taken the DROPs are one `pnpm db:generate` away.
+ALTER TABLE `users` ADD `email` text;--> statement-breakpoint
+ALTER TABLE `users` ADD `google_subject` text;
