@@ -921,8 +921,10 @@ export function runCommand<N extends CommandName>(
       // The type the capture names, checked here rather than left to the
       // foreign key, for the reason the workspace above is: a constraint would
       // surface a caller's mistake as a 500, and a type of another account is
-      // a 404 like any other missing thing.
-      if (cmd.typeId && !getItemType(db, tenantId, cmd.typeId)) {
+      // a 404 like any other missing thing. Unconditional now that every
+      // capture names one - the shape says there is a type, and this says it
+      // is a type of this account.
+      if (!getItemType(db, tenantId, cmd.typeId)) {
         throw new ItemTypeNotFoundError(cmd.typeId);
       }
       const item = captureItem(cmd, tenantId);

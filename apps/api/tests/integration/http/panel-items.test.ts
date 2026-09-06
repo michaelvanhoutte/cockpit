@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { ACCOUNT_WIDE, itemLabel } from '@cockpit/shared';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
-import { WORKSPACE_ID, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  TASK_TYPE_ID,
+  WORKSPACE_ID,
+  asUser,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`asUser`), because what a panel
@@ -83,7 +90,9 @@ async function aPanel(dashboardId: string, name: string, workspaceId = WORKSPACE
 
 async function anItem(message: string, workspaceId: string = WORKSPACE_ID): Promise<string> {
   const itemId = nextId();
-  expect((await send('capture_item', { workspaceId, itemId, message })).status).toBe(200);
+  expect(
+    (await send('capture_item', { workspaceId, itemId, message, typeId: TASK_TYPE_ID })).status,
+  ).toBe(200);
   return itemId;
 }
 
@@ -525,8 +534,15 @@ describe('Capture', () => {
   async function anItemBelongingNowhere(message: string, from = WORKSPACE_ID): Promise<string> {
     const itemId = nextId();
     expect(
-      (await send('capture_item', { workspaceId: from, itemId, message, workspaceDecided: false }))
-        .status,
+      (
+        await send('capture_item', {
+          workspaceId: from,
+          itemId,
+          message,
+          typeId: TASK_TYPE_ID,
+          workspaceDecided: false,
+        })
+      ).status,
     ).toBe(200);
     return itemId;
   }

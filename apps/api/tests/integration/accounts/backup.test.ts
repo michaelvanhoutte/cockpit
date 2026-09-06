@@ -6,10 +6,12 @@ import {
   OTHER_ACCOUNT_NAME,
   OTHER_USER_ID,
   USER_ID,
+  accountOf,
   asUser,
   inStoreAsItIs,
   seedRegister,
   startFromEmpty,
+  taskTypeIn,
 } from '../seed.js';
 
 /**
@@ -87,6 +89,10 @@ async function captureInto(userId: string, message: string): Promise<void> {
         itemId: nextId(),
         workspaceId: list[0]!.id,
         message,
+        // Every capture names what kind of thing it is ("Say what kind of
+        // thing it is when capturing it", pull request 212), and a type of the
+        // account being captured into - the ids are derived from it.
+        typeId: taskTypeIn(accountOf(userId)),
       }),
     },
     userId,

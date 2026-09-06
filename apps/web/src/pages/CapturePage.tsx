@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ItemType, Workspace } from '@cockpit/shared';
 import { itemTypesQuery, snapshotQuery, workspacesQuery } from '../api/queries';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
-import { typesOffered, typeToOffer } from '../itemTypes';
+import { NO_TYPES, typesOffered } from '../itemTypes';
 
 /**
  * Capture as a screen of its own ("Capture Page", artboards 2a and 2c): the
@@ -50,11 +50,20 @@ export function CapturePage() {
 
   const known = types?.itemTypes ?? [];
   const offered = typesOffered(known, snapshot.data?.items ?? []);
-  const opensOn = typeToOffer(known, snapshot.data?.items ?? []);
+  /**
+   * Whether the account has *said* what types it has, which is not the same as
+   * this page having none to show: `?? []` above turns a question still in
+   * flight into an empty list, and "No types yet" is a claim about the account
+   * rather than about what has arrived. The same guard the window that manages
+   * them carries, for the same reason (components/ManageTypes.tsx).
+   */
+  const answered = types !== undefined;
 
   const [message, setMessage] = useState('');
   /**
-   * The type, by id, or the empty string for *No type*.
+   * The type pressed, by id, or the empty string for *not yet pressed one* -
+   * which is not an answer, only the absence of one. What that resolves to is
+   * `chosen` below.
    *
    * It was a name while a name that matched nothing was a second answer to this
    * question - the box beside the chips, which made a type. Types are now made
@@ -71,12 +80,18 @@ export function CapturePage() {
   const { ask, busy } = useCapture();
 
   /**
-   * The type chosen, as against the one that was chosen: one deleted in another
-   * tab takes its chip off this row, and what was chosen then falls back to *No
-   * type* rather than to a capture the server would refuse. Exactly what the
-   * Where row does one line down, and for the same reason.
+   * The type chosen, as against the one that was pressed: **every Item has a
+   * Type**, so a row that has not been pressed yet and one whose type was
+   * deleted in another tab both fall back to the type used last rather than to
+   * none. Unlike the Where row one line down, which keeps *Any workspace* as a
+   * real answer - not saying where it goes yet is the point of capturing here,
+   * and not saying what it is never was.
+   *
+   * Undefined only where there is nothing to fall back to - an account with no
+   * types, or an answer that has not arrived yet - and capture waits either
+   * way, because there is no type to give.
    */
-  const chosen = offered.find((type) => type.id === typeId);
+  const chosen = offered.find((type) => type.id === typeId) ?? offered[0];
 
   /**
    * Where it belongs, as against which chip was pressed: a workspace deleted in
@@ -86,25 +101,18 @@ export function CapturePage() {
    */
   const belongsTo = workspaces.some((one) => one.id === where) ? where : null;
 
-  // The type used last, lit for you, for the reason the Inbox's row does it:
-  // the type you want is nearly always the one you just used, and *No type*
-  // stays chosen, because choosing it is a thing somebody did on purpose.
-  useEffect(() => {
-    setTypeId((already) => (already === '' && opensOn ? opensOn.id : already));
-    // Keyed on which type it is rather than on the object, which a fresh
-    // snapshot derives anew every time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opensOn?.id]);
-
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = message.trim();
-    if (!trimmed || !from) return;
+    // No type to give it is the one thing that stops a capture here rather than
+    // at the server: with none in the account there is nothing to press, and
+    // the row below says where to make one.
+    if (!trimmed || !from || !chosen) return;
 
     ask(
       {
         message: trimmed,
-        typeId: chosen?.id,
+        typeId: chosen.id,
         // The workspace chosen, or the one this was captured from - and the
         // difference between the two is the whole of `decided`.
         workspaceId: belongsTo ?? from,
@@ -192,13 +200,13 @@ export function CapturePage() {
             type that was not there yet, is gone: types are made in the window
             they are managed in ("Make a type where types are managed, not while
             capturing", issue 203), so every answer to this question is now one
-            of the chips. */}
-        <Choice label="Type" optional>
-          {/* First, and the way back to having said nothing - which the naming
-              box used to be, by taking the light off every chip. The same shape
-              *Any workspace* has one row down, because it is the same answer:
-              this is a question you are allowed not to answer. */}
-          <Chip name="No type" chosen={chosen === undefined} onChoose={() => setTypeId('')} />
+            of the chips.
+
+            **And there is no chip for none.** Every Item is some kind of thing,
+            so this row has no way back to having said nothing - where *No type*
+            sat, the type you used last is already lit. What a front door with
+            nobody to press a chip does is auto-detection's, not a blank. */}
+        <Choice label="Type">
           {offered.map((type) => (
             <Chip
               key={type.id}
@@ -208,6 +216,14 @@ export function CapturePage() {
               onChoose={() => setTypeId(type.id)}
             />
           ))}
+          {/* Nothing to press, so the row says why rather than standing empty:
+              deleting every type is what gets you here, and making one is what
+              gets you out. Only once the account has answered - before that
+              there are no chips either, and this would be saying the account
+              holds nothing when nobody has looked. */}
+          {answered && offered.length === 0 && (
+            <span className="text-[15px] text-ink-faint sm:text-sm">{NO_TYPES}</span>
+          )}
         </Choice>
 
         <Choice label="Where" optional>
@@ -234,7 +250,7 @@ export function CapturePage() {
         <div className="order-last mt-auto flex items-center gap-3.5 sm:order-none sm:mt-[22px]">
           <button
             type="submit"
-            disabled={busy}
+            disabled={busy || !chosen}
             className="milled min-h-13 w-full rounded-[10px] bg-accent text-[17px] font-medium text-white hover:bg-accent-deep disabled:opacity-50 sm:min-h-0 sm:w-auto sm:flex-none sm:rounded-md sm:px-[22px] sm:py-[11px] sm:text-[15px]"
           >
             Capture
@@ -297,8 +313,8 @@ interface Captured {
   /** When, which is also its identity: two captures cannot share a millisecond. */
   at: number;
   message: string;
-  /** Undefined where it was left on *No type*. */
-  typeId: string | undefined;
+  /** Which type it was given, which every capture has. */
+  typeId: string;
   /** Null where it was left on *Any workspace*. */
   workspaceId: string | null;
 }
