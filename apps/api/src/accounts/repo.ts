@@ -6,17 +6,19 @@ import type {
   Item,
   ItemType,
   Layout,
+  LayoutRow,
   Panel,
   Workspace,
 } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import type { PlacementRow } from '../domain/panels.js';
+import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import {
   associations,
   commands,
   dashboards,
   items,
   itemTypes,
+  layoutRows,
   layouts,
   panelItems,
   panelPlacements,
@@ -317,22 +319,48 @@ export function listLayoutIds(db: AccountDb, tenantId: string, dashboardId: stri
 }
 
 /** One layout's arrangement, in the order it is drawn in. */
+/**
+ * One layout's rows, in order. What a panel being added needs: it goes in a row
+ * of its own under everything already there, so the last index is the question.
+ */
+export function listLayoutRows(
+  db: AccountDb,
+  tenantId: string,
+  layoutId: string,
+): LayoutRowRow[] {
+  return db
+    .select({
+      tenantId: layoutRows.tenantId,
+      layoutId: layoutRows.layoutId,
+      rowIndex: layoutRows.rowIndex,
+      height: layoutRows.height,
+    })
+    .from(layoutRows)
+    .where(and(eq(layoutRows.tenantId, tenantId), eq(layoutRows.layoutId, layoutId)))
+    .orderBy(asc(layoutRows.rowIndex))
+    .all();
+}
+
 export function listPlacements(db: AccountDb, tenantId: string, layoutId: string): PlacementRow[] {
   return db
     .select({
       tenantId: panelPlacements.tenantId,
       layoutId: panelPlacements.layoutId,
       panelId: panelPlacements.panelId,
+      rowIndex: panelPlacements.rowIndex,
       position: panelPlacements.position,
-      columnSpan: panelPlacements.columnSpan,
-      rowSpan: panelPlacements.rowSpan,
+      span: panelPlacements.span,
     })
     .from(panelPlacements)
     .where(and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, layoutId)))
-    // The panel id as a second key, so two rows that somehow share a position
-    // still come back in the same order twice rather than in whichever order
-    // the table happens to hand them over.
-    .orderBy(asc(panelPlacements.position), asc(panelPlacements.panelId))
+    // The panel id as a last key, so two cells that somehow share a place in a
+    // row still come back in the same order twice rather than in whichever
+    // order the table happens to hand them over.
+    .orderBy(
+      asc(panelPlacements.rowIndex),
+      asc(panelPlacements.position),
+      asc(panelPlacements.panelId),
+    )
     .all();
 }
 
@@ -390,8 +418,9 @@ export function listLayoutsInWorkspace(
     .select({
       layoutId: panelPlacements.layoutId,
       panelId: panelPlacements.panelId,
-      columns: panelPlacements.columnSpan,
-      rows: panelPlacements.rowSpan,
+      rowIndex: panelPlacements.rowIndex,
+      position: panelPlacements.position,
+      span: panelPlacements.span,
     })
     .from(panelPlacements)
     .innerJoin(layouts, eq(panelPlacements.layoutId, layouts.id))
@@ -403,15 +432,64 @@ export function listLayoutsInWorkspace(
         isNull(dashboards.deletedAt),
       ),
     )
-    .orderBy(asc(panelPlacements.position), asc(panelPlacements.panelId))
+    .orderBy(
+      asc(panelPlacements.rowIndex),
+      asc(panelPlacements.position),
+      asc(panelPlacements.panelId),
+    )
+    .all();
+
+  const heights = db
+    .select({
+      layoutId: layoutRows.layoutId,
+      rowIndex: layoutRows.rowIndex,
+      height: layoutRows.height,
+    })
+    .from(layoutRows)
+    .innerJoin(layouts, eq(layoutRows.layoutId, layouts.id))
+    .innerJoin(dashboards, eq(layouts.dashboardId, dashboards.id))
+    .where(
+      and(
+        eq(layoutRows.tenantId, tenantId),
+        eq(dashboards.workspaceId, workspaceId),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(asc(layoutRows.rowIndex))
     .all();
 
   return found.map((layout) => ({
     ...layout,
-    placements: arrangements
-      .filter((placement) => placement.layoutId === layout.id)
-      .map(({ panelId, columns, rows }) => ({ panelId, columns, rows })),
+    rows: rowsOf(
+      heights.filter((row) => row.layoutId === layout.id),
+      arrangements.filter((cell) => cell.layoutId === layout.id),
+    ),
   }));
+}
+
+/**
+ * One layout's rows, assembled from the two lists that carry them.
+ *
+ * **The rows are what the arrangement is**, so a row with no cells is dropped
+ * rather than drawn: a save writes both lists in one transaction and never
+ * leaves an empty one behind, but a row whose only panel was deleted is exactly
+ * that state, and a blank line on the dashboard is not what a deleted panel
+ * should look like.
+ *
+ * Both lists arrive ordered, so this only groups.
+ */
+function rowsOf(
+  heights: readonly { rowIndex: number; height: number | null }[],
+  cells: readonly { panelId: string; rowIndex: number; span: number }[],
+): LayoutRow[] {
+  return heights
+    .map((row) => ({
+      height: row.height,
+      cells: cells
+        .filter((cell) => cell.rowIndex === row.rowIndex)
+        .map(({ panelId, span }) => ({ panelId, span })),
+    }))
+    .filter((row) => row.cells.length > 0);
 }
 
 /**

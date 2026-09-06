@@ -12,7 +12,8 @@ import {
   associationKindSchema,
   GRID_COLUMNS,
   ITEM_TYPE_COLORS,
-  MAX_PANEL_ROWS,
+  MAX_ROW_HEIGHT,
+  MIN_ROW_HEIGHT,
   prioritySchema,
   sourceSchema,
 } from '@cockpit/shared';
@@ -479,28 +480,75 @@ export const panelPlacements = sqliteTable(
     panelId: text('panel_id')
       .notNull()
       .references(() => panels.id, { onDelete: 'restrict' }),
+    /**
+     * Which row of the layout this Panel is in, and where along it.
+     *
+     * `position` was the whole arrangement while Panels flowed and wrapped;
+     * with rows it orders the cells *within* one ("Rows of panels, not a grid
+     * that wraps"), and `row_index` orders the rows. Two numbers because there
+     * are two orders, and a single flat position could not say which Panels
+     * share a line - which is the thing the rows are for.
+     */
+    rowIndex: integer('row_index').notNull(),
     position: integer('position').notNull(),
     /**
-     * `column_span` and `row_span`, not `columns` and `rows`: `ROWS` is a
-     * keyword in SQLite's window-function grammar, and a column that only works
-     * while every statement remembers to quote it is a trap for the next
-     * hand-written one - and every statement in changes.ts is hand-written.
+     * How much of its row this Panel takes, as a share rather than a width: the
+     * cells of a row divide it in proportion to their spans, so 6 and 6 is half
+     * each and so is 1 and 1. Bounded by the grid all the same, because a share
+     * larger than a whole row is a number that means nothing.
+     *
+     * `span`, not `columns`: it is no longer a count of grid columns, and a
+     * name that says otherwise would be read as one. (`rows` was never
+     * available - `ROWS` is a keyword in SQLite's window-function grammar, and
+     * every statement in changes.ts is hand-written.)
      */
-    columnSpan: integer('column_span').notNull(),
-    rowSpan: integer('row_span').notNull(),
+    span: integer('span').notNull(),
   },
   (t) => [
     primaryKey({ columns: [t.layoutId, t.panelId] }),
     index('panel_placements_tenant_layout').on(t.tenantId, t.layoutId),
-    // The same bounds the wire contract puts on a placement, built from the
-    // same constants, so the two cannot drift into disagreeing about how wide
-    // the grid is.
-    check(
-      'panel_placements_column_span_fits_the_grid',
-      sql.raw(`column_span BETWEEN 1 AND ${GRID_COLUMNS}`),
-    ),
-    check('panel_placements_row_span_fits_the_grid', sql.raw(`row_span BETWEEN 1 AND ${MAX_PANEL_ROWS}`)),
+    // The same bound the wire contract puts on a cell, from the same constant,
+    // so the two cannot drift into disagreeing about how wide a row is.
+    check('panel_placements_span_fits_the_grid', sql.raw(`span BETWEEN 1 AND ${GRID_COLUMNS}`)),
     check('panel_placements_position_is_an_order', sql.raw('position >= 0')),
+    check('panel_placements_row_index_is_an_order', sql.raw('row_index >= 0')),
+  ],
+);
+
+/**
+ * One row of one layout, and how tall it is.
+ *
+ * **A row is a row because its Panels share a height**, and that is why this is
+ * a table rather than a column on the placement: one number belongs to the row,
+ * and a copy of it on every Panel in the row is a set of numbers that can
+ * disagree. The gesture that sets it is a drag on the line under the row, which
+ * is a thing you do to the row.
+ *
+ * `height` is null for "as tall as what is in it", which is what a row is until
+ * somebody drags that line. In pixels, because the gesture is a pointer against
+ * a screen and there is no unit in between.
+ *
+ * **Deleted for real, like the layouts they belong to**: a row records nothing
+ * that happened, only how a layout was once divided.
+ */
+export const layoutRows = sqliteTable(
+  'layout_rows',
+  {
+    tenantId: text('tenant_id').notNull(),
+    layoutId: text('layout_id')
+      .notNull()
+      .references(() => layouts.id, { onDelete: 'restrict' }),
+    rowIndex: integer('row_index').notNull(),
+    height: integer('height'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.layoutId, t.rowIndex] }),
+    index('layout_rows_tenant_layout').on(t.tenantId, t.layoutId),
+    check('layout_rows_row_index_is_an_order', sql.raw('row_index >= 0')),
+    check(
+      'layout_rows_height_is_a_height',
+      sql.raw(`height IS NULL OR height BETWEEN ${MIN_ROW_HEIGHT} AND ${MAX_ROW_HEIGHT}`),
+    ),
   ],
 );
 

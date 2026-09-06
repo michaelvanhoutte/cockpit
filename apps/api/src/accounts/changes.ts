@@ -58,10 +58,11 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_WORKSPACE_DECIDED,
     ITEM_TEXTS,
     WORKSPACE_INK,
+    LAYOUT_NAMES,
     // Last, because it is the only one here that has not shipped: everything
     // above is applied in accounts already, and a change that has shipped can
     // never be reordered any more than it can be edited.
-    LAYOUT_NAMES,
+    PANEL_ROWS,
   ];
 }
 
@@ -947,5 +948,183 @@ const LAYOUT_NAMES: Change = {
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS layouts_dashboard_folded_name
               ON layouts (tenant_id, dashboard_id, folded_name)`,
     },
+  ],
+};
+
+/**
+ * A dashboard's arrangement becomes a list of rows ("Rows of panels, not a grid
+ * that wraps").
+ *
+ * Panels used to flow left to right and wrap at twelve columns, so which of
+ * them shared a line was decided by CSS at the moment of drawing and written
+ * down nowhere. Rows write it down: a row holds the panels across it, they
+ * divide its width in proportion to their spans, and they share its height.
+ *
+ * **The conversion replays the wrap, and that is the whole of why it is not one
+ * row per panel.** Which panels shared a line is something a person arranged -
+ * three across, then two - and in the old shape it exists only as a consequence
+ * of the widths and the order. Flattening would leave every dashboard a single
+ * column; replaying keeps every arrangement looking as it did.
+ *
+ * **The table is rebuilt rather than altered**, which is not a preference:
+ * SQLite refuses `DROP COLUMN` for a column named in a CHECK, and both of the
+ * columns going are. So the new shape is created beside the old one, filled,
+ * and swapped in. It is safe here for the reason 0002 said it was not for
+ * `items`: nothing references `panel_placements`, so there is no child under
+ * RESTRICT to make the drop refuse.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Interrupted partway.** It cannot be. A change is applied atomically
+ *   (up-to-date.ts), so the new table, the conversion, the swap and the scratch
+ *   table's removal commit together or not at all. That matters more here than
+ *   in any change before it: half of this one is a table that exists under two
+ *   names.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left nothing behind - including the scratch table, which is why it needs no
+ *   `IF NOT EXISTS`.
+ * - **Rows the new rules reject.** None. The spans are the widths already
+ *   stored and are read as proportions, so nothing is rescaled; a row of six
+ *   narrow panels converts to a row of six rather than being split, because
+ *   four across is what the gestures refuse and not what the table does
+ *   (`cellInputSchema`).
+ * - **What each environment does.** The same thing: an account converts inside
+ *   the first request that opens it, on a laptop, in preview, in staging and in
+ *   production alike. Nothing seeds layouts.
+ * - **The windows it can be interrupted in.** One, and it is the deploy rather
+ *   than the database: for the seconds both versions of the Worker are serving,
+ *   old code can still save an arrangement and writes `column_span` and
+ *   `row_span`, which are gone. Its command fails whole and says so - a refusal
+ *   during a deploy is recoverable, where a layout half in each shape would not
+ *   be - and it cannot leave half an arrangement behind, because every
+ *   placement of a save is written in one transaction.
+ */
+const PANEL_ROWS: Change = {
+  name: '0012-panel-rows',
+  statements: [
+    {
+      // The numbers are written out rather than interpolated from the shared
+      // constants, for the reason `0005-panels` gives: a change that has
+      // shipped may never be edited, so a constant that later moves would
+      // rewrite this statement for the accounts that have not applied it yet.
+      sql: `CREATE TABLE \`layout_rows\` (
+	\`tenant_id\` text NOT NULL,
+	\`layout_id\` text NOT NULL,
+	\`row_index\` integer NOT NULL,
+	\`height\` integer,
+	PRIMARY KEY (\`layout_id\`, \`row_index\`),
+	FOREIGN KEY (\`layout_id\`) REFERENCES \`layouts\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "layout_rows_row_index_is_an_order" CHECK(row_index >= 0),
+	CONSTRAINT "layout_rows_height_is_a_height" CHECK(height IS NULL OR height BETWEEN 110 AND 720)
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `layout_rows_tenant_layout` ON `layout_rows` (`tenant_id`,`layout_id`)',
+    },
+    {
+      /*
+       * Where the wrap is worked out, once. A scratch table rather than the
+       * same recursive query written twice - the rows and their heights both
+       * come out of it, and two copies of a walk this fiddly are two things
+       * that have to agree.
+       */
+      sql: `CREATE TABLE \`panel_rows_conversion\` (
+	\`tenant_id\` text NOT NULL,
+	\`layout_id\` text NOT NULL,
+	\`panel_id\` text NOT NULL,
+	\`row_index\` integer NOT NULL,
+	\`position\` integer NOT NULL,
+	\`span\` integer NOT NULL,
+	\`row_span\` integer NOT NULL
+) STRICT`,
+    },
+    {
+      /*
+       * The wrap, replayed: a running total of the widths in the order the
+       * panels were drawn, and a panel whose width would take that total past
+       * the twelve-column grid starts a new row.
+       *
+       * **Recursive because wrapping is sequential.** Dividing the cumulative
+       * width by twelve would be wrong wherever a panel did not fit - it moved
+       * wholly to the next line rather than being cut, so where each row ends
+       * depends on where the one before it ended.
+       *
+       * `ordered` numbers each layout's placements from one so the walk has a
+       * "next" to join on, and it is a CTE of its own because SQLite forbids
+       * window functions inside the recursive half. Ties on `position` break on
+       * `panel_id`, so a layout that somehow holds two panels at one position
+       * converts the same way twice rather than differently.
+       *
+       * `position` comes out as the place *within* the row, which is what it
+       * means from here on.
+       */
+      sql: `WITH RECURSIVE ordered AS (
+              SELECT tenant_id, layout_id, panel_id, column_span, row_span,
+                     ROW_NUMBER() OVER (PARTITION BY layout_id ORDER BY position, panel_id) AS n
+              FROM panel_placements
+            ),
+            walk AS (
+              SELECT tenant_id, layout_id, panel_id, n, column_span, row_span,
+                     0 AS row_index, 0 AS at, column_span AS used
+              FROM ordered WHERE n = 1
+              UNION ALL
+              SELECT o.tenant_id, o.layout_id, o.panel_id, o.n, o.column_span, o.row_span,
+                     CASE WHEN w.used + o.column_span > 12 THEN w.row_index + 1 ELSE w.row_index END,
+                     CASE WHEN w.used + o.column_span > 12 THEN 0 ELSE w.at + 1 END,
+                     CASE WHEN w.used + o.column_span > 12 THEN o.column_span ELSE w.used + o.column_span END
+              FROM ordered o
+              JOIN walk w ON o.layout_id = w.layout_id AND o.n = w.n + 1
+            )
+            INSERT INTO panel_rows_conversion
+              (tenant_id, layout_id, panel_id, row_index, position, span, row_span)
+            SELECT tenant_id, layout_id, panel_id, row_index, at, column_span, row_span FROM walk`,
+    },
+    {
+      /*
+       * Every row the walk found, at the height of the tallest panel in it, so
+       * nothing on screen changes size on the day this lands: eighty pixels a
+       * grid row and four between them, which is what the board drew
+       * (components/PanelCard.tsx). Clamped to what a row may now be set to,
+       * since one grid row measured 80 and the floor is 110.
+       */
+      sql: `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
+            SELECT tenant_id, layout_id, row_index,
+                   CASE
+                     WHEN MAX(row_span) * 84 - 4 < 110 THEN 110
+                     WHEN MAX(row_span) * 84 - 4 > 720 THEN 720
+                     ELSE MAX(row_span) * 84 - 4
+                   END
+            FROM panel_rows_conversion
+            GROUP BY tenant_id, layout_id, row_index`,
+    },
+    {
+      sql: `CREATE TABLE \`panel_placements_new\` (
+	\`tenant_id\` text NOT NULL,
+	\`layout_id\` text NOT NULL,
+	\`panel_id\` text NOT NULL,
+	\`row_index\` integer NOT NULL,
+	\`position\` integer NOT NULL,
+	\`span\` integer NOT NULL,
+	PRIMARY KEY (\`layout_id\`, \`panel_id\`),
+	FOREIGN KEY (\`layout_id\`) REFERENCES \`layouts\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`panel_id\`) REFERENCES \`panels\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "panel_placements_span_fits_the_grid" CHECK(span BETWEEN 1 AND 12),
+	CONSTRAINT "panel_placements_position_is_an_order" CHECK(position >= 0),
+	CONSTRAINT "panel_placements_row_index_is_an_order" CHECK(row_index >= 0)
+) STRICT`,
+    },
+    {
+      sql: `INSERT INTO panel_placements_new
+              (tenant_id, layout_id, panel_id, row_index, position, span)
+            SELECT tenant_id, layout_id, panel_id, row_index, position, span
+            FROM panel_rows_conversion`,
+    },
+    { sql: 'DROP TABLE `panel_placements`' },
+    { sql: 'ALTER TABLE `panel_placements_new` RENAME TO `panel_placements`' },
+    {
+      sql: 'CREATE INDEX `panel_placements_tenant_layout` ON `panel_placements` (`tenant_id`,`layout_id`)',
+    },
+    { sql: 'DROP TABLE `panel_rows_conversion`' },
   ],
 };

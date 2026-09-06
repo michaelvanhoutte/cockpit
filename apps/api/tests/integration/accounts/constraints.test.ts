@@ -388,9 +388,9 @@ describe('Panels', () => {
       tenant_id: ACCOUNT_NAME,
       layout_id: 'placeholder',
       panel_id: 'placeholder',
+      row_index: 0,
       position: 0,
-      column_span: 4,
-      row_span: 3,
+      span: 4,
       ...overrides,
     };
     const columns = Object.keys(row);
@@ -452,11 +452,10 @@ describe('Panels', () => {
 
   describe('an arrangement only ever holds a place the grid can draw', () => {
     it.each([
-      { situation: 'a panel wider than the grid', override: { column_span: 13 } },
-      { situation: 'a panel of no width at all', override: { column_span: 0 } },
-      { situation: 'a panel taller than anything could show', override: { row_span: 9 } },
-      { situation: 'a panel of no height at all', override: { row_span: 0 } },
-      { situation: 'a place before the first one', override: { position: -1 } },
+      { situation: 'a share bigger than a whole row', override: { span: 13 } },
+      { situation: 'a share of nothing at all', override: { span: 0 } },
+      { situation: 'a place before the first one in its row', override: { position: -1 } },
+      { situation: 'a row before the first one', override: { row_index: -1 } },
       { situation: 'a screen of no width', override: { screenWidth: 0 } },
       { situation: 'a screen wider than any screen', override: { screenWidth: 100_001 } },
     ])('refuses $situation', async ({ override }) => {
@@ -508,6 +507,55 @@ describe('Panels', () => {
       await expect(
         putPlacement({ layout_id: layoutId, panel_id: panelId, position: 1 }),
       ).rejects.toThrow();
+    });
+  });
+
+  describe('a row of a layout only ever holds a height a screen could draw', () => {
+    async function putRow(overrides: Record<string, unknown> = {}): Promise<void> {
+      const row = {
+        tenant_id: ACCOUNT_NAME,
+        layout_id: 'placeholder',
+        row_index: 0,
+        height: 240,
+        ...overrides,
+      };
+      const columns = Object.keys(row);
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO layout_rows (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+          ...Object.values(row),
+        );
+      });
+    }
+
+    it.each([
+      { situation: 'a row taller than any screen could show', override: { height: 721 } },
+      { situation: 'a row too short to see what is in it', override: { height: 109 } },
+      { situation: 'a row before the first one', override: { row_index: -1 } },
+    ])('refuses $situation', async ({ override }) => {
+      const layoutId = nextId();
+      await putLayout({ id: layoutId });
+
+      await expect(putRow({ layout_id: layoutId, ...override })).rejects.toThrow();
+    });
+
+    it('keeps a row with no height of its own, which is one as tall as what is in it', async () => {
+      const layoutId = nextId();
+      await putLayout({ id: layoutId });
+
+      await expect(putRow({ layout_id: layoutId, height: null })).resolves.toBeUndefined();
+    });
+
+    it('refuses a row of a layout that was never made', async () => {
+      await expect(putRow({ layout_id: nextId() })).rejects.toThrow();
+    });
+
+    it('refuses two rows at the same place in one layout', async () => {
+      const layoutId = nextId();
+      await putLayout({ id: layoutId });
+      await putRow({ layout_id: layoutId, row_index: 0 });
+
+      await expect(putRow({ layout_id: layoutId, row_index: 0, height: 300 })).rejects.toThrow();
     });
   });
 
