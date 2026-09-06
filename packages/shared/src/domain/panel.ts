@@ -33,11 +33,17 @@ export const GRID_COLUMNS = 12;
  *
  * A cap for the reason the old per-Panel one existed: without it a drag could
  * hand a row a height no screen can show, and nothing on the page would say why
- * what follows it had vanished. A floor because a row shorter than its own
- * headers is a row you cannot see the contents of, and the gesture that made it
- * that way is a gesture you then cannot undo by dragging.
+ * what follows it had vanished.
+ *
+ * **The floor is the header plus a list, not the header.** A Panel's header is
+ * a fixed fifty-six pixels - its padding and its menu button - and it takes no
+ * items, so a floor near twice that leaves a well of about one row: too little
+ * to read, and too little to aim an item at. Filing one by dropping it on a
+ * short Panel missed the list and hit the header, which is not a drop target.
+ * A hundred and sixty leaves two rows under the header, which is the least that
+ * still reads as a list.
  */
-export const MIN_ROW_HEIGHT = 110;
+export const MIN_ROW_HEIGHT = 160;
 export const MAX_ROW_HEIGHT = 720;
 
 /**

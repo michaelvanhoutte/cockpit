@@ -1016,7 +1016,7 @@ const PANEL_ROWS: Change = {
 	PRIMARY KEY (\`layout_id\`, \`row_index\`),
 	FOREIGN KEY (\`layout_id\`) REFERENCES \`layouts\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "layout_rows_row_index_is_an_order" CHECK(row_index >= 0),
-	CONSTRAINT "layout_rows_height_is_a_height" CHECK(height IS NULL OR height BETWEEN 110 AND 720)
+	CONSTRAINT "layout_rows_height_is_a_height" CHECK(height IS NULL OR height BETWEEN 160 AND 720)
 ) STRICT`,
     },
     {
@@ -1086,12 +1086,12 @@ const PANEL_ROWS: Change = {
        * nothing on screen changes size on the day this lands: eighty pixels a
        * grid row and four between them, which is what the board drew
        * (components/PanelCard.tsx). Clamped to what a row may now be set to,
-       * since one grid row measured 80 and the floor is 110.
+       * since two grid rows measured 164 and the floor is 160.
        */
       sql: `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
             SELECT tenant_id, layout_id, row_index,
                    CASE
-                     WHEN MAX(row_span) * 84 - 4 < 110 THEN 110
+                     WHEN MAX(row_span) * 84 - 4 < 160 THEN 160
                      WHEN MAX(row_span) * 84 - 4 > 720 THEN 720
                      ELSE MAX(row_span) * 84 - 4
                    END

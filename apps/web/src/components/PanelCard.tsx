@@ -14,23 +14,22 @@ import { RowMenu } from './Menu';
  * connections and free-text description", issue 35).
  *
  * **Moving is in the menu as well as under the pointer.** Dragging the header
- * reorders, and that gesture exists for neither a keyboard nor a phone - the
- * browser's own drag-and-drop is a mouse protocol - so the panel's own menu
- * carries the same moves, which is also what makes them provable below the
- * browser tier. Resizing is the corner grip alone: dragging it is the whole of
- * the gesture, and four step-at-a-time entries beside it were clutter in a menu
- * read on every panel.
+ * onto another panel joins that panel's row, and into the gap between two rows
+ * takes a row of its own; that gesture exists for neither a keyboard nor a
+ * phone - the browser's own drag-and-drop is a mouse protocol - so the panel's
+ * own menu carries the same path a step at a time, which is also what makes it
+ * provable below the browser tier. **A panel has no size of its own**: it fills
+ * its share of its row, and the row is what carries a height.
  */
 
 /**
- * The height of one grid row, in pixels, and the gap between panels.
+ * The gap between two panels, in pixels.
  *
  * **Four pixels, not twelve.** The gap used to be the air a floating card needs
  * around its shadow; a panel is now a header on the sheet with its list sunk
  * into it, so what is between two panels is a seam rather than a margin
  * ("Cockpit Shell Explorations", artboard 2c).
  */
-export const PANEL_ROW_HEIGHT = 80;
 export const PANEL_GAP = 4;
 
 export interface PanelCardProps {
@@ -59,6 +58,13 @@ export interface PanelCardProps {
   onMove: (places: number) => void;
   /** The drag: this panel was picked up, or something was dropped beside it. */
   onPickUp: () => void;
+  /**
+   * The drag ended, wherever it ended. A drop is not the only way one can:
+   * letting go over the Inbox, off the window or on Escape all end it too, and
+   * the board holds what is being dragged - so without this the seams stay open
+   * after a drag nobody completed.
+   */
+  onLetGo: () => void;
   onDropOn: (side: 'before' | 'after') => void;
   /** Why the last change to this panel did not happen, if it did not. */
   refusal: string | null;
@@ -80,6 +86,7 @@ export function PanelCard({
   onDelete,
   onMove,
   onPickUp,
+  onLetGo,
   onDropOn,
   refusal,
   busy,
@@ -112,7 +119,7 @@ export function PanelCard({
       }}
       // No fill and no edge of its own: the panel is the sheet, and only the
       // list inside it goes down into it ("Cockpit Shell Explorations",
-      // artboard 2c). `relative` stays for the resize grip alone.
+      // artboard 2c).
       //
       // `@container` so what is inside can be drawn to the panel's own width
       // rather than the screen's - the header does, below. It has to be here
@@ -134,6 +141,11 @@ export function PanelCard({
           e.dataTransfer.effectAllowed = 'move';
           onPickUp();
         }}
+        // Whatever became of it. `dragend` fires on the panel that was picked
+        // up however the drag finished - dropped somewhere that takes it,
+        // dropped on the Inbox, let go off the window, cancelled with Escape -
+        // and it is the only one of those the board hears about.
+        onDragEnd={onLetGo}
         // On the sheet rather than on the list: no fill, no rule under it, and
         // the space above it is what separates one panel from the one above.
         //

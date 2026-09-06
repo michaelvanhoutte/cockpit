@@ -61,6 +61,26 @@ async function panelsOnScreen(page: Page): Promise<string[]> {
 }
 
 /**
+ * The same, but as the panels on each line - which is the thing rows added and
+ * a flat list cannot express ("Rows of panels, not a grid that wraps").
+ *
+ * Read off the drawn grid rather than off the layout, because which panels
+ * share a line is exactly the claim: a stored row nobody can see is not an
+ * arrangement.
+ */
+async function rowsOnScreen(page: Page): Promise<string[][]> {
+  return page
+    .locator('main [style*="grid-template-columns"]')
+    .evaluateAll((rows) =>
+      rows.map((row) =>
+        [...row.querySelectorAll('section[aria-label]')].map(
+          (panel) => panel.getAttribute('aria-label') ?? '',
+        ),
+      ),
+    );
+}
+
+/**
  * Fails if the dashboard itself has to be scrolled sideways to be seen.
  *
  * `expectNoSidewaysScroll` asks whether the *page* scrolls, and that is not the
@@ -204,7 +224,12 @@ test.describe('Panels', () => {
 
       // Arranged on the screen it is on now, which stores the dashboard's
       // first layout and names it for that screen. Nothing is asked.
-      await chooseRowAction(page, third, isMobile ? 'Move up' : 'Move left', isMobile);
+      //
+      // The *second* panel, because what a move is called now depends on the
+      // panel's own row rather than on the screen: this one shares a row on a
+      // desktop, where the board fits two across, so it has somewhere to go
+      // left. On a phone every row holds one and every move is up or down.
+      await chooseRowAction(page, second, isMobile ? 'Move up' : 'Move left', isMobile);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
       // Waited for by name rather than by a pause: the layout is what the next
       // half of this walk changes *from*, and pressing again before it landed
@@ -216,10 +241,14 @@ test.describe('Panels', () => {
 
       // A different screen. The layout stored a moment ago was made for the
       // other one, so it is squeezed to fit rather than cut off - which is what
-      // the sideways-scroll check is really asserting.
+      // the sideways-scroll check is really asserting, and which is why the
+      // panels are in the same order on both: the rows are the arrangement, and
+      // a narrower screen draws the same rows narrower rather than re-wrapping
+      // them.
+      const arranged = await panelsOnScreen(page);
       const wasWide = page.viewportSize()!.width > 700;
       await page.setViewportSize({ width: wasWide ? 420 : 1100, height: 800 });
-      await expect.poll(() => panelsOnScreen(page)).toEqual([first, third, second]);
+      await expect.poll(() => panelsOnScreen(page)).toEqual(arranged);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
 
@@ -234,11 +263,15 @@ test.describe('Panels', () => {
       await expect(layoutControl(page)).toHaveText(new RegExp(named));
 
       // Two layouts now, one per screen, and a change made here goes into the
-      // one on screen without asking. The narrower of the two screens stacks
-      // the panels, so the direction the menu offers is the one that screen
-      // actually goes in.
-      const nowStacked = page.viewportSize()!.width < 768;
-      await chooseRowAction(page, third, nowStacked ? 'Move up' : 'Move left', isMobile);
+      // one on screen without asking.
+      //
+      // *Move up* on both projects, and not because of the screen: what a move
+      // is called follows the panel's own row now, and this panel has a row to
+      // itself in either arrangement - the desktop put two on the first line
+      // and this one on the second, the phone put every panel on a line of its
+      // own. A screen-width guess is what this used to make, and a wider screen
+      // does not turn a row of one into a row of two.
+      await chooseRowAction(page, third, 'Move up', isMobile);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
       await expectLayouts(page, 2, isMobile);
       await expectNoSidewaysScroll(page);
@@ -303,88 +336,41 @@ test.describe('Panels', () => {
     });
   });
 
-  test.describe('a panel goes where you drag it and takes the size you drag it to', () => {
+  test.describe('a panel goes where you drag it', () => {
     // Desktop only, and the reason is the gesture rather than the screen: the
     // browser's own drag-and-drop is a mouse protocol, so dragging a panel
     // cannot happen on a touchscreen at all - moving there is the entry in the
     // panel's own menu, which the walk above drives on both projects.
-    // Resizing has no such entry: the grip is drawn everywhere and a touch drag
-    // does work it, but a corner that size is a target no thumb wants, so what
-    // the gesture is worth on a phone is not what this walk is for.
-    test.skip(({ isMobile }) => !!isMobile, 'these two are pointer gestures');
+    test.skip(({ isMobile }) => !!isMobile, 'dragging a panel is a pointer gesture');
 
-    test('takes the size the corner was dragged to, and still has it after a reload', async ({
+    test('joins the row of the panel it was dropped on, and leaves the row behind', async ({
       page,
       isMobile,
     }) => {
       await ownDashboard(page, isMobile);
-      const falcon = uniqueTitle('Project Falcon');
-      await addPanel(page, falcon, isMobile);
-      // A second panel, moved, so the drag happens on a dashboard that already
-      // has a layout - which is the case a resize can be dropped in, and the
-      // one a freshly made dashboard does not reach. A panel on its own has
-      // nowhere to move to, which is why there are two.
-      const reading = uniqueTitle('To read');
-      await addPanel(page, reading, isMobile);
-      await chooseRowAction(page, reading, 'Move left', isMobile);
-      await expectLayouts(page, 1, isMobile);
-      const panel = page.getByRole('region', { name: falcon });
-      const before = (await panel.boundingBox())!;
-
-      // The corner, dragged to the right: pointer events rather than the
-      // browser's drag protocol, which is why this is a mouse press and a move
-      // rather than `dragTo`.
-      const grip = page.locator(`[data-resize-grip="${falcon}"]`);
-      const corner = (await grip.boundingBox())!;
-      // Armed before the hand is lifted, because that is when the change goes -
-      // and after `expectLayouts`, which is what makes the next answer this
-      // gesture's rather than the move's. That call is load-bearing here, not
-      // only the assertion about the menu it looks like.
-      const kept = answerTo(page, 'save_layout');
-      await page.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(corner.x + 260, corner.y + corner.height / 2, { steps: 8 });
-      await page.mouse.up();
-
-      await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThan(
-        before.width + 100,
-      );
-      await expectNoSidewaysScroll(page);
-      await expectTheDashboardFits(page);
-
-      // Reloaded, because a resize that is only drawn survives every check on
-      // the screen it was made on and is gone the next time the dashboard is
-      // opened - which is the way it goes wrong, silently and later.
-      //
-      // **Waited for first, and the three checks above are not that wait**:
-      // every one of them is answered by the drawing the drag left behind
-      // (`answerTo`), so on a stack under load the reload arrived while the
-      // save was still in flight and cancelled it - the panel came back the
-      // width it started at, thirteen times in CI between 2 and 4 September
-      // 2026 on nine branches including `main`, always on the assertion below
-      // and never on the one above it.
-      await kept;
-      await page.reload();
-      await expect(panel).toBeVisible();
-      await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThan(
-        before.width + 100,
-      );
-    });
-
-    test('moves it past the panel it was dropped on', async ({ page, isMobile }) => {
-      await ownDashboard(page, isMobile);
       const first = uniqueTitle('Project Falcon');
       const second = uniqueTitle('To read');
+      const third = uniqueTitle('People');
       await addPanel(page, first, isMobile);
       await addPanel(page, second, isMobile);
+      await addPanel(page, third, isMobile);
+      // Two fit across a desktop board, so the third starts on a line of its
+      // own - which is what makes this a drag between rows rather than along
+      // one, and the only arrangement that can show a row being left behind.
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second], [third]]);
 
-      // The header is the handle; the panel is the target.
+      // The header is the handle; the panel is the target, and *where* on it
+      // decides which side it lands - so the left tenth rather than the centre,
+      // which is what `dragTo` aims at by default and reads as the right-hand
+      // half.
       await page
-        .getByRole('region', { name: second })
+        .getByRole('region', { name: third })
         .locator('header')
-        .dragTo(page.getByRole('region', { name: first }));
+        .dragTo(page.getByRole('region', { name: first }), { targetPosition: { x: 8, y: 20 } });
 
-      await expect.poll(() => panelsOnScreen(page)).toEqual([second, first]);
+      // One row now, holding all three, and the line the third panel came from
+      // has gone with it rather than staying behind as a blank.
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[third, first, second]]);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
     });

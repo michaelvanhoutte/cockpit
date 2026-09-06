@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { uuidv7 } from '@cockpit/shared';
+import { MIN_ROW_HEIGHT, uuidv7 } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, LayoutRow, Panel } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
@@ -388,9 +388,17 @@ export function PanelBoard({
                 // `minmax(auto, 1fr)`, so one long unbroken word inside a panel
                 // would widen its column and take the page with it.
                 //
-                // No height yet: a row is as tall as what is on it until
-                // somebody drags its edge, which is the next slice.
+                // As tall as what is on it, and never shorter than a row may
+                // be *set* to. The floor is not decoration: a panel's list is
+                // its drop target and is sized to fill the panel, so a row that
+                // shrank to its contents left an empty panel a sliver with half
+                // of it header - and filing an item into it stopped working
+                // where there was nothing left to aim at.
+                //
+                // A height of its own comes with the gesture that sets one,
+                // which is the next slice.
                 style={{
+                  minHeight: MIN_ROW_HEIGHT,
                   display: 'grid',
                   gridTemplateColumns: shares
                     .map((share) => `minmax(0, ${share}fr)`)
@@ -408,8 +416,18 @@ export function PanelBoard({
                       workspaceId={workspaceId}
                       items={itemsOnPanel(items, filings, panel.id)}
                       sideBySide={row.cells.length > 1}
-                      first={rowIndex === 0 && at === 0}
-                      last={rowIndex === shown.length - 1 && at === row.cells.length - 1}
+                      // Nowhere left to go, which is not the same as being at
+                      // the end of a row: a panel at the end of a row it
+                      // *shares* can still move onto a line of its own beyond
+                      // it, and that is the only way a keyboard has of making a
+                      // row. Only a panel alone on the first or last line has
+                      // run out of places.
+                      first={rowIndex === 0 && at === 0 && row.cells.length === 1}
+                      last={
+                        rowIndex === shown.length - 1 &&
+                        at === row.cells.length - 1 &&
+                        row.cells.length === 1
+                      }
                       renaming={renaming?.id === panel.id ? renaming.name : null}
                       onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
                       onStartRenaming={() => {
@@ -430,6 +448,7 @@ export function PanelBoard({
                       }}
                       onMove={(places) => propose(movedBy(shown, panel.id, places))}
                       onPickUp={() => setDragging(panel.id)}
+                      onLetGo={() => setDragging(null)}
                       onDropOn={(where) => {
                         const picked = dragging;
                         setDragging(null);

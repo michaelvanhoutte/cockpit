@@ -186,6 +186,15 @@ function dropOnto(panelName: string, ontoName: string, side: 'before' | 'after')
   fireEvent(onto, dropped);
 }
 
+/**
+ * Whether the gaps between the rows have opened up to be dropped into, which is
+ * the board saying a panel is in the air. Read off the height they are drawn at
+ * rather than off a class: it is the rows moving apart that is the affordance.
+ */
+function seamsAreOpen() {
+  return screen.getAllByTestId('row-seam').every((seam) => seam.style.height === '22px');
+}
+
 /** The same, let go in the gap above row `at` rather than on a panel. */
 function dropInSeam(panelName: string, at: number) {
   const picked = screen.getByRole('region', { name: panelName });
@@ -291,6 +300,33 @@ describe('Panels', () => {
       expect(sentOrder(mutate)).toEqual(order);
     });
 
+    it('offers a panel sharing a row the move that puts it on a line of its own', async () => {
+      // The only way a keyboard has of making a row, and it was unreachable:
+      // marking the first cell of the first row as having nowhere to go made
+      // both ends of a single-row dashboard unavailable, so a dashboard with
+      // one row could never be split without a pointer.
+      const { user, mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+
+      await choose(user, 'Project Falcon', 'Move left');
+
+      expect(sentRows(mutate)).toEqual([['falcon'], ['reading']]);
+    });
+
+    it('says so when a panel alone on the only row has nowhere left to go', async () => {
+      const { user } = showBoard({
+        panels: [aPanel('falcon', 'Project Falcon')],
+        layouts: [aLayout('laptop', 1280, ['falcon'])],
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+
+      expect(
+        screen.getByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
+      ).toHaveAttribute('aria-disabled', 'true');
+    });
+
     it('leaves the focus on the panel’s own menu, which is where the next move is chosen', async () => {
       // Moving opens nothing, so there is nowhere else for the focus to go -
       // and these are the entries somebody presses three times in a row.
@@ -303,18 +339,20 @@ describe('Panels', () => {
       expect(screen.getByRole('button', { name: 'Actions for To read' })).toHaveFocus();
     });
 
-    it.each([
-      { situation: 'the first panel cannot move earlier', panel: 'Project Falcon', entry: 'Move left: This panel is already first' },
-      { situation: 'the last panel cannot move later', panel: 'To read', entry: 'Move right: This panel is already last' },
-    ])('says so rather than doing nothing when $situation', async ({ panel, entry }) => {
+    it('says so rather than doing nothing when a panel has nowhere left to go', async () => {
       // Offered and chosen and nothing happens is indistinguishable from
       // broken - and on a dashboard with no layout it is worse than nothing,
       // because a change that moves no panel would still record a layout for
       // this screen out of a gesture that arranged nothing.
-      const { user, mutate } = showBoard();
+      const { user, mutate } = showBoard({
+        panels: [aPanel('falcon', 'Project Falcon')],
+        layouts: [aLayout('laptop', 1280, ['falcon'])],
+      });
 
-      await user.click(await screen.findByRole('button', { name: `Actions for ${panel}` }));
-      await user.click(await screen.findByRole('menuitem', { name: entry }));
+      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+      await user.click(
+        await screen.findByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
+      );
 
       expect(mutate).not.toHaveBeenCalled();
     });
@@ -464,6 +502,23 @@ describe('Panels', () => {
       dropInSeam('To read', 0);
 
       expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
+    });
+
+    it('closes the gaps again when a panel is picked up and let go nowhere', async () => {
+      // The seams open to be aimed at, so they have to close when there is no
+      // longer anything to aim - and a drop is not the only way a drag ends.
+      // Let go over the Inbox, off the window or on Escape, only `dragend`
+      // fires, and without it the board sits open around a drag that is over.
+      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const picked = screen.getByRole('region', { name: 'To read' });
+      const handle = within(picked).getByRole('heading').parentElement!;
+
+      fireEvent.dragStart(handle, { dataTransfer });
+      expect(seamsAreOpen()).toBe(true);
+
+      fireEvent.dragEnd(handle, { dataTransfer });
+
+      expect(seamsAreOpen()).toBe(false);
     });
   });
 
