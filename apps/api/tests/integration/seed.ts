@@ -43,11 +43,25 @@ export async function seedRegister(): Promise<void> {
       '2026-09-01T00:00:00.000Z',
     ),
     env.DB.prepare(
-      'INSERT OR IGNORE INTO users (id, name, account_id, role, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).bind(USER_ID, 'Michael', ACCOUNT_NAME, 'admin', '2026-08-12T00:00:00.000Z'),
+      'INSERT OR IGNORE INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).bind(
+      USER_ID,
+      'Michael',
+      ACCOUNT_NAME,
+      'admin',
+      'michael@example.com',
+      '2026-08-12T00:00:00.000Z',
+    ),
     env.DB.prepare(
-      'INSERT OR IGNORE INTO users (id, name, account_id, role, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).bind(OTHER_USER_ID, 'Ada', OTHER_ACCOUNT_NAME, 'user', '2026-09-01T00:00:00.000Z'),
+      'INSERT OR IGNORE INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).bind(
+      OTHER_USER_ID,
+      'Ada',
+      OTHER_ACCOUNT_NAME,
+      'user',
+      'ada@example.com',
+      '2026-09-01T00:00:00.000Z',
+    ),
   ]);
 }
 

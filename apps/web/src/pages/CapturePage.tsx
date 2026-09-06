@@ -4,7 +4,7 @@ import type { ItemType, Workspace } from '@cockpit/shared';
 import { itemTypesQuery, snapshotQuery, workspacesQuery } from '../api/queries';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
-import { typeNamed, typesOffered, typeToOffer } from '../itemTypes';
+import { typesOffered, typeToOffer } from '../itemTypes';
 
 /**
  * Capture as a screen of its own ("Capture Page", artboards 2a and 2c): the
@@ -54,13 +54,15 @@ export function CapturePage() {
 
   const [message, setMessage] = useState('');
   /**
-   * The type, by name rather than by id, so that a chip and a name nobody has
-   * used yet are one answer to one question - the same string the Inbox's row
-   * keeps, and what `useCapture` turns into a type.
+   * The type, by id, or the empty string for *No type*.
+   *
+   * It was a name while a name that matched nothing was a second answer to this
+   * question - the box beside the chips, which made a type. Types are now made
+   * in the window they are managed in ("Make a type where types are managed,
+   * not while capturing", issue 203), so every answer this row can give is one
+   * of the chips and an id says it exactly.
    */
-  const [typeName, setTypeName] = useState('');
-  /** What is in the box beside the chips, which is a name and not yet a type. */
-  const [naming, setNaming] = useState('');
+  const [typeId, setTypeId] = useState('');
   /** Which workspace it belongs to, or null for *Any workspace*. */
   const [where, setWhere] = useState<string | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
@@ -69,11 +71,12 @@ export function CapturePage() {
   const { ask, busy } = useCapture();
 
   /**
-   * Which chip is lit: none while a name is being typed beside them, because
-   * what is in that box is the answer then and lighting a chip as well would
-   * say the question had two.
+   * The type chosen, as against the one that was chosen: one deleted in another
+   * tab takes its chip off this row, and what was chosen then falls back to *No
+   * type* rather than to a capture the server would refuse. Exactly what the
+   * Where row does one line down, and for the same reason.
    */
-  const chosen = naming.trim() ? undefined : typeNamed(known, typeName);
+  const chosen = offered.find((type) => type.id === typeId);
 
   /**
    * Where it belongs, as against which chip was pressed: a workspace deleted in
@@ -83,11 +86,11 @@ export function CapturePage() {
    */
   const belongsTo = workspaces.some((one) => one.id === where) ? where : null;
 
-  // The type used last, filled in for you, for the reason the Inbox's row does
-  // it: the type you want is nearly always the one you just used, and an empty
-  // choice stays empty because clearing it is a thing somebody did on purpose.
+  // The type used last, lit for you, for the reason the Inbox's row does it:
+  // the type you want is nearly always the one you just used, and *No type*
+  // stays chosen, because choosing it is a thing somebody did on purpose.
   useEffect(() => {
-    setTypeName((chosen) => (chosen === '' && opensOn ? opensOn.name : chosen));
+    setTypeId((already) => (already === '' && opensOn ? opensOn.id : already));
     // Keyed on which type it is rather than on the object, which a fresh
     // snapshot derives anew every time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -97,13 +100,11 @@ export function CapturePage() {
     e.preventDefault();
     const trimmed = message.trim();
     if (!trimmed || !from) return;
-    const wanted = naming.trim() || typeName;
 
     ask(
       {
         message: trimmed,
-        typeName: wanted,
-        types: known,
+        typeId: chosen?.id,
         // The workspace chosen, or the one this was captured from - and the
         // difference between the two is the whole of `decided`.
         workspaceId: belongsTo ?? from,
@@ -114,11 +115,9 @@ export function CapturePage() {
           setMessage('');
           setRefused(null);
         },
-        captured: (typeId) => {
-          setNaming('');
-          if (wanted) setTypeName(wanted);
+        captured: (captureType) => {
           setJustCaptured((already) => [
-            { at: Date.now(), message: trimmed, typeId, typeName: wanted, workspaceId: belongsTo },
+            { at: Date.now(), message: trimmed, typeId: captureType, workspaceId: belongsTo },
             ...already,
           ]);
         },
@@ -189,36 +188,26 @@ export function CapturePage() {
           className="mt-2.5 w-full resize-none rounded-md border border-black/10 bg-white p-3 text-base leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px]"
         />
 
-        <Choice label="Type">
+        {/* The box that used to sit at the end of this row, dashed, naming a
+            type that was not there yet, is gone: types are made in the window
+            they are managed in ("Make a type where types are managed, not while
+            capturing", issue 203), so every answer to this question is now one
+            of the chips. */}
+        <Choice label="Type" optional>
+          {/* First, and the way back to having said nothing - which the naming
+              box used to be, by taking the light off every chip. The same shape
+              *Any workspace* has one row down, because it is the same answer:
+              this is a question you are allowed not to answer. */}
+          <Chip name="No type" chosen={chosen === undefined} onChoose={() => setTypeId('')} />
           {offered.map((type) => (
             <Chip
               key={type.id}
               name={type.name}
               dot={type.color}
               chosen={chosen?.id === type.id}
-              onChoose={() => {
-                setTypeName(type.name);
-                setNaming('');
-              }}
+              onChoose={() => setTypeId(type.id)}
             />
           ))}
-          {/* **A box, not a "new type…" chip that turns into one**: choosing
-              from what is there and naming what is not are one question, and
-              two states for one question is what the Inbox's row already
-              refuses. Dashed, because what it makes is not there yet.
-
-              A line of its own on a phone rather than the end of the chip row,
-              which is where the artboard puts it: sharing that row leaves it
-              whatever is left over - 130px behind two chips, which cuts the
-              placeholder in half. Found in the browser at 375px. */}
-          <input
-            value={naming}
-            onChange={(e) => setNaming(e.target.value)}
-            placeholder="or name a new one…"
-            aria-label="Name a new type"
-            maxLength={60}
-            className="min-h-11 w-full rounded-full border border-dashed border-black/20 bg-transparent px-4 text-[15px] text-ink outline-none placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:min-h-0 sm:w-[170px] sm:py-[7px] sm:text-sm"
-          />
         </Choice>
 
         <Choice label="Where" optional>
@@ -308,9 +297,8 @@ interface Captured {
   /** When, which is also its identity: two captures cannot share a millisecond. */
   at: number;
   message: string;
+  /** Undefined where it was left on *No type*. */
   typeId: string | undefined;
-  /** What the type was called when it was chosen, for the moment before it is read back. */
-  typeName: string;
   /** Null where it was left on *Any workspace*. */
   workspaceId: string | null;
 }
@@ -405,9 +393,9 @@ function Chip({
  * One row of what was just captured: what you wrote, what kind of thing it is,
  * where it went and how long ago.
  *
- * **The type is looked up rather than remembered**, so a type made by this very
- * capture wears its own colour the moment the account has read it back - the
- * name it was given is only what is shown until then.
+ * **The type is looked up rather than remembered**, so a row renamed or
+ * recoloured in the window types are managed in says so here too, without this
+ * list keeping a second copy of a name that can go stale behind it.
  */
 function Row({
   captured,
@@ -419,7 +407,6 @@ function Row({
   workspaces: readonly Workspace[];
 }) {
   const type = types.find((one) => one.id === captured.typeId);
-  const name = type?.name ?? captured.typeName;
   const workspace = workspaces.find((one) => one.id === captured.workspaceId);
 
   return (
@@ -433,7 +420,7 @@ function Row({
         <span className="min-w-0 truncate text-[15px] sm:text-sm">{captured.message}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2 pl-4 text-xs sm:pl-0">
-        {name && <span className="text-accent-deep">{name}</span>}
+        {type && <span className="text-accent-deep">{type.name}</span>}
         <span className="rounded-full bg-accent-tint px-1.5 text-accent-deep">
           {workspace?.name ?? 'Any workspace'}
         </span>

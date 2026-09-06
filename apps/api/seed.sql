@@ -25,6 +25,18 @@ VALUES ('tenant-default', 'Michael', '2026-08-12T00:00:00.000Z'),
 
 -- `role` is carried and nothing reads it to decide anything yet; see the
 -- migration that added the column for why it is here now rather than later.
-INSERT OR IGNORE INTO users (id, name, account_id, role, created_at)
-VALUES ('user-michael', 'Michael', 'tenant-default', 'admin', '2026-08-12T00:00:00.000Z'),
-       ('user-ada', 'Ada', 'tenant-ada', 'user', '2026-09-01T00:00:00.000Z');
+--
+-- **The addresses are placeholders, and unusable on purpose.** This file is in a
+-- public repository, so no real address is in it - and `example.com` is reserved,
+-- so no Google account can ever hold one of these. Locally that costs nothing,
+-- because signing in does not ask Google who you are yet. Putting a real address
+-- on a deployed environment is a step of "Sign in with Google, and retire the
+-- list of names" (issue 196), by hand. Until then these addresses do nothing at
+-- all: you sign in by picking a name off the logon page, and both of these
+-- people are as reachable as they were before the column existed.
+--
+-- `google_subject` is left empty for both, because it is not something to decide:
+-- it is what Google says about a person the first time they sign in.
+INSERT OR IGNORE INTO users (id, name, account_id, role, email, created_at)
+VALUES ('user-michael', 'Michael', 'tenant-default', 'admin', 'michael@example.com', '2026-08-12T00:00:00.000Z'),
+       ('user-ada', 'Ada', 'tenant-ada', 'user', 'ada@example.com', '2026-09-01T00:00:00.000Z');

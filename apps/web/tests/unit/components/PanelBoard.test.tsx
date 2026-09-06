@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { CommandRefused } from '../../../src/api/client';
@@ -38,14 +39,19 @@ function aPanel(id: string, name: string): Panel {
   return { id, tenantId: 'tenant', dashboardId: 'today', name };
 }
 
-function aLayout(id: string, screenWidth: number, panelIds: string[], columns = 4): Layout {
+/**
+ * A layout of one row holding every panel, side by side - which is what the
+ * flat arrangement these cases were written against drew at this width, so a
+ * panel still has somewhere to move left to.
+ */
+function aLayout(id: string, screenWidth: number, panelIds: string[]): Layout {
   return {
     id,
     tenantId: 'tenant',
     dashboardId: 'today',
     name: id,
     screenWidth,
-    placements: panelIds.map((panelId) => ({ panelId, columns, rows: 3 })),
+    rows: [{ height: null, cells: panelIds.map((panelId) => ({ panelId, span: 12 })) }],
   };
 }
 
@@ -143,34 +149,71 @@ async function choose(user: ReturnType<typeof userEvent.setup>, panel: string, e
 }
 
 /**
- * Drags a panel's corner to the right and lets go.
+ * What a panel drag carries. Without one every handler reads `types` off null
+ * and the drop is a no-op - which a test expecting *no* change would pass on,
+ * for entirely the wrong reason.
  *
- * The two halves of the browser the grip needs are stood in for here, and only
- * those: jsdom implements no pointer capture and no layout, so a grip pressed
- * in it captures nothing and measures a panel zero pixels wide. What is under
- * test is the board's half - that letting go of a drag is *sent*, where every
- * move before it was only drawn - so the size the corner lands on is left to
- * the browser tier, which is the only place a real one exists.
+ * Empty, because a panel drag is the absence of `ITEM_BEING_DRAGGED`: that mark
+ * is what a row of a panel's list carries, and it is how a panel being moved is
+ * told apart from an item being filed.
  */
-function dragTheCornerOf(panelName: string, toX = 600) {
-  const panel = screen.getByRole('region', { name: panelName });
-  const grip = panel.querySelector('[data-resize-grip]') as HTMLElement;
-  // A panel 300px across at whatever it spans, with its corner at the origin.
-  panel.getBoundingClientRect = () =>
-    ({ left: 0, top: 0, width: 300, height: 240 }) as DOMRect;
-  grip.setPointerCapture = () => undefined;
-  grip.hasPointerCapture = () => true;
-  grip.releasePointerCapture = () => undefined;
+const dataTransfer = { types: [] as string[], setData: () => undefined, effectAllowed: '' };
 
-  fireEvent.pointerDown(grip, { pointerId: 1, clientX: 300, clientY: 240 });
-  fireEvent.pointerMove(grip, { pointerId: 1, clientX: toX, clientY: 240 });
-  fireEvent.pointerUp(grip, { pointerId: 1, clientX: toX, clientY: 240 });
+/**
+ * Picks a panel up by its header and drops it on one side of another.
+ *
+ * The half of the browser the drag needs is stood in for here, and only that
+ * half: jsdom performs no drag and measures every element as zero pixels wide,
+ * so which side of a panel the pointer was on is handed over rather than
+ * measured. What is under test is the board's half - what the drop *means* -
+ * and the browser tier is where a real pointer exists.
+ */
+function dropOnto(panelName: string, ontoName: string, side: 'before' | 'after') {
+  const picked = screen.getByRole('region', { name: panelName });
+  fireEvent.dragStart(within(picked).getByRole('heading').parentElement!, { dataTransfer });
+  // Measured after the pick-up, not before: picking a panel up opens the seams,
+  // which redraws the board - and a stub put on a node before that is a stub on
+  // whatever React decides to keep. jsdom measures everything as zero wide, so
+  // without this every drop reads as landing on the right-hand half.
+  const onto = screen.getByRole('region', { name: ontoName });
+  onto.getBoundingClientRect = () => ({ left: 0, width: 100 }) as DOMRect;
+  // Built rather than fired with an init, because jsdom implements no
+  // `DragEvent`: testing-library falls back to a plain `Event`, which carries
+  // `dataTransfer` across but silently drops `clientX` - and a missing one
+  // compares as `undefined < 50`, so every drop would read as the right-hand
+  // half and the two sides would be one case wearing two names.
+  const dropped = createEvent.drop(onto, { dataTransfer });
+  Object.defineProperty(dropped, 'clientX', { value: side === 'before' ? 10 : 90 });
+  fireEvent(onto, dropped);
 }
 
-/** The arrangement the last save_layout carried, as panel ids in order. */
-function sentOrder(mutate: ReturnType<typeof vi.fn>): string[] {
+/**
+ * Whether the gaps between the rows have opened up to be dropped into, which is
+ * the board saying a panel is in the air. Read off the height they are drawn at
+ * rather than off a class: it is the rows moving apart that is the affordance.
+ */
+function seamsAreOpen() {
+  return screen.getAllByTestId('row-seam').every((seam) => seam.style.height === '22px');
+}
+
+/** The same, let go in the gap above row `at` rather than on a panel. */
+function dropInSeam(panelName: string, at: number) {
+  const picked = screen.getByRole('region', { name: panelName });
+  fireEvent.dragStart(within(picked).getByRole('heading').parentElement!, { dataTransfer });
+  fireEvent.drop(screen.getAllByTestId('row-seam')[at]!, { dataTransfer });
+}
+
+/** The arrangement the last save_layout carried, as the panels on each line. */
+function sentRows(mutate: ReturnType<typeof vi.fn>): string[][] {
   const [asked] = mutate.mock.calls.at(-1)!;
-  return asked.payload.placements.map((p: { panelId: string }) => p.panelId);
+  return asked.payload.rows.map((row: { cells: { panelId: string }[] }) =>
+    row.cells.map((cell) => cell.panelId),
+  );
+}
+
+/** The same, flattened, for the cases that are about the order and not the lines. */
+function sentOrder(mutate: ReturnType<typeof vi.fn>): string[] {
+  return sentRows(mutate).flat();
 }
 
 beforeEach(() => {
@@ -258,6 +301,33 @@ describe('Panels', () => {
       expect(sentOrder(mutate)).toEqual(order);
     });
 
+    it('offers a panel sharing a row the move that puts it on a line of its own', async () => {
+      // The only way a keyboard has of making a row, and it was unreachable:
+      // marking the first cell of the first row as having nowhere to go made
+      // both ends of a single-row dashboard unavailable, so a dashboard with
+      // one row could never be split without a pointer.
+      const { user, mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+
+      await choose(user, 'Project Falcon', 'Move left');
+
+      expect(sentRows(mutate)).toEqual([['falcon'], ['reading']]);
+    });
+
+    it('says so when a panel alone on the only row has nowhere left to go', async () => {
+      const { user } = showBoard({
+        panels: [aPanel('falcon', 'Project Falcon')],
+        layouts: [aLayout('laptop', 1280, ['falcon'])],
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+
+      expect(
+        screen.getByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
+      ).toHaveAttribute('aria-disabled', 'true');
+    });
+
     it('leaves the focus on the panel’s own menu, which is where the next move is chosen', async () => {
       // Moving opens nothing, so there is nowhere else for the focus to go -
       // and these are the entries somebody presses three times in a row.
@@ -270,18 +340,20 @@ describe('Panels', () => {
       expect(screen.getByRole('button', { name: 'Actions for To read' })).toHaveFocus();
     });
 
-    it.each([
-      { situation: 'the first panel cannot move earlier', panel: 'Project Falcon', entry: 'Move left: This panel is already first' },
-      { situation: 'the last panel cannot move later', panel: 'To read', entry: 'Move right: This panel is already last' },
-    ])('says so rather than doing nothing when $situation', async ({ panel, entry }) => {
+    it('says so rather than doing nothing when a panel has nowhere left to go', async () => {
       // Offered and chosen and nothing happens is indistinguishable from
       // broken - and on a dashboard with no layout it is worse than nothing,
       // because a change that moves no panel would still record a layout for
       // this screen out of a gesture that arranged nothing.
-      const { user, mutate } = showBoard();
+      const { user, mutate } = showBoard({
+        panels: [aPanel('falcon', 'Project Falcon')],
+        layouts: [aLayout('laptop', 1280, ['falcon'])],
+      });
 
-      await user.click(await screen.findByRole('button', { name: `Actions for ${panel}` }));
-      await user.click(await screen.findByRole('menuitem', { name: entry }));
+      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+      await user.click(
+        await screen.findByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
+      );
 
       expect(mutate).not.toHaveBeenCalled();
     });
@@ -412,34 +484,69 @@ describe('Panels', () => {
       expect(sentOrder(mutate)).toEqual(['falcon', 'reading']);
     });
 
-    it('sends the size a corner was dragged to, which was only drawn while the hand moved', async () => {
-      // Every pointer move draws the new size without sending it, so by the
-      // time the hand stops the board is already showing what letting go is
-      // about to send. Measured against what is *drawn*, that release looks
-      // like no change at all and the resize is silently never stored - it
-      // survives on screen and is gone on the next reload.
-      const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
-        settles: false,
-      });
-
-      dragTheCornerOf('Project Falcon');
-
-      const [asked] = mutate.mock.calls.at(-1)!;
-      expect(asked.name).toBe('save_layout');
-      expect(asked.payload.placements[0].columns).toBeGreaterThan(4);
-    });
-
     it('sends nothing when the gesture leaves the arrangement where it already was', async () => {
-      // A corner nudged and let go inside the step it started in: a gesture
-      // happened, and what it asks for is what the layout already holds. It
-      // must not be sent, or every twitch of a grip would be a change to
-      // answer the question about.
+      // Dropped back where it already is - before the panel it is already
+      // before. A gesture happened, and what it asks for is what the layout
+      // already holds; sending it would make every abandoned drag a write.
       const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
 
-      dragTheCornerOf('Project Falcon', 300);
+      dropOnto('Project Falcon', 'To read', 'before');
 
       expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('puts a dropped panel on a line of its own when it is let go in the gap', async () => {
+      // The seam between two rows is the gesture that makes a row, and it is
+      // the one thing the wrapping grid had no way to express.
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+
+      dropInSeam('To read', 0);
+
+      expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
+    });
+
+    it('draws a row at the height it was given, and one with none at the floor', async () => {
+      // The conversion from the arrangement that came before this hands every
+      // row the height its panels were drawn at (changes.ts, `0013-panel-rows`)
+      // so that nothing changes size on the day it lands - which only holds if
+      // the height is read back out. A row nobody has ever sized has none, and
+      // is as tall as what is on it, never below the floor.
+      showBoard({
+        layouts: [
+          {
+            ...aLayout('laptop', 1280, ['falcon']),
+            rows: [
+              { height: 248, cells: [{ panelId: 'falcon', span: 12 }] },
+              { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+            ],
+          },
+        ],
+      });
+
+      const rows = screen
+        .getAllByRole('region')
+        .map((panel) => (panel.parentElement as HTMLElement).style);
+
+      expect(rows[0]!.height).toBe('248px');
+      expect(rows[1]!.height).toBe('');
+      expect(rows[1]!.minHeight).toBe(`${MIN_ROW_HEIGHT}px`);
+    });
+
+    it('closes the gaps again when a panel is picked up and let go nowhere', async () => {
+      // The seams open to be aimed at, so they have to close when there is no
+      // longer anything to aim - and a drop is not the only way a drag ends.
+      // Let go over the Inbox, off the window or on Escape, only `dragend`
+      // fires, and without it the board sits open around a drag that is over.
+      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const picked = screen.getByRole('region', { name: 'To read' });
+      const handle = within(picked).getByRole('heading').parentElement!;
+
+      fireEvent.dragStart(handle, { dataTransfer });
+      expect(seamsAreOpen()).toBe(true);
+
+      fireEvent.dragEnd(handle, { dataTransfer });
+
+      expect(seamsAreOpen()).toBe(false);
     });
   });
 

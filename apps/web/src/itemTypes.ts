@@ -63,18 +63,3 @@ export function typeToOffer(
 export function typeOf(types: readonly ItemType[], item: Item): ItemType | undefined {
   return item.typeId ? types.find((type) => type.id === item.typeId) : undefined;
 }
-
-/**
- * The type going by this name, ignoring case and surrounding blanks - the same
- * question the server answers before making one, asked here so that naming a
- * type you already have reuses it without a round trip inventing a second id.
- *
- * `toUpperCase().toLowerCase()` rather than lowercasing alone, matching
- * `foldName` on the server: lowercasing is not case folding, and `Straße` and
- * `STRASSE` have to be one name in both places or the two disagree about what
- * "already there" means.
- */
-export function typeNamed(types: readonly ItemType[], name: string): ItemType | undefined {
-  const wanted = name.trim().toUpperCase().toLowerCase();
-  return types.find((type) => type.name.trim().toUpperCase().toLowerCase() === wanted);
-}

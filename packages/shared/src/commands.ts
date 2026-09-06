@@ -8,7 +8,7 @@ import {
   workspaceNameSchema,
 } from './domain/item.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
-import { layoutNameSchema, panelNameSchema, placementInputSchema } from './domain/panel.js';
+import { layoutNameSchema, panelNameSchema, rowInputSchema } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
 /**
@@ -248,14 +248,24 @@ export const saveLayoutSchema = commandEnvelopeSchema.extend({
    * absurd entry would win it everywhere or nowhere.
    */
   screenWidth: z.number().int().min(1).max(100_000),
-  placements: z
-    .array(placementInputSchema)
-    // One entry per panel. Two entries for one panel is not an arrangement at
-    // all - the panel would have two places - and the row it writes has the
-    // panel in its key, so the second would silently replace the first.
-    .refine((placements) => new Set(placements.map((p) => p.panelId)).size === placements.length, {
-      message: 'a panel appears once in a layout',
-    }),
+  /**
+   * The rows, top to bottom. An arrangement is the whole list, so a layout
+   * saved with none is a layout arranging nothing - which is what a dashboard
+   * whose last panel was deleted has.
+   */
+  rows: z
+    .array(rowInputSchema)
+    // One cell per panel, across the whole layout rather than within a row: a
+    // panel in two rows would be a panel in two places, and the row it writes
+    // has the panel in its key, so the second would silently replace the first
+    // and the arrangement would come back a cell short.
+    .refine(
+      (rows) => {
+        const panelIds = rows.flatMap((row) => row.cells.map((cell) => cell.panelId));
+        return new Set(panelIds).size === panelIds.length;
+      },
+      { message: 'a panel appears once in a layout' },
+    ),
 });
 export type SaveLayoutCommand = z.infer<typeof saveLayoutSchema>;
 
@@ -339,8 +349,11 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 
 /**
- * A new Type, made by naming one that is not there yet ("Capture a thought or
- * an action, and see which it is", issue 155).
+ * A new Type, made in the window Types are managed in ("Make a type where types
+ * are managed, not while capturing", issue 203). Capture used to send this too,
+ * from any name matching none of the types on offer; it no longer makes one at
+ * all, so this has one caller and a name another Type already has is refused
+ * rather than quietly reused.
  *
  * It carries no colour: which one is free is a fact about the account rather
  * than about the request, so the store decides it. That is also what makes a

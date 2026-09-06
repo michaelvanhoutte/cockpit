@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Item, ItemType } from '@cockpit/shared';
 import { useCapture } from '../capture';
 import { typesOffered, typeToOffer } from '../itemTypes';
@@ -17,15 +17,15 @@ import { typesOffered, typeToOffer } from '../itemTypes';
  *
  * **It asks what kind of thing this is** ("Capture a thought or an action, and
  * see which it is", issue 155). The types you already have are offered, the
- * ones you used last first, and a name matching none of them makes a new type -
- * which is the only way one comes into existence, because a type you need once
- * is not worth a trip to the window they are managed in.
+ * ones you used last first, and *No type* is one of the answers.
  *
- * **A text box with a list attached rather than a menu**, so one control does
- * both jobs: choosing from what is there and naming something that is not. A
- * menu would need a "new type…" entry that swaps itself for a text box, which
- * is two states for one question, and a native list is the one popup that
- * behaves on a phone.
+ * **A dropdown, where it was a text box with a list attached.** The box was
+ * both jobs in one control - choosing from what is there and naming something
+ * that is not - and the second job has left: types are made in the window they
+ * are managed in ("Make a type where types are managed, not while capturing",
+ * issue 203). A box that still took any text would be taking text it could not
+ * honour, so what is left is the choosing, and a native dropdown is the one
+ * popup that behaves on a phone.
  */
 export function CaptureForm({
   workspaceId,
@@ -43,33 +43,39 @@ export function CaptureForm({
   items: readonly Item[];
 }) {
   const [message, setMessage] = useState('');
-  const [typeName, setTypeName] = useState('');
-  /** What the server said about the type, where it said anything. */
+  /** The type chosen, by id, or the empty string for *No type*. */
+  const [typeId, setTypeId] = useState('');
+  /** What the server said about the capture, where it said anything. */
   const [refused, setRefused] = useState<string | null>(null);
   const { ask, busy } = useCapture();
-  const listId = useId();
 
   const offered = typesOffered(types, items);
   const opensOn = typeToOffer(types, items);
 
+  /**
+   * What is actually chosen, as against what was chosen: a type deleted in
+   * another tab is gone from the list a moment later, and both the dropdown and
+   * the capture fall back to *No type* rather than one showing a choice that is
+   * not there and the other sending an id the server would refuse.
+   */
+  const chosen = offered.some((type) => type.id === typeId) ? typeId : '';
+
   // The type used last, filled in for you. It follows the snapshot rather than
   // being set once, so capturing something else and coming back offers what you
-  // just used - and an empty box stays empty, because clearing it is a thing
+  // just used - and *No type* stays chosen, because choosing it is a thing
   // somebody did on purpose.
   useEffect(() => {
-    setTypeName((chosen) => (chosen === '' && opensOn ? opensOn.name : chosen));
+    setTypeId((already) => (already === '' && opensOn ? opensOn.id : already));
     // Keyed on which type it is, not on the object: `typeToOffer` derives a
     // fresh one from every snapshot, so keying on the object re-ran this on
-    // each background revalidation and refilled a box somebody had emptied on
-    // purpose.
+    // each background revalidation and undid a choice somebody made on purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opensOn?.id]);
 
   /**
    * **The box is emptied only once the capture has been asked for**, and a
    * refusal on the way is said out loud. Clearing it first threw the note away
-   * on any failure the type could produce - a name the server will not take,
-   * the request never arriving - with nothing on screen to say so.
+   * on a request that never arrived, with nothing on screen to say so.
    */
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,7 +83,7 @@ export function CaptureForm({
     if (!trimmed) return;
 
     ask(
-      { message: trimmed, typeName, types, workspaceId, decided: true },
+      { message: trimmed, typeId: chosen || undefined, workspaceId, decided: true },
       {
         asking: () => {
           setMessage('');
@@ -107,20 +113,25 @@ export function CaptureForm({
         aria-label="Capture a note or to-do"
         className="min-w-0 flex-1 basis-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
-      <input
-        value={typeName}
-        onChange={(e) => setTypeName(e.target.value)}
-        list={listId}
-        placeholder="Type"
+      {/* `min-w-0` for the reason the box above it carries: a select is as wide
+          as its widest option by default, and a type with a long name would
+          push the button out of a 280px column. */}
+      <select
+        value={chosen}
+        onChange={(e) => setTypeId(e.target.value)}
         aria-label="What kind of thing this is"
-        maxLength={60}
         className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-      />
-      <datalist id={listId}>
+      >
+        {/* An answer of its own rather than a blank line: a note you have not
+            decided the kind of is a normal thing to capture, and it has to be
+            possible to go back to having said nothing. */}
+        <option value="">No type</option>
         {offered.map((type) => (
-          <option key={type.id} value={type.name} />
+          <option key={type.id} value={type.id}>
+            {type.name}
+          </option>
         ))}
-      </datalist>
+      </select>
       <button
         type="submit"
         disabled={busy}
