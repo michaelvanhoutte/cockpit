@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import {
   OTHER_USER_ID,
+  TASK_TYPE_ID,
   USER_ID,
   WORKSPACE_ID,
   inTheStore,
@@ -287,6 +288,7 @@ describe('Sign-in', () => {
           workspaceId: 'ws-work',
           itemId: '018f0000-0000-7000-8000-000000000002',
           message: 'Nobody should be able to file this',
+          typeId: TASK_TYPE_ID,
         }),
       });
 
@@ -477,6 +479,7 @@ describe('Sign-in', () => {
             workspaceId: WORKSPACE_ID,
             itemId: '018f0000-0000-7000-8000-000000000004',
             message: 'Captured while the Cockpit next door was open',
+            typeId: TASK_TYPE_ID,
           }),
         }),
       );

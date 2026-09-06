@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
-import { WORKSPACE_ID, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  TASK_TYPE_ID,
+  WORKSPACE_ID,
+  asUser,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level: real D1, and requests go through the real Worker
@@ -48,6 +55,7 @@ async function captureAnItem(overrides: Partial<CommandPayload<'capture_item'>> 
     workspaceId: WORKSPACE_ID,
     itemId,
     message: 'Make appointment with Novy',
+    typeId: TASK_TYPE_ID,
     ...overrides,
   });
   return itemId;
@@ -110,6 +118,7 @@ describe('Offline', () => {
           workspaceId: WORKSPACE_ID,
           itemId: targetId,
           message: 'Make appointment with Novy',
+          typeId: TASK_TYPE_ID,
         }),
       },
       {
@@ -358,6 +367,7 @@ describe('Capture', () => {
           workspaceId: WORKSPACE_ID,
           itemId,
           message: 'Make appointment with Novy',
+          typeId: TASK_TYPE_ID,
         });
 
       await capture(nextId());
@@ -403,36 +413,50 @@ describe('Associations', () => {
 
 describe('Capture', () => {
   /**
-   * The workspace on a capture is client-supplied and only shape-validated,
-   * so it is the one id that can name something that does not exist. The
-   * database refuses it either way; what this pins is that the caller is told
-   * what was wrong instead of getting an internal error.
+   * The workspace and the type on a capture are both client-supplied and only
+   * shape-validated, so they are the two ids that can name something that is
+   * not there - the type since every capture had to name one. The database
+   * refuses either way; what this pins is that the caller is told what was
+   * wrong instead of getting an internal error.
    */
-  describe('a thought captured into a workspace that does not exist is refused and nothing is stored', () => {
-    it('says which workspace was missing', async () => {
+  describe('a thought captured against something that does not exist is refused and nothing is stored', () => {
+    const missing = [
+      {
+        situation: 'a workspace that was never created',
+        named: 'ws-that-was-never-created',
+        capture: { workspaceId: 'ws-that-was-never-created', typeId: TASK_TYPE_ID },
+      },
+      {
+        situation: 'a kind of thing that was never made',
+        named: 'type-that-was-never-created',
+        capture: { workspaceId: WORKSPACE_ID, typeId: 'type-that-was-never-created' },
+      },
+    ];
+
+    it.each(missing)('$situation is named back', async ({ named, capture }) => {
       const response = await postChange('capture_item', {
         commandId: nextId(),
         issuedAt: '2026-08-12T10:00:00.000Z',
-        workspaceId: 'ws-that-was-never-created',
         itemId: nextId(),
         message: 'Make appointment with Novy',
+        ...capture,
       });
 
       expect(response.status).toBe(404);
       expect((await response.json()) as { error: string }).toMatchObject({
-        error: expect.stringContaining('ws-that-was-never-created'),
+        error: expect.stringContaining(named),
       });
     });
 
-    it('leaves no trace of the attempt', async () => {
+    it.each(missing)('$situation leaves no trace of the attempt', async ({ capture }) => {
       const itemId = nextId();
       const requestId = nextId();
       await postChange('capture_item', {
         commandId: requestId,
         issuedAt: '2026-08-12T10:00:00.000Z',
-        workspaceId: 'ws-that-was-never-created',
         itemId,
         message: 'Make appointment with Novy',
+        ...capture,
       });
 
       expect(await storedIn('items', 'id', itemId)).toHaveLength(0);

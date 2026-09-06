@@ -18,9 +18,14 @@ import {
   ConflictInAccountError,
   NotFoundInAccountError,
   RefusedByAccountError,
+  RowsFromAnotherAccountError,
+  backUpAccount,
   openAccount,
+  registerContents,
+  registeredAccountNames,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
+import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   attemptHeld,
   forgetAttempt,
@@ -134,6 +139,20 @@ app.onError((err, c) => {
  * is there.
  */
 app.use('*', gate());
+
+/**
+ * And the operator's own gate behind it, in front of the routes the sign-in
+ * gate deliberately lets past. Registered second so the order reads the way the
+ * request travels: the sign-in gate waves `/v1/admin/` through, and this is
+ * what it is waved through *to*. Neither is a spare for the other.
+ *
+ * **Mounted on the pattern, not on `*`.** The middleware checks the path itself
+ * as well, and this says the same thing a second way on purpose: matching here
+ * is Hono's own, so the set of requests that reach the operator's routes and
+ * the set this stands in front of are decided by one matcher rather than by two
+ * that can disagree. They did disagree once - `auth/admin.ts` records how.
+ */
+app.use(`${ADMIN_PREFIX}*`, adminGate());
 
 
 // --- health -----------------------------------------------------------------
@@ -587,6 +606,47 @@ const routes = app
     // Host-side wiring (state store, credentials, emit) lands with the first
     // real connector; until then ingress only proves the routing shape.
     return c.json({ error: 'connector ingress not yet wired' }, 501);
+  })
+  // --- the operator's backup routes ------------------------------------------
+  // Behind the secret in `auth/admin.ts` and outside the sign-in gate, because
+  // whoever calls these holds no session cookie. Plain routes rather than
+  // `.openapi(...)`, like ingress above: nothing generated from this
+  // application's contract calls them, and they are not part of the shape
+  // apps/web infers.
+  //
+  // Two routes rather than one answer, because an account is read whole in a
+  // single call - which is what makes a backup one moment rather than a smear
+  // (src/accounts/backup.ts) - and one answer carrying every account would put
+  // every account's data in one Worker's memory at once.
+  .get('/v1/admin/backup/register', async (c) => {
+    const [register, accounts] = await Promise.all([
+      registerContents(c.env),
+      registeredAccountNames(c.env),
+    ]);
+    return c.json({ ...register, accounts }, 200);
+  })
+  .get('/v1/admin/backup/accounts/:name', async (c) => {
+    const accountName = c.req.param('name');
+    try {
+      return c.json({ account: accountName, ...(await backUpAccount(c.env, accountName)) }, 200);
+    } catch (error) {
+      // A 404 rather than the 500 `onError` gives this error everywhere else,
+      // and the difference is which of the two shapes of caller made it: every
+      // other route resolves the account from whoever signed in, so a name that
+      // is not in the register means the server is confused. Here the caller
+      // typed it, so it is theirs to fix and saying which name was wrong is the
+      // useful answer.
+      if (error instanceof AccountNotInRegisterError) {
+        return c.json({ error: `no account ${accountName}` }, 404);
+      }
+      // Nothing is written out. A store holding somebody else's rows is a
+      // question about the data rather than about the request, so it says what
+      // it found and refuses rather than backing up a mixture.
+      if (error instanceof RowsFromAnotherAccountError) {
+        return c.json({ error: error.message }, 409);
+      }
+      throw error;
+    }
   });
 
 // Behind the gate like everything else not named in `PATHS_OUTSIDE_THE_GATE`.

@@ -16,7 +16,8 @@ import { useCommand } from './api/queries';
  * account's, and that was the only way a type came into existence. Types are
  * now made in the window they are managed in ("Make a type where types are
  * managed, not while capturing", issue 203), so capture chooses among the types
- * there are and nothing else: what arrives here is a type's id, or none.
+ * there are and nothing else: what arrives here is a type's id, and every
+ * capture carries one.
  */
 
 /** What is being captured, once the surface has read it off the screen. */
@@ -24,15 +25,18 @@ export interface WhatToCapture {
   /** The note, already trimmed and known not to be empty. */
   message: string;
   /**
-   * The type it was given, or undefined for none.
+   * The type it was given, which every capture has: *No type* was an answer
+   * until every Item needed one, and both surfaces now fall back to the type
+   * used last rather than to none.
    *
    * An id rather than a name, which is what changed when capture stopped making
    * types: a name was an answer that might not name anything yet, and this
    * cannot be. The surface is what checks it against the types it is showing,
-   * so one deleted in another tab arrives here as undefined rather than as an
-   * id the server would refuse.
+   * so one deleted in another tab is replaced here rather than sent as an id
+   * the server would refuse - and a surface with no types to show does not
+   * capture at all.
    */
-  typeId: string | undefined;
+  typeId: string;
   /** The workspace it is captured against - where it belongs, or came from. */
   workspaceId: string;
   /**
@@ -54,7 +58,7 @@ export interface CaptureAnswers {
    */
   asking?: () => void;
   /** It landed, with the type it ended up carrying. */
-  captured?: (typeId: string | undefined) => void;
+  captured?: (typeId: string) => void;
   /** It did not, and this is what to say. */
   refused: (why: string) => void;
 }
@@ -101,7 +105,7 @@ export function useCapture(): {
           workspaceId: what.workspaceId,
           itemId: uuidv7(),
           message: what.message,
-          ...(what.typeId ? { typeId: what.typeId } : {}),
+          typeId: what.typeId,
           // Sent only when it is false, so every front door that captures
           // into a named workspace reads exactly as it did before this
           // landed.

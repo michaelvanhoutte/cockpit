@@ -8,9 +8,12 @@ import type {
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { accountIsRegistered } from './register.js';
+import { describeForeignRows, type AccountBackup } from './backup.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 
 export type { AccountSnapshot } from './answer.js';
+export type { AccountBackup } from './backup.js';
+export { registerContents, registeredAccountNames } from './register.js';
 
 /** The account is not in the register, so it has no data and never had any. */
 export class AccountNotInRegisterError extends Error {
@@ -98,6 +101,40 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };
+}
+
+/** A store held a row belonging to another account, so nothing was backed up. */
+export class RowsFromAnotherAccountError extends Error {
+  constructor(what: string) {
+    super(what);
+    this.name = 'RowsFromAnotherAccountError';
+  }
+}
+
+/**
+ * One account's store as it stands, for a backup.
+ *
+ * Separate from `openAccount` rather than a sixth method on `Account`, for the
+ * two reasons that make a backup different from use: it must not bring the
+ * account up to date (`backup.ts`), and it names the account it wants instead
+ * of taking whoever is signed in - there being nobody signed in when an
+ * operator takes a backup.
+ *
+ * The register is still what says an account is real, exactly as it does for
+ * `openAccount`: a store is addressed by name and `idFromName` hands back an
+ * empty one for a name nobody ever created, so without this a typo would back
+ * up an account that does not exist and report nothing wrong.
+ */
+export async function backUpAccount(env: Env, accountName: string): Promise<AccountBackup> {
+  if (!(await accountIsRegistered(env, accountName))) {
+    throw new AccountNotInRegisterError(accountName);
+  }
+  const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
+  const { backup, foreign } = await store.exportAsItStands(accountName);
+  if (foreign.length > 0) {
+    throw new RowsFromAnotherAccountError(describeForeignRows(foreign, accountName));
+  }
+  return backup;
 }
 
 /** Turns the store's answer back into a value or the error that belongs to it. */

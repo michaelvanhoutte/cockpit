@@ -37,14 +37,23 @@ export default defineConfig({
       // vitest-pool-workers' own module evaluator needs Node builtins inside
       // the worker runtime; this is test-only and does not affect the
       // deployed Worker's compatibility flags in wrangler.jsonc.
+      //
+      // `BACKUP_TOKEN` is a secret in a real environment, so it is in neither
+      // wrangler.jsonc nor the repository - which leaves the tests needing one,
+      // and it is set here rather than in a fixture so that every case reaching
+      // an operator route has to carry it deliberately. An environment with no
+      // secret set is the one state this cannot express, and it is asked at
+      // tests/unit/auth/admin.test.ts instead.
+      //
+      // The rest is what a deployed environment holds as configuration for
+      // signing in. The issuer is one no test can reach on purpose: it is faked
+      // at the network boundary (tests/integration/issuer.ts), and naming a
+      // `.test` address here is what makes a real request out of the suite fail
+      // loudly rather than quietly reach Google.
       miniflare: {
         compatibilityFlags: ['nodejs_compat'],
-        // What a deployed environment holds as configuration and secrets. The
-        // issuer is one no test can reach on purpose: it is faked at the
-        // network boundary (tests/integration/issuer.ts), and naming a
-        // `.test` address here is what makes a real request out of the suite
-        // fail loudly rather than quietly reach Google.
         bindings: {
+          BACKUP_TOKEN: 'test-operator-secret',
           OIDC_ISSUER: 'https://issuer.test',
           GOOGLE_CLIENT_ID: 'cockpit-test',
           GOOGLE_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',

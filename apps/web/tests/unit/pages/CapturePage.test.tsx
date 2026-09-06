@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Item, ItemType } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { CapturePage } from '../../../src/pages/CapturePage';
+import { NO_TYPES } from '../../../src/itemTypes';
 
 /**
  * F1: the page is chips, a box and a list, and every rule here is what it sends
@@ -19,8 +20,11 @@ import { CapturePage } from '../../../src/pages/CapturePage';
  */
 const held = vi.hoisted(() => ({
   mutate: vi.fn(),
-  /** The types the account holds, which another tab can delete one of. */
-  types: [] as unknown[],
+  /**
+   * The types the account holds, which another tab can delete one of - or null
+   * for an answer still in flight, which is not the same thing as none.
+   */
+  types: [] as unknown[] | null,
   /** The workspaces the account holds, which another tab can delete one of. */
   workspaces: [] as unknown[],
   items: [] as unknown[],
@@ -32,7 +36,10 @@ vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: held.mutate, isPending: false }),
   itemTypesQuery: {
     queryKey: ['itemTypes'],
-    queryFn: () => Promise.resolve({ itemTypes: held.types }),
+    // Never settling is how "the answer has not arrived" is arranged: the page
+    // has to tell that apart from an account with no types.
+    queryFn: () =>
+      held.types === null ? new Promise(() => {}) : Promise.resolve({ itemTypes: held.types }),
   },
   workspacesQuery: {
     queryKey: ['workspaces'],
@@ -72,7 +79,8 @@ async function thePage({
   items = [] as Item[],
   cameFrom = 'ws-home',
 }: {
-  types?: ItemType[];
+  /** Null for an account that has not answered what types it has. */
+  types?: ItemType[] | null;
   items?: Item[];
   cameFrom?: string | null;
 } = {}) {
@@ -97,8 +105,13 @@ async function thePage({
       <CapturePage />
     </QueryClientProvider>,
   );
-  // Nothing to choose from until the account's types and workspaces arrive.
-  await screen.findByRole('button', { name: 'Action' });
+  // Nothing to choose from until the account's types and workspaces arrive -
+  // or, where it has none, until the row says so. Where the answer never comes
+  // there is nothing to wait for, and the box the note is typed into is what
+  // says the page is drawn.
+  if (types === null) await screen.findByLabelText('What is on your mind?');
+  else if (types.length > 0) await screen.findByRole('button', { name: types[0]!.name });
+  else await screen.findByText(NO_TYPES);
   return Object.assign(userEvent.setup(), { client });
 }
 
@@ -152,20 +165,7 @@ describe('Capture', () => {
       expect(captured().payload.workspaceDecided).toBeUndefined();
     });
 
-    it('captures with no type when No type is chosen', async () => {
-      const user = await thePage();
-
-      // Lit to start with is the type used last, so this is the way back to
-      // having said nothing - which is what the box that made a type used to
-      // be, by taking the light off every chip.
-      await user.click(chip('No type'));
-      await user.type(box(), 'Something I have not decided about');
-      await user.click(chip('Capture'));
-
-      expect(captured().payload.typeId).toBeUndefined();
-    });
-
-    it('falls back to No type when the one chosen is deleted in another tab', async () => {
+    it('falls back to the type used last when the one chosen is deleted in another tab', async () => {
       const user = await thePage();
       await user.click(chip('Read later'));
 
@@ -175,11 +175,12 @@ describe('Capture', () => {
 
       // Which is what the row now says, rather than nothing being chosen - and
       // what it captures against, rather than a type the account would refuse.
-      expect(chip('No type')).toHaveAttribute('aria-pressed', 'true');
+      // To the type used last rather than to none, because there is no none.
+      expect(chip('Action')).toHaveAttribute('aria-pressed', 'true');
       await user.type(box(), 'Where does this go');
       await user.click(chip('Capture'));
 
-      expect(captured().payload.typeId).toBeUndefined();
+      expect(captured().payload.typeId).toBe(ACTION.id);
     });
 
     it('falls back to Any workspace when the one chosen is deleted in another tab', async () => {
@@ -254,10 +255,11 @@ describe('Capture', () => {
 
       // Nothing in the row is typed into: the dashed box that named a type has
       // gone, and every answer left is one of the chips.
+      // And no chip for none either: every Item is some kind of thing, so
+      // where *No type* stood there is now only the account's own types.
       const row = within(screen.getByRole('group', { name: 'Type' }));
       expect(row.queryAllByRole('textbox')).toEqual([]);
       expect(row.getAllByRole('button').map((one) => one.textContent)).toEqual([
-        'No type',
         'Action',
         'Thought',
         'Read later',
@@ -272,6 +274,42 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       expect(everythingAsked()).toEqual(['capture_item']);
+    });
+  });
+
+  /**
+   * The one thing that stops this page capturing, and it is reachable: deleting
+   * every type of the account leaves the question with no answers, and a
+   * capture with no type is refused ("every Item has a Type"). The Inbox's own
+   * row says the same sentence, in
+   * tests/unit/components/CaptureForm.test.tsx.
+   */
+  describe('with no types to give it, capture says so instead of capturing', () => {
+    it('shows no chips, says where a type is made, and asks for nothing', async () => {
+      const user = await thePage({ types: [] });
+
+      await user.type(box(), 'Where does this go');
+      await user.click(chip('Capture'));
+
+      const row = within(screen.getByRole('group', { name: 'Type' }));
+      expect(row.queryAllByRole('button')).toEqual([]);
+      expect(screen.getByText(NO_TYPES)).toBeVisible();
+      expect(chip('Capture')).toBeDisabled();
+      expect(captured()).toBeUndefined();
+    });
+
+    /**
+     * "No types yet" is a claim about what the account holds, so it waits for
+     * the account to have said - the same guard the window that manages them
+     * carries (components/ManageTypes.tsx).
+     */
+    it('says nothing at all while the account has not answered', async () => {
+      await thePage({ types: null });
+
+      const row = within(screen.getByRole('group', { name: 'Type' }));
+      expect(row.queryAllByRole('button')).toEqual([]);
+      expect(screen.queryByText(NO_TYPES)).toBeNull();
+      expect(chip('Capture')).toBeDisabled();
     });
   });
 

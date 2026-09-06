@@ -25,6 +25,19 @@ describe('Sign-in', () => {
         situation: 'a delivery filed under a path of its own',
         path: '/ingress/mail/hooks/a/b/c',
       },
+      {
+        // Past *this* gate and into the operator's own, which is a secret
+        // rather than a sign-in (`auth/admin.ts`) - the caller holds no session
+        // cookie and never will. Outside this gate is not open: taking the
+        // admin gate away would not reopen this one, it would open those routes
+        // to everybody.
+        situation: 'the operator backing up the register',
+        path: '/v1/admin/backup/register',
+      },
+      {
+        situation: 'the operator backing up one account',
+        path: '/v1/admin/backup/accounts/tenant-default',
+      },
     ])('lets $situation past without a sign-in', ({ path }) => {
       expect(isOutsideTheGate(path)).toBe(true);
     });
@@ -45,6 +58,13 @@ describe('Sign-in', () => {
         // list is the only thing that would still say otherwise.
         situation: 'the address that used to lead back out through the old gate',
         path: '/v1/relogin',
+      },
+      {
+        // A longer name rather than a path under the prefix. Letting it past
+        // would hand it to neither gate, since the admin gate does not claim it
+        // either - the same trap `/v1/users/anything` above is written for.
+        situation: 'an address that merely starts like the operator’s',
+        path: '/v1/administrators',
       },
       { situation: 'your workspaces', path: '/v1/workspaces' },
       { situation: 'the live updates stream', path: '/v1/events' },

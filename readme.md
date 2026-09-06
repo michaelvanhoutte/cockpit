@@ -77,6 +77,17 @@ rm -rf apps/api/.wrangler/state/v3/do
 
 Never fix it by renaming the change back to what the store recorded; that trades one stale ledger for another.
 
+### Taking a backup
+
+Writes an environment to local JSON — the register, and each account's own store in a file of its own:
+
+```bash
+COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/2026-09-06
+COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env local --out ./backups/mine --user tenant-default
+```
+
+The secret is the environment's own `BACKUP_TOKEN`, which is what the operator routes are behind; locally it comes from `apps/api/.dev.vars` (copy `.dev.vars.example`). Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date. Reading one back in is not built yet ("Restore an environment, or one user, from a backup", issue 209).
+
 ### Tidying up branches
 
 ```bash
