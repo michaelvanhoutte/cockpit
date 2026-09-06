@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Env } from '../env.js';
+import { isAdminPath } from './admin.js';
 import { extendSession, sessionHeld, type Visitor } from './register.js';
 import { recogniseSession, SIGN_IN_LIFETIME_MS } from './session.js';
 
@@ -84,8 +85,28 @@ export const PATHS_OUTSIDE_THE_GATE: readonly string[] = ['/health', '/v1/users'
  */
 const INGRESS_PREFIX = '/ingress/';
 
+/**
+ * The second prefix, and the same shape of reason: **the operator's commands
+ * hold no session cookie**, so a sign-in is the wrong question to ask of them
+ * too. What authenticates one is the secret checked in `auth/admin.ts`, which
+ * stands in front of this gate rather than behind it.
+ *
+ * Outside *this* gate is not outside every gate, and that distinction is the
+ * whole safety of the line above: `/health` is genuinely open, while these
+ * routes are shut to everyone without the secret. Removing the admin gate would
+ * therefore not reopen the sign-in gate, it would open these routes to
+ * everybody - so the two belong together and neither is a spare.
+ *
+ * Imported rather than written again here: two copies of the prefix is a hole
+ * that can outlive the gate it was cut for, and one of the two edits is the
+ * easy one to forget.
+ */
 export function isOutsideTheGate(path: string): boolean {
-  return PATHS_OUTSIDE_THE_GATE.includes(path) || path.startsWith(INGRESS_PREFIX);
+  return (
+    PATHS_OUTSIDE_THE_GATE.includes(path) ||
+    path.startsWith(INGRESS_PREFIX) ||
+    isAdminPath(path)
+  );
 }
 
 /**

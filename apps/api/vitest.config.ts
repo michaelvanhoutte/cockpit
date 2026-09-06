@@ -37,7 +37,17 @@ export default defineConfig({
       // vitest-pool-workers' own module evaluator needs Node builtins inside
       // the worker runtime; this is test-only and does not affect the
       // deployed Worker's compatibility flags in wrangler.jsonc.
-      miniflare: { compatibilityFlags: ['nodejs_compat'] },
+      //
+      // `BACKUP_TOKEN` is a secret in a real environment, so it is in neither
+      // wrangler.jsonc nor the repository - which leaves the tests needing one,
+      // and it is set here rather than in a fixture so that every case reaching
+      // an operator route has to carry it deliberately. An environment with no
+      // secret set is the one state this cannot express, and it is asked at
+      // tests/unit/auth/admin.test.ts instead.
+      miniflare: {
+        compatibilityFlags: ['nodejs_compat'],
+        bindings: { BACKUP_TOKEN: 'test-operator-secret' },
+      },
     }),
   ],
 });
