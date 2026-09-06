@@ -56,14 +56,33 @@ describe('Panels', () => {
       { situation: 'above the first row', x: 300, y: -10, is: { on: 'ownRow', at: 0 } },
       { situation: 'below the last row', x: 300, y: 400, is: { on: 'ownRow', at: 2 } },
     ])('$situation', ({ x, y, is }) => {
-      expect(placementFor({ x, y }, rows)).toEqual(is);
+      // `c` is the panel being dragged in every one of these: it is on a row
+      // of its own, so none of these positions is over it.
+      expect(placementFor({ x, y }, rows, 'c')).toEqual(is);
     });
 
     it('asks for nothing on a dashboard with no rows to be over', () => {
       // A dashboard with no panels draws no rows, and a drag cannot start on
       // one - but the board asks this on every pointer move and must get an
       // answer rather than an exception.
-      expect(placementFor({ x: 0, y: 0 }, [])).toBeNull();
+      expect(placementFor({ x: 0, y: 0 }, [], 'a')).toBeNull();
+    });
+
+    it.each([
+      { situation: 'its left half', x: 310 },
+      { situation: 'its right half', x: 590 },
+    ])('asks for nothing where the pointer is over the dragged panel, on $situation', ({ x }) => {
+      // Where the pointer spends most of a drag, because the rows handed in
+      // are the rows as drawn and what is drawn already has the panel moved.
+      // Answered as no change here: left to `movedBeside`, beside-itself is
+      // refused by handing back the arrangement at pick-up, which throws the
+      // preview away and puts the panel back where it started.
+      //
+      // `b`, which is last on its row: a slot is named from the panel to its
+      // right, so only the panel with nothing to its right ever names itself
+      // from both halves. Past the middle of a panel that has a neighbour is
+      // the slot before that neighbour, which is a real place to go.
+      expect(placementFor({ x, y: 50 }, rows, 'b')).toBeNull();
     });
   });
 

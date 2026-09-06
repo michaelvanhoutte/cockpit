@@ -48,17 +48,33 @@ export type Placement =
  *
  * Above the first row and below the last are the gaps at either end, which is
  * what lets a panel be taken to the top or pushed past the bottom.
+ *
+ * **Null where the pointer is over the panel being dragged**, which is where
+ * it spends most of a drag: the rows handed in are the rows *as drawn*, and
+ * what is drawn already has the panel moved. A placement naming the panel
+ * itself says the pointer is where the panel already is, so there is nothing
+ * to change - and it cannot be expressed as a move either, since the
+ * arrangement it would be applied to is the one the drag started from, where
+ * beside-itself means nothing. Answered as "no change" here rather than left
+ * for `movedBeside` to refuse: its refusal hands back the arrangement at
+ * pick-up, which would throw the preview away and put the panel back where it
+ * started, on any pointer position over the half of the row it had just
+ * joined. A drop landing on one of those frames sent nothing at all.
  */
 export function placementFor(
   point: { x: number; y: number },
   rows: readonly DrawnRow[],
+  dragged: string,
 ): Placement | null {
   if (rows.length === 0) return null;
 
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     if (point.y < row.top) return { on: 'ownRow', at: index };
-    if (point.y <= row.bottom) return alongTheRow(point.x, row, index);
+    if (point.y <= row.bottom) {
+      const placement = alongTheRow(point.x, row, index);
+      return placement.on === 'beside' && placement.panelId === dragged ? null : placement;
+    }
   }
   return { on: 'ownRow', at: rows.length };
 }

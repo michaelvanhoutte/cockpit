@@ -199,6 +199,11 @@ function seamsAreOpen() {
   return screen.getAllByTestId('row-seam').every((seam) => seam.style.height === '22px');
 }
 
+/** The board itself, which no rearrangement unmounts - and so what holds the pointer. */
+function boardEl() {
+  return document.querySelector('[data-panel-row]')!.parentElement!;
+}
+
 /** The header a panel is dragged by. */
 function handleOf(panelName: string) {
   const panel = screen.getByRole('region', { name: panelName });
@@ -706,6 +711,48 @@ describe('Panels', () => {
 
       expect(seamsAreOpen()).toBe(false);
       expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
+    });
+
+    it('holds the arrangement while the pointer sits on the panel it just moved', async () => {
+      // Found in review. The rows a drag measures are the rows as drawn, and
+      // what is drawn already has the panel moved - so an ordinary position,
+      // anywhere on the half of the row it has just joined, resolves to
+      // beside itself. `movedBeside` refuses that by handing back the
+      // arrangement at pick-up, which threw the preview away and flung the
+      // panel home; a drop landing on one of those frames sent nothing at
+      // all, having visibly moved the panel.
+      const { mutate } = showBoard({
+        layouts: [
+          {
+            ...aLayout('laptop', 1280, ['falcon']),
+            rows: [
+              { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+              { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+            ],
+          },
+        ],
+      });
+      const handle = handleOf('To read');
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      layOut();
+      // Onto the right-hand half of the row above, which joins it.
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 500, clientY: 50 });
+      expect(drawnLines()).toEqual([['falcon', 'reading']]);
+
+      // The same spot again, which is now inside the panel own slot. Fired at
+      // the board rather than the header: the header went with the row the
+      // panel left, and a captured pointer delivers to the board anyway.
+      layOut();
+      fireEvent.pointerMove(boardEl(), { pointerId: 1, clientX: 500, clientY: 50 });
+
+      expect(drawnLines()).toEqual([['falcon', 'reading']]);
+
+      // On the window, which is where a captured pointer delivers a release -
+      // and the only node still in the tree, the header having been redrawn
+      // on another row.
+      fireEvent.pointerUp(window, { pointerId: 1 });
+      expect(sentRows(mutate)).toEqual([['falcon', 'reading']]);
     });
 
     it('sends nothing for a drag that ends where it started', async () => {

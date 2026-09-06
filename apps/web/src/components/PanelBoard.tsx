@@ -396,7 +396,7 @@ export function PanelBoard({
    * DOM is not. What goes in is a placement already decided.
    */
   const dragTo = (point: { x: number; y: number }) => {
-    const placement = placementFor(point, rowsOnScreen());
+    const placement = placementFor(point, rowsOnScreen(), dragging?.id ?? '');
     if (!placement) return;
     setDragging((held) => {
       if (!held) return held;
