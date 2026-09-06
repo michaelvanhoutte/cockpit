@@ -338,6 +338,13 @@ A describe naming an unregistered area is a build error at `--check-concepts` ti
 `parent` naming an absent or cyclical key is a warning and renders as a root instead, so
 a registry typo degrades the tree shape rather than silently deleting rows.
 
+**A pattern naming a concrete file must name a file the analyzer walks**, held by
+`tools/test-explorer/tests/integration/concepts-registry.test.js`: a rename otherwise
+just stops matching, and the file's coverage falls into `infrastructure` while the area
+it belonged to quietly reports less. A pattern containing a glob is exempt, because it
+claims a shape rather than a file — a directory somebody is about to fill must not be a
+broken build.
+
 ## 6. Architecture
 
 **Status: built.** This describes what exists at `tools/test-explorer`, not a plan.
@@ -430,7 +437,9 @@ hitting a Worker is awkward and F3 is deliberately thin.
 nonzero listing any feature area a test declares that is not registered. This is **not**
 the file-pattern check originally specced — §2a covers why that stopped being coherent
 — and it is the more direct guard, catching the actual mistake rather than a symptom.
-It is what keeps the registry from silently going stale.
+
+It guards the registry's names; its patterns are guarded by the test named in "The area
+registry" (§5), which is where a rename lands.
 
 ## 8. CLI, scripts, CI
 

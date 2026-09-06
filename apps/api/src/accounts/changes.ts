@@ -58,10 +58,11 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_WORKSPACE_DECIDED,
     ITEM_TEXTS,
     WORKSPACE_INK,
-    // Last, because it is the only one here that has not shipped: everything
-    // above is applied in accounts already, and a change that has shipped can
-    // never be reordered any more than it can be edited.
+    // Last, because these are the ones that have not shipped: everything above
+    // is applied in accounts already, and a change that has shipped can never
+    // be reordered any more than it can be edited.
     LAYOUT_NAMES,
+    standardTypes(accountId),
   ];
 }
 
@@ -626,7 +627,10 @@ const ITEM_COMPLETED_AT: Change = {
  * **Every account gets Action and Thought**, so no account starts with an empty
  * picker and the first capture has something to be. Their ids are derived from
  * the account's, the way the starting workspaces' are, so applying this twice
- * cannot make two of them - and `INSERT OR IGNORE` says so out loud.
+ * cannot make two of them - and `INSERT OR IGNORE` says so out loud. The two
+ * are renamed to *Task* and *Note* by `0012-standard-types`, which is what an
+ * account ends up with; this change has shipped, so it still writes the names
+ * it shipped with.
  *
  * **The colours are written out rather than built from `ITEM_TYPE_COLORS`**,
  * for the reason the position bound in `0006-panel-items` is: a change that has
@@ -949,3 +953,67 @@ const LAYOUT_NAMES: Change = {
     },
   ],
 };
+
+/**
+ * The two types every account starts with become *Task* and *Note* ("Call the
+ * two standard types Task and Note", issue 194).
+ *
+ * **Two updates and nothing else**, because a type's name is data an account
+ * owns rather than an enum the code reads: `item_types` is a table, `type_id`
+ * points at it, and nothing anywhere names either word. So the rename keeps the
+ * rows - their ids, colours, positions, created times and every Item pointing
+ * at them - and only the label changes.
+ *
+ * **`folded_name` moves with the display name**, which is what gives the old
+ * name back: *Action* is free to create afterwards and *Task* is refused as a
+ * duplicate, exactly as `rename_item_type` leaves things.
+ *
+ * **Matched by id and nothing else.** The two ids are derived from the
+ * account's, the way `0008-item-types` wrote them, so this renames the rows
+ * that change shipped whatever they currently say - including one somebody has
+ * renamed by hand, and including one they have deleted, whose name is not shown
+ * anywhere.
+ *
+ * Its failure modes, per the scoping skill. The answer to most of them is that
+ * a name here is data and not code, so the change is safe in both directions:
+ *
+ * - **If it stops halfway:** it cannot. A change's statements and the record
+ *   that they ran commit in one `transactionSync` (store.ts), so a failure
+ *   leaves both names as they were and the change is retried whole next time
+ *   somebody opens the account.
+ * - **The second time it runs:** it does not, having been recorded; and if the
+ *   first attempt failed it starts from untouched names. Idempotent anyway -
+ *   it sets a literal on a row named by its primary key.
+ * - **Rows that already break the new rule:** an account holding a live type it
+ *   named *Task* or *Note* itself. `item_types_tenant_live_folded_name` refuses
+ *   the update and the change fails, taking the account's first request with
+ *   it. That is the chosen outcome rather than `UPDATE OR IGNORE`, which would
+ *   leave the store and the code quietly disagreeing about what the standard
+ *   types are called; it is recoverable by rolling the release back, which
+ *   never runs this change, renaming the colliding type on the types page and
+ *   rolling forward.
+ * - **What is in each environment:** the same thing everywhere. No environment
+ *   seeds an account's own data and none can (deployment, "Bootstrap runbook"),
+ *   so the only stores holding these two rows are ones a person has opened.
+ * - **The windows it can be interrupted in.** *Before it runs*: the account is
+ *   untouched and the previous release reads *Action* and *Thought*, which is
+ *   what it has always shown. *After it runs, with the previous release
+ *   promoted back*: that release reads the same two rows under new names and
+ *   shows them, because no code names either word. Nothing is lost by rolling
+ *   back and nothing has to be repaired by rolling forward.
+ */
+function standardTypes(accountId: string): Change {
+  return {
+    name: '0012-standard-types',
+    statements: [
+      {
+        sql: `UPDATE item_types SET name = 'Task', folded_name = 'task' WHERE id = ?`,
+        params: [`${accountId}-type-action`],
+      },
+      {
+        sql: `UPDATE item_types SET name = 'Note', folded_name = 'note' WHERE id = ?`,
+        params: [`${accountId}-type-thought`],
+      },
+    ],
+  };
+}

@@ -135,5 +135,6 @@ step needs no provider-awareness.
 `tools/test-explorer/tests/unit/` and `tests/integration/`, run with `pnpm test` from the
 repo root or `pnpm --filter @cockpit/test-explorer test`. They cover the glob matcher and
 tree-building, rule and case extraction including the `.each`, `.skip`/`.only` and
-empty-describe cases, the coverage merge, and one fixture-repo test exercising `analyze()`
-end to end.
+empty-describe cases, the coverage merge, one fixture-repo test exercising `analyze()`
+end to end, and `concepts-registry.test.js`, which holds `concepts.json`'s non-glob
+patterns to files the analyzer really walks.
