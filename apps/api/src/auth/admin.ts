@@ -66,10 +66,19 @@ function bearerToken(header: string): string | null {
  * The refusal says nothing about which of the two it was - no secret set here,
  * or the wrong one offered - because the difference is only useful to somebody
  * guessing.
+ *
+ * **`c.req.path`, never `new URL(c.req.url).pathname`.** The two differ:
+ * `pathname` keeps percent-escapes, while the router decodes them before
+ * matching - so `/v1/%61dmin/backup/register` reaches the handler registered at
+ * `/v1/admin/backup/register` while a raw-path check says it is not an admin
+ * path at all, and waves it through with no secret. That was a real hole in
+ * this file's first draft, found by the security review and reproduced against
+ * a running deployment. A gate has to decide on the same string the router
+ * matched on; anything else is two answers to one question.
  */
 export function adminGate(): MiddlewareHandler<{ Bindings: Env }> {
   return async (c, next) => {
-    if (!isAdminPath(new URL(c.req.url).pathname)) return next();
+    if (!isAdminPath(c.req.path)) return next();
     if (!secretAccepted(c.req.header('authorization'), c.env.BACKUP_TOKEN)) {
       return c.json({ error: 'not allowed' }, 401);
     }

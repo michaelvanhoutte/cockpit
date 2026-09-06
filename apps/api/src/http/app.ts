@@ -27,7 +27,7 @@ import {
   registeredAccountNames,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
-import { adminGate } from '../auth/admin.js';
+import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   forgetSessionCookie,
   gate,
@@ -99,8 +99,14 @@ app.use('*', gate());
  * gate deliberately lets past. Registered second so the order reads the way the
  * request travels: the sign-in gate waves `/v1/admin/` through, and this is
  * what it is waved through *to*. Neither is a spare for the other.
+ *
+ * **Mounted on the pattern, not on `*`.** The middleware checks the path itself
+ * as well, and this says the same thing a second way on purpose: matching here
+ * is Hono's own, so the set of requests that reach the operator's routes and
+ * the set this stands in front of are decided by one matcher rather than by two
+ * that can disagree. They did disagree once - `auth/admin.ts` records how.
  */
-app.use('*', adminGate());
+app.use(`${ADMIN_PREFIX}*`, adminGate());
 
 
 // --- health -----------------------------------------------------------------

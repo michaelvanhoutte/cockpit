@@ -373,5 +373,30 @@ describe('Backup', () => {
 
       expect(res.status).toBe(401);
     });
+
+    /**
+     * A real hole, found by the security review and reproduced against a
+     * running deployment before it was closed. The router decodes a path before
+     * matching it, so `%61` is an `a` by the time a handler is chosen - while a
+     * gate reading the raw URL saw a path that was not the operator's and waved
+     * it straight through. Anybody could then pick a name off the logon page
+     * and read every account in the environment.
+     *
+     * Written as spellings rather than as one case, because what has to hold is
+     * that *no* spelling of the path reaches the routes without the secret.
+     */
+    it.each([
+      { situation: 'the first letter escaped', path: '/v1/%61dmin/backup/register' },
+      { situation: 'a letter in the middle escaped', path: '/v1/adm%69n/backup/register' },
+      {
+        situation: 'an account route with the prefix escaped',
+        path: `/v1/%61dmin/backup/accounts/${ACCOUNT_NAME}`,
+      },
+    ])('is refused when it arrives with $situation', async ({ path }) => {
+      // Signed in, because a session is the one thing an attacker can always
+      // get: signing in is choosing a name off a public list.
+      expect((await asUser(`http://cockpit.test${path}`, {}, USER_ID)).status).toBe(401);
+      expect((await SELF.fetch(`http://cockpit.test${path}`)).status).toBe(401);
+    });
   });
 });

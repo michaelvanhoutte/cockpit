@@ -120,7 +120,13 @@ export function isOutsideTheGate(path: string): boolean {
  */
 export function gate(): MiddlewareHandler<GatedEnv> {
   return async (c, next) => {
-    if (isOutsideTheGate(new URL(c.req.url).pathname)) return next();
+    // `c.req.path` rather than the raw URL's pathname, so this gate and the
+    // router answer one question with one string - see `auth/admin.ts` for the
+    // hole the difference opened there. This one failed the safe way round (an
+    // escaped `/health` got *more* protection, not less) and is changed anyway,
+    // because leaving two spellings of "which path is this" in one directory is
+    // how the next gate inherits the wrong one.
+    if (isOutsideTheGate(c.req.path)) return next();
 
     const sessionId = getCookie(c, sessionCookieName(c.req.url));
     const held = sessionId ? await sessionHeld(c.env, sessionId) : null;
