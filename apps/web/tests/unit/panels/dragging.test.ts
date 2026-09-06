@@ -67,6 +67,15 @@ describe('Panels', () => {
       expect(placementFor({ x: 300, y: 400 }, rows, 'a')).toEqual({ on: 'ownRow', under: 'c' });
     });
 
+    it('takes the gap under a row the panel is only sharing, which is a line of its own', () => {
+      // The one move that gets a panel off a row it shares, and the whole point
+      // of dragging it downwards. It is the opposite of the gap under a row the
+      // panel has to itself, which is where it already is - and a guard that
+      // asked whether it was merely the *last* panel up there confused the two
+      // and did nothing at all.
+      expect(placementFor({ x: 300, y: 110 }, rows, 'b')).toEqual({ on: 'ownRow', under: 'b' });
+    });
+
     it('asks for nothing on a dashboard with no rows to be over', () => {
       // A dashboard with no panels draws no rows, and a drag cannot start on
       // one - but the board asks this on every pointer move and must get an

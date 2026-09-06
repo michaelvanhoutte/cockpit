@@ -96,15 +96,21 @@ export function placementFor(
  * A row of its own in the gap under `above`, named by the last panel on that
  * row - or at the top of the board, where the gap has no row above it.
  *
- * Null where that panel is the one being dragged, for the reason a slot
- * naming it is: the gap under a row the panel is already alone on is where it
+ * Null where the panel being dragged is *alone* on that row, for the reason a
+ * slot naming it is: the gap under a row it already has to itself is where it
  * already is, and there is nothing to change.
+ *
+ * **Alone, not merely last.** Being the last of several is the opposite case -
+ * the gap under a row it is sharing is a line of its own, which is the one move
+ * that takes a panel off a row it shares and the whole point of dragging it
+ * downwards.
  */
 function inTheGapUnder(above: DrawnRow | undefined, dragged: string): Placement | null {
   if (!above) return { on: 'ownRow', under: null };
   const last = above.cells[above.cells.length - 1];
   if (!last) return { on: 'ownRow', under: null };
-  return last.panelId === dragged ? null : { on: 'ownRow', under: last.panelId };
+  const aloneUpThere = above.cells.length === 1 && last.panelId === dragged;
+  return aloneUpThere ? null : { on: 'ownRow', under: last.panelId };
 }
 
 /**
