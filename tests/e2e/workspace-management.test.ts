@@ -12,6 +12,7 @@ import {
   openFirstWorkspace,
   openSettings,
   press,
+  switchTo,
   tabOnIsWhollyInView,
   test,
   uniqueTitle,
@@ -88,7 +89,7 @@ test.describe('Workspace management', () => {
       // The window is over the workspace rather than instead of it, so it has
       // to be shut before the header underneath can be pressed.
       await closeWindow(page, isMobile);
-      await press(tab, isMobile);
+      await switchTo(page, name, isMobile);
       // Open, on a view of itself: a workspace opens on the view it was last
       // on, and a new one has never been opened, so that is its first
       // dashboard ("Add and switch dashboards", issue 32).
@@ -274,7 +275,7 @@ test.describe('Workspace management', () => {
       await press(page.getByRole('button', { name: `Olive for ${mine}` }), isMobile);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
       await closeWindow(page, isMobile);
-      await press(workspaceTab(page, mine), isMobile);
+      await switchTo(page, mine, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
 
       // Repainted, without a reload anywhere in the walk.
@@ -292,7 +293,7 @@ test.describe('Workspace management', () => {
       await expect.poll(() => groundOf(page)).toBe(asRgb(themeOf(OLIVE_TINT).ground));
 
       // And switching away takes the colour with it. Polled for the same reason.
-      await press(workspaceTab(page, 'Work'), isMobile);
+      await switchTo(page, 'Work', isMobile);
       await expect(dashboardBar(page)).toBeVisible();
       await expect.poll(() => groundOf(page)).toBe(firstGround);
     });
@@ -315,7 +316,7 @@ test.describe('Workspace management', () => {
       // The window is over the workspace rather than instead of it, so it has
       // to be shut before the header underneath can be pressed.
       await closeWindow(page, isMobile);
-      await press(tab, isMobile);
+      await switchTo(page, name, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
       const itsUrl = page.url();
 
@@ -393,7 +394,7 @@ test.describe('Workspace management', () => {
       // The window is over the workspace rather than instead of it, so it has
       // to be shut before the header underneath can be pressed.
       await closeWindow(page, isMobile);
-      await press(workspaceTab(page, last), isMobile);
+      await switchTo(page, last, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
 
       await expectNoSidewaysScroll(page);

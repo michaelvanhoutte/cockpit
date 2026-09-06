@@ -240,6 +240,37 @@ export async function workspaceTabs(page: Page): Promise<string[]> {
 }
 
 /**
+ * Switches workspace, and waits until the new one is really the one on screen.
+ * **Every walk that changes workspace goes through here**, because pressing the
+ * tab and carrying on is a race the fast machine always wins and CI does not.
+ *
+ * The old workspace stays fully on screen while the router works, so the
+ * controls a walk reaches for next - the capture box, the button that adds a
+ * dashboard - are the ones belonging to the workspace being left, and act on
+ * it. Twice now: a note settled into the workspace it was captured in
+ * ("Stop the browser suite dying mid-run", pull request 184), and a thought
+ * captured into `ws-work` from a screen showing a workspace made seconds
+ * earlier, which failed the account-boundary walk in CI on a tree that passed
+ * everywhere else (pull request 193, commit deed81d).
+ *
+ * **It waits for the address to get deeper, not to change.** A tab's own
+ * address is `/w/<id>`, and the router puts that in the bar before it does any
+ * of the work - the run this was written for had `/w/ws-atlas` up a twentieth
+ * of a second before the bad press. `/w/<id>` then redirects to the view the
+ * workspace was last on, from a `beforeLoad` that awaits the workspace and its
+ * dashboards (router.tsx), so a *deeper* address is the page saying it holds
+ * this workspace's snapshot - which is the same snapshot the Inbox is drawn
+ * from.
+ */
+export async function switchTo(page: Page, name: string, isMobile: boolean): Promise<void> {
+  const tab = workspaceTab(page, name);
+  const workspace = await tab.getAttribute('href');
+  if (!workspace) throw new Error(`the tab for ${name} has no address to wait for`);
+  await press(tab, isMobile);
+  await page.waitForURL((url) => url.pathname.startsWith(`${workspace}/`));
+}
+
+/**
  * Drags one row of the workspace settings list onto another's place, by its
  * grip.
  *
