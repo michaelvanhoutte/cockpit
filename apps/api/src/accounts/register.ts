@@ -82,9 +82,20 @@ export interface RegisterPlan {
   unusable: string[];
 }
 
+/**
+ * The columns a row must carry to be insertable, per table.
+ *
+ * Asked of SQLite rather than written down (`columnsEveryRowNeeds`), for the
+ * reason the table order is: a list here would go stale the day the register
+ * gains a NOT NULL column, and the failure would be a constraint error at
+ * insert time - a 500 - rather than the refusal this exists to give.
+ */
+export type ColumnsNeeded = { tenants: readonly string[]; users: readonly string[] };
+
 export function planRegisterRestore(
   existing: RegisterBackup,
   incoming: RegisterBackup,
+  needs: ColumnsNeeded = { tenants: ['id'], users: ['id', 'account_id'] },
 ): RegisterPlan {
   const tenantsById = new Map(existing.tenants.map((row) => [row.id, row]));
   const usersById = new Map(existing.users.map((row) => [row.id, row]));
@@ -99,8 +110,8 @@ export function planRegisterRestore(
 
   const collisions: string[] = [];
   const unusable: string[] = [
-    ...unusableRows('an account', incoming.tenants, ['id']),
-    ...unusableRows('a user', incoming.users, ['id', 'account_id']),
+    ...unusableRows('an account', incoming.tenants, needs.tenants),
+    ...unusableRows('a user', incoming.users, needs.users),
   ];
 
   // **What this backup has already asked for**, kept beside what the register
@@ -173,6 +184,31 @@ export function planRegisterRestore(
   }
 
   return { tenantsToCreate, usersToCreate, collisions, unusable };
+}
+
+/**
+ * Which columns the register will refuse a row for lacking: the ones declared
+ * NOT NULL with nothing to fall back on.
+ *
+ * **Asked of the database rather than written down here.** A list would go
+ * stale the day the register gains a NOT NULL column, and silently: the row
+ * would pass this check and fail its INSERT, which is a 500 at the very moment
+ * a restore can no longer be undone - the accounts have already been replaced
+ * by then. `dflt_value` is what excuses a column, since one with a default is
+ * one the insert can leave out.
+ */
+async function columnsEveryRowNeeds(env: Env): Promise<ColumnsNeeded> {
+  const [tenants, users] = await Promise.all([requiredIn(env, 'tenants'), requiredIn(env, 'users')]);
+  return { tenants, users };
+}
+
+async function requiredIn(env: Env, table: 'tenants' | 'users'): Promise<string[]> {
+  const { results } = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{
+    name: string;
+    notnull: number;
+    dflt_value: unknown;
+  }>();
+  return results.filter((column) => column.notnull === 1 && column.dflt_value == null).map((column) => column.name);
 }
 
 /**
@@ -249,7 +285,8 @@ export class RegisterDisagreesError extends Error {
  * accounts whose people did not arrive.
  */
 export async function restoreRegister(env: Env, incoming: RegisterBackup): Promise<RegisterPlan> {
-  const plan = planRegisterRestore(await registerContents(env), incoming);
+  const [held, needs] = await Promise.all([registerContents(env), columnsEveryRowNeeds(env)]);
+  const plan = planRegisterRestore(held, incoming, needs);
   // Before the collisions, because a row nothing could write is a broken file
   // rather than a disagreement, and saying "the register does not fit" of it
   // would send somebody to look at the register.

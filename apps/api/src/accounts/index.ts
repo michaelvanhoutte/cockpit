@@ -155,10 +155,13 @@ export async function backUpAccount(env: Env, accountName: string): Promise<Acco
  * routinely not in the register yet, and requiring it would make restoring into
  * an empty environment impossible.
  *
- * What stands in for that check is the backup itself: the names come from the
- * file rather than from anybody typing, and every row in it has to carry the
- * name of the account it is going into (`restore.ts`), so a file cannot be
- * poured into the wrong store.
+ * **What stands in for that check is the route, not this function.** A backup
+ * carries the name it was taken from, and `http/app.ts` refuses one whose name
+ * is not the account it is going into. That is what stops a file reaching the
+ * wrong store; the rows' own `tenant_id` (`foreignRows`) is a second lock
+ * behind it and not a substitute, because it can only disagree with rows that
+ * exist - a backup of an account nobody has opened has none, and used to pass
+ * straight through into whichever store was named.
  */
 export async function restoreAccount(
   env: Env,

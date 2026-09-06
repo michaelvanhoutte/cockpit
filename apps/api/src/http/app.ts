@@ -382,7 +382,19 @@ export function worthReporting(stream: { aborted: boolean; closed: boolean }): b
  */
 const rowSchema = z.record(z.string(), z.union([z.string(), z.number(), z.null()]));
 
+/**
+ * **`account` is required, and it is what says whose file this is.**
+ *
+ * A backup carries the name it was taken from, and until it was checked nothing
+ * anywhere compared that to the account being restored into: the rows' own
+ * `tenant_id` was doing the work, which holds for a file with rows in it and
+ * says nothing at all about one without any. A backup of an account nobody has
+ * opened is exactly that file, so somebody else's empty backup could be poured
+ * into a busy account - dropping every table it held and answering 200, having
+ * detected no violation because there were no rows to disagree.
+ */
 const accountBackupSchema = z.object({
+  account: z.string(),
   changesApplied: z.array(z.string()),
   tables: z.record(z.string(), z.array(rowSchema)),
 });
@@ -661,6 +673,17 @@ const routes = app
     const read = accountBackupSchema.safeParse(await readJsonBody(c));
     if (!read.success) {
       return c.json({ error: `that is not a backup: ${firstProblem(read.error)}` }, 400);
+    }
+    // Before anything is dropped, and before the rows are looked at: a file
+    // says whose it is, and a file that says somebody else's may not be poured
+    // in however few rows it has to disagree with.
+    if (read.data.account !== accountName) {
+      return c.json(
+        {
+          error: `that is ${read.data.account}'s backup, and it was going into ${accountName} - nothing was restored`,
+        },
+        400,
+      );
     }
     const backup = read.data as AccountBackup;
     try {

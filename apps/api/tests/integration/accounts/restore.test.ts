@@ -260,6 +260,38 @@ describe('Backup', () => {
      * match, leaving an account that reads as empty while holding somebody
      * else's data.
      */
+    /**
+     * The hole the rows' own `tenant_id` could not close, because it can only
+     * disagree with rows that exist. A backup of an account nobody has opened
+     * has none - so somebody else's empty backup went into a busy account,
+     * dropped every table it held, and answered 200 having found no violation.
+     * A file says whose it is, and that is now what is checked, before anything
+     * is dropped.
+     */
+    it('refuses another account’s empty backup, and changes nothing', async () => {
+      await captureInto(USER_ID, 'mine');
+      const hers = await backUp(OTHER_ACCOUNT_NAME);
+      expect(hers.tables).toEqual({});
+
+      const res = await restore(ACCOUNT_NAME, hers, { force: true });
+
+      expect(res.status).toBe(400);
+      const { error } = (await res.json()) as { error: string };
+      expect(error).toContain(OTHER_ACCOUNT_NAME);
+      expect(error).toContain(ACCOUNT_NAME);
+      expect(messagesIn(await backUp(ACCOUNT_NAME))).toContain('mine');
+    });
+
+    it('refuses a backup that does not say whose it is', async () => {
+      await captureInto(USER_ID, 'mine');
+      const { account: _, ...anonymous } = await backUp(ACCOUNT_NAME);
+
+      const res = await restore(ACCOUNT_NAME, anonymous, { force: true });
+
+      expect(res.status).toBe(400);
+      expect(messagesIn(await backUp(ACCOUNT_NAME))).toContain('mine');
+    });
+
     it('refuses a backup belonging to another account, and changes nothing', async () => {
       await captureInto(USER_ID, 'mine');
       await captureInto(OTHER_USER_ID, 'hers');
@@ -323,6 +355,30 @@ describe('Backup', () => {
       expect(((await res.json()) as { error: string }).error).toContain('carries no columns');
     });
 
+    /**
+     * The columns a row needs come from the register itself rather than a list
+     * somebody has to keep, so a sparse-but-not-empty row is refused instead of
+     * failing its INSERT on a NOT NULL constraint - which was a 500 at the one
+     * moment a restore can no longer be undone, the accounts having already
+     * been replaced by the time the register is written.
+     */
+    it.each([
+      { situation: 'an account with only an id', body: { tenants: [{ id: 'tenant-x' }], users: [] } },
+      {
+        situation: 'a user with no name or role',
+        body: { tenants: [], users: [{ id: 'u', account_id: ACCOUNT_NAME }] },
+      },
+    ])('refuses $situation rather than letting the insert fail', async ({ body }) => {
+      const res = await asOperator('/v1/admin/restore/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/has no /);
+    });
+
     it('refuses a register that is not one', async () => {
       const res = await asOperator('/v1/admin/restore/register', {
         method: 'POST',
@@ -370,7 +426,11 @@ describe('Backup', () => {
     it('refuses a backup holding rows for a table its changes do not create', async () => {
       await captureInto(USER_ID, 'mine');
       const taken = await backUp(ACCOUNT_NAME);
-      const orphaned = { changesApplied: [], tables: { items: taken.tables.items! } };
+      const orphaned = {
+        account: ACCOUNT_NAME,
+        changesApplied: [],
+        tables: { items: taken.tables.items! },
+      };
 
       const res = await restore(ACCOUNT_NAME, orphaned, { force: true });
 
