@@ -12,11 +12,21 @@ import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountStoreRpc } from './rpc.js';
 import { accountChanges } from './changes.js';
 import {
+  CHANGE_LEDGER,
+  accountTables,
   foreignRows,
   readStoreAsItStands,
   type AccountBackup,
   type ForeignRow,
 } from './backup.js';
+import {
+  deleteAllRows,
+  describeRowsFromElsewhere,
+  dropAccountTables,
+  rowsFromElsewhere,
+  storeHoldsAnything,
+  writeRows,
+} from './restore.js';
 import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations } from './events.js';
 import {
@@ -133,6 +143,105 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   exportAsItStands(accountName: string): { backup: AccountBackup; foreign: ForeignRow[] } {
     const backup = readStoreAsItStands(this.ctx.storage.sql);
     return { backup, foreign: foreignRows(backup, accountName) };
+  }
+
+  /**
+   * Puts the account back from a backup, replacing whatever is there.
+   *
+   * **All of it or none of it.** The drop, the replay, the emptying and the
+   * rows are one `transactionSync`, so a restore that fails partway leaves the
+   * account exactly as it was - which is the difference between a failed
+   * restore and an account holding half of two states with nothing able to say
+   * which half.
+   *
+   * The order is the whole design. Dropping first clears both the rows and the
+   * *shape*, since the backup carries a shape of its own. Replaying the change
+   * list the backup recorded rebuilds that shape - and puts a new account's
+   * starting data in on the way, which is why the tables are emptied before the
+   * backup's own rows go in. Bringing the account up to date happens last and
+   * outside the transaction, because it is the ordinary path every account
+   * takes after a deploy: if it fails there, the store sits at the backup's
+   * shape and the next request tries again, which is exactly what would happen
+   * to an account nobody had opened yet.
+   */
+  restoreFrom(
+    accountName: string,
+    backup: AccountBackup,
+    force: boolean,
+  ): Answer<{ tablesWritten: number; rowsWritten: number }> {
+    const changes = accountChanges(accountName);
+    const unknown = backup.changesApplied.filter(
+      (name) => !changes.some((change) => change.name === name),
+    );
+    if (unknown.length > 0) {
+      return {
+        status: 'refused',
+        what:
+          `the backup was taken from a newer version than this one is running: it records ` +
+          `${unknown.join(', ')}, which this version does not have. Restore it into a ` +
+          `deployment that has them.`,
+      };
+    }
+
+    const wrong = rowsFromElsewhere(backup, accountName);
+    if (wrong.length > 0) {
+      return { status: 'refused', what: describeRowsFromElsewhere(wrong, accountName) };
+    }
+
+    const sql = this.ctx.storage.sql;
+    const held = accountTables(sql);
+    if (!force && storeHoldsAnything(sql, held)) {
+      return {
+        status: 'conflict',
+        what: `account ${accountName} already holds data - restoring over it has to be asked for`,
+      };
+    }
+
+    let written = { tablesWritten: 0, rowsWritten: 0 };
+    try {
+      this.ctx.storage.transactionSync(() => {
+        dropAccountTables(sql, held);
+        sql.exec(`DROP TABLE IF EXISTS ${CHANGE_LEDGER}`);
+
+        for (const change of changes.filter((one) => backup.changesApplied.includes(one.name))) {
+          for (const statement of change.statements) {
+            sql.exec(statement.sql, ...(statement.params ?? []));
+          }
+        }
+
+        deleteAllRows(sql, accountTables(sql));
+        writeRows(sql, backup);
+
+        sql.exec(
+          `CREATE TABLE IF NOT EXISTS ${CHANGE_LEDGER} (
+             name text PRIMARY KEY NOT NULL,
+             applied_at text NOT NULL
+           ) STRICT`,
+        );
+        const at = new Date().toISOString();
+        for (const name of backup.changesApplied) {
+          sql.exec(`INSERT INTO ${CHANGE_LEDGER} (name, applied_at) VALUES (?, ?)`, name, at);
+        }
+
+        written = {
+          tablesWritten: Object.keys(backup.tables).length,
+          rowsWritten: Object.values(backup.tables).reduce((all, rows) => all + rows.length, 0),
+        };
+      });
+    } catch (error) {
+      return { status: 'refused', what: `the restore was undone: ${(error as Error).message}` };
+    }
+
+    // The store now believes whatever the backup believed, so the memory of
+    // being up to date has to go with it, or the outstanding changes are never
+    // applied to what was just written.
+    this.#upToDate = false;
+    try {
+      this.#bringUpToDate(accountName);
+    } catch (error) {
+      return { status: 'not-up-to-date', failure: (error as Error).message };
+    }
+    return { status: 'ok', value: written };
   }
 
   /**

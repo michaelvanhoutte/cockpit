@@ -13,7 +13,13 @@ import type { AccountSnapshot, Answer } from './answer.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
-export { registerContents, registeredAccountNames } from './register.js';
+export {
+  RegisterDisagreesError,
+  registerContents,
+  registeredAccountNames,
+  restoreRegister,
+} from './register.js';
+export type { RegisterBackup, RegisterPlan } from './register.js';
 
 /** The account is not in the register, so it has no data and never had any. */
 export class AccountNotInRegisterError extends Error {
@@ -135,6 +141,31 @@ export async function backUpAccount(env: Env, accountName: string): Promise<Acco
     throw new RowsFromAnotherAccountError(describeForeignRows(foreign, accountName));
   }
   return backup;
+}
+
+/**
+ * Puts one account's store back from a backup.
+ *
+ * **The register is deliberately not consulted**, which is the one place this
+ * differs from `backUpAccount` beside it. An account's store is restored
+ * *before* its register row is written, so that a user never exists pointing at
+ * data that has not arrived - which means at this moment the account is
+ * routinely not in the register yet, and requiring it would make restoring into
+ * an empty environment impossible.
+ *
+ * What stands in for that check is the backup itself: the names come from the
+ * file rather than from anybody typing, and every row in it has to carry the
+ * name of the account it is going into (`restore.ts`), so a file cannot be
+ * poured into the wrong store.
+ */
+export async function restoreAccount(
+  env: Env,
+  accountName: string,
+  backup: AccountBackup,
+  force: boolean,
+): Promise<{ tablesWritten: number; rowsWritten: number }> {
+  const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
+  return unwrap(await store.restoreFrom(accountName, backup, force));
 }
 
 /** Turns the store's answer back into a value or the error that belongs to it. */

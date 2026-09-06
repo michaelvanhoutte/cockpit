@@ -60,6 +60,20 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     backup: AccountBackup;
     foreign: ForeignRow[];
   }>;
+  /**
+   * Puts the account back from a backup, replacing whatever is there.
+   *
+   * An `Answer` again, unlike the export beside it, because every one of its
+   * states can happen: a store that already holds data is a `conflict`, a
+   * backup from a newer version or carrying another account's rows is
+   * `refused`, and the changes still outstanding after the rows go in can fail
+   * to apply exactly as they can for any other account.
+   */
+  restoreFrom(
+    accountName: string,
+    backup: AccountBackup,
+    force: boolean,
+  ): Awaitable<Answer<{ tablesWritten: number; rowsWritten: number }>>;
 }
 
 type Awaitable<T> = T | Promise<T>;

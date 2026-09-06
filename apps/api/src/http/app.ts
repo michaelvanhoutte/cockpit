@@ -20,11 +20,16 @@ import {
   ConflictInAccountError,
   NotFoundInAccountError,
   RefusedByAccountError,
+  RegisterDisagreesError,
   RowsFromAnotherAccountError,
   backUpAccount,
   openAccount,
   registerContents,
   registeredAccountNames,
+  restoreAccount,
+  restoreRegister,
+  type AccountBackup,
+  type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
@@ -585,6 +590,46 @@ const routes = app
       // question about the data rather than about the request, so it says what
       // it found and refuses rather than backing up a mixture.
       if (error instanceof RowsFromAnotherAccountError) {
+        return c.json({ error: error.message }, 409);
+      }
+      throw error;
+    }
+  })
+  // Restoring, which is the half that destroys something. Accounts go in first
+  // and the register after, so a user never exists pointing at a store that has
+  // not arrived - the order is the caller's to keep, and the CLI keeps it.
+  .post('/v1/admin/restore/accounts/:name', async (c) => {
+    const accountName = c.req.param('name');
+    const force = c.req.query('force') === 'true';
+    const backup = (await c.req.json()) as AccountBackup;
+    try {
+      return c.json(await restoreAccount(c.env, accountName, backup, force), 200);
+    } catch (error) {
+      // Already holds data and nobody asked to replace it.
+      if (error instanceof ConflictInAccountError) {
+        return c.json({ error: error.message }, 409);
+      }
+      // A backup from a newer version, or one carrying another account's rows.
+      // The request is well formed and the answer is that this file may not go
+      // into this store, which is the caller's to fix.
+      if (error instanceof RefusedByAccountError) {
+        return c.json({ error: error.message }, 400);
+      }
+      throw error;
+    }
+  })
+  .post('/v1/admin/restore/register', async (c) => {
+    const incoming = (await c.req.json()) as RegisterBackup;
+    try {
+      const plan = await restoreRegister(c.env, incoming);
+      return c.json(
+        { accountsCreated: plan.tenantsToCreate.length, usersCreated: plan.usersToCreate.length },
+        200,
+      );
+    } catch (error) {
+      // The backup and this environment disagree about who somebody is, which
+      // is not a thing a restore may decide.
+      if (error instanceof RegisterDisagreesError) {
         return c.json({ error: error.message }, 409);
       }
       throw error;

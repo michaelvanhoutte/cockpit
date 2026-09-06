@@ -60,8 +60,11 @@ export interface ForeignRow {
 /**
  * The store's own bookkeeping, which is not the account's data and is recorded
  * separately as `changesApplied`.
+ *
+ * Exported because a restore has to drop and rewrite it (`restore.ts`), and one
+ * name in one place is what keeps the two halves talking about the same table.
  */
-const CHANGE_LEDGER = 'account_changes';
+export const CHANGE_LEDGER = 'account_changes';
 
 /**
  * The column every row of an account's data carries, naming whose it is
@@ -89,11 +92,23 @@ const ACCOUNT_COLUMN = 'tenant_id';
  */
 export function readStoreAsItStands(sql: SqlStorage): AccountBackup {
   const tables: Record<string, Row[]> = {};
-  for (const name of tableNames(sql)) {
-    if (name === CHANGE_LEDGER) continue;
+  for (const name of accountTables(sql)) {
     tables[name] = rowsOf(sql, name);
   }
   return { changesApplied: changesApplied(sql), tables };
+}
+
+/**
+ * The tables that are the account's own: everything the store holds except the
+ * runtime's and its own ledger.
+ *
+ * One definition, because both halves need it and they must agree - a table a
+ * backup writes out is a table a restore has to clear, and a difference between
+ * those two lists is a table that survives a restore carrying the old
+ * account's rows.
+ */
+export function accountTables(sql: SqlStorage): string[] {
+  return tableNames(sql).filter((name) => name !== CHANGE_LEDGER);
 }
 
 /**
