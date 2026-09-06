@@ -230,24 +230,30 @@ describe('Updating', () => {
     });
 
     /**
-     * A refusal that keeps the server's own words rather than spelling the
-     * status in its message - which is what a refused change is, since those
-     * words are worth repeating to the person who made it. The status is on the
-     * error either way, and reading only the message would have made this half
-     * of the mechanism quietly not work.
+     * A change rather than a read, refused the way a change is refused: with
+     * the server's own words and the status on the error rather than spelled
+     * into the message. Both halves were missing - the status was read only out
+     * of the message, and the gate watched only reads - so a build that *wrote*
+     * to a retired address stayed exactly where it was.
      */
-    it('reads the status off a refusal that does not spell it out', async () => {
+    it('fetches the new version when a change is refused as retired', async () => {
       const reload = vi.fn();
       const client = newClient();
       show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', reload }, scratchMemory());
 
-      await reading(client, () =>
-        Promise.reject(
-          Object.assign(new Error('this address has been retired; the app needs a newer version'), {
-            status: 410,
-          }),
-        ),
-      );
+      await client
+        .getMutationCache()
+        .build(client, {
+          mutationFn: () =>
+            Promise.reject(
+              Object.assign(
+                new Error('this address has been retired; the app needs a newer version'),
+                { status: 410 },
+              ),
+            ),
+        })
+        .execute(undefined)
+        .catch(() => undefined);
 
       await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     });
