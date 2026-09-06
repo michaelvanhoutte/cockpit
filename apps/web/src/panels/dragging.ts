@@ -93,24 +93,26 @@ export function placementFor(
 }
 
 /**
- * A row of its own in the gap under `above`, named by the last panel on that
- * row - or at the top of the board, where the gap has no row above it.
+ * A row of its own in the gap under `above`, named by a panel on that row - or
+ * at the top of the board, where the gap has no row above it.
  *
- * Null where the panel being dragged is *alone* on that row, for the reason a
- * slot naming it is: the gap under a row it already has to itself is where it
- * already is, and there is nothing to change.
+ * **Named by a panel that is not the one being dragged**, which is the whole
+ * rule and the one this got wrong three times. The row above is the row as
+ * *drawn*, and what is drawn already has the dragged panel moved; the placement
+ * is applied to the arrangement the drag started from. Every panel means the
+ * same thing in both - except that one, which is the only thing the drag has
+ * moved. Naming the gap after it resolved, in the arrangement being moved, to
+ * the line the panel was already on, so the preview snapped home and a release
+ * sent nothing.
  *
- * **Alone, not merely last.** Being the last of several is the opposite case -
- * the gap under a row it is sharing is a line of its own, which is the one move
- * that takes a panel off a row it shares and the whole point of dragging it
- * downwards.
+ * So the anchor is the last panel up there that is not the one in hand, and a
+ * row holding nothing else is the row the panel already has to itself - which
+ * is where it already is, and nothing to change.
  */
 function inTheGapUnder(above: DrawnRow | undefined, dragged: string): Placement | null {
   if (!above) return { on: 'ownRow', under: null };
-  const last = above.cells[above.cells.length - 1];
-  if (!last) return { on: 'ownRow', under: null };
-  const aloneUpThere = above.cells.length === 1 && last.panelId === dragged;
-  return aloneUpThere ? null : { on: 'ownRow', under: last.panelId };
+  const anchor = [...above.cells].reverse().find((cell) => cell.panelId !== dragged);
+  return anchor ? { on: 'ownRow', under: anchor.panelId } : null;
 }
 
 /**

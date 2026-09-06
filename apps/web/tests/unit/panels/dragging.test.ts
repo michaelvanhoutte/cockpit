@@ -67,13 +67,28 @@ describe('Panels', () => {
       expect(placementFor({ x: 300, y: 400 }, rows, 'a')).toEqual({ on: 'ownRow', under: 'c' });
     });
 
-    it('takes the gap under a row the panel is only sharing, which is a line of its own', () => {
-      // The one move that gets a panel off a row it shares, and the whole point
-      // of dragging it downwards. It is the opposite of the gap under a row the
-      // panel has to itself, which is where it already is - and a guard that
-      // asked whether it was merely the *last* panel up there confused the two
-      // and did nothing at all.
-      expect(placementFor({ x: 300, y: 110 }, rows, 'b')).toEqual({ on: 'ownRow', under: 'b' });
+    it('names the gap under a row the panel shares by the panel it is sharing with', () => {
+      // Two things at once, and both were got wrong in turn. The gap under a row
+      // a panel is *sharing* is a line of its own - the one move that takes a
+      // panel off a shared row, and the whole point of dragging it downwards -
+      // where the gap under a row it has to itself is where it already is. And
+      // the panel that names it has to be one the drag has not moved: `b` is
+      // drawn here and somewhere else in the arrangement this will be applied
+      // to, so naming the gap after it points at a different gap there.
+      expect(placementFor({ x: 300, y: 110 }, rows, 'b')).toEqual({ on: 'ownRow', under: 'a' });
+    });
+
+    it('names it by the panel beside it even where the dragged one is drawn last', () => {
+      // The shape a drag actually reaches: a panel dropped onto the end of
+      // another row, then pushed down into the seam below it. The row above the
+      // gap is then `[a, c]` with `c` the one in hand, so the last panel up
+      // there is the one panel that cannot name anything.
+      const drawnMidDrag = drawn([['a', 'c'], ['b']]);
+
+      expect(placementFor({ x: 300, y: 110 }, drawnMidDrag, 'c')).toEqual({
+        on: 'ownRow',
+        under: 'a',
+      });
     });
 
     it('asks for nothing on a dashboard with no rows to be over', () => {
@@ -99,6 +114,79 @@ describe('Panels', () => {
       // the slot before that neighbour, which is a real place to go.
       expect(placementFor({ x, y: 50 }, rows, 'b')).toBeNull();
     });
+  });
+
+  describe('a pointer held still settles the arrangement rather than flipping it', () => {
+    /**
+     * The rule the whole gesture rests on, and the one four separate bugs broke
+     * in turn.
+     *
+     * A placement is measured against the rows *as drawn* - which already show
+     * the preview - and applied to the arrangement the drag started from. The
+     * board therefore feeds itself: what it draws changes what the next reading
+     * says. Held still, that has to come to rest. Where it did not, the preview
+     * flipped between two arrangements for as long as the pointer twitched, and
+     * a release landing on the wrong frame sent nothing at all while the panel
+     * had visibly moved.
+     *
+     * **Settling, not standing still on the first reading.** Moving a panel
+     * moves the rows under the pointer, so one further step is honest: the
+     * pointer really is over something else now. What is not allowed is a cycle
+     * - two arrangements trading places for ever - and that is what this walks
+     * every slot and every seam of a board looking for.
+     *
+     * Each of those four bugs was found in review, one case at a time, each fix
+     * narrower than the last. This asks the rule instead.
+     */
+    const boards = [
+      [['a'], ['b'], ['c']],
+      [['a', 'b'], ['c']],
+      [['a'], ['b', 'c']],
+      [['a', 'b', 'c']],
+    ];
+
+    /** Every place on the board a pointer can be: along each row, and in each seam. */
+    function everywhere(rows: DrawnRow[]): { x: number; y: number }[] {
+      const spots: { x: number; y: number }[] = [{ x: 300, y: rows[0]!.top - 11 }];
+      for (const row of rows) {
+        const middle = (row.top + row.bottom) / 2;
+        for (const cell of row.cells) {
+          spots.push({ x: cell.left + 5, y: middle });
+          spots.push({ x: (cell.left + cell.right) / 2 + 5, y: middle });
+          spots.push({ x: cell.right - 5, y: middle });
+        }
+        spots.push({ x: 300, y: row.bottom + 11 });
+      }
+      return spots;
+    }
+
+    it.each(boards.flatMap((board) => board.flat().map((dragged) => ({ board, dragged }))))(
+      'settles anywhere on $board while $dragged is in hand',
+      ({ board, dragged }) => {
+        const from = stored(board);
+
+        for (const spot of everywhere(drawn(board))) {
+          let preview = from;
+          const seen: string[] = [];
+          // Four readings is generous: a move takes one, and the step the moved
+          // rows buy takes another. A board still changing on the fourth is one
+          // that is never going to stop.
+          for (let reading = 0; reading < 4; reading += 1) {
+            seen.push(JSON.stringify(lines(preview)));
+            const placement = placementFor(spot, drawn(lines(preview)), dragged);
+            if (!placement) break;
+            preview = arrangedWith(from, dragged, placement);
+          }
+
+          const settled = JSON.stringify(lines(preview));
+          expect(
+            seen[seen.length - 1],
+            `at (${spot.x}, ${spot.y}) with ${dragged} in hand, the board never came to rest: ` +
+              seen.join(' then '),
+          ).toEqual(settled);
+        }
+      },
+    );
   });
 
   describe('the arrangement a placement would produce is what the board draws', () => {
