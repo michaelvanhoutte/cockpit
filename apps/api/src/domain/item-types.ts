@@ -11,7 +11,7 @@ import { foldName } from './names.js';
  * The one of `taken` already going by this name, or undefined.
  *
  * Folded through `foldName` like every other name in the app, which is what
- * makes `Thought` and `thought` the same name - and what makes naming a type
+ * makes `Note` and `note` the same name - and what makes naming a type
  * you already have reuse it rather than making a second one.
  */
 export function itemTypeNamed(
