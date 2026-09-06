@@ -77,15 +77,21 @@ export const SAME_SCREEN_TOLERANCE = 40;
  * What to call a layout on screen: its name, or the width it was made for where
  * it has none.
  *
- * **A layout with no name is a real state and not a bug.** For the seconds both
- * versions of the Worker are serving the deploy that introduced names, old code
- * can still create one, and it writes none (apps/api/src/accounts/changes.ts,
- * `0011-layout-names`). Drawing it as the width is what the app called every
- * layout before this, so such a row reads as it always did rather than as a
- * blank entry in a menu.
+ * **A layout with no name is a real state and not a bug**, and it arrives two
+ * ways. For the seconds both versions of the Worker are serving the deploy that
+ * introduced names, old code can still create one, and it writes none
+ * (apps/api/src/accounts/changes.ts, `0011-layout-names`) - an empty name. And
+ * a copy stored before that deploy has no name *field* at all, because what
+ * comes back out of IndexedDB is never parsed again and so never gains the
+ * schema's default (persistence.tsx) - which is why the `?? ''` stands against
+ * a type that says `string`, and why reading it took a whole workspace off the
+ * screen.
+ *
+ * Drawing either as the width is what the app called every layout before this,
+ * so such a row reads as it always did rather than as a blank entry in a menu.
  */
 export function layoutLabel(layout: Layout): string {
-  return layout.name.trim() || `${layout.screenWidth} px`;
+  return (layout.name ?? '').trim() || `${layout.screenWidth} px`;
 }
 
 /**
