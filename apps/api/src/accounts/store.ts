@@ -9,7 +9,7 @@ import type {
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
-import type { AccountStoreRpc } from './rpc.js';
+import type { AccountStoreRpc, RestoreReport } from './rpc.js';
 import { accountChanges } from './changes.js';
 import {
   CHANGE_LEDGER,
@@ -168,7 +168,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     accountName: string,
     backup: AccountBackup,
     force: boolean,
-  ): Answer<{ tablesWritten: number; rowsWritten: number }> {
+  ): Answer<RestoreReport> {
     const changes = accountChanges(accountName);
     const unknown = backup.changesApplied.filter(
       (name) => !changes.some((change) => change.name === name),
@@ -268,10 +268,25 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     // been opened, which is the ordinary state of a newly added user.
     if (backup.changesApplied.length === 0) return { status: 'ok', value: written };
 
+    // **The rows are in, so this answers `ok` however this goes.** Bringing an
+    // account up to date is the ordinary path every account takes after a
+    // deploy, and it failing here says the change list will not apply - which
+    // is true of every account, restored or not, and is fixed by fixing the
+    // change list rather than by restoring again.
+    //
+    // Answering with a failure instead would be the dangerous lie: the drop,
+    // the replay and the rows have already committed, so a caller told this
+    // account was not restored would re-run believing its data untouched, when
+    // it has in fact already been replaced. The warning says what is pending;
+    // the next request retries it, exactly as it would for an account nobody
+    // had opened yet.
     try {
       this.#bringUpToDate(accountName);
     } catch (error) {
-      return { status: 'not-up-to-date', failure: (error as Error).message };
+      return {
+        status: 'ok',
+        value: { ...written, notUpToDate: (error as Error).message },
+      };
     }
     return { status: 'ok', value: written };
   }

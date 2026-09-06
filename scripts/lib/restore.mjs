@@ -92,6 +92,16 @@ export async function putBack({ ask, backup, only, force, say = () => {} }) {
       );
       done.push({ account, ...written });
       say(`  ${account}: ${written.rowsWritten} rows`);
+      // The rows are in and the account is still behind the current version -
+      // a success carrying a warning, not a failure. Said loudly because
+      // nothing else will: the next request retries it, and until one comes
+      // the account is at the shape the backup was taken at.
+      if (written.notUpToDate) {
+        say(
+          `  ${account}: restored, but not yet brought up to date - ${written.notUpToDate}\n` +
+            '    Its rows are in. The change list has to apply before anybody can open it.',
+        );
+      }
     } catch (error) {
       // Stopped at the first failure rather than carried on, and what did go in
       // is named: a run that reports only its last error leaves somebody to
@@ -129,13 +139,22 @@ function listed(names) {
 }
 
 /**
- * What one refusal from a restore route means.
+ * What one refusal from a restore route means, for the route it came from.
  *
- * The one status restoring reads differently is 409, which is the only refusal
- * in either command with a way forward - so it carries it, rather than leaving
- * somebody to find `--force` in the help.
+ * **The `--force` advice belongs to an account's 409 and to nothing else.**
+ * Both routes answer 409 and they mean different things: an account already
+ * holding data, which `--force` is exactly the answer to, and a register that
+ * disagrees about who somebody is, which has no force and no flag - the
+ * environment and the backup name the same person differently, and a command
+ * may not decide that.
+ *
+ * Telling somebody to re-run with `--force` on a register collision is worse
+ * than unhelpful, because accounts are restored before the register: following
+ * the advice replaces every targeted account's data - past the guard that was
+ * protecting it - and then meets the identical refusal.
  */
-export function readRefusal(answer) {
+export function readRefusal(answer, path = '') {
+  if (path.endsWith('/restore/register')) return readAnswer(answer);
   return readAnswer(answer, {
     409: (why) => `refused: ${why}\n\nPass --force to replace what is there.`,
   });

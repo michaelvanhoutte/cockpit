@@ -73,7 +73,22 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
     backup: AccountBackup,
     force: boolean,
-  ): Awaitable<Answer<{ tablesWritten: number; rowsWritten: number }>>;
+  ): Awaitable<Answer<RestoreReport>>;
 }
 
 type Awaitable<T> = T | Promise<T>;
+
+/**
+ * What a restore did.
+ *
+ * `notUpToDate` is a warning on a success rather than a failure: by the time it
+ * can be set, the rows are already committed. Saying the restore failed would
+ * send somebody to re-run it believing the account untouched, when it has
+ * already been replaced - see `restoreFrom` in `store.ts`.
+ */
+export interface RestoreReport {
+  tablesWritten: number;
+  rowsWritten: number;
+  /** Why the account is still behind the current version, where it is. */
+  notUpToDate?: string;
+}

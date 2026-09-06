@@ -132,7 +132,7 @@ async function ask(path, body) {
   } catch {
     answer = { status: 0, body: '' };
   }
-  if (answer.status !== 200) throw new Error(readRefusal(answer));
+  if (answer.status !== 200) throw new Error(readRefusal(answer, path));
   return JSON.parse(answer.body);
 }
 

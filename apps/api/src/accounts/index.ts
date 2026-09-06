@@ -9,6 +9,7 @@ import type {
 import type { Env } from '../env.js';
 import { accountIsRegistered } from './register.js';
 import { describeForeignRows, type AccountBackup } from './backup.js';
+import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 
 export type { AccountSnapshot } from './answer.js';
@@ -163,7 +164,7 @@ export async function restoreAccount(
   accountName: string,
   backup: AccountBackup,
   force: boolean,
-): Promise<{ tablesWritten: number; rowsWritten: number }> {
+): Promise<RestoreReport> {
   const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
   return unwrap(await store.restoreFrom(accountName, backup, force));
 }

@@ -224,7 +224,7 @@ describe('restoring refuses what it cannot act on, and says why', () => {
 });
 
 describe('a refusal to restore says which of the things somebody typed was wrong', () => {
-  for (const { situation, answer, says } of [
+  for (const { situation, answer, says, path, never } of [
     {
       situation: 'the secret was not accepted',
       answer: { status: 401, body: '{"error":"not allowed"}' },
@@ -246,6 +246,18 @@ describe('a refusal to restore says which of the things somebody typed was wrong
       answer: { status: 0, body: '' },
       says: /is the environment up/,
     },
+    // Both routes answer 409 and they mean different things. A register that
+    // disagrees about who somebody is has no force and no flag, and telling
+    // somebody to re-run with --force is worse than unhelpful: accounts go in
+    // first, so following it replaces their data past the guard that was
+    // protecting it and then meets the identical refusal.
+    {
+      situation: 'the register disagrees about who somebody is',
+      answer: { status: 409, body: '{"error":"the address is already in the register"}' },
+      path: '/v1/admin/restore/register',
+      says: /already in the register/,
+      never: /--force/,
+    },
     {
       situation: 'something nobody planned for',
       answer: { status: 500, body: 'gateway fell over' },
@@ -253,7 +265,43 @@ describe('a refusal to restore says which of the things somebody typed was wrong
     },
   ]) {
     it(`says so when ${situation}`, () => {
-      assert.match(readRefusal(answer), says);
+      const said = readRefusal(answer, path ?? '/v1/admin/restore/accounts/tenant-a');
+      assert.match(said, says);
+      if (never) assert.doesNotMatch(said, never);
     });
   }
+
+  it('offers --force on an account that already holds data, where it is the answer', () => {
+    assert.match(
+      readRefusal(
+        { status: 409, body: '{"error":"already holds data"}' },
+        '/v1/admin/restore/accounts/tenant-a',
+      ),
+      /--force to replace/,
+    );
+  });
+});
+
+describe('restoring says when an account is in but not yet up to date', () => {
+  // The rows are committed by the time this can be reported, so it is a
+  // success carrying a warning. Reporting it as a failure would send somebody
+  // to re-run believing the account untouched, when it has been replaced.
+  it('names the account and what is still pending', async () => {
+    const ask = async (path) =>
+      path === '/v1/admin/restore/register'
+        ? { accountsCreated: 0, usersCreated: 0 }
+        : { tablesWritten: 1, rowsWritten: 3, notUpToDate: 'change 0009 failed: no such column' };
+    const said = [];
+
+    const done = await putBack({
+      ask,
+      backup: backupOf({ accounts: ['tenant-a'] }),
+      force: false,
+      say: (line) => said.push(line),
+    });
+
+    assert.equal(done.accounts.length, 1);
+    assert.ok(said.some((line) => /not yet brought up to date/.test(line)));
+    assert.ok(said.some((line) => /no such column/.test(line)));
+  });
 });

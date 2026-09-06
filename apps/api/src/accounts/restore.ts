@@ -123,7 +123,9 @@ export function writeRows(
     const rows = backup.tables[table] ?? [];
     if (rows.length === 0) continue;
     const columns = Object.keys(rows[0]!);
-    if (columns.length === 0) continue;
+    // Checked before anything is skipped for having no columns, because a row
+    // with none is itself something to refuse rather than a table to pass over
+    // - the same silent skip `nowhereToPutThem` exists to stop, one line up.
     sameShapeThroughout(table, rows, columns);
     const columnList = columns.map((column) => `"${quoted(column)}"`).join(', ');
 
@@ -180,6 +182,14 @@ function nowhereToPutThem(backup: AccountBackup, order: readonly string[]): void
  * Which is the one thing a backup exists to prevent.
  */
 function sameShapeThroughout(table: string, rows: readonly Row[], columns: readonly string[]): void {
+  // A row with no columns at all is refused rather than skipped. Skipping it
+  // dropped the whole table - every row of it - and answered 200, which is the
+  // failure this function is next to `nowhereToPutThem` to prevent. The wire
+  // schema does not stop it either: a row is an open record, so `{}` is a valid
+  // one as far as the route can tell.
+  if (columns.length === 0) {
+    throw new Error(`the backup's ${table} rows carry no columns at all, so none of them can be put back`);
+  }
   const expected = [...columns].sort().join(',');
   for (const [at, row] of rows.entries()) {
     const found = Object.keys(row).sort().join(',');

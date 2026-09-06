@@ -371,6 +371,23 @@ describe('Backup', () => {
      * it writes NULL for a column a later row lacks and drops one it gained,
      * both landing as a restore that reports success having lost data.
      */
+    /**
+     * The same silent skip one line further up. A row is an open record as far
+     * as the wire schema can tell, so `{}` is a valid one - and skipping the
+     * table for having no columns dropped every row it held and answered 200.
+     */
+    it('refuses a table whose rows carry no columns at all', async () => {
+      await captureInto(USER_ID, 'mine');
+      const taken = await backUp(ACCOUNT_NAME);
+      const empty = { ...taken, tables: { ...taken.tables, workspaces: [{}, {}] } };
+
+      const res = await restore(ACCOUNT_NAME, empty, { force: true });
+
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain('no columns at all');
+      expect(messagesIn(await backUp(ACCOUNT_NAME))).toContain('mine');
+    });
+
     it('refuses a table whose rows do not all carry the same columns', async () => {
       await captureInto(USER_ID, 'mine');
       const taken = await backUp(ACCOUNT_NAME);
