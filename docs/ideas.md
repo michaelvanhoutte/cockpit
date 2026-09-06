@@ -64,7 +64,7 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 ## 7. Platform, users and operations
 
 - ~~**Multiple users, staged.** Start without authentication: pick a name off the logon page, no password. Add OAuth and password support afterwards.~~ *(Done, both halves: "Sign in by picking a name, each user in their own account" (issue 86) and "Sign in with Google, and retire the list of names" (issue 196). Passwords are not coming — Google-only is the decision in "App login" in [architecture.md](architecture.md), which is what keeps password storage, reset flows and email verification out of the system entirely.)*
-- **Admin section for user management**: its own pages to delete a user, reset a password, and the rest of day-to-day administration. *(Still open, and the nearest thing to due: adding a user is a hand-written row in the register.)*
+- **Admin section for user management**: its own pages to delete a user, reset a password, and the rest of day-to-day administration. *(Still open. Adding one is no longer by hand — `pnpm user:add` does it, "Add a user from the command line" (issue 87) — so what is left here is the rest, and a UI for all of it.)*
 - ~~**Roles from the start**, so role logic is in the code from the beginning rather than retrofitted.~~ *(Done as asked: every user carries `user` or `admin` since issue 86. Nothing enforces it, because there is no admin-only page yet — the admin section above brings the first gate.)*
 - **Multi-tenancy.**
 - **Audit trail.**

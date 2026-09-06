@@ -6,8 +6,10 @@
 -- their own account", issue 86). Nothing is shared: separate accounts means
 -- separate stores, and the platform cannot join across them.
 --
--- Adding a third from the command line is its own piece of work; this file is
--- what a fresh environment starts with.
+-- This file is what a fresh environment starts with, and nothing is added to it
+-- afterwards: a third person is `pnpm user:add --name ... --email ...`, which
+-- writes the same two rows through the operator routes ("Add a user from the
+-- command line", issue 87).
 --
 -- **No sessions are seeded.** A sign-in is something a person does, and a row
 -- put here would be a credential checked into a public repository.

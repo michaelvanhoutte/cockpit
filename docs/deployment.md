@@ -353,7 +353,7 @@ wrangler secret put <NAME> --env staging
 
 | Secret | What it is for |
 |---|---|
-| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. Put one in **both** environments — they are not inheritable, and an environment without one refuses those routes rather than opening them. `pnpm backup:export` reads the same value from `COCKPIT_BACKUP_TOKEN`, an environment variable rather than a flag so it stays out of shell history. Locally it goes in `apps/api/.dev.vars`, which is gitignored. |
+| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data and write the register. Put one in **both** environments — they are not inheritable, and an environment without one refuses those routes rather than opening them. Every operator command — `pnpm backup:export`, `pnpm backup:restore` and `pnpm user:add` — reads the same value from `COCKPIT_BACKUP_TOKEN`, an environment variable rather than a flag so it stays out of shell history. Locally it goes in `apps/api/.dev.vars`, which is gitignored. |
 
 CI needs, in GitHub:
 
@@ -558,6 +558,14 @@ wrangler d1 execute cockpit --remote --command "INSERT OR IGNORE INTO users (id,
 
 `INSERT OR IGNORE`, so it is safe to run twice, and the account it names is the
 one that environment already has — the workspaces and items in it are untouched.
+It stays written out because it is the one insert that attaches a person to an
+account that is *already there*; **everybody after the first is `pnpm user:add`**
+("Add a user from the command line", issue 87), which gives them an account of
+their own and refuses a name or an address the register already holds:
+
+```bash
+COCKPIT_BACKUP_TOKEN=... pnpm user:add --name "Anna" --email anna@example.com --env production
+```
 
 **No sign-ins are seeded**, and `seed.sql` has no column for a secret to put in
 one: signing in is a Google account, and what the seed carries is a placeholder

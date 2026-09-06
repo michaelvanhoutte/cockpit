@@ -77,6 +77,17 @@ rm -rf apps/api/.wrangler/state/v3/do
 
 Never fix it by renaming the change back to what the store recorded; that trades one stale ledger for another.
 
+### Adding a user
+
+```bash
+COCKPIT_BACKUP_TOKEN=... pnpm user:add --name "Anna" --email anna@example.com
+COCKPIT_BACKUP_TOKEN=... pnpm user:add --name "Anna" --email anna@example.com --env production
+```
+
+Anna then signs in with that Google account and lands in an account of her own, which is empty until she opens it. `--env` defaults to `local`; nothing is deployed and no configuration is edited, because the register is the allowlist and putting somebody in it is the whole operation.
+
+**The address is what makes the user real**, so it is required and one already in the register is refused rather than quietly attached to a second person. The name is what the account is named after, and the ids are derived from it (`Anna Müller` → `tenant-anna-muller`), so a name already taken is refused too. Removing, renaming and disabling a user are not here — adding is what stopped there being more than two people.
+
 ### Taking a backup, and putting one back
 
 Writes an environment to local JSON — the register, and each account's own store in a file of its own:

@@ -26,6 +26,11 @@ const WORKERS = Object.freeze({
  * **Local has no fixed port**, so none is written here: a linked worktree gets
  * its own pair derived from its path, which is what lets several run at once
  * (scripts/lib/ports.mjs). The caller passes the one `portsFor` gave it.
+ *
+ * **The refusals name no operation**, because all three operator commands ask
+ * this - `backup:export`, `backup:restore` and `user:add` - and one that said
+ * "backing up production needs..." to somebody adding a user names the right
+ * variable and the wrong thing done with it.
  */
 export function addressOf(environment, { subdomain, apiPort } = {}) {
   if (environment === 'local') {
@@ -40,7 +45,7 @@ export function addressOf(environment, { subdomain, apiPort } = {}) {
   }
   if (!subdomain) {
     throw new Error(
-      `backing up ${environment} needs CLOUDFLARE_WORKERS_SUBDOMAIN, the workers.dev subdomain it is served from`,
+      `reaching ${environment} needs CLOUDFLARE_WORKERS_SUBDOMAIN, the workers.dev subdomain it is served from`,
     );
   }
   return `https://${worker}.${subdomain}.workers.dev`;
