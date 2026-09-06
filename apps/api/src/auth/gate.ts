@@ -45,8 +45,18 @@ export const SESSION_COOKIE = 'cockpit_session';
  * changes what anybody is already holding.
  */
 export function sessionCookieName(url: string): string {
+  return perStack(SESSION_COOKIE, url);
+}
+
+/**
+ * The same name, per stack, for every cookie this application sets - which is
+ * both of them: the sign-in and the sign-in being attempted. Written once,
+ * because two copies of this rule is two chances for one cookie to be shared
+ * between stacks while the other is not.
+ */
+function perStack(name: string, url: string): string {
   const { port } = new URL(url);
-  return port ? `${SESSION_COOKIE}_${port}` : SESSION_COOKIE;
+  return port ? `${name}_${port}` : name;
 }
 
 /**
@@ -201,8 +211,7 @@ const ATTEMPT_COOKIE = 'cockpit_sign_in';
 const ATTEMPT_LIFETIME_S = 10 * 60;
 
 function attemptCookieName(url: string): string {
-  const { port } = new URL(url);
-  return port ? `${ATTEMPT_COOKIE}_${port}` : ATTEMPT_COOKIE;
+  return perStack(ATTEMPT_COOKIE, url);
 }
 
 export function rememberAttempt(c: Context, attempt: Attempt): void {

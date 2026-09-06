@@ -61,25 +61,23 @@ function callbackUrl(c: Context): string {
 }
 
 /**
- * A sign-in that will not be completed.
+ * A sign-in that will not be completed, whether something was wrong with it or
+ * something broke.
  *
- * **Why it failed goes to the log and never to the browser.** Each of these
- * names something an attacker got wrong, and the person actually signing in can
- * do nothing with any of them; the page says the sign-in failed and offers to
- * start another.
+ * **Why goes to the log and never to the browser.** Each reason names something
+ * an attacker got wrong, and the person actually signing in can do nothing with
+ * any of them; the page says the sign-in failed and offers to start another.
+ * The one refusal they *can* act on - a Google account this Cockpit does not
+ * know - is the one the callback answers with a reason of its own.
  */
-function refuse(c: Context, reason: string) {
-  console.error(JSON.stringify({ level: 'error', message: `sign-in refused: ${reason}` }));
-  return c.redirect('/signin?refused=failed', 302);
-}
-
-/** The same, for something that broke rather than something that was wrong. */
-function giveUp(c: Context, reason: string, error: unknown) {
+function refuse(c: Context, reason: string, cause?: unknown) {
   console.error(
     JSON.stringify({
       level: 'error',
-      message: `sign-in failed: ${reason}`,
-      cause: error instanceof Error ? error.message : String(error),
+      message: `sign-in refused: ${reason}`,
+      ...(cause === undefined
+        ? {}
+        : { cause: cause instanceof Error ? cause.message : String(cause) }),
     }),
   );
   return c.redirect('/signin?refused=failed', 302);
@@ -471,7 +469,7 @@ const routes = app
       );
       return c.redirect(url, 302);
     } catch (error) {
-      return giveUp(c, 'the issuer could not be reached', error);
+      return refuse(c, 'the issuer could not be reached', error);
     }
   })
   /**
@@ -527,7 +525,7 @@ const routes = app
       rememberSessionCookie(c, signedIn.sessionId);
       return c.redirect('/', 302);
     } catch (error) {
-      return giveUp(c, 'the sign-in could not be finished', error);
+      return refuse(c, 'the sign-in could not be finished', error);
     }
   })
   // --- push invalidation: an SSE doorbell, not a data channel ----------------

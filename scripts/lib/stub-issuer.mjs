@@ -36,7 +36,12 @@ import { readFileSync } from 'node:fs';
  * nobody, which is visible the moment anybody tries to sign in.
  */
 export function accountsIn(seedPath) {
-  const seed = readFileSync(seedPath, 'utf8');
+  // Comments first, or the file's own prose about placeholder addresses becomes
+  // a person you can sign in as.
+  const seed = readFileSync(seedPath, 'utf8')
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('--'))
+    .join('\n');
   const addresses = [...seed.matchAll(/'([^'\s]+@[^'\s]+)'/g)].map((match) => match[1]);
   return [...new Set(addresses)];
 }
