@@ -163,7 +163,7 @@ test.describe('Panels', () => {
       await expectTheDashboardFits(page);
 
       // Renaming happens in the panel's own header, from its own menu, which is
-      // the same two gestures every row of a settings page takes.
+      // the same two gestures every row of a management window takes.
       const renamed = uniqueTitle('Falcon');
       await chooseRowAction(page, falcon, 'Rename', isMobile);
       await page.getByLabel(`New name for ${falcon}`).fill(renamed);
