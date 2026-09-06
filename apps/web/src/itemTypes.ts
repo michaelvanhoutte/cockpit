@@ -51,13 +51,14 @@ export function typesOffered(types: readonly ItemType[], items: readonly Item[])
   return [...recent, ...types.filter((type) => !recent.some((used) => used.id === type.id))];
 }
 
-/** What capture opens on: the type used last, or the first there is. */
-export function typeToOffer(
-  types: readonly ItemType[],
-  items: readonly Item[],
-): ItemType | undefined {
-  return typesOffered(types, items)[0];
-}
+/**
+ * What a capture surface says where the account has no types at all, which is
+ * reachable by deleting every one of them. Said the same way by both front
+ * doors - the Capture page's chip row and the Inbox's own row - because they
+ * refuse the same capture for the same reason, and it names the one window that
+ * gets you out of it.
+ */
+export const NO_TYPES = 'No types yet — make one in Settings → Manage types.';
 
 /** The type an item is, or undefined - which a row draws as having none. */
 export function typeOf(types: readonly ItemType[], item: Item): ItemType | undefined {

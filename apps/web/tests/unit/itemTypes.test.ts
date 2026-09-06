@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Item, ItemType } from '@cockpit/shared';
-import { typeOf, typesOffered, typeToOffer } from '../../src/itemTypes';
+import { typeOf, typesOffered } from '../../src/itemTypes';
 
 /**
  * F1: which types capture offers is a view over the snapshot evaluated in the
@@ -96,7 +96,6 @@ describe('Capture', () => {
 
     it('offers nothing when the account has no types', () => {
       expect(typesOffered([], used())).toEqual([]);
-      expect(typeToOffer([], used())).toBeUndefined();
     });
 
     it('offers the rest in the order the types page put them in', () => {
@@ -119,10 +118,6 @@ describe('Capture', () => {
         'Question',
         'Thought',
       ]);
-    });
-
-    it('opens on the one used last', () => {
-      expect(typeToOffer(EVERY, used(ACTION, QUESTION))?.name).toBe('Question');
     });
   });
 

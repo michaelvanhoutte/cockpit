@@ -5,6 +5,7 @@ import type { Workspace } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   OTHER_USER_ID,
+  TASK_TYPE_ID,
   USER_ID,
   WORKSPACE_ID,
   asUser,
@@ -126,6 +127,7 @@ async function captureInto(workspaceId: string, message: string): Promise<string
       workspaceId,
       itemId,
       message,
+      typeId: TASK_TYPE_ID,
     }),
   });
   return itemId;

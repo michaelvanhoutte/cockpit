@@ -11,6 +11,12 @@ import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountStoreRpc } from './rpc.js';
 import { accountChanges } from './changes.js';
+import {
+  foreignRows,
+  readStoreAsItStands,
+  type AccountBackup,
+  type ForeignRow,
+} from './backup.js';
 import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations } from './events.js';
 import {
@@ -111,6 +117,22 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     payload: CommandPayload<N>,
   ): Answer<CommandResult> {
     return this.#answer(accountName, (db) => runCommand(db, accountName, name, payload));
+  }
+
+  /**
+   * The store as it stands, for a backup - the one way in that does **not**
+   * bring the account up to date first.
+   *
+   * Every other method here starts by applying whatever changes are
+   * outstanding, which is right when somebody is about to use their data and
+   * wrong when a backup is being taken: backing up every account would then
+   * wake and migrate all of them at once, turning a read into the riskiest
+   * write there is. The reasoning, and what the recorded change list is then
+   * for, is in `backup.ts`.
+   */
+  exportAsItStands(accountName: string): { backup: AccountBackup; foreign: ForeignRow[] } {
+    const backup = readStoreAsItStands(this.ctx.storage.sql);
+    return { backup, foreign: foreignRows(backup, accountName) };
   }
 
   /**

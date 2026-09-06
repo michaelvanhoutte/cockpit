@@ -15,6 +15,34 @@ describe('Capture', () => {
           message: 'x',
         },
       },
+      // Every Item is some kind of thing, so a capture that says nothing about
+      // what kind never reaches the account. It stopped being optional when
+      // both pickers stopped offering *No type*; a front door with nobody to
+      // answer waits for auto-detection rather than writing an Item with none.
+      {
+        situation: 'saying nothing about what kind of thing it is',
+        capture: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: 'ws-work',
+          itemId: uuidv7(),
+          message: 'x',
+        },
+      },
+      // Guards the `min(1)` rather than the requirement above it: a blank
+      // string is a field filled in with nothing, which is the shape a form
+      // sends when somebody clears it.
+      {
+        situation: 'naming an empty type',
+        capture: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: 'ws-work',
+          itemId: uuidv7(),
+          message: 'x',
+          typeId: '',
+        },
+      },
     ])('$situation', ({ capture }) => {
       expect(captureItemSchema.safeParse(capture).success).toBe(false);
     });
@@ -49,6 +77,7 @@ describe('Capture', () => {
         workspaceId: 'ws-work',
         itemId: uuidv7(),
         message,
+        typeId: 'tenant-default-type-action',
       });
       expect(parsed.success).toBe(accepted);
     });
@@ -62,6 +91,7 @@ describe('Capture', () => {
         workspaceId: 'ws-work',
         itemId: uuidv7(),
         message: 'Make appointment with Novy',
+        typeId: 'tenant-default-type-action',
       });
       expect(parsed.success).toBe(true);
     });

@@ -1,0 +1,9 @@
+# Copy to .dev.vars, which is gitignored. Secrets live in the platform's own
+# store in a deployed environment (docs/deployment.md, "Secrets and access");
+# this file is only how `pnpm dev` gets them.
+
+# The only thing in front of the operator routes under /v1/admin/, which hand
+# back every account's data. `pnpm backup:export --env local` sends the same
+# value, read from COCKPIT_BACKUP_TOKEN. Any string works locally; a deployed
+# environment gets a long random one via `wrangler secret put BACKUP_TOKEN`.
+BACKUP_TOKEN=local-operator-secret

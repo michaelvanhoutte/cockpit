@@ -41,6 +41,12 @@
       "sourcePatterns": []
     },
     {
+      "key": "Backup",
+      "label": "Backup",
+      "parent": "Accounts",
+      "sourcePatterns": ["apps/api/src/accounts/backup.ts", "apps/api/src/auth/admin.ts"]
+    },
+    {
       "key": "Workspaces",
       "label": "Workspaces",
       "sourcePatterns": []
