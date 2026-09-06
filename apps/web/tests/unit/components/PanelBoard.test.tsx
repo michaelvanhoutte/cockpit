@@ -157,50 +157,97 @@ async function choose(user: ReturnType<typeof userEvent.setup>, panel: string, e
  * is what a row of a panel's list carries, and it is how a panel being moved is
  * told apart from an item being filed.
  */
-const dataTransfer = { types: [] as string[], setData: () => undefined, effectAllowed: '' };
-
 /**
- * Picks a panel up by its header and drops it on one side of another.
+ * Lays the board out, because jsdom does not.
  *
- * The half of the browser the drag needs is stood in for here, and only that
- * half: jsdom performs no drag and measures every element as zero pixels wide,
- * so which side of a panel the pointer was on is handed over rather than
- * measured. What is under test is the board's half - what the drop *means* -
- * and the browser tier is where a real pointer exists.
+ * A drag asks where the rows and the panels actually are (`panels/dragging.ts`)
+ * and jsdom measures every element as zero pixels in the same place, so a drag
+ * driven here would read every pointer position as the first slot of the first
+ * row. The geometry is handed over instead: rows 100 tall, stacked with the
+ * 22-pixel seam the board opens between them, and the panels across a row
+ * splitting 0-600 evenly.
+ *
+ * What this stands in for is the page's measurements, and only those. That the
+ * page really puts the rows where this says is the browser's half, and is the
+ * walk in tests/e2e/panels.test.ts.
+ *
+ * Called after the pick-up rather than before: picking a panel up opens the
+ * seams, which redraws the board, and a stub put on a node before that is a
+ * stub on whatever React decides to keep.
  */
-function dropOnto(panelName: string, ontoName: string, side: 'before' | 'after') {
-  const picked = screen.getByRole('region', { name: panelName });
-  fireEvent.dragStart(within(picked).getByRole('heading').parentElement!, { dataTransfer });
-  // Measured after the pick-up, not before: picking a panel up opens the seams,
-  // which redraws the board - and a stub put on a node before that is a stub on
-  // whatever React decides to keep. jsdom measures everything as zero wide, so
-  // without this every drop reads as landing on the right-hand half.
-  const onto = screen.getByRole('region', { name: ontoName });
-  onto.getBoundingClientRect = () => ({ left: 0, width: 100 }) as DOMRect;
-  // Built rather than fired with an init, because jsdom implements no
-  // `DragEvent`: testing-library falls back to a plain `Event`, which carries
-  // `dataTransfer` across but silently drops `clientX` - and a missing one
-  // compares as `undefined < 50`, so every drop would read as the right-hand
-  // half and the two sides would be one case wearing two names.
-  const dropped = createEvent.drop(onto, { dataTransfer });
-  Object.defineProperty(dropped, 'clientX', { value: side === 'before' ? 10 : 90 });
-  fireEvent(onto, dropped);
+function layOut() {
+  const rows = [...document.querySelectorAll('[data-panel-row]')];
+  rows.forEach((row, index) => {
+    const top = index * 122;
+    row.getBoundingClientRect = () => ({ top, bottom: top + 100 }) as DOMRect;
+    const cells = [...row.querySelectorAll('[data-panel-cell]')];
+    const width = 600 / cells.length;
+    cells.forEach((cell, at) => {
+      cell.getBoundingClientRect = () =>
+        ({ left: at * width, right: (at + 1) * width }) as DOMRect;
+    });
+  });
+  return rows.length;
 }
 
 /**
- * Whether the gaps between the rows have opened up to be dropped into, which is
- * the board saying a panel is in the air. Read off the height they are drawn at
- * rather than off a class: it is the rows moving apart that is the affordance.
+ * Whether the gaps between the rows have opened up, which is the board saying a
+ * panel is in the air. Read off the height they are drawn at rather than off a
+ * class: it is the rows moving apart that is the affordance.
  */
 function seamsAreOpen() {
   return screen.getAllByTestId('row-seam').every((seam) => seam.style.height === '22px');
 }
 
-/** The same, let go in the gap above row `at` rather than on a panel. */
-function dropInSeam(panelName: string, at: number) {
-  const picked = screen.getByRole('region', { name: panelName });
-  fireEvent.dragStart(within(picked).getByRole('heading').parentElement!, { dataTransfer });
-  fireEvent.drop(screen.getAllByTestId('row-seam')[at]!, { dataTransfer });
+/** The board itself, which no rearrangement unmounts - and so what holds the pointer. */
+function boardEl() {
+  return document.querySelector('[data-panel-row]')!.parentElement!;
+}
+
+/** The header a panel is dragged by. */
+function handleOf(panelName: string) {
+  const panel = screen.getByRole('region', { name: panelName });
+  return within(panel).getByRole('heading').parentElement!;
+}
+
+/**
+ * Drags a panel by its header to a point, and lets it go there.
+ *
+ * The board is measured between the pick-up and the move, which is the order a
+ * real drag has: the seams open when the panel leaves the ground, and where
+ * everything is is read from the board as drawn.
+ */
+function dragTo(panelName: string, point: { x: number; y: number }, andDrop = true) {
+  const handle = handleOf(panelName);
+  fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+  layOut();
+  fireEvent.pointerMove(handle, { pointerId: 1, clientX: point.x, clientY: point.y });
+  if (andDrop) fireEvent.pointerUp(handle, { pointerId: 1 });
+}
+
+/** Where the pointer has to be to land in the slot before `panelName` on its row. */
+function slotBefore(panelName: string): { x: number; y: number } {
+  const rows = [...document.querySelectorAll('[data-panel-row]')];
+  for (const [index, row] of rows.entries()) {
+    const cells = [...row.querySelectorAll('[data-panel-cell]')];
+    const at = cells.findIndex((cell) => cell.getAttribute('data-panel-cell') === panelName);
+    if (at === -1) continue;
+    const width = 600 / cells.length;
+    return { x: at * width + 1, y: index * 122 + 50 };
+  }
+  throw new Error(`no panel with id ${panelName} is on the board`);
+}
+
+/** Where the pointer has to be to land in the gap above row `at`. */
+const gapAbove = (at: number) => ({ x: 300, y: at * 122 - 11 });
+
+/** The arrangement the board is drawing, as the panels on each line. */
+function drawnLines(): string[][] {
+  return [...document.querySelectorAll('[data-panel-row]')].map((row) =>
+    [...row.querySelectorAll('[data-panel-cell]')].map(
+      (cell) => cell.getAttribute('data-panel-cell')!,
+    ),
+  );
 }
 
 /** The arrangement the last save_layout carried, as the panels on each line. */
@@ -490,17 +537,17 @@ describe('Panels', () => {
       // already holds; sending it would make every abandoned drag a write.
       const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
 
-      dropOnto('Project Falcon', 'To read', 'before');
+      dragTo('Project Falcon', slotBefore('reading'));
 
       expect(mutate).not.toHaveBeenCalled();
     });
 
-    it('puts a dropped panel on a line of its own when it is let go in the gap', async () => {
+    it('puts a panel on a line of its own when it is let go in the gap', async () => {
       // The seam between two rows is the gesture that makes a row, and it is
       // the one thing the wrapping grid had no way to express.
       const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
 
-      dropInSeam('To read', 0);
+      dragTo('To read', gapAbove(0));
 
       expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
     });
@@ -534,19 +581,220 @@ describe('Panels', () => {
 
     it('closes the gaps again when a panel is picked up and let go nowhere', async () => {
       // The seams open to be aimed at, so they have to close when there is no
-      // longer anything to aim - and a drop is not the only way a drag ends.
-      // Let go over the Inbox, off the window or on Escape, only `dragend`
-      // fires, and without it the board sits open around a drag that is over.
+      // longer anything to aim.
       showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
-      const picked = screen.getByRole('region', { name: 'To read' });
-      const handle = within(picked).getByRole('heading').parentElement!;
+      const handle = handleOf('To read');
 
-      fireEvent.dragStart(handle, { dataTransfer });
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
       expect(seamsAreOpen()).toBe(true);
 
-      fireEvent.dragEnd(handle, { dataTransfer });
+      fireEvent.pointerUp(handle, { pointerId: 1 });
 
       expect(seamsAreOpen()).toBe(false);
+    });
+
+    it('draws the panels moved while the drag is on, and sends nothing until it ends', async () => {
+      // The whole of this gesture: what is under the hand is the arrangement
+      // the drop will keep. Before this the board drew nothing at all while a
+      // panel was in the air - not the panel that had been picked up, not the
+      // side it would land on - so the only way to find out what a drag meant
+      // was to finish it.
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+
+      dragTo('To read', gapAbove(0), false);
+
+      expect(drawnLines()).toEqual([['reading'], ['falcon']]);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('marks the panel that is in the air, and unmarks it once it lands', async () => {
+      // A gesture with no sign that it has begun is one you find out about
+      // afterwards: the panel picked up used to be drawn exactly as it was.
+      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const lifted = () => screen.getByRole('region', { name: 'To read' }).className;
+      const handle = handleOf('To read');
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      expect(lifted()).toContain('opacity-40');
+
+      fireEvent.pointerUp(handle, { pointerId: 1 });
+
+      expect(lifted()).not.toContain('opacity-40');
+    });
+
+    it('puts the panels back and sends nothing when the browser takes the gesture', async () => {
+      // A touch that became a scroll, or the window losing focus. The panels
+      // have already moved on screen by then, so leaving them there would be
+      // a change nobody asked for and nobody sent.
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      const handle = handleOf('To read');
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      layOut();
+      fireEvent.pointerMove(handle, { pointerId: 1, ...{ clientX: 300, clientY: -11 } });
+      expect(drawnLines()).toEqual([['reading'], ['falcon']]);
+
+      fireEvent.pointerCancel(handle, { pointerId: 1 });
+
+      // Back on the one row the layout stores, which is where they started.
+      expect(drawnLines()).toEqual([['falcon', 'reading']]);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('keeps following the pointer after the panels have moved once', async () => {
+      // Found in the browser, and invisible to a case that only moves once. A
+      // panel that joins another row is drawn under a different parent, so
+      // React remounts it - and the drag was holding the pointer on the header
+      // it started on, which goes with the node. It answered the first move and
+      // then went deaf, so the board sat showing an arrangement the pointer had
+      // long since left. The board holds the pointer now, and it outlives every
+      // rearrangement.
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      const handle = handleOf('To read');
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      layOut();
+      // Onto its own line above everything, which moves it between rows.
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: -11 });
+      expect(drawnLines()).toEqual([['reading'], ['falcon']]);
+
+      // And on, back onto the row it left but ahead of the panel there - which
+      // is a different arrangement from the one it started in, so a drag that
+      // had gone deaf would send nothing at all.
+      layOut();
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 10, clientY: 172 });
+      fireEvent.pointerUp(handle, { pointerId: 1 });
+
+      expect(sentRows(mutate)).toEqual([['reading', 'falcon']]);
+    });
+
+    it('puts the panels back and sends nothing when the drag is abandoned with Escape', async () => {
+      // Escape abandons the innermost thing that is open everywhere else in the
+      // app, and a drag in progress had nothing to abandon: the only way out
+      // was to drop the panel somewhere and move it back.
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      const handle = handleOf('To read');
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      layOut();
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: -11 });
+      expect(drawnLines()).toEqual([['reading'], ['falcon']]);
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(drawnLines()).toEqual([['falcon', 'reading']]);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('ends the drag when the panel is let go away from the board', async () => {
+      // The pointer is captured, so a release reaches the board wherever it
+      // lands - unless the browser refused the capture, which it is allowed to
+      // do. The board would then sit lifted around a drag that was over.
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      const handle = handleOf('To read');
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      layOut();
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: -11 });
+
+      fireEvent.pointerUp(window, { pointerId: 1 });
+
+      expect(seamsAreOpen()).toBe(false);
+      expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
+    });
+
+    it('holds the arrangement while the pointer sits on the panel it just moved', async () => {
+      // Found in review. The rows a drag measures are the rows as drawn, and
+      // what is drawn already has the panel moved - so an ordinary position,
+      // anywhere on the half of the row it has just joined, resolves to
+      // beside itself. `movedBeside` refuses that by handing back the
+      // arrangement at pick-up, which threw the preview away and flung the
+      // panel home; a drop landing on one of those frames sent nothing at
+      // all, having visibly moved the panel.
+      const { mutate } = showBoard({
+        layouts: [
+          {
+            ...aLayout('laptop', 1280, ['falcon']),
+            rows: [
+              { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+              { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+            ],
+          },
+        ],
+      });
+      const handle = handleOf('To read');
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      layOut();
+      // Onto the right-hand half of the row above, which joins it.
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 500, clientY: 50 });
+      expect(drawnLines()).toEqual([['falcon', 'reading']]);
+
+      // The same spot again, which is now inside the panel own slot. Fired at
+      // the board rather than the header: the header went with the row the
+      // panel left, and a captured pointer delivers to the board anyway.
+      layOut();
+      fireEvent.pointerMove(boardEl(), { pointerId: 1, clientX: 500, clientY: 50 });
+
+      expect(drawnLines()).toEqual([['falcon', 'reading']]);
+
+      // On the window, which is where a captured pointer delivers a release -
+      // and the only node still in the tree, the header having been redrawn
+      // on another row.
+      fireEvent.pointerUp(window, { pointerId: 1 });
+      expect(sentRows(mutate)).toEqual([['falcon', 'reading']]);
+    });
+
+    it('starts the drag even where the browser refuses the pointer', async () => {
+      // Capture keeps the moves coming once the pointer has left the board, and
+      // the browser is free to refuse it for a pointer it does not consider
+      // active. Taken before the drag was recorded, that refusal threw and the
+      // line that begins the drag never ran - so the gesture silently did
+      // nothing at all. It is worth having and it is not worth the gesture.
+      const refused = vi
+        .spyOn(Element.prototype, 'setPointerCapture')
+        .mockImplementation(() => {
+          throw new DOMException('no such pointer', 'NotFoundError');
+        });
+      try {
+        const { mutate } = showBoard({
+          layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        });
+        const handle = handleOf('To read');
+
+        fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+        expect(seamsAreOpen()).toBe(true);
+
+        layOut();
+        fireEvent.pointerMove(boardEl(), { pointerId: 1, clientX: 300, clientY: -11 });
+        fireEvent.pointerUp(window, { pointerId: 1 });
+
+        expect(sentRows(mutate)).toEqual([['reading'], ['falcon']]);
+      } finally {
+        refused.mockRestore();
+      }
+    });
+
+    it('sends nothing for a drag that ends where it started', async () => {
+      // Every wander that comes home is one of these, and sending it would
+      // make a change out of a gesture that changed nothing.
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+
+      dragTo('To read', slotBefore('reading'));
+
+      expect(mutate).not.toHaveBeenCalled();
     });
   });
 

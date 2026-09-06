@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT, uuidv7 } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, LayoutRow, Panel } from '@cockpit/shared';
@@ -15,14 +15,14 @@ import {
   layoutToDraw,
   movedBeside,
   movedBy,
-  movedToOwnRow,
   nameForScreen,
   sameArrangement,
   sharesOf,
   SAME_SCREEN_TOLERANCE,
 } from '../panels/arrangement';
 import { DeleteQuestion } from './DeleteQuestion';
-import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { arrangedWith, placementFor } from '../panels/dragging';
+import type { DrawnRow } from '../panels/dragging';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 
 /**
@@ -113,21 +113,57 @@ export function PanelBoard({
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   /**
-   * Which panel is being dragged, or null.
+   * The drag: which panel is in the air, the arrangement it was picked up
+   * from, and the arrangement dropping it here would produce.
    *
-   * State rather than a ref, unlike before: the seams between rows are four
-   * pixels of gap, which is not a target a hand can hit, so they open up while
-   * a drag is on - and something on screen depending on it is exactly what a
-   * ref cannot do. One redraw per pick-up, not one per pointer move.
+   * **The preview is what the board draws**, which is the whole of this
+   * change: the panels move as the pointer does, so the arrangement under the
+   * hand is the one the drop will keep. Before this the gesture drew nothing -
+   * the panel in the air was not marked, the side it would land on was not
+   * shown, and the seams lit up in places where dropping did nothing at all.
+   *
+   * **`from` is the arrangement at pick-up, not the one being drawn.** Every
+   * pointer move builds the preview afresh from it, so a drag that wanders
+   * across four rows composes nothing: the panel is moved once, from where it
+   * started, to wherever the pointer is now.
    */
-  const [dragging, setDragging] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<{
+    id: string;
+    from: LayoutRow[];
+    preview: LayoutRow[];
+  } | null>(null);
+  /**
+   * The rows as drawn, so a drag can ask where they actually are. Measured
+   * rather than computed: a row's height is its panels' and a panel's width
+   * is its share of a row, so the only honest source is the page.
+   */
+  const rowsRef = useRef<HTMLDivElement>(null);
+  /**
+   * Which panel is in hand, known the instant it is picked up - or null.
+   *
+   * **A ref beside the state, and not a duplicate of it.** The state is what
+   * the board draws with; this is what the pointer handler asks, and the two
+   * are not the same question at the same time. Setting state schedules a
+   * render, so the handler attached to the board is still the one from before
+   * the pick-up for as long as that takes - and a move arriving in that window
+   * reads `dragging` as null and is dropped. Under load every move of a quick
+   * flick landed in it, and the drag did nothing at all.
+   *
+   * It holds the panel rather than a flag because the placement needs to know
+   * which panel is in hand to answer "the pointer is where it already is" -
+   * and reading that off the state instead left that answer disabled for
+   * exactly the moves this ref exists to catch.
+   */
+  const draggingNow = useRef<string | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
   const askedFrom = useRef<HTMLElement | null>(null);
 
   const its = layoutsOf(layouts, dashboard.id);
   const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth, chosen);
   const stored = drawnRows(drawnWith, panels, acrossWidth);
-  const shown = draft ?? stored;
+  // The preview while a drag is on, then a draft that has been sent and is
+  // waiting for the store to agree, then what the store holds.
+  const shown = dragging?.preview ?? draft ?? stored;
   /**
    * Read from the list rather than kept beside the id, for the reason the list
    * of dashboards does it: a panel deleted in another tab is gone
@@ -301,15 +337,129 @@ export function PanelBoard({
   };
 
   /**
-   * A panel let go in the gap at `at`, which gives it a row of its own there.
-   * Every seam does the same thing, including the one under the last row, so
-   * they share a handler rather than each carrying a copy of it.
+   * The rows as they are on the page right now.
+   *
+   * Measured against the rows *as drawn*, which already show the preview - so
+   * once the panel is under the pointer it stays there and the reading
+   * settles, instead of flickering between two placements. The same thing the
+   * list of workspaces does for the same reason (`ManageWorkspaces.tsx`).
    */
-  const dropInSeam = (at: number) => {
-    const picked = dragging;
-    setDragging(null);
-    if (picked) propose(movedToOwnRow(shown, picked, at));
+  const rowsOnScreen = (): DrawnRow[] => {
+    const rows = rowsRef.current?.querySelectorAll('[data-panel-row]') ?? [];
+    return [...rows].map((row) => {
+      const box = row.getBoundingClientRect();
+      return {
+        top: box.top,
+        bottom: box.bottom,
+        cells: [...row.querySelectorAll('[data-panel-cell]')].map((cell) => {
+          const at = cell.getBoundingClientRect();
+          return {
+            panelId: cell.getAttribute('data-panel-cell') ?? '',
+            left: at.left,
+            right: at.right,
+          };
+        }),
+      };
+    });
   };
+
+  /**
+   * Picks a panel up. Nothing is sent; the board just starts drawing it moved.
+   *
+   * **The board takes the pointer**, rather than the header the grab happened
+   * on. A panel that joins another row is drawn under a different parent, so
+   * React remounts it and a capture held on that header dies with the node -
+   * the drag answered its first move and then went deaf. This element is the
+   * one thing on screen that no rearrangement can unmount.
+   */
+  const pickUp = (panelId: string, pointerId: number) => {
+    command.reset();
+    setRenaming(null);
+    setDeleting(null);
+    draggingNow.current = panelId;
+    setDragging({ id: panelId, from: shown, preview: shown });
+    // **After the drag has begun, and allowed to fail.** Capture is what keeps
+    // the moves coming once the pointer has left the board - over the Inbox, or
+    // off the window - and it is worth having. It is not worth the gesture: the
+    // browser refuses it for a pointer it does not consider active, and taken
+    // first that refusal threw before the line above ever ran, so the drag
+    // silently did not start at all. Without it the moves still arrive while
+    // the pointer is over the board, which is nearly all of the drag.
+    try {
+      rowsRef.current?.setPointerCapture(pointerId);
+    } catch {
+      // Nothing to do about it, and nothing that needs saying: the gesture
+      // works either way.
+    }
+  };
+
+  /**
+   * Where the pointer has got to, redrawn as the arrangement it is asking for.
+   *
+   * The page is measured out here rather than inside the update, because an
+   * updater has to be pure - React is free to run it twice - and reading the
+   * DOM is not. What goes in is a placement already decided.
+   */
+  const dragTo = (point: { x: number; y: number }) => {
+    const inHand = draggingNow.current;
+    if (!inHand) return;
+    const placement = placementFor(point, rowsOnScreen(), inHand);
+    if (!placement) return;
+    setDragging((held) => {
+      if (!held) return held;
+      const preview = arrangedWith(held.from, held.id, placement);
+      // Same arrangement, same object: React redraws on a new array whether or
+      // not anything in it moved, and a pointer move fires many times a
+      // second across a panel it is already inside.
+      return sameArrangement(preview, held.preview) ? held : { ...held, preview };
+    });
+  };
+
+  /** Dropped. A drag that ends where it started asks for nothing. */
+  const letGo = () => {
+    const held = dragging;
+    draggingNow.current = null;
+    setDragging(null);
+    if (!held || sameArrangement(held.preview, held.from)) return;
+    propose(held.preview);
+  };
+
+  /** A drag abandoned rather than dropped: the panels go back and nothing is sent. */
+  const abandon = () => {
+    draggingNow.current = null;
+    setDragging(null);
+  };
+
+  /**
+   * The two ends of a drag the board cannot hear on its own.
+   *
+   * **Let go somewhere else.** The pointer is captured, so a release reaches
+   * the board wherever it happens - unless the capture was refused, which is
+   * allowed to happen (`pickUp`). A release outside the board would then
+   * arrive nowhere, and the panels would sit lifted around a drag that is
+   * over, with the next press dropping one somewhere nobody aimed.
+   *
+   * **Escape**, which abandons the innermost open thing everywhere else in
+   * the app and had nothing to abandon here.
+   */
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') abandon();
+    };
+    window.addEventListener('pointerup', letGo);
+    window.addEventListener('pointercancel', abandon);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerup', letGo);
+      window.removeEventListener('pointercancel', abandon);
+      window.removeEventListener('keydown', onKey);
+    };
+    // `letGo` and `abandon` are rebuilt every render; what decides whether
+    // they are listening is the drag, and re-subscribing on every render of a
+    // board holding a drag would be a listener swapped per pointer move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging]);
 
   const renamePanel = () => {
     if (!renaming) return;
@@ -376,7 +526,18 @@ export function PanelBoard({
           </p>
         </section>
       ) : (
-        <div className="flex min-w-0 flex-col">
+        <div
+          ref={rowsRef}
+          // The whole gesture, because this is what holds the pointer.
+          onPointerMove={(event) => {
+            dragTo({ x: event.clientX, y: event.clientY });
+          }}
+          onPointerUp={letGo}
+          // The browser taking it back - a touch that became a scroll, the
+          // window losing focus. The panels go back where they were.
+          onPointerCancel={abandon}
+          className="flex min-w-0 flex-col"
+        >
           {shown.map((row, rowIndex) => {
             const shares = sharesOf(row);
             return (
@@ -387,8 +548,12 @@ export function PanelBoard({
               // would leave the menu somebody was pressing, a half-typed rename
               // would go, and a scrolled list would jump to the top.
               <Fragment key={rowIndex}>
-                <RowSeam at={rowIndex} dragging={dragging !== null} onDrop={dropInSeam} />
+                <RowSeam dragging={dragging !== null} />
                 <div
+                  // What a drag measures to work out which row the pointer is
+                  // over (`panels/dragging.ts`). On the row rather than read
+                  // off the children, because a row's band is the row's.
+                  data-panel-row=""
                   // A row is a grid of its own, so its panels share one height
                   // without anything being told what that height is - which is
                   // what a row *is*. `minmax(0, …)` rather than a bare fraction
@@ -462,14 +627,8 @@ export function PanelBoard({
                           setDeleting(panel.id);
                         }}
                         onMove={(places) => propose(movedBy(shown, panel.id, places))}
-                        onPickUp={() => setDragging(panel.id)}
-                        onLetGo={() => setDragging(null)}
-                        onDropOn={(where) => {
-                          const picked = dragging;
-                          setDragging(null);
-                          if (!picked) return;
-                          propose(movedBeside(shown, picked, panel.id, where));
-                        }}
+                        lifted={dragging?.id === panel.id}
+                        onPickUp={(pointerId) => pickUp(panel.id, pointerId)}
                         refusal={
                           refusalFor('rename_panel', panel.id) ?? refusalFor('delete_panel', panel.id)
                         }
@@ -483,7 +642,7 @@ export function PanelBoard({
           })}
           {/* The gap under the last row, so a panel can be dropped below
               everything rather than only between two things. */}
-          <RowSeam at={shown.length} dragging={dragging !== null} onDrop={dropInSeam} />
+          <RowSeam dragging={dragging !== null} />
         </div>
       )}
 
@@ -508,8 +667,7 @@ export function PanelBoard({
 }
 
 /**
- * The gap between two rows, and the place a panel is dropped to get a row of
- * its own.
+ * The gap between two rows, which opens while a panel is in the air.
  *
  * **Four pixels is the gap, and four pixels is not a target.** The seam is the
  * space between rows at rest - a seam rather than a margin, which is what the
@@ -517,52 +675,23 @@ export function PanelBoard({
  * to something a hand can hit only while a panel is actually being dragged.
  * Nothing is added to the page the rest of the time.
  *
- * It lights up under the pointer rather than only accepting the drop, because a
- * drop target that gives no sign is a gesture you find out about afterwards.
+ * **It takes no drop and lights up for nothing**, which is what it did before.
+ * A drag now moves the panels as it goes (`panels/dragging.ts`), so the seam
+ * that a pointer is in has already become the row the panel is drawn on: the
+ * arrangement is the feedback, and a highlight would be a second answer to a
+ * question the board has already answered. It used to light under the pointer
+ * wherever the pointer went - including the two seams either side of a panel
+ * already alone on its line, where dropping did nothing and said nothing.
  */
-function RowSeam({
-  at,
-  dragging,
-  onDrop,
-}: {
-  /** Which gap this is: 0 above the first row, `rows.length` below the last. */
-  at: number;
-  /** Whether a panel is in the air, which is when this is worth hitting. */
-  dragging: boolean;
-  onDrop: (at: number) => void;
-}) {
-  const [under, setUnder] = useState(false);
+function RowSeam({ dragging }: { dragging: boolean }) {
   return (
     <div
-      // `PANEL_GAP` at rest, and room for a hand while a drag is on. The height
-      // is on the box rather than on a child so the rows either side really do
-      // move apart, which is the affordance: a gap that opens is a gap saying
-      // something can go in it.
+      // The height is on the box rather than on a child so the rows either side
+      // really do move apart, which is the affordance: a gap that opens is a
+      // gap saying something can go in it.
       data-testid="row-seam"
       style={{ height: dragging ? 22 : PANEL_GAP }}
       className="shrink-0 transition-[height] duration-100"
-      onDragOver={(event) => {
-        // A row of a panel's list crosses this on its way in, and is not a
-        // panel being moved between rows.
-        if (event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
-        event.preventDefault();
-        setUnder(true);
-      }}
-      onDragLeave={() => setUnder(false)}
-      onDrop={(event) => {
-        if (event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
-        event.preventDefault();
-        setUnder(false);
-        onDrop(at);
-      }}
-    >
-      {dragging && (
-        <div
-          className={`mx-1 h-full rounded-full transition-colors ${
-            under ? 'bg-accent' : 'bg-accent/15'
-          }`}
-        />
-      )}
-    </div>
+    />
   );
 }

@@ -337,9 +337,9 @@ test.describe('Panels', () => {
   });
 
   test.describe('a panel goes where you drag it', () => {
-    // Desktop only, and the reason is the gesture rather than the screen: the
-    // browser's own drag-and-drop is a mouse protocol, so dragging a panel
-    // cannot happen on a touchscreen at all - moving there is the entry in the
+    // Desktop only, and the reason is the gesture rather than the screen: a
+    // panel is moved with a pointer held down and dragged, which a finger
+    // spends on scrolling the page instead - moving there is the entry in the
     // panel's own menu, which the walk above drives on both projects.
     test.skip(({ isMobile }) => !!isMobile, 'dragging a panel is a pointer gesture');
 
@@ -363,14 +363,33 @@ test.describe('Panels', () => {
       // arrangement a drag produces before it sends it: every assertion below
       // would pass on a change still sitting in the browser.
       const saved = answerTo(page, 'save_layout');
-      // The header is the handle; the panel is the target, and *where* on it
-      // decides which side it lands - so the left tenth rather than the centre,
-      // which is what `dragTo` aims at by default and reads as the right-hand
-      // half.
-      await page
-        .getByRole('region', { name: third })
-        .locator('header')
-        .dragTo(page.getByRole('region', { name: first }), { targetPosition: { x: 8, y: 20 } });
+      // A pointer gesture rather than the browser's own drag, which is what
+      // lets the panels move as it goes. The header is the handle; where the
+      // pointer ends up is what decides the slot, so the left edge of the
+      // first panel rather than its middle.
+      const onto = page.getByRole('region', { name: first });
+      const box = (await onto.boundingBox())!;
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: third }).locator('header'))),
+      );
+      await page.mouse.down();
+
+      // **One aim, held.** The panels move as the drag does, so the target
+      // moves too: a walk that steps to one panel's middle and then measures
+      // the next aim off a panel that step has just shifted is reading
+      // coordinates from a board that no longer exists, and lands wherever the
+      // churn leaves it. So this picks the slot ahead of the first panel once,
+      // from before the gesture, and holds the pointer there while the board
+      // settles under it.
+      await page.mouse.move(box.x + 4, box.y + box.height / 2, { steps: 8 });
+
+      // **Drawn before it is dropped**, which is the whole of this gesture and
+      // the one claim no arithmetic can make: the arrangement under the hand is
+      // the one the drop will keep, measured against rows really on a screen.
+      // The board used to draw nothing at all until the drop landed.
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[third, first, second]]);
+
+      await page.mouse.up();
       expect((await saved).status()).toBe(200);
 
       // One row now, holding all three, and the line the third panel came from
