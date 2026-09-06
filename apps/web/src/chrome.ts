@@ -3,10 +3,10 @@
  *
  * The chrome is near-black in every theme now ("Cockpit Shell Explorations",
  * artboard 2c), and the tints were designed to be read on a page: at their own
- * saturation a seven-pixel dot of one on a near-black bar is a smudge, and the
- * Capture tab filled with one cannot carry the app's ink at all. Lifting the
- * colour towards white keeps the hue - which is the whole job of a tint - and
- * gives it the contrast the surface under it takes.
+ * saturation a seven-pixel dot of one on a near-black bar is a smudge, and a
+ * two-pixel rule along the top of a tab is invisible. Lifting the colour
+ * towards white keeps the hue - which is the whole job of a tint - and gives it
+ * the contrast the surface under it takes.
  *
  * **Seventy percent, once, here.** It is the mix the artboard's own violet
  * measures at, and every place that draws a tint on the chrome has to use the

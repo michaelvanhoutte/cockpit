@@ -23,6 +23,37 @@ export const bandTabClass =
   'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-chrome-ink-soft hover:bg-white/8 hover:text-chrome-ink [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-[inset_0_2px_0_0_var(--tab-mark)]';
 
 /**
+ * The look every tab in the strip above wears - the workspaces, and Capture
+ * ahead of them - for the reason `bandTabClass` is one string: two tabs side by
+ * side in one strip cannot each carry their own copy of what "the one you are
+ * on" looks like.
+ *
+ * The band's ink inverted, because the strips are opposite ways up: a selected
+ * band tab is filled with the sheet and takes the app's dark ink, a selected
+ * strip tab is filled with the near-black bar and takes the chrome's light ink.
+ * The fill itself is not here - it is the band's own colour, which only the
+ * shell knows (`pages/Layout.tsx`).
+ *
+ * Rounded at the top only and square at the bottom, because the bottom is not
+ * an edge: the tab you are on and the band under it are one fill, and a rounded
+ * corner there would draw a seam across it. The tint along the top edge is what
+ * makes that read as *selected* rather than merely as joined - the header and
+ * the band are four values of grey apart - and it is an inset shadow rather
+ * than a border so becoming current does not change the tab's height and
+ * shuffle the strip.
+ *
+ * Horizontal padding is the caller's, and the only thing that differs between
+ * the two: Capture is set a little wider than a workspace.
+ */
+export function stripTabClass(here: boolean): string {
+  return `shrink-0 whitespace-nowrap rounded-t-lg pt-1.5 pb-2 text-sm ${
+    here
+      ? 'font-medium text-chrome-ink shadow-[inset_0_2px_0_0_var(--tab-mark)]'
+      : 'text-chrome-ink-soft hover:bg-white/8 hover:text-chrome-ink'
+  }`;
+}
+
+/**
  * What the band holds on the settings pages: the two of them, as tabs, in the
  * place the dashboards of a workspace sit.
  *

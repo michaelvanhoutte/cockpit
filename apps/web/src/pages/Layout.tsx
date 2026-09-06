@@ -11,7 +11,7 @@ import { InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
-import { SettingsBar } from '../components/Tabs';
+import { SettingsBar, stripTabClass } from '../components/Tabs';
 import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -102,6 +102,21 @@ function TheShell() {
    */
   const onSettings = useRouterState({
     select: (state) => state.location.pathname.startsWith('/settings/'),
+  });
+  /**
+   * Whether the Capture page is the page you are on, which is the only thing
+   * that may fill its tab.
+   *
+   * Asked of the address for the same reason `onSettings` is: Capture is in no
+   * workspace, so there is no `params` to read it off. The page and anything
+   * under it, rather than that one string, so a child route added later does
+   * not empty the tab while its own page is on screen.
+   */
+  const onCapture = useRouterState({
+    select: (state) => {
+      const { pathname } = state.location;
+      return pathname === '/capture' || pathname.startsWith('/capture/');
+    },
   });
   const roomForTheInbox = useRoomForTheInbox();
 
@@ -324,19 +339,24 @@ function TheShell() {
               height is whatever its tallest child is: six pixels of extra
               padding here pushed the whole page down by six.
 
-              **Filled with the workspace's tint, which makes it the one
-              saturated tab in the strip.** It is not one of the workspaces, so
-              it does not take a workspace's fill; it is where you land before
-              you have chosen one, so it is not faint either. The ink on it is
-              the app's own dark ink rather than white, because the tint is
-              lifted for the chrome (`chrome.ts`) and a lifted tint is far too
-              light to carry white. */}
+              **Filled only while you are on it**, which is every other tab's
+              rule and was not this one's: it wore the lifted tint at all times,
+              so on startup - which is inside a workspace - the loudest tab in
+              the strip named a page nobody was on. What says it is not a
+              workspace is the rule beside it and the dot it does not have. */}
           {(data?.workspaces.length ?? 0) > 0 && (
             <>
               <Link
                 to="/capture"
-                className="shrink-0 self-end rounded-t-lg px-4 pt-1.5 pb-2 text-sm font-medium text-ink"
-                style={{ backgroundColor: litForChrome(theme.color) }}
+                className={`${stripTabClass(onCapture)} self-end px-4`}
+                style={
+                  onCapture
+                    ? ({
+                        backgroundColor: theme.bar,
+                        '--tab-mark': litForChrome(theme.color),
+                      } as React.CSSProperties)
+                    : undefined
+                }
               >
                 Capture
               </Link>
@@ -373,23 +393,7 @@ function TheShell() {
                   ref={here ? bringIntoView : undefined}
                   to="/w/$workspaceId"
                   params={{ workspaceId: ws.id }}
-                  // Rounded at the top only and square at the bottom, because
-                  // the bottom is not an edge: the one you are on is filled
-                  // with its own bar color and the strip below it is that same
-                  // color, so the two are one surface and a rounded corner
-                  // there would draw a seam across it.
-                  // The workspace's own colour along the top edge of the tab you
-                  // are on, for the reason the dashboard tab below carries one:
-                  // the header and the strip under it are four values of grey
-                  // apart, which is enough to read as joined and nowhere near
-                  // enough to read as *selected*. An inset shadow rather than a
-                  // border, so becoming current does not change the tab's
-                  // height and shuffle the strip.
-                  className={`shrink-0 whitespace-nowrap rounded-t-lg px-3 pt-1.5 pb-2 text-sm ${
-                    here
-                      ? 'font-medium text-chrome-ink shadow-[inset_0_2px_0_0_var(--tab-mark)]'
-                      : 'text-chrome-ink-soft hover:bg-white/8 hover:text-chrome-ink'
-                  }`}
+                  className={`${stripTabClass(here)} px-3`}
                   style={
                     {
                       // The band's own colour rather than the workspace's
