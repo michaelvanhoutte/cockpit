@@ -48,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 
 import { paint, run, start, stop, supervise } from './lib/processes.mjs';
 import { howToFreeThePort, isLinkedWorktree, portsFor } from './lib/ports.mjs';
+import { startStubIssuer } from './lib/stub-issuer.mjs';
 import {
   assertPortFree,
   exitReport,
@@ -180,8 +181,39 @@ try {
 // anything of its own.
 const startedAt = Date.now();
 
+/**
+ * Somebody to sign in with. The suite drives the real code flow - a redirect, a
+ * code exchange, a signed identity - against this rather than against Google,
+ * which no test run can reach (scripts/lib/stub-issuer.mjs). It runs inside
+ * this process, so it goes when the stack does.
+ */
+const issuer = await startStubIssuer({
+  port: ports.e2eIssuer,
+  seedPath: join(root, 'apps/api/seed.sql'),
+});
+
 const api = start(
-  ['--filter', '@cockpit/api', 'exec', 'wrangler', 'dev', '--port', String(API_PORT), '--persist-to', RUN_DIR],
+  [
+    '--filter',
+    '@cockpit/api',
+    'exec',
+    'wrangler',
+    'dev',
+    '--port',
+    String(API_PORT),
+    '--persist-to',
+    RUN_DIR,
+    '--var',
+    `OIDC_ISSUER:${issuer.origin}`,
+    '--var',
+    'GOOGLE_CLIENT_ID:cockpit-e2e',
+    '--var',
+    'GOOGLE_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+    // The address the browser is on, which is Vite's: a sign-in has to come
+    // back to the application under test rather than to the Worker behind it.
+    '--var',
+    `APP_ORIGIN:http://localhost:${WEB_PORT}`,
+  ],
   'test api',
   '36',
   root,

@@ -1,0 +1,116 @@
+import { vi } from 'vitest';
+import { SignJWT, exportJWK, generateKeyPair } from 'jose';
+
+/**
+ * A Google that can be reached from inside a test.
+ *
+ * Signing in is a conversation with an issuer, and an issuer is horizontal -
+ * another service, over the network - which L2 may not touch
+ * (docs/testing-strategy.md, "Test level definitions and dependency
+ * restrictions"). So the issuer is faked at the network boundary and nothing
+ * else is: the application does its own redirect, its own code exchange and its
+ * own signature check against a key this file publishes, exactly as it does
+ * against Google.
+ *
+ * **Faked by replacing `fetch`**, which reaches the Worker because the pool
+ * runs it in the same isolate as the test - the one thing that makes this
+ * possible, and the reason it is written here once rather than per file.
+ * (`cloudflare:test` exports no mock agent in this version.) Requests to
+ * anywhere but the issuer are refused rather than let out, so a test that
+ * starts talking to the real internet says so.
+ *
+ * Local development and the browser suite do the same thing with a real second
+ * issuer instead (scripts/lib/stub-issuer.mjs), which is what keeps there being
+ * one sign-in path everywhere rather than a bypass in the application.
+ */
+
+export const ISSUER = 'https://issuer.test';
+export const CLIENT_ID = 'cockpit-test';
+
+export interface Claims {
+  email: string;
+  nonce: string;
+  subject?: string;
+  emailVerified?: boolean;
+}
+
+let keys: CryptoKeyPair | null = null;
+
+/** What the issuer hands back the next time a code is spent, or its refusal. */
+let next: Claims | 'refuses' | null = null;
+
+async function signingKeys(): Promise<CryptoKeyPair> {
+  keys ??= await generateKeyPair('RS256', { extractable: true });
+  return keys;
+}
+
+/**
+ * Puts the issuer on the network: where it answers, and what it signs with.
+ *
+ * Stubs every time rather than once, because a case elsewhere that calls
+ * `vi.unstubAllGlobals()` would otherwise leave a later sign-in reaching for
+ * the real internet with nothing here noticing it had been undone.
+ */
+export async function issuerIsReachable(): Promise<void> {
+  const { publicKey } = await signingKeys();
+  const jwks = { keys: [{ ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig' }] };
+
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    if (url.origin !== ISSUER) {
+      throw new Error(`nothing in a test may reach ${url.origin}`);
+    }
+
+    if (url.pathname === '/.well-known/openid-configuration') {
+      return Response.json({
+        issuer: ISSUER,
+        authorization_endpoint: `${ISSUER}/authorize`,
+        token_endpoint: `${ISSUER}/token`,
+        jwks_uri: `${ISSUER}/jwks`,
+      });
+    }
+    if (url.pathname === '/jwks') return Response.json(jwks);
+    if (url.pathname === '/token') {
+      const asked = next;
+      // Spent once, as a real code is: what a second exchange of the same code
+      // gets is the refusal, not another identity.
+      next = null;
+      if (!asked || asked === 'refuses') return Response.json({ error: 'invalid_grant' }, { status: 400 });
+      return Response.json({ token_type: 'Bearer', id_token: await identityToken(asked) });
+    }
+    throw new Error(`the issuer has no ${url.pathname}`);
+  });
+}
+
+/** Who the issuer will say the next person is. */
+export function issuerWillIdentify(claims: Claims): void {
+  next = claims;
+}
+
+/** The issuer refusing to exchange a code, which is what a spent one gets. */
+export function issuerWillRefuseTheExchange(): void {
+  next = 'refuses';
+}
+
+/** Puts the issuer back out of reach, and forgets what it was going to say. */
+export function issuerIsForgotten(): void {
+  vi.unstubAllGlobals();
+  next = null;
+}
+
+export async function identityToken({
+  email,
+  nonce,
+  subject = `google|${email}`,
+  emailVerified = true,
+}: Claims): Promise<string> {
+  const { privateKey } = await signingKeys();
+  return new SignJWT({ nonce, email, email_verified: emailVerified })
+    .setProtectedHeader({ alg: 'RS256' })
+    .setIssuer(ISSUER)
+    .setAudience(CLIENT_ID)
+    .setSubject(subject)
+    .setIssuedAt()
+    .setExpirationTime('5m')
+    .sign(privateKey);
+}

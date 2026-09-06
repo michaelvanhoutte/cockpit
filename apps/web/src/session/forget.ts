@@ -29,13 +29,12 @@ import { persister } from '../persistence';
  * in between.
  */
 export async function forgetEverything(queryClient: QueryClient): Promise<void> {
-  // Everything except the list of people to sign in as, which is the one read
-  // that belongs to nobody: it answers before anyone has signed in and carries
-  // names only. It is also the very query the logon page is watching by the
-  // time this runs, and removing a query an observer is mounted on leaves that
-  // observer waiting for an answer nothing will ever fetch - which is a logon
-  // page stuck on "Looking who is here…" for good.
-  queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'users' });
+  // Everything, with nothing held back. There used to be an exception - the
+  // list of people to sign in as, which the logon page was watching as this ran
+  // - and it went with the list ("Sign in with Google, and retire the list of
+  // names", issue 196). The logon page now reads nothing at all, so there is no
+  // observer left for a removed query to strand.
+  queryClient.removeQueries();
   try {
     await persister.removeClient();
   } catch {

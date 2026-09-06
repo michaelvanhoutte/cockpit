@@ -1,8 +1,9 @@
-import { and, asc, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { User } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { sessions, users } from '../db/schema.js';
 import type { Env } from '../env.js';
+import type { Identity } from './oidc.js';
 import { endsFrom, type StoredSession } from './session.js';
 
 /**
@@ -32,46 +33,72 @@ export interface Visitor {
 }
 
 /**
- * The people to choose from, by name, oldest first.
+ * Signs in whoever Google says this is, or answers `null` because they are not
+ * somebody this Cockpit knows.
  *
- * **Names and ids only, deliberately.** This is the one read that answers
- * before anybody has signed in - it is what you look at while you are still
- * nobody - so which account a person owns and what role they hold are not in
- * the projection at all, rather than being stripped somewhere downstream.
- */
-export async function listUsers(env: Env): Promise<User[]> {
-  const db = createDb(env.DB);
-  return db
-    .select({ id: users.id, name: users.name })
-    .from(users)
-    .orderBy(asc(users.createdAt), asc(users.id));
-}
-
-/**
- * Starts a sign-in for the named person, or answers `null` when there is no
- * such person.
+ * **The register is the allowlist** ("Sign in with Google, and retire the list
+ * of names", issue 196). Proving who you are at Google is not the same as being
+ * entitled to an account here, and nothing in this function creates one: a
+ * person is put in the register deliberately, and everyone else is refused
+ * having had nothing written on their behalf.
  *
- * The `null` is the whole refusal: a name that is not on the list cannot be
- * signed in as, and nothing is written on the way to finding that out.
+ * Somebody is looked for by their Google identity first and by their address
+ * only if that finds nobody, which is what makes a changed address harmless and
+ * a *reassigned* one safe: the identity never changes and is never reissued,
+ * while an address can be given to somebody new. The first sign-in is the one
+ * that has only the address to go on, and recording the identity then is what
+ * closes that door behind it.
  */
-export async function startSession(
+export async function signInWithGoogle(
   env: Env,
-  userId: string,
+  identity: Identity,
   now: Date,
 ): Promise<{ sessionId: string; expiresAt: string; user: User } | null> {
   const db = createDb(env.DB);
-  const [found] = await db
+
+  const [known] = await db
     .select({ id: users.id, name: users.name })
     .from(users)
-    .where(eq(users.id, userId));
-  if (!found) return null;
+    .where(eq(users.googleSubject, identity.subject));
+  if (known) return startVisit(env, known, now);
 
+  const [byAddress] = await db
+    .select({ id: users.id, name: users.name, googleSubject: users.googleSubject })
+    .from(users)
+    .where(eq(users.email, identity.email));
+  // Somebody whose address this is, but who is a different Google account than
+  // the one that claimed it: refused, because an address given to a new owner
+  // would otherwise be a way into the previous owner's account.
+  if (!byAddress || byAddress.googleSubject) return null;
+
+  const recorded = await db
+    .update(users)
+    .set({ googleSubject: identity.subject })
+    .where(and(eq(users.id, byAddress.id), isNull(users.googleSubject)));
+  // Two first sign-ins at once: the other one recorded an identity while this
+  // one was deciding, so this request no longer knows whose account it is
+  // looking at and refuses rather than guessing. The next attempt finds the
+  // recorded identity by the query above and succeeds.
+  if (!recorded.meta.changes) return null;
+
+  return startVisit(env, { id: byAddress.id, name: byAddress.name }, now);
+}
+
+/**
+ * A sign-in of its own, always: whatever the browser arrived holding is neither
+ * read nor reused, so there is nothing to fix a session onto.
+ */
+async function startVisit(
+  env: Env,
+  user: User,
+  now: Date,
+): Promise<{ sessionId: string; expiresAt: string; user: User }> {
   const sessionId = newSessionId();
   const expiresAt = endsFrom(now);
-  await db
+  await createDb(env.DB)
     .insert(sessions)
-    .values({ id: sessionId, userId: found.id, createdAt: now.toISOString(), expiresAt });
-  return { sessionId, expiresAt, user: found };
+    .values({ id: sessionId, userId: user.id, createdAt: now.toISOString(), expiresAt });
+  return { sessionId, expiresAt, user };
 }
 
 /**
