@@ -69,7 +69,7 @@
         "apps/api/src/domain/item-types.ts",
         "packages/shared/src/domain/item-type.ts",
         "apps/web/src/itemTypes.ts",
-        "apps/web/src/pages/ItemTypeSettingsPage.tsx"
+        "apps/web/src/components/ManageTypes.tsx"
       ]
     },
     {
@@ -206,7 +206,7 @@
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/item.ts",
         "packages/shared/src/domain/workspace-themes.ts",
-        "apps/web/src/pages/WorkspaceSettingsPage.tsx",
+        "apps/web/src/components/ManageWorkspaces.tsx",
         "apps/web/src/pages/Layout.tsx",
         "apps/web/src/router.tsx",
         "apps/web/src/reorder.ts",

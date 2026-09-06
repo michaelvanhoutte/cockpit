@@ -165,10 +165,17 @@ export function CapturePage() {
         }}
         className="flex min-h-0 flex-1 flex-col"
       >
-        {/* **A box of several lines, and the largest text on the screen.** What
-            gets captured is a thought as it was had, which is often two
-            sentences and sometimes a paragraph; one line high made every one of
-            them scroll sideways past itself while it was being written.
+        {/* **A box of several lines, one step above the page in size and no
+            more.** What gets captured is a thought as it was had, which is
+            often two sentences and sometimes a paragraph; one line high made
+            every one of them scroll sideways past itself while it was being
+            written. The room comes from the height, not from the type - at 20px
+            against chips of 14 it read as a headline being typed rather than a
+            note.
+
+            16px is a floor rather than a preference: mobile Safari zooms the
+            whole page whenever a focused field is set smaller than that, so
+            this box does not follow the chips down to `text-sm`.
 
             Resizable at a desk and not on a phone, where there is no room to
             grow into and the handle is one more thing under a thumb. */}
@@ -179,7 +186,7 @@ export function CapturePage() {
           aria-label="What is on your mind?"
           autoFocus
           rows={4}
-          className="mt-2.5 w-full resize-none rounded-md border border-black/10 bg-white p-3 text-[17px] leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px] sm:text-[20px]"
+          className="mt-2.5 w-full resize-none rounded-md border border-black/10 bg-white p-3 text-base leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px]"
         />
 
         <Choice label="Type">

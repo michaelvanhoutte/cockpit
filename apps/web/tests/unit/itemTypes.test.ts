@@ -101,7 +101,7 @@ describe('Capture', () => {
 
     it('offers the rest in the order the types page put them in', () => {
       // The types arrive in that order and nothing here re-sorts them, which
-      // is what makes moving one on the settings page change what capture
+      // is what makes moving one in the types window change what capture
       // offers ("Manage the types, and put them in the order you want", issue
       // 156).
       const putInOrder = [DECISION, QUESTION, THOUGHT, ACTION];

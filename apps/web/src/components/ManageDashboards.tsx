@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { uuidv7 } from '@cockpit/shared';
@@ -7,6 +6,7 @@ import type { Dashboard } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand } from '../api/queries';
 import { DeleteQuestion } from './DeleteQuestion';
+import { CloseWindow, ManageWindow } from './ManageWindow';
 import { LoadFailure } from './LoadFailure';
 import { RowMenu } from './Menu';
 
@@ -214,47 +214,25 @@ export function ManageDashboards({
       : null;
 
   return (
-    <Dialog.Root
+    <ManageWindow
+      title="Manage dashboards"
       open={open}
+      onClose={close}
       // Not while a change is in flight, or the refusal it might come back with
       // would have nowhere left to appear.
-      onOpenChange={(nowOpen) => !nowOpen && !command.isPending && close()}
+      canClose={!command.isPending}
+      // Escape cancels the innermost thing that is open, as it does everywhere
+      // else in the app: the name box where one is being typed in, and the
+      // window itself otherwise. The delete question is a layer of its own and
+      // takes the key before this ever sees it.
+      onEscapeKeyDown={(event) => {
+        if (!renaming) return;
+        event.preventDefault();
+        stopAsking();
+      }}
+      returnFocusTo={returnFocusTo}
+      ref={list}
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30" />
-        <Dialog.Content
-          ref={list}
-          // The title is the whole of what this is, so there is no separate
-          // description to point at.
-          aria-describedby={undefined}
-          // Escape cancels the innermost thing that is open, as it does
-          // everywhere else in the app: the name box where one is being typed
-          // in, and the list itself otherwise. Said here rather than on the box
-          // because Radix listens for the key on the document, above anything
-          // a field of ours could stop. The delete question is a layer of its
-          // own and takes the key before this ever sees it.
-          onEscapeKeyDown={(event) => {
-            if (!renaming) return;
-            event.preventDefault();
-            stopAsking();
-          }}
-          onCloseAutoFocus={(event) => {
-            if (!returnFocusTo) return;
-            event.preventDefault();
-            returnFocusTo.focus();
-          }}
-          // Near the top on a phone rather than centred on it, for the reason
-          // naming a panel gives (NewPanelQuestion is the same shape): renaming
-          // opens the keyboard over the bottom half of the screen, and a dialog
-          // centred on a 667px screen has its Save and Cancel behind it. The
-          // list scrolls inside the dialog rather than growing past the screen,
-          // because a workspace may hold plenty of dashboards. On a phone it is
-          // the one dialog that can reach both ends of the screen, so both the
-          // 16px it starts at and the height it may grow to are measured
-          // inside the screen's own edges (styles.css, `--edge-top`).
-          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] flex max-h-[calc(100dvh_-_2rem_-_var(--edge-top)_-_var(--edge-bottom))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:max-h-[min(40rem,calc(100dvh-8rem))] md:-translate-y-1/2"
-        >
-          <Dialog.Title className="text-base font-semibold">Manage dashboards</Dialog.Title>
 
           <ul className="-mx-2 mt-4 min-h-0 flex-1 overflow-y-auto">
             {dashboards.map((dashboard) => (
@@ -342,17 +320,8 @@ export function ManageDashboards({
             </div>
           )}
 
-          <div className="flex justify-end pt-5">
-            <Dialog.Close
-              disabled={command.isPending}
-              className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-            >
-              Done
-            </Dialog.Close>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+      <CloseWindow disabled={command.isPending} />
+    </ManageWindow>
   );
 }
 

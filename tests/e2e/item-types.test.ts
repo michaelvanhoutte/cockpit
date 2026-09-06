@@ -20,7 +20,7 @@ import {
  * It is not re-proving the naming rules, which
  * apps/api/tests/integration/http/item-types.test.ts owns against a real store,
  * nor the page's own behaviour, which
- * apps/web/tests/unit/pages/ItemTypeSettingsPage.test.tsx owns. One walk for
+ * apps/web/tests/unit/components/ManageTypes.test.tsx owns. One walk for
  * the capability, saying it works for a person.
  *
  * It renames a type it made itself. Every spec in a run shares one database
@@ -45,13 +45,9 @@ test.describe('Capture', () => {
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Manage types' }), isMobile);
-      // The tab in the band is what names the page - there is no heading of
-      // its own, because one place says which screen you are on.
-      await expect(
-        page.getByRole('navigation', { name: 'Settings' }).getByRole('link', {
-          name: 'Manage types',
-        }),
-      ).toBeVisible();
+      // Over the workspace rather than instead of it, like the dashboards'
+      // list and the workspaces'.
+      await expect(page.getByRole('dialog', { name: 'Manage types' })).toBeVisible();
       await expectNoSidewaysScroll(page);
 
       const renamed = uniqueTitle('Renamed');
