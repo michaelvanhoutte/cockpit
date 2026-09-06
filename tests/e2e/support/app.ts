@@ -247,11 +247,17 @@ export async function workspaceTabs(page: Page): Promise<string[]> {
  * The old workspace stays fully on screen while the router works, so the
  * controls a walk reaches for next - the capture box, the button that adds a
  * dashboard - are the ones belonging to the workspace being left, and act on
- * it. Twice now: a note settled into the workspace it was captured in
- * ("Stop the browser suite dying mid-run", pull request 184), and a thought
- * captured into `ws-work` from a screen showing a workspace made seconds
- * earlier, which failed the account-boundary walk in CI on a tree that passed
- * everywhere else (pull request 193, commit deed81d).
+ * it. A note settled into the workspace it was captured in ("Stop the browser
+ * suite dying mid-run", pull request 184), and a thought was captured into
+ * `ws-work` from a screen showing a workspace made seconds earlier, failing
+ * the account-boundary walk in CI on a tree that passed everywhere else (pull
+ * request 193, commit deed81d). `scripts/lib/e2e-conventions.mjs` is what
+ * keeps the next walk from pressing the tab itself.
+ *
+ * **Shut any management window first.** The tabs are located by selector
+ * rather than by role, deliberately (`workspaceTab`), so they are still found
+ * behind a modal - where the overlay covers them, and pressing one times out
+ * on pointer interception rather than saying the window is in the way.
  *
  * **It waits for the address to get deeper, not to change.** A tab's own
  * address is `/w/<id>`, and the router puts that in the bar before it does any
