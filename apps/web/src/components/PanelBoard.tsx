@@ -399,7 +399,7 @@ export function PanelBoard({
                   // **The height the row was given, where it has one.** A row
                   // converted from the arrangement that came before this
                   // carries the height its panels were drawn at
-                  // (changes.ts, `0012-panel-rows`), and a row nobody has ever
+                  // (changes.ts, `0013-panel-rows`), and a row nobody has ever
                   // sized carries none - so drawing the stored one is what
                   // makes "nothing changes size on the day this lands" true.
                   // The *gesture* that sets one is the next slice; reading what

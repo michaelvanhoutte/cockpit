@@ -49,38 +49,38 @@ beforeEach(async () => {
 describe('Capture', () => {
   describe('the types page lists every type of the account', () => {
     it('answers with the two an account starts with, in the order they were put in', async () => {
-      expect((await theTypes()).map((type) => type.name)).toEqual(['Action', 'Thought']);
+      expect((await theTypes()).map((type) => type.name)).toEqual(['Task', 'Note']);
     });
   });
 
   describe('changing a type here changes it wherever it is shown', () => {
     it('renames it, and gives its old name back', async () => {
-      const thought = (await named('Thought'))!;
+      const note = (await named('Note'))!;
 
       expect(
-        (await postChange('rename_item_type', { ...envelope(), typeId: thought.id, name: 'Idea' }))
+        (await postChange('rename_item_type', { ...envelope(), typeId: note.id, name: 'Idea' }))
           .status,
       ).toBe(200);
 
-      expect((await theTypes()).map((type) => type.name)).toEqual(['Action', 'Idea']);
+      expect((await theTypes()).map((type) => type.name)).toEqual(['Task', 'Idea']);
       // The old name is free, which is what makes renaming reversible.
       expect(
-        (await postChange('create_item_type', { ...envelope(), typeId: nextId(), name: 'Thought' }))
+        (await postChange('create_item_type', { ...envelope(), typeId: nextId(), name: 'Note' }))
           .status,
       ).toBe(200);
     });
 
     it.each([
-      { situation: 'a name another type already has', name: 'Action', answers: 409 },
-      { situation: 'that name in another capitalisation', name: 'ACTION', answers: 409 },
-      { situation: 'its own name back', name: 'Thought', answers: 200 },
+      { situation: 'a name another type already has', name: 'Task', answers: 409 },
+      { situation: 'that name in another capitalisation', name: 'TASK', answers: 409 },
+      { situation: 'its own name back', name: 'Note', answers: 200 },
       { situation: 'a name nothing has', name: 'Idea', answers: 200 },
     ])('renaming a type to $situation', async ({ name, answers }) => {
-      const thought = (await named('Thought'))!;
+      const note = (await named('Note'))!;
 
       const response = await postChange('rename_item_type', {
         ...envelope(),
-        typeId: thought.id,
+        typeId: note.id,
         name,
       });
 
@@ -88,38 +88,38 @@ describe('Capture', () => {
     });
 
     it('recolours it', async () => {
-      const thought = (await named('Thought'))!;
+      const note = (await named('Note'))!;
 
       expect(
         (
           await postChange('set_item_type_color', {
             ...envelope(),
-            typeId: thought.id,
+            typeId: note.id,
             color: ITEM_TYPE_COLORS[5]!,
           })
         ).status,
       ).toBe(200);
 
-      expect((await named('Thought'))?.color).toBe(ITEM_TYPE_COLORS[5]);
+      expect((await named('Note'))?.color).toBe(ITEM_TYPE_COLORS[5]);
     });
 
     it('refuses a colour that is not one of the palette’s', async () => {
-      const thought = (await named('Thought'))!;
+      const note = (await named('Note'))!;
 
       const response = await postChange('set_item_type_color', {
         ...envelope(),
-        typeId: thought.id,
+        typeId: note.id,
         color: '#123456',
       } as CommandPayload<'set_item_type_color'>);
 
       expect(response.status).toBe(400);
-      expect((await named('Thought'))?.color).toBe(ITEM_TYPE_COLORS[1]);
+      expect((await named('Note'))?.color).toBe(ITEM_TYPE_COLORS[1]);
     });
   });
 
   describe('an item whose type was deleted stays where it is, with no type', () => {
     it('takes the type off the list and leaves the item on it', async () => {
-      const thought = (await named('Thought'))!;
+      const note = (await named('Note'))!;
       const itemId = nextId();
       await postChange('capture_item', {
         commandId: nextId(),
@@ -127,14 +127,14 @@ describe('Capture', () => {
         workspaceId: WORKSPACE_ID,
         itemId,
         message: 'Maybe split the pricing page',
-        typeId: thought.id,
+        typeId: note.id,
       });
 
       expect(
-        (await postChange('delete_item_type', { ...envelope(), typeId: thought.id })).status,
+        (await postChange('delete_item_type', { ...envelope(), typeId: note.id })).status,
       ).toBe(200);
 
-      expect((await theTypes()).map((t) => t.name)).toEqual(['Action']);
+      expect((await theTypes()).map((t) => t.name)).toEqual(['Task']);
       const snapshot = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
       const held = (await snapshot.json()) as { items: { id: string; typeId: string | null }[] };
       // Still there, still pointing at a row nothing lists - which is what a
@@ -143,32 +143,32 @@ describe('Capture', () => {
     });
 
     it('gives the deleted type’s name back', async () => {
-      const thought = (await named('Thought'))!;
-      await postChange('delete_item_type', { ...envelope(), typeId: thought.id });
+      const note = (await named('Note'))!;
+      await postChange('delete_item_type', { ...envelope(), typeId: note.id });
 
       expect(
-        (await postChange('create_item_type', { ...envelope(), typeId: nextId(), name: 'Thought' }))
+        (await postChange('create_item_type', { ...envelope(), typeId: nextId(), name: 'Note' }))
           .status,
       ).toBe(200);
-      expect((await theTypes()).map((t) => t.name)).toEqual(['Action', 'Thought']);
+      expect((await theTypes()).map((t) => t.name)).toEqual(['Task', 'Note']);
     });
   });
 
   describe('the types are in the order you put them in', () => {
     it('answers in the order the last move left them', async () => {
-      const [action, thought] = await theTypes();
+      const [task, note] = await theTypes();
 
       expect(
         (
           await postChange('reorder_item_types', {
             ...envelope(),
-            typeId: thought!.id,
-            typeIds: [thought!.id, action!.id],
+            typeId: note!.id,
+            typeIds: [note!.id, task!.id],
           })
         ).status,
       ).toBe(200);
 
-      expect((await theTypes()).map((type) => type.name)).toEqual(['Thought', 'Action']);
+      expect((await theTypes()).map((type) => type.name)).toEqual(['Note', 'Task']);
     });
 
     it.each([
@@ -186,7 +186,7 @@ describe('Capture', () => {
 
       expect(response.status).toBe(answers);
       // Refused whole: the order it had is the order it still has.
-      expect((await theTypes()).map((type) => type.name)).toEqual(['Action', 'Thought']);
+      expect((await theTypes()).map((type) => type.name)).toEqual(['Task', 'Note']);
     });
   });
 
@@ -228,12 +228,12 @@ describe('Capture', () => {
     });
 
     it('refuses a change to a type that was deleted a moment ago', async () => {
-      const thought = (await named('Thought'))!;
-      await postChange('delete_item_type', { ...envelope(), typeId: thought.id });
+      const note = (await named('Note'))!;
+      await postChange('delete_item_type', { ...envelope(), typeId: note.id });
 
       const response = await postChange('rename_item_type', {
         ...envelope(),
-        typeId: thought.id,
+        typeId: note.id,
         name: 'Idea',
       });
 

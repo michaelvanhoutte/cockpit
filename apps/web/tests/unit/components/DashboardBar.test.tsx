@@ -601,6 +601,18 @@ describe('Layouts', () => {
 
       await theControl('1440 px');
     });
+
+    it('draws one from a copy stored before names existed, rather than taking the bar down', async () => {
+      // Not an empty name but no name at all, which is what the stored copy
+      // holds: nothing parses what comes back out of IndexedDB, so a layout
+      // written before the name existed arrives without the field. Reading it
+      // threw inside this control and took the whole workspace off screen.
+      const nameless = { ...aLayout('l', '', 1440) } as Partial<Layout>;
+      delete nameless.name;
+      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: [nameless as Layout] });
+
+      await theControl('1440 px');
+    });
   });
 
   describe('a dashboard that has a layout keeps one', () => {

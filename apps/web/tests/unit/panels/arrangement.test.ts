@@ -342,8 +342,18 @@ describe('Layouts', () => {
       // before names existed.
       { situation: 'a layout written before names existed', name: '', screenWidth: 1440, label: '1440 px' },
       { situation: 'a name that is only spaces', name: '   ', screenWidth: 480, label: '480 px' },
+      // Not an empty name but no name at all, which is what a copy stored
+      // before names existed holds: nothing parses what comes back out of
+      // IndexedDB, so the field is absent and the type that says otherwise is
+      // describing the parsed answer instead.
+      {
+        situation: 'a layout in a copy stored before names existed',
+        name: undefined,
+        screenWidth: 1440,
+        label: '1440 px',
+      },
     ])('$situation', ({ name, screenWidth, label }) => {
-      expect(layoutLabel(aLayout('l', screenWidth, [], name))).toBe(label);
+      expect(layoutLabel({ ...aLayout('l', screenWidth), name } as Layout)).toBe(label);
     });
   });
 

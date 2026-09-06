@@ -114,8 +114,8 @@ export const itemSchema = z.object({
    * rather than hidden.
    *
    * The permissive `z.string()` rather than a uuid, for the reason every other
-   * id read back here is permissive: the *Action* and *Thought* every account
-   * starts with have ids derived from the account's own. A `z.uuid()` here
+   * id read back here is permissive: the *Task* and *Note* every account starts
+   * with have ids derived from the account's own. A `z.uuid()` here
    * refused the whole snapshot the first time an item was captured as one of
    * them, which is a blank workspace rather than one item drawn oddly.
    */

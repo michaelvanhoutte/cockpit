@@ -507,7 +507,7 @@ describe('Panels', () => {
 
     it('draws a row at the height it was given, and one with none at the floor', async () => {
       // The conversion from the arrangement that came before this hands every
-      // row the height its panels were drawn at (changes.ts, `0012-panel-rows`)
+      // row the height its panels were drawn at (changes.ts, `0013-panel-rows`)
       // so that nothing changes size on the day it lands - which only holds if
       // the height is read back out. A row nobody has ever sized has none, and
       // is as tall as what is on it, never below the floor.

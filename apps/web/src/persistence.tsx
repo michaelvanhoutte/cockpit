@@ -28,6 +28,11 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * `v5` because a layout gained a name ("Pick the layout you are on, by name",
+ * issue 192) and this was not moved with it: a copy from before it holds
+ * layouts with no name at all, and the menu that picks one read that name and
+ * took the workspace off the screen.
+ *
  * `v4` because an item's one text became three: `preview` is gone and a captured
  * message and a description are in its place, and a title can now be empty
  * ("Edit an item's title and description on a form of its own", issue 159). A
@@ -54,7 +59,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v4';
+export const CACHE_BUSTER = 'v5';
 
 /**
  * The app, painted from the copy the last visit left behind and re-read behind
