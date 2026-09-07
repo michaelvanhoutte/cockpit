@@ -9,11 +9,10 @@
 //   pnpm backup:export --env production --out ./backups/anna --user tenant-anna
 //
 // The operator secret comes from COCKPIT_BACKUP_TOKEN and is never a flag, so
-// it stays out of the output of `ps` - argv is world-readable and an
-// environment assignment is not part of it. **It does not stay out of a shell
-// history**, which records the line as typed; the first version of this comment
-// claimed both, and only the first half is true. It is the same secret as the
-// environment's own BACKUP_TOKEN (docs/deployment.md, "Secrets and access").
+// it stays out of `ps` but not out of a shell history - the first version of
+// this comment claimed both. It is the same secret as the environment's own
+// BACKUP_TOKEN, and why it has two names is in docs/deployment.md, "Secrets and
+// access", rather than here.
 //
 
 import { mkdir, rename, writeFile } from 'node:fs/promises';

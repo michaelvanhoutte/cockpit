@@ -88,7 +88,7 @@ COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/202
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env local --out ./backups/mine --user tenant-default
 ```
 
-Reaching `--env staging` or `--env production` also needs `CLOUDFLARE_WORKERS_SUBDOMAIN` set, since that is what their addresses are built from; `--env local` works out its own port. Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
+Reaching `--env staging` or `--env production` also needs `CLOUDFLARE_WORKERS_SUBDOMAIN` set, per the same section. Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
 
 Putting one back is the same shape, and is the half that destroys something:
 
