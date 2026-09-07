@@ -98,10 +98,9 @@ restored over.** Production is the work itself. Staging accumulates old rows on
 purpose, and those rows are the only proof that a migration — and the code either
 side of it — still reads what is already there, which is what
 expand-then-contract in "Migrations and rollback" exists to keep true. Take a
-`pnpm backup:export` before anything that writes to either. The one exception is
-the F3 suite's own account ("Run the F3 suite against a deployed environment, as
-its own account", issue 64): it may delete what it made, inside workspaces of its
-own, which is what keeps the ones somebody tests in by hand untouched.
+`pnpm backup:export` before anything that writes to either. Two things may still
+remove rows and both are named where they are argued: a recovery, in "Migrations
+and rollback", and the F3 suite deleting its own, under "Deferred, with reasons".
 
 Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which
@@ -735,8 +734,8 @@ mail provider.
   deployed environment, as its own account" (issue 64). **The suite creating and
   deleting rows in staging is agreed**, on the one condition that they are its
   own: workspaces nobody works in, so what somebody is testing by hand beside it
-  is never what the suite just deleted. That is the only deletion either deployed
-  environment allows. Until then the local stack is the only thing F3 drives,
+  is never what the suite just deleted. It is the only deletion in a deployed
+  environment that is not a recovery. Until then the local stack is what F3 drives,
   which leaves the service worker, the built bundle and the Worker's asset
   routing proven by nothing but a manual look.
 - **Bundle-size gate:** the budget needs recording as a number before it can be enforced as one.

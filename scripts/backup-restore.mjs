@@ -10,9 +10,8 @@
 //   pnpm backup:restore --env staging --from ./backups/2026-09-06 --force
 //
 // This is the half that destroys something. Restoring over staging or
-// production has to be confirmed by typing the environment's name, because
-// staging is deliberately never re-seeded and production holds the only copy of
-// anything real (docs/deployment.md, "The environments").
+// production has to be confirmed by typing the environment's name, because both
+// hold the only copy of something real (docs/deployment.md, "The environments").
 //
 
 import { readFile, readdir } from 'node:fs/promises';
