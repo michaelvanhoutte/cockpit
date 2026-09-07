@@ -79,7 +79,7 @@ Never fix it by renaming the change back to what the store recorded; that trades
 
 ### Taking a backup, and putting one back
 
-**Both commands need a secret and nothing hands you one: you invent it.** It then goes in two places under two names — `BACKUP_TOKEN` for the environment (`apps/api/.dev.vars` locally, copied from `.dev.vars.example`; `wrangler secret put` per deployed one, where it has to be long and random) and `COCKPIT_BACKUP_TOKEN` in your own shell, which is why every example below sets one inline. Why it is two, and what an environment variable does and does not keep it out of, is in [docs/deployment.md](docs/deployment.md) under "Secrets and access".
+**Both commands need a secret and nothing hands you one: you invent it**, and it goes in two places under two names — which is why every example below passes one inline. Where each goes, how long it has to be, and what an environment variable does and does not keep it out of, is in [docs/deployment.md](docs/deployment.md) under "Secrets and access"; locally, copy `apps/api/.dev.vars.example`.
 
 This writes an environment to local JSON — the register, and each account's own store in a file of its own:
 
