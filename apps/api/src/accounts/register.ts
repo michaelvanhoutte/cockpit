@@ -1,5 +1,5 @@
 import { asc, eq, like, sql } from 'drizzle-orm';
-import { ADMIN, type RegisteredUser } from '@cockpit/shared';
+import { ADMIN, losingAdminIsRefused, type RegisteredUser } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
@@ -68,6 +68,7 @@ function peopleInRegister(db: ReturnType<typeof createDb>) {
       // somebody reading a page; the register holds the name beside it.
       accountName: tenants.name,
       googleSubject: users.googleSubject,
+      disabledAt: users.disabledAt,
     })
     .from(users)
     .innerJoin(tenants, eq(tenants.id, users.accountId));
@@ -75,9 +76,12 @@ function peopleInRegister(db: ReturnType<typeof createDb>) {
 
 function asShown({
   googleSubject,
+  disabledAt,
   ...user
 }: Awaited<ReturnType<typeof peopleInRegister>>[number]): RegisteredUser {
-  return { ...user, hasSignedIn: googleSubject !== null };
+  // Absent means enabled, which is what let the column arrive without a
+  // backfill: everybody who predates it still has their access.
+  return { ...user, hasSignedIn: googleSubject !== null, disabled: disabledAt !== null };
 }
 
 /**
@@ -144,6 +148,7 @@ export async function addUser(
     role: 'user',
     accountName: name.trim(),
     hasSignedIn: false,
+    disabled: false,
   };
 
   try {
@@ -259,6 +264,71 @@ export async function changeUser(
 
 function nobodyHere(userId: string): Changed {
   return { changed: false, refused: `${userId} is nobody here`, because: 'nobody' };
+}
+
+/**
+ * Takes somebody's access away, or gives it back ("Take somebody's access away
+ * without taking their work", issue 233).
+ *
+ * **Nothing they own is touched.** Their account, its workspaces and everything
+ * in it are exactly as they left them - this is one column in the register, and
+ * enabling them again is the same column set back. That is the whole point of
+ * having this: deleting a user takes their work with it and cannot be undone,
+ * so the reversible half is what an admin reaches for.
+ *
+ * **The sign-ins they hold go with it, in the same write.** A row saying they
+ * cannot sign in while a cookie still opens the app would be access taken away
+ * in name only, and the tab they left open is exactly where it would show.
+ * Deleted rather than merely refused, so enabling them again does not revive a
+ * sign-in they are no longer at the keyboard for - they sign in afresh.
+ *
+ * The two refusals are a role change's, asked of access instead: an admin who
+ * cannot sign in is no more use than one who is not an admin, so disabling the
+ * last one, or yourself, would leave the admin pages reachable by nobody.
+ */
+export async function setAccess(
+  env: Env,
+  { userId, disabled }: { userId: string; disabled: boolean },
+  askedBy: string,
+  now: Date,
+): Promise<Changed> {
+  const db = createDb(env.DB);
+  const [[held], admins] = await Promise.all([
+    db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)),
+    db.select({ id: users.id }).from(users).where(eq(users.role, ADMIN)),
+  ]);
+  if (!held) return nobodyHere(userId);
+
+  const losing = losingAdminIsRefused({
+    who: held,
+    stillAnAdmin: !disabled,
+    askedBy,
+    admins: admins.length,
+  });
+  if (losing) {
+    return {
+      changed: false,
+      because: 'a rule',
+      refused:
+        losing === 'the last admin'
+          ? 'this is the only admin, so make somebody else an admin before taking this one’s access away'
+          : 'you cannot take your own access away - another admin can do it for you',
+    };
+  }
+
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET disabled_at = ? WHERE id = ?').bind(
+      disabled ? now.toISOString() : null,
+      userId,
+    ),
+    // Enabling deletes nothing, having nothing to delete: a disabled person
+    // holds no sign-in, which is what the disabling did.
+    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
+  ]);
+
+  const [after] = await peopleInRegister(db).where(eq(users.id, userId));
+  if (!after) return nobodyHere(userId);
+  return { changed: true, user: asShown(after) };
 }
 
 /**

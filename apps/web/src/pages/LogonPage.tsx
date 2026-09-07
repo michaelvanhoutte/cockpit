@@ -69,12 +69,19 @@ export function LogonPage() {
 /**
  * Why the last attempt did not work, when it did not.
  *
- * Two messages and no more, because there are two things a person can do
- * about it: use a different Google account, or try again. Every other way a
- * sign-in fails - a reply that belongs to nobody, an identity that will not
- * verify - is something an attacker got wrong rather than something the person
- * in front of the screen did, and those go to the log with nothing said here
- * beyond that it failed.
+ * Three messages and no more, because there are three things a person can do
+ * about it: use a different Google account, ask an admin for their access back,
+ * or try again. Every other way a sign-in fails - a reply that belongs to
+ * nobody, an identity that will not verify - is something an attacker got wrong
+ * rather than something the person in front of the screen did, and those go to
+ * the log with nothing said here beyond that it failed.
+ *
+ * **Access removed is said rather than folded into the unknown-account
+ * sentence** ("Take somebody's access away without taking their work", issue
+ * 233). It tells anyone trying the address that this Cockpit holds it, which is
+ * a disclosure taken knowingly: the person it actually happens to is a
+ * colleague who would otherwise be told, wrongly, that they have no account
+ * here and sent looking for a sign-in problem that is not theirs.
  *
  * Read straight off the address rather than through the router, because the
  * Worker is what put it there: this page is where a redirect lands, not
@@ -88,7 +95,9 @@ function Refusal() {
     <p role="alert" className="mt-4 text-sm text-ink-soft">
       {refused === 'unknown-account'
         ? 'That Google account is not one this Cockpit knows. Try another, or ask for one to be added.'
-        : 'That did not work. Try signing in again.'}
+        : refused === 'access-removed'
+          ? 'Your access to this Cockpit was removed. Everything you had is still here; ask an admin to give it back.'
+          : 'That did not work. Try signing in again.'}
     </p>
   );
 }

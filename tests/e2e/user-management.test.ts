@@ -24,10 +24,24 @@ async function makeThem(page: Page, who: string, role: 'Admin' | 'User', isMobil
   await expect(row.getByRole('cell', { name: role, exact: true })).toBeVisible();
 }
 
-/** Leaves as whoever is signed in and comes back as somebody else. */
-async function signOutAndIn(page: Page, address: string, isMobile: boolean) {
+/** Takes somebody's access away, or gives it back, and waits for the row to say so. */
+async function setAccess(page: Page, who: string, entry: 'Disable' | 'Enable', isMobile: boolean) {
+  await press(page.getByRole('button', { name: `Actions for ${who}` }), isMobile);
+  await press(page.getByRole('menuitem', { name: entry }), isMobile);
+
+  const row = page.getByRole('row').filter({ hasText: who });
+  await expect(row.getByText('No access')).toHaveCount(entry === 'Disable' ? 1 : 0);
+}
+
+/** Leaves as whoever is signed in. */
+async function signOut(page: Page, isMobile: boolean) {
   await press(page.getByRole('button', { name: 'Settings' }), isMobile);
   await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
+}
+
+/** Leaves as whoever is signed in and comes back as somebody else. */
+async function signOutAndIn(page: Page, address: string, isMobile: boolean) {
+  await signOut(page, isMobile);
   await signInWith(page, address, isMobile);
   await expect(dashboardBar(page)).toBeVisible();
 }
@@ -155,6 +169,44 @@ test.describe('User management', () => {
       await signOutAndIn(page, anna.address, isMobile);
       await page.goto('/admin');
       await expect(page.getByText(/for admins/i)).toBeVisible();
+    });
+
+    /**
+     * The capability of "Take somebody's access away without taking their
+     * work" (issue 233), and only provable here: what a person meets is the
+     * logon page telling them why, and what an admin does about it is two
+     * presses in a menu. Which refusal the register gives is settled at
+     * apps/api/tests/integration/http/sign-in.test.ts and the sentence at
+     * apps/web/tests/unit/pages/LogonPage.test.tsx; neither can say that
+     * somebody signing in meets the one and reads the other.
+     */
+    test('takes somebody’s access away and gives it back', async ({ page, isMobile }) => {
+      const anna = somebodyNew('Anna');
+      await signIn(page, MICHAEL, isMobile);
+      await page.goto('/admin');
+      await page.getByLabel('Name').fill(anna.name);
+      await page.getByLabel('Signs in with').fill(anna.address);
+      await press(page.getByRole('button', { name: 'Add' }), isMobile);
+      await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(1);
+
+      await setAccess(page, anna.name, 'Disable', isMobile);
+
+      // Turned away, and told which of the two refusals this is: her work is
+      // still there and the sentence says so.
+      await signOut(page, isMobile);
+      await signInWith(page, anna.address, isMobile);
+      await expect(page.getByRole('alert')).toContainText(/access to this Cockpit was removed/i);
+
+      // And back in once it is given back, into the account she already had.
+      await signInWith(page, addressOf(MICHAEL), isMobile);
+      await expect(dashboardBar(page)).toBeVisible();
+      await page.goto('/admin');
+      await setAccess(page, anna.name, 'Enable', isMobile);
+
+      await signOut(page, isMobile);
+      await signInWith(page, anna.address, isMobile);
+      await expect(dashboardBar(page)).toBeVisible();
+      await expect(workspaceTab(page, 'Work')).toBeVisible();
     });
 
     test('refuses an ordinary user who types the address, and offers them no way in', async ({

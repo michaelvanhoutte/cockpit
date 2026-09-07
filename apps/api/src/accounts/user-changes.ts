@@ -7,7 +7,7 @@
  * (`tests/unit/accounts/user-changes.test.ts`). The write is then one UPDATE.
  */
 
-import { losingAdminIsRefused, type Role } from '@cockpit/shared';
+import { ADMIN, losingAdminIsRefused, type Role } from '@cockpit/shared';
 import type { Refusal } from './new-user.js';
 
 /** What an admin asked to change about somebody. */
@@ -59,7 +59,7 @@ export function whatStopsChanging({
 
   const losing = losingAdminIsRefused({
     who,
-    role: change.role,
+    stillAnAdmin: change.role === ADMIN,
     askedBy,
     admins: admins.length,
   });

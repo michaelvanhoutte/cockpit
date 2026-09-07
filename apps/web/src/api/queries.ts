@@ -16,6 +16,7 @@ import {
   fetchSnapshot,
   fetchWorkspaces,
   sendCommand,
+  setAccess,
 } from './client';
 
 /**
@@ -99,12 +100,34 @@ export function useChangeUser() {
     mutationFn: changeUser,
     // Together, because the form is closed by the same success: one after the
     // other would hold it in its saving state through both round trips.
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
-        queryClient.invalidateQueries({ queryKey: ['me'] }),
-      ]),
+    onSuccess: () => bothReadAgain(queryClient),
   });
+}
+
+/**
+ * Taking somebody's access away, or giving it back ("Take somebody's access
+ * away without taking their work", issue 233).
+ *
+ * The same two re-reads, for the same reason on both counts: the list says who
+ * has access, and `me` is what the app draws its own name and menu from.
+ */
+export function useSetAccess() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: setAccess,
+    onSuccess: () => bothReadAgain(queryClient),
+  });
+}
+
+/**
+ * The list and the sign-in, re-read together: one after the other would hold a
+ * form in its saving state through both round trips.
+ */
+function bothReadAgain(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
+    queryClient.invalidateQueries({ queryKey: ['me'] }),
+  ]);
 }
 
 /** The read model: one snapshot per workspace (§5.2), revalidated in the background. */

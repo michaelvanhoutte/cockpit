@@ -102,9 +102,12 @@ restored over.** Production is the work itself. Staging accumulates old rows on
 purpose, and those rows are the only proof that a migration — and the code either
 side of it — still reads what is already there, which is what
 expand-then-contract in "Migrations and rollback" exists to keep true. Take a
-`pnpm backup:export` before anything that writes to either. Two things may still
-remove rows and both are named where they are argued: a recovery, in "Migrations
-and rollback", and the F3 suite deleting its own, under "Deferred, with reasons".
+`pnpm backup:export` before anything that writes to either. Three things may
+still remove rows and each is named where it is argued: a recovery, in
+"Migrations and rollback"; the F3 suite deleting its own, under "Deferred, with
+reasons"; and taking somebody's access away, which deletes the sign-ins they
+hold ("Take somebody's access away without taking their work", issue 233) —
+nothing they own, and a sign-in is re-made by signing in.
 
 Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which

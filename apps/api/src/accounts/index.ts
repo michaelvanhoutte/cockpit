@@ -23,6 +23,7 @@ export {
   registeredAccountNames,
   registeredUsers,
   restoreRegister,
+  setAccess,
 } from './register.js';
 export type { RegisterBackup, RegisterPlan } from './register.js';
 

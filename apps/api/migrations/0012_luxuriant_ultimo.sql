@@ -1,0 +1,27 @@
+-- The register gains somewhere to record that somebody's access was taken away
+-- ("Take somebody's access away without taking their work", issue 233). Absent
+-- means enabled, so every row already there keeps its access and nothing is
+-- backfilled.
+--
+-- **One statement, and there is no half of it.** It is pure DDL, so the only
+-- way this file stops partway is a database that has gone away, and the retry
+-- starts from a table that still lacks the column. What it is not is
+-- re-runnable once it has succeeded: SQLite has no ADD COLUMN IF NOT EXISTS, so
+-- a second run of a *finished* file fails on the duplicate column. That is the
+-- shape 0010 has and the reason anything able to fail on the data it finds goes
+-- in a file of its own; there is nothing of that kind here.
+--
+-- **No CHECK on the column**, unlike every other timestamp in this schema:
+-- adding one to a table that exists rebuilds it in SQLite, which is the
+-- manoeuvre that nearly emptied the register once ("Make the database enforce
+-- the schema conventions, not just the callers", issue 69). `email` and
+-- `google_subject` arrived the same way in 0010.
+--
+-- **The four tables an account's data used to live in are deliberately not
+-- dropped**, though drizzle-kit emits exactly that when this is regenerated -
+-- it did here, and the DROPs were taken back out. Dropping them is a *contract*
+-- step belonging to a later release (docs/deployment.md, "Migrations and
+-- rollback"), and both deployed environments hold real data. The snapshot
+-- beside this file therefore still describes them, so the day that release is
+-- taken the DROPs are one `pnpm db:generate` away.
+ALTER TABLE `users` ADD `disabled_at` text;

@@ -62,23 +62,35 @@ export async function signInWithGoogle(
   env: Env,
   identity: Identity,
   now: Date,
-): Promise<{ sessionId: string; expiresAt: string; user: SigningIn } | null> {
+): Promise<SignIn> {
   const db = createDb(env.DB);
 
   const [known] = await db
-    .select({ id: users.id, name: users.name })
+    .select({ id: users.id, name: users.name, disabledAt: users.disabledAt })
     .from(users)
     .where(eq(users.googleSubject, identity.subject));
-  if (known) return startVisit(env, known, now);
+  if (known) return known.disabledAt ? TURNED_AWAY : startVisit(env, known, now);
 
   const [byAddress] = await db
-    .select({ id: users.id, name: users.name, googleSubject: users.googleSubject })
+    .select({
+      id: users.id,
+      name: users.name,
+      googleSubject: users.googleSubject,
+      disabledAt: users.disabledAt,
+    })
     .from(users)
     .where(eq(users.email, identity.email));
   // Somebody whose address this is, but who is a different Google account than
   // the one that claimed it: refused, because an address given to a new owner
   // would otherwise be a way into the previous owner's account.
-  if (!byAddress || byAddress.googleSubject) return null;
+  if (!byAddress || byAddress.googleSubject) return NOT_KNOWN;
+  /**
+   * Answered before the identity is recorded, so somebody whose access was
+   * taken away before they ever signed in is turned away without this Cockpit
+   * learning which Google account they are. It is also the honest order: they
+   * are refused for having no access, not for being a stranger.
+   */
+  if (byAddress.disabledAt) return TURNED_AWAY;
 
   const recorded = await db
     .update(users)
@@ -88,10 +100,28 @@ export async function signInWithGoogle(
   // one was deciding, so this request no longer knows whose account it is
   // looking at and refuses rather than guessing. The next attempt finds the
   // recorded identity by the query above and succeeds.
-  if (!recorded.meta.changes) return null;
+  if (!recorded.meta.changes) return NOT_KNOWN;
 
   return startVisit(env, { id: byAddress.id, name: byAddress.name }, now);
 }
+
+/**
+ * What signing in came to: a visit, or which of the two refusals this was.
+ *
+ * **They are told apart on purpose**, and the person is told which ("Take
+ * somebody's access away without taking their work", issue 233). Saying "this
+ * Cockpit does not know that account" to somebody whose access was removed
+ * would be a false statement to a real colleague, who would go looking for a
+ * sign-in problem that is not theirs to fix. The cost is that anyone trying the
+ * address learns this Cockpit holds it - a disclosure taken knowingly, and the
+ * smaller harm of the two.
+ */
+export type SignIn =
+  | { signedIn: true; sessionId: string; expiresAt: string; user: SigningIn }
+  | { signedIn: false; because: 'not known' | 'access removed' };
+
+const NOT_KNOWN = { signedIn: false, because: 'not known' } as const;
+const TURNED_AWAY = { signedIn: false, because: 'access removed' } as const;
 
 /**
  * Who a sign-in is being started for, which is a row's id and name and nothing
@@ -110,17 +140,13 @@ type SigningIn = { id: string; name: string };
  * A sign-in of its own, always: whatever the browser arrived holding is neither
  * read nor reused, so there is nothing to fix a session onto.
  */
-async function startVisit(
-  env: Env,
-  user: SigningIn,
-  now: Date,
-): Promise<{ sessionId: string; expiresAt: string; user: SigningIn }> {
+async function startVisit(env: Env, user: SigningIn, now: Date): Promise<SignIn> {
   const sessionId = newSessionId();
   const expiresAt = endsFrom(now);
   await createDb(env.DB)
     .insert(sessions)
     .values({ id: sessionId, userId: user.id, createdAt: now.toISOString(), expiresAt });
-  return { sessionId, expiresAt, user };
+  return { signedIn: true, sessionId, expiresAt, user };
 }
 
 /**
@@ -144,11 +170,22 @@ export async function sessionHeld(
       name: users.name,
       accountName: users.accountId,
       role: users.role,
+      disabledAt: users.disabledAt,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(eq(sessions.id, sessionId));
   if (!row) return null;
+  /**
+   * **The second lock on access being taken away.** Disabling somebody deletes
+   * the sign-ins they hold, and no new one can be made for them, so no request
+   * should ever reach here holding one - except in the moment where a sign-in
+   * lands as the disabling commits, which is the one thing that ordering cannot
+   * close. What that would otherwise buy is a live session for somebody whose
+   * access was removed, which is the failure this whole issue exists to
+   * prevent; it is caught here rather than left to expire.
+   */
+  if (row.disabledAt) return null;
 
   return {
     session: { id: row.id, userId: row.userId, expiresAt: row.expiresAt },

@@ -11,7 +11,13 @@ import {
 } from '@cockpit/shared';
 import { NotSignedIn, SIGN_IN_PATH } from '../api/client';
 import { statusOf } from '../api/loadFailure';
-import { meQuery, registeredUsersQuery, useAddUser, useChangeUser } from '../api/queries';
+import {
+  meQuery,
+  registeredUsersQuery,
+  useAddUser,
+  useChangeUser,
+  useSetAccess,
+} from '../api/queries';
 import { RowForm, wasOnTheRow } from '../components/RowForm';
 import { RowMenu } from '../components/Menu';
 
@@ -59,7 +65,9 @@ export function AdminPage() {
     role: Role | null;
   } | null>(null);
   const changing = useChangeUser();
+  const access = useSetAccess();
   const askedFrom = useRef<HTMLElement | null>(null);
+  const admins = (data?.users ?? []).filter((user) => user.role === ADMIN);
 
   /**
    * Read from the list rather than kept beside the draft, exactly as a
@@ -122,7 +130,16 @@ export function AdminPage() {
           </thead>
           <tbody>
             {data.users.map((user) => (
-              <Row key={user.id} user={user} onEdit={startEditing} />
+              <Row
+                key={user.id}
+                user={user}
+                onEdit={startEditing}
+                onAccess={(disabled) => access.mutate({ userId: user.id, disabled })}
+                accessStuck={whyAccessIsStuck(user, {
+                  me: me.data?.user.id,
+                  admins: admins.length,
+                })}
+              />
             ))}
           </tbody>
         </table>
@@ -146,7 +163,7 @@ export function AdminPage() {
           choices={ROLES.map((role) => {
             const stuck = whyTheRoleIsStuck(beingEdited, role, {
               me: me.data?.user.id,
-              admins: data.users.filter((user) => user.role === ADMIN).length,
+              admins: admins.length,
             });
             return (
               /* Present and unavailable with the reason on it, the way a
@@ -223,9 +240,31 @@ function whyTheRoleIsStuck(
   // The rule is the server's, shared so the two cannot come apart; only the
   // wording is this page's, a label inside a choice being no place for a
   // sentence.
-  const losing = losingAdminIsRefused({ who: user, role, askedBy: me, admins });
+  const losing = losingAdminIsRefused({
+    who: user,
+    stillAnAdmin: role === ADMIN,
+    askedBy: me,
+    admins,
+  });
   if (losing === 'the last admin') return 'The only admin, so make somebody else one first';
   if (losing === 'your own') return 'You cannot take your own admin away';
+  return null;
+}
+
+/**
+ * Why this person's access cannot be taken away, or `null` when it can.
+ *
+ * The same rule the role choice is refused by, asked of access: an admin who
+ * cannot sign in is no more use than one who is not an admin, so disabling the
+ * last one - or yourself - leaves the admin pages reachable by nobody.
+ */
+function whyAccessIsStuck(
+  user: RegisteredUser,
+  { me, admins }: { me: string | undefined; admins: number },
+): string | null {
+  const losing = losingAdminIsRefused({ who: user, stillAnAdmin: false, askedBy: me, admins });
+  if (losing === 'the last admin') return 'The only admin, so make somebody else one first';
+  if (losing === 'your own') return 'You cannot take your own access away';
   return null;
 }
 
@@ -343,9 +382,14 @@ function AddSomebody() {
 function Row({
   user,
   onEdit,
+  onAccess,
+  accessStuck,
 }: {
   user: RegisteredUser;
   onEdit: (user: RegisteredUser, openedFrom: HTMLElement | null) => void;
+  onAccess: (disabled: boolean) => void;
+  /** Why this person's access cannot be taken away, when it cannot. */
+  accessStuck: string | null;
 }) {
   return (
     <tr
@@ -354,7 +398,18 @@ function Row({
         if (wasOnTheRow(event)) onEdit(user, null);
       }}
     >
-      <td className="py-2 pr-4">{user.name}</td>
+      <td className="py-2 pr-4">
+        {user.name}
+        {/* The row stays where it was and says what happened to it, rather than
+            leaving the list: somebody disabled is still somebody this Cockpit
+            holds, and an admin looking for them would not find them in a list
+            they had dropped out of. */}
+        {user.disabled && (
+          <span className="ml-2 rounded bg-black/5 px-1.5 py-0.5 text-xs text-ink-faint">
+            No access
+          </span>
+        )}
+      </td>
       {/* A person with no address is one nobody can sign in as, since the
           register is the allowlist. Said rather than left blank, because a
           blank cell reads as a page that failed to draw. */}
@@ -365,7 +420,20 @@ function Row({
       <td className="py-2">
         <RowMenu
           label={`Actions for ${user.name}`}
-          entries={[{ label: 'Edit…', onSelect: (openedFrom) => onEdit(user, openedFrom) }]}
+          entries={[
+            { label: 'Edit…', onSelect: (openedFrom) => onEdit(user, openedFrom) },
+            {
+              // One entry that says which way it goes, rather than two with one
+              // of them always meaningless.
+              label: user.disabled ? 'Enable' : 'Disable',
+              keepsFocus: true,
+              // Present and unavailable with the reason on it, the way the role
+              // it repeats refuses - and the server refuses it as well.
+              ...(user.disabled ? {} : { unavailable: accessStuck ?? undefined }),
+              destructive: !user.disabled,
+              onSelect: () => onAccess(!user.disabled),
+            },
+          ]}
         />
       </td>
     </tr>

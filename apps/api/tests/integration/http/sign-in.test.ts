@@ -172,6 +172,119 @@ describe('Sign-in', () => {
   });
 
   /**
+   * The two refusals are told apart on purpose ("Take somebody's access away
+   * without taking their work", issue 233): a colleague whose access was
+   * removed must not be told this Cockpit does not know them, and sent looking
+   * for a sign-in problem that is not theirs. The cost is that whoever tries
+   * the address learns it is held here, taken knowingly.
+   *
+   * Whether the refusal reads as words on the logon page is
+   * apps/web/tests/unit/pages/LogonPage.test.tsx's; what is asked here is that
+   * the two are different answers, so a change to one is not quietly a change
+   * to both.
+   */
+  describe('a disabled user is turned away and told why', () => {
+    async function accessTakenFrom(userId: string) {
+      await env.DB.prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
+        .bind(AT, userId)
+        .run();
+    }
+
+    it.each([
+      {
+        situation: 'somebody whose access was taken away',
+        disabled: true,
+        email: 'michael@example.com',
+        sentTo: '/signin?refused=access-removed',
+      },
+      {
+        situation: 'an address the register never held',
+        disabled: false,
+        email: 'stranger@example.com',
+        sentTo: '/signin?refused=unknown-account',
+      },
+    ])('refuses $situation', async ({ disabled, email, sentTo }) => {
+      if (disabled) await accessTakenFrom(USER_ID);
+
+      const back = await signInAsGoogleAccount({ email });
+
+      expect(back.headers.get('location')).toBe(sentTo);
+      expect(sessionIn(back)).toBeUndefined();
+    });
+
+    /**
+     * The common case: somebody who has been using this Cockpit, so the
+     * register knows their Google account and finds them by it rather than by
+     * their address. It is a second path through the same rule and the one
+     * almost every real disabling takes.
+     */
+    it('refuses somebody disabled after they had been signing in', async () => {
+      await signInAsGoogleAccount({ email: 'michael@example.com', subject: 'google|michael' });
+      await accessTakenFrom(USER_ID);
+
+      const back = await signInAsGoogleAccount({
+        email: 'michael@example.com',
+        subject: 'google|michael',
+      });
+
+      expect(back.headers.get('location')).toBe('/signin?refused=access-removed');
+      expect(sessionIn(back)).toBeUndefined();
+    });
+
+    /**
+     * Taken away before they had ever signed in, which is the case that decides
+     * the order of the two checks: they are refused for having no access rather
+     * than as a stranger, and this Cockpit does not learn which Google account
+     * they are on the way.
+     */
+    it('refuses somebody disabled before their first sign-in, and records nothing about them', async () => {
+      await accessTakenFrom(OTHER_USER_ID);
+
+      const back = await signInAsGoogleAccount({ email: 'ada@example.com', subject: 'google|ada' });
+
+      expect(back.headers.get('location')).toBe('/signin?refused=access-removed');
+      const [row] = (
+        await env.DB.prepare('SELECT google_subject FROM users WHERE id = ?')
+          .bind(OTHER_USER_ID)
+          .all<{ google_subject: string | null }>()
+      ).results;
+      expect(row?.google_subject).toBeNull();
+    });
+
+    it('lets somebody enabled again sign in, into everything they had', async () => {
+      await accessTakenFrom(USER_ID);
+      await env.DB.prepare('UPDATE users SET disabled_at = NULL WHERE id = ?').bind(USER_ID).run();
+
+      const back = await signInAsGoogleAccount({ email: 'michael@example.com' });
+
+      expect(back.headers.get('location')).toBe('/');
+      const workspaces = await SELF.fetch('http://cockpit.test/v1/workspaces', {
+        headers: { cookie: sessionIn(back)! },
+      });
+      expect(workspaces.status).toBe(200);
+    });
+
+    /**
+     * The second lock, and the one state no request can produce: disabling
+     * deletes the sign-ins somebody holds and no new one can be made for them,
+     * so a live session for a disabled person only exists in the moment a
+     * sign-in lands as the disabling commits. Written into the register
+     * directly for that reason - the same exception the constraints suite is
+     * written under - and asked through the real gate, which is where the
+     * answer has to come from.
+     */
+    it('refuses a sign-in somebody still holds when their access is taken away', async () => {
+      const cookie = await signInAs(USER_ID);
+      expect((await SELF.fetch('http://cockpit.test/v1/me', carrying(cookie))).status).toBe(200);
+
+      await accessTakenFrom(USER_ID);
+
+      const res = await SELF.fetch('http://cockpit.test/v1/me', carrying(cookie));
+      expect(res.status).toBe(401);
+    });
+  });
+
+  /**
    * Every way a reply can be wrong is proved at
    * tests/unit/auth/oidc.test.ts, against real tokens and a real key. What
    * cannot be proved there is that any of it is asked on the way in, which is
