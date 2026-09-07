@@ -79,14 +79,16 @@ Never fix it by renaming the change back to what the store recorded; that trades
 
 ### Taking a backup, and putting one back
 
-Writes an environment to local JSON — the register, and each account's own store in a file of its own:
+**Both commands need a secret and nothing hands you one: you invent it**, and it goes in two places under two names — which is why every example below passes one inline. Where each goes, how long it has to be, and what an environment variable does and does not keep it out of, is in [docs/deployment.md](docs/deployment.md) under "Secrets and access"; locally, copy `apps/api/.dev.vars.example`.
+
+This writes an environment to local JSON — the register, and each account's own store in a file of its own:
 
 ```bash
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/2026-09-06
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env local --out ./backups/mine --user tenant-default
 ```
 
-The secret is the environment's own `BACKUP_TOKEN`, which is what the operator routes are behind; locally it comes from `apps/api/.dev.vars` (copy `.dev.vars.example`). Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
+Reaching `--env staging` or `--env production` also needs `CLOUDFLARE_WORKERS_SUBDOMAIN` set, per the same section. Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
 
 Putting one back is the same shape, and is the half that destroys something:
 

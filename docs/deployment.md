@@ -355,6 +355,8 @@ COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/202
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/anna --user tenant-anna
 ```
 
+Both need that environment's own `BACKUP_TOKEN` in `COCKPIT_BACKUP_TOKEN`, and `CLOUDFLARE_WORKERS_SUBDOMAIN` set — see "Secrets and access" below for where each comes from.
+
 And `pnpm backup:restore` puts one back, an environment or one user at a time:
 
 ```bash
@@ -375,7 +377,11 @@ wrangler secret put <NAME> --env staging
 
 | Secret | What it is for |
 |---|---|
-| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. Put one in **both** environments — they are not inheritable, and an environment without one refuses those routes rather than opening them. `pnpm backup:export` reads the same value from `COCKPIT_BACKUP_TOKEN`, an environment variable rather than a flag so it stays out of shell history. Locally it goes in `apps/api/.dev.vars`, which is gitignored. |
+| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally. See below for the half you set in your own shell. |
+
+**The backup commands send that same value under a second name, and the two are set separately.** `BACKUP_TOKEN` is what the Worker checks; `COCKPIT_BACKUP_TOKEN` is what `pnpm backup:export` and `pnpm backup:restore` read from **your own shell** and send. Locally the first lives in `apps/api/.dev.vars`, which Wrangler loads for the Worker process and which therefore never reaches a shell — so setting it there does not set the other, and every example passes one inline. They have to match, and you send whichever environment's value you are pointing at.
+
+**An environment variable rather than a `--token` flag keeps it out of another user's `ps`, and not out of your shell history**, which records the line as typed. It is out of *argv*, which anybody on the box can read; your own user and root can still read it from `ps eww` or `/proc/<pid>/environ`. If that matters, keep it in a file only you can read, or rely on your shell's own way of not recording a line. Reaching a deployed environment also needs `CLOUDFLARE_WORKERS_SUBDOMAIN`, since its address is built from it; `--env local` works its own port out.
 
 CI needs, in GitHub:
 
