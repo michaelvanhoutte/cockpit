@@ -54,6 +54,11 @@ test.describe('Dashboards', () => {
       // The question says what a dashboard is, which is the moment somebody
       // pressing `+` is asking. Matched on the opening clause, so rewording the
       // sentence around it does not re-break this walk.
+      //
+      // Walking away from it is not here: Escape closing the question and
+      // adding nothing belongs to the shared dialog rather than to this bar,
+      // and is proved on it (apps/web/tests/unit/components/DashboardBar.test.tsx
+      // presses Escape after a refusal and finds the box empty on reopening).
       await expect(
         page.getByRole('dialog').getByText(/A view inside one workspace/),
       ).toBeVisible();

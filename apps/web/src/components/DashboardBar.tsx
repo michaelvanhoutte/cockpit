@@ -278,6 +278,10 @@ export function DashboardBar({
  * somebody is asking what a dashboard *is*, and a strip has room for a box and
  * a button and nothing else. Adding a panel had been asked in a dialog all
  * along, so the two are one question in two places now rather than two shapes.
+ *
+ * **The `+` stays where it is while the question is open**, where the field
+ * replaced it - so the controls to its right no longer move by the width of a
+ * box every time somebody adds a dashboard.
  */
 function AddDashboard({ workspaceId }: { workspaceId: string }) {
   const [naming, setNaming] = useState(false);

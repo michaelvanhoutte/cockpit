@@ -75,6 +75,9 @@ export function NameQuestion({
   /** The control it was opened from, which gets the focus back. */
   returnFocusTo?: HTMLElement | null;
 }) {
+  /** One reading of "was this given something to say", for both uses below. */
+  const describes = Boolean(explains);
+
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
       <Dialog.Portal>
@@ -83,7 +86,12 @@ export function NameQuestion({
           // Only where there is nothing to describe it with: the prop is how
           // Radix is told the omission is deliberate, and passing it beside a
           // Description would take that description back off the dialog.
-          {...(explains ? {} : { 'aria-describedby': undefined })}
+          //
+          // Keyed on the same expression the Description below is, so there is
+          // no third state where a blank explanation renders nothing *and*
+          // drops the marker - which is the one shape that would put Radix's
+          // missing-description warning back in the console.
+          {...(describes ? {} : { 'aria-describedby': undefined })}
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
             event.preventDefault();
@@ -95,7 +103,7 @@ export function NameQuestion({
           className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">{question}</Dialog.Title>
-          {explains && (
+          {describes && (
             <Dialog.Description className="pt-2 text-sm text-ink-soft">
               {explains}
             </Dialog.Description>

@@ -261,6 +261,10 @@ describe('Dashboards', () => {
 
       await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
 
+      // Against the sentence *and* against it saying anything at all: an
+      // emptied constant renders no description, which would otherwise match an
+      // expectation that is itself the empty string.
+      expect(WHAT_A_DASHBOARD_IS).not.toBe('');
       expect(screen.getByRole('dialog')).toHaveAccessibleDescription(WHAT_A_DASHBOARD_IS);
     });
 
@@ -871,6 +875,8 @@ describe('Panels', () => {
 
       await user.click(await screen.findByRole('button', { name: '+ Panel' }));
 
+      // For the reason the dashboard's says.
+      expect(WHAT_A_PANEL_IS).not.toBe('');
       expect(screen.getByRole('dialog')).toHaveAccessibleDescription(WHAT_A_PANEL_IS);
     });
   });
