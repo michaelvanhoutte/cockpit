@@ -1,7 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Env } from '../env.js';
-import { isAdminPath } from './admin.js';
+import { isOperatorPath } from './operator.js';
 import type { Attempt } from './oidc.js';
 import { extendSession, sessionHeld, type Visitor } from './register.js';
 import { recogniseSession, SIGN_IN_LIFETIME_MS } from './session.js';
@@ -84,6 +84,32 @@ function perStack(name: string, url: string): string {
 export const RETIRED_PATHS: readonly string[] = ['/v1/users', '/v1/sign-in'];
 
 /**
+ * Where the operator's commands used to be answered, before "Give the
+ * operator's routes the operator's name, and free /v1/admin/ for the admin
+ * section" (issue 229) moved them under `/v1/operator/`.
+ *
+ * **Prefixes rather than exact paths**, which the list above deliberately is
+ * not: two of the four addresses carry an account name, so there is no exact
+ * string to hold. That is safe here in a way it would not be generally, because
+ * nothing is served under either any more - `app.ts` answers the whole of both
+ * subtrees with a `410` and registers nothing else beneath them, so being
+ * outside the sign-in gate opens a refusal rather than a route.
+ *
+ * **`/v1/admin/` itself is not here**, and must not be: it is where the admin
+ * section is going, and a page there is guarded by a sign-in and the `admin`
+ * role like everything else behind this gate.
+ *
+ * The reason to answer at all rather than let the sign-in gate refuse: whoever
+ * asks is `pnpm backup:export` from a checkout that has not been updated, and
+ * "sign in to continue" is advice a command line cannot take. It is told it is
+ * behind, which is a thing it can act on.
+ */
+export const MOVED_OPERATOR_PREFIXES: readonly string[] = [
+  '/v1/admin/backup/',
+  '/v1/admin/restore/',
+];
+
+/**
  * The only paths that answer without a sign-in, and each is here for a stated
  * reason rather than by omission:
  *
@@ -133,24 +159,28 @@ const INGRESS_PREFIX = '/ingress/';
 /**
  * The second prefix, and the same shape of reason: **the operator's commands
  * hold no session cookie**, so a sign-in is the wrong question to ask of them
- * too. What authenticates one is the secret checked in `auth/admin.ts`, which
- * stands in front of this gate rather than behind it.
+ * too. What authenticates one is the secret checked in `auth/operator.ts`,
+ * which stands in front of this gate rather than behind it.
  *
  * Outside *this* gate is not outside every gate, and that distinction is the
  * whole safety of the line above: `/health` is genuinely open, while these
- * routes are shut to everyone without the secret. Removing the admin gate would
- * therefore not reopen the sign-in gate, it would open these routes to
+ * routes are shut to everyone without the secret. Removing the operator's gate
+ * would therefore not reopen the sign-in gate, it would open those routes to
  * everybody - so the two belong together and neither is a spare.
  *
  * Imported rather than written again here: two copies of the prefix is a hole
  * that can outlive the gate it was cut for, and one of the two edits is the
  * easy one to forget.
+ *
+ * The third is where those routes used to answer, which is a `410` and nothing
+ * else (`MOVED_OPERATOR_PREFIXES`).
  */
 export function isOutsideTheGate(path: string): boolean {
   return (
     PATHS_OUTSIDE_THE_GATE.includes(path) ||
     path.startsWith(INGRESS_PREFIX) ||
-    isAdminPath(path)
+    isOperatorPath(path) ||
+    MOVED_OPERATOR_PREFIXES.some((prefix) => path.startsWith(prefix))
   );
 }
 
@@ -166,7 +196,7 @@ export function isOutsideTheGate(path: string): boolean {
 export function gate(): MiddlewareHandler<GatedEnv> {
   return async (c, next) => {
     // `c.req.path` rather than the raw URL's pathname, so this gate and the
-    // router answer one question with one string - see `auth/admin.ts` for the
+    // router answer one question with one string - see `auth/operator.ts` for the
     // hole the difference opened there. This one failed the safe way round (an
     // escaped `/health` got *more* protection, not less) and is changed anyway,
     // because leaving two spellings of "which path is this" in one directory is

@@ -28,24 +28,37 @@ import type { Env } from '../env.js';
  * Everything behind the operator's secret. A prefix, because the routes under
  * it are addressed by account name.
  *
+ * **It is `/v1/operator/` and not `/v1/admin/`**, which these routes held until
+ * "Give the operator's routes the operator's name, and free /v1/admin/ for the
+ * admin section" (issue 229). The old name described neither the caller nor the
+ * gate - an operator holds a secret, an admin holds a role - and it stood on
+ * the address the admin section wants for every page it will have. The two now
+ * read as what they are:
+ *
+ * | Prefix | Who calls it | What lets them in |
+ * |---|---|---|
+ * | `/v1/operator/` | a command line, no browser | the `BACKUP_TOKEN` secret |
+ * | `/v1/admin/` | a person on the admin pages | a sign-in, and the `admin` role |
+ *
  * It is named in `gate.ts` as standing outside the sign-in gate, for the same
  * reason webhook ingress does: whoever calls it holds no session cookie and
  * never will. The two gates are not alternatives - what is outside one is
  * inside the other, and this prefix is only outside the first because this is
  * in front of it.
  */
-export const ADMIN_PREFIX = '/v1/admin/';
+export const OPERATOR_PREFIX = '/v1/operator/';
 
-export function isAdminPath(path: string): boolean {
-  return path.startsWith(ADMIN_PREFIX);
+export function isOperatorPath(path: string): boolean {
+  return path.startsWith(OPERATOR_PREFIX);
 }
 
 /**
  * Whether a request carries the secret.
  *
  * Kept apart from the middleware so every branch is provable without a request
- * (`tests/unit/auth/admin.test.ts`), which is where the cases that matter are:
- * the environment with no secret set, and the header that is present but wrong.
+ * (`tests/unit/auth/operator.test.ts`), which is where the cases that matter
+ * are: the environment with no secret set, and the header that is present but
+ * wrong.
  *
  * The comparison is not constant-time, and does not need to be: this is one
  * `fetch` per attempt across the internet against a secret with far more
@@ -74,16 +87,19 @@ function bearerToken(header: string): string | null {
  *
  * **`c.req.path`, never `new URL(c.req.url).pathname`.** The two differ:
  * `pathname` keeps percent-escapes, while the router decodes them before
- * matching - so `/v1/%61dmin/backup/register` reaches the handler registered at
- * `/v1/admin/backup/register` while a raw-path check says it is not an admin
- * path at all, and waves it through with no secret. That was a real hole in
- * this file's first draft, found by the security review and reproduced against
- * a running deployment. A gate has to decide on the same string the router
- * matched on; anything else is two answers to one question.
+ * matching - so `/v1/%6Fperator/backup/register` reaches the handler registered
+ * at `/v1/operator/backup/register` while a raw-path check says it is not an
+ * operator path at all, and waves it through with no secret. That was a real
+ * hole in this file's first draft, found by the security review and reproduced
+ * against a running deployment. A gate has to decide on the same string the
+ * router matched on; anything else is two answers to one question. The escape
+ * moved with the prefix - it is whichever letter is written `%6F` rather than
+ * `o` - so the case is re-proved against the new spelling rather than assumed
+ * to have moved with it.
  */
-export function adminGate(): MiddlewareHandler<{ Bindings: Env }> {
+export function operatorGate(): MiddlewareHandler<{ Bindings: Env }> {
   return async (c, next) => {
-    if (!isAdminPath(c.req.path)) return next();
+    if (!isOperatorPath(c.req.path)) return next();
     if (!secretAccepted(c.req.header('authorization'), c.env.BACKUP_TOKEN)) {
       return c.json({ error: 'not allowed' }, 401);
     }

@@ -22,7 +22,7 @@ import {
  *
  * The one thing deliberately asked elsewhere is whether a request carries the
  * operator's secret: that is a decision about two strings, it is asked at
- * tests/unit/auth/admin.test.ts, and the case that matters most there - an
+ * tests/unit/auth/operator.test.ts, and the case that matters most there - an
  * environment where no secret was ever set - cannot be expressed here at all,
  * because these bindings always carry one. What is left for this file is
  * whether the gate is actually in front of the routes, which is the half that
@@ -57,13 +57,13 @@ function asOperator(path: string, secret: string | null = SECRET): Promise<Respo
 }
 
 async function backUpRegister(): Promise<RegisterFile> {
-  const res = await asOperator('/v1/admin/backup/register');
+  const res = await asOperator('/v1/operator/backup/register');
   expect(res.status).toBe(200);
   return (await res.json()) as RegisterFile;
 }
 
 async function backUp(accountName: string): Promise<AccountFile> {
-  const res = await asOperator(`/v1/admin/backup/accounts/${accountName}`);
+  const res = await asOperator(`/v1/operator/backup/accounts/${accountName}`);
   expect(res.status).toBe(200);
   return (await res.json()) as AccountFile;
 }
@@ -120,7 +120,7 @@ describe('Backup', () => {
     });
 
     it('refuses a name that is not in the register, and reads nothing', async () => {
-      const res = await asOperator('/v1/admin/backup/accounts/nobody');
+      const res = await asOperator('/v1/operator/backup/accounts/nobody');
 
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: 'no account nobody' });
@@ -272,7 +272,7 @@ describe('Backup', () => {
         );
       });
 
-      const res = await asOperator(`/v1/admin/backup/accounts/${ACCOUNT_NAME}`);
+      const res = await asOperator(`/v1/operator/backup/accounts/${ACCOUNT_NAME}`);
       expect(res.status).toBe(409);
       const { error } = (await res.json()) as { error: string };
       expect(error).toContain('workspaces');
@@ -355,8 +355,8 @@ describe('Backup', () => {
 
   describe('backing up is refused to anyone without the operator’s secret', () => {
     it.each([
-      { situation: 'the register', path: '/v1/admin/backup/register' },
-      { situation: 'an account', path: `/v1/admin/backup/accounts/${ACCOUNT_NAME}` },
+      { situation: 'the register', path: '/v1/operator/backup/register' },
+      { situation: 'an account', path: `/v1/operator/backup/accounts/${ACCOUNT_NAME}` },
     ])('$situation is refused when nothing is offered', async ({ path }) => {
       const res = await asOperator(path, null);
 
@@ -365,7 +365,7 @@ describe('Backup', () => {
     });
 
     it('is refused when the secret is wrong', async () => {
-      expect((await asOperator('/v1/admin/backup/register', 'not-it')).status).toBe(401);
+      expect((await asOperator('/v1/operator/backup/register', 'not-it')).status).toBe(401);
     });
 
     /**
@@ -375,7 +375,7 @@ describe('Backup', () => {
      * session is not an alternative way in.
      */
     it('is refused to somebody merely signed in', async () => {
-      const res = await asUser('http://cockpit.test/v1/admin/backup/register', {}, USER_ID);
+      const res = await asUser('http://cockpit.test/v1/operator/backup/register', {}, USER_ID);
 
       expect(res.status).toBe(401);
     });
@@ -392,17 +392,54 @@ describe('Backup', () => {
      * that *no* spelling of the path reaches the routes without the secret.
      */
     it.each([
-      { situation: 'the first letter escaped', path: '/v1/%61dmin/backup/register' },
-      { situation: 'a letter in the middle escaped', path: '/v1/adm%69n/backup/register' },
+      { situation: 'the first letter escaped', path: '/v1/%6Fperator/backup/register' },
+      { situation: 'a letter in the middle escaped', path: '/v1/oper%61tor/backup/register' },
       {
         situation: 'an account route with the prefix escaped',
-        path: `/v1/%61dmin/backup/accounts/${ACCOUNT_NAME}`,
+        path: `/v1/%6Fperator/backup/accounts/${ACCOUNT_NAME}`,
       },
     ])('is refused when it arrives with $situation', async ({ path }) => {
-      // Signed in, because a session is the one thing an attacker can always
-      // get: signing in is choosing a name off a public list.
+      // Signed in, because a session is the one thing this has to be proved
+      // against: the operator's routes are outside the sign-in gate, so holding
+      // a sign-in must not be a way past the secret either.
       expect((await asUser(`http://cockpit.test${path}`, {}, USER_ID)).status).toBe(401);
       expect((await SELF.fetch(`http://cockpit.test${path}`)).status).toBe(401);
+    });
+  });
+
+  /**
+   * The address these routes held until "Give the operator's routes the
+   * operator's name, and free /v1/admin/ for the admin section" (issue 229).
+   *
+   * It answers rather than refusing, and says where they went, because whoever
+   * asks is a command line run from a checkout that has not been updated -
+   * `pnpm backup:export`, which can do nothing with "sign in to continue". The
+   * secret is not asked for: there is nothing behind the address to protect.
+   */
+  describe('the operator’s old address says where the routes went', () => {
+    it.each([
+      { situation: 'backing up the register', path: '/v1/admin/backup/register' },
+      { situation: 'backing up an account', path: `/v1/admin/backup/accounts/${ACCOUNT_NAME}` },
+      { situation: 'restoring the register', path: '/v1/admin/restore/register' },
+      { situation: 'restoring an account', path: `/v1/admin/restore/accounts/${ACCOUNT_NAME}` },
+    ])('$situation is told it has moved', async ({ path }) => {
+      const res = await SELF.fetch(`http://cockpit.test${path}`);
+
+      expect(res.status).toBe(410);
+      const { error } = (await res.json()) as { error: string };
+      expect(error).toContain('/v1/operator/');
+    });
+
+    /**
+     * The address the admin pages are going to, which is *not* retired and must
+     * not be opened by the two subtrees above being outside the sign-in gate.
+     * Nothing serves it yet, so what proves the gate still stands in front of it
+     * is the refusal rather than a 404.
+     */
+    it('leaves the rest of the admin address behind the sign-in gate', async () => {
+      const res = await SELF.fetch('http://cockpit.test/v1/admin/users');
+
+      expect(res.status).toBe(401);
     });
   });
 });

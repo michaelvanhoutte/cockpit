@@ -31,7 +31,7 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
-import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
+import { OPERATOR_PREFIX, operatorGate } from '../auth/operator.js';
 import {
   attemptHeld,
   forgetAttempt,
@@ -40,6 +40,7 @@ import {
   rememberAttempt,
   rememberSessionCookie,
   stillSignedIn,
+  MOVED_OPERATOR_PREFIXES,
   RETIRED_PATHS,
   type GatedEnv,
 } from '../auth/gate.js';
@@ -150,16 +151,16 @@ app.use('*', gate());
 /**
  * And the operator's own gate behind it, in front of the routes the sign-in
  * gate deliberately lets past. Registered second so the order reads the way the
- * request travels: the sign-in gate waves `/v1/admin/` through, and this is
+ * request travels: the sign-in gate waves `/v1/operator/` through, and this is
  * what it is waved through *to*. Neither is a spare for the other.
  *
  * **Mounted on the pattern, not on `*`.** The middleware checks the path itself
  * as well, and this says the same thing a second way on purpose: matching here
  * is Hono's own, so the set of requests that reach the operator's routes and
  * the set this stands in front of are decided by one matcher rather than by two
- * that can disagree. They did disagree once - `auth/admin.ts` records how.
+ * that can disagree. They did disagree once - `auth/operator.ts` records how.
  */
-app.use(`${ADMIN_PREFIX}*`, adminGate());
+app.use(`${OPERATOR_PREFIX}*`, operatorGate());
 
 /**
  * What this application used to answer, saying so.
@@ -181,6 +182,30 @@ app.use(`${ADMIN_PREFIX}*`, adminGate());
 for (const path of RETIRED_PATHS) {
   app.all(path, (c) =>
     c.json({ error: 'this address has been retired; the app needs a newer version' }, 410),
+  );
+}
+
+/**
+ * And where the operator's commands used to be answered, saying where they went.
+ *
+ * A different sentence from the one above because a different caller reads it:
+ * that one is for a browser, which acts on `410` by fetching a newer build,
+ * while this one is for `pnpm backup:export` run from a checkout somebody has
+ * not updated, where the only thing that helps is the new address in the text.
+ * Neither can be answered by the sign-in gate's refusal, which is why both are
+ * outside it (`auth/gate.ts`).
+ *
+ * Registered on `${prefix}*` because two of the four addresses carry an account
+ * name, and here rather than in the chain below for the reason the loop above
+ * records: a route on a wildcard widens `AppType` and the typed client stops
+ * knowing the real routes exist.
+ */
+for (const prefix of MOVED_OPERATOR_PREFIXES) {
+  app.all(`${prefix}*`, (c) =>
+    c.json(
+      { error: `this address has moved to ${OPERATOR_PREFIX}; update your checkout` },
+      410,
+    ),
   );
 }
 
@@ -703,7 +728,7 @@ const routes = app
     return c.json({ error: 'connector ingress not yet wired' }, 501);
   })
   // --- the operator's backup routes ------------------------------------------
-  // Behind the secret in `auth/admin.ts` and outside the sign-in gate, because
+  // Behind the secret in `auth/operator.ts` and outside the sign-in gate, because
   // whoever calls these holds no session cookie. Plain routes rather than
   // `.openapi(...)`, like ingress above: nothing generated from this
   // application's contract calls them, and they are not part of the shape
@@ -713,14 +738,14 @@ const routes = app
   // single call - which is what makes a backup one moment rather than a smear
   // (src/accounts/backup.ts) - and one answer carrying every account would put
   // every account's data in one Worker's memory at once.
-  .get('/v1/admin/backup/register', async (c) => {
+  .get('/v1/operator/backup/register', async (c) => {
     const [register, accounts] = await Promise.all([
       registerContents(c.env),
       registeredAccountNames(c.env),
     ]);
     return c.json({ ...register, accounts }, 200);
   })
-  .get('/v1/admin/backup/accounts/:name', async (c) => {
+  .get('/v1/operator/backup/accounts/:name', async (c) => {
     const accountName = c.req.param('name');
     try {
       return c.json({ account: accountName, ...(await backUpAccount(c.env, accountName)) }, 200);
@@ -746,7 +771,7 @@ const routes = app
   // Restoring, which is the half that destroys something. Accounts go in first
   // and the register after, so a user never exists pointing at a store that has
   // not arrived - the order is the caller's to keep, and the CLI keeps it.
-  .post('/v1/admin/restore/accounts/:name', async (c) => {
+  .post('/v1/operator/restore/accounts/:name', async (c) => {
     const accountName = c.req.param('name');
     if (!accountNameSchema.safeParse(accountName).success) {
       return c.json({ error: `${accountName} cannot be an account's name` }, 400);
@@ -784,7 +809,7 @@ const routes = app
       throw error;
     }
   })
-  .post('/v1/admin/restore/register', async (c) => {
+  .post('/v1/operator/restore/register', async (c) => {
     const read = registerBackupSchema.safeParse(await readJsonBody(c));
     if (!read.success) {
       return c.json({ error: `that is not a register: ${firstProblem(read.error)}` }, 400);

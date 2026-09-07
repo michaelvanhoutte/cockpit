@@ -49,7 +49,7 @@ function answering({ register = REGISTER, failOn } = {}) {
     ask: async (path) => {
       asked.push(path);
       if (failOn && path.includes(failOn)) throw new Error(`nothing answered for ${path}`);
-      if (path === '/v1/admin/backup/register') return register;
+      if (path === '/v1/operator/backup/register') return register;
       const account = decodeURIComponent(path.split('/').pop());
       return { account, changesApplied: ['0001-account-schema'], tables: { items: [{ id: 'i1' }] } };
     },
@@ -148,7 +148,7 @@ describe('a backup refuses what it cannot write down faithfully', () => {
   // command rather than as an environment answering oddly.
   it('refuses an answer that is not a backup, and says what it suspects', async () => {
     const ask = async (path) =>
-      path === '/v1/admin/backup/register' ? REGISTER : { please: 'sign in' };
+      path === '/v1/operator/backup/register' ? REGISTER : { please: 'sign in' };
 
     await assert.rejects(
       takeBackup({ ask, files: fakeFiles(), out: 'b', environment: 'staging' }),

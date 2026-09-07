@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAdminPath, secretAccepted } from '../../../src/auth/admin.js';
+import { isOperatorPath, secretAccepted } from '../../../src/auth/operator.js';
 
 /**
  * Unit level, because deciding whether a request carries the secret is a
@@ -49,8 +49,8 @@ describe('Backup', () => {
 
   describe('the operator’s routes are the only ones behind the secret', () => {
     it.each([
-      { situation: 'backing up the register', path: '/v1/admin/backup/register', behind: true },
-      { situation: 'backing up an account', path: '/v1/admin/backup/accounts/x', behind: true },
+      { situation: 'backing up the register', path: '/v1/operator/backup/register', behind: true },
+      { situation: 'backing up an account', path: '/v1/operator/backup/accounts/x', behind: true },
       { situation: 'the workspaces a person reads', path: '/v1/workspaces', behind: false },
       { situation: 'the health check', path: '/health', behind: false },
       { situation: 'signing in', path: '/v1/sign-in', behind: false },
@@ -59,9 +59,16 @@ describe('Backup', () => {
       // matters in the opposite direction - a path that merely starts the same
       // way must not be let past the sign-in gate as though it were behind the
       // secret.
-      { situation: 'a path that only starts like one', path: '/v1/administrators', behind: false },
+      { situation: 'a path that only starts like one', path: '/v1/operators', behind: false },
+      // The address the operator's routes used to hold, and the one the admin
+      // pages are going to. Neither is behind the secret: the first answers
+      // that it moved, the second is behind a sign-in and a role like every
+      // other page. A secret standing in front of either would refuse the
+      // person it is meant for.
+      { situation: 'where the operator’s routes used to be', path: '/v1/admin/backup/register', behind: false },
+      { situation: 'the admin pages’ own address', path: '/v1/admin/users', behind: false },
     ])('$situation', ({ path, behind }) => {
-      expect(isAdminPath(path)).toBe(behind);
+      expect(isOperatorPath(path)).toBe(behind);
     });
   });
 });
