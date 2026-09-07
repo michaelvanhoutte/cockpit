@@ -53,6 +53,38 @@ export function isOperatorPath(path: string): boolean {
 }
 
 /**
+ * Where these routes answered before that, kept beside the prefix that replaced
+ * them rather than in the gate that has to let them past: a move is a fact
+ * about this address, and splitting the two halves across files is how one of
+ * them gets forgotten when the next move happens.
+ *
+ * **They answer `410` naming the new prefix**, and the sentence matters more
+ * than the status: whoever still asks here is `pnpm backup:export` run from a
+ * checkout somebody has not updated, and the sign-in gate's "sign in to
+ * continue" is advice a command line cannot take. Nothing guards them, because
+ * there is nothing behind them to guard.
+ *
+ * **Prefixes rather than exact paths**, unlike `RETIRED_PATHS`, because two of
+ * the four addresses carry an account name. That is safe only while nothing is
+ * served beneath either: `app.ts` answers the whole of both subtrees and
+ * registers nothing else there. **An admin page under `/v1/admin/backup/**` or
+ * `/v1/admin/restore/**` would be shadowed by that answer rather than reached**
+ * - and since the app turns any `410` into a forced update
+ * (`apps/web/src/updating.ts`), the symptom would be a reload loop rather than
+ * a 404. Either name such a page outside these two subtrees or take the entry
+ * out; they are removable as soon as no checkout still asks, which for a
+ * command run by hand is a judgement rather than a date.
+ *
+ * **`/v1/admin/` itself is deliberately not here**: it is where the admin
+ * section is going, and a page there is guarded by a sign-in and the `admin`
+ * role like everything else.
+ */
+export const MOVED_OPERATOR_PREFIXES: readonly string[] = [
+  '/v1/admin/backup/',
+  '/v1/admin/restore/',
+];
+
+/**
  * Whether a request carries the secret.
  *
  * Kept apart from the middleware so every branch is provable without a request

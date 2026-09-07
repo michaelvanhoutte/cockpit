@@ -410,11 +410,8 @@ describe('Backup', () => {
   /**
    * The address these routes held until "Give the operator's routes the
    * operator's name, and free /v1/admin/ for the admin section" (issue 229).
-   *
-   * It answers rather than refusing, and says where they went, because whoever
-   * asks is a command line run from a checkout that has not been updated -
-   * `pnpm backup:export`, which can do nothing with "sign in to continue". The
-   * secret is not asked for: there is nothing behind the address to protect.
+   * Why it answers rather than refusing, and why no secret is asked for, is in
+   * `auth/operator.ts`.
    */
   describe('the operator’s old address says where the routes went', () => {
     it.each([
@@ -428,6 +425,27 @@ describe('Backup', () => {
       expect(res.status).toBe(410);
       const { error } = (await res.json()) as { error: string };
       expect(error).toContain('/v1/operator/');
+    });
+
+    /**
+     * The restore addresses were `POST`-only, and a `POST` with a body is what
+     * an outdated `pnpm backup:restore` actually sends. Asking only with `GET`
+     * would leave the answer these exist for unproved: narrow the registration
+     * to `app.get`, or let a method-specific route be matched first, and the
+     * command gets a 404 with no "it moved" in it while the table above still
+     * passes.
+     */
+    it.each([
+      { situation: 'the register', path: '/v1/admin/restore/register' },
+      { situation: 'an account', path: `/v1/admin/restore/accounts/${ACCOUNT_NAME}` },
+    ])('$situation is told it has moved when written to, not only read', async ({ path }) => {
+      const res = await SELF.fetch(`http://cockpit.test${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+
+      expect(res.status).toBe(410);
     });
 
     /**

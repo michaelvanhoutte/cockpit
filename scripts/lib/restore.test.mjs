@@ -248,6 +248,15 @@ describe('a refusal to restore says which of the things somebody typed was wrong
       answer: { status: 401, body: '{"error":"not allowed"}' },
       says: /BACKUP_TOKEN/,
     },
+    {
+      // A restore meets this the same way an export does, and it matters more
+      // here: this command writes, so an operator who believes the secret was
+      // rejected rotates it and tries again against an environment that was
+      // never going to answer.
+      situation: 'the environment is older than this checkout',
+      answer: { status: 401, body: '{"error":"sign in to continue"}' },
+      says: /older than this checkout/,
+    },
     // The one refusal with a way forward, so it carries it.
     {
       situation: 'the account already holds data',

@@ -1,8 +1,8 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Env } from '../env.js';
-import { isOperatorPath } from './operator.js';
 import type { Attempt } from './oidc.js';
+import { MOVED_OPERATOR_PREFIXES, isOperatorPath } from './operator.js';
 import { extendSession, sessionHeld, type Visitor } from './register.js';
 import { recogniseSession, SIGN_IN_LIFETIME_MS } from './session.js';
 
@@ -84,32 +84,6 @@ function perStack(name: string, url: string): string {
 export const RETIRED_PATHS: readonly string[] = ['/v1/users', '/v1/sign-in'];
 
 /**
- * Where the operator's commands used to be answered, before "Give the
- * operator's routes the operator's name, and free /v1/admin/ for the admin
- * section" (issue 229) moved them under `/v1/operator/`.
- *
- * **Prefixes rather than exact paths**, which the list above deliberately is
- * not: two of the four addresses carry an account name, so there is no exact
- * string to hold. That is safe here in a way it would not be generally, because
- * nothing is served under either any more - `app.ts` answers the whole of both
- * subtrees with a `410` and registers nothing else beneath them, so being
- * outside the sign-in gate opens a refusal rather than a route.
- *
- * **`/v1/admin/` itself is not here**, and must not be: it is where the admin
- * section is going, and a page there is guarded by a sign-in and the `admin`
- * role like everything else behind this gate.
- *
- * The reason to answer at all rather than let the sign-in gate refuse: whoever
- * asks is `pnpm backup:export` from a checkout that has not been updated, and
- * "sign in to continue" is advice a command line cannot take. It is told it is
- * behind, which is a thing it can act on.
- */
-export const MOVED_OPERATOR_PREFIXES: readonly string[] = [
-  '/v1/admin/backup/',
-  '/v1/admin/restore/',
-];
-
-/**
  * The only paths that answer without a sign-in, and each is here for a stated
  * reason rather than by omission:
  *
@@ -141,39 +115,40 @@ export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
 ];
 
 /**
- * The one prefix outside the gate, and the only thing here that is not an exact
- * path: **webhook ingress is called by Slack, Gmail and the rest**, which can
- * never hold a session cookie, so a sign-in is the wrong question to ask of it.
- * What authenticates a delivery is the connector's own signature verification
+ * The first of the prefixes outside the gate, and the only one this file owns:
+ * **webhook ingress is called by Slack, Gmail and the rest**, which can never
+ * hold a session cookie, so a sign-in is the wrong question to ask of it. What
+ * authenticates a delivery is the connector's own signature verification
  * (architecture, "Connectors"), which lives behind this route and not in front
  * of it.
  *
  * It has to be a prefix because the path carries the connector's id and
- * whatever the source appends after it. That is deliberately the only one: the
- * gate stands in front of everything it has not been told about, so a route
- * added later is refused until somebody decides otherwise, rather than open
- * until somebody notices.
+ * whatever the source appends after it. **Every prefix here is one somebody
+ * argued for by name**, and there are three: this, the operator's own, and the
+ * addresses the operator's routes have moved off. The gate stands in front of
+ * everything it has not been told about, so a route added later is refused
+ * until somebody decides otherwise rather than open until somebody notices.
  */
 const INGRESS_PREFIX = '/ingress/';
 
 /**
- * The second prefix, and the same shape of reason: **the operator's commands
- * hold no session cookie**, so a sign-in is the wrong question to ask of them
- * too. What authenticates one is the secret checked in `auth/operator.ts`,
- * which stands in front of this gate rather than behind it.
+ * The other two, and the same shape of reason: **the operator's commands hold
+ * no session cookie**, so a sign-in is the wrong question to ask of them or of
+ * the addresses they have moved off. What authenticates one is the secret
+ * checked in `auth/operator.ts`, which stands in front of this gate rather than
+ * behind it; what the moved addresses answer is a `410` saying where the routes
+ * went, and why that is not the sign-in gate's refusal is argued there.
  *
  * Outside *this* gate is not outside every gate, and that distinction is the
- * whole safety of the line above: `/health` is genuinely open, while these
- * routes are shut to everyone without the secret. Removing the operator's gate
- * would therefore not reopen the sign-in gate, it would open those routes to
- * everybody - so the two belong together and neither is a spare.
+ * whole safety of the line above: `/health` is genuinely open, while the
+ * operator's routes are shut to everyone without the secret. Removing the
+ * operator's gate would therefore not reopen the sign-in gate, it would open
+ * those routes to everybody - so the two belong together and neither is a
+ * spare.
  *
- * Imported rather than written again here: two copies of the prefix is a hole
- * that can outlive the gate it was cut for, and one of the two edits is the
- * easy one to forget.
- *
- * The third is where those routes used to answer, which is a `410` and nothing
- * else (`MOVED_OPERATOR_PREFIXES`).
+ * Both imported rather than written again here: two copies of a prefix is a
+ * hole that can outlive the gate it was cut for, and one of the two edits is
+ * the easy one to forget.
  */
 export function isOutsideTheGate(path: string): boolean {
   return (

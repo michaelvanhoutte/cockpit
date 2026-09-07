@@ -65,7 +65,11 @@ describe('Backup', () => {
       // that it moved, the second is behind a sign-in and a role like every
       // other page. A secret standing in front of either would refuse the
       // person it is meant for.
-      { situation: 'where the operator’s routes used to be', path: '/v1/admin/backup/register', behind: false },
+      {
+        situation: 'where the operator’s routes used to be',
+        path: '/v1/admin/backup/register',
+        behind: false,
+      },
       { situation: 'the admin pages’ own address', path: '/v1/admin/users', behind: false },
     ])('$situation', ({ path, behind }) => {
       expect(isOperatorPath(path)).toBe(behind);

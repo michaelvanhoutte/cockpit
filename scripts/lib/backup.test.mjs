@@ -378,6 +378,15 @@ describe('a refusal says which of the things somebody typed was wrong', () => {
       says: /BACKUP_TOKEN/,
     },
     {
+      // The other 401, and the reason the two are read apart: an environment
+      // promoted before the operator routes moved answers the *sign-in* gate's
+      // refusal, and calling that a rejected secret sends somebody to rotate
+      // BACKUP_TOKEN when the fix is to promote.
+      situation: 'the environment is older than this checkout',
+      answer: { status: 401, body: '{"error":"sign in to continue"}' },
+      says: /older than this checkout/,
+    },
+    {
       situation: 'no such account',
       answer: { status: 404, body: '{"error":"no account nobody"}' },
       says: /no account nobody/,

@@ -31,7 +31,11 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
-import { OPERATOR_PREFIX, operatorGate } from '../auth/operator.js';
+import {
+  MOVED_OPERATOR_PREFIXES,
+  OPERATOR_PREFIX,
+  operatorGate,
+} from '../auth/operator.js';
 import {
   attemptHeld,
   forgetAttempt,
@@ -40,7 +44,6 @@ import {
   rememberAttempt,
   rememberSessionCookie,
   stillSignedIn,
-  MOVED_OPERATOR_PREFIXES,
   RETIRED_PATHS,
   type GatedEnv,
 } from '../auth/gate.js';
@@ -188,24 +191,14 @@ for (const path of RETIRED_PATHS) {
 /**
  * And where the operator's commands used to be answered, saying where they went.
  *
- * A different sentence from the one above because a different caller reads it:
- * that one is for a browser, which acts on `410` by fetching a newer build,
- * while this one is for `pnpm backup:export` run from a checkout somebody has
- * not updated, where the only thing that helps is the new address in the text.
- * Neither can be answered by the sign-in gate's refusal, which is why both are
- * outside it (`auth/gate.ts`).
- *
- * Registered on `${prefix}*` because two of the four addresses carry an account
- * name, and here rather than in the chain below for the reason the loop above
- * records: a route on a wildcard widens `AppType` and the typed client stops
- * knowing the real routes exist.
+ * A different sentence from the one above because a different caller reads it -
+ * a command line rather than a browser - and `auth/operator.ts` is where that
+ * is argued, along with what these prefixes forbid being served under them.
+ * Here rather than in the chain below for the reason the loop above records.
  */
 for (const prefix of MOVED_OPERATOR_PREFIXES) {
   app.all(`${prefix}*`, (c) =>
-    c.json(
-      { error: `this address has moved to ${OPERATOR_PREFIX}; update your checkout` },
-      410,
-    ),
+    c.json({ error: `this address has moved to ${OPERATOR_PREFIX}; update your checkout` }, 410),
   );
 }
 

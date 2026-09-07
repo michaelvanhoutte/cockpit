@@ -85,6 +85,27 @@ describe('Sign-in', () => {
         path: '/v1/operators',
       },
       {
+        // The same trap on the moved prefixes, which are the ones written with
+        // a trailing slash. Drop it - `/v1/admin/backup` rather than
+        // `/v1/admin/backup/` - and these two plausible admin pages fall
+        // outside the gate, which is how a page nobody meant to open gets
+        // opened.
+        situation: 'an admin page whose name starts like a moved one',
+        path: '/v1/admin/backups',
+      },
+      {
+        situation: 'an admin page named after what a moved one restored',
+        path: '/v1/admin/restore-settings',
+      },
+      {
+        // Kept from before the rename. `/v1/admin/` is no longer the operator's
+        // prefix, but a longer name that merely starts like it is still a path
+        // this gate has to hold, and it is the case the old spelling was
+        // written for.
+        situation: 'an address that merely starts like the admin section’s',
+        path: '/v1/administrators',
+      },
+      {
         // The address the admin section is going to. It must stay *behind* this
         // gate: freeing `/v1/admin/` of the operator's routes moved a prefix
         // out of the open list, and putting the whole of it back in would open
