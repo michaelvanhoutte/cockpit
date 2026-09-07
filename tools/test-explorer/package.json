@@ -4,9 +4,6 @@
   "private": true,
   "type": "module",
   "description": "Derives which product concepts own which tests, and renders it as a table. See docs/test-explorer-spec.md.",
-  "engines": {
-    "node": ">=22"
-  },
   "scripts": {
     "generate": "node src/cli.js",
     "model": "node src/cli.js --json",
