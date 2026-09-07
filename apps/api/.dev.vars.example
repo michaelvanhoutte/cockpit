@@ -3,13 +3,10 @@
 # this file is only how `pnpm dev` gets them.
 
 # The only thing in front of the operator routes under /v1/admin/, which hand
-# back every account's data. You invent it: any string works locally, and a
-# deployed environment gets a long random one via `wrangler secret put
-# BACKUP_TOKEN` - once for production and again with `--env staging`, which are
-# separate secrets.
+# back every account's data. You invent it - any string works locally.
 #
-# **This half is the Worker's.** `pnpm backup:export` and `pnpm backup:restore`
-# read the *same value* from COCKPIT_BACKUP_TOKEN in your own shell, because
-# this file is loaded by Wrangler for the Worker process and never reaches a
-# shell. Setting it here does not set it there; the two have to match.
+# **This half is the Worker's**, and setting it here does not set the other:
+# the backup commands read the same value from COCKPIT_BACKUP_TOKEN in your own
+# shell, because Wrangler loads this file for the Worker process and it never
+# reaches a shell. Both halves are in docs/deployment.md, "Secrets and access".
 BACKUP_TOKEN=local-operator-secret

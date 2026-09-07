@@ -368,7 +368,11 @@ wrangler secret put <NAME> --env staging
 
 | Secret | What it is for |
 |---|---|
-| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. The backup commands send the same value, read from `COCKPIT_BACKUP_TOKEN` **in your own shell**: this file's local counterpart, `apps/api/.dev.vars`, is loaded by Wrangler for the Worker and never reaches a shell, so the two are set separately and have to match. An environment variable rather than a flag keeps it out of shell history. |
+| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. See below for the half that is not a secret at all. |
+
+**The backup commands send that same value under a second name, and the two are set separately.** `BACKUP_TOKEN` is what the Worker checks; `COCKPIT_BACKUP_TOKEN` is what `pnpm backup:export` and `pnpm backup:restore` read from **your own shell** and send. Locally the first lives in `apps/api/.dev.vars`, which Wrangler loads for the Worker process and which therefore never reaches a shell — so setting it there does not set the other, and every example passes one inline. They have to match, and you send whichever environment's value you are pointing at.
+
+**An environment variable rather than a `--token` flag keeps it out of `ps`, and not out of your shell history**, which records the line as typed. If that matters, export it once for the session, keep it in a file only you can read, or rely on your shell's own way of not recording a line.
 
 CI needs, in GitHub:
 

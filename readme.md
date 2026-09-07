@@ -79,16 +79,9 @@ Never fix it by renaming the change back to what the store recorded; that trades
 
 ### Taking a backup, and putting one back
 
-**First, the secret, because both commands need one and nothing hands you it.** You invent it — any string locally, something long and random for a deployed environment (`openssl rand -base64 32`). It then goes in *two* places, under two names, and the commands only work when they match:
+**Both commands need a secret and nothing hands you one: you invent it.** It then goes in two places under two names — `BACKUP_TOKEN` for the environment (`apps/api/.dev.vars` locally, `wrangler secret put` per deployed one) and `COCKPIT_BACKUP_TOKEN` in your own shell, which is why every example below sets one inline. Why it is two, and what an environment variable does and does not keep it out of, is in [docs/deployment.md](docs/deployment.md) under "Secrets and access".
 
-| | Name | Who reads it | Where you put it |
-|---|---|---|---|
-| The environment | `BACKUP_TOKEN` | the Worker, checking what arrives | `apps/api/.dev.vars` locally (copy `.dev.vars.example`); `wrangler secret put BACKUP_TOKEN` for production and again with `--env staging`, which are separate secrets because Cloudflare does not inherit them |
-| The command | `COCKPIT_BACKUP_TOKEN` | the command, sending it | your own shell, each time you run one |
-
-**Two names for one value is not an oversight, and it is why every example below sets one inline.** `.dev.vars` is read by Wrangler *for the Worker process*; it never reaches your shell, so the command cannot see it. An environment variable rather than a `--token` flag keeps the secret out of your shell history and out of `ps`. Whichever environment you point at, send that environment's own value.
-
-With that in place, this writes an environment to local JSON — the register, and each account's own store in a file of its own:
+This writes an environment to local JSON — the register, and each account's own store in a file of its own:
 
 ```bash
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/2026-09-06
