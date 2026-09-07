@@ -13,6 +13,12 @@ pnpm dev
 
 **The ports depend on the checkout, so read them off what `pnpm dev` prints.** The primary checkout keeps <http://localhost:8787> and <http://localhost:5173>; a linked worktree gets its own set derived from its path, the same set every time, so several worktrees can each run the app at once (`scripts/lib/ports.mjs`). The stub issuer you sign in against has a port of its own, and the browser tier's three move the same way. Never write one of these numbers into a document or a test as though it were fixed — ask `portsFor` instead, which is what `playwright.config.ts` does.
 
+## Deployed data is real
+
+**Production and staging hold real data from 7 September 2026, and nothing may delete, re-seed, wipe or restore over it.** Production is the work itself; staging keeps every old row on purpose, because rows written under an older schema are the only proof that a migration and the code either side of it still read what is already there. So expand-then-contract is a hard rule rather than a preference, `pnpm backup:export` comes before anything that writes to either, and neither is a place to get a destructive change wrong — see "The environments" and "Migrations and rollback" in `docs/deployment.md`.
+
+**The one exception is the F3 suite's own account**, which may create and delete freely inside its own workspaces ("Run the F3 suite against a deployed environment, as its own account", issue 64). That isolation is the whole point: it is what keeps the workspaces somebody tests in by hand untouched.
+
 ## Writing
 
 **Say it once, in as few sentences as it takes.** Documents, issues, pull request bodies and review replies are all read by agents on a context budget, so length is a cost paid on every future read.

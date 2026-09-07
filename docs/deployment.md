@@ -93,6 +93,16 @@ There is no third environment; branches are deployed nowhere (§4).
 only thing in the way — see "Secrets and access" for what that is worth today. The
 showcase is still this repository rather than either instance.
 
+**Both hold real data from 7 September 2026, and neither is re-seeded, wiped or
+restored over.** Production is the work itself. Staging accumulates old rows on
+purpose, and those rows are the only proof that a migration — and the code either
+side of it — still reads what is already there, which is what
+expand-then-contract in "Migrations and rollback" exists to keep true. Take a
+`pnpm backup:export` before anything that writes to either. The one exception is
+the F3 suite's own account ("Run the F3 suite against a deployed environment, as
+its own account", issue 64): it may delete what it made, inside workspaces of its
+own, which is what keeps the ones somebody tests in by hand untouched.
+
 Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which
 commit shipped.
@@ -339,7 +349,7 @@ Rollback, in order of preference:
 1. **Re-promote the previous commit.** Run *Promote to production* with the previous `sha`. Fast, touches no data, safe because of expand-contract.
 2. **Redeploy the previous Worker version** without git: `wrangler versions list` then `wrangler versions deploy <id>`. Use when the commit that shipped is not obvious.
 3. **Revert the commit** on `main`, let staging pick it up, then promote. The slowest, and right when the bad change should also leave the trunk.
-4. **D1 Time Travel** for the register — 30 days of point-in-time recovery, in place: `wrangler d1 time-travel restore cockpit --timestamp <iso8601>`. It covers the register only, D1 being the only thing it speaks to, and it cannot produce a file or move one environment into another. **`pnpm backup:export` is the other half** and does both, across the register and every account's store ("Take a backup of an environment, or of one user", issue 208):
+4. **D1 Time Travel** for the register — 30 days of point-in-time recovery, in place: `wrangler d1 time-travel restore cockpit --timestamp <iso8601>`. It covers the register only, D1 being the only thing it speaks to, and it cannot produce a file or move one environment into another. **It is itself a deletion**: everything written to the register since that timestamp is gone, and the account stores it does not speak to carry on holding rows that now point at people the register no longer has. Export first. **`pnpm backup:export` is the other half** and does both, across the register and every account's store ("Take a backup of an environment, or of one user", issue 208):
 
 ```bash
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/2026-09-06
@@ -352,7 +362,7 @@ And `pnpm backup:restore` puts one back, an environment or one user at a time:
 COCKPIT_BACKUP_TOKEN=... pnpm backup:restore --env staging --from ./backups/2026-09-06 --force
 ```
 
-**It replaces an account rather than merging into one**, so an account already holding data is refused without `--force`, and any target but `local` has to be confirmed by typing its name — staging is deliberately never re-seeded, so what has accumulated there is the point of it. Accounts are written before the register, so a user never exists pointing at a store that has not arrived, and a run that stops partway names the accounts that went in. A backup taken from a version newer than the one running is refused rather than half-applied.
+**It replaces an account rather than merging into one**, so an account already holding data is refused without `--force`, and any target but `local` has to be confirmed by typing its name. **`--force` against a deployed environment is a deletion**, both of them holding real data since 7 September 2026: it is for putting an account back that lost something, never for making a restore go through, and what it is about to replace is exported first. Accounts are written before the register, so a user never exists pointing at a store that has not arrived, and a run that stops partway names the accounts that went in. A backup taken from a version newer than the one running is refused rather than half-applied.
 
 ## 6. Secrets and access
 
@@ -439,11 +449,12 @@ production is the showcase — backwards, since **the showcase is this repositor
 rather than a running instance. Access came off on 2026-09-02 ("Remove Cloudflare
 Access from staging and production", issue 123), deliberately ahead of the trigger
 the architecture had recorded for it: OAuth login shipping. What made that
-acceptable is that production holds `seed.sql` fixtures rather than real mail —
-no connector has landed — so the exposure is a demonstration instance, not
-somebody's inbox. **It stops being acceptable the moment the first connector
-lands**, which is the same moment "App login" becomes urgent; the two belong
-together.
+acceptable *then* is that production held `seed.sql` fixtures rather than real
+mail, so the exposure was a demonstration instance rather than somebody's inbox.
+**The gap closed on the other side, and before the data arrived**: Google
+sign-in was promoted on 2026-09-06 and real data went in from 7 September 2026,
+so what stands in front of a deployed environment is the application's own
+identity model rather than a perimeter around one.
 
 Every Access application was deleted, the two that gated previews included. There
 is nothing left to re-enable, only to rebuild.
@@ -551,9 +562,12 @@ wrangler deploy --env staging
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy
 workflow: `seed.sql` puts the accounts *and the people who own them* in the
 register, neither of which the application has an onboarding flow to create. When
-onboarding exists, this step goes away. Neither environment is seeded again
-afterwards — staging deliberately, because accumulated old data is the point of
-it, and production because a bootstrap is not a deploy step.
+onboarding exists, this step goes away. **Neither environment is seeded again
+afterwards**: a bootstrap is not a deploy step, and since 7 September 2026 both
+hold real data, so the runbook above is for a *new* Cloudflare account and
+nothing else. `seed.sql` is `INSERT OR IGNORE` throughout, so re-running it would
+add nothing rather than replace anything — that is a property of the file, not a
+licence to point it at a live environment.
 
 **An environment bootstrapped before "Sign in by picking a name, each user in
 their own account" (issue 86) has an empty `users` table**, since that is the
@@ -718,9 +732,13 @@ mail provider.
   is missing is keeping test data out of real data: the only candidate is staging,
   which accumulates state on purpose, so a suite asserting what is on screen would
   be running against whatever is there. That is "Run the F3 suite against a
-  deployed environment, as its own account" (issue 64). Until then the local stack
-  is the only thing F3 drives, which leaves the service worker, the built bundle
-  and the Worker's asset routing proven by nothing but a manual look.
+  deployed environment, as its own account" (issue 64). **The suite creating and
+  deleting rows in staging is agreed**, on the one condition that they are its
+  own: workspaces nobody works in, so what somebody is testing by hand beside it
+  is never what the suite just deleted. That is the only deletion either deployed
+  environment allows. Until then the local stack is the only thing F3 drives,
+  which leaves the service worker, the built bundle and the Worker's asset
+  routing proven by nothing but a manual look.
 - **Bundle-size gate:** the budget needs recording as a number before it can be enforced as one.
 - **Sentry, the connector watchdog, and the external uptime check:** they land
   with the code they observe. `/health` already reports whether the register and
