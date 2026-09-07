@@ -46,7 +46,7 @@ export function classify({ status, conclusion }) {
  *   running: number, other: number, unknown: number, completed: number, rate: number|null }}
  *   `rate` is null rather than 0 when nothing completed — a job nobody has finished yet
  *   has no reliability, and rendering that as 0% would put a brand new job at the top of
- *   a worst-first list (rule 1).
+ *   a worst-first list.
  */
 export function tally(outcomes) {
   const counts = { pass: 0, fail: 0, cancelled: 0, skipped: 0, running: 0, other: 0, unknown: 0 };

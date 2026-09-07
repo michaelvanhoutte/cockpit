@@ -14,7 +14,8 @@
  * mention bot alone is 244 of them. That fits with room to spare. `maxRuns` is
  * what keeps it true if the merge rate climbs: it stops fetching rather than
  * spending the hour's allowance, and reports the shorter window it actually
- * got so the page can say so (model.js's coverage, rule 2).
+ * got, so the page can say which period it actually covers rather than claiming
+ * the one it was asked for (model.js's coverage).
  */
 
 const API = 'https://api.github.com';
@@ -54,7 +55,7 @@ export class GitHubError extends Error {
  * @property {string|null} completedAt
  * @property {string|null} failedStep name of the first step that failed, or null when
  *   none is recorded — a job killed by a timeout or a cancellation has no failing step,
- *   and rule 6 says list it rather than invent one.
+ *   and such a job is still listed among the failures rather than given an invented one.
  * @property {string} url
  */
 
