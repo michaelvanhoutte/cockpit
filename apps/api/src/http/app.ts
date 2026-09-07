@@ -8,6 +8,7 @@ import {
   commandSchemas,
   itemTypeListSchema,
   registeredUserListSchema,
+  setAccessSchema,
   signedInSchema,
   userAddedSchema,
   userChangedSchema,
@@ -33,6 +34,7 @@ import {
   registerContents,
   registeredAccountNames,
   registeredUsers,
+  setAccess,
   restoreAccount,
   restoreRegister,
   type AccountBackup,
@@ -423,6 +425,50 @@ const changeUserRoute = createRoute({
   },
 });
 
+/**
+ * Taking somebody's access away, or giving it back ("Take somebody's access
+ * away without taking their work", issue 233). Behind the same role gate as the
+ * rest of the admin pages.
+ *
+ * **An address of its own under the person's**, rather than a field on the
+ * change: it is one thing done from the row's own menu, it ends the sign-ins
+ * that person holds, and it carries refusals the form does not.
+ */
+const setAccessRoute = createRoute({
+  method: 'patch',
+  path: '/v1/admin/users/{userId}/access',
+  request: {
+    params: z.object({ userId: z.string() }),
+    body: { content: { 'application/json': { schema: setAccessSchema } }, required: true },
+  },
+  responses: {
+    200: {
+      description: 'Somebody as they stand after the change',
+      content: { 'application/json': { schema: userChangedSchema } },
+    },
+    400: {
+      description: 'Not shaped like a change to somebody’s access',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    404: {
+      description: 'Nobody the register holds',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    409: {
+      description: 'Refused: the change would leave the admin pages unreachable',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
 // --- reads (the snapshot model: architecture, "The read model") --------------
 
 const workspacesRoute = createRoute({
@@ -649,6 +695,22 @@ const routes = app
     }
     return c.json({ user: changed.user }, 200);
   })
+  .openapi(setAccessRoute, async (c) => {
+    const { userId } = c.req.valid('param');
+    const { disabled } = c.req.valid('json');
+    const changed = await setAccess(
+      c.env,
+      { userId, disabled },
+      c.get('visitor').userId,
+      new Date(),
+    );
+    if (!changed.changed) {
+      return changed.because === 'nobody'
+        ? c.json({ error: changed.refused }, 404)
+        : c.json({ error: changed.refused }, 409);
+    }
+    return c.json({ user: changed.user }, 200);
+  })
   .openapi(healthRoute, async (c) => {
     const { register, store, failure } = await checkHealth(c.env);
     // The reason goes to the logs and not into the body: this endpoint answers
@@ -824,9 +886,14 @@ const routes = app
 
       const signedIn = await signInWithGoogle(c.env, verdict.identity, new Date());
       // Proving who you are at Google is not being entitled to an account here.
-      // This is the one refusal the person can act on, so it is the one the
-      // logon page is told about.
-      if (!signedIn) return c.redirect('/signin?refused=unknown-account', 302);
+      // These are the two refusals the person can act on, so they are the two
+      // the logon page is told about - and they are told apart, because a
+      // colleague whose access was removed must not be sent looking for a
+      // sign-in problem that is not theirs.
+      if (!signedIn.signedIn) {
+        const refused = signedIn.because === 'access removed' ? 'access-removed' : 'unknown-account';
+        return c.redirect(`/signin?refused=${refused}`, 302);
+      }
 
       rememberSessionCookie(c, signedIn.sessionId);
       return c.redirect('/', 302);

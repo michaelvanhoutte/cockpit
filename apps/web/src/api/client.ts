@@ -10,6 +10,7 @@ import {
   userChangedSchema,
   type AddUser,
   type ChangeUser,
+  type SetAccess,
   type UserChanged,
   type CommandName,
   type CommandPayload,
@@ -126,6 +127,27 @@ export async function changeUser({
     throw new UserRefused(error);
   }
   if (!res.ok) throw refusal('changing a user', res.status);
+  return userChangedSchema.parse(await res.json());
+}
+
+/**
+ * Takes somebody's access away, or gives it back ("Take somebody's access away
+ * without taking their work", issue 233).
+ *
+ * Its own request rather than a field on the change, for the reason the route
+ * is its own: it is done from the row's own menu and it ends the sign-ins that
+ * person holds.
+ */
+export async function setAccess({
+  userId,
+  ...body
+}: SetAccess & { userId: string }): Promise<UserChanged> {
+  const res = await api.v1.admin.users[':userId'].access.$patch({ param: { userId }, json: body });
+  if (res.status === 409 || res.status === 404 || res.status === 400) {
+    const { error } = (await res.json()) as { error: string };
+    throw new UserRefused(error);
+  }
+  if (!res.ok) throw refusal('changing access', res.status);
   return userChangedSchema.parse(await res.json());
 }
 

@@ -3,11 +3,13 @@ import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
 import type { ChangeUser, RegisteredUser } from '@cockpit/shared';
 import {
+  OTHER_ACCOUNT_NAME,
   OTHER_USER_ID,
   USER_ID,
   asUser,
   inStoreAsItIs,
   seedRegister,
+  signInAs,
   startFromEmpty,
 } from '../seed.js';
 
@@ -24,6 +26,7 @@ import {
  */
 
 const ADMIN_USERS = 'http://cockpit.test/v1/admin/users';
+const ME = 'http://cockpit.test/v1/me';
 
 async function listedBy(userId: string): Promise<RegisteredUser[]> {
   const res = await asUser(ADMIN_USERS, {}, userId);
@@ -36,6 +39,19 @@ function change(who: string, body: ChangeUser, askedBy: string = USER_ID): Promi
   return asUser(
     `${ADMIN_USERS}/${who}`,
     { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+    askedBy,
+  );
+}
+
+/** Taking somebody's access away, or giving it back, from their row's own menu. */
+function access(who: string, disabled: boolean, askedBy: string = USER_ID): Promise<Response> {
+  return asUser(
+    `${ADMIN_USERS}/${who}/access`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ disabled }),
+    },
     askedBy,
   );
 }
@@ -354,6 +370,179 @@ describe('User management', () => {
       const res = await change('user-nobody', { name: 'Nobody', role: 'user' });
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('taking somebody’s access away ends the sign-ins they already hold', () => {
+    it('refuses the next request from a tab they left open', async () => {
+      const ada = await signInAs(OTHER_USER_ID);
+      expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(200);
+
+      expect((await access(OTHER_USER_ID, true)).status).toBe(200);
+
+      // 401 rather than 403, which is what sends the tab to the logon page: the
+      // sign-in it was holding is not one any more.
+      expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(401);
+    });
+
+    /**
+     * Only a disabling ends anything. Two admins with the list open, one
+     * enables Ada and she gets back to work, the other's copy still shows her
+     * disabled and offers Enable - and pressing it must not throw her out of
+     * what she is doing.
+     */
+    it('leaves the sign-ins of somebody who already has their access alone', async () => {
+      const ada = await signInAs(OTHER_USER_ID);
+
+      expect((await access(OTHER_USER_ID, false)).status).toBe(200);
+
+      expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(200);
+    });
+
+    /**
+     * Deleted rather than merely refused, so giving somebody their access back
+     * does not revive a sign-in they are no longer at the keyboard for. They
+     * sign in afresh, which the sign-in suite proves they can.
+     */
+    it('does not give the old sign-in back when they are enabled again', async () => {
+      const ada = await signInAs(OTHER_USER_ID);
+      await access(OTHER_USER_ID, true);
+
+      await access(OTHER_USER_ID, false);
+
+      expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(401);
+      expect(
+        (await env.DB.prepare('SELECT id FROM sessions WHERE user_id = ?').bind(OTHER_USER_ID).all())
+          .results,
+      ).toHaveLength(0);
+    });
+  });
+
+  describe('a disabled user keeps everything they own', () => {
+    /**
+     * The whole reason this exists beside deleting somebody: their account is
+     * not touched, so enabling them again puts them back into exactly what they
+     * left. Read from the store as it stands rather than through a request,
+     * since the person it belongs to can no longer make one.
+     */
+    it('leaves their account holding what it held', async () => {
+      // Ada opens her account, which is what builds her store: an account
+      // nobody has ever used holds nothing, and "nothing is still nothing"
+      // would be a case that cannot fail.
+      const hers = await asUser('http://cockpit.test/v1/workspaces', {}, OTHER_USER_ID);
+      const before = ((await hers.json()) as { workspaces: { name: string }[] }).workspaces.map(
+        (workspace) => workspace.name,
+      );
+      expect(before.length).toBeGreaterThan(0);
+
+      await access(OTHER_USER_ID, true);
+
+      // Read as it stands rather than through a request, since the person it
+      // belongs to can no longer make one - which is the point.
+      const after = await inStoreAsItIs(OTHER_ACCOUNT_NAME, (sql) => [
+        ...sql.exec('SELECT name FROM workspaces ORDER BY name').raw(),
+      ]);
+      expect(after.flat().sort()).toEqual([...before].sort());
+    });
+
+    /**
+     * The column arrived on a register that already had people in it and
+     * nothing was backfilled, so absent has to mean enabled - otherwise the
+     * migration would have locked everybody out on the way in.
+     */
+    it('says everybody already in the register still has their access', async () => {
+      expect((await listedBy(USER_ID)).map((user) => user.disabled)).toEqual([false, false]);
+    });
+
+    it('says so on the row once somebody is disabled, rather than dropping them', async () => {
+      await access(OTHER_USER_ID, true);
+
+      const users = await listedBy(USER_ID);
+      expect(users).toHaveLength(2);
+      expect(users.find((user) => user.id === OTHER_USER_ID)?.disabled).toBe(true);
+    });
+  });
+
+  describe('you cannot disable the last way in', () => {
+    it.each([
+      {
+        situation: 'an admin takes their own access away while another admin is there',
+        secondAdmin: true,
+        says: /another admin can do it for you/,
+      },
+      {
+        situation: 'the only admin takes their own access away',
+        secondAdmin: false,
+        says: /only admin/,
+      },
+    ])('refuses it and changes nothing when $situation', async ({ secondAdmin, says }) => {
+      if (secondAdmin) await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+
+      const res = await access(USER_ID, true);
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(says);
+      expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(200);
+    });
+
+    /**
+     * An admin who cannot sign in can do nothing for anybody, so counting them
+     * would tell the last one left that somebody else could help - which is the
+     * one sentence this rule exists to get right.
+     */
+    it('does not count an admin who has no access as somebody who could help', async () => {
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+      await access(OTHER_USER_ID, true);
+
+      const res = await access(USER_ID, true);
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(/only admin/);
+    });
+
+    /**
+     * The count includes the person being changed whatever their access,
+     * because the rule subtracts them: leaving a disabled admin out of their
+     * own count made the last one who *can* sign in look like the last admin
+     * there is - so an admin disabled first, which is the ordinary order, could
+     * not then be made ordinary at all.
+     */
+    it.each([
+      {
+        situation: 'made ordinary',
+        act: (who: string) => change(who, { name: 'Ada', role: 'user' }),
+      },
+      { situation: 'disabled again', act: (who: string) => access(who, true) },
+    ])('lets an admin who already has no access be $situation', async ({ act }) => {
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+      await access(OTHER_USER_ID, true);
+
+      expect((await act(OTHER_USER_ID)).status).toBe(200);
+    });
+
+    it('refuses disabling the last admin, whoever asks', async () => {
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+      await change(USER_ID, { name: 'Michael', role: 'user' }, OTHER_USER_ID);
+
+      const res = await access(OTHER_USER_ID, true, OTHER_USER_ID);
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(/only admin/);
+    });
+
+    it('lets an ordinary user be disabled', async () => {
+      expect((await access(OTHER_USER_ID, true)).status).toBe(200);
+    });
+
+    it('refuses somebody who is not an admin, and changes nothing', async () => {
+      const res = await access(USER_ID, true, OTHER_USER_ID);
+
+      expect(res.status).toBe(403);
+      expect((await listedBy(USER_ID)).find((user) => user.id === USER_ID)?.disabled).toBe(false);
+    });
+
+    it('refuses taking the access of somebody the register does not hold', async () => {
+      expect((await access('user-nobody', true)).status).toBe(404);
     });
   });
 

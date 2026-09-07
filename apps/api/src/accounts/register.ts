@@ -1,5 +1,5 @@
-import { asc, eq, like, sql } from 'drizzle-orm';
-import { ADMIN, type RegisteredUser } from '@cockpit/shared';
+import { and, asc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { ADMIN, losingAdminIsRefused, type RegisteredUser } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
@@ -68,6 +68,7 @@ function peopleInRegister(db: ReturnType<typeof createDb>) {
       // somebody reading a page; the register holds the name beside it.
       accountName: tenants.name,
       googleSubject: users.googleSubject,
+      disabledAt: users.disabledAt,
     })
     .from(users)
     .innerJoin(tenants, eq(tenants.id, users.accountId));
@@ -75,9 +76,44 @@ function peopleInRegister(db: ReturnType<typeof createDb>) {
 
 function asShown({
   googleSubject,
+  disabledAt,
   ...user
 }: Awaited<ReturnType<typeof peopleInRegister>>[number]): RegisteredUser {
-  return { ...user, hasSignedIn: googleSubject !== null };
+  return { ...user, hasSignedIn: googleSubject !== null, disabled: hasNoAccess(disabledAt) };
+}
+
+/**
+ * Whether this `disabled_at` means the access is gone - **one reading of the
+ * column, used by the list and by the gate alike**.
+ *
+ * Absent means enabled, which is what let the column arrive without a backfill.
+ * Anything present at all means disabled, including an empty string: the column
+ * carries no CHECK (`db/schema.ts` argues why) and a restored backup writes
+ * whatever its file holds, so the two sides asking it differently is a row that
+ * reads "No access" on the page while that person signs in perfectly well.
+ * Where the two answers differ, the safe one is the one that refuses.
+ */
+export function hasNoAccess(disabledAt: string | null): boolean {
+  return disabledAt != null;
+}
+
+/**
+ * The admins a lockout rule counts: **the ones who can actually sign in, and
+ * the person being changed whatever their access.**
+ *
+ * The first half because an admin whose access was taken away can do nothing
+ * for anybody, so counting them would tell the last admin left that somebody
+ * else could put their role back.
+ *
+ * The second because the rule subtracts the person it is about (`admins`, in
+ * the contract, is "this person included") - and leaving a *disabled* admin out
+ * of their own count makes the last one who can sign in look like the last
+ * admin there is. That refused an admin being demoted after being disabled,
+ * which is the ordinary order to do those two things in, and left them stuck as
+ * an admin until somebody handed their sign-in back.
+ */
+function adminsCounting(userId: string) {
+  return and(eq(users.role, ADMIN), or(isNull(users.disabledAt), eq(users.id, userId)));
 }
 
 /**
@@ -144,6 +180,7 @@ export async function addUser(
     role: 'user',
     accountName: name.trim(),
     hasSignedIn: false,
+    disabled: false,
   };
 
   try {
@@ -212,7 +249,7 @@ export async function changeUser(
   // Together, because neither read needs the other's answer.
   const [[held], admins] = await Promise.all([
     db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)),
-    db.select({ id: users.id }).from(users).where(eq(users.role, ADMIN)),
+    db.select({ id: users.id }).from(users).where(adminsCounting(userId)),
   ]);
   if (!held) return nobodyHere(userId);
 
@@ -259,6 +296,76 @@ export async function changeUser(
 
 function nobodyHere(userId: string): Changed {
   return { changed: false, refused: `${userId} is nobody here`, because: 'nobody' };
+}
+
+/**
+ * Takes somebody's access away, or gives it back ("Take somebody's access away
+ * without taking their work", issue 233).
+ *
+ * **Nothing they own is touched.** Their account, its workspaces and everything
+ * in it are exactly as they left them - this is one column in the register, and
+ * enabling them again is the same column set back. That is the whole point of
+ * having this: deleting a user takes their work with it and cannot be undone,
+ * so the reversible half is what an admin reaches for.
+ *
+ * **The sign-ins they hold go with it, in the same write.** A row saying they
+ * cannot sign in while a cookie still opens the app would be access taken away
+ * in name only, and the tab they left open is exactly where it would show.
+ * Deleted rather than merely refused, so enabling them again does not revive a
+ * sign-in they are no longer at the keyboard for - they sign in afresh.
+ *
+ * The two refusals are a role change's, asked of access instead: an admin who
+ * cannot sign in is no more use than one who is not an admin, so disabling the
+ * last one, or yourself, would leave the admin pages reachable by nobody.
+ */
+export async function setAccess(
+  env: Env,
+  { userId, disabled }: { userId: string; disabled: boolean },
+  askedBy: string,
+  now: Date,
+): Promise<Changed> {
+  const db = createDb(env.DB);
+  const [[held], admins] = await Promise.all([
+    db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)),
+    db.select({ id: users.id }).from(users).where(adminsCounting(userId)),
+  ]);
+  if (!held) return nobodyHere(userId);
+
+  const losing = losingAdminIsRefused({
+    who: held,
+    stillAnAdmin: !disabled,
+    askedBy,
+    admins: admins.length,
+  });
+  if (losing) {
+    return {
+      changed: false,
+      because: 'a rule',
+      refused:
+        losing === 'the last admin'
+          ? 'this is the only admin, so make somebody else an admin before taking this one’s access away'
+          : 'you cannot take your own access away - another admin can do it for you',
+    };
+  }
+
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET disabled_at = ? WHERE id = ?').bind(
+      disabled ? now.toISOString() : null,
+      userId,
+    ),
+    /**
+     * **Only a disabling deletes anything.** Enabling somebody who already has
+     * their access is a no-op on the column and must be one on their sign-ins
+     * too: two admins with the list open, one enables Ada and she gets back to
+     * work, the other's copy still shows her disabled and offers Enable - and
+     * pressing it would throw her out of what she is doing for nothing.
+     */
+    ...(disabled ? [env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId)] : []),
+  ]);
+
+  const [after] = await peopleInRegister(db).where(eq(users.id, userId));
+  if (!after) return nobodyHere(userId);
+  return { changed: true, user: asShown(after) };
 }
 
 /**

@@ -11,7 +11,13 @@ import {
 } from '@cockpit/shared';
 import { NotSignedIn, SIGN_IN_PATH } from '../api/client';
 import { statusOf } from '../api/loadFailure';
-import { meQuery, registeredUsersQuery, useAddUser, useChangeUser } from '../api/queries';
+import {
+  meQuery,
+  registeredUsersQuery,
+  useAddUser,
+  useChangeUser,
+  useSetAccess,
+} from '../api/queries';
 import { RowForm, wasOnTheRow } from '../components/RowForm';
 import { RowMenu } from '../components/Menu';
 
@@ -27,9 +33,9 @@ import { RowMenu } from '../components/Menu';
  * is no workspace behind it to keep, so it heads itself the way Capture does
  * rather than borrowing the band above.
  *
- * **It reads, it adds, and it changes a person's name and role.** Disabling and
- * deleting are the issues after this one; what landed here first was the role
- * check that guards all of them.
+ * **It reads, it adds, it changes a person's name and role, and it takes their
+ * access away or gives it back.** Deleting somebody is the issue after this
+ * one; what landed here first was the role check that guards all of them.
  *
  * **The server is what refuses**, not this page. The entry to it is hidden from
  * an ordinary user, and hiding is a courtesy: whoever types the address anyway
@@ -59,7 +65,23 @@ export function AdminPage() {
     role: Role | null;
   } | null>(null);
   const changing = useChangeUser();
+  const access = useSetAccess();
   const askedFrom = useRef<HTMLElement | null>(null);
+  /**
+   * The admins a lockout rule counts, for a change about one particular
+   * person: the ones who can actually sign in, and that person whatever their
+   * access.
+   *
+   * One whose access was taken away can do nothing for anybody, so counting
+   * them would tell the last admin left that somebody else could help. But the
+   * rule subtracts the person it is about, so leaving a *disabled* admin out of
+   * their own count makes the last one who can sign in look like the last admin
+   * there is - which greys out demoting somebody who was disabled first, the
+   * ordinary order to do those two things in.
+   */
+  const signedInAdmins = (data?.users ?? []).filter((user) => user.role === ADMIN && !user.disabled);
+  const adminsCounting = (user: RegisteredUser) =>
+    signedInAdmins.length + (user.role === ADMIN && user.disabled ? 1 : 0);
 
   /**
    * Read from the list rather than kept beside the draft, exactly as a
@@ -100,6 +122,16 @@ export function AdminPage() {
   return (
     <Framed>
       <AddSomebody />
+      {/* A menu entry has nowhere of its own to be refused in - the menu is
+          shut by the time the server answers - so what it could not do is said
+          above the list, where the row it was about is. Without this, a refused
+          Disable is a row that simply did not change, which reads exactly like
+          a slow one. */}
+      {access.error && (
+        <p role="alert" className="mb-4 text-sm text-over">
+          {whatItSaid(access.error)}
+        </p>
+      )}
       {/* A table rather than the rows the management windows use: every column
           here is a fact about somebody that an admin is comparing across
           people - who has signed in, who is an admin - and a list of rows makes
@@ -122,7 +154,19 @@ export function AdminPage() {
           </thead>
           <tbody>
             {data.users.map((user) => (
-              <Row key={user.id} user={user} onEdit={startEditing} />
+              <Row
+                key={user.id}
+                user={user}
+                onEdit={startEditing}
+                onAccess={(disabled) => access.mutate({ userId: user.id, disabled })}
+                // Only a disabling is ever refused, so only a row that still
+                // has its access has a reason to carry.
+                accessStuck={
+                  user.disabled
+                    ? null
+                    : whyAccessIsStuck(user, { me: me.data?.user.id, admins: adminsCounting(user) })
+                }
+              />
             ))}
           </tbody>
         </table>
@@ -146,7 +190,7 @@ export function AdminPage() {
           choices={ROLES.map((role) => {
             const stuck = whyTheRoleIsStuck(beingEdited, role, {
               me: me.data?.user.id,
-              admins: data.users.filter((user) => user.role === ADMIN).length,
+              admins: adminsCounting(beingEdited),
             });
             return (
               /* Present and unavailable with the reason on it, the way a
@@ -223,9 +267,31 @@ function whyTheRoleIsStuck(
   // The rule is the server's, shared so the two cannot come apart; only the
   // wording is this page's, a label inside a choice being no place for a
   // sentence.
-  const losing = losingAdminIsRefused({ who: user, role, askedBy: me, admins });
+  const losing = losingAdminIsRefused({
+    who: user,
+    stillAnAdmin: role === ADMIN,
+    askedBy: me,
+    admins,
+  });
   if (losing === 'the last admin') return 'The only admin, so make somebody else one first';
   if (losing === 'your own') return 'You cannot take your own admin away';
+  return null;
+}
+
+/**
+ * Why this person's access cannot be taken away, or `null` when it can.
+ *
+ * The same rule the role choice is refused by, asked of access: an admin who
+ * cannot sign in is no more use than one who is not an admin, so disabling the
+ * last one - or yourself - leaves the admin pages reachable by nobody.
+ */
+function whyAccessIsStuck(
+  user: RegisteredUser,
+  { me, admins }: { me: string | undefined; admins: number },
+): string | null {
+  const losing = losingAdminIsRefused({ who: user, stillAnAdmin: false, askedBy: me, admins });
+  if (losing === 'the last admin') return 'The only admin, so make somebody else one first';
+  if (losing === 'your own') return 'You cannot take your own access away';
   return null;
 }
 
@@ -343,9 +409,14 @@ function AddSomebody() {
 function Row({
   user,
   onEdit,
+  onAccess,
+  accessStuck,
 }: {
   user: RegisteredUser;
   onEdit: (user: RegisteredUser, openedFrom: HTMLElement | null) => void;
+  onAccess: (disabled: boolean) => void;
+  /** Why this person's access cannot be taken away, when it cannot. */
+  accessStuck: string | null;
 }) {
   return (
     <tr
@@ -354,7 +425,18 @@ function Row({
         if (wasOnTheRow(event)) onEdit(user, null);
       }}
     >
-      <td className="py-2 pr-4">{user.name}</td>
+      <td className="py-2 pr-4">
+        {user.name}
+        {/* The row stays where it was and says what happened to it, rather than
+            leaving the list: somebody disabled is still somebody this Cockpit
+            holds, and an admin looking for them would not find them in a list
+            they had dropped out of. */}
+        {user.disabled && (
+          <span className="ml-2 rounded bg-black/5 px-1.5 py-0.5 text-xs text-ink-faint">
+            No access
+          </span>
+        )}
+      </td>
       {/* A person with no address is one nobody can sign in as, since the
           register is the allowlist. Said rather than left blank, because a
           blank cell reads as a page that failed to draw. */}
@@ -365,7 +447,20 @@ function Row({
       <td className="py-2">
         <RowMenu
           label={`Actions for ${user.name}`}
-          entries={[{ label: 'Edit…', onSelect: (openedFrom) => onEdit(user, openedFrom) }]}
+          entries={[
+            { label: 'Edit…', onSelect: (openedFrom) => onEdit(user, openedFrom) },
+            {
+              // One entry that says which way it goes, rather than two with one
+              // of them always meaningless.
+              label: user.disabled ? 'Enable' : 'Disable',
+              keepsFocus: true,
+              // Present and unavailable with the reason on it, the way the role
+              // it repeats refuses - and the server refuses it as well.
+              unavailable: accessStuck ?? undefined,
+              destructive: !user.disabled,
+              onSelect: () => onAccess(!user.disabled),
+            },
+          ]}
         />
       </td>
     </tr>

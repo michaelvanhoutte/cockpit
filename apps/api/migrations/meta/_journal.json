@@ -85,6 +85,13 @@
       "when": 1788688900000,
       "tag": "0011_wet_ultimatum",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1788803097517,
+      "tag": "0012_luxuriant_ultimo",
+      "breakpoints": true
     }
   ]
 }

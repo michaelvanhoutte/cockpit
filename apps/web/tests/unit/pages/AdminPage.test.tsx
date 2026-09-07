@@ -22,6 +22,7 @@ const PEOPLE: RegisteredUser[] = [
     role: 'admin',
     accountName: 'tenant-default',
     hasSignedIn: true,
+    disabled: false,
   },
   {
     id: 'user-ada',
@@ -30,12 +31,14 @@ const PEOPLE: RegisteredUser[] = [
     role: 'user',
     accountName: 'tenant-ada',
     hasSignedIn: false,
+    disabled: false,
   },
 ];
 
 const reads = vi.fn();
 const adds = vi.fn();
 const changes = vi.fn();
+const access = vi.fn();
 /** Who the page believes is asking, which one of the two role refusals is about. */
 const iAm = vi.fn();
 
@@ -48,6 +51,7 @@ vi.mock('../../../src/api/queries', async () => {
     // needs a client these cases do not have and proves nothing about the form.
     useAddUser: () => useMutation({ mutationFn: adds }),
     useChangeUser: () => useMutation({ mutationFn: changes }),
+    useSetAccess: () => useMutation({ mutationFn: access }),
   };
 });
 
@@ -63,6 +67,7 @@ afterEach(() => {
   reads.mockReset();
   adds.mockReset();
   changes.mockReset();
+  access.mockReset();
   iAm.mockReset();
 });
 
@@ -334,12 +339,118 @@ describe('User management', () => {
       expect(changes.mock.lastCall?.[0]).toMatchObject(sends);
     });
 
+    /**
+     * The count includes the person being changed whatever their access, since
+     * the rule subtracts them: leaving a disabled admin out of their own count
+     * greys out demoting somebody who was disabled first, which is the ordinary
+     * order to do those two things in.
+     */
+    it('offers the role to an admin who already has no access', async () => {
+      const ada = { ...PEOPLE[1]!, role: 'admin' as const, disabled: true };
+
+      await openFormOn(ada, { people: [PEOPLE[0]!, ada] });
+
+      expect(screen.getByRole('radio', { name: /^User/ })).toBeEnabled();
+    });
+
     it('offers the role to an admin who is neither the asker nor the last one', async () => {
       const ada = { ...PEOPLE[1]!, role: 'admin' as const };
 
       await openFormOn(ada, { people: [PEOPLE[0]!, ada] });
 
       expect(screen.getByRole('radio', { name: /^User/ })).toBeEnabled();
+    });
+  });
+
+  describe('a person’s access is taken away and given back from their row', () => {
+    async function menuOn(person: RegisteredUser, people: RegisteredUser[] = PEOPLE) {
+      const user = userEvent.setup();
+      reads.mockResolvedValue({ users: people });
+      drawn();
+
+      await user.click(await screen.findByRole('button', { name: `Actions for ${person.name}` }));
+      return user;
+    }
+
+    it.each([
+      { situation: 'somebody who has access', person: PEOPLE[1]!, entry: 'Disable', sends: true },
+      {
+        situation: 'somebody who has none',
+        person: { ...PEOPLE[1]!, disabled: true },
+        entry: 'Enable',
+        sends: false,
+      },
+    ])('offers $entry on $situation, and sends that', async ({ person, entry, sends }) => {
+      access.mockResolvedValue({ user: person });
+      const user = await menuOn(person, [PEOPLE[0]!, person]);
+
+      await user.click(await screen.findByRole('menuitem', { name: entry }));
+
+      await waitFor(() => expect(access).toHaveBeenCalled());
+      expect(access.mock.lastCall?.[0]).toEqual({ userId: person.id, disabled: sends });
+    });
+
+    /**
+     * The row stays where it was and says what happened to it: somebody
+     * disabled is still somebody this Cockpit holds, and an admin looking for
+     * them would not find them in a list they had dropped out of.
+     */
+    it('marks the row of somebody with no access', async () => {
+      const gone = { ...PEOPLE[1]!, disabled: true };
+      reads.mockResolvedValue({ users: [PEOPLE[0]!, gone] });
+      drawn();
+
+      const row = (await screen.findByText(gone.name)).closest('tr')!;
+      expect(within(row).getByText(/no access/i)).toBeVisible();
+    });
+
+    /**
+     * The same rule the role choice is refused by, asked of access - and drawn
+     * the same way, present and unavailable with the reason on it.
+     */
+    it.each([
+      {
+        situation: 'the only admin',
+        people: PEOPLE,
+        says: /only admin/i,
+      },
+      {
+        situation: 'the admin who is asking, and not the only one',
+        people: [PEOPLE[0]!, { ...PEOPLE[1]!, role: 'admin' as const }],
+        says: /your own access/i,
+      },
+    ])('will not take the access of $situation', async ({ people, says }) => {
+      const user = await menuOn(PEOPLE[0]!, people);
+
+      const entry = await screen.findByRole('menuitem', { name: /Disable/ });
+      expect(entry).toHaveAccessibleName(says);
+
+      await user.click(entry);
+      expect(access).not.toHaveBeenCalled();
+    });
+
+    /**
+     * A menu entry has nowhere of its own to be refused in - the menu is shut
+     * by the time the server answers - so without this a refused Disable is a
+     * row that simply did not change, which reads exactly like a slow one. The
+     * page can be got past its own greyed-out entry: `me` may not have settled,
+     * and the server refuses either way.
+     */
+    it('says what the server refused, rather than leaving the row unchanged in silence', async () => {
+      access.mockRejectedValue(new Error('you cannot take your own access away'));
+      const user = await menuOn(PEOPLE[1]!);
+
+      await user.click(await screen.findByRole('menuitem', { name: 'Disable' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/your own access/);
+    });
+
+    it('offers it on an admin who is neither the asker nor the last one', async () => {
+      const ada = { ...PEOPLE[1]!, role: 'admin' as const };
+
+      await menuOn(ada, [PEOPLE[0]!, ada]);
+
+      expect(await screen.findByRole('menuitem', { name: 'Disable' })).toBeVisible();
     });
   });
 

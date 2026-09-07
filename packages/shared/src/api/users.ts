@@ -65,6 +65,14 @@ export const registeredUserSchema = z.object({
   /** The account this person owns, which is theirs alone. */
   accountName: z.string(),
   hasSignedIn: z.boolean(),
+  /**
+   * That their access was taken away: they cannot sign in and hold no sign-in,
+   * and everything they own is exactly as they left it ("Take somebody's access
+   * away without taking their work", issue 233). A boolean rather than the
+   * moment it happened, because when is not a question this page asks and there
+   * is no audit trail to put it in.
+   */
+  disabled: z.boolean(),
 });
 export type RegisteredUser = z.infer<typeof registeredUserSchema>;
 
@@ -148,8 +156,21 @@ export const userChangedSchema = z.object({ user: registeredUserSchema });
 export type UserChanged = z.infer<typeof userChangedSchema>;
 
 /**
- * Why taking somebody's admin away is refused, or `null` when it is not - the
- * one rule both sides of the change have to agree on.
+ * Taking somebody's access away, or giving it back ("Take somebody's access
+ * away without taking their work", issue 233).
+ *
+ * **Its own request rather than a third field on the form**, because it is not
+ * something you edit alongside a name: it is one thing done from the row's own
+ * menu, it ends the sign-ins that person is holding, and it carries refusals
+ * the form does not.
+ */
+export const setAccessSchema = z.object({ disabled: z.boolean() });
+export type SetAccess = z.infer<typeof setAccessSchema>;
+
+/**
+ * Why an admin may not be left unable to admin - by having the role taken away
+ * or by having their access taken away - or `null` when they may. The one rule
+ * both sides of every such change have to agree on.
  *
  * **Here rather than once on each side**, for the reason `ROLES` is: the form
  * draws the choice as unavailable before anybody presses Save and the server
@@ -166,20 +187,25 @@ export type UserChanged = z.infer<typeof userChangedSchema>;
  */
 export function losingAdminIsRefused({
   who,
-  role,
+  stillAnAdmin,
   askedBy,
   admins,
 }: {
   /** The person being changed, as the register holds them today. */
   who: { id: string; role: string };
-  /** The role they are being given. */
-  role: Role;
+  /**
+   * Whether they would still be an admin who can sign in afterwards. A role
+   * change asks it of the role; taking somebody's access away asks it of that,
+   * since an admin who cannot sign in is no more use than one who is not an
+   * admin ("Take somebody's access away without taking their work", issue 233).
+   */
+  stillAnAdmin: boolean;
   /** Who is asking, which one of the two reasons is about. */
   askedBy: string | undefined;
   /** How many admins the register holds, this person included. */
   admins: number;
 }): 'the last admin' | 'your own' | null {
-  if (who.role !== ADMIN || role === ADMIN) return null;
+  if (who.role !== ADMIN || stillAnAdmin) return null;
   if (admins <= 1) return 'the last admin';
   return who.id === askedBy ? 'your own' : null;
 }

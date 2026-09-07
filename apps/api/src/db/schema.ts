@@ -145,6 +145,24 @@ export const users = sqliteTable(
      * inheriting their account.
      */
     googleSubject: text('google_subject'),
+    /**
+     * When somebody's access was taken away, or `NULL` for everybody who still
+     * has it ("Take somebody's access away without taking their work", issue
+     * 233).
+     *
+     * **Absent means enabled**, which is what lets the column arrive without a
+     * backfill: every row that predates it has access, and a register that has
+     * never disabled anybody is one where this is `NULL` throughout.
+     *
+     * **No CHECK on it, unlike every other time here.** Adding one to a table
+     * that exists rebuilds it in SQLite, which is the manoeuvre that nearly
+     * emptied the register once ("Make the database enforce the schema
+     * conventions, not just the callers", issue 69) - and the same reason
+     * `email` and `google_subject` arrived without constraints (migration
+     * 0010). What is written here is one function's `toISOString()`, and what
+     * is read is only whether it is there.
+     */
+    disabledAt: text('disabled_at'),
     createdAt: text('created_at').notNull(),
   },
   (table) => [
