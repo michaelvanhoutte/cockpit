@@ -110,3 +110,30 @@ export const userAddedSchema = z.object({
   accountReady: z.boolean(),
 });
 export type UserAdded = z.infer<typeof userAddedSchema>;
+
+/**
+ * Changing somebody: the name they are shown by and the role that decides what
+ * they may reach ("Rename a user, and make somebody an admin", issue 232).
+ *
+ * **Both together, because they are one form.** A form that sends only what was
+ * touched has to decide what "touched" means, and a role left out is
+ * indistinguishable from a role set back to what it already was.
+ *
+ * **The address is not here.** It is what somebody signs in by and what Google
+ * keys them to, so changing it is a different question with failure modes of
+ * its own - a changed address must not become a way into the previous holder's
+ * account - and it is not asked yet.
+ *
+ * The bounds refuse only what is not a request at all, for the reason
+ * `addUserSchema` gives: a name of spaces is shaped like a request and is
+ * answered by the server's own words rather than by "validation failed".
+ */
+export const changeUserSchema = z.object({
+  name: z.string().min(1).max(120),
+  role: z.enum(ROLES),
+});
+export type ChangeUser = z.infer<typeof changeUserSchema>;
+
+/** Somebody as they stand after being changed. */
+export const userChangedSchema = z.object({ user: registeredUserSchema });
+export type UserChanged = z.infer<typeof userChangedSchema>;

@@ -650,8 +650,9 @@ export function ManageWorkspaces({
             name={editing.name}
             nameLabel={`Name of ${beingEdited.name}`}
             onName={(named) => setEditing({ ...editing, name: named })}
-            paletteLabel={`Colour of ${beingEdited.name}`}
-            palette={WORKSPACE_THEMES.map((theme) => (
+            choicesHeading="Colour"
+            choicesLabel={`Colour of ${beingEdited.name}`}
+            choices={WORKSPACE_THEMES.map((theme) => (
               /* Each swatch shows the whole theme rather than a dot, and shows
                  it stacked the way the screen stacks it: the header across the
                  top, the bar the dashboard tabs sit on under it, and the ground

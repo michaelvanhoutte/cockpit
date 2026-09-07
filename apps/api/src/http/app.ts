@@ -3,12 +3,14 @@ import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
   addUserSchema,
+  changeUserSchema,
   commandResultSchema,
   commandSchemas,
   itemTypeListSchema,
   registeredUserListSchema,
   signedInSchema,
   userAddedSchema,
+  userChangedSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
   type CommandName,
@@ -27,6 +29,7 @@ import {
   backUpAccount,
   openAccount,
   addUser,
+  changeUser,
   registerContents,
   registeredAccountNames,
   registeredUsers,
@@ -371,6 +374,55 @@ const addUserRoute = createRoute({
   },
 });
 
+/**
+ * Changing somebody's name and role, from their row on the admin page ("Rename
+ * a user, and make somebody an admin", issue 232). Behind the same role gate as
+ * the list and the add.
+ *
+ * **PATCH rather than PUT**: what it carries is the two things a form edits, not
+ * the whole person - the address, the account and whether they have ever signed
+ * in are all in the register and none of them is settable here.
+ *
+ * A 404 for somebody the register does not hold, and a 409 for a change it
+ * holds and will not make - the two refusals that keep the admin pages
+ * reachable. The difference matters to the page: one is an address to fix, the
+ * other a sentence to show under the form.
+ */
+const changeUserRoute = createRoute({
+  method: 'patch',
+  path: '/v1/admin/users/{userId}',
+  request: {
+    params: z.object({ userId: z.string() }),
+    body: { content: { 'application/json': { schema: changeUserSchema } }, required: true },
+  },
+  responses: {
+    200: {
+      description: 'Somebody as they stand after the change',
+      content: { 'application/json': { schema: userChangedSchema } },
+    },
+    400: {
+      description: 'Not shaped like a change to somebody',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    404: {
+      description: 'Nobody the register holds',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    409: {
+      description: 'Refused: the change would leave the admin pages unreachable',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
 // --- reads (the snapshot model: architecture, "The read model") --------------
 
 const workspacesRoute = createRoute({
@@ -586,6 +638,16 @@ const routes = app
       );
     }
     return c.json({ user: added.user, accountReady }, 201);
+  })
+  .openapi(changeUserRoute, async (c) => {
+    const { userId } = c.req.valid('param');
+    const changed = await changeUser(c.env, { userId, ...c.req.valid('json') }, c.get('visitor').userId);
+    if (!changed.changed) {
+      return changed.because === 'nobody'
+        ? c.json({ error: changed.refused }, 404)
+        : c.json({ error: changed.refused }, 409);
+    }
+    return c.json({ user: changed.user }, 200);
   })
   .openapi(healthRoute, async (c) => {
     const { register, store, failure } = await checkHealth(c.env);

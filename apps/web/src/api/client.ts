@@ -7,7 +7,10 @@ import {
   workspaceListSchema,
   workspaceSnapshotSchema,
   userAddedSchema,
+  userChangedSchema,
   type AddUser,
+  type ChangeUser,
+  type UserChanged,
   type CommandName,
   type CommandPayload,
   type CommandResult,
@@ -103,7 +106,30 @@ export async function addUser(body: AddUser): Promise<UserAdded> {
   return userAddedSchema.parse(await res.json());
 }
 
-/** Why somebody could not be added, in the server's words, for the form to show. */
+/**
+ * Renames somebody and sets their role ("Rename a user, and make somebody an
+ * admin", issue 232).
+ *
+ * The refusals are the server's own words for the same reason adding keeps
+ * them: they say which rule stopped it - the last admin, your own admin - and
+ * the form has nothing better to put under itself than the reason. A 404 is one
+ * of them, because somebody who is no longer in the register is a fact about
+ * this page being out of date rather than a failure to report as one.
+ */
+export async function changeUser({
+  userId,
+  ...body
+}: ChangeUser & { userId: string }): Promise<UserChanged> {
+  const res = await api.v1.admin.users[':userId'].$patch({ param: { userId }, json: body });
+  if (res.status === 409 || res.status === 404 || res.status === 400) {
+    const { error } = (await res.json()) as { error: string };
+    throw new UserRefused(error);
+  }
+  if (!res.ok) throw refusal('changing a user', res.status);
+  return userChangedSchema.parse(await res.json());
+}
+
+/** Why a change to somebody was refused, in the server's words, for the form to show. */
 export class UserRefused extends Error {
   constructor(message: string) {
     super(message);
