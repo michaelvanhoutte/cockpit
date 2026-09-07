@@ -564,13 +564,37 @@ describe('User management', () => {
       return asUser(`${ADMIN_USERS}/${who}/account`, {}, askedBy);
     }
 
-    it('counts the workspaces the account has', async () => {
+    /**
+     * A deleted workspace is not counted. It goes with the account like
+     * everything else, but the number is what an admin sizes the loss by, and
+     * one that counted what has already been thrown away would read as work
+     * about to be lost that nobody has.
+     */
+    it('counts the workspaces the account has, and not the ones it threw away', async () => {
       expect((await asUser(WORKSPACES, {}, OTHER_USER_ID)).status).toBe(200);
+      // One more of each beside the workspace the account starts with, so the
+      // two answers differ: counting the wrong side of the filter says one.
+      await inStoreAsItIs(OTHER_ACCOUNT_NAME, (sql) => {
+        const add = (id: string, name: string, deletedAt: string | null) =>
+          sql.exec(
+            'INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at, deleted_at)' +
+              ' VALUES (?, ?, ?, ?, ?, ?, ?)',
+            id,
+            OTHER_ACCOUNT_NAME,
+            name,
+            name.toLowerCase(),
+            '#8b5cf6',
+            WHEN,
+            deletedAt,
+          );
+        add('ws-hers', 'Hers', null);
+        add('ws-thrown-away', 'Thrown away', WHEN);
+      });
 
       const res = await holdingsOf(OTHER_USER_ID);
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ workspaces: 1 });
+      expect(await res.json()).toEqual({ workspaces: 2 });
     });
 
     /**
@@ -714,6 +738,46 @@ describe('User management', () => {
       expect(results).toHaveLength(1);
     });
 
+    /**
+     * The second lock refusing (`tenant_id`, proved at
+     * tests/integration/accounts/deleting-an-account.test.ts). What this adds is
+     * what an admin is left with: an error rather than a partial deletion, and
+     * the person still there to try again.
+     */
+    it('deletes nobody when the account turns out to hold somebody else’s work', async () => {
+      await inStoreAsItIs(OTHER_ACCOUNT_NAME, (sql) => {
+        sql.exec('CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, tenant_id TEXT)');
+        sql.exec("INSERT INTO workspaces (id, tenant_id) VALUES ('ws-theirs', ?)", ACCOUNT_NAME);
+      });
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(500);
+
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toContain(OTHER_USER_ID);
+      expect(
+        (await env.DB.prepare('SELECT id FROM tenants WHERE id = ?').bind(OTHER_ACCOUNT_NAME).all())
+          .results,
+      ).toHaveLength(1);
+    });
+
+    it('refuses somebody who is not an admin, and deletes nothing', async () => {
+      const res = await remove(USER_ID, OTHER_USER_ID);
+
+      expect(res.status).toBe(403);
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toContain(USER_ID);
+    });
+
+    /**
+     * A second attempt, which is also what an interrupted deletion meets: the
+     * register no longer holds them, so there is no such user and nothing else
+     * is touched.
+     */
+    it('answers a second deletion as somebody the register does not hold', async () => {
+      expect((await remove(OTHER_USER_ID)).status).toBe(204);
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(404);
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
+    });
+
     it('refuses the sign-in they were holding at its next request', async () => {
       const ada = await signInAs(OTHER_USER_ID);
       expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(200);
@@ -805,24 +869,6 @@ describe('User management', () => {
       expect(((await res.json()) as { error: string }).error).toMatch(/only admin/);
     });
 
-    it('refuses somebody who is not an admin, and deletes nothing', async () => {
-      const res = await remove(USER_ID, OTHER_USER_ID);
-
-      expect(res.status).toBe(403);
-      expect((await listedBy(USER_ID)).map((user) => user.id)).toContain(USER_ID);
-    });
-
-    /**
-     * A second attempt, which is also what an interrupted deletion meets: the
-     * register no longer holds them, so there is no such user and nothing else
-     * is touched.
-     */
-    it('answers a second deletion as somebody the register does not hold', async () => {
-      expect((await remove(OTHER_USER_ID)).status).toBe(204);
-
-      expect((await remove(OTHER_USER_ID)).status).toBe(404);
-      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
-    });
   });
 
   describe('the list says everything the register knows about a person', () => {

@@ -746,6 +746,23 @@ const routes = app
      */
     let accountReady = true;
     try {
+      /**
+       * **Emptied before it is opened**, which is what actually makes a name
+       * safe to hand out again.
+       *
+       * Deleting somebody destroys their store, but a request of theirs already
+       * past the gate can touch it in the moment after - a live event stream
+       * resolves its account once and reads the store every three seconds
+       * (`/v1/events`), and reading brings the account up to date, which creates
+       * its tables afresh. Sweeping again on the way out narrows that window and
+       * cannot close it, because the store has no way to know it is finished.
+       *
+       * This closes it from the other end, where there is no race left to lose:
+       * the id was derived to be one the register does not hold
+       * (`idsForNewUser`), so anything in that store is a leftover by
+       * definition, and it goes before this person's account is made.
+       */
+      await destroyAccountStore(c.env, added.accountId);
       await (await openAccount(c.env, added.accountId)).workspaces();
     } catch (error) {
       accountReady = false;

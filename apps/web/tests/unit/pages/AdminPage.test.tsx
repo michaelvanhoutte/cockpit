@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RegisteredUser } from '@cockpit/shared';
+import { UserRefused } from '../../../src/api/client';
 import { AdminPage } from '../../../src/pages/AdminPage';
 
 /**
@@ -50,8 +51,15 @@ vi.mock('../../../src/api/queries', async () => {
   return {
     registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => reads() },
     meQuery: { queryKey: ['me'], queryFn: () => iAm() },
-    // The real hooks, minus the cache invalidation they do on success - which
-    // needs a client these cases do not have and proves nothing about the form.
+    // The real hooks, minus the re-reads they ask for on success. There is a
+    // client here, so this is a choice rather than a limitation: what those
+    // re-reads answer with is the *server's* next word on who exists, which no
+    // case at this level has, and a case that wants the list to change says so
+    // itself (`invalidateQueries` below, with the new list mocked). It leaves
+    // one gap worth naming: the question about deleting somebody closes on its
+    // own answer here, where the running app has the row vanish underneath it
+    // as well - both paths are the page's own and both are covered below, but
+    // their order is not what it is in the browser.
     useAddUser: () => useMutation({ mutationFn: adds }),
     useChangeUser: () => useMutation({ mutationFn: changes }),
     useSetAccess: () => useMutation({ mutationFn: access }),
@@ -469,11 +477,11 @@ describe('User management', () => {
     async function askAbout(person: RegisteredUser, people: RegisteredUser[] = PEOPLE) {
       const user = userEvent.setup();
       reads.mockResolvedValue({ users: people });
-      drawn();
+      const client = drawn();
 
       await user.click(await screen.findByRole('button', { name: `Actions for ${person.name}` }));
       await user.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
-      return user;
+      return Object.assign(user, { client });
     }
 
     /**
@@ -541,6 +549,47 @@ describe('User management', () => {
 
       await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
       await waitFor(() => expect(screen.getByRole('table')).toHaveFocus());
+    });
+
+    /**
+     * A menu entry is drawn from the list this page last read, so an admin can
+     * reach Delete on somebody the rules have since stopped them deleting - the
+     * other admin was demoted a moment ago and this list does not know. The
+     * refusal has to land in the question, which is the only thing on screen.
+     */
+    it('keeps the question open and says why when the server refuses', async () => {
+      holds.mockResolvedValue({ workspaces: 1 });
+      removes.mockRejectedValue(new UserRefused('this is the only admin, so make somebody else an admin first'));
+      const user = await askAbout(PEOPLE[1]!);
+      const confirm = await screen.findByRole('button', { name: `Yes, delete ${PEOPLE[1]!.name}` });
+      await waitFor(() => expect(confirm).toBeEnabled());
+
+      await user.click(confirm);
+
+      const question = await screen.findByRole('alertdialog');
+      await waitFor(() => expect(question).toHaveTextContent(/only admin/i));
+      // Still asking, rather than closed: a refusal that shut the question
+      // would read exactly like a deletion that worked. The row behind it
+      // cannot be asserted from here - an open dialog hides the page from the
+      // accessibility tree - and the case below covers the question closing.
+      expect(within(question).getByRole('button', { name: /Yes, delete/ })).toBeVisible();
+    });
+
+    /**
+     * Another admin gets there first. What is left otherwise is a question
+     * about somebody nothing holds, over a button that would ask the server to
+     * delete them again.
+     */
+    it('closes itself when another admin deletes them while it is open', async () => {
+      holds.mockResolvedValue({ workspaces: 1 });
+      const user = await askAbout(PEOPLE[1]!);
+      await screen.findByRole('alertdialog');
+
+      reads.mockResolvedValue({ users: [PEOPLE[0]!] });
+      await user.client.invalidateQueries({ queryKey: ['registeredUsers'] });
+
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+      expect(removes).not.toHaveBeenCalled();
     });
 
     it('sends nothing when the question is cancelled', async () => {

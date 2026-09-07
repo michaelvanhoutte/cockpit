@@ -7,11 +7,11 @@ import type { WorkspaceSnapshot } from '@cockpit/shared';
 import {
   snapshotQuery,
   useCommand,
-  useDeleteUser,
+  accountHoldingsQuery,
   useLatestSnapshot,
   type CommandArgs,
 } from '../../../src/api/queries';
-import { deleteUser, fetchSnapshot, sendCommand } from '../../../src/api/client';
+import { fetchAccountHoldings, fetchSnapshot, sendCommand } from '../../../src/api/client';
 
 /**
  * F1, and deliberately not a browser test: whether a screen refreshes itself
@@ -29,12 +29,12 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
   fetchSnapshot: vi.fn(),
   sendCommand: vi.fn(),
-  deleteUser: vi.fn(),
+  fetchAccountHoldings: vi.fn(),
 }));
 
 const reads = vi.mocked(fetchSnapshot);
 const sends = vi.mocked(sendCommand);
-const removes = vi.mocked(deleteUser);
+const counts = vi.mocked(fetchAccountHoldings);
 
 const snapshot: WorkspaceSnapshot = {
   workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
@@ -66,7 +66,7 @@ async function openTheScreen() {
 beforeEach(() => {
   reads.mockReset();
   sends.mockReset();
-  removes.mockReset();
+  counts.mockReset();
   reads.mockResolvedValue(snapshot);
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
@@ -164,39 +164,47 @@ describe('Workspace management', () => {
 
 describe('User management', () => {
   /**
-   * Ids are derived from the name, so somebody added under a name just deleted
-   * holds the id the deleted person had. An entry merely marked stale is still
-   * handed out while the re-read is in flight, which puts the last person's
-   * count in the question asked about the new one - with the button already
-   * pressable, because a count that is there is a count that has arrived.
+   * A remembered count is worse than none, because it is what enables the
+   * button that destroys an account: an entry still in the cache answers
+   * straight away, so the sentence says what the account held some minutes ago
+   * and the button is pressable at once. Ids are derived from names and come
+   * back, so it may not even be the same person's account it is describing.
    */
-  describe('what somebody’s account held is not kept to be shown against the next person of that name', () => {
-    function Delete({ userId }: { userId: string }) {
-      const removing = useDeleteUser();
-      return (
-        <button type="button" onClick={() => removing.mutate(userId)}>
-          go
-        </button>
-      );
+  describe('what somebody’s account held is not kept once the question about deleting them is closed', () => {
+    /** The question, open on whoever is named, and closed by naming nobody. */
+    function Question({ about }: { about: string | null }) {
+      const holds = useQuery({ ...accountHoldingsQuery(about ?? ''), enabled: about !== null });
+      return <p>{holds.data ? `holds ${holds.data.workspaces}` : 'nothing yet'}</p>;
     }
 
-    it('throws away what the deleted person’s account held', async () => {
-      removes.mockResolvedValue(undefined);
+    it('reads the account again rather than answering from the last time it was asked', async () => {
+      counts.mockResolvedValue({ workspaces: 4 });
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      client.setQueryData(['accountHoldings', 'user-anna'], { workspaces: 4 });
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(
+      const { rerender } = render(
         <QueryClientProvider client={client}>
-          <Delete userId="user-anna" />
+          <Question about="user-anna" />
+        </QueryClientProvider>,
+      );
+      await screen.findByText('holds 4');
+
+      // Cancelled. What she holds may be anything by the time somebody asks
+      // again, and the number is what enables the button that destroys it.
+      rerender(
+        <QueryClientProvider client={client}>
+          <Question about={null} />
         </QueryClientProvider>,
       );
 
-      await user.click(screen.getByRole('button', { name: 'go' }));
-
-      await waitFor(() => expect(removes).toHaveBeenCalledTimes(1));
       await waitFor(() =>
         expect(client.getQueryData(['accountHoldings', 'user-anna'])).toBeUndefined(),
       );
+      counts.mockResolvedValue({ workspaces: 6 });
+      rerender(
+        <QueryClientProvider client={client}>
+          <Question about="user-anna" />
+        </QueryClientProvider>,
+      );
+      expect(await screen.findByText('holds 6')).toBeVisible();
     });
   });
 });

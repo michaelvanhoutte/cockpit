@@ -133,6 +133,15 @@ export const accountHoldingsQuery = (userId: string) =>
     queryKey: ['accountHoldings', userId],
     queryFn: () => fetchAccountHoldings(userId),
     staleTime: 0,
+    // **Kept for exactly as long as the question is open.** What the page does
+    // with this number is enable the button that destroys an account, so a
+    // remembered one is worse than none: reopening the question would answer
+    // from the cache, which makes the sentence and the button describe what the
+    // account held some minutes ago. Ids are derived from names and come back,
+    // so the person it described may not even be the same person. Nothing else
+    // reads it and the question is asked once per deletion, so keeping it buys
+    // nothing to weigh against that.
+    gcTime: 0,
     // The question can be answered without it - what it holds is what the
     // sentence says, not what the deleting needs - so a failure is drawn rather
     // than retried into a wait.
@@ -152,15 +161,11 @@ export function useDeleteUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: deleteUser,
-    onSuccess: (_answer, userId) => {
-      // **Removed rather than invalidated**, because the id comes back. Ids are
-      // derived from the name, so somebody added under the name just deleted
-      // holds the same one - and an invalidated entry is still handed out while
-      // the re-read is in flight, which would show the last person's count on
-      // the new one's question with the button already pressable.
-      queryClient.removeQueries({ queryKey: ['accountHoldings', userId] });
-      return bothReadAgain(queryClient);
-    },
+    // What that account held is not thrown away here, though the account is
+    // gone: the question is still open at this moment, so removing it would
+    // send its own observer to read an account that has just been deleted.
+    // `accountHoldingsQuery` keeps nothing past the question instead.
+    onSuccess: () => bothReadAgain(queryClient),
   });
 }
 

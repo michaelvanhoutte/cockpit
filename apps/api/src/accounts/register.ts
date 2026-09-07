@@ -506,7 +506,16 @@ export type Deleted =
  * see the second call for why - so what is handed in must work after the
  * register has forgotten the account.
  *
- * The two refusals are the ones every change to an admin carries.
+ * **The two refusals are the ones every change to an admin carries, and they
+ * are a read then a write.** Two admins deleting each other at the same instant
+ * both read two admins, both pass, and both go through - the same window
+ * `changeUser` documents, but not the same cost: there the bootstrap SQL the
+ * environment was seeded with puts an admin back, and here the stores are gone
+ * and only a backup returns them. It is left open knowingly. Closing it needs
+ * the count and the delete in one statement, which cannot be written while the
+ * account's data lives behind a binding D1 cannot join to, and the alternative
+ * - refusing to delete any admin without a second step - is machinery against
+ * two people pressing Delete on each other inside one round trip.
  */
 export async function deleteUser(
   env: Env,
@@ -555,12 +564,19 @@ export async function deleteUser(
     ...(await alsoWhereItUsedToLive(env, held.accountId)),
     env.DB.prepare('DELETE FROM tenants WHERE id = ?').bind(held.accountId),
   ]);
-  // **And again, now that nothing can open it.** Between the two lines above, a
-  // request already past the gate - an open event stream, a command mid-flight -
-  // still holds the store and brings it up to date on its next touch, which
-  // creates the account's tables afresh. The register row is what stops that
-  // happening a third time: with it gone, opening the account is an error, so
-  // this sweep has nothing racing it.
+  // **And again, which narrows the window rather than closing it.** Between the
+  // two lines above, a request already past the gate - an open event stream, a
+  // command mid-flight - still holds the store and brings it up to date on its
+  // next touch, which creates the account's tables afresh. Taking the register
+  // row stops a *new* request opening the account, so almost nothing is left to
+  // race this; but a stream resolves its account once and reads the store every
+  // three seconds, so one already in flight can still land after this line.
+  //
+  // What actually closes it is at the other end: adding somebody empties the
+  // store before opening it (`addUserRoute` in http/app.ts), where the id was
+  // derived to be one the register does not hold and anything in that store is
+  // therefore a leftover. This sweep is still worth its round trip - it is what
+  // leaves the ordinary case holding nothing at all.
   await destroyTheAccount(held.accountId);
 
   return { deleted: true };

@@ -84,7 +84,7 @@ export function AdminPage() {
    * list records.
    */
   const list = useRef<HTMLTableElement>(null);
-  /** That a delete has happened, so the focus is owed to the list. */
+  /** That the row a question was open on has gone, so the focus is owed to the list. */
   const focusTheList = useRef(false);
   /**
    * The admins a lockout rule counts, for a change about one particular
@@ -141,7 +141,23 @@ export function AdminPage() {
   };
 
   /**
-   * The focus, once a delete has taken the question away with the row.
+   * A question about somebody the list no longer holds closes itself, the way
+   * the form on a row does.
+   *
+   * The case it is here for is *another* admin deleting them while the question
+   * sat open: the row goes from the next read, and what is left is a question
+   * about a person nothing holds, over a button that would ask the server to
+   * delete them again. This deletion's own answer closes it too - a re-read that
+   * failed would otherwise leave the question up over a person who is gone.
+   */
+  useEffect(() => {
+    if (deleting === null || beingDeleted) return;
+    setDeleting(null);
+    focusTheList.current = true;
+  }, [deleting, beingDeleted]);
+
+  /**
+   * The focus, once the row the question was asked from has gone with it.
    *
    * A frame later rather than in the answer itself: the question does not close
    * so much as cease to exist, and its own focus scope puts the focus back as it
@@ -152,7 +168,7 @@ export function AdminPage() {
     focusTheList.current = false;
     const frame = requestAnimationFrame(() => list.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [beingDeleted]);
+  }, [beingDeleted, deleting]);
 
   if (isPending) return <Framed>Reading who can sign in…</Framed>;
   /**

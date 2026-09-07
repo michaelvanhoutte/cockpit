@@ -194,8 +194,10 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    * operation in the product with nothing to undo it, and `tenant_id` is the
    * second lock the architecture leans on; a lock nothing ever tries is one
    * nobody would notice had broken. It throws rather than answering, so a store
-   * that disagrees stops the deletion where it stands - the register still
-   * holds the person, and nothing has been lost.
+   * that disagrees stops the deletion where it stands: the account's data and
+   * the register are both untouched, and the deletion can be looked at and
+   * asked for again. The person's sign-ins have already ended by then - that is
+   * the first step and deliberately so - so they sign in afresh.
    */
   destroyEverything(accountName: string): void {
     const sql = this.ctx.storage.sql;

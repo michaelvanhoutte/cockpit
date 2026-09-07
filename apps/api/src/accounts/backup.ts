@@ -117,7 +117,9 @@ export function accountTables(sql: SqlStorage): string[] {
  * Always none, in an account that has only ever been reached the ordinary way -
  * which is what makes it worth checking rather than assuming. `tenant_id` is
  * the second lock, and a lock nothing ever tries is one nobody would notice had
- * broken; the one moment it can be tried against a whole store at once is here.
+ * broken; a whole store passes through here, so this is where it can be tried
+ * against all of it at once. `storeRowsBelongingElsewhere` below is the same
+ * lock at the other such moment, where a store is about to be destroyed.
  */
 export function foreignRows(backup: AccountBackup, accountName: string): ForeignRow[] {
   const foreign: ForeignRow[] = [];

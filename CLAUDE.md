@@ -15,7 +15,7 @@ pnpm dev
 
 ## Deployed data is real
 
-**Production and staging hold real data from 7 September 2026, and nothing may delete, re-seed, wipe or restore over it.** Stated here as well as in the document of record — the exception "Say it in one place" below allows — because a session that never opens `docs/deployment.md` still has to obey it: production is the work itself, and staging's old rows are the only proof that a migration and the code either side of it still read what is already there. So expand-then-contract is a hard rule rather than a preference, and `pnpm backup:export` comes before anything that writes to either. The recoveries this still allows, and the one suite that may delete its own rows, are in "The environments" and "Migrations and rollback" there.
+**Production and staging hold real data from 7 September 2026, and nothing may delete, re-seed, wipe or restore over it.** Stated here as well as in the document of record — the exception "Say it in one place" below allows — because a session that never opens `docs/deployment.md` still has to obey it: production is the work itself, and staging's old rows are the only proof that a migration and the code either side of it still read what is already there. So expand-then-contract is a hard rule rather than a preference, and `pnpm backup:export` comes before anything that writes to either. The recoveries this still allows, the one suite that may delete its own rows, and the one thing in the product that removes an account's data — deleting a user, which the person asks for and only a backup undoes — are in "The environments" and "Migrations and rollback" there.
 
 ## Writing
 
