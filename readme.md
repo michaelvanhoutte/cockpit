@@ -79,14 +79,23 @@ Never fix it by renaming the change back to what the store recorded; that trades
 
 ### Taking a backup, and putting one back
 
-Writes an environment to local JSON — the register, and each account's own store in a file of its own:
+**First, the secret, because both commands need one and nothing hands you it.** You invent it — any string locally, something long and random for a deployed environment (`openssl rand -base64 32`). It then goes in *two* places, under two names, and the commands only work when they match:
+
+| | Name | Who reads it | Where you put it |
+|---|---|---|---|
+| The environment | `BACKUP_TOKEN` | the Worker, checking what arrives | `apps/api/.dev.vars` locally (copy `.dev.vars.example`); `wrangler secret put BACKUP_TOKEN` for production and again with `--env staging`, which are separate secrets because Cloudflare does not inherit them |
+| The command | `COCKPIT_BACKUP_TOKEN` | the command, sending it | your own shell, each time you run one |
+
+**Two names for one value is not an oversight, and it is why every example below sets one inline.** `.dev.vars` is read by Wrangler *for the Worker process*; it never reaches your shell, so the command cannot see it. An environment variable rather than a `--token` flag keeps the secret out of your shell history and out of `ps`. Whichever environment you point at, send that environment's own value.
+
+With that in place, this writes an environment to local JSON — the register, and each account's own store in a file of its own:
 
 ```bash
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/2026-09-06
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env local --out ./backups/mine --user tenant-default
 ```
 
-The secret is the environment's own `BACKUP_TOKEN`, which is what the operator routes are behind; locally it comes from `apps/api/.dev.vars` (copy `.dev.vars.example`). Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
+Reaching `--env staging` or `--env production` also needs `CLOUDFLARE_WORKERS_SUBDOMAIN` set, since that is what their addresses are built from; `--env local` works out its own port. Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
 
 Putting one back is the same shape, and is the half that destroys something:
 

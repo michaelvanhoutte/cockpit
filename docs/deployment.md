@@ -346,6 +346,8 @@ COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/202
 COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/anna --user tenant-anna
 ```
 
+Both need that environment's own `BACKUP_TOKEN` in `COCKPIT_BACKUP_TOKEN` (see "Secrets and access" below, which is also where it says you invent it), and `CLOUDFLARE_WORKERS_SUBDOMAIN` set, since a deployed environment's address is built from it.
+
 And `pnpm backup:restore` puts one back, an environment or one user at a time:
 
 ```bash
@@ -366,7 +368,7 @@ wrangler secret put <NAME> --env staging
 
 | Secret | What it is for |
 |---|---|
-| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. Put one in **both** environments — they are not inheritable, and an environment without one refuses those routes rather than opening them. `pnpm backup:export` reads the same value from `COCKPIT_BACKUP_TOKEN`, an environment variable rather than a flag so it stays out of shell history. Locally it goes in `apps/api/.dev.vars`, which is gitignored. |
+| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. The backup commands send the same value, read from `COCKPIT_BACKUP_TOKEN` **in your own shell**: this file's local counterpart, `apps/api/.dev.vars`, is loaded by Wrangler for the Worker and never reaches a shell, so the two are set separately and have to match. An environment variable rather than a flag keeps it out of shell history. |
 
 CI needs, in GitHub:
 
