@@ -1,5 +1,4 @@
 import { and, eq, gt, isNull } from 'drizzle-orm';
-import type { User } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { sessions, users } from '../db/schema.js';
 import type { Env } from '../env.js';
@@ -23,11 +22,15 @@ export interface Visitor {
   /** The account whose store holds this person's work. */
   readonly accountName: string;
   /**
-   * Carried, and read by nothing. There is no admin-only page to guard yet, so
-   * enforcing it here would be a branch with no behaviour behind it; it is on
-   * the visitor so that the first page which needs one finds it already there
-   * rather than having to thread it through ("Sign in by picking a name, each
-   * user in their own account", issue 86).
+   * What this person may open: `auth/admin.ts` reads it off the visitor and
+   * nothing else does ("See who can sign in, on a page only an admin can open",
+   * issue 230). It rode here unread from "Sign in by picking a name, each user
+   * in their own account" (issue 86) so that the first page needing one would
+   * find it already there, which is what that turn out to have bought.
+   *
+   * **Read per request, from the register**, which is why taking somebody's
+   * admin away applies to the sign-in they are already holding rather than to
+   * their next one.
    */
   readonly role: string;
 }
@@ -53,7 +56,7 @@ export async function signInWithGoogle(
   env: Env,
   identity: Identity,
   now: Date,
-): Promise<{ sessionId: string; expiresAt: string; user: User } | null> {
+): Promise<{ sessionId: string; expiresAt: string; user: SigningIn } | null> {
   const db = createDb(env.DB);
 
   const [known] = await db
@@ -85,14 +88,27 @@ export async function signInWithGoogle(
 }
 
 /**
+ * Who a sign-in is being started for, which is a row's id and name and nothing
+ * else.
+ *
+ * **Its own type rather than the wire's `User`**, which the browser's needs
+ * widen: `User` gained a role for the app to decide what to offer ("See who can
+ * sign in, on a page only an admin can open", issue 230), and typing the
+ * sign-in path against it would have this query read a column no caller of it
+ * reads. What is signed in with is the register's business; what is shown is
+ * the contract's.
+ */
+type SigningIn = { id: string; name: string };
+
+/**
  * A sign-in of its own, always: whatever the browser arrived holding is neither
  * read nor reused, so there is nothing to fix a session onto.
  */
 async function startVisit(
   env: Env,
-  user: User,
+  user: SigningIn,
   now: Date,
-): Promise<{ sessionId: string; expiresAt: string; user: User }> {
+): Promise<{ sessionId: string; expiresAt: string; user: SigningIn }> {
   const sessionId = newSessionId();
   const expiresAt = endsFrom(now);
   await createDb(env.DB)

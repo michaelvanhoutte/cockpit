@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
+import { statusOf } from './api/loadFailure';
 import { CACHE_MAX_AGE_MS, PaintedFromTheStoredCopy } from './persistence';
 import { createAppRouter } from './router';
 import { Updating } from './components/Updating';
@@ -15,11 +16,13 @@ const queryClient = new QueryClient({
       gcTime: CACHE_MAX_AGE_MS, // keep snapshots a week so offline read works
       /**
        * Retrying a refusal is only ever a delay. A request refused for not
-       * being signed in will be refused identically twice more, and what it
-       * costs is the seconds before the logon page appears - so the answer is
-       * taken the first time it is given.
+       * being signed in, or for the role the person holds, will be refused
+       * identically twice more, and what it costs is the seconds before the
+       * logon page or the refusal appears - so the answer is taken the first
+       * time it is given.
        */
-      retry: (attempt, error) => !(error instanceof NotSignedIn) && attempt < 2,
+      retry: (attempt, error) =>
+        !(error instanceof NotSignedIn) && statusOf(error) !== '403' && attempt < 2,
     },
   },
 });

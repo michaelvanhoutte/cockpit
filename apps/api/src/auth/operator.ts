@@ -5,11 +5,11 @@ import type { Env } from '../env.js';
  * The gate in front of the operator's routes, which is a secret rather than a
  * sign-in.
  *
- * **Why not the signed-in user's role.** Every user carries `user` or `admin`
- * already, and this would be the first thing to enforce it - but a role is
- * carried by a session, and whoever calls these holds none. They are a
- * command-line tool: there is no browser to send to Google and back, so the
- * sign-in these routes would have to check is one their caller cannot obtain.
+ * **Why not the signed-in user's role**, which `auth/admin.ts` now enforces on
+ * the admin pages: a role is carried by a session, and whoever calls these
+ * holds none. They are a command-line tool - there is no browser to send to
+ * Google and back - so the sign-in that gate reads is one their caller cannot
+ * obtain.
  *
  * That reason survived the sign-in changing under it. This was first written
  * when signing in meant picking a name off a list, and the argument then was

@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
+import type { RegisteredUser } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
-import { tenants } from '../db/schema.js';
+import { tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
 
 /**
@@ -18,6 +19,51 @@ export async function accountIsRegistered(env: Env, accountName: string): Promis
   const db = createDb(env.DB);
   const rows = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, accountName));
   return rows.length > 0;
+}
+
+/**
+ * Everyone this Cockpit knows, for the admin pages.
+ *
+ * **It crosses every account on purpose**, which nothing else in the product
+ * does: the register is the environment's rather than an account's, and who can
+ * sign in is exactly the question an admin is here to answer. The rule it looks
+ * like it breaks - a query scoped to the account the session names - is about
+ * an account's *data*, which lives in a store this cannot reach at all.
+ *
+ * **`hasSignedIn` is derived rather than stored.** The register records the
+ * Google identity at somebody's first sign-in, so its presence is the fact, and
+ * publishing the identity itself would put a stable account key on a page for
+ * no gain.
+ *
+ * Ordered by name so the list is the same list twice running. Nothing pages it:
+ * the register holds the people who can sign in to one Cockpit, and a limit
+ * would be machinery against a number that cannot grow that way.
+ */
+export async function registeredUsers(env: Env): Promise<RegisteredUser[]> {
+  const rows = await createDb(env.DB)
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      // The account's *name*, joined, rather than the id it is addressed by.
+      // `tenant-ada` is how the platform reaches a store and means nothing to
+      // somebody reading a page; the register holds the name beside it.
+      accountName: tenants.name,
+      googleSubject: users.googleSubject,
+    })
+    .from(users)
+    .innerJoin(tenants, eq(tenants.id, users.accountId))
+    // Folded, because SQLite compares text as bytes by default and would put
+    // every capitalised name before every lowercase one; then by id, because
+    // two people may share a name and "the same list twice running" is the
+    // whole claim being made.
+    .orderBy(asc(sql`lower(${users.name})`), asc(users.id));
+
+  return rows.map(({ googleSubject, ...user }) => ({
+    ...user,
+    hasSignedIn: googleSubject !== null,
+  }));
 }
 
 /** The register as a backup holds it. */

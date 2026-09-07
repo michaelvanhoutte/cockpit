@@ -2,6 +2,7 @@ import { hc } from 'hono/client';
 import type { AppType } from '@cockpit/api';
 import {
   itemTypeListSchema,
+  registeredUserListSchema,
   signedInSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
@@ -9,6 +10,7 @@ import {
   type CommandPayload,
   type CommandResult,
   type ItemTypeList,
+  type RegisteredUserList,
   type SignedIn,
   type WorkspaceList,
   type WorkspaceSnapshot,
@@ -62,6 +64,20 @@ export async function fetchMe(): Promise<SignedIn> {
   const res = await api.v1.me.$get();
   if (!res.ok) throw refusal('sign-in', res.status);
   return signedInSchema.parse(await res.json());
+}
+
+/**
+ * Everyone this Cockpit knows, for the admin page ("See who can sign in, on a
+ * page only an admin can open", issue 230).
+ *
+ * A 403 arrives here as an ordinary failure rather than as `NotSignedIn`, and
+ * the difference matters: whoever gets one *is* signed in, so sending them to
+ * the logon page would offer them the one thing that cannot help.
+ */
+export async function fetchRegisteredUsers(): Promise<RegisteredUserList> {
+  const res = await api.v1.admin.users.$get();
+  if (!res.ok) throw refusal('users', res.status);
+  return registeredUserListSchema.parse(await res.json());
 }
 
 /**

@@ -19,6 +19,7 @@ export {
   RegisterRowUnusableError,
   registerContents,
   registeredAccountNames,
+  registeredUsers,
   restoreRegister,
 } from './register.js';
 export type { RegisterBackup, RegisterPlan } from './register.js';
