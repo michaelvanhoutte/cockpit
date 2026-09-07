@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { ITEM_TYPE_COLORS, MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from '@cockpit/shared';
-import { ACCOUNT_NAME, WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  ACCOUNT_NAME,
+  DASHBOARD_ID,
+  WORKSPACE_ID,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, and deliberately not through `SELF.fetch`. The rules below
@@ -328,7 +335,6 @@ describe('Associations', () => {
 
 describe('Panels', () => {
   /** The dashboard every workspace is created with, which is what panels hang off. */
-  const DASHBOARD_ID = `${WORKSPACE_ID}-dashboard-1`;
 
   async function putPanel(overrides: Record<string, unknown> = {}): Promise<void> {
     const row = {

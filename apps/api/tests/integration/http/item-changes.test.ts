@@ -92,8 +92,10 @@ describe('Offline', () => {
           commandId: requestId,
           // The new workspace's own id, so a replay carries the same one.
           workspaceId: targetId,
-          // As does the panel its first dashboard arrives with.
-          panelId: targetId.replace(/^.{8}/, '018f1111'),
+          // As does the panel its first dashboard arrives with. Derived from
+          // the same counter rather than from `targetId`, so it carries no
+          // assumption about the shape of another id.
+          panelId: nextId(),
           issuedAt: '2026-08-12T10:00:00.000Z',
           name: `Bookkeeping ${targetId.slice(-4)}`,
         }),

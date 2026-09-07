@@ -35,9 +35,8 @@ export const OTHER_USER_ID = 'user-ada';
  */
 export const WORKSPACE_ID = 'ws-1';
 
-/** The dashboard and panel that workspace arrives with (src/accounts/changes.ts). */
+/** The dashboard that workspace arrives with (src/accounts/changes.ts). */
 export const DASHBOARD_ID = `${WORKSPACE_ID}-dashboard-1`;
-export const PANEL_ID = '01920000-0000-7000-8000-000000000001';
 
 /**
  * *Task*, one of the two types every account starts with, by the id the store
@@ -263,9 +262,10 @@ export async function inTheStoreAsItIs<T>(work: (sql: SqlStorage) => T): Promise
  *
  * **Written into the store rather than made through `create_workspace`**, for
  * the one reason worth a helper: the cases name these by readable ids, and that
- * command takes a uuid. What it does not do is invent a shape - each arrives
+ * command takes a uuid. What it must not do is invent a *shape* - each arrives
  * with the dashboard and the panel a workspace really arrives with, so a case
- * that files something into one is filing into a real workspace.
+ * that files something into one is filing into a workspace the app could have
+ * made.
  *
  * Positions follow the one already there, so the order they come back in is the
  * order they were made in, which is what the ordering cases are about.
@@ -294,6 +294,14 @@ export async function alsoWorkspaces(): Promise<void> {
         `${workspace.id}-dashboard-1`,
         ACCOUNT_NAME,
         workspace.id,
+        workspace.at,
+      );
+      sql.exec(
+        `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
+         VALUES (?, ?, ?, 'Panel 1', 'panel 1', ?)`,
+        `${workspace.id}-panel-1`,
+        ACCOUNT_NAME,
+        `${workspace.id}-dashboard-1`,
         workspace.at,
       );
     });

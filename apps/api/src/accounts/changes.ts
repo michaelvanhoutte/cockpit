@@ -1272,6 +1272,9 @@ const FIRST_PANEL_ID = '01920000-0000-7000-8000-000000000001';
  * Every account that is ever opened runs it once, so the guard is what decides
  * whether it does anything: a store with a workspace already - the three, or
  * any made since - gets nothing at all, and only one with none gets the set.
+ * **Deleted ones count**, because they are tombstones rather than gone: an
+ * account that deleted every workspace is offered the screen that makes one
+ * (pages/FirstWorkspacePage.tsx) rather than being handed another.
  *
  * **Each statement is guarded on the row it would write**, not merely on its
  * parent existing. Guarding the dashboard on "the workspace is there" was

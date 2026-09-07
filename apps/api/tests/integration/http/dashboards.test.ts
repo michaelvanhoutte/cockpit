@@ -571,15 +571,52 @@ describe('Dashboards', () => {
       expect(await panelsOn(WORKSPACE_ID, dashboardId)).toEqual(['Panel 1']);
     });
 
-    it('adds one panel however many times the same add is repeated', async () => {
-      // The panel's id is the client's, like the dashboard's, so a replay
-      // carries the same one and must be a no-op rather than a second panel.
+    /**
+     * **The panel is the one row here whose id is new on every attempt**, and
+     * that is what makes this worth two cases rather than one. The workspace's
+     * id is the client's and the dashboard's is derived from it, so both are
+     * no-ops on a replay whatever request id it carries; the panel's is
+     * generated afresh, so a second attempt would be a second Panel 1 - which
+     * the title index refuses, taking the whole request down with it rather
+     * than answering "already done".
+     */
+    it.each([
+      { situation: 'the same request id, which is caught before the handler', fresh: false },
+      { situation: 'a request id that was lost and replaced', fresh: true },
+    ])('adds one panel when an add is repeated with $situation', async ({ fresh }) => {
       const dashboardId = nextId();
       const commandId = nextId();
-      await addDashboard(WORKSPACE_ID, aName(), { dashboardId, commandId });
-      await addDashboard(WORKSPACE_ID, aName(), { dashboardId, commandId });
+      const first = await addDashboard(WORKSPACE_ID, aName(), { dashboardId, commandId });
+      expect(first.status).toBe(200);
 
+      // A different name on the second attempt, so the name check does not
+      // answer it first and the insert is really reached.
+      const again = await addDashboard(WORKSPACE_ID, aName(), {
+        dashboardId,
+        ...(fresh ? {} : { commandId }),
+      });
+
+      expect(again.status).toBe(200);
       expect(await panelsOn(WORKSPACE_ID, dashboardId)).toEqual(['Panel 1']);
+    });
+
+    it('adds one panel when a workspace is made twice with a request id that was lost', async () => {
+      const workspaceId = await makeWorkspace(aName());
+
+      const again = await asUser('http://cockpit.test/v1/commands/create_workspace', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: nextId(),
+          issuedAt: '2026-09-01T10:00:00.000Z',
+          workspaceId,
+          panelId: nextId(),
+          name: aName(),
+        }),
+      });
+
+      expect(again.status).toBe(200);
+      expect(await panelsOn(workspaceId, await theDashboardOf(workspaceId))).toEqual(['Panel 1']);
     });
 
     /**
@@ -589,14 +626,25 @@ describe('Dashboards', () => {
      * put a panel on.
      */
     it('lets the last panel be deleted, and does not put one back', async () => {
+      // The panel this deletes is added here rather than taken to be the one
+      // the dashboard arrived with: what is being claimed is that nothing puts
+      // a panel back, and a case that leans on the arrival cannot fail for
+      // that reason alone.
       const dashboardId = await aDashboardIn(WORKSPACE_ID);
-      const [panelId] = (
-        (await (await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`)).json()) as {
-          panels: { id: string; dashboardId: string }[];
-        }
-      ).panels
-        .filter((panel) => panel.dashboardId === dashboardId)
-        .map((panel) => panel.id);
+      const panelId = nextId();
+      await asUser('http://cockpit.test/v1/commands/add_panel', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: nextId(),
+          issuedAt: '2026-09-01T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          dashboardId,
+          panelId,
+          name: aName(),
+        }),
+      });
+      expect(await panelsOn(WORKSPACE_ID, dashboardId)).toHaveLength(2);
 
       await asUser('http://cockpit.test/v1/commands/delete_panel', {
         method: 'POST',
@@ -606,6 +654,29 @@ describe('Dashboards', () => {
           issuedAt: '2026-09-01T10:00:00.000Z',
           workspaceId: WORKSPACE_ID,
           panelId,
+        }),
+      });
+
+      expect(await panelsOn(WORKSPACE_ID, dashboardId)).toEqual(['Panel 1']);
+
+      // And the one it arrived with goes the same way, leaving none - which is
+      // the claim: a dashboard may end up with no panels, unlike a workspace,
+      // whose last dashboard is refused.
+      const [arrived] = (
+        (await (
+          await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`)
+        ).json()) as { panels: { id: string; dashboardId: string }[] }
+      ).panels
+        .filter((panel) => panel.dashboardId === dashboardId)
+        .map((panel) => panel.id);
+      await asUser('http://cockpit.test/v1/commands/delete_panel', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: nextId(),
+          issuedAt: '2026-09-01T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          panelId: arrived,
         }),
       });
 

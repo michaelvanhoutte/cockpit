@@ -36,11 +36,16 @@ import type { Page } from '@playwright/test';
  */
 const CAPTURED_FROM = STARTING_WORKSPACE;
 /**
- * The second workspace this walk needs, made by the walk rather than found: an
- * account starts with one, and every spec in a run shares one database, so a
- * name unique to this file is what keeps two specs from colliding over it.
+ * The second workspace these walks need, made by the file rather than found: an
+ * account starts with one now.
+ *
+ * **A fixed name, not a unique one.** Every spec in a run shares one database
+ * and both projects run against it, so a name with a random suffix would make
+ * one workspace per project and leave the strip two entries longer than the
+ * other specs expect. Fixed, the guard below makes the second run a no-op. No
+ * other spec uses this name, and none deletes it.
  */
-const ELSEWHERE = uniqueTitle('Elsewhere');
+const ELSEWHERE = 'Elsewhere';
 
 /**
  * Goes to the capture page from the header and writes a note there, without
