@@ -104,37 +104,23 @@ describe('the generator, end to end against a stubbed API', () => {
     expect(existsSync(out)).toBe(false);
   });
 
-  it('refuses an argument it does not know instead of quietly reporting on the wrong thing', async () => {
-    const written = [];
-    const write = process.stderr.write.bind(process.stderr);
-    process.stderr.write = (chunk) => written.push(String(chunk));
-    try {
-      expect(await main(['--branhc', 'main'])).toBe(2);
-    } finally {
-      process.stderr.write = write;
-    }
-    // The misspelled flag, not the value behind it.
-    expect(written.join('')).toContain('unknown argument: --branhc');
-  });
-
-  it('refuses a budget that is not a number, rather than fetching without one', async () => {
-    // NaN would not shrink the budget, it would remove it: every comparison
-    // against NaN is false, so the fetch would read the whole run history.
+  it('stops on a bad argument before spending a single request', async () => {
+    // Which arguments are refused, and what the complaint says, is parseArgs's
+    // own business and is proved in tests/unit/cli.test.js. What only this level
+    // can show is that main acts on the complaint rather than fetching anyway.
     const fetched = [];
     vi.stubGlobal('fetch', async (url) => {
       fetched.push(url);
       return ok({ workflow_runs: [] });
     });
-    const written = [];
     const write = process.stderr.write.bind(process.stderr);
-    process.stderr.write = (chunk) => written.push(String(chunk));
+    process.stderr.write = () => true;
     try {
       expect(await main(['--repo', 'o/r', '--max-runs', '8OO'])).toBe(2);
-      expect(await main(['--repo', 'o/r', '--days', 'thirty'])).toBe(2);
+      expect(await main(['--branhc', 'main'])).toBe(2);
     } finally {
       process.stderr.write = write;
     }
-    expect(written.join('')).toContain('--max-runs needs a positive number');
     expect(fetched).toEqual([]);
   });
 });
