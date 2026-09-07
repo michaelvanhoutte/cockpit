@@ -75,7 +75,7 @@ export function readArguments(argv) {
  * whole one, discovered on the day somebody needs it.
  */
 export async function takeBackup({ ask, files, out, only, environment, now = () => new Date() }) {
-  const register = await ask('/v1/admin/backup/register');
+  const register = await ask('/v1/operator/backup/register');
   readRegister(register);
   const accounts = only ? [only] : register.accounts;
 
@@ -90,7 +90,7 @@ export async function takeBackup({ ask, files, out, only, environment, now = () 
   const staged = await files.stage(out);
   const taken = [];
   for (const account of accounts) {
-    const file = await ask(`/v1/admin/backup/accounts/${encodeURIComponent(account)}`);
+    const file = await ask(`/v1/operator/backup/accounts/${encodeURIComponent(account)}`);
     readAccountFile(file, account);
     await files.write(`${staged}/accounts/${nameAsAFile(account)}.json`, file);
     taken.push({ account, changesApplied: file.changesApplied, rows: countRows(file.tables) });

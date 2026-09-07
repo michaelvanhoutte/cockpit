@@ -51,7 +51,7 @@ function asOperator(path: string, init: RequestInit = {}): Promise<Response> {
 }
 
 async function backUp(accountName: string): Promise<AccountFile> {
-  const res = await asOperator(`/v1/admin/backup/accounts/${accountName}`);
+  const res = await asOperator(`/v1/operator/backup/accounts/${accountName}`);
   expect(res.status).toBe(200);
   return (await res.json()) as AccountFile;
 }
@@ -62,7 +62,7 @@ function restore(
   { force = false } = {},
 ): Promise<Response> {
   return asOperator(
-    `/v1/admin/restore/accounts/${accountName}${force ? '?force=true' : ''}`,
+    `/v1/operator/restore/accounts/${accountName}${force ? '?force=true' : ''}`,
     { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(backup) },
   );
 }
@@ -328,7 +328,7 @@ describe('Backup', () => {
         body: '{"changesApplied":[],"tables":{"items":[1,2]}}',
       },
     ])('refuses $situation, and does not answer as though it broke', async ({ body }) => {
-      const res = await asOperator(`/v1/admin/restore/accounts/${ACCOUNT_NAME}?force=true`, {
+      const res = await asOperator(`/v1/operator/restore/accounts/${ACCOUNT_NAME}?force=true`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body,
@@ -345,7 +345,7 @@ describe('Backup', () => {
      * unusable is asked at tests/unit/accounts/register-restore.test.ts.
      */
     it('refuses a register row nothing could write, without blaming the register', async () => {
-      const res = await asOperator('/v1/admin/restore/register', {
+      const res = await asOperator('/v1/operator/restore/register', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ tenants: [{}], users: [] }),
@@ -369,7 +369,7 @@ describe('Backup', () => {
         body: { tenants: [], users: [{ id: 'u', account_id: ACCOUNT_NAME }] },
       },
     ])('refuses $situation rather than letting the insert fail', async ({ body }) => {
-      const res = await asOperator('/v1/admin/restore/register', {
+      const res = await asOperator('/v1/operator/restore/register', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -380,7 +380,7 @@ describe('Backup', () => {
     });
 
     it('refuses a register that is not one', async () => {
-      const res = await asOperator('/v1/admin/restore/register', {
+      const res = await asOperator('/v1/operator/restore/register', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{"tenants":null,"users":[]}',
@@ -404,7 +404,7 @@ describe('Backup', () => {
       // the two refusals gets there first.
       { situation: 'a walk upwards', name: '..' },
     ])('makes no store for a name with $situation in it', async ({ name }) => {
-      const res = await asOperator(`/v1/admin/restore/accounts/${name}`, {
+      const res = await asOperator(`/v1/operator/restore/accounts/${name}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{"changesApplied":[],"tables":{}}',
@@ -501,7 +501,7 @@ describe('Backup', () => {
       await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(OTHER_USER_ID).run();
       await env.DB.prepare('DELETE FROM tenants WHERE id = ?').bind(OTHER_ACCOUNT_NAME).run();
 
-      const res = await asOperator('/v1/admin/restore/register', {
+      const res = await asOperator('/v1/operator/restore/register', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -546,7 +546,7 @@ describe('Backup', () => {
       };
       const before = await env.DB.prepare('SELECT * FROM users ORDER BY id').all();
 
-      const res = await asOperator('/v1/admin/restore/register', {
+      const res = await asOperator('/v1/operator/restore/register', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ tenants: [], users: [user] }),
@@ -562,8 +562,8 @@ describe('Backup', () => {
 
   describe('restoring is refused to anyone without the operator’s secret', () => {
     it.each([
-      { situation: 'an account', path: `/v1/admin/restore/accounts/${ACCOUNT_NAME}` },
-      { situation: 'the register', path: '/v1/admin/restore/register' },
+      { situation: 'an account', path: `/v1/operator/restore/accounts/${ACCOUNT_NAME}` },
+      { situation: 'the register', path: '/v1/operator/restore/register' },
     ])('putting back $situation needs the secret', async ({ path }) => {
       const res = await SELF.fetch(`http://cockpit.test${path}`, {
         method: 'POST',
@@ -579,7 +579,7 @@ describe('Backup', () => {
     // string. Asked again here because these routes *write*.
     it('is refused when the path arrives escaped', async () => {
       const res = await asUser(
-        `http://cockpit.test/v1/%61dmin/restore/accounts/${ACCOUNT_NAME}`,
+        `http://cockpit.test/v1/%6Fperator/restore/accounts/${ACCOUNT_NAME}`,
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' },
         USER_ID,
       );

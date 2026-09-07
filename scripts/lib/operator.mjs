@@ -64,7 +64,23 @@ function named(takes, switches) {
  */
 export function readAnswer({ status, body }, extra = {}) {
   if (extra[status]) return extra[status](message(body));
+  // **Two different 401s, and telling them apart is the whole point.** The
+  // operator's gate answers `not allowed`; the *sign-in* gate answers `sign in
+  // to continue`, and this command meets that one when it asks at
+  // `/v1/operator/` of a deployment that predates the address ("Give the
+  // operator's routes the operator's name, and free /v1/admin/ for the admin
+  // section", issue 229). Production lags `main` by design - it is promoted by
+  // hand - so that window is ordinary rather than exotic, and reporting it as a
+  // rejected secret sends an operator to rotate BACKUP_TOKEN when the fix is to
+  // promote.
   if (status === 401) {
+    if (message(body) === 'sign in to continue') {
+      return (
+        'refused: that environment is older than this checkout and has not got the ' +
+        'operator routes at /v1/operator/ yet. Promote it, or run this from a ' +
+        'checkout as old as it is. The secret was never asked for.'
+      );
+    }
     return (
       'refused: the operator secret was not accepted. It is BACKUP_TOKEN, set per ' +
       'environment with `wrangler secret put BACKUP_TOKEN`, and given to this command ' +

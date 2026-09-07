@@ -86,7 +86,7 @@ export async function putBack({ ask, backup, only, force, say = () => {} }) {
   for (const account of wanted) {
     try {
       const written = await ask(
-        `/v1/admin/restore/accounts/${encodeURIComponent(account)}${force ? '?force=true' : ''}`,
+        `/v1/operator/restore/accounts/${encodeURIComponent(account)}${force ? '?force=true' : ''}`,
         backup.accounts[account],
       );
       done.push({ account, ...written });
@@ -113,7 +113,7 @@ export async function putBack({ ask, backup, only, force, say = () => {} }) {
   }
 
   try {
-    const register = await ask('/v1/admin/restore/register', registerFor(backup, wanted));
+    const register = await ask('/v1/operator/restore/register', registerFor(backup, wanted));
     return { accounts: done, ...register };
   } catch (error) {
     // **The same progress report, and this is where it matters most.** By now

@@ -2,7 +2,7 @@
 # store in a deployed environment (docs/deployment.md, "Secrets and access");
 # this file is only how `pnpm dev` gets them.
 
-# The only thing in front of the operator routes under /v1/admin/, which hand
+# The only thing in front of the operator routes under /v1/operator/, which hand
 # back every account's data. You invent it, and any string will do here - a
 # deployed environment needs a long random one, for the reason given where that
 # is set.
