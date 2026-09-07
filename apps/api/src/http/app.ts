@@ -2,11 +2,13 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
+  addUserSchema,
   commandResultSchema,
   commandSchemas,
+  itemTypeListSchema,
   registeredUserListSchema,
   signedInSchema,
-  itemTypeListSchema,
+  userAddedSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
   type CommandName,
@@ -24,6 +26,7 @@ import {
   RowsFromAnotherAccountError,
   backUpAccount,
   openAccount,
+  addUser,
   registerContents,
   registeredAccountNames,
   registeredUsers,
@@ -327,6 +330,47 @@ const adminUsersRoute = createRoute({
   },
 });
 
+/**
+ * Adding somebody, from the admin page. Behind the same role gate as the list.
+ *
+ * A 409 for a refusal the admin can act on - an address already in the register,
+ * a name that leaves nothing an account could be called - rather than a 400,
+ * which the shape check above already uses for what was typed being unusable as
+ * a request at all.
+ */
+const addUserRoute = createRoute({
+  method: 'post',
+  path: '/v1/admin/users',
+  request: {
+    body: { content: { 'application/json': { schema: addUserSchema } }, required: true },
+  },
+  responses: {
+    201: {
+      description: 'The person, and whether their account was ready',
+      content: { 'application/json': { schema: userAddedSchema } },
+    },
+    // Declared because the shape check answers it (`defaultHook`), and a status
+    // the contract does not name is one the typed client refuses to let the
+    // browser read - which is how this one was found.
+    400: {
+      description: 'Not shaped like a request to add somebody',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    409: {
+      description: 'Refused: the register already holds this, or the name gives no account',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
 // --- reads (the snapshot model: architecture, "The read model") --------------
 
 const workspacesRoute = createRoute({
@@ -513,6 +557,36 @@ const routes = app
     return c.json({ user: { id: userId, name, role } }, 200);
   })
   .openapi(adminUsersRoute, async (c) => c.json({ users: await registeredUsers(c.env) }, 200))
+  .openapi(addUserRoute, async (c) => {
+    const { name, email } = c.req.valid('json');
+    const added = await addUser(c.env, { name, address: email }, new Date());
+    if (!added.added) return c.json({ error: added.refused }, 409);
+
+    /**
+     * **The account is opened as they are added**, so a change that will not
+     * apply is met by the admin who added them rather than by that person's
+     * first sign-in - which is the whole reason this happens here rather than
+     * being left to happen naturally.
+     *
+     * After the register and never before it: a store opened for an account
+     * nobody owns is an object nothing can reach, while a person whose account
+     * is not ready simply has it made on their first request.
+     */
+    let accountReady = true;
+    try {
+      await (await openAccount(c.env, added.accountId)).workspaces();
+    } catch (error) {
+      accountReady = false;
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `${added.user.id} was added but their account would not open`,
+          cause: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    return c.json({ user: added.user, accountReady }, 201);
+  })
   .openapi(healthRoute, async (c) => {
     const { register, store, failure } = await checkHealth(c.env);
     // The reason goes to the logs and not into the body: this endpoint answers

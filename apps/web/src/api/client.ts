@@ -6,11 +6,14 @@ import {
   signedInSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
+  userAddedSchema,
+  type AddUser,
   type CommandName,
   type CommandPayload,
   type CommandResult,
   type ItemTypeList,
   type RegisteredUserList,
+  type UserAdded,
   type SignedIn,
   type WorkspaceList,
   type WorkspaceSnapshot,
@@ -78,6 +81,34 @@ export async function fetchRegisteredUsers(): Promise<RegisteredUserList> {
   const res = await api.v1.admin.users.$get();
   if (!res.ok) throw refusal('users', res.status);
   return registeredUserListSchema.parse(await res.json());
+}
+
+/**
+ * Adds somebody ("Add a user on the admin page, so a second person no longer
+ * needs SQL", issue 231).
+ *
+ * **A refusal keeps the server's own words**, because they name what is wrong
+ * with what was typed - which address is already somebody's, what a name leaves
+ * nothing of - and the page has nothing better to say than the reason. Anything
+ * that is not a refusal is reported as a failure rather than pretending to be
+ * one.
+ */
+export async function addUser(body: AddUser): Promise<UserAdded> {
+  const res = await api.v1.admin.users.$post({ json: body });
+  if (res.status === 409 || res.status === 400) {
+    const { error } = (await res.json()) as { error: string };
+    throw new UserRefused(error);
+  }
+  if (!res.ok) throw refusal('adding a user', res.status);
+  return userAddedSchema.parse(await res.json());
+}
+
+/** Why somebody could not be added, in the server's words, for the form to show. */
+export class UserRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UserRefused';
+  }
 }
 
 /**

@@ -157,10 +157,12 @@ Everything is plain HTTP to the one API in `apps/api`: no second protocol, no di
 | Pattern | Transport | Used for |
 |---|---|---|
 | **Snapshot reads** | `GET`, one call per workspace | The read model of §5.2; every panel is derived locally rather than fetched. |
-| **Commands** | `POST`, one endpoint per command (§4.3) | All writes, idempotent via client-generated command IDs. |
+| **Commands** | `POST`, one endpoint per command (§4.3) | Every write to an **account's** data, idempotent via client-generated command IDs. |
 | **Push invalidation** | SSE (long-lived HTTP response) | "Something changed" events that trigger revalidation, keeping phone and desktop in agreement. |
 
 So it is deliberately **not a resource-oriented REST surface**: a narrow contract of snapshots, commands and events, which is what makes the persisted cache, optimistic UI, the capture outbox and any future offline retrofit fall out of the same shapes.
+
+**The admin pages are outside all three, and are the only thing that is** ("Add a user on the admin page, so a second person no longer needs SQL", issue 231): `/v1/admin/` reads and writes the *register*, which is the environment's rather than an account's. None of what the three patterns buy applies to it — there is no snapshot to derive a page from, nothing to cache for offline, and nothing to replay, since a command is addressed to one account's store and adding a person is what creates one. So they are ordinary requests, and a write there is `POST /v1/admin/<what>` rather than a command.
 
 **The contract is REST + OpenAPI, generated from the shared Zod schemas.** `@hono/zod-openapi` generates it, and Hono's typed client `hc` gives the frontend end-to-end inference from those same schemas, so no type is written twice. It stays language-neutral because non-TypeScript clients are foreseeable — the possible Kotlin car app (§10), a public API.
 

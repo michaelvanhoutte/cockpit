@@ -1,4 +1,15 @@
-import { ADA, MICHAEL, expect, press, signIn, test } from './support/app';
+import {
+  ADA,
+  MICHAEL,
+  dashboardBar,
+  expect,
+  press,
+  signIn,
+  signInWith,
+  somebodyNew,
+  test,
+  workspaceTab,
+} from './support/app';
 
 /**
  * F3, because the claim is about a whole browser reaching a page: that an admin
@@ -44,6 +55,44 @@ test.describe('User management', () => {
         await expect(row).toHaveCount(1);
         await expect(row).toContainText(who);
       }
+    });
+
+    /**
+     * The capability, end to end and only provable here: somebody who did not
+     * exist when the page was opened signs in and lands in an account of their
+     * own. Every rule about what a name derives and what an address folds to is
+     * settled far more cheaply at apps/api/tests/unit/accounts/new-user.test.ts,
+     * and the refusals at the integration tier; none of it is re-proved.
+     */
+    test('adds somebody who can then sign in and land in their own account', async ({
+      page,
+      isMobile,
+    }) => {
+      await signIn(page, MICHAEL, isMobile);
+      await page.goto('/admin');
+
+      // Somebody this run has not added before: the stack rebuilds its storage
+      // once and serves both projects from it, so a fixed address would meet
+      // the row the other project just added.
+      const anna = somebodyNew('Anna');
+      await page.getByLabel('Name').fill(anna.name);
+      await page.getByLabel('Signs in with').fill(anna.address);
+      await press(page.getByRole('button', { name: 'Add' }), isMobile);
+
+      const row = page.getByRole('row').filter({ hasText: anna.address });
+      await expect(row).toHaveCount(1);
+      await expect(row).toContainText('not yet');
+
+      // Now hers: a person the register did not hold a minute ago signs in and
+      // arrives in an account with the workspaces every account starts with.
+      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
+      await signInWith(page, anna.address, isMobile);
+
+      // Asserted here rather than inside the helper: that somebody added a
+      // moment ago can get in at all is what this walk claims.
+      await expect(dashboardBar(page)).toBeVisible();
+      await expect(workspaceTab(page, 'Work')).toBeVisible();
     });
 
     test('refuses an ordinary user who types the address, and offers them no way in', async ({
