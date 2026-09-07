@@ -8,13 +8,16 @@
     "secret its operator routes are behind. You invent it; a deployed one has to",
     "be long and random, and anything will do locally. See docs/deployment.md,",
     "'Secrets and access'.",
+    "local below matches what apps/api/.dev.vars.example ships, so copying both",
+    "examples gives a working local backup rather than a 401 - change one and",
+    "you change the other.",
     "subdomain is not a secret - it is in this repository's own documents - and",
     "is here only because it is the other thing a command cannot work out for",
     "itself. local needs none, deriving its port from the checkout's path."
   ],
   "subdomain": "your-workers-dev-subdomain",
   "tokens": {
-    "local": "anything-will-do-locally",
+    "local": "local-operator-secret",
     "staging": "",
     "production": ""
   }

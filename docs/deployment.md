@@ -359,7 +359,7 @@ pnpm backup:export --env production --out ./backups/2026-09-06
 pnpm backup:export --env production --out ./backups/anna --user tenant-anna
 ```
 
-Both need that environment's own `BACKUP_TOKEN` in `COCKPIT_BACKUP_TOKEN`, and `CLOUDFLARE_WORKERS_SUBDOMAIN` set — see "Secrets and access" below for where each comes from.
+Both read that environment's own `BACKUP_TOKEN` from `backup-tokens.json`, along with the subdomain the address is built from — see "Secrets and access" below.
 
 And `pnpm backup:restore` puts one back, an environment or one user at a time:
 
@@ -381,7 +381,7 @@ wrangler secret put <NAME> --env staging
 
 | Secret | What it is for |
 |---|---|
-| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally. See below for the half you set in your own shell. |
+| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally, as long as it is the same string the commands send — see below for where they read it from. |
 
 **The backup commands need that same value to send, and they read it from `backup-tokens.json` in the checkout** — gitignored, in the shape `backup-tokens.example.json` shows, holding one token per environment and the workers.dev subdomain a deployed address is built from. So `pnpm backup:export --env production` is the whole command: naming the environment picks its token, and staging and production can be backed up one after the other with nothing set in between.
 
