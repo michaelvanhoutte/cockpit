@@ -368,7 +368,7 @@ wrangler secret put <NAME> --env staging
 
 | Secret | What it is for |
 |---|---|
-| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. See below for the half you set in your own shell. |
+| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication, and `src/auth/admin.ts` compares it in non-constant time on the stated grounds that it carries far more entropy than a timing side channel could recover — which is true of a generated secret and not of a memorable one. Anything will do locally. See below for the half you set in your own shell. |
 
 **The backup commands send that same value under a second name, and the two are set separately.** `BACKUP_TOKEN` is what the Worker checks; `COCKPIT_BACKUP_TOKEN` is what `pnpm backup:export` and `pnpm backup:restore` read from **your own shell** and send. Locally the first lives in `apps/api/.dev.vars`, which Wrangler loads for the Worker process and which therefore never reaches a shell — so setting it there does not set the other, and every example passes one inline. They have to match, and you send whichever environment's value you are pointing at.
 
