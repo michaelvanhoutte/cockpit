@@ -498,8 +498,11 @@ the attempt count in the deploy log is the evidence.
 | production | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
 | staging | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
 
-`/v1/users` answers 200 on both, deliberately: it is the logon page's list of
-names, and it is what you read while you are still nobody.
+`/v1/users` is not among these any more. It went with the list of names ("Sign in
+with Google, and retire the list of names", issue 196) and now answers 410, so a
+browser still holding a build that asks for it learns it is behind and fetches the
+newer one instead of failing (`RETIRED_PATHS` in `apps/api/src/auth/gate.ts`).
+That landed after the verification above and is unchecked from outside.
 
 No automated tier asserts any of this — nothing runs against a deployment yet
 ("Run the F3 suite against a deployed environment, as its own account", issue 64)
