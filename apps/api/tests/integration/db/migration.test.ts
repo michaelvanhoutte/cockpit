@@ -11,8 +11,8 @@ import { asUser } from '../seed.js';
  *
  * The constraints migration adds foreign keys to tables that never had them,
  * so it has to rebuild every table. An earlier version dropped them and let
- * the seed put things back - which is wrong, because staging is deliberately
- * never re-seeded and production is seeded once by hand.
+ * the seed put things back - which is wrong, because both deployed environments
+ * hold real data the seed has never seen and nothing puts back.
  */
 
 const AT = '2026-08-12T10:00:00.000Z';

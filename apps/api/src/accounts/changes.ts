@@ -358,8 +358,8 @@ const WORKSPACE_ORDER: Change = {
  *   empty by this change, so the first row any of these constraints ever sees
  *   is one the command handlers wrote.
  * - **What each environment does.** Nothing environment-specific: no seed and
- *   no backfill, so staging (deliberately never re-seeded) and production
- *   (seeded once by hand) both get the same three empty tables. Every account
+ *   no backfill, so staging and production - neither of them ever re-seeded,
+ *   both holding real data - get the same three empty tables. Every account
  *   applies this the next time it is opened, which is the price the account
  *   storage decision records.
  * - **The windows it can be interrupted in.** Two, and both are safe. Before

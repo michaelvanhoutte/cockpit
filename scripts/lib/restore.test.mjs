@@ -189,8 +189,8 @@ describe('restoring reads only a backup that finished', () => {
 });
 
 describe('restoring names the environment it is about to change', () => {
-  // Staging is deliberately never re-seeded and production holds the only copy
-  // of anything real, so both destroy something nobody can put back.
+  // Both deployed environments hold real data nothing re-seeds or wipes, so a
+  // restore into either destroys something nobody can put back.
   for (const { environment, saidOutLoud } of [
     { environment: 'production', saidOutLoud: true },
     { environment: 'staging', saidOutLoud: true },
