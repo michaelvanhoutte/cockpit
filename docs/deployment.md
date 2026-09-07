@@ -355,16 +355,16 @@ Rollback, in order of preference:
 4. **D1 Time Travel** for the register — 30 days of point-in-time recovery, in place: `wrangler d1 time-travel restore cockpit --timestamp <iso8601>`. It covers the register only, D1 being the only thing it speaks to, and it cannot produce a file or move one environment into another. **It is itself a deletion**: everything written to the register since that timestamp is gone, and the account stores it does not speak to carry on holding rows that now point at people the register no longer has. Export first. **`pnpm backup:export` is the other half** and does both, across the register and every account's store ("Take a backup of an environment, or of one user", issue 208):
 
 ```bash
-COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/2026-09-06
-COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/anna --user tenant-anna
+pnpm backup:export --env production --out ./backups/2026-09-06
+pnpm backup:export --env production --out ./backups/anna --user tenant-anna
 ```
 
-Both need that environment's own `BACKUP_TOKEN` in `COCKPIT_BACKUP_TOKEN`, and `CLOUDFLARE_WORKERS_SUBDOMAIN` set — see "Secrets and access" below for where each comes from.
+Both read that environment's own `BACKUP_TOKEN` from `backup-tokens.json`, along with the subdomain the address is built from — see "Secrets and access" below.
 
 And `pnpm backup:restore` puts one back, an environment or one user at a time:
 
 ```bash
-COCKPIT_BACKUP_TOKEN=... pnpm backup:restore --env staging --from ./backups/2026-09-06 --force
+pnpm backup:restore --env staging --from ./backups/2026-09-06 --force
 ```
 
 **It replaces an account rather than merging into one**, so an account already holding data is refused without `--force`, and any target but `local` has to be confirmed by typing its name. **`--force` against a deployed environment is a deletion**, both of them holding real data since 7 September 2026: it is for putting an account back that lost something, never for making a restore go through, and what it is about to replace is exported first. Accounts are written before the register, so a user never exists pointing at a store that has not arrived, and a run that stops partway names the accounts that went in. A backup taken from a version newer than the one running is refused rather than half-applied.
@@ -381,11 +381,13 @@ wrangler secret put <NAME> --env staging
 
 | Secret | What it is for |
 |---|---|
-| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/operator/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally. See below for the half you set in your own shell. |
+| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/operator/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally, as long as it is the same string the commands send — see below for where they read it from. |
 
-**The backup commands send that same value under a second name, and the two are set separately.** `BACKUP_TOKEN` is what the Worker checks; `COCKPIT_BACKUP_TOKEN` is what `pnpm backup:export` and `pnpm backup:restore` read from **your own shell** and send. Locally the first lives in `apps/api/.dev.vars`, which Wrangler loads for the Worker process and which therefore never reaches a shell — so setting it there does not set the other, and every example passes one inline. They have to match, and you send whichever environment's value you are pointing at.
+**The backup commands need that same value to send, and they read it from `backup-tokens.json` in the checkout** — gitignored, in the shape `backup-tokens.example.json` shows, holding one token per environment and the workers.dev subdomain a deployed address is built from. So `pnpm backup:export --env production` is the whole command: naming the environment picks its token, and staging and production can be backed up one after the other with nothing set in between.
 
-**An environment variable rather than a `--token` flag keeps it out of another user's `ps`, and not out of your shell history**, which records the line as typed. It is out of *argv*, which anybody on the box can read; your own user and root can still read it from `ps eww` or `/proc/<pid>/environ`. If that matters, keep it in a file only you can read, or rely on your shell's own way of not recording a line. Reaching a deployed environment also needs `CLOUDFLARE_WORKERS_SUBDOMAIN`, since its address is built from it; `--env local` works its own port out.
+**A file rather than a variable, because the variable is the wrong shape for the job.** There are three environments and one `COCKPIT_BACKUP_TOKEN`, so every run would either set it or inherit whatever the last run left — and the failure that produces is the worst one available: the right command against the wrong environment's token. The arrangement is the one `.dev.vars` already uses for the Worker's own secrets, a local file git never sees beside an example that git does.
+
+`COCKPIT_BACKUP_TOKEN` still wins where it is set, which is what CI wants: one environment, one token, nothing on disk. Passed inline it is out of *argv*, which anybody on the box can read, and not out of your shell history, which records the line as typed — your own user and root can still read it from `ps eww` or `/proc/<pid>/environ`.
 
 CI needs, in GitHub:
 

@@ -11,6 +11,25 @@
 //
 
 /**
+ * The environments either command can be pointed at.
+ *
+ * **Checked while the arguments are read, before anything looks a token or an
+ * address up.** Both of those are keyed by this name, so a typo reaching them
+ * is answered in terms of what they wanted rather than what is wrong: asking
+ * for a token first turns `--env prod` into "no token for prod", which sends
+ * somebody to add one for an environment that does not exist.
+ */
+export const ENVIRONMENTS = Object.freeze(['local', 'staging', 'production']);
+
+/** Refuses a name that is not one of them, in the words of the thing they typed. */
+export function readEnvironment(name) {
+  if (!ENVIRONMENTS.includes(name)) {
+    throw new Error(`no environment ${name} - it is one of ${ENVIRONMENTS.join(', ')}`);
+  }
+  return name;
+}
+
+/**
  * The flags a command was given.
  *
  * `takes` names the flags that carry a value, `switches` the ones that are only
@@ -81,10 +100,15 @@ export function readAnswer({ status, body }, extra = {}) {
         'checkout as old as it is. The secret was never asked for.'
       );
     }
+    // Naming both sources rather than picking one: this function is handed a
+    // status and a body and cannot know which supplied the token, so blaming
+    // the file sends a CI run - where the file is deliberately absent and the
+    // variable did the work - to look at something that is not there.
     return (
-      'refused: the operator secret was not accepted. It is BACKUP_TOKEN, set per ' +
-      'environment with `wrangler secret put BACKUP_TOKEN`, and given to this command ' +
-      'as COCKPIT_BACKUP_TOKEN.'
+      'refused: the operator secret was not accepted. It is that environment\'s own ' +
+      'BACKUP_TOKEN, set with `wrangler secret put BACKUP_TOKEN`, and the value this ' +
+      'command sent came from COCKPIT_BACKUP_TOKEN if that is set and from ' +
+      'backup-tokens.json otherwise - so whichever it was has to match.'
     );
   }
   if (status === 404 || status === 400 || status === 409) return `refused: ${message(body)}`;

@@ -221,6 +221,14 @@ describe('restoring refuses what it cannot act on, and says why', () => {
       argv: ['--env', 'local', '--env', 'production', '--from', 'b'],
       complaint: /--env was given twice/,
     },
+    // The same check as the backup command's, and it matters more here: a typo
+    // that got past this would be answered by whatever looked the name up
+    // first, in that thing's terms rather than in terms of the name being wrong.
+    {
+      situation: 'an environment that does not exist',
+      argv: ['--env', 'prod', '--from', 'b'],
+      complaint: /no environment prod - it is one of local, staging, production/,
+    },
   ]) {
     it(`refuses ${situation}`, () => {
       assert.throws(() => readArguments(argv), complaint);
