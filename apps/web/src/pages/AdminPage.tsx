@@ -42,7 +42,22 @@ export function AdminPage() {
   // settled or has failed simply leaves that refusal to the server, which makes
   // it either way.
   const me = useQuery(meQuery);
-  const [editing, setEditing] = useState<{ id: string; name: string; role: Role } | null>(null);
+  /**
+   * The row being edited, and **only the halves somebody has actually
+   * touched** - `null` meaning "as the row has it", the way a workspace's form
+   * holds its theme.
+   *
+   * A half snapshotted when the form opened would carry that value over an edit
+   * made somewhere else in the meantime: two admins, one opens Ada's form to
+   * fix a typo, the other makes her an admin, and the first one's Save silently
+   * puts her back to an ordinary user. Neither refusal fires - the change is
+   * about somebody else and there are admins left - so nobody is told.
+   */
+  const [editing, setEditing] = useState<{
+    id: string;
+    name: string | null;
+    role: Role | null;
+  } | null>(null);
   const changing = useChangeUser();
   const askedFrom = useRef<HTMLElement | null>(null);
 
@@ -56,7 +71,7 @@ export function AdminPage() {
   const startEditing = (user: RegisteredUser, openedFrom: HTMLElement | null) => {
     changing.reset();
     askedFrom.current = openedFrom;
-    setEditing({ id: user.id, name: user.name, role: user.role });
+    setEditing({ id: user.id, name: null, role: null });
   };
   const closeForm = () => {
     setEditing(null);
@@ -118,7 +133,10 @@ export function AdminPage() {
       {beingEdited && editing && (
         <RowForm
           title={`Edit ${beingEdited.name}`}
-          name={editing.name}
+          // An untouched half reads from the row as it stands now, so what Save
+          // sends is what is on the screen and never what was on it when the
+          // form opened.
+          name={editing.name ?? beingEdited.name}
           nameLabel={`Name of ${beingEdited.name}`}
           onName={(named) => setEditing({ ...editing, name: named })}
           nameLimit={NAME_LIMIT}
@@ -147,7 +165,7 @@ export function AdminPage() {
                   type="radio"
                   name="role"
                   value={role}
-                  checked={editing.role === role}
+                  checked={(editing.role ?? beingEdited.role) === role}
                   disabled={changing.isPending || Boolean(stuck)}
                   onChange={() => setEditing({ ...editing, role })}
                 />
@@ -165,7 +183,11 @@ export function AdminPage() {
           onCancel={closeForm}
           onSave={() =>
             changing.mutate(
-              { userId: editing.id, name: editing.name.trim(), role: editing.role },
+              {
+                userId: editing.id,
+                name: (editing.name ?? beingEdited.name).trim(),
+                role: editing.role ?? beingEdited.role,
+              },
               { onSuccess: () => setEditing(null) },
             )
           }

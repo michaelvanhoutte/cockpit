@@ -66,12 +66,18 @@ afterEach(() => {
   iAm.mockReset();
 });
 
+/**
+ * The client is handed back, because one case has to make the list change
+ * underneath a form that is already open - which is a re-read, not a redraw.
+ */
 function drawn() {
-  return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
       <AdminPage />
     </QueryClientProvider>,
   );
+  return client;
 }
 
 describe('User management', () => {
@@ -199,11 +205,11 @@ describe('User management', () => {
       const user = userEvent.setup();
       reads.mockResolvedValue({ users: people });
       iAm.mockResolvedValue({ user: { id: asWho.id, name: asWho.name, role: asWho.role } });
-      drawn();
+      const client = drawn();
 
       await user.click(await screen.findByRole('button', { name: `Actions for ${person.name}` }));
       await user.click(await screen.findByRole('menuitem', { name: 'Edit…' }));
-      return user;
+      return Object.assign(user, { client });
     }
 
     it('opens on the name and role that person already has', async () => {
@@ -290,6 +296,42 @@ describe('User management', () => {
       const ordinary = screen.getByRole('radio', { name: /^User/ });
       expect(ordinary).toBeDisabled();
       expect(ordinary.closest('label')).toHaveTextContent(says);
+    });
+
+    /**
+     * Two admins, and the one who is not looking wins the halves nobody
+     * touched: a form that sent what the row held when it opened would put an
+     * ordinary user back over somebody else's promotion, and neither refusal
+     * would fire - the change is about a third person and there are admins
+     * left - so nobody would be told.
+     */
+    it.each([
+      {
+        situation: 'the role, when the radio was never touched',
+        elsewhere: { role: 'admin' as const },
+        sends: { role: 'admin' },
+      },
+      {
+        situation: 'the name, when the box was never typed in',
+        elsewhere: { name: 'Ada Lovelace' },
+        sends: { name: 'Ada Lovelace' },
+      },
+    ])('sends $situation as the row now holds it', async ({ elsewhere, sends }) => {
+      changes.mockResolvedValue({ user: PEOPLE[1]! });
+      const user = await openFormOn(PEOPLE[1]!);
+
+      // Somebody else changes her while this form sits open, and the list is
+      // re-read - which is what the page does on its own.
+      reads.mockResolvedValue({ users: [PEOPLE[0]!, { ...PEOPLE[1]!, ...elsewhere }] });
+      await user.client.invalidateQueries({ queryKey: ['registeredUsers'] });
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled(),
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(changes).toHaveBeenCalled());
+      expect(changes.mock.lastCall?.[0]).toMatchObject(sends);
     });
 
     it('offers the role to an admin who is neither the asker nor the last one', async () => {
