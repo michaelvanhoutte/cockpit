@@ -109,6 +109,9 @@ vi.mock('../../../src/api/queries', () => ({
     initialDataUpdatedAt: 0,
   }),
   useCommand: () => ({ mutate: () => undefined, isPending: false }),
+  // Read by every control that names a change, to say why the last one did
+  // not happen (api/queries.ts).
+  refusalFrom: () => null,
   useSendCommand: () => () => Promise.resolve(),
   // Only read while a run of filings is in flight, which nothing here starts.
   useLatestSnapshot: () => () => Promise.resolve({ filings: [] }),

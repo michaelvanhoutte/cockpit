@@ -131,6 +131,12 @@ test.describe('Workspace management', () => {
       // into from the moment it exists.
       await expect(page.getByRole('region', { name: 'Panel 1' })).toBeVisible();
       await expectNoSidewaysScroll(page);
+
+      // Put back, like the ordering walks do: the run shares one database, and
+      // every workspace left behind pushes the rows those walks drag further
+      // down the window.
+      await openSettings(page, isMobile);
+      await deleteWorkspace(page, name, isMobile);
     });
 
     test('refuses a name another workspace already has, and says which', async ({
@@ -152,6 +158,10 @@ test.describe('Workspace management', () => {
       // than typed again from nothing.
       await expect(page.getByRole('alert')).toContainText(taken);
       await expect(page.getByLabel('Name of the new workspace')).toHaveValue(taken);
+
+      await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
+      await openSettings(page, isMobile);
+      await deleteWorkspace(page, taken, isMobile);
     });
   });
 

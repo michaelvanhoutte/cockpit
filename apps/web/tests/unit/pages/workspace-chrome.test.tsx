@@ -84,6 +84,9 @@ vi.mock('../../../src/api/queries', () => ({
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.
   useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
+  // Read by every control that names a change, to say why the last one did
+  // not happen (api/queries.ts).
+  refusalFrom: () => null,
   useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
   meQuery: {
     queryKey: ['me'],

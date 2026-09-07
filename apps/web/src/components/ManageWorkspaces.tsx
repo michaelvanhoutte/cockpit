@@ -507,10 +507,6 @@ export function ManageWorkspaces({
           Nothing about that was visible in what the page renders, only in where
           it ended up. */}
       <form onSubmit={create} className="mt-4 flex flex-col gap-2">
-        {/* The same sentence the `+` on the tab strip says (`whatThingsAre.ts`),
-            because this is the other place a workspace is made and two ways of
-            explaining one thing is one of them being wrong. */}
-        <p className="text-sm text-ink-faint">{WHAT_A_WORKSPACE_IS}</p>
         <div className="flex gap-2">
           <input
             value={name}
@@ -528,6 +524,17 @@ export function ManageWorkspaces({
             New workspace
           </button>
         </div>
+        {/* The same sentence the `+` on the tab strip says (`whatThingsAre.ts`),
+            because this is the other place a workspace is made and two ways of
+            explaining one thing is one of them being wrong.
+
+            **Under the box rather than over it.** The comment above records why
+            the box sits above the list at all - ten workspaces on a 480px
+            screen once put it 1001px down a 1040px viewport - and five lines of
+            explanation over it gives that headroom straight back. Under it, the
+            box is where it was and the sentence is still the first thing beside
+            it. */}
+        <p className="text-sm text-ink-faint">{WHAT_A_WORKSPACE_IS}</p>
         {refusalFor('create_workspace') && (
           <p role="alert" className="text-sm text-over">
             {refusalFor('create_workspace')}
