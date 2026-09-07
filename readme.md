@@ -40,7 +40,8 @@ Nothing stands in front of either; `/health` additionally answers without a sign
 
 ## Run it
 
-Prerequisites: Node ≥ 22.12 (pnpm comes via corepack).
+Prerequisites: Node 24, at least 24.16 (pnpm comes via corepack). Anything else
+is refused by `pnpm install` rather than warned about.
 
 ```bash
 corepack enable pnpm
@@ -245,7 +246,7 @@ This lives in repository settings, so a fresh fork gets none of it. The reasonin
 
 ### Set up on your own machine (recommended, none of it in the code)
 
-- **Node ≥ 22.12 with corepack** (`corepack enable pnpm`), so the pnpm version comes from `package.json`. The .12 is `playwright.config.ts` requiring an ES module from the CommonJS Playwright transpiles it to, which that release unflagged.
+- **Node 24, at least 24.16, with corepack** (`corepack enable pnpm`), so the pnpm version comes from `package.json`. The .16 is a Windows-only stack buffer overrun in Node's TCP code, which killed the browser suite's dev server mid-run on v24.15.0 ("Node crashes in its own socket code", issue 207) and was fixed in that release. The 24 is corepack, which Node stopped distributing in v25 — a later line would take `corepack enable` and the `packageManager` field with it.
 - **`gh`, authenticated** (`gh auth login`) — the `github-issue` skill, the branch-protection command, and pull requests all need it.
 - **Commit attribution.** Commits authored with an address GitHub cannot link are orphaned, and this repository has history in exactly that state. Use **your own** noreply address, shown under Settings → Emails, rather than the owner's in `docs/deployment.md`:
 
