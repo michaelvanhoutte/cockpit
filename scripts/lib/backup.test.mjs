@@ -355,6 +355,16 @@ describe('the command refuses what it cannot act on, and says why', () => {
       argv: ['--env', 'staging', '--env', 'production', '--out', 'b'],
       complaint: /--env was given twice/,
     },
+    // Checked here rather than left to whatever looks the name up first. Both
+    // the token and the address are keyed by it, so a typo reaching either is
+    // answered in terms of what that one wanted: `--env prod` once produced
+    // "no token for prod", which sends somebody to add one for an environment
+    // that does not exist.
+    {
+      situation: 'an environment that does not exist',
+      argv: ['--env', 'prod', '--out', 'b'],
+      complaint: /no environment prod - it is one of local, staging, production/,
+    },
   ]) {
     it(`refuses ${situation}`, () => {
       assert.throws(() => readArguments(argv), complaint);

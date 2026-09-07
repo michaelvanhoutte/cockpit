@@ -8,10 +8,10 @@
 //   pnpm backup:export --env production --out ./backups/2026-09-06
 //   pnpm backup:export --env production --out ./backups/anna --user tenant-anna
 //
-// The operator secret comes from COCKPIT_BACKUP_TOKEN and is never a flag, so
-// it stays out of another user's `ps` but not out of a shell history. It is
-// the same secret as the environment's own BACKUP_TOKEN, and why it has two
-// names is in docs/deployment.md, "Secrets and access", rather than here.
+// The operator secret is that environment's own BACKUP_TOKEN, read from
+// backup-tokens.json so that naming the environment is the whole of what
+// somebody does. Why it is a file rather than a variable is in
+// docs/deployment.md, "Secrets and access", rather than here.
 //
 
 import { mkdir, rename, writeFile } from 'node:fs/promises';

@@ -11,6 +11,25 @@
 //
 
 /**
+ * The environments either command can be pointed at.
+ *
+ * **Checked while the arguments are read, before anything looks a token or an
+ * address up.** Both of those are keyed by this name, so a typo reaching them
+ * is answered in terms of what they wanted rather than what is wrong: asking
+ * for a token first turns `--env prod` into "no token for prod", which sends
+ * somebody to add one for an environment that does not exist.
+ */
+export const ENVIRONMENTS = Object.freeze(['local', 'staging', 'production']);
+
+/** Refuses a name that is not one of them, in the words of the thing they typed. */
+export function readEnvironment(name) {
+  if (!ENVIRONMENTS.includes(name)) {
+    throw new Error(`no environment ${name} - it is one of ${ENVIRONMENTS.join(', ')}`);
+  }
+  return name;
+}
+
+/**
  * The flags a command was given.
  *
  * `takes` names the flags that carry a value, `switches` the ones that are only
@@ -66,9 +85,9 @@ export function readAnswer({ status, body }, extra = {}) {
   if (extra[status]) return extra[status](message(body));
   if (status === 401) {
     return (
-      'refused: the operator secret was not accepted. It is BACKUP_TOKEN, set per ' +
-      'environment with `wrangler secret put BACKUP_TOKEN`, and given to this command ' +
-      'as COCKPIT_BACKUP_TOKEN.'
+      'refused: the operator secret was not accepted. It is that environment\'s own ' +
+      'BACKUP_TOKEN, set with `wrangler secret put BACKUP_TOKEN`, and this command reads ' +
+      'the value it sends from backup-tokens.json - so the two have to match.'
     );
   }
   if (status === 404 || status === 400 || status === 409) return `refused: ${message(body)}`;
