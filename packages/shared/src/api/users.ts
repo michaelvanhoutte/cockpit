@@ -73,6 +73,15 @@ export const registeredUserListSchema = z.object({ users: z.array(registeredUser
 export type RegisteredUserList = z.infer<typeof registeredUserListSchema>;
 
 /**
+ * How much a box may hold, so the boxes and the schemas below cannot drift: a
+ * form that let somebody type past these would reach the one refusal the server
+ * cannot put in its own words. 254 is the longest address an SMTP envelope
+ * carries.
+ */
+export const NAME_LIMIT = 120;
+export const ADDRESS_LIMIT = 254;
+
+/**
  * Adding somebody: their name, and the Google address they will sign in with
  * ("Add a user on the admin page, so a second person no longer needs SQL",
  * issue 231).
@@ -90,8 +99,8 @@ export type RegisteredUserList = z.infer<typeof registeredUserListSchema>;
  * address is more use than being told the request was invalid.
  */
 export const addUserSchema = z.object({
-  name: z.string().min(1).max(120),
-  email: z.string().min(1).max(254),
+  name: z.string().min(1).max(NAME_LIMIT),
+  email: z.string().min(1).max(ADDRESS_LIMIT),
 });
 export type AddUser = z.infer<typeof addUserSchema>;
 
@@ -110,3 +119,67 @@ export const userAddedSchema = z.object({
   accountReady: z.boolean(),
 });
 export type UserAdded = z.infer<typeof userAddedSchema>;
+
+/**
+ * Changing somebody: the name they are shown by and the role that decides what
+ * they may reach ("Rename a user, and make somebody an admin", issue 232).
+ *
+ * **Both together, because they are one form.** A form that sends only what was
+ * touched has to decide what "touched" means, and a role left out is
+ * indistinguishable from a role set back to what it already was.
+ *
+ * **The address is not here.** It is what somebody signs in by and what Google
+ * keys them to, so changing it is a different question with failure modes of
+ * its own - a changed address must not become a way into the previous holder's
+ * account - and it is not asked yet.
+ *
+ * The bounds refuse only what is not a request at all, for the reason
+ * `addUserSchema` gives: a name of spaces is shaped like a request and is
+ * answered by the server's own words rather than by "validation failed".
+ */
+export const changeUserSchema = z.object({
+  name: z.string().min(1).max(NAME_LIMIT),
+  role: z.enum(ROLES),
+});
+export type ChangeUser = z.infer<typeof changeUserSchema>;
+
+/** Somebody as they stand after being changed. */
+export const userChangedSchema = z.object({ user: registeredUserSchema });
+export type UserChanged = z.infer<typeof userChangedSchema>;
+
+/**
+ * Why taking somebody's admin away is refused, or `null` when it is not - the
+ * one rule both sides of the change have to agree on.
+ *
+ * **Here rather than once on each side**, for the reason `ROLES` is: the form
+ * draws the choice as unavailable before anybody presses Save and the server
+ * refuses it afterwards, so two copies of this would be a choice offered and
+ * then refused, or greyed out for a reason that no longer holds. What each side
+ * *says* stays its own - a label inside a choice is not a sentence under a form -
+ * and only the rule is shared.
+ *
+ * **Both reasons exist because the alternative is an admin page nobody can
+ * open**, with no way back but the SQL the environment was bootstrapped with.
+ * They are two because "another admin can do it for you" is false when there is
+ * no other admin. Gaining the role is never refused: only losing it can lock
+ * anybody out.
+ */
+export function losingAdminIsRefused({
+  who,
+  role,
+  askedBy,
+  admins,
+}: {
+  /** The person being changed, as the register holds them today. */
+  who: { id: string; role: string };
+  /** The role they are being given. */
+  role: Role;
+  /** Who is asking, which one of the two reasons is about. */
+  askedBy: string | undefined;
+  /** How many admins the register holds, this person included. */
+  admins: number;
+}): 'the last admin' | 'your own' | null {
+  if (who.role !== ADMIN || role === ADMIN) return null;
+  if (admins <= 1) return 'the last admin';
+  return who.id === askedBy ? 'your own' : null;
+}

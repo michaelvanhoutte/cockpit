@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
-import type { RegisteredUser } from '@cockpit/shared';
+import type { ChangeUser, RegisteredUser } from '@cockpit/shared';
 import {
   OTHER_USER_ID,
   USER_ID,
@@ -28,6 +28,15 @@ async function listedBy(userId: string): Promise<RegisteredUser[]> {
   const res = await asUser(ADMIN_USERS, {}, userId);
   expect(res.status).toBe(200);
   return ((await res.json()) as { users: RegisteredUser[] }).users;
+}
+
+/** Changing somebody's name and role, as their row on the admin page does. */
+function change(who: string, body: ChangeUser, askedBy: string = USER_ID): Promise<Response> {
+  return asUser(
+    `${ADMIN_USERS}/${who}`,
+    { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+    askedBy,
+  );
 }
 
 beforeEach(async () => {
@@ -64,13 +73,6 @@ describe('User management', () => {
     });
 
     /**
-     * The reason the role is read per request rather than carried in the
-     * cookie: taking somebody's admin away has to apply to the sign-in they are
-     * already holding, without ending it. Nothing takes a role away yet - that
-     * is its own issue - so the register is written directly here, which is
-     * what a future admin page will do through a handler.
-     */
-    /**
      * The hole the operator's gate was opened by once, asked again of this one
      * because it is a new prefix rather than the same one renamed: the router
      * decodes a path before matching it, so a gate reading the raw URL sees a
@@ -87,13 +89,6 @@ describe('User management', () => {
       expect(res.status).toBe(403);
     });
 
-    it('refuses an admin whose role was taken away while they held a sign-in', async () => {
-      expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(200);
-
-      await env.DB.prepare('UPDATE users SET role = ? WHERE id = ?').bind('user', USER_ID).run();
-
-      expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(403);
-    });
   });
 
   describe('adding a user gives them an account of their own, ready to sign in to', () => {
@@ -223,6 +218,141 @@ describe('User management', () => {
       expect(res.status).toBe(403);
       expect((await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind('user-anna').all()).results)
         .toHaveLength(0);
+    });
+  });
+
+  describe('a role changes what somebody may do from their next request onward', () => {
+    /**
+     * The whole reason the role is read per request rather than carried in the
+     * cookie: it has to apply to the sign-in somebody is already holding,
+     * without ending it. A case signs in once and `asUser` carries that same
+     * cookie afterwards (`seed.ts`), so the two reads either side of the change
+     * are the one sign-in being answered differently.
+     */
+    it('answers an ordinary user made an admin, on the sign-in they already held', async () => {
+      expect((await asUser(ADMIN_USERS, {}, OTHER_USER_ID)).status).toBe(403);
+
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+
+      expect((await asUser(ADMIN_USERS, {}, OTHER_USER_ID)).status).toBe(200);
+    });
+
+    it('refuses an admin made ordinary, without ending the sign-in they held', async () => {
+      expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(200);
+
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+      const res = await change(USER_ID, { name: 'Michael', role: 'user' }, OTHER_USER_ID);
+      expect(res.status).toBe(200);
+
+      expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(403);
+      // Refused this page, and still signed in: a role is not a sign-in, and
+      // taking one away must not throw somebody out of the app.
+      expect((await asUser('http://cockpit.test/v1/me', {}, USER_ID)).status).toBe(200);
+    });
+
+    it.each([
+      {
+        situation: 'an admin takes their own admin away while another admin is there',
+        secondAdmin: true,
+        says: /another admin can do it for you/,
+      },
+      {
+        situation: 'the only admin makes themselves ordinary',
+        secondAdmin: false,
+        says: /only admin/,
+      },
+    ])('refuses it and changes nothing when $situation', async ({ secondAdmin, says }) => {
+      if (secondAdmin) await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+
+      const res = await change(USER_ID, { name: 'Michael', role: 'user' });
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(says);
+      // Still an admin, so the page they would put it back from is still open.
+      expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(200);
+    });
+
+    /**
+     * Both directions, because one of them is the refusal turned around: an
+     * `askedBy` compared the wrong way would let each admin demote only
+     * themselves, which is the exact opposite of the rule and passes a case
+     * that walks one way.
+     */
+    it('lets either of two admins be made ordinary by the other', async () => {
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+
+      expect((await change(OTHER_USER_ID, { name: 'Ada', role: 'user' })).status).toBe(200);
+
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+      expect((await change(USER_ID, { name: 'Michael', role: 'user' }, OTHER_USER_ID)).status).toBe(
+        200,
+      );
+    });
+
+    // Two admins demoting each other in the same instant could get past both
+    // reads and leave none: a window `changeUser` records and does not close,
+    // and one no test here can produce - two requests through `SELF.fetch` are
+    // answered one after the other, so the second reads what the first wrote.
+
+    it('refuses somebody who is not an admin, and changes nothing', async () => {
+      const res = await change(USER_ID, { name: 'Somebody Else', role: 'user' }, OTHER_USER_ID);
+
+      expect(res.status).toBe(403);
+      expect((await listedBy(USER_ID)).find((user) => user.id === USER_ID)?.name).toBe('Michael');
+    });
+  });
+
+  describe('a renamed user is renamed everywhere their name is shown', () => {
+    /**
+     * The account too, because it is named after the person who owns it - the
+     * pair `addUser` creates. Left behind, the list would put "Ada Lovelace"
+     * and "Ada" side by side with nothing to explain the difference and no way
+     * for an admin to put it right.
+     */
+    it('shows the new name in the list, on the person and on their account', async () => {
+      await change(OTHER_USER_ID, { name: '  Ada Lovelace  ', role: 'user' });
+
+      const ada = (await listedBy(USER_ID)).find((user) => user.id === OTHER_USER_ID);
+      // Trimmed, because the box is where the spaces come from.
+      expect(ada?.name).toBe('Ada Lovelace');
+      expect(ada?.accountName).toBe('Ada Lovelace');
+    });
+
+    it('leaves the account alone when the change is refused', async () => {
+      expect((await change(USER_ID, { name: 'Michael V', role: 'user' })).status).toBe(409);
+
+      expect((await listedBy(USER_ID)).find((user) => user.id === USER_ID)?.accountName).toBe(
+        'Michael',
+      );
+    });
+
+    /**
+     * The half a list cannot show: what the app calls the person who was
+     * renamed, which is read from the register on every request just as the
+     * role is.
+     */
+    it('changes what the app calls the person who was renamed', async () => {
+      await change(USER_ID, { name: 'Michael V', role: 'admin' });
+
+      const res = await asUser('http://cockpit.test/v1/me', {}, USER_ID);
+      expect(((await res.json()) as { user: { name: string } }).user.name).toBe('Michael V');
+    });
+
+    /**
+     * Names are not unique and the register has never asked them to be, which
+     * `addUser` already relies on: what it enforces is the address, and that is
+     * not editable here at all.
+     */
+    it('accepts a name another user already has', async () => {
+      expect((await change(OTHER_USER_ID, { name: 'Michael', role: 'user' })).status).toBe(200);
+
+      expect((await listedBy(USER_ID)).map((user) => user.name)).toEqual(['Michael', 'Michael']);
+    });
+
+    it('refuses a change to somebody the register does not hold', async () => {
+      const res = await change('user-nobody', { name: 'Nobody', role: 'user' });
+
+      expect(res.status).toBe(404);
     });
   });
 

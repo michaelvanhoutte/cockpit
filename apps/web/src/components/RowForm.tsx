@@ -1,8 +1,9 @@
 import * as Dialog from '@radix-ui/react-dialog';
 
 /**
- * The form a settings row is edited on: its name and its colour, together, over
- * the page the row is in.
+ * The form a row is edited on: its name and the one other thing that row has -
+ * a colour for a workspace or a type, a role for a person - together, over the
+ * page the row is in.
  *
  * **Editing left the row.** The name was changed in the row, in a box that took
  * the row over, and the colour on a strip of swatches under it that was always
@@ -33,8 +34,11 @@ export function RowForm({
   name,
   nameLabel,
   onName,
-  palette,
-  paletteLabel,
+  nameLimit = 60,
+  choices,
+  choicesHeading,
+  choicesLabel,
+  choicesRole = 'group',
   refusal,
   saving,
   onCancel,
@@ -48,10 +52,28 @@ export function RowForm({
   /** What the box is called to somebody who cannot see the heading above it. */
   nameLabel: string;
   onName: (name: string) => void;
-  /** The swatches, drawn by the page: a workspace picks a theme, a type a colour. */
-  palette: React.ReactNode;
-  /** What that row of swatches is, said once as its group's name. */
-  paletteLabel: string;
+  /**
+   * How much the box takes, which is the contract's bound for whatever is being
+   * named - so a name the server would refuse cannot be typed in the first
+   * place. The default is what a workspace and a type allow.
+   */
+  nameLimit?: number;
+  /**
+   * The other thing this row has, drawn by the page: a workspace picks a theme,
+   * a type a colour, a person the role that decides what they may reach.
+   */
+  choices: React.ReactNode;
+  /** What that group is called above it, in the caption a sighted reader gets. */
+  choicesHeading: string;
+  /** The same thing said to a screen reader, as the group's own name. */
+  choicesLabel: string;
+  /**
+   * What kind of set it is. A row of swatches is a `group`; a set of radios is
+   * a `radiogroup`, which is what tells a screen reader it is one choice among
+   * a known number and where in them the reader is - the whole reason radios
+   * are radios.
+   */
+  choicesRole?: 'group' | 'radiogroup';
   /** Why the last Save did not happen, if it did not. */
   refusal?: string | null;
   /** That a Save is in flight, which closes both halves and the two buttons. */
@@ -107,7 +129,7 @@ export function RowForm({
                 value={name}
                 onChange={(event) => onName(event.target.value)}
                 aria-label={nameLabel}
-                maxLength={60}
+                maxLength={nameLimit}
                 className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
               />
             </label>
@@ -117,11 +139,11 @@ export function RowForm({
                 and what makes it a choice among others is being one of these.
                 The caption is what a sighted reader gets, `aria-label` what a
                 screen reader gets from the group itself. */}
-            <div role="group" aria-label={paletteLabel} className="mt-4">
+            <div role={choicesRole} aria-label={choicesLabel} className="mt-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                Colour
+                {choicesHeading}
               </p>
-              <div className="mt-1 flex flex-wrap gap-1.5">{palette}</div>
+              <div className="mt-1 flex flex-wrap gap-1.5">{choices}</div>
             </div>
 
             {refusal && (

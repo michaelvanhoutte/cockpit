@@ -475,8 +475,9 @@ export function ManageTypes({
             name={editing.name}
             nameLabel={`Name of ${beingEdited.name}`}
             onName={(named) => setEditing({ ...editing, name: named })}
-            paletteLabel={`Colour of ${beingEdited.name}`}
-            palette={ITEM_TYPE_COLORS.map((color) => (
+            choicesHeading="Colour"
+            choicesLabel={`Colour of ${beingEdited.name}`}
+            choices={ITEM_TYPE_COLORS.map((color) => (
               /* A row of dots: a type wears one colour, which is the mark at
                  the head of every row it labels, so a swatch showing anything
                  more would be showing something that is not there. */

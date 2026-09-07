@@ -1,9 +1,10 @@
 import { asc, eq, like, sql } from 'drizzle-orm';
-import type { RegisteredUser } from '@cockpit/shared';
+import { ADMIN, type RegisteredUser } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
 import { foldAddress, idSearchPrefix, idsForNewUser, whatIsWrongWith } from './new-user.js';
+import { whatStopsChanging, type UserChange } from './user-changes.js';
 
 /**
  * The register: which accounts exist. It stays in D1 rather than moving into
@@ -41,7 +42,22 @@ export async function accountIsRegistered(env: Env, accountName: string): Promis
  * would be machinery against a number that cannot grow that way.
  */
 export async function registeredUsers(env: Env): Promise<RegisteredUser[]> {
-  const rows = await createDb(env.DB)
+  const rows = await peopleInRegister(createDb(env.DB))
+    // Folded, because SQLite compares text as bytes by default and would put
+    // every capitalised name before every lowercase one; then by id, because
+    // two people may share a name and "the same list twice running" is the
+    // whole claim being made.
+    .orderBy(asc(sql`lower(${users.name})`), asc(users.id));
+
+  return rows.map(asShown);
+}
+
+/**
+ * A person as every admin page reads them, written once so a row cannot mean
+ * one thing in the list and another in the answer to a change.
+ */
+function peopleInRegister(db: ReturnType<typeof createDb>) {
+  return db
     .select({
       id: users.id,
       name: users.name,
@@ -54,17 +70,14 @@ export async function registeredUsers(env: Env): Promise<RegisteredUser[]> {
       googleSubject: users.googleSubject,
     })
     .from(users)
-    .innerJoin(tenants, eq(tenants.id, users.accountId))
-    // Folded, because SQLite compares text as bytes by default and would put
-    // every capitalised name before every lowercase one; then by id, because
-    // two people may share a name and "the same list twice running" is the
-    // whole claim being made.
-    .orderBy(asc(sql`lower(${users.name})`), asc(users.id));
+    .innerJoin(tenants, eq(tenants.id, users.accountId));
+}
 
-  return rows.map(({ googleSubject, ...user }) => ({
-    ...user,
-    hasSignedIn: googleSubject !== null,
-  }));
+function asShown({
+  googleSubject,
+  ...user
+}: Awaited<ReturnType<typeof peopleInRegister>>[number]): RegisteredUser {
+  return { ...user, hasSignedIn: googleSubject !== null };
 }
 
 /**
@@ -96,9 +109,10 @@ export type Added =
  * identity - which is why the check is a query against them rather than a list
  * kept here.
  *
- * **Everyone arrives ordinary.** Choosing a role while adding waits for
- * "Rename a user, and make somebody an admin" (issue 232); until then the only
- * admin is the one the environment was bootstrapped with.
+ * **Everyone arrives ordinary**, and is made an admin afterwards on their own
+ * row (`changeUser`) rather than in this form: a role is a thing you can also
+ * take back, and one place that sets it is one place the rules protecting it
+ * live.
  */
 export async function addUser(
   env: Env,
@@ -159,6 +173,92 @@ export async function addUser(
   }
 
   return { added: true, user, accountId: ids.accountId };
+}
+
+/**
+ * Somebody was changed, or was not and this is why. `because` is what separates
+ * a person the register does not hold - which is a wrong address, answered 404 -
+ * from a change it holds and will not make.
+ */
+export type Changed =
+  | { changed: true; user: RegisteredUser }
+  | { changed: false; refused: string; because: 'nobody' | 'a rule' };
+
+/**
+ * Renames somebody and sets their role ("Rename a user, and make somebody an
+ * admin", issue 232).
+ *
+ * **A role takes effect on the next thing that person does, and their sign-in
+ * is left alone.** Nothing here touches sessions: the gate reads the register on
+ * every request (`auth/register.ts`), so the row *is* what decides, and taking
+ * an admin's role away while they sit on the admin page refuses their next read
+ * rather than ending a sign-in they are using elsewhere.
+ *
+ * **One window is left open knowingly**: the rules are decided against the
+ * register as it was read, so two admins demoting each other in the same
+ * instant both see two admins and both writes land, leaving none - recoverable
+ * only by the SQL the environment was bootstrapped with. Closing it with a
+ * condition on the UPDATE was tried and taken back out: the check above answers
+ * first for every request that can be made, so the condition is reachable by no
+ * request, provable by no test, and carries a second copy of the refusal it
+ * would have to produce. A branch nothing can reach is not a lock.
+ */
+export async function changeUser(
+  env: Env,
+  { userId, ...change }: { userId: string } & UserChange,
+  askedBy: string,
+): Promise<Changed> {
+  const db = createDb(env.DB);
+  // Together, because neither read needs the other's answer.
+  const [[held], admins] = await Promise.all([
+    db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)),
+    db.select({ id: users.id }).from(users).where(eq(users.role, ADMIN)),
+  ]);
+  if (!held) return nobodyHere(userId);
+
+  const stops = whatStopsChanging({
+    who: held,
+    change,
+    askedBy,
+    admins: admins.map((admin) => admin.id),
+  });
+  if (stops) return { changed: false, refused: stops.what, because: 'a rule' };
+
+  /**
+   * Both rows in one write, as `addUser` writes them: **the account is named
+   * after the person who owns it**, and leaving it behind would put "Ada
+   * Lovelace" and "Ada" side by side in the list with nothing to explain the
+   * difference and no way for an admin to put it right. A batch is what stops
+   * the two names disagreeing for the same reason it stops a person existing
+   * without their account.
+   *
+   * Stored trimmed, the way a name is on the way in: the box is where the
+   * spaces come from and nothing downstream should have to know that.
+   */
+  const name = change.name.trim();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET name = ?, role = ? WHERE id = ?').bind(
+      name,
+      change.role,
+      userId,
+    ),
+    env.DB.prepare(
+      'UPDATE tenants SET name = ? WHERE id = (SELECT account_id FROM users WHERE id = ?)',
+    ).bind(name, userId),
+  ]);
+
+  // Read back rather than assembled here, so what a change answers and what the
+  // list says are the same row read the same way - the account's name included,
+  // which this function never had.
+  const [after] = await peopleInRegister(db).where(eq(users.id, userId));
+  // Gone between the write and the read back, which is the same answer as gone
+  // before it: this page is out of date, rather than the server having broken.
+  if (!after) return nobodyHere(userId);
+  return { changed: true, user: asShown(after) };
+}
+
+function nobodyHere(userId: string): Changed {
+  return { changed: false, refused: `${userId} is nobody here`, because: 'nobody' };
 }
 
 /**

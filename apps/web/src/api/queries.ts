@@ -9,6 +9,7 @@ import type {
 } from '@cockpit/shared';
 import {
   addUser,
+  changeUser,
   fetchItemTypes,
   fetchMe,
   fetchRegisteredUsers,
@@ -78,6 +79,31 @@ export function useAddUser() {
   return useMutation({
     mutationFn: addUser,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
+  });
+}
+
+/**
+ * Renaming somebody and setting their role ("Rename a user, and make somebody
+ * an admin", issue 232).
+ *
+ * **The sign-in is re-read as well as the list**, because one of the people an
+ * admin can rename is themselves, and the name in the header comes from `me`.
+ * The role is the same story from the other side: an admin who takes another
+ * admin's role away changes what that person is offered, and an admin renamed
+ * by somebody else sees it on their next read - the register is what both are
+ * read from.
+ */
+export function useChangeUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: changeUser,
+    // Together, because the form is closed by the same success: one after the
+    // other would hold it in its saving state through both round trips.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
+        queryClient.invalidateQueries({ queryKey: ['me'] }),
+      ]),
   });
 }
 

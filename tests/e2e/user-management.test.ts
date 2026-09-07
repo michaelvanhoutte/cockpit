@@ -1,6 +1,8 @@
+import type { Page } from '@playwright/test';
 import {
   ADA,
   MICHAEL,
+  addressOf,
   dashboardBar,
   expect,
   press,
@@ -10,6 +12,25 @@ import {
   test,
   workspaceTab,
 } from './support/app';
+
+/** Opens somebody's row, sets the role, and waits for the list to say so. */
+async function makeThem(page: Page, who: string, role: 'Admin' | 'User', isMobile: boolean) {
+  await press(page.getByRole('button', { name: `Actions for ${who}` }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Edit…' }), isMobile);
+  await press(page.getByRole('radio', { name: new RegExp(`^${role}`) }), isMobile);
+  await press(page.getByRole('button', { name: 'Save' }), isMobile);
+
+  const row = page.getByRole('row').filter({ hasText: who });
+  await expect(row.getByRole('cell', { name: role, exact: true })).toBeVisible();
+}
+
+/** Leaves as whoever is signed in and comes back as somebody else. */
+async function signOutAndIn(page: Page, address: string, isMobile: boolean) {
+  await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
+  await signInWith(page, address, isMobile);
+  await expect(dashboardBar(page)).toBeVisible();
+}
 
 /**
  * F3, because the claim is about a whole browser reaching a page: that an admin
@@ -93,6 +114,47 @@ test.describe('User management', () => {
       // moment ago can get in at all is what this walk claims.
       await expect(dashboardBar(page)).toBeVisible();
       await expect(workspaceTab(page, 'Work')).toBeVisible();
+    });
+
+    /**
+     * The capability of "Rename a user, and make somebody an admin" (issue
+     * 232), and only provable here: a role is read from the register on every
+     * request, so what it changes is what a whole browser is offered and
+     * refused on the next thing it does. Which changes are refused is settled at
+     * apps/api/tests/unit/accounts/user-changes.test.ts and what the register
+     * does with them at the integration tier; none of it is re-proved.
+     *
+     * Somebody added by this walk rather than Ada, for the reason the walk above
+     * adds one: the stack rebuilds its storage once and serves both projects
+     * from it, so promoting a seeded person would reach across to the other.
+     */
+    test('makes somebody an admin, and takes it back', async ({ page, isMobile }) => {
+      const anna = somebodyNew('Anna');
+      await signIn(page, MICHAEL, isMobile);
+      await page.goto('/admin');
+      await page.getByLabel('Name').fill(anna.name);
+      await page.getByLabel('Signs in with').fill(anna.address);
+      await press(page.getByRole('button', { name: 'Add' }), isMobile);
+      await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(1);
+
+      await makeThem(page, anna.name, 'Admin', isMobile);
+
+      // Hers now: she is offered the way in rather than having to know the
+      // address, and the page answers her.
+      await signOutAndIn(page, anna.address, isMobile);
+      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Admin' }), isMobile);
+      await expect(page.getByRole('heading', { name: 'Who can sign in' })).toBeVisible();
+
+      // And taken back by the admin who gave it, which is the half that cannot
+      // be shown without two people: she cannot take it back herself.
+      await signOutAndIn(page, addressOf(MICHAEL), isMobile);
+      await page.goto('/admin');
+      await makeThem(page, anna.name, 'User', isMobile);
+
+      await signOutAndIn(page, anna.address, isMobile);
+      await page.goto('/admin');
+      await expect(page.getByText(/for admins/i)).toBeVisible();
     });
 
     test('refuses an ordinary user who types the address, and offers them no way in', async ({
