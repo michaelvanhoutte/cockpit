@@ -381,7 +381,7 @@ wrangler secret put <NAME> --env staging
 
 | Secret | What it is for |
 |---|---|
-| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/admin/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally, as long as it is the same string the commands send — see below for where they read it from. |
+| `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/operator/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally, as long as it is the same string the commands send — see below for where they read it from. |
 
 **The backup commands need that same value to send, and they read it from `backup-tokens.json` in the checkout** — gitignored, in the shape `backup-tokens.example.json` shows, holding one token per environment and the workers.dev subdomain a deployed address is built from. So `pnpm backup:export --env production` is the whole command: naming the environment picks its token, and staging and production can be backed up one after the other with nothing set in between.
 
@@ -520,8 +520,11 @@ the attempt count in the deploy log is the evidence.
 | production | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
 | staging | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
 
-`/v1/users` answers 200 on both, deliberately: it is the logon page's list of
-names, and it is what you read while you are still nobody.
+`/v1/users` is not among these any more. It went with the list of names ("Sign in
+with Google, and retire the list of names", issue 196) and now answers 410, so a
+browser still holding a build that asks for it learns it is behind and fetches the
+newer one instead of failing (`RETIRED_PATHS` in `apps/api/src/auth/gate.ts`).
+That landed after the verification above and is unchecked from outside.
 
 No automated tier asserts any of this — nothing runs against a deployment yet
 ("Run the F3 suite against a deployed environment, as its own account", issue 64)

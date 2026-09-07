@@ -43,7 +43,7 @@ function accepting({ failOn } = {}) {
     ask: async (path, body) => {
       asked.push({ path, body });
       if (failOn && path.includes(failOn)) throw new Error(`refused: ${failOn} would not take it`);
-      if (path === '/v1/admin/restore/register') return { accountsCreated: 1, usersCreated: 1 };
+      if (path === '/v1/operator/restore/register') return { accountsCreated: 1, usersCreated: 1 };
       return { tablesWritten: 1, rowsWritten: 3 };
     },
   };
@@ -60,9 +60,9 @@ describe('restoring puts the accounts back before the register', () => {
     assert.deepEqual(
       env.asked.map((one) => one.path),
       [
-        '/v1/admin/restore/accounts/tenant-a',
-        '/v1/admin/restore/accounts/tenant-b',
-        '/v1/admin/restore/register',
+        '/v1/operator/restore/accounts/tenant-a',
+        '/v1/operator/restore/accounts/tenant-b',
+        '/v1/operator/restore/register',
       ],
     );
   });
@@ -124,7 +124,7 @@ describe('restoring one account brings back that account and nobody else', () =>
 
     assert.deepEqual(
       env.asked.map((one) => one.path),
-      ['/v1/admin/restore/accounts/tenant-b', '/v1/admin/restore/register'],
+      ['/v1/operator/restore/accounts/tenant-b', '/v1/operator/restore/register'],
     );
   });
 
@@ -256,6 +256,15 @@ describe('a refusal to restore says which of the things somebody typed was wrong
       answer: { status: 401, body: '{"error":"not allowed"}' },
       says: /BACKUP_TOKEN/,
     },
+    {
+      // A restore meets this the same way an export does, and it matters more
+      // here: this command writes, so an operator who believes the secret was
+      // rejected rotates it and tries again against an environment that was
+      // never going to answer.
+      situation: 'the environment is older than this checkout',
+      answer: { status: 401, body: '{"error":"sign in to continue"}' },
+      says: /older than this checkout/,
+    },
     // The one refusal with a way forward, so it carries it.
     {
       situation: 'the account already holds data',
@@ -280,7 +289,7 @@ describe('a refusal to restore says which of the things somebody typed was wrong
     {
       situation: 'the register disagrees about who somebody is',
       answer: { status: 409, body: '{"error":"the address is already in the register"}' },
-      path: '/v1/admin/restore/register',
+      path: '/v1/operator/restore/register',
       says: /already in the register/,
       never: /--force/,
     },
@@ -291,7 +300,7 @@ describe('a refusal to restore says which of the things somebody typed was wrong
     },
   ]) {
     it(`says so when ${situation}`, () => {
-      const said = readRefusal(answer, path ?? '/v1/admin/restore/accounts/tenant-a');
+      const said = readRefusal(answer, path ?? '/v1/operator/restore/accounts/tenant-a');
       assert.match(said, says);
       if (never) assert.doesNotMatch(said, never);
     });
@@ -301,7 +310,7 @@ describe('a refusal to restore says which of the things somebody typed was wrong
     assert.match(
       readRefusal(
         { status: 409, body: '{"error":"already holds data"}' },
-        '/v1/admin/restore/accounts/tenant-a',
+        '/v1/operator/restore/accounts/tenant-a',
       ),
       /--force to replace/,
     );
@@ -314,7 +323,7 @@ describe('restoring says when an account is in but not yet up to date', () => {
   // to re-run believing the account untouched, when it has been replaced.
   it('names the account and what is still pending', async () => {
     const ask = async (path) =>
-      path === '/v1/admin/restore/register'
+      path === '/v1/operator/restore/register'
         ? { accountsCreated: 0, usersCreated: 0 }
         : { tablesWritten: 1, rowsWritten: 3, notUpToDate: 'change 0009 failed: no such column' };
     const said = [];
