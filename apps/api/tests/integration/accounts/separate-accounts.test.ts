@@ -18,7 +18,7 @@ import {
  * from "there is only one account to resolve".
  *
  * Every case makes what it looks for. The two accounts start out identical -
- * both are given the same starting workspaces the first time they are opened -
+ * both are given the same starting workspace the first time they are opened -
  * so a case that asserted on the seed would be asserting on a coincidence
  * rather than on the boundary.
  */
@@ -38,7 +38,13 @@ async function makeWorkspace(userId: string, name: string): Promise<string> {
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ commandId: nextId(), issuedAt: AT, workspaceId, name }),
+      body: JSON.stringify({
+        commandId: nextId(),
+        issuedAt: AT,
+        workspaceId,
+        panelId: nextId(),
+        name,
+      }),
     },
     userId,
   );

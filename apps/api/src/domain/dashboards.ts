@@ -1,3 +1,4 @@
+import { FIRST_DASHBOARD_NAME } from '@cockpit/shared';
 import type { AddDashboardCommand, Dashboard } from '@cockpit/shared';
 import { foldName, namedTheSame } from './names.js';
 
@@ -11,8 +12,6 @@ import { foldName, namedTheSame } from './names.js';
  * to keep it first.
  */
 
-/** What a workspace's first dashboard is called before anybody names one. */
-export const FIRST_DASHBOARD_NAME = 'Dashboard 1';
 
 /**
  * The live dashboard of *this workspace* already going by this name, or

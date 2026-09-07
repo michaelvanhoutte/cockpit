@@ -60,6 +60,10 @@ export function FirstWorkspacePage() {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId,
+          // The panel its first dashboard arrives with, made here for the
+          // reason the workspace's own id is: the same id has to come back on a
+          // replay, and nothing on the server can derive a uuid.
+          panelId: uuidv7(),
           name: trimmed,
         },
       },

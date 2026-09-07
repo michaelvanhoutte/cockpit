@@ -35,15 +35,28 @@ async function send(command: string, body: Record<string, unknown>) {
   });
 }
 
-/** A dashboard of the seeded workspace, so a case cannot disturb another's. */
+/**
+ * A dashboard of the seeded workspace, so a case cannot disturb another's, with
+ * **the panel it arrives with taken back off**.
+ *
+ * Every dashboard arrives with one (src/domain/panels.ts, `firstPanelFor`), and
+ * every case below is about the panels *it* puts on a dashboard - so leaving it
+ * there would put a `Panel 1` at the head of five expectations that are not
+ * about it, and turn "adds one panel however many times the request is
+ * repeated" into a case about two. That the panel arrives at all is proved
+ * where it belongs, in tests/integration/http/dashboards.test.ts.
+ */
 async function aDashboard(): Promise<string> {
   const dashboardId = nextId();
+  const panelId = nextId();
   const made = await send('add_dashboard', {
     workspaceId: WORKSPACE_ID,
     dashboardId,
+    panelId,
     name: `Today ${seq}`,
   });
   expect(made.status).toBe(200);
+  expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId })).status).toBe(200);
   return dashboardId;
 }
 

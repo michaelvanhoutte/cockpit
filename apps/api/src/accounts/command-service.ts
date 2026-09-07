@@ -53,6 +53,7 @@ import {
   PLACEMENT_VALUES_PER_ROW,
   appendedPlacement,
   arrangementRows,
+  firstPanelFor,
   layoutNamed,
   panelFromCommand,
   panelNamed,
@@ -397,6 +398,9 @@ export function runCommand<N extends CommandName>(
       // is handed rather than reading the folded column.
       const alreadyCalledThat = workspaceNamed(existing, cmd.name);
       if (alreadyCalledThat) throw new WorkspaceNameTakenError(alreadyCalledThat.name);
+      // Whether this is the first time this workspace has been made, which is
+      // what decides whether its dashboard gets a panel below.
+      const dashboardIsNew = listDashboards(db, tenantId, cmd.workspaceId).length === 0;
       // The position comes from its own query rather than from `existing`,
       // because it is decided against every workspace the account has ever had
       // and `existing` is the live ones - a new workspace goes after a deleted
@@ -428,10 +432,26 @@ export function runCommand<N extends CommandName>(
         // dashboards", issue 32). Named at the primary key for the same reason
         // the workspace above is: a replayed create must add neither a second
         // workspace nor a second dashboard.
+        const dashboard = firstDashboardFor(workspace);
         tx.insert(dashboards)
-          .values(firstDashboardFor(workspace))
+          .values(dashboard)
           .onConflictDoNothing({ target: dashboards.id })
           .run();
+        // And that dashboard's panel, in the same act, so the workspace has
+        // somewhere to file an item into from the moment it exists rather than
+        // an Inbox with no way out of it (`firstPanelFor`). There is no
+        // placement to write: a dashboard this new has no layout, and the board
+        // arranges an unarranged dashboard itself (`panels/arrangement.ts`).
+        //
+        // **Only where the dashboard is really new**, which is the one guard
+        // that cannot be `onConflictDoNothing` like the two above. A replay
+        // carrying a fresh request id brings the same workspace and so the same
+        // derived dashboard - both no-ops - but a panel id nothing has seen, so
+        // naming `panels.id` would catch nothing and the *title* index would
+        // refuse a second Panel 1 and take the whole command down with it.
+        if (dashboardIsNew) {
+          tx.insert(panels).values(firstPanelFor(dashboard, cmd.panelId)).run();
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -446,16 +466,25 @@ export function runCommand<N extends CommandName>(
       }
       // Scoped to this workspace, which is the whole difference from a
       // workspace name: two workspaces may each have a Research.
-      const alreadyCalledThat = dashboardNamed(
-        listDashboards(db, tenantId, cmd.workspaceId),
-        cmd.name,
-      );
+      const alreadyThere = listDashboards(db, tenantId, cmd.workspaceId);
+      const alreadyCalledThat = dashboardNamed(alreadyThere, cmd.name);
       if (alreadyCalledThat) throw new DashboardNameTakenError(alreadyCalledThat.name);
+      // The same question `create_workspace` asks, for the same reason: a
+      // replay carrying this dashboard's id and a fresh request id would
+      // otherwise add a second Panel 1 to it.
+      const dashboardIsNew = !alreadyThere.some((one) => one.id === cmd.dashboardId);
       db.transaction((tx) => {
+        const dashboard = dashboardFromCommand(cmd, tenantId);
         tx.insert(dashboards)
-          .values(dashboardFromCommand(cmd, tenantId))
+          .values(dashboard)
           .onConflictDoNothing({ target: dashboards.id })
           .run();
+        // Every dashboard arrives with one, not only a workspace's first:
+        // otherwise the `+` in the bar makes a dashboard nothing can be filed
+        // onto, one dashboard at a time.
+        if (dashboardIsNew) {
+          tx.insert(panels).values(firstPanelFor(dashboard, cmd.panelId)).run();
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;

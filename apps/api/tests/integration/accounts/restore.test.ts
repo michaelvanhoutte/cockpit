@@ -168,7 +168,7 @@ describe('Backup', () => {
      * Found by running the command, not by a test. An account in the register
      * that nobody has opened backs up as nothing at all, and bringing it up to
      * date on the way back in would create its tables *and* seed a new
-     * account's three starting workspaces and standard types - so restoring
+     * account's starting workspace and standard types - so restoring
      * nothing produced eight rows. Left alone, the first request creates it
      * exactly as it does for any untouched account, which is what it was.
      */

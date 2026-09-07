@@ -13,6 +13,13 @@ import * as Dialog from '@radix-ui/react-dialog';
  * gives: an alert demands an answer to a change already half made, and this is
  * one you can walk away from, so a press outside means "not now".
  *
+ * **Some of these say what is being made, and that is where a dashboard and a
+ * panel are explained.** Pressing `+` is the moment somebody is asking what the
+ * thing *is*, so it is the moment worth answering in; a question that renames
+ * something already made needs no such thing and must not grow one. It is also
+ * what makes this a dialog rather than a box grown in a bar, for adding a
+ * dashboard: a strip has room for a field and a button and nothing else.
+ *
  * **It sits near the top of a phone rather than in the middle of it.** The
  * keyboard opens over the bottom half of the screen the moment the field takes
  * focus, and a dialog centred on a 667px screen has its Cancel and its answer
@@ -33,6 +40,7 @@ import * as Dialog from '@radix-ui/react-dialog';
  */
 export function NameQuestion({
   question,
+  explains,
   fieldLabel,
   placeholder,
   submitLabel,
@@ -45,8 +53,13 @@ export function NameQuestion({
   busy = false,
   returnFocusTo,
 }: {
-  /** The whole of what is being asked, which is why there is no description. */
   question: string;
+  /**
+   * What the thing being named *is*, for the questions that answer that too.
+   * Left off, the question is the whole of what is asked - which is what
+   * renaming something you have already made needs.
+   */
+  explains?: string;
   fieldLabel: string;
   placeholder: string;
   submitLabel: string;
@@ -62,12 +75,23 @@ export function NameQuestion({
   /** The control it was opened from, which gets the focus back. */
   returnFocusTo?: HTMLElement | null;
 }) {
+  /** One reading of "was this given something to say", for both uses below. */
+  const describes = Boolean(explains);
+
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
         <Dialog.Content
-          aria-describedby={undefined}
+          // Only where there is nothing to describe it with: the prop is how
+          // Radix is told the omission is deliberate, and passing it beside a
+          // Description would take that description back off the dialog.
+          //
+          // Keyed on the same expression the Description below is, so there is
+          // no third state where a blank explanation renders nothing *and*
+          // drops the marker - which is the one shape that would put Radix's
+          // missing-description warning back in the console.
+          {...(describes ? {} : { 'aria-describedby': undefined })}
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
             event.preventDefault();
@@ -79,6 +103,11 @@ export function NameQuestion({
           className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">{question}</Dialog.Title>
+          {describes && (
+            <Dialog.Description className="pt-2 text-sm text-ink-soft">
+              {explains}
+            </Dialog.Description>
+          )}
 
           <form
             onSubmit={(event) => {

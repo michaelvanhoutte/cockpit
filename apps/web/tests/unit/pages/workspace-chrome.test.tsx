@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import { Layout } from '../../../src/pages/Layout';
+import { WHAT_A_WORKSPACE_IS } from '../../../src/whatThingsAre';
 
 /**
  * What the shell is painted in, and which surface gets which color.
@@ -82,6 +84,9 @@ vi.mock('../../../src/api/queries', () => ({
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.
   useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
+  // Read by every control that names a change, to say why the last one did
+  // not happen (api/queries.ts).
+  refusalFrom: () => null,
   useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
   meQuery: {
     queryKey: ['me'],
@@ -167,6 +172,29 @@ afterEach(() => {
 });
 
 describe('Workspace management', () => {
+  /**
+   * A workspace is the one thing somebody has to understand before anything
+   * else makes sense, and the way to make one was two presses inside a menu -
+   * so the sentence that says what one is sat behind a door nobody new would
+   * open. That the shared question can carry an explanation at all is proved on
+   * the question (components/NameQuestion.test.tsx); what belongs here is that
+   * the strip offers the control and hands it the words about a workspace.
+   */
+  describe('the question that makes a workspace says what a workspace is', () => {
+    it('offers the control at the end of the tabs, and describes the dialog with it', async () => {
+      const user = userEvent.setup();
+      await theShell();
+
+      await user.click(screen.getByRole('button', { name: 'Add a workspace' }));
+
+      // Against the sentence and against it saying anything at all: an emptied
+      // constant renders no description, which would otherwise match an
+      // expectation that is itself the empty string.
+      expect(WHAT_A_WORKSPACE_IS).not.toBe('');
+      expect(screen.getByRole('dialog')).toHaveAccessibleDescription(WHAT_A_WORKSPACE_IS);
+    });
+  });
+
   describe('the workspace you are in owns the strips below it', () => {
     it('fills the tab you are on with the strip’s own color, and leaves the others unfilled', async () => {
       params.workspaceId = 'ws-blue';

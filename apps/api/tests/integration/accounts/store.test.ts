@@ -27,14 +27,14 @@ beforeEach(async () => {
 
 describe('Accounts', () => {
   describe('an account’s data is reached only through that account, and one that is not in the register is an error', () => {
-    it('answers with the workspaces the account starts with', async () => {
+    it('answers with the workspace the account starts with', async () => {
       await seedRegister();
 
       const response = await fetchWorkspaces();
 
       expect(response.status).toBe(200);
       const { workspaces } = (await response.json()) as { workspaces: { name: string }[] };
-      expect(workspaces.map((w) => w.name)).toEqual(['Work', 'Atlas Copco', 'Personal']);
+      expect(workspaces.map((w) => w.name)).toEqual(['Workspace 1']);
     });
 
     /**

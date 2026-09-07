@@ -23,6 +23,8 @@ import { AdminPage } from './pages/AdminPage';
 import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
+import { WelcomePage } from './pages/WelcomePage';
+import { shouldWelcome, welcomedBefore } from './welcoming';
 import { Layout } from './pages/Layout';
 import { LogonPage } from './pages/LogonPage';
 import { WorkspacePage } from './pages/WorkspacePage';
@@ -70,9 +72,13 @@ async function orTheLogonPage<T>(read: Promise<T>): Promise<T> {
 const somewhereThatWorks = async (queryClient: QueryClient) => {
   const { workspaces } = await orTheLogonPage(queryClient.ensureQueryData(workspacesQuery));
   const first = workspaces[0];
-  throw first
-    ? redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } })
-    : redirect({ to: '/start' });
+  if (!first) throw redirect({ to: '/start' });
+  // An account nobody has started on opens on the one question worth asking
+  // before the app is drawn (pages/WelcomePage.tsx). **Only from here**, so a
+  // link to a dashboard goes where it says and is never diverted into a screen
+  // about something else.
+  if (shouldWelcome(workspaces, welcomedBefore())) throw redirect({ to: '/welcome' });
+  throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
 };
 
 /**
@@ -140,6 +146,31 @@ const startRoute = createRoute({
     if (first) throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
   },
   component: FirstWorkspacePage,
+});
+
+/**
+ * The question a new account is asked, beside the logon page for the reason the
+ * screen above it is: it carries none of the app's chrome, because what it is
+ * explaining is what the chrome is made of.
+ *
+ * It reads the list for the same reason too - an account somebody has already
+ * started on is sent into it rather than shown a question it is past, whether
+ * the address was typed, bookmarked or arrived at by going back.
+ */
+const welcomeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/welcome',
+  beforeLoad: async ({ context }) => {
+    const { workspaces } = await orTheLogonPage(
+      context.queryClient.ensureQueryData(workspacesQuery),
+    );
+    const first = workspaces[0];
+    if (!first) throw redirect({ to: '/start' });
+    if (!shouldWelcome(workspaces, welcomedBefore())) {
+      throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
+    }
+  },
+  component: WelcomePage,
 });
 
 /**
@@ -334,6 +365,7 @@ const adminRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   signInRoute,
   startRoute,
+  welcomeRoute,
   appRoute.addChildren([
     indexRoute,
     adminRoute,

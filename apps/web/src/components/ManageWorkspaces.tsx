@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, themeOf, uuidv7 } from '@cockpit/shared';
 import type { Workspace, WorkspaceList, WorkspaceTheme } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
+import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { snapshotQuery, useCommand, useSendCommand, workspacesQuery } from '../api/queries';
 import { movedBy, movedTo } from '../reorder';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -340,6 +341,9 @@ export function ManageWorkspaces({
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId: uuidv7(),
+          // The panel its first dashboard arrives with, made here for the
+          // reason the workspace's own id is.
+          panelId: uuidv7(),
           name: trimmed,
         },
       },
@@ -520,6 +524,17 @@ export function ManageWorkspaces({
             New workspace
           </button>
         </div>
+        {/* The same sentence the `+` on the tab strip says (`whatThingsAre.ts`),
+            because this is the other place a workspace is made and two ways of
+            explaining one thing is one of them being wrong.
+
+            **Under the box rather than over it.** The comment above records why
+            the box sits above the list at all - ten workspaces on a 480px
+            screen once put it 1001px down a 1040px viewport - and five lines of
+            explanation over it gives that headroom straight back. Under it, the
+            box is where it was and the sentence is still the first thing beside
+            it. */}
+        <p className="text-sm text-ink-faint">{WHAT_A_WORKSPACE_IS}</p>
         {refusalFor('create_workspace') && (
           <p role="alert" className="text-sm text-over">
             {refusalFor('create_workspace')}

@@ -1,3 +1,9 @@
+import {
+  FIRST_DASHBOARD_NAME,
+  FIRST_PANEL_NAME,
+  FIRST_WORKSPACE_NAME,
+} from '@cockpit/shared';
+import { foldName } from '../domain/names.js';
 import type { Change } from './up-to-date.js';
 
 /**
@@ -47,7 +53,6 @@ import type { Change } from './up-to-date.js';
 export function accountChanges(accountId: string): readonly Change[] {
   return [
     ACCOUNT_SCHEMA,
-    startingWorkspaces(accountId),
     DASHBOARDS,
     WORKSPACE_ORDER,
     PANELS,
@@ -61,10 +66,11 @@ export function accountChanges(accountId: string): readonly Change[] {
     LAYOUT_NAMES,
     standardTypes(accountId),
     PANEL_ROWS,
-    // Last, because this is the one that has not shipped: everything above is
-    // applied in accounts already, and a change that has shipped can never be
-    // reordered any more than it can be edited.
+    // Last, because these are the ones that have not shipped: everything above
+    // is applied in accounts already, and a change that has shipped can never
+    // be reordered any more than it can be edited.
     DROP_ITEM_PREVIEW,
+    firstWorkspace(accountId),
   ];
 }
 
@@ -168,33 +174,6 @@ const ACCOUNT_SCHEMA: Change = {
   ],
 };
 
-/**
- * The workspaces an account starts with - the same three `seed.sql` used to
- * create, moved here because nothing can reach a Durable Object from the
- * outside to seed it: `wrangler d1 execute` speaks to D1, and an account's
- * store does not exist until a request opens it.
- *
- * It is a change rather than a special case so that it is applied exactly once
- * per account and recorded like anything else. That it is *bootstrap data* in a
- * list of schema changes is deliberate and temporary, and it is the same
- * temporary thing docs/deployment.md's bootstrap runbook already records: the
- * application has no onboarding flow, and when it grows one, this entry is
- * replaced by whatever that flow creates rather than being carried forward.
- */
-function startingWorkspaces(accountId: string): Change {
-  return {
-    name: '0002-starting-workspaces',
-    statements: [
-      {
-        sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, ground, header, created_at) VALUES
-                ('ws-work', ?, 'Work', 'work', '#6f62b5', '#e3e1f2', '#d2cdea', '2026-08-12T00:00:01.000Z'),
-                ('ws-atlas', ?, 'Atlas Copco', 'atlas copco', '#3a72c8', '#d8e5f7', '#bed6f2', '2026-08-12T00:00:02.000Z'),
-                ('ws-personal', ?, 'Personal', 'personal', '#c06a45', '#f2e5d4', '#ead2b3', '2026-08-12T00:00:03.000Z')`,
-        params: [accountId, accountId, accountId],
-      },
-    ],
-  };
-}
 
 /**
  * Dashboards: the table, and one dashboard for every workspace that was there
@@ -628,7 +607,7 @@ const ITEM_COMPLETED_AT: Change = {
  *
  * **Every account gets Action and Thought**, so no account starts with an empty
  * picker and the first capture has something to be. Their ids are derived from
- * the account's, the way the starting workspaces' are, so applying this twice
+ * the account's, the way the starting workspace's is, so applying this twice
  * cannot make two of them - and `INSERT OR IGNORE` says so out loud. The two
  * are renamed to *Task* and *Note* by `0012-standard-types`, which is what an
  * account ends up with; this change has shipped, so it still writes the names
@@ -1266,3 +1245,109 @@ const DROP_ITEM_PREVIEW: Change = {
   name: '0014-drop-item-preview',
   statements: [{ sql: 'ALTER TABLE `items` DROP COLUMN `preview`' }],
 };
+
+/** The workspace an account nobody has opened is given, its dashboard, and its panel. */
+const FIRST_WORKSPACE_ID = 'ws-1';
+const FIRST_DASHBOARD_ID = `${FIRST_WORKSPACE_ID}-dashboard-1`;
+/**
+ * A literal rather than a derived id, unlike the two above, because five
+ * commands take a `panelId` as a uuid: a derived one would leave this panel
+ * unable to be renamed, deleted or filed into. The same literal in every
+ * account is no more a collision than `ws-1` is - each account is its own store.
+ */
+const FIRST_PANEL_ID = '01920000-0000-7000-8000-000000000001';
+
+/**
+ * What an account nobody has opened starts with: one workspace, its dashboard,
+ * and that dashboard's panel, all three wearing the numbered names that are how
+ * the app marks what it handed you and nobody has named yet.
+ *
+ * **It replaces `0002-starting-workspaces`**, which gave every account Work,
+ * Atlas Copco and Personal - a development fixture that reached users, one of
+ * them a stranger's customer, and three names most people would have to delete
+ * before they could start. That entry's own comment said it was waiting for an
+ * onboarding flow to replace it; this is that replacement.
+ *
+ * **Removed from the list rather than edited in place.** An account that
+ * already ran it keeps its three workspaces and is never revisited, which is
+ * the intent: what somebody already has is theirs. Editing `0002` would not
+ * have worked anyway - it runs before `0003-dashboards` and `0005-panels`
+ * create their tables, so it has nowhere to put the two rows below.
+ *
+ * **Last in the list, and guarded, because it is not really a schema change.**
+ * Every account that is ever opened runs it once, so the guard is what decides
+ * whether it does anything: a store with a workspace already - the three, or
+ * any made since - gets nothing at all, and only one with none gets the set.
+ * **Deleted ones count**, because they are tombstones rather than gone: an
+ * account that deleted every workspace is offered the screen that makes one
+ * (pages/FirstWorkspacePage.tsx) rather than being handed another.
+ *
+ * **Each statement is guarded on the row it would write**, not merely on its
+ * parent existing. Guarding the dashboard on "the workspace is there" was
+ * written first and is wrong in one real case: a *restored* account replays the
+ * changes its backup recorded and then takes this one, holding both `ws-1` and
+ * its dashboard already - so the insert collided on the dashboards index and
+ * left the account not up to date. Found by
+ * tests/integration/accounts/restore.test.ts rather than by reading.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): these are inserts, into a store that holds no workspaces.
+ * - **If it stops halfway:** it cannot. A change's statements and the record
+ *   that they ran commit in one `transactionSync` (store.ts), so a failure
+ *   leaves nothing of itself behind and it is retried whole.
+ * - **The second time it runs:** it does not, having been recorded. Idempotent
+ *   regardless - every insert is guarded on the row it would duplicate.
+ * - **Rows that already break the new rule:** an account holding workspaces,
+ *   which is every account that existed before this. They are skipped, never
+ *   refused and never dropped: this is bootstrap data for a store with none,
+ *   not a rule being enforced on rows that already exist.
+ * - **What is in each environment:** only accounts nobody has opened change,
+ *   and no row anywhere is rewritten.
+ */
+function firstWorkspace(accountId: string): Change {
+  return {
+    name: '0015-first-workspace',
+    statements: [
+      {
+        // The tint, bar, ground and header of the palette's first theme
+        // (`WORKSPACE_THEMES`), written out rather than left to the column
+        // defaults, so the workspace wears a set that belongs together.
+        // **The names are bound, not written into the statement.** They are
+        // compile-time constants rather than anything a person types, so this
+        // is not about injection - it is that a name with an apostrophe in it
+        // would reshape the SQL, and nothing about editing a name should make
+        // somebody think about quoting.
+        sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, bar, ground, header, position, created_at)
+                SELECT '${FIRST_WORKSPACE_ID}', ?, ?, ?, '#6f62b5', '#211d37', '#edebf7', '#18152b', 0, '2026-09-07T00:00:00.000Z'
+                WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE tenant_id = ?)`,
+        params: [accountId, FIRST_WORKSPACE_NAME, foldName(FIRST_WORKSPACE_NAME), accountId],
+      },
+      {
+        // Its id is the workspace's own plus a suffix, which is what
+        // `firstDashboardId` in src/domain/dashboards.ts does - the same rule in
+        // both places, so a workspace's first dashboard has one id whether this
+        // made it or `create_workspace` did.
+        sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+                SELECT '${FIRST_DASHBOARD_ID}', ?, '${FIRST_WORKSPACE_ID}', ?, ?, '2026-09-07T00:00:00.000Z'
+                WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = '${FIRST_WORKSPACE_ID}' AND tenant_id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM dashboards WHERE id = '${FIRST_DASHBOARD_ID}' AND tenant_id = ?)`,
+        params: [
+          accountId,
+          FIRST_DASHBOARD_NAME,
+          foldName(FIRST_DASHBOARD_NAME),
+          accountId,
+          accountId,
+        ],
+      },
+      {
+        sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
+                SELECT '${FIRST_PANEL_ID}', ?, '${FIRST_DASHBOARD_ID}', ?, ?, '2026-09-07T00:00:00.000Z'
+                WHERE EXISTS (SELECT 1 FROM dashboards WHERE id = '${FIRST_DASHBOARD_ID}' AND tenant_id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM panels WHERE id = '${FIRST_PANEL_ID}' AND tenant_id = ?)`,
+        params: [accountId, FIRST_PANEL_NAME, foldName(FIRST_PANEL_NAME), accountId, accountId],
+      },
+    ],
+  };
+}

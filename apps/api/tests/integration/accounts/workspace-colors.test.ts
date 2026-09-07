@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { WORKSPACE_THEMES, themeOf } from '@cockpit/shared';
 import { accountChanges } from '../../../src/accounts/changes.js';
-import { inStoreAsItIs, startFromEmpty, storeNamed } from '../seed.js';
+import { WORKSPACE_ID, inStoreAsItIs, startFromEmpty, storeNamed } from '../seed.js';
 
 /**
  * What an account's workspaces are wearing once the fourth color exists
@@ -125,18 +125,14 @@ describe('Workspace management', () => {
       expect((await barsIn(name))['ws-stranger']).toBe(WORKSPACE_THEMES[0]!.bar);
     });
 
-    it('gives the workspaces a brand new account starts with their own bars', async () => {
+    it('gives the workspace a brand new account starts with its own bar', async () => {
       const name = fixtureName('brand-new');
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
 
       const bars = await barsIn(name);
-      // The three an account starts with, wearing the first three themes.
-      expect(bars).toEqual({
-        'ws-work': WORKSPACE_THEMES[0]!.bar,
-        'ws-atlas': WORKSPACE_THEMES[1]!.bar,
-        'ws-personal': WORKSPACE_THEMES[2]!.bar,
-      });
+      // The one an account starts with, wearing the palette's first theme.
+      expect(bars).toEqual({ [WORKSPACE_ID]: WORKSPACE_THEMES[0]!.bar });
     });
   });
 });

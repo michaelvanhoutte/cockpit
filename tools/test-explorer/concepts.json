@@ -244,6 +244,17 @@
       "sourcePatterns": []
     },
     {
+      "key": "Onboarding",
+      "label": "Onboarding",
+      "parent": "Across the app",
+      "sourcePatterns": [
+        "apps/web/src/whatThingsAre.ts",
+        "apps/web/src/welcoming.ts",
+        "apps/web/src/pages/WelcomePage.tsx",
+        "apps/web/src/components/NameQuestion.tsx"
+      ]
+    },
+    {
       "key": "Menus",
       "label": "Menus",
       "parent": "Across the app",

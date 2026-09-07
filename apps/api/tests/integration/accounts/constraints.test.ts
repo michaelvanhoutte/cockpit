@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { ITEM_TYPE_COLORS, MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from '@cockpit/shared';
-import { ACCOUNT_NAME, WORKSPACE_ID, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  ACCOUNT_NAME,
+  DASHBOARD_ID,
+  WORKSPACE_ID,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, and deliberately not through `SELF.fetch`. The rules below
@@ -283,10 +290,10 @@ describe('Workspace management', () => {
     }
 
     it.each([
-      { situation: 'the same name', name: 'Work' },
-      { situation: 'the same name in another case', name: 'work' },
+      { situation: 'the same name', name: 'Workspace 1' },
+      { situation: 'the same name in another case', name: 'workspace 1' },
     ])('is refused $situation', async ({ name }) => {
-      // The workspace an account starts with is called Work. The handlers ask
+      // The workspace an account starts with is called Workspace 1. The handlers ask
       // first and answer with a message, so nothing invalid reaches here
       // through the interface - which is exactly why this rule is checked
       // against the store itself ("The database is the second lock"). It is
@@ -301,7 +308,7 @@ describe('Workspace management', () => {
         sql.exec('UPDATE workspaces SET deleted_at = ? WHERE id = ?', AT, WORKSPACE_ID);
       });
 
-      await expect(makeWorkspaceRow(nextId(), 'Work')).resolves.toBeUndefined();
+      await expect(makeWorkspaceRow(nextId(), 'Workspace 1')).resolves.toBeUndefined();
     });
   });
 });
@@ -328,7 +335,6 @@ describe('Associations', () => {
 
 describe('Panels', () => {
   /** The dashboard every workspace is created with, which is what panels hang off. */
-  const DASHBOARD_ID = `${WORKSPACE_ID}-dashboard-1`;
 
   async function putPanel(overrides: Record<string, unknown> = {}): Promise<void> {
     const row = {
