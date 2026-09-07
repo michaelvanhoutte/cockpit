@@ -1,9 +1,9 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, like, sql } from 'drizzle-orm';
 import type { RegisteredUser } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
-import { foldAddress, idsForNewUser, whatIsWrongWith } from './new-user.js';
+import { foldAddress, idsForNewUser, nameAsIdPart, whatIsWrongWith } from './new-user.js';
 
 /**
  * The register: which accounts exist. It stays in D1 rather than moving into
@@ -113,8 +113,15 @@ export async function addUser(
   const [held] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
   if (held) return { added: false, refused: `${email} is already how ${held.id} signs in` };
 
-  const [ids, at] = [await freeIds(env, name), now.toISOString()];
-  if (!ids) return { added: false, refused: `${name.trim()} leaves nothing an account could be named after` };
+  const ids = await freeIds(env, name);
+  const at = now.toISOString();
+  // Not the same refusal as an unusable name, which `whatIsWrongWith` has
+  // already answered above: this is a name that derives an id and finds every
+  // one of them taken, which only a register holding a thousand people of one
+  // name can do.
+  if (!ids) {
+    return { added: false, refused: `too many people are already called ${name.trim()}` };
+  }
 
   const user: RegisteredUser = {
     id: ids.userId,
@@ -137,15 +144,35 @@ export async function addUser(
       ).bind(ids.userId, user.name, ids.accountId, user.role, email, at),
     ]);
   } catch (error) {
-    // What is left to fail here is the register refusing a row somebody else
-    // wrote between the read above and this write - the address, or an id. Said
-    // as a refusal rather than thrown as a 500, because it is a true answer to
-    // what was asked and the person can act on it by trying again.
-    console.error(JSON.stringify({ level: 'error', message: `adding ${ids.userId} failed`, cause: String(error) }));
-    return { added: false, refused: `somebody else was added at the same moment - try again` };
+    console.error(
+      JSON.stringify({ level: 'error', message: `adding ${ids.userId} failed`, cause: String(error) }),
+    );
+    // **Only a uniqueness refusal is answered as one.** What that means here is
+    // somebody else taking the address or an id between the read above and this
+    // write, which the person can act on by trying again. Everything else - D1
+    // unreachable, a column the code has not caught up with, a CHECK refusing a
+    // value - is thrown, so it reaches `app.onError` as a 500 rather than
+    // telling an admin to retry against a database that will refuse them for
+    // ever.
+    if (!isUniquenessRefusal(error)) throw error;
+    return { added: false, refused: 'somebody else was added at the same moment - try again' };
   }
 
   return { added: true, user, accountId: ids.accountId };
+}
+
+/**
+ * Whether the register refused a row for already holding one like it - a
+ * primary key or one of the unique indexes - rather than for anything else.
+ *
+ * Read off the message, which is what SQLite gives: D1 surfaces the driver's
+ * text and there is no code to switch on. Deliberately narrow, so anything this
+ * does not recognise is thrown rather than reported to somebody as a conflict
+ * they can retry.
+ */
+function isUniquenessRefusal(error: unknown): boolean {
+  const said = error instanceof Error ? error.message : String(error);
+  return /UNIQUE constraint failed|PRIMARY KEY must be unique/i.test(said);
 }
 
 /**
@@ -158,9 +185,14 @@ export async function addUser(
  */
 async function freeIds(env: Env, name: string) {
   const db = createDb(env.DB);
+  // Filtered to the ids this name could derive, which is what makes the read a
+  // question about the people sharing a name rather than about the whole
+  // register: the `Set` below only ever answers for candidates starting here.
+  const part = nameAsIdPart(name);
+  if (!part) return null;
   const [accounts, people] = await Promise.all([
-    db.select({ id: tenants.id }).from(tenants),
-    db.select({ id: users.id }).from(users),
+    db.select({ id: tenants.id }).from(tenants).where(like(tenants.id, `tenant-${part}%`)),
+    db.select({ id: users.id }).from(users).where(like(users.id, `user-${part}%`)),
   ]);
   const held = new Set([...accounts.map((row) => row.id), ...people.map((row) => row.id)]);
   return idsForNewUser(name, ({ accountId, userId }) => held.has(accountId) || held.has(userId));

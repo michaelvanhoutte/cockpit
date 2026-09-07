@@ -82,13 +82,16 @@ export type RegisteredUserList = z.infer<typeof registeredUserListSchema>;
  * it is made with them, so naming it would be asking for something the product
  * does not let you choose.
  *
- * The lengths are what a person can type rather than what the register can
- * hold, so the refusal happens in front of them rather than as a constraint
- * error underneath.
+ * **The bounds only refuse what is not a request at all.** Anything shaped like
+ * one is answered by the server's own rules, which say *what* is wrong - which
+ * address is already somebody's, what a name leaves nothing of - where this
+ * would only say "validation failed". So `min(1)` rather than a length that
+ * looks like a real address: `ab` is a request, and being told it is not an
+ * address is more use than being told the request was invalid.
  */
 export const addUserSchema = z.object({
   name: z.string().min(1).max(120),
-  email: z.string().min(3).max(254),
+  email: z.string().min(1).max(254),
 });
 export type AddUser = z.infer<typeof addUserSchema>;
 

@@ -22,17 +22,18 @@ const ACCOUNT_PREFIX = 'tenant-';
 const USER_PREFIX = 'user-';
 
 /**
- * The address, in the one spelling the register compares by.
+ * The address, in the one spelling the register compares by - which is
+ * `normaliseAddress`, taken from the sign-in rather than written again.
  *
- * **Folded, because the unique index compares what is written** (`db/schema.ts`).
- * Two rows differing only in case would both be allowed in and only one would
- * ever be found, so whatever writes an address has to settle on a spelling
- * first - and this is that decision, made in one place so signing in and adding
- * a person cannot disagree about who somebody is.
+ * **Two foldings would be two identities.** Signing in looks a person up by the
+ * address Google gave, and adding one writes the address an admin typed; if
+ * those ever settled differently - one stripping a `+tag` or Gmail's dots and
+ * the other not - the person added would simply be refused at sign-in, with
+ * nothing anywhere reporting an error. So there is one function and this is a
+ * name for it.
  */
-export function foldAddress(address: string): string {
-  return address.trim().toLowerCase();
-}
+export { normaliseAddress as foldAddress } from '../auth/oidc.js';
+import { normaliseAddress } from '../auth/oidc.js';
 
 /**
  * Whether an address is shaped like one.
@@ -43,7 +44,7 @@ export function foldAddress(address: string): string {
  * only refuse addresses that work.
  */
 export function addressLooksReal(address: string): boolean {
-  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(foldAddress(address));
+  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(normaliseAddress(address));
 }
 
 /**
@@ -89,15 +90,33 @@ export function idsForNewUser(name: string, taken: (ids: NewIds) => boolean): Ne
   const part = nameAsIdPart(name);
   if (!part) return null;
 
-  for (let suffix = 1; ; suffix += 1) {
-    const ending = suffix === 1 ? part : `${part}-${suffix}`;
-    // Bounded again after the suffix: a name that only just fitted must not be
-    // pushed past the limit by being disambiguated.
-    const account = `${ACCOUNT_PREFIX}${ending}`.slice(0, ACCOUNT_NAME_LIMIT);
-    const ids = { accountId: account, userId: `${USER_PREFIX}${ending}` };
+  const room = ACCOUNT_NAME_LIMIT - ACCOUNT_PREFIX.length;
+  for (let suffix = 1; suffix <= SUFFIXES_TRIED; suffix += 1) {
+    const tag = suffix === 1 ? '' : `-${suffix}`;
+    /**
+     * **Room is made for the suffix rather than taken from it**, which is what
+     * makes this loop finish. Appending `-2` and then cutting the result back
+     * to the limit produced the *same* string every time for a name that
+     * already filled it - `tenant-<41 letters>` truncating identically at every
+     * suffix - so the candidate stopped changing while the register went on
+     * saying it was taken, and the request spun until the Worker's CPU limit
+     * killed it. Trimming the name instead means every suffix is a different id.
+     */
+    const base = part.slice(0, room - tag.length).replace(/-+$/, '');
+    if (!base) return null;
+
+    const ending = `${base}${tag}`;
+    const ids = { accountId: `${ACCOUNT_PREFIX}${ending}`, userId: `${USER_PREFIX}${ending}` };
     if (!taken(ids)) return ids;
   }
+  // Bounded rather than endless: a register holding a thousand people of one
+  // name is not a case to keep searching, and a refusal an admin can read beats
+  // a request that never answers.
+  return null;
 }
+
+/** How many people of one name can be told apart before adding says no. */
+const SUFFIXES_TRIED = 1000;
 
 /** Why somebody could not be added, in words the person who typed it can act on. */
 export type Refusal = { what: string };
@@ -110,7 +129,7 @@ export type Refusal = { what: string };
  * somebody nobody can sign in as.
  */
 export function whatIsWrongWith({ name, address }: { name: string; address: string }): Refusal | null {
-  if (foldAddress(address).length === 0) {
+  if (normaliseAddress(address).length === 0) {
     return { what: 'an address is what somebody signs in with, so it is needed' };
   }
   if (!addressLooksReal(address)) {

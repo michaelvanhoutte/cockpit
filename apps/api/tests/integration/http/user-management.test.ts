@@ -171,16 +171,10 @@ describe('User management', () => {
         body: { name: 'Someone', email: 'ADA@Example.com' },
         says: /already how user-ada signs in/,
       },
-      {
-        situation: 'a name that leaves nothing an account could be called',
-        body: { name: '!!!', email: 'anna@example.com' },
-        says: /nothing an account could be named after/,
-      },
-      {
-        situation: 'an address that is not one',
-        body: { name: 'Anna', email: 'anna' },
-        says: /not an address/,
-      },
+      // What a name derives and what an address has to look like are settled at
+      // apps/api/tests/unit/accounts/new-user.test.ts; re-proving them here
+      // would be the upward duplication the testing strategy rejects. What is
+      // left is the pair only a real register can answer.
     ])('refuses $situation, and writes nothing', async ({ body, says }) => {
       const before = (await env.DB.prepare('SELECT id FROM users').all()).results.length;
 

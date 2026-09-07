@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -46,6 +46,12 @@ vi.mock('../../../src/api/queries', async () => {
   };
 });
 
+// Module-scope mocks, so what one case recorded must not reach the next.
+afterEach(() => {
+  reads.mockReset();
+  adds.mockReset();
+});
+
 function drawn() {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -75,7 +81,10 @@ describe('User management', () => {
       // The first argument only: react-query hands the mutation a context of
       // its own as a second, which is its business rather than this page's.
       await waitFor(() => expect(adds).toHaveBeenCalled());
-      expect(adds.mock.calls[0]?.[0]).toEqual({ name: 'Anna', email: 'anna@example.com' });
+      // The last call rather than the first: these mocks live at module scope
+      // and nothing clears them, so indexing from the front would make this
+      // depend on being the first case in the file that presses Add.
+      expect(adds.mock.lastCall?.[0]).toEqual({ name: 'Anna', email: 'anna@example.com' });
     });
 
     /**

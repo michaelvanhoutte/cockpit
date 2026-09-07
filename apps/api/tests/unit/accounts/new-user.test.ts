@@ -51,6 +51,32 @@ describe('User management', () => {
       expect(derived.accountId.length).toBeLessThanOrEqual(ACCOUNT_NAME_LIMIT);
       expect(derived.accountId).toMatch(/^[A-Za-z0-9._-]+$/);
     });
+
+    /**
+     * The case that hung. A name filling the whole limit used to append its
+     * suffix and cut it straight back off, so every candidate was the same
+     * string and the search never finished - a request that spun until the
+     * Worker's CPU limit killed it, reachable by adding one long name twice.
+     * Room is made for the suffix now, so each one is a different id.
+     */
+    it('still tells two people apart when their name fills the limit', () => {
+      const long = 'a'.repeat(60);
+      const held = new Set([idsForNewUser(long, () => false)!.accountId]);
+
+      const second = idsForNewUser(long, ({ accountId }) => held.has(accountId))!;
+
+      expect(second.accountId).not.toBe([...held][0]);
+      expect(second.accountId.length).toBeLessThanOrEqual(ACCOUNT_NAME_LIMIT);
+      expect(second.userId.endsWith('-2')).toBe(true);
+    });
+
+    /**
+     * And it stops rather than searching forever. A thousand people of one name
+     * is not a case worth walking; a refusal is something an admin can read.
+     */
+    it('gives up rather than searching for ever', () => {
+      expect(idsForNewUser('Anna', () => true)).toBeNull();
+    });
   });
 
   describe('two people of one name both get in, with accounts of their own', () => {

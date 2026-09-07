@@ -1,6 +1,7 @@
 import {
   ADA,
   MICHAEL,
+  dashboardBar,
   expect,
   press,
   signIn,
@@ -88,6 +89,9 @@ test.describe('User management', () => {
       await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
       await signInWith(page, anna.address, isMobile);
 
+      // Asserted here rather than inside the helper: that somebody added a
+      // moment ago can get in at all is what this walk claims.
+      await expect(dashboardBar(page)).toBeVisible();
       await expect(workspaceTab(page, 'Work')).toBeVisible();
     });
 

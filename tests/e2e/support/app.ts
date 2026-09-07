@@ -212,13 +212,16 @@ export async function signIn(page: Page, name: string, isMobile: boolean): Promi
  * The issuer offers the seeded addresses as links and any other in a box, which
  * is what this types into: the address is the walk's own, since it just typed it
  * into the page that added them.
+ *
+ * **It arranges and does not assert**, unlike `signIn` above: whether somebody
+ * added a moment ago can actually get in is the claim its walk is making, so
+ * waiting for the app here would make that walk prove itself.
  */
 export async function signInWith(page: Page, address: string, isMobile: boolean): Promise<void> {
   await page.goto('/signin');
   await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
   await page.getByPlaceholder('somebody@example.com').fill(address);
   await press(page.getByRole('button', { name: 'Continue' }), isMobile);
-  await expect(dashboardBar(page)).toBeVisible();
 }
 
 /**
