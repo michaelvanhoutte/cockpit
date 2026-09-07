@@ -6,7 +6,5 @@
 # back every account's data. You invent it - any string works locally.
 #
 # **This half is the Worker's**, and setting it here does not set the other:
-# the backup commands read the same value from COCKPIT_BACKUP_TOKEN in your own
-# shell, because Wrangler loads this file for the Worker process and it never
-# reaches a shell. Both halves are in docs/deployment.md, "Secrets and access".
+# why is in docs/deployment.md, "Secrets and access".
 BACKUP_TOKEN=local-operator-secret
