@@ -339,6 +339,20 @@ describe('User management', () => {
       expect(changes.mock.lastCall?.[0]).toMatchObject(sends);
     });
 
+    /**
+     * The count includes the person being changed whatever their access, since
+     * the rule subtracts them: leaving a disabled admin out of their own count
+     * greys out demoting somebody who was disabled first, which is the ordinary
+     * order to do those two things in.
+     */
+    it('offers the role to an admin who already has no access', async () => {
+      const ada = { ...PEOPLE[1]!, role: 'admin' as const, disabled: true };
+
+      await openFormOn(ada, { people: [PEOPLE[0]!, ada] });
+
+      expect(screen.getByRole('radio', { name: /^User/ })).toBeEnabled();
+    });
+
     it('offers the role to an admin who is neither the asker nor the last one', async () => {
       const ada = { ...PEOPLE[1]!, role: 'admin' as const };
 

@@ -67,10 +67,21 @@ export function AdminPage() {
   const changing = useChangeUser();
   const access = useSetAccess();
   const askedFrom = useRef<HTMLElement | null>(null);
-  // The admins a lockout rule can count on are the ones who can actually sign
-  // in: one whose access was taken away can do nothing for anybody, so counting
-  // them would tell the last admin left that somebody else could help.
-  const admins = (data?.users ?? []).filter((user) => user.role === ADMIN && !user.disabled);
+  /**
+   * The admins a lockout rule counts, for a change about one particular
+   * person: the ones who can actually sign in, and that person whatever their
+   * access.
+   *
+   * One whose access was taken away can do nothing for anybody, so counting
+   * them would tell the last admin left that somebody else could help. But the
+   * rule subtracts the person it is about, so leaving a *disabled* admin out of
+   * their own count makes the last one who can sign in look like the last admin
+   * there is - which greys out demoting somebody who was disabled first, the
+   * ordinary order to do those two things in.
+   */
+  const signedInAdmins = (data?.users ?? []).filter((user) => user.role === ADMIN && !user.disabled);
+  const adminsCounting = (user: RegisteredUser) =>
+    signedInAdmins.length + (user.role === ADMIN && user.disabled ? 1 : 0);
 
   /**
    * Read from the list rather than kept beside the draft, exactly as a
@@ -153,7 +164,7 @@ export function AdminPage() {
                 accessStuck={
                   user.disabled
                     ? null
-                    : whyAccessIsStuck(user, { me: me.data?.user.id, admins: admins.length })
+                    : whyAccessIsStuck(user, { me: me.data?.user.id, admins: adminsCounting(user) })
                 }
               />
             ))}
@@ -179,7 +190,7 @@ export function AdminPage() {
           choices={ROLES.map((role) => {
             const stuck = whyTheRoleIsStuck(beingEdited, role, {
               me: me.data?.user.id,
-              admins: admins.length,
+              admins: adminsCounting(beingEdited),
             });
             return (
               /* Present and unavailable with the reason on it, the way a

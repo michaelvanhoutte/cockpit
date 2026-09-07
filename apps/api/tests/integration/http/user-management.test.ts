@@ -499,6 +499,26 @@ describe('User management', () => {
       expect(((await res.json()) as { error: string }).error).toMatch(/only admin/);
     });
 
+    /**
+     * The count includes the person being changed whatever their access,
+     * because the rule subtracts them: leaving a disabled admin out of their
+     * own count made the last one who *can* sign in look like the last admin
+     * there is - so an admin disabled first, which is the ordinary order, could
+     * not then be made ordinary at all.
+     */
+    it.each([
+      {
+        situation: 'made ordinary',
+        act: (who: string) => change(who, { name: 'Ada', role: 'user' }),
+      },
+      { situation: 'disabled again', act: (who: string) => access(who, true) },
+    ])('lets an admin who already has no access be $situation', async ({ act }) => {
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+      await access(OTHER_USER_ID, true);
+
+      expect((await act(OTHER_USER_ID)).status).toBe(200);
+    });
+
     it('refuses disabling the last admin, whoever asks', async () => {
       await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
       await change(USER_ID, { name: 'Michael', role: 'user' }, OTHER_USER_ID);

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { ADMIN, losingAdminIsRefused, type RegisteredUser } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { tenants, users } from '../db/schema.js';
@@ -98,13 +98,22 @@ export function hasNoAccess(disabledAt: string | null): boolean {
 }
 
 /**
- * The admins a lockout rule can count on: **the ones who can actually sign
- * in.** An admin whose access was taken away can do nothing for anybody, so
- * counting them would tell the last admin left that somebody else could put
- * their role back - which is the one sentence that rule exists to get right.
+ * The admins a lockout rule counts: **the ones who can actually sign in, and
+ * the person being changed whatever their access.**
+ *
+ * The first half because an admin whose access was taken away can do nothing
+ * for anybody, so counting them would tell the last admin left that somebody
+ * else could put their role back.
+ *
+ * The second because the rule subtracts the person it is about (`admins`, in
+ * the contract, is "this person included") - and leaving a *disabled* admin out
+ * of their own count makes the last one who can sign in look like the last
+ * admin there is. That refused an admin being demoted after being disabled,
+ * which is the ordinary order to do those two things in, and left them stuck as
+ * an admin until somebody handed their sign-in back.
  */
-function adminsWhoCanSignIn() {
-  return and(eq(users.role, ADMIN), isNull(users.disabledAt));
+function adminsCounting(userId: string) {
+  return and(eq(users.role, ADMIN), or(isNull(users.disabledAt), eq(users.id, userId)));
 }
 
 /**
@@ -240,7 +249,7 @@ export async function changeUser(
   // Together, because neither read needs the other's answer.
   const [[held], admins] = await Promise.all([
     db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)),
-    db.select({ id: users.id }).from(users).where(adminsWhoCanSignIn()),
+    db.select({ id: users.id }).from(users).where(adminsCounting(userId)),
   ]);
   if (!held) return nobodyHere(userId);
 
@@ -318,7 +327,7 @@ export async function setAccess(
   const db = createDb(env.DB);
   const [[held], admins] = await Promise.all([
     db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)),
-    db.select({ id: users.id }).from(users).where(adminsWhoCanSignIn()),
+    db.select({ id: users.id }).from(users).where(adminsCounting(userId)),
   ]);
   if (!held) return nobodyHere(userId);
 
