@@ -427,7 +427,9 @@ describe('Workspace management', () => {
 
   describe('the workspaces are in the order you put them in, and a new one goes last', () => {
     /**
-     * The workspaces an account starts with, in the order they arrive in. The
+     * The workspaces this file's arrangement gives the account, in the order
+     * they arrive in - the one it starts with, and the two `alsoWorkspaces`
+     * adds beside it. The
      * order is what this whole rule is about, so it is written out rather than
      * read from the list under test.
      */
