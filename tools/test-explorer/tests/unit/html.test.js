@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { esc, jsonScript } from '../../src/render/html.js';
+import { esc, jsonScript, renderHtml } from '../../src/render/html.js';
+
+describe('renderHtml', () => {
+  /** The least a model can be: the link under test does not depend on any of it. */
+  const model = {
+    tree: [],
+    availableLevels: [],
+    coverageAvailable: true,
+    commit: 'abc1234',
+    commitUrl: null,
+    generatedAt: '2026-09-07T12:00:00.000Z',
+    warnings: [],
+  };
+
+  it('links to the CI stability page, the other half of the published site', () => {
+    // The two are assembled into one site by ci.yml's Publish job, and each is
+    // reachable from the other; the stability page's own suite asserts the
+    // return link. Without this, half the pair could be dropped silently.
+    const html = renderHtml(model, { repoRelPrefix: '../../..' });
+    expect(html).toContain('href="stability/"');
+    expect(html).toContain('CI stability');
+  });
+});
 
 describe('esc', () => {
   it('leaves plain text untouched', () => {

@@ -179,16 +179,50 @@ jobs:
         with:
           name: test-explorer-report
           path: tools/test-explorer/out/
-      # The same directory again, in the tarball `deploy-pages` expects. Only
-      # from `main`, because this workflow runs on every push and a branch's
-      # report must not replace the published one.
-      - name: Package the report for Pages
-        if: github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: tools/test-explorer/out/
 
-  # The report from the tip of `main`, at a fixed URL, readable without signing
+  # How reliable each job on `main` has been: pass rates over 7 and 30 days with
+  # cancellations counted apart from failures, durations, how long `main` stayed
+  # red, and the recent failures linked to the step they died on ("See how
+  # reliable each CI job on main is, without counting runs by hand", issue 244).
+  #
+  # Its own job rather than a step of `test-explorer`, which runs the
+  # instrumented suite: a suite failure there would take down the page whose
+  # purpose is reporting suite failures, at the one moment it is worth reading.
+  #
+  # No install step, for the reason `scripts` gives — it reads the API with the
+  # standard library and has no dependencies to fetch.
+  #
+  # `main` only, and not because a branch's report would be published (the
+  # `pages` job below is what decides that): a report costs hundreds of API
+  # requests against an hourly allowance every workflow here shares, worked out
+  # in `tools/ci-stability/src/github.js`. What proves the generator on a branch
+  # is its own suite, which stubs the API.
+  stability:
+    name: Stability
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Reads the Actions API, which the workflow-level block withholds by
+    # default. Nothing else, and no write anywhere.
+    permissions:
+      contents: read
+      actions: read
+    # Advisory, exactly as the test explorer is: a report that cannot be built
+    # is a missing page, not a broken `main`. This is also what stops a spent
+    # rate limit taking the explorer's publish down with it — `pages` below
+    # gates on `test-explorer` alone.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Measure how reliable each job on main has been
+        run: node tools/ci-stability/src/cli.js --out tools/ci-stability/out/index.html
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-stability-report
+          path: tools/ci-stability/out/
+
+  # The reports from the tip of `main`, at a fixed URL, readable without signing
   # in — which is what a zipped artifact is not, least of all on a phone, where
   # the GitHub app has never downloaded one in-app ("Publish the test explorer
   # at a URL, instead of a zip you have to download", issue 224).
@@ -205,13 +239,19 @@ jobs:
   # and wants a stored PAT, which is a worse trade than one settings click.
   pages:
     name: Publish
-    needs: test-explorer
-    if: github.ref == 'refs/heads/main'
+    needs: [test-explorer, stability]
+    # `!cancelled()` rather than the bare ref test, because `needs` on a failed
+    # job would otherwise skip this one: the stability report is allowed to fail
+    # and the site still publishes without it. The explorer is not — it is the
+    # page, so its result is named explicitly.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.test-explorer.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pages: write
       id-token: write
+      # download-artifact reads this run's own artifacts through the Actions API.
+      actions: read
     # Names the deployment in the GitHub UI, and is where the URL is shown.
     environment:
       name: github-pages
@@ -228,5 +268,26 @@ jobs:
       group: pages
       cancel-in-progress: false
     steps:
+      # The site is two reports, so it is assembled here rather than uploaded by
+      # whichever job finished last: the explorer at the root, the stability
+      # page one directory down at /stability/. Both stay downloadable on their
+      # own as the artifacts the jobs above uploaded.
+      - name: Take the test explorer's report
+        uses: actions/download-artifact@v4
+        with:
+          name: test-explorer-report
+          path: site/
+      - name: Take the stability report, if there is one
+        uses: actions/download-artifact@v4
+        # There is no artifact when the stability job's fetch was refused, and
+        # download-artifact treats a missing one as an error. Publishing the
+        # explorer without the stability page beats publishing neither.
+        continue-on-error: true
+        with:
+          name: ci-stability-report
+          path: site/stability/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
       - id: deploy
         uses: actions/deploy-pages@v4

@@ -90,8 +90,9 @@ no commitlint hook to install and nothing for an agent to get wrong.
 There is no third environment for the application; branches are deployed nowhere,
 per "No branch environments" (§4).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
-part of the app: it is where CI publishes the test explorer's report from `main`
-(`tools/test-explorer/README.md`).
+part of the app: it is where CI publishes the two reports from `main` — the test
+explorer at the root (`tools/test-explorer/README.md`) and the CI stability page at
+`/stability/` (`tools/ci-stability/README.md`).
 
 **Both are reachable by anyone who knows the URL**, with Cockpit's own sign-in the
 only thing in the way — see "Secrets and access" for what that is worth today. The
@@ -644,11 +645,11 @@ Then, by hand (no API, or deliberately not automated):
      merging. It would force an "Update branch" click every time `main` moves, and
      the semantic conflict it guards against is exactly what staging catches; a
      bad merge reaches staging, never production.
-   - **`contexts`** — eight names: five of the seven jobs in `ci.yml`, and three
-     from CodeQL, matched exactly. The two left out are the report's, and for
-     different reasons: Test Explorer deliberately does not gate, while Publish
-     *could not* gate anything if it were listed — its `if:` skips it on every
-     pull request, and a skipped job reports as passing.
+   - **`contexts`** — eight names: five of the eight jobs in `ci.yml`, and three
+     from CodeQL, matched exactly. The three left out are the reports', and for
+     two reasons: Test Explorer deliberately does not gate, while Publish and
+     Stability *could not* gate anything if they were listed — the `if:` on each
+     skips it on every pull request, and a skipped job reports as passing.
 
      The three are not interchangeable. `CodeQL (javascript-typescript)` and
      `CodeQL (actions)` are the matrix legs and say only that the analysis *ran*.
@@ -730,8 +731,9 @@ Then, by hand (no API, or deliberately not automated):
    It is a dashboard setting with no API to read it back from.
 
 4. **GitHub Pages**, at Settings → Pages → Source: **GitHub Actions**. CI's
-   `Publish` job deploys the test explorer's report there from `main`
-   (`tools/test-explorer/README.md`), and until this is set that job fails, which
+   `Publish` job deploys both reports there from `main` — the test explorer
+   (`tools/test-explorer/README.md`) and the CI stability page
+   (`tools/ci-stability/README.md`) — and until this is set that job fails, which
    puts `main` red on every commit. Not automated: `configure-pages`'s
    `enablement` input refuses `GITHUB_TOKEN` and wants a stored personal access
    token, which buys one settings click at the price of a long-lived credential.
