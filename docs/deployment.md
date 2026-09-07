@@ -372,7 +372,7 @@ wrangler secret put <NAME> --env staging
 
 **The backup commands send that same value under a second name, and the two are set separately.** `BACKUP_TOKEN` is what the Worker checks; `COCKPIT_BACKUP_TOKEN` is what `pnpm backup:export` and `pnpm backup:restore` read from **your own shell** and send. Locally the first lives in `apps/api/.dev.vars`, which Wrangler loads for the Worker process and which therefore never reaches a shell — so setting it there does not set the other, and every example passes one inline. They have to match, and you send whichever environment's value you are pointing at.
 
-**An environment variable rather than a `--token` flag keeps it out of `ps`, and not out of your shell history**, which records the line as typed. If that matters, keep it in a file only you can read, or rely on your shell's own way of not recording a line. Reaching a deployed environment also needs `CLOUDFLARE_WORKERS_SUBDOMAIN`, since its address is built from it; `--env local` works its own port out.
+**An environment variable rather than a `--token` flag keeps it out of another user's `ps`, and not out of your shell history**, which records the line as typed. It is out of *argv*, which anybody on the box can read; your own user and root can still read it from `ps eww` or `/proc/<pid>/environ`. If that matters, keep it in a file only you can read, or rely on your shell's own way of not recording a line. Reaching a deployed environment also needs `CLOUDFLARE_WORKERS_SUBDOMAIN`, since its address is built from it; `--env local` works its own port out.
 
 CI needs, in GitHub:
 
