@@ -60,6 +60,11 @@ export function renderHtml(model, { repoRelPrefix }) {
       <span>rules <b>${totals.rules}</b></span>
       <span>files nothing runs <b>${totals.filesNothingRuns}</b></span>
       <span>branches nothing takes <b>${model.coverageAvailable ? totals.branchesNothingTakes : 'unknown'}</b></span>
+      <!-- The other half of the published site, assembled by ci.yml's Publish
+           job. Relative, so it resolves wherever the site is served from; in the
+           downloadable artifact, which is this report alone, it does not resolve
+           at all. -->
+      <span><a href="stability/"><b>CI stability &rarr;</b></a></span>
     </div>
   </header>
 

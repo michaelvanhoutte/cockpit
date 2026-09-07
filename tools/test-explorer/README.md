@@ -11,7 +11,9 @@ practical "how do I run it and what does it read" version.
 ## Reading it without running it
 
 The report from the tip of `main` is published on every merge, at
-**<https://michaelvanhoutte.github.io/cockpit/>** — no sign-in needed.
+**<https://michaelvanhoutte.github.io/cockpit/>** — no sign-in needed. The CI stability
+page is the other half of that site, at `/stability/`
+([`tools/ci-stability`](../ci-stability/README.md)), and the two link to each other.
 
 Every run on every branch, `main` included, also uploads its report as the
 `test-explorer-report` artifact, which is where a pull request's own report is, and where

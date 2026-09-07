@@ -227,6 +227,12 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-istanbul@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@30.0.1)(vite@7.3.6(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
 
+  tools/ci-stability:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-istanbul@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@30.0.1)(vite@7.3.6(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
+
   tools/test-explorer:
     dependencies:
       istanbul-lib-coverage:
