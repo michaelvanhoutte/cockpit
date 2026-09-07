@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, themeOf, uuidv7 } from '@cockpit/shared';
 import type { Workspace, WorkspaceList, WorkspaceTheme } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
+import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { snapshotQuery, useCommand, useSendCommand, workspacesQuery } from '../api/queries';
 import { movedBy, movedTo } from '../reorder';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -506,6 +507,10 @@ export function ManageWorkspaces({
           Nothing about that was visible in what the page renders, only in where
           it ended up. */}
       <form onSubmit={create} className="mt-4 flex flex-col gap-2">
+        {/* The same sentence the `+` on the tab strip says (`whatThingsAre.ts`),
+            because this is the other place a workspace is made and two ways of
+            explaining one thing is one of them being wrong. */}
+        <p className="text-sm text-ink-faint">{WHAT_A_WORKSPACE_IS}</p>
         <div className="flex gap-2">
           <input
             value={name}

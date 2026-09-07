@@ -96,6 +96,63 @@ test.describe('Workspace management', () => {
       // dashboard ("Add and switch dashboards", issue 32).
       await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
     });
+
+    /**
+     * The other way, and the one somebody new finds. Making a workspace was
+     * reachable only through the header's menu until the question started
+     * saying what a workspace is - which put the explanation behind a door
+     * nobody new would open.
+     */
+    test('makes one from the tab strip, on a question that says what a workspace is', async ({
+      page,
+      isMobile,
+    }) => {
+      await openFirstWorkspace(page, isMobile);
+
+      await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
+
+      // Matched on a clause rather than the whole sentence, so rewording it
+      // does not re-break this walk - and on the half that carries the example,
+      // which is the half that does the work.
+      await expect(
+        page.getByRole('dialog').getByText(/A contractor working for two customers/),
+      ).toBeVisible();
+
+      const name = uniqueTitle('Bookkeeping');
+      await page.getByLabel('Name of the new workspace').fill(name);
+      await page.getByLabel('Name of the new workspace').press('Enter');
+
+      // At the end of the strip, and opened: a new workspace goes after every
+      // one the account has ever had, and making one then having to find it is
+      // two gestures for what reads as one.
+      await expect(workspaceTab(page, name)).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      // Holding the panel every dashboard arrives with, so it can be filed
+      // into from the moment it exists.
+      await expect(page.getByRole('region', { name: 'Panel 1' })).toBeVisible();
+      await expectNoSidewaysScroll(page);
+    });
+
+    test('refuses a name another workspace already has, and says which', async ({
+      page,
+      isMobile,
+    }) => {
+      const taken = uniqueTitle('Bookkeeping');
+      await openFirstWorkspace(page, isMobile);
+      await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
+      await page.getByLabel('Name of the new workspace').fill(taken);
+      await page.getByLabel('Name of the new workspace').press('Enter');
+      await expect(workspaceTab(page, taken)).toBeVisible();
+
+      await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
+      await page.getByLabel('Name of the new workspace').fill(taken);
+      await page.getByLabel('Name of the new workspace').press('Enter');
+
+      // Still open, with what was typed in it, so the name is corrected rather
+      // than typed again from nothing.
+      await expect(page.getByRole('alert')).toContainText(taken);
+      await expect(page.getByLabel('Name of the new workspace')).toHaveValue(taken);
+    });
   });
 
   test.describe('managing the account does not take the workspace away', () => {
