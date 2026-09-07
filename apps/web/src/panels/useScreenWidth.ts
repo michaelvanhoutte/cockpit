@@ -7,7 +7,7 @@ import { useCallback, useState, useSyncExternalStore } from 'react';
  * **The screen's width is what a layout is recorded against.** It is what "the
  * current screen width" means in the issue and what a person would answer if
  * asked - "my laptop is 1440" - so it is the number in the question about which
- * layout to change, and the number the automatic choice compares. It stays the
+ * layout to change, and the number a screen is matched on. It stays the
  * window's own width rather than anything measured inside the page, so it goes
  * on meaning the same thing if the page's own furniture ever moves: the Inbox
  * beside the dashboards ("Show the Inbox beside the dashboards instead of as a

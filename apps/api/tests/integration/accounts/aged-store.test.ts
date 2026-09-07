@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
+import type { SqlStorage } from '@cloudflare/workers-types';
 import { accountChanges } from '../../../src/accounts/changes.js';
 import { inStoreAsItIs, startFromEmpty, storeNamed } from '../seed.js';
 
@@ -220,6 +221,14 @@ const rowsFor: {
   },
 ];
 
+/** What a table's columns are called, in the order the store holds them. */
+function columnsOf(sql: SqlStorage, table: string): string[] {
+  return sql
+    .exec<{ name: string }>(`PRAGMA table_info(${table})`)
+    .toArray()
+    .map((column) => column.name);
+}
+
 /** Fills every table the store has, so the outstanding updates meet data rather than emptiness. */
 async function fillWithWhatIsAlreadyThere(name: string): Promise<void> {
   await inStoreAsItIs(name, (sql) => {
@@ -229,14 +238,10 @@ async function fillWithWhatIsAlreadyThere(name: string): Promise<void> {
         .toArray()
         .map((row) => row.name),
     );
-    const hasColumn = (table: string, column: string) =>
-      sql
-        .exec<{ name: string }>(`PRAGMA table_info(${table})`)
-        .toArray()
-        .some((found) => found.name === column);
     for (const row of rowsFor) {
       if (!tables.has(row.table)) continue;
-      const write = row.once && hasColumn(row.table, row.once.column) ? row.once : row;
+      const write =
+        row.once && columnsOf(sql, row.table).includes(row.once.column) ? row.once : row;
       sql.exec(write.sql, ...write.params(name));
     }
   });
@@ -305,6 +310,71 @@ describe('Accounts', () => {
         ]);
       },
     );
+  });
+
+  describe('an item carries the three texts it has and nothing left over from before', () => {
+    /**
+     * The text an Item used to show beside its title lived in `preview` until
+     * its title, the message it was captured from and its description became
+     * three of their own ("Edit an item's title and description on a form of
+     * its own", issue 159). Nothing has read or written it since, and
+     * `0014-drop-item-preview` is the release that takes it away.
+     *
+     * Integration rather than lower down because whether a column exists is a
+     * fact about a real schema, and against a store that already holds items
+     * rather than a new one: it is the only destructive change in the list, and
+     * a drop meeting an empty table would prove nothing about the rows.
+     */
+    it('a store brought fully up to date holds the three and not the fourth, and every item still reads', async () => {
+      const name = 'aged-store-item-texts-only';
+      await agedTo(name, justBefore('0014-drop-item-preview'));
+      await fillWithWhatIsAlreadyThere(name);
+
+      // Opening the store is what applies it, as the first request of the day
+      // does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      // The three are asked for as well as the fourth, so that a `table_info`
+      // answering about nothing at all - a renamed or rebuilt table - fails
+      // here rather than reading as a column that has gone.
+      const columns = await inStoreAsItIs(name, (sql) => columnsOf(sql, 'items'));
+      expect(columns).toEqual(expect.arrayContaining(['title', 'captured_message', 'description']));
+      expect(columns).not.toContain('preview');
+
+      // Read the way a workspace is read rather than out of the table, because
+      // what the drop could break is `itemColumns` naming a column that is gone
+      // - which only a read through the real query can show.
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok' });
+      expect(
+        snapshot.status === 'ok'
+          ? snapshot.value.items
+              .map((item) => ({
+                id: item.id,
+                title: item.title,
+                capturedMessage: item.capturedMessage,
+                description: item.description,
+              }))
+              // Sorted here because both fixture items were captured at the
+              // same moment and the read orders by that, so SQLite is free to
+              // answer either way round.
+              .sort((one, other) => one.id.localeCompare(other.id))
+          : [],
+      ).toEqual([
+        {
+          id: 'it-before',
+          title: 'Captured before the update',
+          capturedMessage: null,
+          description: null,
+        },
+        {
+          id: 'it-done-before',
+          title: 'Finished before the update',
+          capturedMessage: null,
+          description: null,
+        },
+      ]);
+    });
   });
 });
 

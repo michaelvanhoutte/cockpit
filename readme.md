@@ -2,7 +2,7 @@
 
 The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where). Unscheduled ideas are in [docs/ideas.md](docs/ideas.md) (the maybe).
 
-The showcase is this repository rather than a running instance. Both deployed environments are reachable by anyone who knows the URL, with Cockpit's own sign-in the only thing in the way — a Google account, checked against a register that is the allowlist, so reaching the URL and getting in are two different things. They hold `seed.sql` fixtures, not real mail: no connector has landed yet.
+The showcase is this repository rather than a running instance. Both deployed environments are reachable by anyone who knows the URL, with Cockpit's own sign-in the only thing in the way — a Google account, checked against a register that is the allowlist, so reaching the URL and getting in are two different things. No connector has landed, so nothing arrives on its own, but **both hold real data from 7 September 2026** — put there by hand in production, accumulated by use in staging — and nothing re-seeds, wipes or restores over either: see "The environments" in [docs/deployment.md](docs/deployment.md).
 
 ## Layout
 
@@ -79,23 +79,25 @@ Never fix it by renaming the change back to what the store recorded; that trades
 
 ### Taking a backup, and putting one back
 
-Writes an environment to local JSON — the register, and each account's own store in a file of its own:
+**Once, before the first one:** copy `backup-tokens.example.json` to `backup-tokens.json` — gitignored — and put each environment's own `BACKUP_TOKEN` in it. After that, naming the environment is the whole of what you do: nothing to set, nothing to switch between a staging backup and a production one. What those tokens are and how long they have to be is in [docs/deployment.md](docs/deployment.md) under "Secrets and access".
+
+This writes an environment to local JSON — the register, and each account's own store in a file of its own:
 
 ```bash
-COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env production --out ./backups/2026-09-06
-COCKPIT_BACKUP_TOKEN=... pnpm backup:export --env local --out ./backups/mine --user tenant-default
+pnpm backup:export --env production --out ./backups/2026-09-06
+pnpm backup:export --env local --out ./backups/mine --user tenant-default
 ```
 
-The secret is the environment's own `BACKUP_TOKEN`, which is what the operator routes are behind; locally it comes from `apps/api/.dev.vars` (copy `.dev.vars.example`). Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
+Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
 
 Putting one back is the same shape, and is the half that destroys something:
 
 ```bash
-COCKPIT_BACKUP_TOKEN=... pnpm backup:restore --env local --from ./backups/2026-09-06
-COCKPIT_BACKUP_TOKEN=... pnpm backup:restore --env local --from ./backups/mine --user tenant-default --force
+pnpm backup:restore --env local --from ./backups/2026-09-06
+pnpm backup:restore --env local --from ./backups/mine --user tenant-default --force
 ```
 
-**A restore replaces an account; it never merges into one**, and what that costs you — when it refuses, what has to be typed before a deployed environment is written to, and what is true if a run stops partway — is in [docs/deployment.md](docs/deployment.md), under "Migrations and rollback". Read it before pointing this at anything but `local`.
+**A restore replaces an account; it never merges into one**, and what that costs you — when it refuses, what has to be typed before a deployed environment is written to, and what is true if a run stops partway — is in [docs/deployment.md](docs/deployment.md), under "Migrations and rollback". Read it before pointing this at anything but `local`: both deployed environments hold real data, so a restore into either replaces something that has no other copy.
 
 ### Tidying up branches
 
@@ -164,12 +166,12 @@ Two different things get called "our automation": what is **checked into this re
 
 | Workflow | Fires on | What it does |
 |---|---|---|
-| [CI](.github/workflows/ci.yml) | every push, and pull requests to `main` | Six parallel jobs, so a failure names itself. `Typecheck`, `Test`, `E2E (F3)`, `Build` and `Scripts` are five of the eight contexts the branch-protection payload lists (the other three are CodeQL's); `Test Explorer` publishes a report and deliberately does not gate. `E2E (F3)` installs Chromium and runs the browser tier against the same isolated local stack you get locally, keeping failure traces as an artifact. `Scripts` runs the unit tests for `scripts/lib/`, because a silent change in the test stack's guards would let a run start against a database it did not create, and one in the review gate would let a non-review ship green. A branch with an open pull request is checked twice, once per event: `push` covers a branch with no pull request, `pull_request` covers the merge result. |
+| [CI](.github/workflows/ci.yml) | every push, and pull requests to `main` | Six parallel jobs, so a failure names itself, and a seventh that waits on one of them. `Typecheck`, `Test`, `E2E (F3)`, `Build` and `Scripts` are five of the eight contexts the branch-protection payload lists (the other three are CodeQL's); `Test Explorer` publishes a report and deliberately does not gate, and `Publish` puts that report on [GitHub Pages](https://michaelvanhoutte.github.io/cockpit/) from `main` only. `E2E (F3)` installs Chromium and runs the browser tier against the same isolated local stack you get locally, keeping failure traces as an artifact. `Scripts` runs the unit tests for `scripts/lib/`, because a silent change in the test stack's guards would let a run start against a database it did not create, and one in the review gate would let a non-review ship green. A branch with an open pull request is checked twice, once per event: `push` covers a branch with no pull request, `pull_request` covers the merge result. |
 | [CodeQL](.github/workflows/codeql.yml) | pushes and pull requests to `main` | Two legs: `javascript-typescript` over the application sources, and `actions` over the workflow files — where this repository's own risk sits, since its workflows run Claude against an OAuth token and check out pull request branches. Both read the sources directly (`build-mode: none`). No path filters, deliberately: a required check that is skipped never reports, and a pull request waits on it forever. Superseded pull request runs are cancelled; runs on `main` are not, being the baseline every pull request is compared against. |
 | [Claude Code Review](.github/workflows/claude-code-review.yml) | pull request opened, pushed to, reopened, ready for review — but never while it is a draft | Runs the `code-review` plugin command and posts findings as inline comments. A second step asserts the review *actually ran* — see below. A draft's pushes cost CI alone, and marking it ready fires the review once against the finished head; superseded runs are cancelled, so pushing twice in a minute leaves one review, not two. |
 | [Claude Security Review](.github/workflows/claude-security-review.yml) | same | A security pass over the diff, scoped by [.github/security-review-instructions.md](.github/security-review-instructions.md) to this project's own rules. CodeQL is the mechanical half and this is the judgement half, so the instructions say not to re-derive what CodeQL reports. The run must end with a one-line verdict naming the highest severity found; the check goes red when that line is missing or names the top severity. Skipped on pull requests from forks — see below. |
 | [Claude Code](.github/workflows/claude.yml) | `@claude` in an issue, comment or review | Hands that comment to Claude with read access to the repository and CI results. |
-| [Deploy staging](.github/workflows/deploy-staging.yml) | every commit on `main`, plus manual re-runs | The same gate, then migrate and deploy, then assert `/health`. Never re-seeded: accumulated data is the point of staging. |
+| [Deploy staging](.github/workflows/deploy-staging.yml) | every commit on `main`, plus manual re-runs | The same gate, then migrate and deploy, then assert `/health`. Never re-seeded and never wiped: the accumulated data is real, and old rows are what prove a migration still reads them. |
 | [Promote to production](.github/workflows/deploy-production.yml) | manual only, with an optional commit SHA | Refuses any commit that is not an ancestor of `origin/main`; then re-runs the full gate against that tree, migrates, deploys, and verifies `/health`. |
 
 The three workflows that need a toolchain — CI and the two deploys — share [`.github/actions/setup`](.github/actions/setup/action.yml), so the pnpm version, the Node version and the frozen-lockfile install are declared once.

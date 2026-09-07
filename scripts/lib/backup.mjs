@@ -12,7 +12,7 @@
 // rather than a filter.
 //
 
-import { readAnswer, readFlags } from './operator.mjs';
+import { readAnswer, readEnvironment, readFlags } from './operator.mjs';
 
 /** Where each environment answers. Production and staging are Workers of their own. */
 const WORKERS = Object.freeze({
@@ -32,15 +32,16 @@ export function addressOf(environment, { subdomain, apiPort } = {}) {
     if (!apiPort) throw new Error('the local address needs the port pnpm dev is on');
     return `http://localhost:${apiPort}`;
   }
+  // Reached only by something that did not read its arguments through
+  // `readArguments`, which checks this first - kept so the name is refused
+  // wherever it arrives, and calling the same function so there is one message
+  // rather than two that drift.
+  readEnvironment(environment);
   const worker = WORKERS[environment];
-  if (!worker) {
-    throw new Error(
-      `no environment ${environment} - it is one of local, staging or production`,
-    );
-  }
   if (!subdomain) {
     throw new Error(
-      `backing up ${environment} needs CLOUDFLARE_WORKERS_SUBDOMAIN, the workers.dev subdomain it is served from`,
+      `reaching ${environment} needs the workers.dev subdomain it is served from: put it in ` +
+        'backup-tokens.json as "subdomain", or set CLOUDFLARE_WORKERS_SUBDOMAIN',
     );
   }
   return `https://${worker}.${subdomain}.workers.dev`;
@@ -58,6 +59,7 @@ export function readArguments(argv) {
     takes: { '--env': 'environment', '--out': 'out', '--user': 'user' },
   });
   if (!args.environment) throw new Error('--env says which environment to back up');
+  readEnvironment(args.environment);
   if (!args.out) throw new Error('--out says where to write the backup');
   return args;
 }
@@ -75,7 +77,7 @@ export function readArguments(argv) {
  * whole one, discovered on the day somebody needs it.
  */
 export async function takeBackup({ ask, files, out, only, environment, now = () => new Date() }) {
-  const register = await ask('/v1/admin/backup/register');
+  const register = await ask('/v1/operator/backup/register');
   readRegister(register);
   const accounts = only ? [only] : register.accounts;
 
@@ -90,7 +92,7 @@ export async function takeBackup({ ask, files, out, only, environment, now = () 
   const staged = await files.stage(out);
   const taken = [];
   for (const account of accounts) {
-    const file = await ask(`/v1/admin/backup/accounts/${encodeURIComponent(account)}`);
+    const file = await ask(`/v1/operator/backup/accounts/${encodeURIComponent(account)}`);
     readAccountFile(file, account);
     await files.write(`${staged}/accounts/${nameAsAFile(account)}.json`, file);
     taken.push({ account, changesApplied: file.changesApplied, rows: countRows(file.tables) });

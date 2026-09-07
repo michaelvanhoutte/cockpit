@@ -1,5 +1,6 @@
 import { check, index, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
+import type { Role } from '@cockpit/shared';
 
 /**
  * The register, in D1: which accounts exist, who the users are and which of
@@ -84,11 +85,12 @@ function isTimestamp(column: string) {
  * and by nothing else, and every account query downstream is already addressed
  * by that name.
  *
- * **`role` is carried and never enforced**, deliberately ("Sign in by picking a
- * name, each user in their own account", issue 86). There is no admin-only page
- * to guard yet, so there is nothing to test a gate against; putting the column
- * in now is what stops role logic being retrofitted through every query later.
- * The first admin-only page brings the check and the first test of it.
+ * **`role` decides who can open the admin pages** ("See who can sign in, on a
+ * page only an admin can open", issue 230), which is `auth/admin.ts` and is the
+ * only thing that reads it. It was carried unenforced from "Sign in by picking
+ * a name, each user in their own account" (issue 86) so that role logic would
+ * not have to be retrofitted through every query later - the bet that turn
+ * made, and the gate arrived without a migration behind it.
  *
  * **There is no secret on a user, and there will not be one.** Google-only and
  * passwordless means no password storage, no reset flow and no email
@@ -113,7 +115,11 @@ export const users = sqliteTable(
     accountId: text('account_id')
       .notNull()
       .references(() => tenants.id),
-    role: text('role').notNull(),
+    // Typed as the two roles there are, which the CHECK below already enforces:
+    // the constraint is what makes it true and this is what lets the compiler
+    // know, so a read of this column does not widen to `string` on its way into
+    // the contract.
+    role: text('role').$type<Role>().notNull(),
     /**
      * The address of the Google account this person signs in with, which is
      * what decides whether they are allowed in at all: the register is the

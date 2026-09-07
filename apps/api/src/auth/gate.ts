@@ -1,8 +1,8 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Env } from '../env.js';
-import { isAdminPath } from './admin.js';
 import type { Attempt } from './oidc.js';
+import { MOVED_OPERATOR_PREFIXES, isOperatorPath } from './operator.js';
 import { extendSession, sessionHeld, type Visitor } from './register.js';
 import { recogniseSession, SIGN_IN_LIFETIME_MS } from './session.js';
 
@@ -115,42 +115,47 @@ export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
 ];
 
 /**
- * The one prefix outside the gate, and the only thing here that is not an exact
- * path: **webhook ingress is called by Slack, Gmail and the rest**, which can
- * never hold a session cookie, so a sign-in is the wrong question to ask of it.
- * What authenticates a delivery is the connector's own signature verification
+ * The first of the prefixes outside the gate, and the only one this file owns:
+ * **webhook ingress is called by Slack, Gmail and the rest**, which can never
+ * hold a session cookie, so a sign-in is the wrong question to ask of it. What
+ * authenticates a delivery is the connector's own signature verification
  * (architecture, "Connectors"), which lives behind this route and not in front
  * of it.
  *
  * It has to be a prefix because the path carries the connector's id and
- * whatever the source appends after it. That is deliberately the only one: the
- * gate stands in front of everything it has not been told about, so a route
- * added later is refused until somebody decides otherwise, rather than open
- * until somebody notices.
+ * whatever the source appends after it. **Every prefix here is one somebody
+ * argued for by name**, and there are three: this, the operator's own, and the
+ * addresses the operator's routes have moved off. The gate stands in front of
+ * everything it has not been told about, so a route added later is refused
+ * until somebody decides otherwise rather than open until somebody notices.
  */
 const INGRESS_PREFIX = '/ingress/';
 
 /**
- * The second prefix, and the same shape of reason: **the operator's commands
- * hold no session cookie**, so a sign-in is the wrong question to ask of them
- * too. What authenticates one is the secret checked in `auth/admin.ts`, which
- * stands in front of this gate rather than behind it.
+ * The other two, and the same shape of reason: **the operator's commands hold
+ * no session cookie**, so a sign-in is the wrong question to ask of them or of
+ * the addresses they have moved off. What authenticates one is the secret
+ * checked in `auth/operator.ts`, which stands in front of this gate rather than
+ * behind it; what the moved addresses answer is a `410` saying where the routes
+ * went, and why that is not the sign-in gate's refusal is argued there.
  *
  * Outside *this* gate is not outside every gate, and that distinction is the
- * whole safety of the line above: `/health` is genuinely open, while these
- * routes are shut to everyone without the secret. Removing the admin gate would
- * therefore not reopen the sign-in gate, it would open these routes to
- * everybody - so the two belong together and neither is a spare.
+ * whole safety of the line above: `/health` is genuinely open, while the
+ * operator's routes are shut to everyone without the secret. Removing the
+ * operator's gate would therefore not reopen the sign-in gate, it would open
+ * those routes to everybody - so the two belong together and neither is a
+ * spare.
  *
- * Imported rather than written again here: two copies of the prefix is a hole
- * that can outlive the gate it was cut for, and one of the two edits is the
- * easy one to forget.
+ * Both imported rather than written again here: two copies of a prefix is a
+ * hole that can outlive the gate it was cut for, and one of the two edits is
+ * the easy one to forget.
  */
 export function isOutsideTheGate(path: string): boolean {
   return (
     PATHS_OUTSIDE_THE_GATE.includes(path) ||
     path.startsWith(INGRESS_PREFIX) ||
-    isAdminPath(path)
+    isOperatorPath(path) ||
+    MOVED_OPERATOR_PREFIXES.some((prefix) => path.startsWith(prefix))
   );
 }
 
@@ -166,7 +171,7 @@ export function isOutsideTheGate(path: string): boolean {
 export function gate(): MiddlewareHandler<GatedEnv> {
   return async (c, next) => {
     // `c.req.path` rather than the raw URL's pathname, so this gate and the
-    // router answer one question with one string - see `auth/admin.ts` for the
+    // router answer one question with one string - see `auth/operator.ts` for the
     // hole the difference opened there. This one failed the safe way round (an
     // escaped `/health` got *more* protection, not less) and is changed anyway,
     // because leaving two spellings of "which path is this" in one directory is

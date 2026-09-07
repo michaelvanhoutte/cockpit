@@ -1,67 +1,64 @@
 import { describe, expect, it } from 'vitest';
-import { isAdminPath, secretAccepted } from '../../../src/auth/admin.js';
+import { isAdminPath, roleOpens } from '../../../src/auth/admin.js';
 
 /**
- * Unit level, because deciding whether a request carries the secret is a
- * decision about two strings and nothing else - no store, no register, no
- * request. It is split out of the middleware precisely so the state that
- * matters most can be asked at all: an environment where the secret was never
- * put in, which the integration tier cannot express because its bindings always
- * have one.
+ * Unit level: what the role opens is a decision about a path and a word, with
+ * no request, no register and no session behind it. The integration suite
+ * proves the gate is *wired* - that a real request is refused or let through -
+ * and it can only ask that of addresses something actually answers. This asks
+ * the half it cannot: an address under the prefix that no route serves, where
+ * being refused and there being nothing there look identical from outside.
  */
-
-describe('Backup', () => {
-  describe('backing up is refused to anyone without the operator’s secret', () => {
-    const secret = 'the-operator-secret';
-
+describe('User management', () => {
+  describe('the admin pages are the only addresses a role stands in front of', () => {
     it.each([
-      { situation: 'the right secret', offered: `Bearer ${secret}`, allowed: true },
-      { situation: 'a secret that is not the one set', offered: 'Bearer wrong', allowed: false },
-      { situation: 'nothing at all', offered: undefined, allowed: false },
-      { situation: 'an empty offer', offered: '', allowed: false },
-      { situation: 'the secret without the scheme in front of it', offered: secret, allowed: false },
-      { situation: 'the scheme with nothing after it', offered: 'Bearer', allowed: false },
-      { situation: 'the scheme and only spaces after it', offered: 'Bearer    ', allowed: false },
-      // Schemes are case-insensitive in the specification, so a client that
-      // writes it the other way is not making a mistake.
-      { situation: 'the scheme in other letters', offered: `bearer ${secret}`, allowed: true },
-      { situation: 'somebody else’s scheme', offered: `Basic ${secret}`, allowed: false },
-    ])('$situation', ({ offered, allowed }) => {
-      expect(secretAccepted(offered, secret)).toBe(allowed);
-    });
-
-    /**
-     * The case the whole split exists for. A new environment has no secret in
-     * it until somebody runs `wrangler secret put`, and the two ways that can
-     * go are opposites: shut until it is set, or open until it is set. Nothing
-     * in an integration test can ask this, because its bindings always carry
-     * one.
-     */
-    it.each([
-      { situation: 'the right secret for another environment', offered: `Bearer ${secret}` },
-      { situation: 'no secret', offered: undefined },
-      { situation: 'any secret at all', offered: 'Bearer anything' },
-    ])('an environment with no secret set refuses $situation', ({ offered }) => {
-      expect(secretAccepted(offered, undefined)).toBe(false);
-      expect(secretAccepted(offered, '')).toBe(false);
+      { situation: 'the list of everybody', path: '/v1/admin/users', guarded: true },
+      { situation: 'a page under it nothing serves yet', path: '/v1/admin/users/x', guarded: true },
+      { situation: 'the workspaces a person reads', path: '/v1/workspaces', guarded: false },
+      { situation: 'the health check', path: '/health', guarded: false },
+      { situation: 'the operator’s own routes', path: '/v1/operator/backup/register', guarded: false },
+      // A longer name rather than a path under the prefix - the trap the
+      // sign-in gate's own list is written for, in the other direction: this
+      // one must not be guarded by a role it never reaches.
+      { situation: 'an address that merely starts like one', path: '/v1/administrators', guarded: false },
+      // Under the prefix, and deliberately not guarded: these answer a command
+      // line that holds no session at all, so a role check would refuse them
+      // for having no visitor - the 401 that "Give the operator's routes the
+      // operator's name" (issue 229) exists to stop them getting.
+      {
+        situation: 'where the operator’s routes used to be',
+        path: '/v1/admin/backup/register',
+        guarded: false,
+      },
+      {
+        situation: 'where the operator restored an account',
+        path: '/v1/admin/restore/accounts/tenant-default',
+        guarded: false,
+      },
+    ])('$situation', ({ path, guarded }) => {
+      expect(isAdminPath(path)).toBe(guarded);
     });
   });
 
-  describe('the operator’s routes are the only ones behind the secret', () => {
+  describe('an admin address opens for an admin and for nobody else', () => {
     it.each([
-      { situation: 'backing up the register', path: '/v1/admin/backup/register', behind: true },
-      { situation: 'backing up an account', path: '/v1/admin/backup/accounts/x', behind: true },
-      { situation: 'the workspaces a person reads', path: '/v1/workspaces', behind: false },
-      { situation: 'the health check', path: '/health', behind: false },
-      { situation: 'signing in', path: '/v1/sign-in', behind: false },
-      // Exactly the trap `PATHS_OUTSIDE_THE_GATE` records for `/v1/users`: a
-      // prefix that stops one character early is a hole nobody chose. This one
-      // matters in the opposite direction - a path that merely starts the same
-      // way must not be let past the sign-in gate as though it were behind the
-      // secret.
-      { situation: 'a path that only starts like one', path: '/v1/administrators', behind: false },
-    ])('$situation', ({ path, behind }) => {
-      expect(isAdminPath(path)).toBe(behind);
+      { situation: 'an admin', role: 'admin', opens: true },
+      { situation: 'an ordinary user', role: 'user', opens: false },
+      // Nobody at all. The sign-in gate turns these away first, so this is what
+      // holds if that order is ever changed: no visitor is not an open door.
+      { situation: 'somebody with no role at all', role: undefined, opens: false },
+      { situation: 'a role nobody grants', role: 'administrator', opens: false },
+      { situation: 'the role written in other letters', role: 'Admin', opens: false },
+      { situation: 'an empty role', role: '', opens: false },
+    ])('$situation', ({ role, opens }) => {
+      expect(roleOpens('/v1/admin/users', role)).toBe(opens);
+    });
+
+    it.each([
+      { situation: 'an ordinary user', role: 'user' },
+      { situation: 'nobody at all', role: undefined },
+    ])('lets $situation past an address the role does not guard', ({ role }) => {
+      expect(roleOpens('/v1/workspaces', role)).toBe(true);
     });
   });
 });

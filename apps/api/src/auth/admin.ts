@@ -1,92 +1,81 @@
 import type { MiddlewareHandler } from 'hono';
-import type { Env } from '../env.js';
+import { ADMIN, type Role } from '@cockpit/shared';
+import { MOVED_OPERATOR_PREFIXES } from './operator.js';
+import type { GatedEnv } from './gate.js';
 
 /**
- * The gate in front of the operator's routes, which is a secret rather than a
- * sign-in.
+ * The gate in front of the admin pages, which is a role rather than a secret -
+ * and the first thing in this application to enforce one ("See who can sign in,
+ * on a page only an admin can open", issue 230).
  *
- * **Why not the signed-in user's role.** Every user carries `user` or `admin`
- * already, and this would be the first thing to enforce it - but a role is
- * carried by a session, and whoever calls these holds none. They are a
- * command-line tool: there is no browser to send to Google and back, so the
- * sign-in these routes would have to check is one their caller cannot obtain.
+ * **It is not the operator's gate and does not substitute for it**, which the
+ * architecture has said since the operator's routes were built: a role is
+ * carried by a session, and the command line behind `/v1/operator/` holds none.
+ * Which prefix is behind which gate is written once, in `auth/operator.ts`.
  *
- * That reason survived the sign-in changing under it. This was first written
- * when signing in meant picking a name off a list, and the argument then was
- * that a role gate would put every account's data one click from anyone who
- * reached the URL. Google sign-in has since landed ("Sign in with Google, and
- * retire the list of names", issue 196) and that argument is gone, while the
- * answer is the same one: a secret is what a caller with no session can carry.
- *
- * **An environment with no secret answers nothing here.** Absent is refused the
- * same as wrong, so forgetting to put the secret in a new environment leaves
- * the routes shut rather than open - the failure worth having, since the other
- * way round is silent.
- */
-
-/**
- * Everything behind the operator's secret. A prefix, because the routes under
- * it are addressed by account name.
- *
- * It is named in `gate.ts` as standing outside the sign-in gate, for the same
- * reason webhook ingress does: whoever calls it holds no session cookie and
- * never will. The two gates are not alternatives - what is outside one is
- * inside the other, and this prefix is only outside the first because this is
- * in front of it.
+ * **Behind the sign-in gate rather than beside it.** Everything here needs a
+ * visitor before it can have a role, so this reads what `gate()` left on the
+ * request and never the register again: one read of a person per request, and
+ * no way for the two gates to disagree about who is asking.
  */
 export const ADMIN_PREFIX = '/v1/admin/';
 
+/**
+ * The one role that opens the admin pages, taken from the contract rather than
+ * written again: the browser compares against the same word to decide what to
+ * offer, and two spellings of it is a door that is offered and then refused.
+ */
+export const ADMIN_ROLE: Role = ADMIN;
+
+/**
+ * Whether this is an address the role guards.
+ *
+ * **The addresses the operator's routes moved off are under this prefix and are
+ * not guarded**, because they are outside the sign-in gate entirely and answer
+ * `410` to a command line that holds no session. Sending them through a role
+ * check would refuse them for having no visitor - a 401 telling `pnpm
+ * backup:export` to sign in, which is exactly the answer issue 229 removed.
+ */
 export function isAdminPath(path: string): boolean {
+  if (MOVED_OPERATOR_PREFIXES.some((prefix) => path.startsWith(prefix))) return false;
   return path.startsWith(ADMIN_PREFIX);
 }
 
 /**
- * Whether a request carries the secret.
+ * What a request may reach, given who is asking.
  *
- * Kept apart from the middleware so every branch is provable without a request
- * (`tests/unit/auth/admin.test.ts`), which is where the cases that matter are:
- * the environment with no secret set, and the header that is present but wrong.
+ * Pure, and separate from the middleware, so every branch is provable without a
+ * request (`tests/unit/auth/admin.test.ts`) - and so the answer for "signed in,
+ * but not an admin" is written once rather than inferred from a 401 somewhere.
  *
- * The comparison is not constant-time, and does not need to be: this is one
- * `fetch` per attempt across the internet against a secret with far more
- * entropy than a timing side channel on a string compare could recover.
+ * **`string` rather than `Role`, deliberately**, though every caller hands it a
+ * `Role`: what the column holds is asserted at compile time (`db/schema.ts`)
+ * and guaranteed at runtime by a CHECK, and this is the thing that has to hold
+ * if either is ever wrong - a row edited by hand, a migration that widened the
+ * constraint. Narrowing the parameter would also make the cases that prove a
+ * junk value opens nothing impossible to write.
  */
-export function secretAccepted(offered: string | undefined, expected: string | undefined): boolean {
-  if (!expected) return false;
-  if (!offered) return false;
-  return bearerToken(offered) === expected;
-}
-
-/** `Authorization: Bearer <secret>`, and nothing else counts. */
-function bearerToken(header: string): string | null {
-  const [scheme, ...rest] = header.split(' ');
-  if (scheme?.toLowerCase() !== 'bearer') return null;
-  const token = rest.join(' ').trim();
-  return token.length > 0 ? token : null;
+export function roleOpens(path: string, role: string | undefined): boolean {
+  if (!isAdminPath(path)) return true;
+  return role === ADMIN_ROLE;
 }
 
 /**
- * Refuses anything under the prefix that did not arrive with the secret.
+ * Refuses an admin address to anybody whose role is not `admin`.
  *
- * The refusal says nothing about which of the two it was - no secret set here,
- * or the wrong one offered - because the difference is only useful to somebody
- * guessing.
+ * **A 403 rather than a 404.** Whoever reaches here is signed in and known -
+ * the sign-in gate has already turned everyone else away - so hiding that the
+ * address exists buys nothing against them, while a plain refusal is something
+ * the app can draw. What it does not say is who *is* an admin.
  *
- * **`c.req.path`, never `new URL(c.req.url).pathname`.** The two differ:
- * `pathname` keeps percent-escapes, while the router decodes them before
- * matching - so `/v1/%61dmin/backup/register` reaches the handler registered at
- * `/v1/admin/backup/register` while a raw-path check says it is not an admin
- * path at all, and waves it through with no secret. That was a real hole in
- * this file's first draft, found by the security review and reproduced against
- * a running deployment. A gate has to decide on the same string the router
- * matched on; anything else is two answers to one question.
+ * **`c.req.path`, never the raw URL's pathname**, for the reason
+ * `auth/operator.ts` records at length: the router decodes escapes before
+ * matching, so a gate reading the raw path answers a different question than
+ * the router asked, and `/v1/%61dmin/users` walks through the gap.
  */
-export function adminGate(): MiddlewareHandler<{ Bindings: Env }> {
+export function adminGate(): MiddlewareHandler<GatedEnv> {
   return async (c, next) => {
-    if (!isAdminPath(c.req.path)) return next();
-    if (!secretAccepted(c.req.header('authorization'), c.env.BACKUP_TOKEN)) {
-      return c.json({ error: 'not allowed' }, 401);
-    }
-    return next();
+    if (roleOpens(c.req.path, c.get('visitor')?.role)) return next();
+    return c.json({ error: 'not allowed' }, 403);
   };
 }

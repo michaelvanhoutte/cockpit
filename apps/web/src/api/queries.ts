@@ -10,6 +10,7 @@ import type {
 import {
   fetchItemTypes,
   fetchMe,
+  fetchRegisteredUsers,
   fetchSnapshot,
   fetchWorkspaces,
   sendCommand,
@@ -47,6 +48,20 @@ export const itemTypesQuery = queryOptions({
   queryKey: ['itemTypes'],
   queryFn: fetchItemTypes,
   staleTime: 60_000,
+});
+
+/**
+ * Everyone this Cockpit knows, for the admin page.
+ *
+ * **Not held as long as the others.** A workspace list goes stale when you
+ * change it yourself; this one goes stale when somebody else does, and the
+ * whole point of the page is to show who can currently sign in - so it is
+ * re-read on opening rather than served from a copy taken minutes ago.
+ */
+export const registeredUsersQuery = queryOptions({
+  queryKey: ['registeredUsers'],
+  queryFn: fetchRegisteredUsers,
+  staleTime: 0,
 });
 
 /** The read model: one snapshot per workspace (§5.2), revalidated in the background. */

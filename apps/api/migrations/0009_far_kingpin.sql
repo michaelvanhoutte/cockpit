@@ -12,7 +12,10 @@
 -- admin-only page yet, so a gate here would be a branch no test could ever take
 -- for a real reason; the column exists now so that role logic is in the schema
 -- from the start rather than retrofitted through every query later. The first
--- admin-only page brings the check and the first test of it.
+-- admin-only page brings the check and the first test of it. That page has
+-- since arrived - "See who can sign in, on a page only an admin can open"
+-- (issue 230) - and the column was ready for it, which is what this paragraph
+-- was betting on: the gate landed with no migration behind it.
 --
 -- **There is no secret column, and there will not be one.** A passwordless list
 -- of names is an identity selector, not an authentication control (architecture,

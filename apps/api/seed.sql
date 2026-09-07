@@ -23,17 +23,18 @@ INSERT OR IGNORE INTO tenants (id, name, created_at)
 VALUES ('tenant-default', 'Michael', '2026-08-12T00:00:00.000Z'),
        ('tenant-ada', 'Ada', '2026-09-01T00:00:00.000Z');
 
--- `role` is carried and nothing reads it to decide anything yet; see the
--- migration that added the column for why it is here now rather than later.
+-- `role` decides who can open the admin pages ("See who can sign in, on a page
+-- only an admin can open", issue 230), which is why one of these two is an
+-- admin and the other is not: both answers have to be drivable in a fresh
+-- environment.
 --
 -- **The addresses are placeholders, and unusable on purpose.** This file is in a
 -- public repository, so no real address is in it - and `example.com` is reserved,
--- so no Google account can ever hold one of these. Locally that costs nothing,
--- because signing in does not ask Google who you are yet. Putting a real address
--- on a deployed environment is a step of "Sign in with Google, and retire the
--- list of names" (issue 196), by hand. Until then these addresses do nothing at
--- all: you sign in by picking a name off the logon page, and both of these
--- people are as reachable as they were before the column existed.
+-- so no Google account can ever hold one of these. Locally that costs nothing:
+-- `pnpm dev` signs you in against a stub issuer that answers for any address it
+-- is given (scripts/lib/stub-issuer.mjs). On a deployed environment nobody can
+-- sign in until somebody puts their real address on a row by hand, which is a
+-- step of "A Google OAuth client" in docs/deployment.md.
 --
 -- `google_subject` is left empty for both, because it is not something to decide:
 -- it is what Google says about a person the first time they sign in.

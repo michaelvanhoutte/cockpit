@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -14,12 +14,36 @@ import { Layout } from '../../../src/pages/Layout';
  */
 const A_NAME_THAT_LOOKS_LIKE_MARKUP = '<img src=x onerror=alert(1)>';
 
+/**
+ * What the person the shell is drawn for holds. `vi.mock` is hoisted above
+ * everything, so the mock reads this rather than closing over a value fixed
+ * before a case can set it.
+ */
+let signedInRole = 'user';
+
+// Put back after every case, so a case added later renders the shell for the
+// ordinary user it reads as rather than for whichever role ran last.
+afterEach(() => {
+  signedInRole = 'user';
+});
+
 // The router itself is not under test, and `to`/`params` are its props rather
 // than an anchor's, so they stop here instead of being spread onto the DOM.
+// **Everything else is passed through**, which the real Link also does and this
+// mock once did not: a menu entry renders its Link with `asChild`, so the role
+// that makes it a menu entry arrives as a prop and a mock that dropped it made
+// the entry invisible to a test looking for one.
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
-    <a className={className}>{children}</a>
-  ),
+  Link: ({
+    children,
+    to: _to,
+    params: _params,
+    ...rest
+  }: {
+    children?: React.ReactNode;
+    to?: string;
+    params?: unknown;
+  } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...rest}>{children}</a>,
   Outlet: () => null,
   useParams: () => ({}),
   useNavigate: () => () => Promise.resolve(),
@@ -44,10 +68,11 @@ vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
   useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
   // Signed in, so the shell renders rather than sending itself to the logon
-  // page - which is what this case needs on screen to look at.
+  // page - which is what this case needs on screen to look at. The role is
+  // read per case, because what the menu offers depends on it.
   meQuery: {
     queryKey: ['me'],
-    queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
+    queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael', role: signedInRole } }),
   },
   workspacesQuery: {
     queryKey: ['workspaces'],
@@ -113,6 +138,37 @@ describe('Workspace management', () => {
       // is not the same as the shell having gone.
       const header = container.querySelector('header')!;
       expect(within(header).getByText(A_NAME_THAT_LOOKS_LIKE_MARKUP)).toBeInTheDocument();
+    });
+  });
+});
+
+describe('User management', () => {
+  describe('the way into the admin pages is offered to an admin and to nobody else', () => {
+    /**
+     * Hiding it is a courtesy rather than the guard - the server refuses an
+     * ordinary user who types the address (`auth/admin.ts`) - but a door that
+     * only ever says no is worse than no door, which is what this holds.
+     */
+    it.each([
+      { situation: 'an admin', role: 'admin', offered: true },
+      { situation: 'an ordinary user', role: 'user', offered: false },
+    ])('offers it to $situation: $offered', async ({ role, offered }) => {
+      signedInRole = role;
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await user.click(await screen.findByRole('button', { name: 'Settings' }));
+      // Awaited on something that is always there, so the absent case is a
+      // menu that has finished opening rather than one that has not started.
+      expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
+
+      expect(screen.queryByRole('menuitem', { name: 'Admin' }) !== null).toBe(offered);
     });
   });
 });

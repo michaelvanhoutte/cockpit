@@ -151,26 +151,43 @@ export function layoutsOf(layouts: readonly Layout[], dashboardId: string): Layo
 }
 
 /**
- * The layout a dashboard is drawn with: the one chosen by hand while it is
- * still there, and otherwise the one whose recorded width is closest to this
- * screen.
+ * A layout picked by hand from the menu, and the screen that pick belongs to.
  *
- * A chosen layout that has been deleted falls straight through to the closest
- * remaining one - nothing has to notice the deletion and clear the choice.
+ * **The screen is named by the layout the width rule was landing on, not by a
+ * number**, and that is the whole of why picking one is not a mode you get
+ * stuck in. A width would have to carry a tolerance, and any tolerance is
+ * wrong in both directions at once: opening the devtools takes a few hundred
+ * pixels off a window without changing which screen you are at, while two
+ * monitors can sit close enough together to fall inside the same band. What
+ * actually matters is whether the app would now draw something else - so that
+ * is what is recorded, and the pick lasts exactly as long as the answer it was
+ * overriding.
+ */
+export type LayoutPick = {
+  /** The layout you asked for. */
+  layoutId: string;
+  /** What `nearestLayout` was answering when you asked for it. */
+  whileNearestIs: string;
+};
+
+/**
+ * The layout of this dashboard whose recorded width is closest to this screen -
+ * the app's own answer, before anybody has overridden it.
  *
  * Ties go to the narrower layout. Any tie-break would do; having one is what
  * stops the same dashboard being drawn two ways on two devices of the same
  * width.
  */
-export function layoutToDraw(
+export function nearestLayout(
   layouts: readonly Layout[],
   dashboardId: string,
   screenWidth: number,
-  chosenLayoutId: string | null,
 ): Layout | null {
-  const its = layoutsOf(layouts, dashboardId);
-  const chosen = its.find((layout) => layout.id === chosenLayoutId);
-  if (chosen) return chosen;
+  return nearestOf(layoutsOf(layouts, dashboardId), screenWidth);
+}
+
+/** The same, over a list already narrowed to one dashboard. */
+function nearestOf(its: readonly Layout[], screenWidth: number): Layout | null {
   return its.reduce<Layout | null>((closest, layout) => {
     if (!closest) return layout;
     const near = Math.abs(layout.screenWidth - screenWidth);
@@ -179,6 +196,40 @@ export function layoutToDraw(
     if (near === nearest && layout.screenWidth < closest.screenWidth) return layout;
     return closest;
   }, null);
+}
+
+/**
+ * The layout a dashboard is drawn with: the one nearest this screen, unless you
+ * picked one and the nearest has not changed since ("Layouts follow the screen
+ * you are on").
+ *
+ * **Following the screen is what a layout does, rather than a mode you can be
+ * in.** There used to be an *Automatic* entry above the layouts in the menu,
+ * and the trouble with it was that everything put you off it - making a layout
+ * most of all, which is the one gesture you make on the screen you want a
+ * layout for. Two screens, two layouts, and the dashboard would go on drawing
+ * whichever you made last.
+ *
+ * So a pick is scoped to the screen it was made on and expires by itself. It
+ * holds while the width rule still gives the answer it was overriding, which
+ * covers resizing a window, opening the devtools and unmaximizing, and it is
+ * gone the moment that answer changes - which is what moving to the other
+ * monitor does.
+ *
+ * A picked layout that has been deleted falls straight through to the nearest
+ * remaining one, and so does a pick whose overridden answer has been deleted -
+ * nothing has to notice either deletion and clear the pick.
+ */
+export function layoutToDraw(
+  layouts: readonly Layout[],
+  dashboardId: string,
+  screenWidth: number,
+  pick: LayoutPick | null,
+): Layout | null {
+  const its = layoutsOf(layouts, dashboardId);
+  const nearest = nearestOf(its, screenWidth);
+  if (!pick || nearest?.id !== pick.whileNearestIs) return nearest;
+  return its.find((layout) => layout.id === pick.layoutId) ?? nearest;
 }
 
 

@@ -10,9 +10,8 @@
 //   pnpm backup:restore --env staging --from ./backups/2026-09-06 --force
 //
 // This is the half that destroys something. Restoring over staging or
-// production has to be confirmed by typing the environment's name, because
-// staging is deliberately never re-seeded and production holds the only copy of
-// anything real (docs/deployment.md, "The environments").
+// production has to be confirmed by typing the environment's name, because both
+// hold the only copy of something real (docs/deployment.md, "The environments").
 //
 
 import { readFile, readdir } from 'node:fs/promises';
@@ -29,6 +28,7 @@ import {
   readBackup,
   readRefusal,
 } from './lib/restore.mjs';
+import { readConfig, resolveSubdomain, resolveToken } from './lib/operator-config.mjs';
 import { isLinkedWorktree, portsFor } from './lib/ports.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,23 +43,17 @@ try {
   process.exit(2);
 }
 
-const secret = process.env.COCKPIT_BACKUP_TOKEN;
-if (!secret) {
-  console.error(
-    'COCKPIT_BACKUP_TOKEN is not set. It is the environment’s own BACKUP_TOKEN, the secret\n' +
-      'the operator routes are behind - put one there with `wrangler secret put BACKUP_TOKEN`.',
-  );
-  process.exit(2);
-}
-
+let secret;
 let base;
 try {
+  const config = readConfig(root);
+  secret = resolveToken(args.environment, { config, env: process.env });
   const local =
     args.environment === 'local'
       ? portsFor(root, { linked: isLinkedWorktree(root), env: process.env })
       : {};
   base = addressOf(args.environment, {
-    subdomain: process.env.CLOUDFLARE_WORKERS_SUBDOMAIN,
+    subdomain: resolveSubdomain({ config, env: process.env }),
     apiPort: local.devApi,
   });
 } catch (error) {

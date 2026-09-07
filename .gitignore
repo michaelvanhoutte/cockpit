@@ -2,6 +2,11 @@
 .claude/launch.json
 .claude/worktrees/
 
+# Where the backup commands read each environment's operator token from
+# (backup-tokens.example.json shows the shape). Secrets live in the platform in
+# a deployed environment; this is the local copy that lets a command reach one.
+backup-tokens.json
+
 node_modules/
 dist/
 coverage/

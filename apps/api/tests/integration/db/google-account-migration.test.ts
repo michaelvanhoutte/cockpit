@@ -9,9 +9,9 @@ import { env, applyD1Migrations } from 'cloudflare:test';
  *
  * It is the case none of the other tests in this folder can reach. They start
  * from an empty database with every migration applied, so the backfill has
- * nothing to find and its rows are never exercised at all. Staging is
- * deliberately never re-seeded and production was seeded once by hand
- * (docs/deployment.md, "Bootstrap runbook"), which is exactly why what happens
+ * nothing to find and its rows are never exercised at all. Both deployed
+ * environments hold real data that nothing re-seeds or wipes
+ * (docs/deployment.md, "The environments"), which is exactly why what happens
  * to rows that were already there is worth pinning.
  */
 const AT = '2026-08-12T10:00:00.000Z';

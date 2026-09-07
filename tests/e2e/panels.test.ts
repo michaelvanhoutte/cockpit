@@ -151,14 +151,15 @@ function layoutControl(page: Page) {
 }
 
 /**
- * Opens the layout menu, waits for one entry per layout plus *Automatic*, and
- * closes it again - which is also how these walks wait for a layout to have
- * landed, since the menu is the only place the dashboard says how many it has.
+ * Opens the layout menu, waits for one entry per layout, and closes it again -
+ * which is also how these walks wait for a layout to have landed, since the
+ * menu is the only place the dashboard says how many it has.
  */
 async function expectLayouts(page: Page, made: number, isMobile: boolean): Promise<void> {
   await press(layoutControl(page), isMobile);
-  // One entry per layout, plus the automatic choice at the top.
-  await expect(page.getByRole('menuitemradio')).toHaveCount(made + 1);
+  // One entry per layout and nothing else: the menu lists layouts, there being
+  // no mode to be in ("Layouts follow the screen you are on").
+  await expect(page.getByRole('menuitemradio')).toHaveCount(made);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menuitemradio')).toHaveCount(0);
 }
@@ -246,8 +247,11 @@ test.describe('Panels', () => {
       // a narrower screen draws the same rows narrower rather than re-wrapping
       // them.
       const arranged = await panelsOnScreen(page);
-      const wasWide = page.viewportSize()!.width > 700;
-      await page.setViewportSize({ width: wasWide ? 420 : 1100, height: 800 });
+      // Kept so the walk can come back to it at the end, which is where the
+      // dashboard has to follow it.
+      const firstScreen = page.viewportSize()!.width;
+      const firstLayout = (await layoutControl(page).textContent())!.trim();
+      await page.setViewportSize({ width: firstScreen > 700 ? 420 : 1100, height: 800 });
       await expect.poll(() => panelsOnScreen(page)).toEqual(arranged);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
@@ -274,6 +278,20 @@ test.describe('Panels', () => {
       await chooseRowAction(page, third, 'Move up', isMobile);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
       await expectLayouts(page, 2, isMobile);
+      await expectNoSidewaysScroll(page);
+      await expectTheDashboardFits(page);
+
+      // Back to the screen the first layout was made for, and the dashboard
+      // goes back with it ("Layouts follow the screen you are on"). This is the
+      // whole feature and it is only true in a browser: the width has to
+      // actually change for the window to say so.
+      //
+      // Making the second layout puts you on it, which used to be a pick that
+      // outlived the screen it was made on - so this walk would have found the
+      // narrow arrangement still drawn on the wide screen, and every one of the
+      // two layouts pointless.
+      await page.setViewportSize({ width: firstScreen, height: 800 });
+      await expect(layoutControl(page)).toHaveText(firstLayout);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
     });

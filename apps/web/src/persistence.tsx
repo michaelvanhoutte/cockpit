@@ -59,7 +59,29 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v5';
+export const CACHE_BUSTER = 'v6';
+
+/**
+ * What is worth keeping on disk, which is everything the app paints itself from
+ * and nothing else.
+ *
+ * **The register is the exception, and deliberately.** The admin page's list is
+ * every person's name, address, role and account, and writing it into one
+ * admin's browser would keep other people's addresses there for a week, on a
+ * machine that is not theirs, for a page the admin opens now and then. It is
+ * also the one list whose whole point is being current - somebody removed from
+ * the register must not go on being drawn from a copy - and there is nothing to
+ * paint offline, since the page cannot act without the server anyway.
+ *
+ * Written as what is kept out rather than what is let in, so a query added
+ * later is stored like every other unless somebody decides otherwise.
+ */
+const NOT_STORED: readonly string[] = ['registeredUsers'];
+
+function worthStoring(query: { queryKey: readonly unknown[]; state: { status: string } }): boolean {
+  if (NOT_STORED.includes(String(query.queryKey[0]))) return false;
+  return query.state.status === 'success';
+}
 
 /**
  * The app, painted from the copy the last visit left behind and re-read behind
@@ -88,7 +110,12 @@ export function PaintedFromTheStoredCopy({
   return (
     <PersistQueryClientProvider
       client={client}
-      persistOptions={{ persister, maxAge: CACHE_MAX_AGE_MS, buster: CACHE_BUSTER }}
+      persistOptions={{
+        persister,
+        maxAge: CACHE_MAX_AGE_MS,
+        buster: CACHE_BUSTER,
+        dehydrateOptions: { shouldDehydrateQuery: worthStoring },
+      }}
       onSuccess={() => client.invalidateQueries()}
     >
       {children}

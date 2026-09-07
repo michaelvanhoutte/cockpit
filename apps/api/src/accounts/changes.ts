@@ -58,12 +58,13 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_WORKSPACE_DECIDED,
     ITEM_TEXTS,
     WORKSPACE_INK,
-    // Last, because these are the ones that have not shipped: everything above
-    // is applied in accounts already, and a change that has shipped can never
-    // be reordered any more than it can be edited.
     LAYOUT_NAMES,
     standardTypes(accountId),
     PANEL_ROWS,
+    // Last, because this is the one that has not shipped: everything above is
+    // applied in accounts already, and a change that has shipped can never be
+    // reordered any more than it can be edited.
+    DROP_ITEM_PREVIEW,
   ];
 }
 
@@ -357,8 +358,8 @@ const WORKSPACE_ORDER: Change = {
  *   empty by this change, so the first row any of these constraints ever sees
  *   is one the command handlers wrote.
  * - **What each environment does.** Nothing environment-specific: no seed and
- *   no backfill, so staging (deliberately never re-seeded) and production
- *   (seeded once by hand) both get the same three empty tables. Every account
+ *   no backfill, so staging and production - neither of them ever re-seeded,
+ *   both holding real data - get the same three empty tables. Every account
  *   applies this the next time it is opened, which is the price the account
  *   storage decision records.
  * - **The windows it can be interrupted in.** Two, and both are safe. Before
@@ -762,9 +763,9 @@ const ITEM_WORKSPACE_DECIDED: Change = {
  *   release, which names neither column. *After it runs, with that release
  *   promoted back*, its reads name a subset of the columns that exist, which
  *   SQLite is happy with. The reverse - a release naming a column that is gone -
- *   is what dropping `preview` would cause, which is why that waits for its own
- *   release (deployment, "Migrations and rollback"; "Drop the preview column,
- *   once nothing reads it", issue 161).
+ *   is what dropping `preview` would cause, which is why that got a release of
+ *   its own (deployment, "Migrations and rollback"; `0014-drop-item-preview`
+ *   below).
  */
 const ITEM_TEXTS: Change = {
   name: '0009-item-texts',
@@ -1202,3 +1203,66 @@ function standardTypes(accountId: string): Change {
     ],
   };
 }
+
+/**
+ * The text an Item used to carry beside its title, taken away now that its
+ * title, the message it was captured from and its description are three columns
+ * of their own ("Drop the preview column, once nothing reads it", issue 161).
+ *
+ * **The one destructive change in the list, and the reason it is a release
+ * later than the one that stopped using the column.** `0009-item-texts` left
+ * `preview` where it was; `itemColumns` (repo.ts) names every column it reads,
+ * so a release that dropped it while any deployed release still named it would
+ * fail every Item read outright. Expand-then-contract, and this is the contract
+ * half (deployment, "Migrations and rollback").
+ *
+ * **SQLite will drop this particular column.** `ALTER TABLE ... DROP COLUMN`
+ * (3.35+, and D1 runs 3.37+) refuses one carried by an index, a primary key or
+ * a CHECK, and `preview` is in none: `items_tenant_workspace_status` names
+ * three other columns and every CHECK on `items` names another column. So the
+ * table is altered rather than rebuilt, which `items` could not be anyway -
+ * `associations` and `panel_items` point at it under RESTRICT.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Interrupted partway.** It cannot be. A change's statements and the record
+ *   that they ran commit in one `transactionSync` (store.ts), so a failure
+ *   leaves the column and no record, and the whole change is retried next time
+ *   somebody opens the account. That transaction is load-bearing rather than a
+ *   nicety here, exactly as for the changes that add a column: SQLite has no
+ *   `DROP COLUMN IF EXISTS`, so a drop recorded without having run could never
+ *   be re-run over.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left the column alone. A re-run over a store that somehow no longer had it
+ *   fails loudly with `no such column`, which is the outcome to want: it says
+ *   the ledger and the schema disagree.
+ * - **Rows the new rule rejects.** None, and nothing is lost that was not
+ *   already null. `preview` was only ever written from a `body` field on
+ *   `capture_item` that no front door sent - "Edit an item's title and
+ *   description on a form of its own" (issue 159) replaced it with `message`,
+ *   which goes to `captured_message` - and `seed.sql` creates no items. That is
+ *   a claim read off the code rather than off the data, so the count is taken
+ *   over production's accounts before this is promoted (deployment, "Migrations
+ *   and rollback"); rows that exist are somebody's text and need a decision,
+ *   not a drop.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop, in
+ *   staging and in production alike. No seeding step differs.
+ * - **The windows it can be interrupted in.** One that matters, and it is the
+ *   deploy rather than the database. *Before it runs*: the account is untouched
+ *   and every deployed release reads a subset of the columns it has. *After it
+ *   runs, with a release older than `0009-item-texts` promoted back*: that
+ *   code's `itemColumns` names `preview` and every Item read fails. Which is
+ *   what makes the rollback floor real - a promotion back past "Edit an item's
+ *   title and description on a form of its own" (issue 159) is not recoverable
+ *   by promotion, and needs a restore (deployment, "Migrations and rollback").
+ * - **A backup taken before this.** Restored intact: `restore.ts` replays the
+ *   changes the backup recorded, so `items` is recreated with `preview` and the
+ *   rows go back in as they were. The store then applies this change the next
+ *   time it is opened, which is the same thing it does to every account.
+ */
+const DROP_ITEM_PREVIEW: Change = {
+  name: '0014-drop-item-preview',
+  statements: [{ sql: 'ALTER TABLE `items` DROP COLUMN `preview`' }],
+};

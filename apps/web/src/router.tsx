@@ -19,6 +19,7 @@ import {
 } from './lastVisited';
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
+import { AdminPage } from './pages/AdminPage';
 import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
@@ -303,10 +304,44 @@ const captureRoute = createRoute({
   component: CapturePage,
 });
 
+/**
+ * The admin pages, under the shell and outside every workspace - the same shape
+ * as Capture above and for the same reason: what they are about belongs to no
+ * workspace, so no tab is the one you are on and the page heads itself.
+ *
+ * **Nothing is checked here.** Whether you may see it is the server's answer
+ * (`auth/admin.ts`), and asking the router to decide as well would be a second
+ * place for the two to disagree - with the client's copy being the one an
+ * ordinary user can edit. The page draws the refusal it gets.
+ *
+ * It follows Capture in wanting a workspace to exist, because the shell around
+ * it is drawn from one. An admin whose own account has no workspaces would be
+ * sent to make one first; every account is created with three, so that is the
+ * first-run case rather than an ordinary one.
+ */
+const adminRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/admin',
+  beforeLoad: async ({ context }) => {
+    const { workspaces } = await orTheLogonPage(
+      context.queryClient.ensureQueryData(workspacesQuery),
+    );
+    if (workspaces.length === 0) throw redirect({ to: '/start' });
+  },
+  component: AdminPage,
+});
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   startRoute,
-  appRoute.addChildren([indexRoute, captureRoute, workspaceRoute, inboxRoute, dashboardRoute]),
+  appRoute.addChildren([
+    indexRoute,
+    adminRoute,
+    captureRoute,
+    workspaceRoute,
+    inboxRoute,
+    dashboardRoute,
+  ]),
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {
