@@ -111,10 +111,25 @@ function accountStore() {
  * forgotten here rather than being offered to a register that no longer knows
  * them.
  */
+/**
+ * The accounts a case can bring into being by adding somebody, which the
+ * register alone cannot clear (see `startFromEmpty`). Derived from the names
+ * those cases type, so this list and
+ * tests/integration/http/user-management.test.ts move together.
+ */
+const ADDABLE_ACCOUNTS = ['tenant-anna', 'tenant-anna-2', 'tenant-someone'];
+
 export async function startFromEmpty(): Promise<void> {
   // Every account's store, and the one /health practises on: all of them
   // outlive a case, and there is a case that deliberately breaks each of them.
-  for (const name of [ACCOUNT_NAME, OTHER_ACCOUNT_NAME, PROBE_NAME]) {
+  //
+  // **The stores a case *creates* are here too.** Emptying `tenants` takes the
+  // register row and leaves the store, so an account added by a case goes on
+  // holding its workspaces into the next one - and a case proving that adding
+  // somebody prepares their account would then pass against a store the
+  // previous case prepared. `ADDABLE_ACCOUNTS` is what the add-user cases can
+  // derive; a case that adds a name not on this list has to add it here too.
+  for (const name of [ACCOUNT_NAME, OTHER_ACCOUNT_NAME, PROBE_NAME, ...ADDABLE_ACCOUNTS]) {
     await runInDurableObject(storeNamed(name), (_instance, state) => state.storage.deleteAll());
   }
   await abortAllDurableObjects();

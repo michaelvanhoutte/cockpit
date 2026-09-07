@@ -11,6 +11,25 @@
 //
 
 /**
+ * The environments either command can be pointed at.
+ *
+ * **Checked while the arguments are read, before anything looks a token or an
+ * address up.** Both of those are keyed by this name, so a typo reaching them
+ * is answered in terms of what they wanted rather than what is wrong: asking
+ * for a token first turns `--env prod` into "no token for prod", which sends
+ * somebody to add one for an environment that does not exist.
+ */
+export const ENVIRONMENTS = Object.freeze(['local', 'staging', 'production']);
+
+/** Refuses a name that is not one of them, in the words of the thing they typed. */
+export function readEnvironment(name) {
+  if (!ENVIRONMENTS.includes(name)) {
+    throw new Error(`no environment ${name} - it is one of ${ENVIRONMENTS.join(', ')}`);
+  }
+  return name;
+}
+
+/**
  * The flags a command was given.
  *
  * `takes` names the flags that carry a value, `switches` the ones that are only
@@ -64,11 +83,32 @@ function named(takes, switches) {
  */
 export function readAnswer({ status, body }, extra = {}) {
   if (extra[status]) return extra[status](message(body));
+  // **Two different 401s, and telling them apart is the whole point.** The
+  // operator's gate answers `not allowed`; the *sign-in* gate answers `sign in
+  // to continue`, and this command meets that one when it asks at
+  // `/v1/operator/` of a deployment that predates the address ("Give the
+  // operator's routes the operator's name, and free /v1/admin/ for the admin
+  // section", issue 229). Production lags `main` by design - it is promoted by
+  // hand - so that window is ordinary rather than exotic, and reporting it as a
+  // rejected secret sends an operator to rotate BACKUP_TOKEN when the fix is to
+  // promote.
   if (status === 401) {
+    if (message(body) === 'sign in to continue') {
+      return (
+        'refused: that environment is older than this checkout and has not got the ' +
+        'operator routes at /v1/operator/ yet. Promote it, or run this from a ' +
+        'checkout as old as it is. The secret was never asked for.'
+      );
+    }
+    // Naming both sources rather than picking one: this function is handed a
+    // status and a body and cannot know which supplied the token, so blaming
+    // the file sends a CI run - where the file is deliberately absent and the
+    // variable did the work - to look at something that is not there.
     return (
-      'refused: the operator secret was not accepted. It is BACKUP_TOKEN, set per ' +
-      'environment with `wrangler secret put BACKUP_TOKEN`, and given to this command ' +
-      'as COCKPIT_BACKUP_TOKEN.'
+      'refused: the operator secret was not accepted. It is that environment\'s own ' +
+      'BACKUP_TOKEN, set with `wrangler secret put BACKUP_TOKEN`, and the value this ' +
+      'command sent came from COCKPIT_BACKUP_TOKEN if that is set and from ' +
+      'backup-tokens.json otherwise - so whichever it was has to match.'
     );
   }
   if (status === 404 || status === 400 || status === 409) return `refused: ${message(body)}`;

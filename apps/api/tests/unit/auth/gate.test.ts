@@ -33,16 +33,29 @@ describe('Sign-in', () => {
       },
       {
         // Past *this* gate and into the operator's own, which is a secret
-        // rather than a sign-in (`auth/admin.ts`) - the caller holds no session
-        // cookie and never will. Outside this gate is not open: taking the
-        // admin gate away would not reopen this one, it would open those routes
-        // to everybody.
+        // rather than a sign-in (`auth/operator.ts`) - the caller holds no
+        // session cookie and never will. Outside this gate is not open: taking
+        // the operator's gate away would not reopen this one, it would open
+        // those routes to everybody.
         situation: 'the operator backing up the register',
-        path: '/v1/admin/backup/register',
+        path: '/v1/operator/backup/register',
       },
       {
         situation: 'the operator backing up one account',
-        path: '/v1/admin/backup/accounts/tenant-default',
+        path: '/v1/operator/backup/accounts/tenant-default',
+      },
+      {
+        // Where those routes used to answer. Outside the gate so the `410`
+        // saying they moved can reach the command line asking, which is a
+        // caller that can do nothing with "sign in to continue" ("Give the
+        // operator's routes the operator's name, and free /v1/admin/ for the
+        // admin section", issue 229).
+        situation: 'a command line still asking at the old address',
+        path: '/v1/admin/backup/register',
+      },
+      {
+        situation: 'a command line still restoring one account at the old address',
+        path: '/v1/admin/restore/accounts/tenant-default',
       },
     ])('lets $situation past without a sign-in', ({ path }) => {
       expect(isOutsideTheGate(path)).toBe(true);
@@ -65,10 +78,41 @@ describe('Sign-in', () => {
       },
       {
         // A longer name rather than a path under the prefix. Letting it past
-        // would hand it to neither gate, since the admin gate does not claim it
-        // either - the same trap `/v1/users/anything` above is written for.
+        // would hand it to neither gate, since the operator's gate does not
+        // claim it either - the same trap `/v1/users/anything` above is written
+        // for.
         situation: 'an address that merely starts like the operator’s',
+        path: '/v1/operators',
+      },
+      {
+        // The same trap on the moved prefixes, which are the ones written with
+        // a trailing slash. Drop it - `/v1/admin/backup` rather than
+        // `/v1/admin/backup/` - and these two plausible admin pages fall
+        // outside the gate, which is how a page nobody meant to open gets
+        // opened.
+        situation: 'an admin page whose name starts like a moved one',
+        path: '/v1/admin/backups',
+      },
+      {
+        situation: 'an admin page named after what a moved one restored',
+        path: '/v1/admin/restore-settings',
+      },
+      {
+        // Kept from before the rename. `/v1/admin/` is no longer the operator's
+        // prefix, but a longer name that merely starts like it is still a path
+        // this gate has to hold, and it is the case the old spelling was
+        // written for.
+        situation: 'an address that merely starts like the admin section’s',
         path: '/v1/administrators',
+      },
+      {
+        // The address the admin section is going to. It must stay *behind* this
+        // gate: freeing `/v1/admin/` of the operator's routes moved a prefix
+        // out of the open list, and putting the whole of it back in would open
+        // every admin page to anyone who reached the URL. Only the two subtrees
+        // that answer `410` are outside.
+        situation: 'the admin pages the role check will guard',
+        path: '/v1/admin/users',
       },
       { situation: 'your workspaces', path: '/v1/workspaces' },
       { situation: 'the live updates stream', path: '/v1/events' },

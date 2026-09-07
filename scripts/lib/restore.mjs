@@ -15,7 +15,7 @@
 //     is carrying on and leaving somebody to work out how far it got.
 //
 
-import { readAnswer, readFlags } from './operator.mjs';
+import { readAnswer, readEnvironment, readFlags } from './operator.mjs';
 
 /** What the command was asked to do. */
 export function readArguments(argv) {
@@ -24,6 +24,7 @@ export function readArguments(argv) {
     switches: { '--force': 'force' },
   });
   if (!args.environment) throw new Error('--env says which environment to restore into');
+  readEnvironment(args.environment);
   if (!args.from) throw new Error('--from says which backup to read');
   return args;
 }
@@ -86,7 +87,7 @@ export async function putBack({ ask, backup, only, force, say = () => {} }) {
   for (const account of wanted) {
     try {
       const written = await ask(
-        `/v1/admin/restore/accounts/${encodeURIComponent(account)}${force ? '?force=true' : ''}`,
+        `/v1/operator/restore/accounts/${encodeURIComponent(account)}${force ? '?force=true' : ''}`,
         backup.accounts[account],
       );
       done.push({ account, ...written });
@@ -113,7 +114,7 @@ export async function putBack({ ask, backup, only, force, say = () => {} }) {
   }
 
   try {
-    const register = await ask('/v1/admin/restore/register', registerFor(backup, wanted));
+    const register = await ask('/v1/operator/restore/register', registerFor(backup, wanted));
     return { accounts: done, ...register };
   } catch (error) {
     // **The same progress report, and this is where it matters most.** By now

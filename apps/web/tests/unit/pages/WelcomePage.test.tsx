@@ -7,22 +7,21 @@ import { WelcomePage } from '../../../src/pages/WelcomePage';
 import { WHAT_A_WORKSPACE_IS } from '../../../src/whatThingsAre';
 
 /**
- * F1, and **below the level this would rather be at**. What the question does
- * is rename the workspace an account arrives with and then open it, which is a
- * capability a person uses - so the testing skill wants a browser walk, and
- * there is not one.
+ * F1, for the half a browser walk cannot get at.
  *
- * The reason is the one "Walk the empty-workspace invitation end to end, once
- * the F3 tier can be isolated per spec" (issue 108) already records: the
- * browser tier runs one worker against one shared database, and this question
- * is only asked while an account still holds the single workspace it arrived
- * with. Neither seeded account stays that way - the walks about managing
- * workspaces make them in Michael's, and tests/e2e/sign-in.test.ts makes one in
- * Ada's and says out loud that it has no way to take it back. A walk that
- * arranged the state by deleting another walk's rows is the shape issue 108
- * turned down as dishonest. So this sits here until that isolation exists, and
- * *which* state the app opens on the question in is proved separately and
- * without a browser (tests/unit/welcoming.test.ts).
+ * **A walk does reach it, and only one can.** The question is asked while an
+ * account still holds the single workspace it arrived with, and neither seeded
+ * account stays that way - the walks about managing workspaces make them in
+ * Michael's, and tests/e2e/sign-in.test.ts makes one in Ada's and says out loud
+ * that it cannot take it back. The one untouched account this tier ever sees is
+ * the person *added while it runs*, so that is where the walk lives:
+ * tests/e2e/user-management.test.ts signs her in and finds the question.
+ *
+ * What that walk cannot do is try the answers - it is about somebody being able
+ * to get in at all, and it has an account to leave usable behind it. So naming
+ * the workspace, skipping, and leaving the box empty are here; and *which*
+ * state the app opens on the question in is decided over a list and one
+ * remembered fact, proved without a browser (tests/unit/welcoming.test.ts).
  */
 
 const mutate = vi.fn((_args: unknown, options?: { onSuccess?: () => void }) => {

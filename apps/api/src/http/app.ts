@@ -2,10 +2,13 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
+  addUserSchema,
   commandResultSchema,
   commandSchemas,
-  signedInSchema,
   itemTypeListSchema,
+  registeredUserListSchema,
+  signedInSchema,
+  userAddedSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
   type CommandName,
@@ -23,8 +26,10 @@ import {
   RowsFromAnotherAccountError,
   backUpAccount,
   openAccount,
+  addUser,
   registerContents,
   registeredAccountNames,
+  registeredUsers,
   restoreAccount,
   restoreRegister,
   type AccountBackup,
@@ -32,6 +37,11 @@ import {
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
+import {
+  MOVED_OPERATOR_PREFIXES,
+  OPERATOR_PREFIX,
+  operatorGate,
+} from '../auth/operator.js';
 import {
   attemptHeld,
   forgetAttempt,
@@ -150,14 +160,25 @@ app.use('*', gate());
 /**
  * And the operator's own gate behind it, in front of the routes the sign-in
  * gate deliberately lets past. Registered second so the order reads the way the
- * request travels: the sign-in gate waves `/v1/admin/` through, and this is
+ * request travels: the sign-in gate waves `/v1/operator/` through, and this is
  * what it is waved through *to*. Neither is a spare for the other.
  *
  * **Mounted on the pattern, not on `*`.** The middleware checks the path itself
  * as well, and this says the same thing a second way on purpose: matching here
  * is Hono's own, so the set of requests that reach the operator's routes and
  * the set this stands in front of are decided by one matcher rather than by two
- * that can disagree. They did disagree once - `auth/admin.ts` records how.
+ * that can disagree. They did disagree once - `auth/operator.ts` records how.
+ */
+app.use(`${OPERATOR_PREFIX}*`, operatorGate());
+
+/**
+ * And the admin pages' own gate, which is the `admin` role rather than a secret
+ * ("See who can sign in, on a page only an admin can open", issue 230).
+ *
+ * **After the sign-in gate, not beside it**: it reads the visitor that gate
+ * resolved, so there is one reading of who is asking per request. The addresses
+ * the operator's routes moved off are under this same prefix and are skipped by
+ * `isAdminPath`, since they answer a command line that holds no session at all.
  */
 app.use(`${ADMIN_PREFIX}*`, adminGate());
 
@@ -181,6 +202,20 @@ app.use(`${ADMIN_PREFIX}*`, adminGate());
 for (const path of RETIRED_PATHS) {
   app.all(path, (c) =>
     c.json({ error: 'this address has been retired; the app needs a newer version' }, 410),
+  );
+}
+
+/**
+ * And where the operator's commands used to be answered, saying where they went.
+ *
+ * A different sentence from the one above because a different caller reads it -
+ * a command line rather than a browser - and `auth/operator.ts` is where that
+ * is argued, along with what these prefixes forbid being served under them.
+ * Here rather than in the chain below for the reason the loop above records.
+ */
+for (const prefix of MOVED_OPERATOR_PREFIXES) {
+  app.all(`${prefix}*`, (c) =>
+    c.json({ error: `this address has moved to ${OPERATOR_PREFIX}; update your checkout` }, 410),
   );
 }
 
@@ -267,6 +302,70 @@ const meRoute = createRoute({
     },
     401: {
       description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
+ * Everyone this Cockpit knows, for the admin pages. The role gate in front of
+ * it is what refuses anybody who is not an admin; nothing here re-asks.
+ */
+const adminUsersRoute = createRoute({
+  method: 'get',
+  path: '/v1/admin/users',
+  responses: {
+    200: {
+      description: 'Everyone in the register',
+      content: { 'application/json': { schema: registeredUserListSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
+ * Adding somebody, from the admin page. Behind the same role gate as the list.
+ *
+ * A 409 for a refusal the admin can act on - an address already in the register,
+ * a name that leaves nothing an account could be called - rather than a 400,
+ * which the shape check above already uses for what was typed being unusable as
+ * a request at all.
+ */
+const addUserRoute = createRoute({
+  method: 'post',
+  path: '/v1/admin/users',
+  request: {
+    body: { content: { 'application/json': { schema: addUserSchema } }, required: true },
+  },
+  responses: {
+    201: {
+      description: 'The person, and whether their account was ready',
+      content: { 'application/json': { schema: userAddedSchema } },
+    },
+    // Declared because the shape check answers it (`defaultHook`), and a status
+    // the contract does not name is one the typed client refuses to let the
+    // browser read - which is how this one was found.
+    400: {
+      description: 'Not shaped like a request to add somebody',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    409: {
+      description: 'Refused: the register already holds this, or the name gives no account',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
       content: { 'application/json': { schema: errorSchema } },
     },
   },
@@ -454,8 +553,39 @@ const routes = app
     return c.json({ signedOut: true }, 200);
   })
   .openapi(meRoute, (c) => {
-    const { userId, name } = c.get('visitor');
-    return c.json({ user: { id: userId, name } }, 200);
+    const { userId, name, role } = c.get('visitor');
+    return c.json({ user: { id: userId, name, role } }, 200);
+  })
+  .openapi(adminUsersRoute, async (c) => c.json({ users: await registeredUsers(c.env) }, 200))
+  .openapi(addUserRoute, async (c) => {
+    const { name, email } = c.req.valid('json');
+    const added = await addUser(c.env, { name, address: email }, new Date());
+    if (!added.added) return c.json({ error: added.refused }, 409);
+
+    /**
+     * **The account is opened as they are added**, so a change that will not
+     * apply is met by the admin who added them rather than by that person's
+     * first sign-in - which is the whole reason this happens here rather than
+     * being left to happen naturally.
+     *
+     * After the register and never before it: a store opened for an account
+     * nobody owns is an object nothing can reach, while a person whose account
+     * is not ready simply has it made on their first request.
+     */
+    let accountReady = true;
+    try {
+      await (await openAccount(c.env, added.accountId)).workspaces();
+    } catch (error) {
+      accountReady = false;
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `${added.user.id} was added but their account would not open`,
+          cause: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    return c.json({ user: added.user, accountReady }, 201);
   })
   .openapi(healthRoute, async (c) => {
     const { register, store, failure } = await checkHealth(c.env);
@@ -703,7 +833,7 @@ const routes = app
     return c.json({ error: 'connector ingress not yet wired' }, 501);
   })
   // --- the operator's backup routes ------------------------------------------
-  // Behind the secret in `auth/admin.ts` and outside the sign-in gate, because
+  // Behind the secret in `auth/operator.ts` and outside the sign-in gate, because
   // whoever calls these holds no session cookie. Plain routes rather than
   // `.openapi(...)`, like ingress above: nothing generated from this
   // application's contract calls them, and they are not part of the shape
@@ -713,14 +843,14 @@ const routes = app
   // single call - which is what makes a backup one moment rather than a smear
   // (src/accounts/backup.ts) - and one answer carrying every account would put
   // every account's data in one Worker's memory at once.
-  .get('/v1/admin/backup/register', async (c) => {
+  .get('/v1/operator/backup/register', async (c) => {
     const [register, accounts] = await Promise.all([
       registerContents(c.env),
       registeredAccountNames(c.env),
     ]);
     return c.json({ ...register, accounts }, 200);
   })
-  .get('/v1/admin/backup/accounts/:name', async (c) => {
+  .get('/v1/operator/backup/accounts/:name', async (c) => {
     const accountName = c.req.param('name');
     try {
       return c.json({ account: accountName, ...(await backUpAccount(c.env, accountName)) }, 200);
@@ -746,7 +876,7 @@ const routes = app
   // Restoring, which is the half that destroys something. Accounts go in first
   // and the register after, so a user never exists pointing at a store that has
   // not arrived - the order is the caller's to keep, and the CLI keeps it.
-  .post('/v1/admin/restore/accounts/:name', async (c) => {
+  .post('/v1/operator/restore/accounts/:name', async (c) => {
     const accountName = c.req.param('name');
     if (!accountNameSchema.safeParse(accountName).success) {
       return c.json({ error: `${accountName} cannot be an account's name` }, 400);
@@ -784,7 +914,7 @@ const routes = app
       throw error;
     }
   })
-  .post('/v1/admin/restore/register', async (c) => {
+  .post('/v1/operator/restore/register', async (c) => {
     const read = registerBackupSchema.safeParse(await readJsonBody(c));
     if (!read.success) {
       return c.json({ error: `that is not a register: ${firstProblem(read.error)}` }, 400);

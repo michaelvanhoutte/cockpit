@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Item, ItemType } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
-import { CapturePage } from '../../../src/pages/CapturePage';
+import { CapturePage, NO_WORKSPACE, STILL_READING } from '../../../src/pages/CapturePage';
 import { NO_TYPES } from '../../../src/itemTypes';
 
 /**
@@ -21,35 +21,61 @@ import { NO_TYPES } from '../../../src/itemTypes';
 const held = vi.hoisted(() => ({
   mutate: vi.fn(),
   /**
-   * The types the account holds, which another tab can delete one of - or null
-   * for an answer still in flight, which is not the same thing as none.
+   * The types the account holds, which another tab can delete one of. Three
+   * things that are not each other: a list, `null` for an answer still in
+   * flight, and `PREDATES_TYPES` for a stored copy written before the snapshot
+   * carried the field at all.
    */
-  types: [] as unknown[] | null,
+  types: [] as unknown[] | null | 'the copy predates the field',
   /** The workspaces the account holds, which another tab can delete one of. */
   workspaces: [] as unknown[],
   items: [] as unknown[],
   /** What a capture is refused with, if it is. */
   refuses: null as Error | null,
+  /**
+   * The account's types asked for as a resource of their own, which this page
+   * must not do - so it is a spy that never answers rather than a fixture.
+   */
+  asksForTypesOnTheirOwn: vi.fn(),
 }));
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: held.mutate, isPending: false }),
-  itemTypesQuery: {
-    queryKey: ['itemTypes'],
-    // Never settling is how "the answer has not arrived" is arranged: the page
-    // has to tell that apart from an account with no types.
-    queryFn: () =>
-      held.types === null ? new Promise(() => {}) : Promise.resolve({ itemTypes: held.types }),
-  },
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
   },
+  // Still exported, because the window that manages types reads it - and still
+  // answering nothing, so a page that went back to reading it would draw no
+  // chips rather than quietly pass on a second copy of the same list.
+  itemTypesQuery: {
+    queryKey: ['itemTypes'],
+    queryFn: () => {
+      held.asksForTypesOnTheirOwn();
+      return new Promise(() => {});
+    },
+  },
+  /**
+   * The one read the page makes, carrying the account's types as well as the
+   * items they are ordered by - which is the snapshot's own shape, not this
+   * harness being convenient (packages/shared/src/api/snapshot.ts).
+   *
+   * Never settling is how "the answer has not arrived" is arranged, and a
+   * snapshot without the field is how a copy older than the field is: the page
+   * has to tell both apart from an account with no types.
+   */
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () => Promise.resolve({ items: held.items }),
+    queryFn: () => {
+      if (held.types === null) return new Promise(() => {});
+      if (held.types === PREDATES_TYPES) return Promise.resolve({ items: held.items });
+      return Promise.resolve({ items: held.items, itemTypes: held.types });
+    },
   }),
 }));
+
+/** A stored snapshot from before it carried the account's types. */
+const PREDATES_TYPES = 'the copy predates the field';
 
 const WORK = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' };
 const HOME = { id: 'ws-home', tenantId: 'tenant', name: 'Home', color: '#3f8f78' };
@@ -79,17 +105,20 @@ async function thePage({
   items = [] as Item[],
   cameFrom = 'ws-home',
 }: {
-  /** Null for an account that has not answered what types it has. */
-  types?: ItemType[] | null;
+  /**
+   * Null for an account that has not answered what types it has, and
+   * `PREDATES_TYPES` for a stored copy from before the field.
+   */
+  types?: ItemType[] | null | typeof PREDATES_TYPES;
   items?: Item[];
-  cameFrom?: string | null;
+  cameFrom?: string;
 } = {}) {
   held.types = types;
   held.items = items;
   held.workspaces = [WORK, HOME];
   held.refuses = null;
   localStorage.clear();
-  if (cameFrom) localStorage.setItem('cockpit.last-visited.workspace', cameFrom);
+  localStorage.setItem('cockpit.last-visited.workspace', cameFrom);
 
   // The real mutation calls back: `onSuccess` is what lists what was captured,
   // and `onError` is what puts the note back and says why.
@@ -106,11 +135,12 @@ async function thePage({
     </QueryClientProvider>,
   );
   // Nothing to choose from until the account's types and workspaces arrive -
-  // or, where it has none, until the row says so. Where the answer never comes
-  // there is nothing to wait for, and the box the note is typed into is what
-  // says the page is drawn.
-  if (types === null) await screen.findByLabelText('What is on your mind?');
-  else if (types.length > 0) await screen.findByRole('button', { name: types[0]!.name });
+  // or, where it has none, until the row says so. Where the answer never comes,
+  // or comes without the field, there is nothing to wait for and the box the
+  // note is typed into is what says the page is drawn.
+  if (types === null || types === PREDATES_TYPES) {
+    await screen.findByLabelText('What is on your mind?');
+  } else if (types.length > 0) await screen.findByRole('button', { name: types[0]!.name });
   else await screen.findByText(NO_TYPES);
   return Object.assign(userEvent.setup(), { client });
 }
@@ -125,6 +155,7 @@ const justCaptured = () => screen.queryAllByRole('listitem');
 describe('Capture', () => {
   beforeEach(() => {
     held.mutate.mockClear();
+    held.asksForTypesOnTheirOwn.mockClear();
   });
 
   describe('the capture page writes down a note, what kind of thing it is, and where it goes', () => {
@@ -170,7 +201,10 @@ describe('Capture', () => {
       await user.click(chip('Read later'));
 
       held.types = [ACTION, THOUGHT];
-      await user.client.invalidateQueries({ queryKey: ['itemTypes'] });
+      // Through the snapshot, which is what a deleted type really goes out
+      // through: changing the types invalidates every workspace's snapshot,
+      // because types are drawn on every row of every list (api/queries.ts).
+      await user.client.invalidateQueries({ queryKey: ['snapshot'] });
       await waitFor(() => expect(screen.queryByRole('button', { name: 'Read later' })).toBeNull());
 
       // Which is what the row now says, rather than nothing being chosen - and
@@ -202,6 +236,32 @@ describe('Capture', () => {
       expect(captured().payload.workspaceDecided).toBe(false);
     });
 
+    /**
+     * The one *chosen* is the case above; this is the one it is captured
+     * **from**, which nobody chose and which the page falls back for in the
+     * same way (`workspaceToCaptureFrom`).
+     *
+     * Reachable while you sit on this page: deleting a workspace that is
+     * neither the last nor the screen behind you leaves you here on purpose
+     * (components/ManageWorkspaces.tsx), and the list comes back without it.
+     * A page holding the deleted one would read a snapshot that is a 404 for
+     * good, so there would be no type to give and the note would go in silence
+     * - which is what this whole change exists to stop.
+     */
+    it('captures against a workspace that is still there when the one it came from is deleted', async () => {
+      const user = await thePage({ cameFrom: 'ws-home' });
+
+      held.workspaces = [WORK];
+      await user.client.invalidateQueries({ queryKey: ['workspaces'] });
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Home' })).toBeNull());
+
+      await user.type(box(), 'Where does this go');
+      await user.keyboard('{Control>}{Enter}{/Control}');
+
+      expect(captured().payload.workspaceId).toBe('ws-work');
+      expect(captured().payload.workspaceDecided).toBe(false);
+    });
+
     it('captures nothing at all for an empty note', async () => {
       const user = await thePage();
 
@@ -217,6 +277,48 @@ describe('Capture', () => {
       await user.keyboard('{Control>}{Enter}{/Control}');
 
       expect(captured().payload.message).toBe('Two lines\nand a second');
+    });
+  });
+
+  /**
+   * The page invites a capture the moment it is on screen - the box is focused
+   * for it - so anything it needs to honour one has to be there by then. The
+   * types were the thing that was not: they were read as a resource of their
+   * own, which nothing ahead of this page fetches, so it arrived after the
+   * page did. The shortcut reaches the form past the disabled button, and
+   * captured nothing while saying nothing ("Find out why the
+   * capture-into-a-named-workspace walk fails intermittently", issue 219).
+   *
+   * That the *route* holds the page back until that snapshot is in hand is
+   * apps/web/tests/unit/router.test.tsx, under the same words.
+   */
+  describe('the capture page is drawn only once it can capture', () => {
+    // The separate read never answers in this file, so a page that went back to
+    // wanting it would have no chips to press and nothing to capture with.
+    it('captures on the first press, without a second answer having arrived', async () => {
+      const user = await thePage();
+
+      expect(held.asksForTypesOnTheirOwn).not.toHaveBeenCalled();
+      await user.type(box(), 'Book the venue deposit');
+      await user.keyboard('{Control>}{Enter}{/Control}');
+
+      expect(captured().payload.message).toBe('Book the venue deposit');
+      expect(captured().payload.typeId).toBe(ACTION.id);
+    });
+
+    /**
+     * A stored copy written before the snapshot carried types is *not known
+     * yet*, which is the one thing "No types yet" must not be said about - the
+     * same distinction the Inbox's row makes of the same field
+     * (components/CaptureForm.tsx).
+     */
+    it('says nothing about an account whose stored copy predates the types', async () => {
+      await thePage({ types: PREDATES_TYPES });
+
+      const row = within(screen.getByRole('group', { name: 'Type' }));
+      expect(row.queryAllByRole('button')).toEqual([]);
+      expect(screen.queryByText(NO_TYPES)).toBeNull();
+      expect(chip('Capture')).toBeDisabled();
     });
   });
 
@@ -310,6 +412,50 @@ describe('Capture', () => {
       expect(row.queryAllByRole('button')).toEqual([]);
       expect(screen.queryByText(NO_TYPES)).toBeNull();
       expect(chip('Capture')).toBeDisabled();
+    });
+
+    /**
+     * The button is disabled through every one of these, so the shortcut is the
+     * way in that arrives - and it used to return having done nothing and said
+     * nothing, which is "Find out why the capture-into-a-named-workspace walk
+     * fails intermittently" (issue 219) itself. Said out loud rather than
+     * swallowed, whichever reason it is.
+     */
+    it.each([
+      { situation: 'the account has none', types: [] as ItemType[], says: NO_TYPES },
+      { situation: 'the workspace is still being read', types: null, says: STILL_READING },
+    ])('says why on the shortcut when $situation, and keeps the note', async ({ types, says }) => {
+      const user = await thePage({ types });
+
+      await user.type(box(), 'Book the venue deposit');
+      await user.keyboard('{Control>}{Enter}{/Control}');
+
+      expect(captured()).toBeUndefined();
+      expect(screen.getByRole('alert')).toHaveTextContent(says);
+      // Still there to try again with, which is what the words promise.
+      expect(box()).toHaveValue('Book the venue deposit');
+    });
+
+    /**
+     * A different answer, not a slower one: with the last workspace gone there
+     * is nowhere to capture *into*, and nothing is being read that could change
+     * that - so "try that again" would be a promise nothing can keep. Reached
+     * by deleting your last workspace elsewhere, since this client is only told
+     * the list changed (`api/useServerEvents.ts`) and nothing sends it anywhere.
+     */
+    it('says there is nowhere to capture into once the last workspace is gone', async () => {
+      const user = await thePage();
+
+      held.workspaces = [];
+      await user.client.invalidateQueries({ queryKey: ['workspaces'] });
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Work' })).toBeNull());
+
+      await user.type(box(), 'Book the venue deposit');
+      await user.keyboard('{Control>}{Enter}{/Control}');
+
+      expect(captured()).toBeUndefined();
+      expect(screen.getByRole('alert')).toHaveTextContent(NO_WORKSPACE);
+      expect(box()).toHaveValue('Book the venue deposit');
     });
   });
 

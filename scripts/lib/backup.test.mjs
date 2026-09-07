@@ -49,7 +49,7 @@ function answering({ register = REGISTER, failOn } = {}) {
     ask: async (path) => {
       asked.push(path);
       if (failOn && path.includes(failOn)) throw new Error(`nothing answered for ${path}`);
-      if (path === '/v1/admin/backup/register') return register;
+      if (path === '/v1/operator/backup/register') return register;
       const account = decodeURIComponent(path.split('/').pop());
       return { account, changesApplied: ['0001-account-schema'], tables: { items: [{ id: 'i1' }] } };
     },
@@ -148,7 +148,7 @@ describe('a backup refuses what it cannot write down faithfully', () => {
   // command rather than as an environment answering oddly.
   it('refuses an answer that is not a backup, and says what it suspects', async () => {
     const ask = async (path) =>
-      path === '/v1/admin/backup/register' ? REGISTER : { please: 'sign in' };
+      path === '/v1/operator/backup/register' ? REGISTER : { please: 'sign in' };
 
     await assert.rejects(
       takeBackup({ ask, files: fakeFiles(), out: 'b', environment: 'staging' }),
@@ -355,6 +355,16 @@ describe('the command refuses what it cannot act on, and says why', () => {
       argv: ['--env', 'staging', '--env', 'production', '--out', 'b'],
       complaint: /--env was given twice/,
     },
+    // Checked here rather than left to whatever looks the name up first. Both
+    // the token and the address are keyed by it, so a typo reaching either is
+    // answered in terms of what that one wanted: `--env prod` once produced
+    // "no token for prod", which sends somebody to add one for an environment
+    // that does not exist.
+    {
+      situation: 'an environment that does not exist',
+      argv: ['--env', 'prod', '--out', 'b'],
+      complaint: /no environment prod - it is one of local, staging, production/,
+    },
   ]) {
     it(`refuses ${situation}`, () => {
       assert.throws(() => readArguments(argv), complaint);
@@ -376,6 +386,15 @@ describe('a refusal says which of the things somebody typed was wrong', () => {
       situation: 'the secret was not accepted',
       answer: { status: 401, body: '{"error":"not allowed"}' },
       says: /BACKUP_TOKEN/,
+    },
+    {
+      // The other 401, and the reason the two are read apart: an environment
+      // promoted before the operator routes moved answers the *sign-in* gate's
+      // refusal, and calling that a rejected secret sends somebody to rotate
+      // BACKUP_TOKEN when the fix is to promote.
+      situation: 'the environment is older than this checkout',
+      answer: { status: 401, body: '{"error":"sign in to continue"}' },
+      says: /older than this checkout/,
     },
     {
       situation: 'no such account',

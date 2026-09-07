@@ -43,7 +43,7 @@ export default defineConfig({
       // and it is set here rather than in a fixture so that every case reaching
       // an operator route has to carry it deliberately. An environment with no
       // secret set is the one state this cannot express, and it is asked at
-      // tests/unit/auth/admin.test.ts instead.
+      // tests/unit/auth/operator.test.ts instead.
       //
       // The rest is what a deployed environment holds as configuration for
       // signing in. The issuer is one no test can reach on purpose: it is faked

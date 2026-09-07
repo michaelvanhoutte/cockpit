@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
+import { ADMIN, DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
@@ -494,6 +494,22 @@ function TheShell() {
               >
                 Manage types
               </DropdownMenu.Item>
+              {/* A link rather than an entry that opens a window, and the only
+                  one here: the admin pages are about the environment rather
+                  than this account, so there is no workspace to keep behind
+                  them and an address of their own is what a screen has ("See
+                  who can sign in, on a page only an admin can open", issue
+                  230).
+
+                  **Offered to an admin only, and that is a courtesy rather
+                  than the guard.** What refuses an ordinary user is the server
+                  (auth/admin.ts); hiding the entry just keeps a door in front
+                  of them that only ever says no. */}
+              {me?.user.role === ADMIN && (
+                <DropdownMenu.Item asChild className={menuItemClass}>
+                  <Link to="/admin">Admin</Link>
+                </DropdownMenu.Item>
+              )}
               {/* Who you are, and the way out. Both in the menu rather than on
                   the bar: the tabs are the thing you use all day and the header
                   is already full on a phone, while this is read once when you

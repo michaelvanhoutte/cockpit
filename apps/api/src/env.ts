@@ -33,7 +33,7 @@ export interface Env {
    * routes. Optional in the type because it is a secret rather than a binding:
    * an environment that has not had one put in it must refuse those routes
    * outright rather than fail to compile, since every *other* route has to go
-   * on working (`src/auth/admin.ts`).
+   * on working (`src/auth/operator.ts`).
    *
    * Set per environment, both of them, because secrets are not inheritable:
    * `wrangler secret put BACKUP_TOKEN` and again with `--env staging`.

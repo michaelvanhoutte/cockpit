@@ -9,8 +9,10 @@ import type {
 } from '@cockpit/shared';
 import {
   CommandRefused,
+  addUser,
   fetchItemTypes,
   fetchMe,
+  fetchRegisteredUsers,
   fetchSnapshot,
   fetchWorkspaces,
   sendCommand,
@@ -49,6 +51,36 @@ export const itemTypesQuery = queryOptions({
   queryFn: fetchItemTypes,
   staleTime: 60_000,
 });
+
+/**
+ * Everyone this Cockpit knows, for the admin page.
+ *
+ * **Not held as long as the others.** A workspace list goes stale when you
+ * change it yourself; this one goes stale when somebody else does, and the
+ * whole point of the page is to show who can currently sign in - so it is
+ * re-read on opening rather than served from a copy taken minutes ago.
+ */
+export const registeredUsersQuery = queryOptions({
+  queryKey: ['registeredUsers'],
+  queryFn: fetchRegisteredUsers,
+  staleTime: 0,
+});
+
+/**
+ * Adding somebody, and re-reading the list once they are in.
+ *
+ * The list is invalidated rather than written into: what a person's row says
+ * includes things the server decided - the id derived from their name, the
+ * account they were given - so reading it back is one round trip against
+ * guessing.
+ */
+export function useAddUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: addUser,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
+  });
+}
 
 /** The read model: one snapshot per workspace (§5.2), revalidated in the background. */
 export const snapshotQuery = (workspaceId: string) =>

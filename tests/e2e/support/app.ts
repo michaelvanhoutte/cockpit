@@ -169,6 +169,20 @@ export function uniqueTitle(label: string): string {
 }
 
 /**
+ * A person nobody has added yet: a name and the address they will sign in with.
+ *
+ * **The register is not rebuilt between the two projects.** The stack rebuilds
+ * its storage once per run and then serves `desktop` and `phone` from it, so a
+ * walk that *adds* somebody meets its own leftovers on the second project - the
+ * row already there, already signed in. `uniqueTitle` is the same answer for
+ * item titles; this is it for people, whose address the register keeps unique.
+ */
+export function somebodyNew(label: string): { name: string; address: string } {
+  const tag = crypto.randomUUID().slice(0, 8);
+  return { name: `${label} ${tag}`, address: `${label.toLowerCase()}.${tag}@example.com` };
+}
+
+/**
  * The two people the register is seeded with (apps/api/seed.sql). Each owns an
  * account of their own, and they share nothing.
  */
@@ -231,6 +245,26 @@ export async function signInWithoutSkipping(
     .or(dashboardBar(page))
     .first()
     .waitFor({ state: 'visible' });
+}
+
+/**
+ * The same journey for somebody the seed does not hold - a person added while
+ * the walk was running ("Add a user on the admin page, so a second person no
+ * longer needs SQL", issue 231).
+ *
+ * The issuer offers the seeded addresses as links and any other in a box, which
+ * is what this types into: the address is the walk's own, since it just typed it
+ * into the page that added them.
+ *
+ * **It arranges and does not assert**, unlike `signIn` above: whether somebody
+ * added a moment ago can actually get in is the claim its walk is making, so
+ * waiting for the app here would make that walk prove itself.
+ */
+export async function signInWith(page: Page, address: string, isMobile: boolean): Promise<void> {
+  await page.goto('/signin');
+  await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
+  await page.getByPlaceholder('somebody@example.com').fill(address);
+  await press(page.getByRole('button', { name: 'Continue' }), isMobile);
 }
 
 /**

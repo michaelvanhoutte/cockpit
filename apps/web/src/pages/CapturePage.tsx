@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ItemType, Workspace } from '@cockpit/shared';
-import { itemTypesQuery, snapshotQuery, workspacesQuery } from '../api/queries';
+import { snapshotQuery, workspacesQuery } from '../api/queries';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
 import { NO_TYPES, typesOffered } from '../itemTypes';
@@ -34,30 +34,40 @@ export function CapturePage() {
    * it belongs to none ("Capture something before you know which workspace it
    * belongs to", issue 165). The page has no workspace of its own, so the
    * honest answer is the one you were last in (`lastVisited.ts`).
+   *
+   * **Worked out on every render, against the list as it stands.** The route
+   * asks the same question to know which snapshot to wait for, and that is a
+   * different question: it is answered once, at load. This one has to keep
+   * being answered, because the workspace can go while you sit here - deleting
+   * one that is neither the last nor the screen behind you leaves you on this
+   * page on purpose (components/ManageWorkspaces.tsx), and a frozen answer
+   * would then point at a workspace whose snapshot is a 404, leaving nothing to
+   * capture with and no chip to say so.
    */
   const from = workspaceToCaptureFrom(browserStore(), workspaces);
 
-  const { data: types } = useQuery(itemTypesQuery);
   /**
-   * The workspace you came from, read for its items alone: which types you have
-   * been using is worked out from what you have captured (`itemTypes.ts`), and
-   * this page has no snapshot of its own to work it out from. It is the same
-   * query key the shell already holds, so it costs no request of its own where
-   * you came from a workspace - which is every way of getting here but a typed
-   * address.
+   * The workspace you came from, read for its types *and* its items: one read
+   * for both halves of the Type row, and the same query key the shell already
+   * holds. **Not the account's types as a resource of their own** - nothing
+   * ahead of this page fetches that one, so it arrived after the page was drawn
+   * and left it unable to capture (`CapturePage.test.tsx`, "the capture page is
+   * drawn only once it can capture"). `itemTypesQuery` stays for the window
+   * that manages them, which really is outside every workspace.
    */
   const snapshot = useQuery({ ...snapshotQuery(from ?? ''), enabled: Boolean(from) });
 
-  const known = types?.itemTypes ?? [];
+  const known = snapshot.data?.itemTypes ?? [];
   const offered = typesOffered(known, snapshot.data?.items ?? []);
   /**
    * Whether the account has *said* what types it has, which is not the same as
    * this page having none to show: `?? []` above turns a question still in
    * flight into an empty list, and "No types yet" is a claim about the account
-   * rather than about what has arrived. The same guard the window that manages
-   * them carries, for the same reason (components/ManageTypes.tsx).
+   * rather than about what has arrived. Asked of the field rather than of the
+   * snapshot around it, because a stored copy can predate the field - the same
+   * guard the Inbox's row carries (components/CaptureForm.tsx).
    */
-  const answered = types !== undefined;
+  const answered = snapshot.data?.itemTypes !== undefined;
 
   const [message, setMessage] = useState('');
   /**
@@ -104,10 +114,35 @@ export function CapturePage() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = message.trim();
-    // No type to give it is the one thing that stops a capture here rather than
-    // at the server: with none in the account there is nothing to press, and
-    // the row below says where to make one.
-    if (!trimmed || !from || !chosen) return;
+    // Nothing written is nothing to say anything about.
+    if (!trimmed) return;
+
+    /**
+     * **A capture this page cannot make is said out loud, never swallowed** -
+     * and said as the reason it actually is, because the three do not have the
+     * same answer. The button is disabled through all of them, so it is the
+     * shortcut that arrives here, and it used to return having done nothing and
+     * said nothing: that silence is "Find out why the
+     * capture-into-a-named-workspace walk fails intermittently" (issue 219)
+     * itself, and every fix that only narrows a window leaves the next one
+     * open. The note stays in the box whichever it is, and this is what says
+     * why it is still there.
+     *
+     * **Nowhere to capture into** is the account having no workspace left, not
+     * a read in flight: `from` falls back to the first workspace there is, so
+     * it is only empty when there are none (`lastVisited.ts`). Deleting your
+     * last one from another tab lands you here - this client is told the list
+     * changed and nothing sends you anywhere - and "try again" would be a
+     * promise nothing can keep.
+     */
+    if (!from) {
+      setRefused(NO_WORKSPACE);
+      return;
+    }
+    if (!chosen) {
+      setRefused(answered && offered.length === 0 ? NO_TYPES : STILL_READING);
+      return;
+    }
 
     ask(
       {
@@ -298,6 +333,21 @@ export function CapturePage() {
 
 /** Fixed rather than generated: one heading, and only one of these on a screen. */
 const JUST_CAPTURED = 'just-captured';
+
+/**
+ * What the shortcut says when it arrives before the workspace this captures
+ * from has been read. Names the note as kept, because that is the question
+ * somebody who just pressed it is asking.
+ */
+export const STILL_READING = 'Still reading your workspace — your note is safe, try that again.';
+
+/**
+ * And what it says when there is no workspace to capture into at all. Named
+ * where one is made, the way the types' line names where a type is made, rather
+ * than inviting a retry that cannot come good.
+ */
+export const NO_WORKSPACE =
+  'No workspace to capture into — your note is safe. Make one in Settings → Manage workspaces.';
 
 /**
  * The key that captures, said the way this keyboard says it. A Mac reads ⌘ and
