@@ -493,6 +493,7 @@ describe('Layouts', () => {
     dashboardId: OPEN,
     name: 'Project Falcon',
     kind: 'items',
+    format: 'plain',
     body: '',
     readOnly: false,
   };

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { Component, Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { uuidv7 } from '@cockpit/shared';
 import type { Panel } from '@cockpit/shared';
 import { refusalFrom, useCommand } from '../api/queries';
@@ -6,17 +7,36 @@ import { NOTHING_WRITTEN_HERE, WRITE_HERE } from '../whatThingsAre';
 
 /**
  * What a panel of text holds: prose, written straight onto the dashboard
- * ("Put a panel of text on a dashboard, and write in it", issue 250).
+ * ("Put a panel of text on a dashboard, and write in it", issue 250), drawn as
+ * the characters that were typed or as what they mean ("Format what a panel
+ * says, without making every dashboard pay for an editor", issue 251).
  *
- * **Nothing is saved on a keystroke.** The box reports every change as it
- * happens; this keeps the latest and sends one change once the typing stops,
- * and again on the way out - so a panel left mid-sentence is saved rather than
+ * **Four states out of two answers, and only two of them fetch anything:**
+ *
+ * | | read-only | written in |
+ * |---|---|---|
+ * | **plain** | the characters, as stored | a box |
+ * | **rich** | the words, drawn (`DrawnText`) | the editor |
+ *
+ * Both defaults are the free corner, which is what answers the performance
+ * budget `docs/ideas.md` raised against this feature: a dashboard of panels of
+ * text costs nothing to open, only a panel somebody has formatted fetches a
+ * renderer, and only one they are writing in formatted fetches an editor.
+ *
+ * **Nothing is saved on a keystroke.** Every box here reports as it is typed
+ * in; this keeps the latest and sends one change once the typing stops, and
+ * again on the way out - so a panel left mid-sentence is saved rather than
  * losing the sentence to a timer that never fired.
  *
  * **What is sent is the whole text**, which is what makes the same change sent
  * twice land once and two people typing at once end with the later one's words
  * rather than a merge nobody asked for (`setPanelTextSchema`).
  */
+
+/** Writing formatted text: the editor the item form's description carries. */
+const RichDescription = lazy(() => import('../description/RichDescription'));
+/** Reading it: a fraction of the size, which is why it is a chunk of its own. */
+const DrawnText = lazy(() => import('./DrawnText'));
 
 /**
  * How long the typing has to stop before what is there is sent.
@@ -32,6 +52,13 @@ export const QUIET = 700;
 
 export function PanelText({ panel, workspaceId }: { panel: Panel; workspaceId: string }) {
   const command = useCommand();
+  /**
+   * That a chunk did not arrive - an offline cold open, a deploy that moved the
+   * file out from under a stale service worker. Without somewhere to fall back
+   * to, the panel would be blank and what is in it unreachable; the characters
+   * are the same characters either way, so they are what is left.
+   */
+  const [failed, setFailed] = useState(false);
 
   /**
    * What was typed and has not been sent, and the timer that will send it.
@@ -84,6 +111,7 @@ export function PanelText({ panel, workspaceId }: { panel: Panel; workspaceId: s
   );
 
   const refusal = refusalFrom(command);
+  const formatted = panel.format === 'rich' && !failed;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -95,56 +123,160 @@ export function PanelText({ panel, workspaceId }: { panel: Panel; workspaceId: s
           {refusal}
         </p>
       )}
-      {panel.readOnly ? <Reading panel={panel} /> : <Writing panel={panel} onChange={changed} />}
+      {panel.readOnly ? (
+        <Reading panel={panel} formatted={formatted} onFailure={() => setFailed(true)} />
+      ) : (
+        <Writing
+          panel={panel}
+          formatted={formatted}
+          onChange={changed}
+          onFailure={() => setFailed(true)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A panel being read: the words as they were typed, or as what they say. */
+function Reading({
+  panel,
+  formatted,
+  onFailure,
+}: {
+  panel: Panel;
+  formatted: boolean;
+  onFailure: () => void;
+}) {
+  if (!panel.body) {
+    return <p className="px-4 py-3 text-sm text-ink-faint">{NOTHING_WRITTEN_HERE}</p>;
+  }
+  if (!formatted) return <AsTyped body={panel.body} />;
+  return (
+    <WhateverTheChunkDoes onFailure={onFailure}>
+      <Suspense fallback={<AsTyped body={panel.body} />}>
+        <DrawnText body={panel.body} />
+      </Suspense>
+    </WhateverTheChunkDoes>
+  );
+}
+
+/**
+ * A panel being written in: a plain box, or the editor.
+ *
+ * **The editor's toolbar is drawn only while somebody is writing in this
+ * panel.** A formatting bar standing over a dashboard the rest of the time is
+ * chrome for something nobody is doing, and a dashboard of formatted panels
+ * would be a screen of them.
+ */
+function Writing({
+  panel,
+  formatted,
+  onChange,
+  onFailure,
+}: {
+  panel: Panel;
+  formatted: boolean;
+  onChange: (body: string) => void;
+  onFailure: () => void;
+}) {
+  /**
+   * Whether somebody is writing in this panel *now*.
+   *
+   * **State rather than `:focus-within`**, because the bar has to survive its
+   * own controls: pressing bold moves the focus to a button and typing a link's
+   * address moves it to a field, both inside this box, and both pass through a
+   * moment with the focus nowhere. The blur is deferred a tick so the two
+   * halves of that move settle before it is read.
+   */
+  const [writing, setWriting] = useState(false);
+  const leaving = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => void (leaving.current && clearTimeout(leaving.current)), []);
+
+  if (!formatted) {
+    return (
+      <textarea
+        aria-label={panel.name}
+        defaultValue={panel.body}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={WRITE_HERE}
+        // No resize handle: the panel's height is its row's, and a box that could
+        // be dragged taller inside it would be a second answer to a question the
+        // row has already answered.
+        className="min-h-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 text-sm text-ink outline-none placeholder:text-ink-faint"
+      />
+    );
+  }
+
+  return (
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      onFocus={() => {
+        if (leaving.current) clearTimeout(leaving.current);
+        setWriting(true);
+      }}
+      onBlur={() => {
+        if (leaving.current) clearTimeout(leaving.current);
+        leaving.current = setTimeout(() => setWriting(false), 0);
+      }}
+    >
+      <WhateverTheChunkDoes onFailure={onFailure}>
+        <Suspense fallback={<AsTyped body={panel.body} />}>
+          <RichDescription
+            // Built once. It takes `toolbar` as it changes, so clicking into
+            // the panel and out of it never rebuilds the editor - which would
+            // replace what has been typed with what was last stored.
+            initial={panel.body}
+            onChange={onChange}
+            editable
+            label={panel.name}
+            toolbar={writing}
+            fill
+          />
+        </Suspense>
+      </WhateverTheChunkDoes>
     </div>
   );
 }
 
 /**
- * A panel being read: the text as it was typed.
- *
- * `pre` rather than paragraphs, because what is stored is Markdown and this
- * issue draws the characters rather than what they mean - so the line breaks
- * somebody put in are the shape of what they wrote, and `whitespace-pre-wrap`
- * is what keeps them without letting a long line push the panel sideways.
+ * The Markdown as it is stored, which is what plain means - and what is left
+ * where a chunk is on its way or never came.
  */
-function Reading({ panel }: { panel: Panel }) {
-  if (!panel.body) {
-    return <p className="px-4 py-3 text-sm text-ink-faint">{NOTHING_WRITTEN_HERE}</p>;
-  }
+function AsTyped({ body }: { body: string }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       {/* No label of its own: the panel's own region already carries the name,
           and `aria-label` on an element with no role is dropped rather than
-          announced - so a second one here would read as labelling that works
-          and would not. */}
-      <pre className="whitespace-pre-wrap font-sans text-sm text-ink">
-        {panel.body}
-      </pre>
+          announced. */}
+      <pre className="whitespace-pre-wrap font-sans text-sm text-ink">{body}</pre>
     </div>
   );
 }
 
 /**
- * A panel being written in.
- *
- * **`defaultValue`, so the box is the author's once it is open.** A controlled
- * box fed from the snapshot would be rewritten by every re-read that lands
- * while somebody is typing - and the snapshot is re-read on every save, so that
- * is every pause. The text that arrives from elsewhere is taken when the panel
- * is next read, which is what `Reading` above draws.
+ * What happens when a chunk does not arrive. The same boundary the item form's
+ * description carries, and for the same reason: without it the whole board goes
+ * down with it, and a class is still the only thing in React that catches a
+ * render failure.
  */
-function Writing({ panel, onChange }: { panel: Panel; onChange: (body: string) => void }) {
-  return (
-    <textarea
-      aria-label={panel.name}
-      defaultValue={panel.body}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder={WRITE_HERE}
-      // No resize handle: the panel's height is its row's, and a box that could
-      // be dragged taller inside it would be a second answer to a question the
-      // row has already answered.
-      className="min-h-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 text-sm text-ink outline-none placeholder:text-ink-faint"
-    />
-  );
+class WhateverTheChunkDoes extends Component<
+  { children: ReactNode; onFailure: () => void },
+  { broken: boolean }
+> {
+  state = { broken: false };
+
+  static getDerivedStateFromError() {
+    return { broken: true };
+  }
+
+  componentDidCatch() {
+    this.props.onFailure();
+  }
+
+  render() {
+    // Null for the render that catches; the failure is reported up, and the
+    // next render draws the characters instead.
+    return this.state.broken ? null : this.props.children;
+  }
 }

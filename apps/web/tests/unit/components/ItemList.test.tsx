@@ -147,7 +147,7 @@ const RESEARCH: Dashboard = {
 };
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, body: '', readOnly: false };
+  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false };
 }
 
 function aWorkspace(id: string, name: string): Workspace {

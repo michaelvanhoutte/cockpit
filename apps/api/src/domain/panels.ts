@@ -47,6 +47,7 @@ export function firstPanelFor(
     // it is a panel of items - and it holds no text and refuses none, being a
     // panel that has no text to hold.
     kind: 'items',
+    format: 'plain',
     body: '',
     readOnly: false,
     createdAt: dashboard.createdAt,
@@ -109,6 +110,10 @@ export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelR
     name: cmd.name,
     foldedName: foldName(cmd.name),
     kind: cmd.kind,
+    // The characters as typed, until somebody asks for formatting: it is what
+    // costs nothing to draw, and a panel with nothing in it has nothing to
+    // format anyway.
+    format: 'plain',
     body: '',
     /**
      * **Open, and it is the one panel of text that arrives so.** Read-only is

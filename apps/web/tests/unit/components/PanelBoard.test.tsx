@@ -49,6 +49,7 @@ function aPanel(id: string, name: string): Panel {
     dashboardId: 'today',
     name,
     kind: 'items',
+    format: 'plain',
     body: '',
     readOnly: false,
   };
@@ -58,11 +59,12 @@ function aPanel(id: string, name: string): Panel {
 function aPanelOfText(
   id: string,
   name: string,
-  holding: { body?: string; readOnly?: boolean } = {},
+  holding: { body?: string; readOnly?: boolean; format?: 'plain' | 'rich' } = {},
 ): Panel {
   return {
     ...aPanel(id, name),
     kind: 'text',
+    format: holding.format ?? 'plain',
     body: holding.body ?? '',
     readOnly: holding.readOnly ?? false,
   };
@@ -1011,10 +1013,29 @@ describe('Panels', () => {
       );
     });
 
+    it.each([
+      { situation: 'asking for formatting', format: 'plain' as const, entry: 'Use rich text', sends: 'rich' },
+      { situation: 'asking for the characters back', format: 'rich' as const, entry: 'Use plain text', sends: 'plain' },
+    ])('$situation', async ({ format, entry, sends }) => {
+      const { mutate, user } = showBoard({
+        panels: [aPanelOfText('words', 'What matters', { format })],
+      });
+
+      await choose(user, 'What matters', entry);
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_format',
+          payload: expect.objectContaining({ panelId: 'words', format: sends }),
+        }),
+      );
+    });
+
     /**
-     * A panel of items has no text to lock, and an entry that means nothing
-     * where it is offered is worse than one that is not there - which is why
-     * this one is absent rather than unavailable, unlike the moves beside it.
+     * A panel of items has no text to lock and none to draw, and an entry that
+     * means nothing where it is offered is worse than one that is not there -
+     * which is why these are absent rather than unavailable, unlike the moves
+     * beside them.
      */
     it('offers the choice on a panel of text and on no other', async () => {
       const { user } = showBoard({
@@ -1023,10 +1044,12 @@ describe('Panels', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
       expect(screen.queryByRole('menuitem', { name: /read-only|Allow editing/ })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /rich text|plain text/ })).toBeNull();
       await user.keyboard('{Escape}');
 
       await user.click(await screen.findByRole('button', { name: 'Actions for What matters' }));
       expect(await screen.findByRole('menuitem', { name: 'Make read-only' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Use rich text' })).toBeInTheDocument();
     });
   });
 

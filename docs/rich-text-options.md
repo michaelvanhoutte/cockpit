@@ -66,7 +66,7 @@ On mobile all three are comparable — ProseMirror's Android `MutationObserver` 
 
 ## Recommendation
 
-**Milkdown, lazy-loaded behind the item detail dialog, with `react-markdown` for the read-only view.**
+**Milkdown, lazy-loaded behind the item detail dialog, with `react-markdown` for the read-only view.** *(Both landed: Milkdown in "Format a description, and edit its source" (issue 160), and `react-markdown` in "Format what a panel says, without making every dashboard pay for an editor" (issue 251) — where the read-only view is a panel of text rather than a description, and keeping the two apart is what lets a dashboard draw formatted prose without fetching an editor.)*
 
 1. **Markdown is Milkdown's document model, not an export format.** Constraint 2 is the hard one, and Milkdown is the only WYSIWYG candidate that was designed around it — remark parses and prints, ProseMirror only edits in between.
 2. **The growth path is a preset line.** Tables arrive as `@milkdown/preset-gfm`, images are already in `preset-commonmark`, and both round-trip through remark with no serializer written by us. Tiptap costs a package and a serialization rule per feature; Lexical costs a hand-written transformer for tables and a hand-written node *and* transformer for images.

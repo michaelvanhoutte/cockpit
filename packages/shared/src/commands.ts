@@ -10,6 +10,7 @@ import {
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
   layoutNameSchema,
+  panelFormatSchema,
   panelKindSchema,
   panelNameSchema,
   panelTextSchema,
@@ -261,6 +262,19 @@ export const setPanelReadOnlySchema = commandEnvelopeSchema.extend({
   readOnly: z.boolean(),
 });
 export type SetPanelReadOnlyCommand = z.infer<typeof setPanelReadOnlySchema>;
+
+/**
+ * set_panel_format — whether a Panel of text's words are drawn as the
+ * characters that were typed or as what they mean.
+ *
+ * The text itself is untouched: this says how it is drawn, not what it is, so
+ * nothing here can rewrite a word somebody wrote.
+ */
+export const setPanelFormatSchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+  format: panelFormatSchema,
+});
+export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
 
 /**
  * save_layout — one arrangement of a dashboard's panels, whole.
@@ -685,6 +699,7 @@ export const commandSchemas = {
   delete_panel: deletePanelSchema,
   set_panel_text: setPanelTextSchema,
   set_panel_read_only: setPanelReadOnlySchema,
+  set_panel_format: setPanelFormatSchema,
   save_layout: saveLayoutSchema,
   rename_layout: renameLayoutSchema,
   delete_layout: deleteLayoutSchema,

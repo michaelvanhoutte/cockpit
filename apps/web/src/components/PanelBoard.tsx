@@ -181,7 +181,12 @@ export function PanelBoard({
 
   /** The refusal belongs to the control that asked for it. */
   const refusalFor = (
-    what: 'rename_panel' | 'delete_panel' | 'save_layout' | 'set_panel_read_only',
+    what:
+      | 'rename_panel'
+      | 'delete_panel'
+      | 'save_layout'
+      | 'set_panel_read_only'
+      | 'set_panel_format',
     id?: string,
   ) => {
     if (!refusal || command.variables?.name !== what) return null;
@@ -505,6 +510,23 @@ export function PanelBoard({
     });
   };
 
+  /**
+   * What a panel of text's words are drawn as. Nothing is converted: the same
+   * Markdown is stored either way, so this only changes how it is read.
+   */
+  const setFormat = (panelId: string, format: 'plain' | 'rich') => {
+    command.mutate({
+      name: 'set_panel_format',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        panelId,
+        format,
+      },
+    });
+  };
+
   const deletePanel = (panelId: string) => {
     command.mutate(
       {
@@ -654,12 +676,14 @@ export function PanelBoard({
                         }}
                         onMove={(places) => propose(movedBy(shown, panel.id, places))}
                         onReadOnlyChange={(readOnly) => setReadOnly(panel.id, readOnly)}
+                        onFormatChange={(format) => setFormat(panel.id, format)}
                         lifted={dragging?.id === panel.id}
                         onPickUp={(pointerId) => pickUp(panel.id, pointerId)}
                         refusal={
                           refusalFor('rename_panel', panel.id) ??
                           refusalFor('delete_panel', panel.id) ??
-                          refusalFor('set_panel_read_only', panel.id)
+                          refusalFor('set_panel_read_only', panel.id) ??
+                          refusalFor('set_panel_format', panel.id)
                         }
                         busy={command.isPending}
                       />
