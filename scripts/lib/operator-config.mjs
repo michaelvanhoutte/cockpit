@@ -1,0 +1,82 @@
+//
+// Where the backup commands get an environment's secret and address from, so
+// that running one is `pnpm backup:export --env production` and nothing else.
+//
+// **A file rather than an environment variable**, because the variable is the
+// wrong shape for the job: there are three environments and one variable, so
+// every run either sets it or inherits whatever the last run left, and the
+// failure that produces is the worst one available - the right command against
+// the wrong environment's token, which is a refusal, or against the right
+// token and the wrong `--env`, which is not.
+//
+// The file is `backup-tokens.json` in the checkout, gitignored, in the shape
+// `backup-tokens.example.json` shows. It is the same arrangement `.dev.vars`
+// already uses for the Worker's own secrets: a local file git never sees,
+// beside an example that git does.
+//
+// The variable still wins where it is set, which is what CI wants - one
+// environment, one token, nothing on disk.
+//
+
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+/** What the commands need to reach an environment. */
+export const CONFIG_FILE = 'backup-tokens.json';
+
+/**
+ * Reads the file, or nothing where there is none.
+ *
+ * Absent is not an error here: the variable may carry everything needed, and
+ * saying so is `resolveToken`'s job once it knows what it has.
+ */
+export function readConfig(root, { read = readFileSync } = {}) {
+  try {
+    return JSON.parse(read(resolve(root, CONFIG_FILE), 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    if (error instanceof SyntaxError) {
+      throw new Error(`${CONFIG_FILE} is not readable as JSON: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * That environment's token: the variable if it is set, otherwise the file.
+ *
+ * The message when there is neither names both ways rather than the one this
+ * repository prefers, because the two failures are different - somebody in CI
+ * has no file to fix, and somebody at a keyboard has no variable they meant to
+ * set.
+ */
+export function resolveToken(environment, { config, env = {} }) {
+  const fromEnvironment = env.COCKPIT_BACKUP_TOKEN;
+  if (fromEnvironment) return fromEnvironment;
+
+  const fromFile = config?.tokens?.[environment];
+  if (fromFile) return fromFile;
+
+  if (!config) {
+    throw new Error(
+      `No token for ${environment}. Copy ${CONFIG_FILE.replace('.json', '.example.json')} to ` +
+        `${CONFIG_FILE} and put this environment's own BACKUP_TOKEN in it, or set ` +
+        'COCKPIT_BACKUP_TOKEN for a one-off.',
+    );
+  }
+  throw new Error(
+    `${CONFIG_FILE} has no token for ${environment}. It needs the same value as that ` +
+      "environment's own BACKUP_TOKEN.",
+  );
+}
+
+/**
+ * The workers.dev subdomain a deployed environment's address is built from.
+ *
+ * Not a secret - it is in this repository's own documents - and it lives in the
+ * same file only because it is the other thing a command cannot work out for
+ * itself. `local` needs none: it derives its port from the checkout's path.
+ */
+export function resolveSubdomain({ config, env = {} }) {
+  return env.CLOUDFLARE_WORKERS_SUBDOMAIN || config?.subdomain;
+}
