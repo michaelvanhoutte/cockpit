@@ -456,10 +456,10 @@ every ordinary build. The root gains `test:explorer`, `test:explorer:check` and
 `test:coverage` (`pnpm -r test:coverage`).
 
 CI (`.github/workflows/ci.yml`) gains a `Test Explorer` job, independent of `test`,
-`typecheck` and `build` — it needs neither their success nor their output. Four steps in
-this order: `test:explorer:check` (fails the job on `concepts.json` drift), `test:coverage`
-(instrumented), `test:explorer`, then upload. The job itself carries the reasoning; it is
-not repeated here.
+`typecheck` and `build` — it needs neither their success nor their output. In order:
+`test:explorer:check` (fails the job on `concepts.json` drift), `test:coverage`
+(instrumented), `test:explorer`, then the uploads named under "Where the report is
+published" below. The job itself carries the reasoning; it is not repeated here.
 
 The original draft had the job `needs: test` "to reuse the coverage output", which was
 wrong: Actions jobs run in separate VMs, so only an uploaded artifact shares a directory.
@@ -480,7 +480,8 @@ how a pull request's own report is read and the fallback when a deploy fails. Ru
 <https://michaelvanhoutte.github.io/cockpit/> — the tip of `main`, at a fixed URL, without
 signing in.
 
-This settles what this section left open until issue 224. A zipped artifact expiring after
+This settles what this section left open until "Publish the test explorer at a URL, instead
+of a zip you have to download" (issue 224). A zipped artifact expiring after
 90 days is read by finding the run, downloading, unzipping and opening a local file, and
 from the GitHub mobile app not at all, since it has never downloaded an artifact in-app. A
 report regenerated on every merge and read approximately never is worth less than the page
@@ -526,8 +527,9 @@ Rounds 11–12 and the later feedback and review rounds are summarised in "How t
 
 ## 10. Explicitly out of scope
 
-- **Gating CI on report content** (§8).
-- **A persistently published page** (§8).
+- **Gating CI on report content**, per "CLI, scripts, CI" (§8).
+- ~~**A persistently published page.**~~ Built. Merges to `main` publish to GitHub Pages,
+  per "Where the report is published" (§8).
 - **The `describe.todo`/`it.todo` merge-guard.** Related, since todos live in the files
   this tool reads, but it is its own lint or CI rule rather than a rendering concern.
   Worth building next; not blocking this.

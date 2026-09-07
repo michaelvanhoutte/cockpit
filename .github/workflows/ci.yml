@@ -29,6 +29,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Read-only by default, because declaring any permissions block sets every scope
+# not listed to `none` (the same mechanism codeql.yml documents). Without this
+# every job here runs on whatever the repository's default token grants, which
+# is `pages: write` and `contents: write` where the default is read-and-write —
+# held by jobs that run arbitrary package code. `pages` below re-grants itself
+# what it needs, and nothing else in this file gets it.
+permissions:
+  contents: read
+
 jobs:
   # Architecture §9.1 asks for the fast test tiers split one job per tier, so a
   # misplaced test is visible. Today Cockpit is one service with one test file,
@@ -180,16 +189,19 @@ jobs:
 
   # The report from the tip of `main`, at a fixed URL, readable without signing
   # in — which is what a zipped artifact is not, least of all on a phone, where
-  # the GitHub app has never downloaded one in-app (issue 224).
+  # the GitHub app has never downloaded one in-app ("Publish the test explorer
+  # at a URL, instead of a zip you have to download", issue 224).
   #
   # A separate job because `deploy-pages` needs write access to Pages and an
-  # OIDC token, and job-level `permissions` is what keeps that off every other
-  # job in this file. It deploys what `test-explorer` already generated rather
-  # than generating again, so the instrumented suite still runs exactly once.
+  # OIDC token, which the workflow-level block above withholds from everything
+  # else. It deploys what `test-explorer` already generated rather than
+  # generating again, so the instrumented suite still runs exactly once.
   #
   # **Pages must be switched on for the repository** (Settings → Pages →
-  # Source: GitHub Actions). Until it is, this job fails and takes main's CI red
-  # with it.
+  # Source: GitHub Actions), as docs/deployment.md records under "Then, by hand".
+  # Until it is, this job fails and takes main's CI red with it. Not automated
+  # with `configure-pages`'s `enablement`: that input cannot use `GITHUB_TOKEN`
+  # and wants a stored PAT, which is a worse trade than one settings click.
   pages:
     name: Publish
     needs: test-explorer
@@ -203,13 +215,14 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
-    # Deploys queue rather than cancelling each other. It does little on a
-    # merge — the workflow-level group above cancels the whole superseded run,
-    # this job with it — and is here for the deploys that arrive by another
-    # route, a re-run or a dispatch. Either way a lost deploy costs that
-    # commit's page and nothing else: a Pages deployment either replaces the
-    # live one or does not happen, and the next merge publishes the same page
-    # one commit later.
+    # One deploy at a time, and never cancel one that has started — a group
+    # holds only one *pending* job, so a third arrival cancels the second
+    # rather than queueing behind it. It does little on a merge, where the
+    # workflow-level group above already cancels the whole superseded run, this
+    # job with it; it is here for deploys arriving by another route, a re-run or
+    # a dispatch. A lost deploy costs that commit's page and nothing else: a
+    # Pages deployment either replaces the live one or does not happen, and the
+    # next merge publishes the same page one commit later.
     concurrency:
       group: pages
       cancel-in-progress: false
