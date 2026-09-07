@@ -15,6 +15,7 @@ import {
   rememberWorkspace,
   rememberedIn,
   viewToOpen,
+  workspaceToCaptureFrom,
 } from './lastVisited';
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
@@ -103,7 +104,7 @@ const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string)
  * thing being navigated to existed - and the one moment the network is known to
  * be working, since the add just came back.
  */
-const dashboardsOf = (queryClient: QueryClient, workspaceId: string) =>
+const snapshotOf = (queryClient: QueryClient, workspaceId: string) =>
   orTheLogonPage(queryClient.ensureQueryData(snapshotQuery(workspaceId)));
 
 /**
@@ -177,7 +178,7 @@ export const workspaceRoute = createRoute({
   path: '/w/$workspaceId',
   beforeLoad: async ({ context, params }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
-    const { dashboards } = await dashboardsOf(context.queryClient, params.workspaceId);
+    const { dashboards } = await snapshotOf(context.queryClient, params.workspaceId);
     const view = viewToOpen(
       rememberedIn(browserStore(), params.workspaceId),
       dashboards,
@@ -209,7 +210,7 @@ export const inboxRoute = createRoute({
     // on a cold cache - a hard reload, or a link straight to this address -
     // an unread snapshot answers "none", which renders the Inbox here as well
     // as in its column.
-    await dashboardsOf(context.queryClient, params.workspaceId);
+    await snapshotOf(context.queryClient, params.workspaceId);
     // Not on a preload. `defaultPreload: 'intent'` runs this on hover, and
     // remembering a view nobody went to would mean brushing past a tab decides
     // where the workspace opens next time.
@@ -237,7 +238,7 @@ export const dashboardRoute = createRoute({
   path: '/w/$workspaceId/d/$dashboardId',
   beforeLoad: async ({ context, params, preload }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
-    const { dashboards } = await dashboardsOf(context.queryClient, params.workspaceId);
+    const { dashboards } = await snapshotOf(context.queryClient, params.workspaceId);
     if (!dashboards.some((d) => d.id === params.dashboardId)) {
       throw redirect({ to: '/w/$workspaceId', params: { workspaceId: params.workspaceId } });
     }
@@ -273,6 +274,19 @@ export const dashboardRoute = createRoute({
  *
  * With no workspace at all there is nowhere to capture *from*, and the screen
  * that makes one is the invitation, exactly as it is for the address above.
+ *
+ * **It waits for the snapshot of the workspace it captures from**, which is
+ * where the account's types come from - so the page is never drawn unable to
+ * capture (pages/CapturePage.tsx). Free on every way of getting here but a
+ * typed address, because coming from a workspace means the shell already holds
+ * it.
+ *
+ * **Which workspace that is gets asked here and again on the page**, and the
+ * two are not one decision to be made once: this one is "whose snapshot must
+ * be in hand before drawing", answered at load, and the page's is "which
+ * workspace is this capture recorded against", which has to keep being
+ * answered because a workspace can be deleted while you sit there
+ * (pages/CapturePage.tsx).
  */
 const captureRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -281,7 +295,11 @@ const captureRoute = createRoute({
     const { workspaces } = await orTheLogonPage(
       context.queryClient.ensureQueryData(workspacesQuery),
     );
-    if (workspaces.length === 0) throw redirect({ to: '/start' });
+    const from = workspaceToCaptureFrom(browserStore(), workspaces);
+    // No workspace to capture from is an account with none, since every other
+    // answer falls back to the first one there is (`lastVisited.ts`).
+    if (!from) throw redirect({ to: '/start' });
+    await snapshotOf(context.queryClient, from);
   },
   component: CapturePage,
 });
