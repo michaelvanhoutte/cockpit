@@ -402,7 +402,7 @@ export const panels = sqliteTable(
  * **`screen_width` is a width, not a breakpoint.** The issue asks for arbitrary
  * widths on purpose, so there is no fixed set of sizes to belong to and the
  * question "which layout is this screen's" is answered by distance rather than
- * by membership. It is now read only by the automatic choice.
+ * by membership. It is now read only when a screen is matched to a layout.
  *
  * **Deleted for real, not tombstoned**, which is the one place this store
  * departs from "tombstones, not deletes" and is deliberate. A tombstone exists
@@ -442,7 +442,7 @@ export const layouts = sqliteTable(
      */
     uniqueIndex('layouts_dashboard_folded_name').on(t.tenantId, t.dashboardId, t.foldedName),
     index('layouts_tenant_dashboard').on(t.tenantId, t.dashboardId),
-    // Bounded, because the automatic choice is "the layout closest to this
+    // Bounded, because a screen is matched to "the layout closest to this
     // screen": one absurd width would win that comparison everywhere or never.
     check('layouts_screen_width_is_a_width', sql.raw('screen_width BETWEEN 1 AND 100000')),
     check('layouts_created_at_is_timestamp', isTimestamp('created_at')),
@@ -660,11 +660,6 @@ export const items = sqliteTable(
     sourceResolvedAt: text('source_resolved_at'),
 
     // -- app-owned columns --
-    // `preview` is deliberately absent though the column is still there: nothing
-    // reads or writes it from here on, and dropping it waits for a later release
-    // so a rollback still meets a schema its code can read (deployment,
-    // "Migrations and rollback"; "Drop the preview column, once nothing reads
-    // it", issue 161).
     title: text('title').notNull(),
     description: text('description'),
     /**

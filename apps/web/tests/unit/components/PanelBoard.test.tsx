@@ -456,7 +456,7 @@ describe('Panels', () => {
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.payload.layoutId).toBe(layouts[0]!.id);
       // The width it was made at is kept, not moved to this screen: that is
-      // what makes the automatic choice go on meaning something.
+      // what makes matching a screen to a layout go on meaning something.
       expect(asked.payload.screenWidth).toBe(layouts[0]!.screenWidth);
       expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
     });

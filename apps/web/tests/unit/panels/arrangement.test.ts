@@ -46,24 +46,73 @@ function aPanel(id: string): Panel {
 }
 
 describe('Layouts', () => {
-  describe('a dashboard is drawn with the layout closest to the screen it is on, or the one you chose', () => {
+  describe('a dashboard is drawn with the layout nearest the screen it is on, unless you picked one and the nearest has not changed since', () => {
     const phone = aLayout('phone', 480);
     const laptop = aLayout('laptop', 1280);
     const wide = aLayout('wide', 2560);
 
+    /** Picking `layoutId` on a screen the nearest layout is `whileNearestIs`. */
+    const picked = (layoutId: string, whileNearestIs: string) => ({ layoutId, whileNearestIs });
+
     it.each([
-      { situation: 'a phone', screenWidth: 480, chosen: null, drawn: 'phone' },
-      { situation: 'a laptop', screenWidth: 1440, chosen: null, drawn: 'laptop' },
-      { situation: 'a 4K screen', screenWidth: 2400, chosen: null, drawn: 'wide' },
+      { situation: 'a phone', screenWidth: 480, pick: null, drawn: 'phone' },
+      { situation: 'a laptop', screenWidth: 1440, pick: null, drawn: 'laptop' },
+      { situation: 'a 4K screen', screenWidth: 2400, pick: null, drawn: 'wide' },
       // Nothing was made at this width, and the nearest is what it gets rather
       // than nothing at all.
-      { situation: 'a tablet nothing was made for', screenWidth: 900, chosen: null, drawn: 'laptop' },
-      { situation: 'a screen where a layout was chosen by hand', screenWidth: 480, chosen: 'wide', drawn: 'wide' },
-      // The issue's rule for a deleted layout, arriving by the only route it
-      // can: the choice still names it and it is not in the list any more.
-      { situation: 'a chosen layout that has since been deleted', screenWidth: 480, chosen: 'gone', drawn: 'phone' },
-    ])('$situation', ({ screenWidth, chosen, drawn }) => {
-      expect(layoutToDraw([phone, laptop, wide], 'today', screenWidth, chosen)?.id).toBe(drawn);
+      { situation: 'a tablet nothing was made for', screenWidth: 900, pick: null, drawn: 'laptop' },
+      {
+        situation: 'a layout picked by hand, on the screen it was picked on',
+        screenWidth: 480,
+        pick: picked('wide', 'phone'),
+        drawn: 'wide',
+      },
+      // The window moved and the screen did not: a pick scoped to a width would
+      // be thrown away here, and there is nothing about resizing a window that
+      // means "put me back on the other layout".
+      {
+        situation: 'a window resized without the nearest layout changing',
+        screenWidth: 560,
+        pick: picked('wide', 'phone'),
+        drawn: 'wide',
+      },
+      // The screen really did change, which is the whole feature: the pick was
+      // made on the phone and this is the laptop, so the laptop's own layout is
+      // what the dashboard goes back to.
+      {
+        situation: 'moving to a screen with a layout of its own',
+        screenWidth: 1280,
+        pick: picked('wide', 'phone'),
+        drawn: 'laptop',
+      },
+      // Pressing the layout the screen was already going to draw is still a
+      // pick, and it still expires: this is the 4K screen picked on the 4K
+      // screen, read back from the laptop.
+      {
+        situation: 'a pick of the layout that was nearest anyway, read on another screen',
+        screenWidth: 1280,
+        pick: picked('wide', 'wide'),
+        drawn: 'laptop',
+      },
+      // A deleted layout arrives by the only route it can: the pick still names
+      // it and it is not in the list any more.
+      {
+        situation: 'a picked layout another device has since deleted',
+        screenWidth: 480,
+        pick: picked('gone', 'phone'),
+        drawn: 'phone',
+      },
+      // The other half of that, and it expires the pick rather than falling
+      // through it: what the pick was overriding is no longer an answer anybody
+      // can give.
+      {
+        situation: 'a picked layout whose overridden answer has been deleted',
+        screenWidth: 480,
+        pick: picked('wide', 'gone'),
+        drawn: 'phone',
+      },
+    ])('$situation', ({ screenWidth, pick, drawn }) => {
+      expect(layoutToDraw([phone, laptop, wide], 'today', screenWidth, pick)?.id).toBe(drawn);
     });
 
     it('goes to the narrower one when two are equally close, so two screens agree', () => {
@@ -76,6 +125,9 @@ describe('Layouts', () => {
       expect(layoutToDraw([elsewhere], 'today', 1280, null)).toBeNull();
     });
 
+    it('draws a dashboard that has no layouts at all with none', () => {
+      expect(layoutToDraw([], 'today', 1280, null)).toBeNull();
+    });
   });
 
   describe('a row’s panels divide it in proportion to their spans', () => {
