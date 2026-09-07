@@ -51,6 +51,12 @@ test.describe('Dashboards', () => {
 
       const name = uniqueTitle('Research');
       await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+      // The question says what a dashboard is, which is the moment somebody
+      // pressing `+` is asking. Matched on the opening clause, so rewording the
+      // sentence around it does not re-break this walk.
+      await expect(
+        page.getByRole('dialog').getByText(/A view inside one workspace/),
+      ).toBeVisible();
       // Enter, not the button: adding a dashboard is a one-gesture thing you do
       // often, and a real key event is the only way to know the field takes it.
       await page.getByLabel('Name of the new dashboard').fill(name);

@@ -13,6 +13,7 @@ import { LayoutPicker } from './LayoutPicker';
 import { ManageDashboards } from './ManageDashboards';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 import { NameQuestion } from './NameQuestion';
+import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../whatThingsAre';
 
 /**
  * The bar under the workspace tabs: the workspace's dashboards, a `+` that adds
@@ -269,13 +270,14 @@ export function DashboardBar({
 }
 
 /**
- * The `+`, and the field it grows where the new tab will be. Adding a dashboard
- * is a one-gesture thing you do often, unlike making a workspace, so it asks
- * for the name in place rather than in a dialog.
+ * The `+`, and the dialog it opens.
  *
- * Naming a panel does use a dialog (NewPanelQuestion), and the difference is
- * where the field goes: this one grows at the end of a bar, where the tab it is
- * naming will be, while that one grew between two controls and moved them.
+ * **It grew a field at the end of the bar instead, until this.** The argument
+ * was that the field belonged where the tab it names would appear, and it held
+ * right up until the question had something to say: pressing `+` is the moment
+ * somebody is asking what a dashboard *is*, and a strip has room for a box and
+ * a button and nothing else. Adding a panel had been asked in a dialog all
+ * along, so the two are one question in two places now rather than two shapes.
  */
 function AddDashboard({ workspaceId }: { workspaceId: string }) {
   const [naming, setNaming] = useState(false);
@@ -283,9 +285,9 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
   const command = useCommand();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const button = useRef<HTMLButtonElement>(null);
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
     // The id is made here rather than inside the payload so that the dashboard
@@ -344,10 +346,9 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
         : null;
 
   /**
-   * Closing the field forgets the refusal with it. `AddDashboard` stays
-   * mounted either way - the `+` and the field are two renders of it - so a
-   * refusal that is only hidden comes back the moment the field is opened
-   * again, over a name nobody has typed yet.
+   * Closing forgets the refusal with it. `AddDashboard` stays mounted either
+   * way, so a refusal that is only hidden would come back the moment the dialog
+   * is opened again, over a name nobody has typed yet.
    */
   const close = () => {
     setNaming(false);
@@ -355,52 +356,33 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
     command.reset();
   };
 
-  if (!naming) {
-    return (
+  return (
+    <>
       <button
         type="button"
+        ref={button}
         onClick={() => setNaming(true)}
         aria-label="Add a dashboard"
         className="mb-1 shrink-0 rounded-md px-2.5 py-1 text-sm text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink"
       >
         +
       </button>
-    );
-  }
-
-  return (
-    <form
-      onSubmit={submit}
-      // Escape on the form rather than on the box: after a refusal the focus is
-      // on Add, and a handler that only listened to the box would leave Escape
-      // doing nothing exactly when there is something to cancel.
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') close();
-      }}
-      className="mb-1 flex shrink-0 items-center gap-2"
-    >
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        aria-label="Name of the new dashboard"
-        placeholder="Research, Today…"
-        maxLength={60}
-        autoFocus
-        className="w-40 rounded-md border border-black/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+      <NameQuestion
+        open={naming}
+        question="What is the new dashboard called?"
+        explains={WHAT_A_DASHBOARD_IS}
+        fieldLabel="Name of the new dashboard"
+        placeholder="Project Falcon, Research, Today…"
+        submitLabel="Add"
+        name={name}
+        onNameChange={setName}
+        onSubmit={submit}
+        onCancel={close}
+        refusal={refusal}
+        busy={command.isPending}
+        returnFocusTo={button.current}
       />
-      <button
-        type="submit"
-        disabled={command.isPending}
-        className="milled shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep disabled:opacity-50"
-      >
-        Add
-      </button>
-      {refusal && (
-        <p role="alert" className="text-xs text-over">
-          {refusal}
-        </p>
-      )}
-    </form>
+    </>
   );
 }
 
@@ -471,8 +453,9 @@ function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboard
       <NameQuestion
         open={naming !== null}
         question="What is the new panel called?"
+        explains={WHAT_A_PANEL_IS}
         fieldLabel="Name of the new panel"
-        placeholder="Project Falcon, To read…"
+        placeholder="One-on-ones, Waiting on…"
         submitLabel="Add"
         name={naming ?? ''}
         onNameChange={setNaming}
