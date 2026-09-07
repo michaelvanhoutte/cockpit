@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
-import { HOW_AN_ITEM_IS_FILED } from '../../../src/whatThingsAre';
+import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../../../src/whatThingsAre';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand } from '../../../src/api/queries';
 
@@ -908,10 +908,12 @@ describe('Panels', () => {
       ]);
 
       const reading = await screen.findByRole('region', { name: 'To read' });
-      expect(within(reading).getByText(/^Nothing filed here yet\./)).toBeVisible();
+      expect(within(reading).getByText(NOTHING_FILED_HERE)).toBeVisible();
     });
   });
+});
 
+describe('Onboarding', () => {
   /**
    * "Nothing filed here yet." is true and says nothing about how anything gets
    * here, and a new account is looking at exactly that: one panel, empty, with
@@ -927,7 +929,7 @@ describe('Panels', () => {
       showBoard({ items: [], filings: [] });
 
       const reading = await screen.findByRole('region', { name: 'To read' });
-      expect(within(reading).getByText(HOW_AN_ITEM_IS_FILED, { exact: false })).toBeVisible();
+      expect(within(reading).getByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeVisible();
     });
 
     it('says only that it is empty once something has been filed anywhere in the workspace', async () => {
@@ -935,8 +937,8 @@ describe('Panels', () => {
       showBoard({ items: [bart], filings: [{ panelId: 'falcon', itemId: bart.id, position: 0 }] });
 
       const reading = await screen.findByRole('region', { name: 'To read' });
-      expect(within(reading).getByText('Nothing filed here yet.')).toBeVisible();
-      expect(within(reading).queryByText(HOW_AN_ITEM_IS_FILED, { exact: false })).toBeNull();
+      expect(within(reading).getByText(NOTHING_FILED_HERE)).toBeVisible();
+      expect(within(reading).queryByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeNull();
     });
   });
 });

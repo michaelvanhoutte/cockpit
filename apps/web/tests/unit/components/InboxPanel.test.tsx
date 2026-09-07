@@ -138,7 +138,9 @@ describe('Panels', () => {
       expect(within(inbox).getByText('1')).toBeVisible();
     });
   });
+});
 
+describe('Onboarding', () => {
   /**
    * The other end of the gesture the empty panel explains
    * (components/PanelBoard.test.tsx). Both ends, because on a wide screen the
@@ -170,6 +172,7 @@ describe('Panels', () => {
     });
   });
 });
+
 
 describe('Capture', () => {
   describe('what you capture appears in the Inbox you captured it into', () => {

@@ -2,7 +2,7 @@ import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
-import { HOW_AN_ITEM_IS_FILED } from '../whatThingsAre';
+import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
 
 /**
  * One panel on a dashboard: a titled box you can move, resize and rename in
@@ -289,9 +289,7 @@ export function PanelCard({
           items={items}
           openDashboardId={panel.dashboardId}
           panelId={panel.id}
-          emptyMessage={
-            nothingFiledYet ? `Nothing filed here yet. ${HOW_AN_ITEM_IS_FILED}` : 'Nothing filed here yet.'
-          }
+          emptyMessage={nothingFiledYet ? NOTHING_FILED_HERE_YET_AND_HOW : NOTHING_FILED_HERE}
         />
       </div>
 

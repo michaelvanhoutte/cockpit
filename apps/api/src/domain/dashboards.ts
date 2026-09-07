@@ -12,7 +12,6 @@ import { foldName, namedTheSame } from './names.js';
  * to keep it first.
  */
 
-export { FIRST_DASHBOARD_NAME };
 
 /**
  * The live dashboard of *this workspace* already going by this name, or

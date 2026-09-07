@@ -41,8 +41,11 @@ export const WHAT_A_PANEL_IS =
  * phone - it is a swipe, or *Move to…* in the row's own menu - so both name the
  * menu, which is the one way that works everywhere.
  */
-export const HOW_AN_ITEM_IS_FILED =
-  'Drag an item onto it from the Inbox, or file it from the item’s own menu.';
+export const NOTHING_FILED_HERE = 'Nothing filed here yet.';
+
+/** What that says instead, while nobody has filed anything in this workspace. */
+export const NOTHING_FILED_HERE_YET_AND_HOW =
+  `${NOTHING_FILED_HERE} Drag an item onto it from the Inbox, or file it from the item’s own menu.`;
 
 export const HOW_TO_FILE_FROM_THE_INBOX =
   'Drag one onto a panel to file it, or file it from its own menu.';

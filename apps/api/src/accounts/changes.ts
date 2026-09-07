@@ -1314,10 +1314,15 @@ function firstWorkspace(accountId: string): Change {
         // The tint, bar, ground and header of the palette's first theme
         // (`WORKSPACE_THEMES`), written out rather than left to the column
         // defaults, so the workspace wears a set that belongs together.
+        // **The names are bound, not written into the statement.** They are
+        // compile-time constants rather than anything a person types, so this
+        // is not about injection - it is that a name with an apostrophe in it
+        // would reshape the SQL, and nothing about editing a name should make
+        // somebody think about quoting.
         sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, bar, ground, header, position, created_at)
-                SELECT '${FIRST_WORKSPACE_ID}', ?, '${FIRST_WORKSPACE_NAME}', '${foldName(FIRST_WORKSPACE_NAME)}', '#6f62b5', '#211d37', '#edebf7', '#18152b', 0, '2026-09-07T00:00:00.000Z'
+                SELECT '${FIRST_WORKSPACE_ID}', ?, ?, ?, '#6f62b5', '#211d37', '#edebf7', '#18152b', 0, '2026-09-07T00:00:00.000Z'
                 WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE tenant_id = ?)`,
-        params: [accountId, accountId],
+        params: [accountId, FIRST_WORKSPACE_NAME, foldName(FIRST_WORKSPACE_NAME), accountId],
       },
       {
         // Its id is the workspace's own plus a suffix, which is what
@@ -1325,17 +1330,23 @@ function firstWorkspace(accountId: string): Change {
         // both places, so a workspace's first dashboard has one id whether this
         // made it or `create_workspace` did.
         sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
-                SELECT '${FIRST_DASHBOARD_ID}', ?, '${FIRST_WORKSPACE_ID}', '${FIRST_DASHBOARD_NAME}', '${foldName(FIRST_DASHBOARD_NAME)}', '2026-09-07T00:00:00.000Z'
+                SELECT '${FIRST_DASHBOARD_ID}', ?, '${FIRST_WORKSPACE_ID}', ?, ?, '2026-09-07T00:00:00.000Z'
                 WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = '${FIRST_WORKSPACE_ID}' AND tenant_id = ?)
                   AND NOT EXISTS (SELECT 1 FROM dashboards WHERE id = '${FIRST_DASHBOARD_ID}' AND tenant_id = ?)`,
-        params: [accountId, accountId, accountId],
+        params: [
+          accountId,
+          FIRST_DASHBOARD_NAME,
+          foldName(FIRST_DASHBOARD_NAME),
+          accountId,
+          accountId,
+        ],
       },
       {
         sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
-                SELECT '${FIRST_PANEL_ID}', ?, '${FIRST_DASHBOARD_ID}', '${FIRST_PANEL_NAME}', '${foldName(FIRST_PANEL_NAME)}', '2026-09-07T00:00:00.000Z'
+                SELECT '${FIRST_PANEL_ID}', ?, '${FIRST_DASHBOARD_ID}', ?, ?, '2026-09-07T00:00:00.000Z'
                 WHERE EXISTS (SELECT 1 FROM dashboards WHERE id = '${FIRST_DASHBOARD_ID}' AND tenant_id = ?)
                   AND NOT EXISTS (SELECT 1 FROM panels WHERE id = '${FIRST_PANEL_ID}' AND tenant_id = ?)`,
-        params: [accountId, accountId, accountId],
+        params: [accountId, FIRST_PANEL_NAME, foldName(FIRST_PANEL_NAME), accountId, accountId],
       },
     ],
   };

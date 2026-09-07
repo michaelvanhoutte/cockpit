@@ -12,7 +12,7 @@ import { shouldWelcome } from '../../src/welcoming';
 
 const named = (...names: string[]) => names.map((name) => ({ name }));
 
-describe('Across the app', () => {
+describe('Onboarding', () => {
   /**
    * An account arrives holding one workspace called *Workspace 1*
    * (apps/api/src/accounts/changes.ts), so that is what "nobody has started on

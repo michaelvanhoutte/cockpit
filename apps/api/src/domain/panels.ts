@@ -13,7 +13,6 @@ import { foldName, namedTheSame } from './names.js';
  * of panels, not a grid that wraps").
  */
 
-export { FIRST_PANEL_NAME };
 
 /**
  * The panel a dashboard arrives with, so that a workspace has somewhere to file
