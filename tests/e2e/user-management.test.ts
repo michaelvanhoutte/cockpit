@@ -32,8 +32,18 @@ test.describe('User management', () => {
 
       // Both seeded people, which is also the account boundary being crossed on
       // purpose: Ada's row is here while none of her work ever is.
-      await expect(page.getByRole('cell', { name: MICHAEL, exact: true })).toBeVisible();
-      await expect(page.getByRole('cell', { name: ADA, exact: true })).toBeVisible();
+      //
+      // Found by the address rather than the name, because an account is named
+      // after the person who owns it - so "Michael" is in his row twice, and a
+      // locator for the name alone matches the Account column as well.
+      for (const { who, address } of [
+        { who: MICHAEL, address: 'michael@example.com' },
+        { who: ADA, address: 'ada@example.com' },
+      ]) {
+        const row = page.getByRole('row').filter({ hasText: address });
+        await expect(row).toHaveCount(1);
+        await expect(row).toContainText(who);
+      }
     });
 
     test('refuses an ordinary user who types the address, and offers them no way in', async ({
