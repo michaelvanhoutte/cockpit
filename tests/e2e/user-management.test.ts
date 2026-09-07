@@ -24,6 +24,28 @@ async function makeThem(page: Page, who: string, role: 'Admin' | 'User', isMobil
   await expect(row.getByRole('cell', { name: role, exact: true })).toBeVisible();
 }
 
+/**
+ * Adds somebody from the box above the list, and waits for their row.
+ *
+ * **`exact`, because the chrome above this page carries an *Add a workspace*
+ * control** and a name match is a substring match: the two are one locator
+ * without it, and which one a press finds depends on whether the workspace list
+ * has landed yet. Three walks pressed it that way and passed until one did not.
+ */
+async function addSomebody(
+  page: Page,
+  who: { name: string; address: string },
+  isMobile: boolean,
+) {
+  await page.getByLabel('Name').fill(who.name);
+  await page.getByLabel('Signs in with').fill(who.address);
+  await press(page.getByRole('button', { name: 'Add', exact: true }), isMobile);
+
+  const row = page.getByRole('row').filter({ hasText: who.address });
+  await expect(row).toHaveCount(1);
+  return row;
+}
+
 /** Takes somebody's access away, or gives it back, and waits for the row to say so. */
 async function setAccess(page: Page, who: string, entry: 'Disable' | 'Enable', isMobile: boolean) {
   await press(page.getByRole('button', { name: `Actions for ${who}` }), isMobile);
@@ -115,12 +137,7 @@ test.describe('User management', () => {
       // once and serves both projects from it, so a fixed address would meet
       // the row the other project just added.
       const anna = somebodyNew('Anna');
-      await page.getByLabel('Name').fill(anna.name);
-      await page.getByLabel('Signs in with').fill(anna.address);
-      await press(page.getByRole('button', { name: 'Add' }), isMobile);
-
-      const row = page.getByRole('row').filter({ hasText: anna.address });
-      await expect(row).toHaveCount(1);
+      const row = await addSomebody(page, anna, isMobile);
       await expect(row).toContainText('not yet');
 
       // Now hers: a person the register did not hold a minute ago signs in and
@@ -151,10 +168,7 @@ test.describe('User management', () => {
       const anna = somebodyNew('Anna');
       await signIn(page, MICHAEL, isMobile);
       await page.goto('/admin');
-      await page.getByLabel('Name').fill(anna.name);
-      await page.getByLabel('Signs in with').fill(anna.address);
-      await press(page.getByRole('button', { name: 'Add' }), isMobile);
-      await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(1);
+      await addSomebody(page, anna, isMobile);
 
       await makeThem(page, anna.name, 'Admin', isMobile);
 
@@ -189,10 +203,7 @@ test.describe('User management', () => {
       const anna = somebodyNew('Anna');
       await signIn(page, MICHAEL, isMobile);
       await page.goto('/admin');
-      await page.getByLabel('Name').fill(anna.name);
-      await page.getByLabel('Signs in with').fill(anna.address);
-      await press(page.getByRole('button', { name: 'Add' }), isMobile);
-      await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(1);
+      await addSomebody(page, anna, isMobile);
 
       await setAccess(page, anna.name, 'Disable', isMobile);
 
