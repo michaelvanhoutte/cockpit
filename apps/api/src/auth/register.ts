@@ -1,4 +1,5 @@
 import { and, eq, gt, isNull } from 'drizzle-orm';
+import type { Role } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { sessions, users } from '../db/schema.js';
 import type { Env } from '../env.js';
@@ -31,8 +32,13 @@ export interface Visitor {
    * **Read per request, from the register**, which is why taking somebody's
    * admin away applies to the sign-in they are already holding rather than to
    * their next one.
+   *
+   * Typed as the two roles there are, like the column it is read from
+   * (`db/schema.ts`) and the contract it is answered into: it is the same value
+   * all the way through, and leaving it `string` here would widen it back at
+   * the one boundary where it is compared.
    */
-  readonly role: string;
+  readonly role: Role;
 }
 
 /**

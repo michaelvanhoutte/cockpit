@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono';
-import { ADMIN } from '@cockpit/shared';
+import { ADMIN, type Role } from '@cockpit/shared';
 import { MOVED_OPERATOR_PREFIXES } from './operator.js';
 import type { GatedEnv } from './gate.js';
 
@@ -25,7 +25,7 @@ export const ADMIN_PREFIX = '/v1/admin/';
  * written again: the browser compares against the same word to decide what to
  * offer, and two spellings of it is a door that is offered and then refused.
  */
-export const ADMIN_ROLE: string = ADMIN;
+export const ADMIN_ROLE: Role = ADMIN;
 
 /**
  * Whether this is an address the role guards.
@@ -47,6 +47,13 @@ export function isAdminPath(path: string): boolean {
  * Pure, and separate from the middleware, so every branch is provable without a
  * request (`tests/unit/auth/admin.test.ts`) - and so the answer for "signed in,
  * but not an admin" is written once rather than inferred from a 401 somewhere.
+ *
+ * **`string` rather than `Role`, deliberately**, though every caller hands it a
+ * `Role`: what the column holds is asserted at compile time (`db/schema.ts`)
+ * and guaranteed at runtime by a CHECK, and this is the thing that has to hold
+ * if either is ever wrong - a row edited by hand, a migration that widened the
+ * constraint. Narrowing the parameter would also make the cases that prove a
+ * junk value opens nothing impossible to write.
  */
 export function roleOpens(path: string, role: string | undefined): boolean {
   if (!isAdminPath(path)) return true;
