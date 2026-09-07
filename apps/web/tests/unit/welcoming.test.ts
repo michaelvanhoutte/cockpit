@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
-import { shouldWelcome } from '../../src/welcoming';
+import { forgetWelcomed, shouldWelcome } from '../../src/welcoming';
 
 /**
  * F1: which state the app opens on the question in is a decision over a list
@@ -59,6 +59,34 @@ describe('Onboarding', () => {
       // the workspace rather than anything stored.
       expect(shouldWelcome(named(FIRST_WORKSPACE_NAME), false)).toBe(true);
       expect(shouldWelcome(named('Work'), false)).toBe(false);
+    });
+  });
+
+  /**
+   * The half a shared browser needs. Having been through the question belongs
+   * to whoever was signed in, so signing out forgets it with the views and the
+   * recent panels (`session/forget.ts`) - without that, the first person's
+   * answer is given to the second, and a brand new account's very first sign-in
+   * on a machine somebody else had used goes straight past it.
+   *
+   * Found by the browser walk about adding a user, not by reading: it signs in
+   * as an admin, adds somebody, and signs in as them in the same browser.
+   */
+  describe('the answer belongs to whoever gave it, and goes when they sign out', () => {
+    it('is forgotten, so the next person is asked', () => {
+      const store = new Map<string, string>([['cockpit.welcomed', 'yes']]);
+      const asStorage = {
+        getItem: (key: string) => store.get(key) ?? null,
+        removeItem: (key: string) => void store.delete(key),
+      } as unknown as Storage;
+
+      forgetWelcomed(asStorage);
+
+      expect(store.has('cockpit.welcomed')).toBe(false);
+    });
+
+    it('says nothing where the browser refuses storage', () => {
+      expect(() => forgetWelcomed(undefined)).not.toThrow();
     });
   });
 });

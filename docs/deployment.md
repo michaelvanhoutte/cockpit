@@ -578,9 +578,12 @@ workflow: `seed.sql` puts the accounts *and the people who own them* in the
 register — two accounts and the two people who own them, one an admin and one
 not, which is what lets a fresh environment prove both answers. **Only the admin
 row is load-bearing now.** Everybody after them is added on the admin page ("Add
-a user on the admin page, so a second person no longer needs SQL", issue 231),
-and this step stays exactly as long as the chicken and egg does: nobody can open
-that page until somebody can sign in. The second seeded person is a fixture
+a user on the admin page, so a second person no longer needs SQL", issue 231)
+and made an admin there too ("Rename a user, and make somebody an admin", issue
+232), and this step stays exactly as long as the chicken and egg does: nobody
+can open that page until somebody can sign in. It is also the only way back from
+a register holding no admin at all, which is why the page refuses to make the
+last one ordinary. The second seeded person is a fixture
 rather than a real colleague, and an environment that does not want one can
 delete the row before anybody signs in as them. **Neither environment is seeded again
 afterwards**: a bootstrap is not a deploy step, and since 7 September 2026 both

@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { browserStore, forgetEveryView } from '../lastVisited';
 import { forgetEveryRecentPanel } from '../recentPanels';
 import { forgetWhatJustHappened } from '../undo';
+import { forgetWelcomed } from '../welcoming';
 import { persister } from '../persistence';
 
 /**
@@ -19,8 +20,10 @@ import { persister } from '../persistence';
  * - the in-memory cache, which is what is on screen;
  * - the copy of it in IndexedDB, which is what the *next* cold open would paint
  *   from, a week later if need be (`persistence.tsx`);
- * - which view each workspace was last on, and which panels were last filed
- *   into, both in localStorage;
+ * - which view each workspace was last on, which panels were last filed into,
+ *   and whether the question a new account opens on has been answered, all
+ *   three in localStorage - the last of them because leaving it behind gives
+ *   the first person's answer to the second;
  * - what the undo bar is still offering, which is a title of theirs drawn over
  *   whatever screen comes next.
  *
@@ -45,5 +48,6 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   }
   forgetEveryView(browserStore());
   forgetEveryRecentPanel(browserStore());
+  forgetWelcomed(browserStore());
   forgetWhatJustHappened();
 }

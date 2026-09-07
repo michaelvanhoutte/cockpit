@@ -18,6 +18,7 @@ export {
   RegisterDisagreesError,
   RegisterRowUnusableError,
   addUser,
+  changeUser,
   registerContents,
   registeredAccountNames,
   registeredUsers,

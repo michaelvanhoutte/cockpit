@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -35,29 +35,49 @@ const PEOPLE: RegisteredUser[] = [
 
 const reads = vi.fn();
 const adds = vi.fn();
+const changes = vi.fn();
+/** Who the page believes is asking, which one of the two role refusals is about. */
+const iAm = vi.fn();
 
 vi.mock('../../../src/api/queries', async () => {
   const { useMutation } = await import('@tanstack/react-query');
   return {
     registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => reads() },
-    // The real hook, minus the cache invalidation it does on success - which
+    meQuery: { queryKey: ['me'], queryFn: () => iAm() },
+    // The real hooks, minus the cache invalidation they do on success - which
     // needs a client these cases do not have and proves nothing about the form.
     useAddUser: () => useMutation({ mutationFn: adds }),
+    useChangeUser: () => useMutation({ mutationFn: changes }),
   };
+});
+
+// Signed in as the seeded admin unless a case says otherwise: React Query
+// refuses an undefined answer, so a query left unanswered would fail in the
+// background of every case that is not about who is asking.
+beforeEach(() => {
+  iAm.mockResolvedValue({ user: { id: 'user-michael', name: 'Michael', role: 'admin' } });
 });
 
 // Module-scope mocks, so what one case recorded must not reach the next.
 afterEach(() => {
   reads.mockReset();
   adds.mockReset();
+  changes.mockReset();
+  iAm.mockReset();
 });
 
+/**
+ * The client is handed back, because one case has to make the list change
+ * underneath a form that is already open - which is a re-read, not a redraw.
+ */
 function drawn() {
-  return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
       <AdminPage />
     </QueryClientProvider>,
   );
+  return client;
 }
 
 describe('User management', () => {
@@ -138,14 +158,22 @@ describe('User management', () => {
 
   describe('the list says everything the register knows about a person', () => {
     it.each([
-      { situation: 'an admin who has signed in', person: PEOPLE[0]!, signedIn: 'yes' },
-      { situation: 'an ordinary user who never has', person: PEOPLE[1]!, signedIn: 'not yet' },
-    ])('draws $situation', async ({ person, signedIn }) => {
+      { situation: 'an admin who has signed in', person: PEOPLE[0]!, role: 'Admin', signedIn: 'yes' },
+      {
+        situation: 'an ordinary user who never has',
+        person: PEOPLE[1]!,
+        role: 'User',
+        signedIn: 'not yet',
+      },
+    ])('draws $situation', async ({ person, role, signedIn }) => {
       reads.mockResolvedValue({ users: PEOPLE });
       drawn();
 
       const row = (await screen.findByText(person.name)).closest('tr')!;
-      for (const said of [person.email!, person.role, person.accountName, signedIn]) {
+      // The role in the words the screen uses, not the word the register holds:
+      // the form beside it offers "Admin", and a page that said both would be
+      // saying they might be different things.
+      for (const said of [person.email!, role, person.accountName, signedIn]) {
         expect(within(row).getByText(said)).toBeVisible();
       }
     });
@@ -161,6 +189,157 @@ describe('User management', () => {
       drawn();
 
       expect(await screen.findByText(/no address/i)).toBeVisible();
+    });
+  });
+
+  describe('a person’s row opens a form carrying their name and their role', () => {
+    /**
+     * Opened from the row's own menu, which is the way a keyboard has - the
+     * double-click the row also answers is `wasOnTheRow`'s, proved where it
+     * lives (components/RowForm.tsx) and used by every other row in the app.
+     */
+    async function openFormOn(
+      person: RegisteredUser,
+      { people = PEOPLE, asWho = PEOPLE[0]! }: { people?: RegisteredUser[]; asWho?: RegisteredUser } = {},
+    ) {
+      const user = userEvent.setup();
+      reads.mockResolvedValue({ users: people });
+      iAm.mockResolvedValue({ user: { id: asWho.id, name: asWho.name, role: asWho.role } });
+      const client = drawn();
+
+      await user.click(await screen.findByRole('button', { name: `Actions for ${person.name}` }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Edit…' }));
+      return Object.assign(user, { client });
+    }
+
+    it('opens on the name and role that person already has', async () => {
+      await openFormOn(PEOPLE[1]!);
+
+      expect(screen.getByLabelText(`Name of ${PEOPLE[1]!.name}`)).toHaveValue('Ada');
+      expect(screen.getByRole('radio', { name: /^User/ })).toBeChecked();
+    });
+
+    it('sends the name and the role, trimmed', async () => {
+      changes.mockResolvedValue({ user: PEOPLE[1]! });
+      const user = await openFormOn(PEOPLE[1]!);
+
+      const box = screen.getByLabelText(`Name of ${PEOPLE[1]!.name}`);
+      await user.clear(box);
+      await user.type(box, '  Ada Lovelace  ');
+      await user.click(screen.getByRole('radio', { name: /^Admin/ }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(changes).toHaveBeenCalled());
+      expect(changes.mock.lastCall?.[0]).toEqual({
+        userId: 'user-ada',
+        name: 'Ada Lovelace',
+        role: 'admin',
+      });
+    });
+
+    it('closes once the change is made', async () => {
+      changes.mockResolvedValue({ user: PEOPLE[1]! });
+      const user = await openFormOn(PEOPLE[1]!);
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    });
+
+    /**
+     * The server's own words, because they name which rule stopped it - and the
+     * form stays open holding what was typed, which is the one case where
+     * closing would throw work away.
+     */
+    it('shows the refusal and keeps the form open', async () => {
+      changes.mockRejectedValue(new Error('you cannot take your own admin away'));
+      const user = await openFormOn(PEOPLE[1]!);
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/your own admin/);
+      expect(screen.getByRole('dialog')).toBeVisible();
+    });
+
+    it('does not offer to save a name of only spaces', async () => {
+      const user = await openFormOn(PEOPLE[1]!);
+
+      const box = screen.getByLabelText(`Name of ${PEOPLE[1]!.name}`);
+      await user.clear(box);
+      await user.type(box, '   ');
+
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    });
+
+    /**
+     * Present and unavailable with the reason on it, rather than gone: an
+     * entry that vanishes leaves an admin looking for a choice that was there a
+     * moment ago. Both reasons are drawn, because they are said differently -
+     * "another admin can do it for you" is false when there is no other admin.
+     */
+    it.each([
+      {
+        situation: 'the person is the only admin',
+        people: PEOPLE,
+        asWho: PEOPLE[0]!,
+        says: /only admin/i,
+      },
+      {
+        situation: 'the person is the admin who is asking, and not the only one',
+        people: [PEOPLE[0]!, { ...PEOPLE[1]!, role: 'admin' as const }],
+        asWho: PEOPLE[0]!,
+        says: /your own admin/i,
+      },
+    ])('says why the role cannot be given up when $situation', async ({ people, asWho, says }) => {
+      await openFormOn(asWho, { people, asWho });
+
+      const ordinary = screen.getByRole('radio', { name: /^User/ });
+      expect(ordinary).toBeDisabled();
+      expect(ordinary.closest('label')).toHaveTextContent(says);
+    });
+
+    /**
+     * Two admins, and the one who is not looking wins the halves nobody
+     * touched: a form that sent what the row held when it opened would put an
+     * ordinary user back over somebody else's promotion, and neither refusal
+     * would fire - the change is about a third person and there are admins
+     * left - so nobody would be told.
+     */
+    it.each([
+      {
+        situation: 'the role, when the radio was never touched',
+        elsewhere: { role: 'admin' as const },
+        sends: { role: 'admin' },
+      },
+      {
+        situation: 'the name, when the box was never typed in',
+        elsewhere: { name: 'Ada Lovelace' },
+        sends: { name: 'Ada Lovelace' },
+      },
+    ])('sends $situation as the row now holds it', async ({ elsewhere, sends }) => {
+      changes.mockResolvedValue({ user: PEOPLE[1]! });
+      const user = await openFormOn(PEOPLE[1]!);
+
+      // Somebody else changes her while this form sits open, and the list is
+      // re-read - which is what the page does on its own.
+      reads.mockResolvedValue({ users: [PEOPLE[0]!, { ...PEOPLE[1]!, ...elsewhere }] });
+      await user.client.invalidateQueries({ queryKey: ['registeredUsers'] });
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled(),
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(changes).toHaveBeenCalled());
+      expect(changes.mock.lastCall?.[0]).toMatchObject(sends);
+    });
+
+    it('offers the role to an admin who is neither the asker nor the last one', async () => {
+      const ada = { ...PEOPLE[1]!, role: 'admin' as const };
+
+      await openFormOn(ada, { people: [PEOPLE[0]!, ada] });
+
+      expect(screen.getByRole('radio', { name: /^User/ })).toBeEnabled();
     });
   });
 

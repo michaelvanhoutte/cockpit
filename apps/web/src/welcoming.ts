@@ -16,6 +16,13 @@ import { browserStore } from './lastVisited';
  * on, and storing it on the account would mean a write, an invalidation and a
  * push for something no other device benefits from. What it costs is that a
  * phone asks again; what it buys is no column, no command and no round trip.
+ *
+ * **So signing out forgets it** (`session/forget.ts`), for the reason the views
+ * and the recent panels are forgotten there: it belongs to whoever was signed
+ * in, and left behind it is the first person's answer given to the second. That
+ * is not a corner - a browser two people share is exactly what that file exists
+ * for, and without this a new account's very first sign-in on a machine
+ * somebody else had used would go straight past the question.
  */
 const KEY = 'cockpit.welcomed';
 
@@ -44,6 +51,15 @@ export function shouldWelcome(
 /** Whether this browser has been through the question, however it left. */
 export function welcomedBefore(): boolean {
   return Boolean(browserStore()?.getItem(KEY));
+}
+
+/** Forgotten on the way out, with everything else the person who left owned. */
+export function forgetWelcomed(store: Storage | undefined): void {
+  try {
+    store?.removeItem(KEY);
+  } catch {
+    // A browser that refuses storage remembered nothing to forget.
+  }
 }
 
 /**
