@@ -7,7 +7,6 @@ import {
   asUser,
   inStoreAsItIs,
   seedRegister,
-  signInAs,
   startFromEmpty,
 } from '../seed.js';
 
@@ -226,39 +225,29 @@ describe('User management', () => {
     /**
      * The whole reason the role is read per request rather than carried in the
      * cookie: it has to apply to the sign-in somebody is already holding,
-     * without ending it. One cookie, taken once and used on both sides of the
-     * change, is what makes that claim - `asUser` would sign in again each
-     * time and prove nothing about the sign-in they held.
+     * without ending it. A case signs in once and `asUser` carries that same
+     * cookie afterwards (`seed.ts`), so the two reads either side of the change
+     * are the one sign-in being answered differently.
      */
-    async function readingAs(userId: string) {
-      const cookie = await signInAs(userId);
-      return () => SELF.fetch(ADMIN_USERS, { headers: { cookie } });
-    }
-
     it('answers an ordinary user made an admin, on the sign-in they already held', async () => {
-      const adaReads = await readingAs(OTHER_USER_ID);
-      expect((await adaReads()).status).toBe(403);
+      expect((await asUser(ADMIN_USERS, {}, OTHER_USER_ID)).status).toBe(403);
 
       await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
 
-      expect((await adaReads()).status).toBe(200);
+      expect((await asUser(ADMIN_USERS, {}, OTHER_USER_ID)).status).toBe(200);
     });
 
     it('refuses an admin made ordinary, without ending the sign-in they held', async () => {
-      const michaelReads = await readingAs(USER_ID);
-      expect((await michaelReads()).status).toBe(200);
+      expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(200);
 
       await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
       const res = await change(USER_ID, { name: 'Michael', role: 'user' }, OTHER_USER_ID);
       expect(res.status).toBe(200);
 
-      expect((await michaelReads()).status).toBe(403);
+      expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(403);
       // Refused this page, and still signed in: a role is not a sign-in, and
       // taking one away must not throw somebody out of the app.
-      const cookie = await signInAs(USER_ID);
-      expect((await SELF.fetch('http://cockpit.test/v1/me', { headers: { cookie } })).status).toBe(
-        200,
-      );
+      expect((await asUser('http://cockpit.test/v1/me', {}, USER_ID)).status).toBe(200);
     });
 
     it.each([
@@ -283,16 +272,27 @@ describe('User management', () => {
       expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(200);
     });
 
+    /**
+     * Both directions, because one of them is the refusal turned around: an
+     * `askedBy` compared the wrong way would let each admin demote only
+     * themselves, which is the exact opposite of the rule and passes a case
+     * that walks one way.
+     */
     it('lets either of two admins be made ordinary by the other', async () => {
       await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
 
+      expect((await change(OTHER_USER_ID, { name: 'Ada', role: 'user' })).status).toBe(200);
+
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
       expect((await change(USER_ID, { name: 'Michael', role: 'user' }, OTHER_USER_ID)).status).toBe(
         200,
       );
-      expect((await change(OTHER_USER_ID, { name: 'Ada', role: 'user' }, OTHER_USER_ID)).status).toBe(
-        409,
-      );
     });
+
+    // Two admins demoting each other in the same instant could get past both
+    // reads and leave none: a window `changeUser` records and does not close,
+    // and one no test here can produce - two requests through `SELF.fetch` are
+    // answered one after the other, so the second reads what the first wrote.
 
     it('refuses somebody who is not an admin, and changes nothing', async () => {
       const res = await change(USER_ID, { name: 'Somebody Else', role: 'user' }, OTHER_USER_ID);
@@ -303,12 +303,26 @@ describe('User management', () => {
   });
 
   describe('a renamed user is renamed everywhere their name is shown', () => {
-    it('shows the new name in the list', async () => {
+    /**
+     * The account too, because it is named after the person who owns it - the
+     * pair `addUser` creates. Left behind, the list would put "Ada Lovelace"
+     * and "Ada" side by side with nothing to explain the difference and no way
+     * for an admin to put it right.
+     */
+    it('shows the new name in the list, on the person and on their account', async () => {
       await change(OTHER_USER_ID, { name: '  Ada Lovelace  ', role: 'user' });
 
+      const ada = (await listedBy(USER_ID)).find((user) => user.id === OTHER_USER_ID);
       // Trimmed, because the box is where the spaces come from.
-      expect((await listedBy(USER_ID)).find((user) => user.id === OTHER_USER_ID)?.name).toBe(
-        'Ada Lovelace',
+      expect(ada?.name).toBe('Ada Lovelace');
+      expect(ada?.accountName).toBe('Ada Lovelace');
+    });
+
+    it('leaves the account alone when the change is refused', async () => {
+      expect((await change(USER_ID, { name: 'Michael V', role: 'user' })).status).toBe(409);
+
+      expect((await listedBy(USER_ID)).find((user) => user.id === USER_ID)?.accountName).toBe(
+        'Michael',
       );
     });
 

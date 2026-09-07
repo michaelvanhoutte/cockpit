@@ -38,6 +38,7 @@ export function RowForm({
   choices,
   choicesHeading,
   choicesLabel,
+  choicesRole = 'group',
   refusal,
   saving,
   onCancel,
@@ -66,6 +67,13 @@ export function RowForm({
   choicesHeading: string;
   /** The same thing said to a screen reader, as the group's own name. */
   choicesLabel: string;
+  /**
+   * What kind of set it is. A row of swatches is a `group`; a set of radios is
+   * a `radiogroup`, which is what tells a screen reader it is one choice among
+   * a known number and where in them the reader is - the whole reason radios
+   * are radios.
+   */
+  choicesRole?: 'group' | 'radiogroup';
   /** Why the last Save did not happen, if it did not. */
   refusal?: string | null;
   /** That a Save is in flight, which closes both halves and the two buttons. */
@@ -131,7 +139,7 @@ export function RowForm({
                 and what makes it a choice among others is being one of these.
                 The caption is what a sighted reader gets, `aria-label` what a
                 screen reader gets from the group itself. */}
-            <div role="group" aria-label={choicesLabel} className="mt-4">
+            <div role={choicesRole} aria-label={choicesLabel} className="mt-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
                 {choicesHeading}
               </p>

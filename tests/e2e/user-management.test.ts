@@ -21,7 +21,7 @@ async function makeThem(page: Page, who: string, role: 'Admin' | 'User', isMobil
   await press(page.getByRole('button', { name: 'Save' }), isMobile);
 
   const row = page.getByRole('row').filter({ hasText: who });
-  await expect(row.getByRole('cell', { name: role.toLowerCase(), exact: true })).toBeVisible();
+  await expect(row.getByRole('cell', { name: role, exact: true })).toBeVisible();
 }
 
 /** Leaves as whoever is signed in and comes back as somebody else. */

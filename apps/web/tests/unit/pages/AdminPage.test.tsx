@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -49,6 +49,13 @@ vi.mock('../../../src/api/queries', async () => {
     useAddUser: () => useMutation({ mutationFn: adds }),
     useChangeUser: () => useMutation({ mutationFn: changes }),
   };
+});
+
+// Signed in as the seeded admin unless a case says otherwise: React Query
+// refuses an undefined answer, so a query left unanswered would fail in the
+// background of every case that is not about who is asking.
+beforeEach(() => {
+  iAm.mockResolvedValue({ user: { id: 'user-michael', name: 'Michael', role: 'admin' } });
 });
 
 // Module-scope mocks, so what one case recorded must not reach the next.
@@ -145,14 +152,22 @@ describe('User management', () => {
 
   describe('the list says everything the register knows about a person', () => {
     it.each([
-      { situation: 'an admin who has signed in', person: PEOPLE[0]!, signedIn: 'yes' },
-      { situation: 'an ordinary user who never has', person: PEOPLE[1]!, signedIn: 'not yet' },
-    ])('draws $situation', async ({ person, signedIn }) => {
+      { situation: 'an admin who has signed in', person: PEOPLE[0]!, role: 'Admin', signedIn: 'yes' },
+      {
+        situation: 'an ordinary user who never has',
+        person: PEOPLE[1]!,
+        role: 'User',
+        signedIn: 'not yet',
+      },
+    ])('draws $situation', async ({ person, role, signedIn }) => {
       reads.mockResolvedValue({ users: PEOPLE });
       drawn();
 
       const row = (await screen.findByText(person.name)).closest('tr')!;
-      for (const said of [person.email!, person.role, person.accountName, signedIn]) {
+      // The role in the words the screen uses, not the word the register holds:
+      // the form beside it offers "Admin", and a page that said both would be
+      // saying they might be different things.
+      for (const said of [person.email!, role, person.accountName, signedIn]) {
         expect(within(row).getByText(said)).toBeVisible();
       }
     });

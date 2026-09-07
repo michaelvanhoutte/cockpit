@@ -194,13 +194,14 @@ export type Changed =
  * an admin's role away while they sit on the admin page refuses their next read
  * rather than ending a sign-in they are using elsewhere.
  *
- * **The rules are decided against the register as it was read**, and the two
- * that matter are about how many admins are left. Two admins demoting each
- * other in the same instant could get past both reads and leave none - a window
- * D1 gives no way to close, having no interactive transaction - and the way
- * back from it is the same SQL the environment was bootstrapped with. It is
- * left open knowingly rather than guarded by a condition on the UPDATE that no
- * request could ever reach, and so no test could ever prove.
+ * **One window is left open knowingly**: the rules are decided against the
+ * register as it was read, so two admins demoting each other in the same
+ * instant both see two admins and both writes land, leaving none - recoverable
+ * only by the SQL the environment was bootstrapped with. Closing it with a
+ * condition on the UPDATE was tried and taken back out: the check above answers
+ * first for every request that can be made, so the condition is reachable by no
+ * request, provable by no test, and carries a second copy of the refusal it
+ * would have to produce. A branch nothing can reach is not a lock.
  */
 export async function changeUser(
   env: Env,
@@ -208,13 +209,13 @@ export async function changeUser(
   askedBy: string,
 ): Promise<Changed> {
   const db = createDb(env.DB);
-  const [held] = await db
-    .select({ id: users.id, role: users.role })
-    .from(users)
-    .where(eq(users.id, userId));
-  if (!held) return { changed: false, refused: `${userId} is nobody here`, because: 'nobody' };
+  // Together, because neither read needs the other's answer.
+  const [[held], admins] = await Promise.all([
+    db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)),
+    db.select({ id: users.id }).from(users).where(eq(users.role, ADMIN)),
+  ]);
+  if (!held) return nobodyHere(userId);
 
-  const admins = await db.select({ id: users.id }).from(users).where(eq(users.role, ADMIN));
   const stops = whatStopsChanging({
     who: held,
     change,
@@ -223,19 +224,41 @@ export async function changeUser(
   });
   if (stops) return { changed: false, refused: stops.what, because: 'a rule' };
 
-  // Stored trimmed, the way a name is on the way in: the box is where the
-  // spaces come from and nothing downstream should have to know that.
-  await db
-    .update(users)
-    .set({ name: change.name.trim(), role: change.role })
-    .where(eq(users.id, userId));
+  /**
+   * Both rows in one write, as `addUser` writes them: **the account is named
+   * after the person who owns it**, and leaving it behind would put "Ada
+   * Lovelace" and "Ada" side by side in the list with nothing to explain the
+   * difference and no way for an admin to put it right. A batch is what stops
+   * the two names disagreeing for the same reason it stops a person existing
+   * without their account.
+   *
+   * Stored trimmed, the way a name is on the way in: the box is where the
+   * spaces come from and nothing downstream should have to know that.
+   */
+  const name = change.name.trim();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET name = ?, role = ? WHERE id = ?').bind(
+      name,
+      change.role,
+      userId,
+    ),
+    env.DB.prepare(
+      'UPDATE tenants SET name = ? WHERE id = (SELECT account_id FROM users WHERE id = ?)',
+    ).bind(name, userId),
+  ]);
 
   // Read back rather than assembled here, so what a change answers and what the
   // list says are the same row read the same way - the account's name included,
   // which this function never had.
   const [after] = await peopleInRegister(db).where(eq(users.id, userId));
-  if (!after) throw new Error(`${userId} was changed and then could not be read back`);
+  // Gone between the write and the read back, which is the same answer as gone
+  // before it: this page is out of date, rather than the server having broken.
+  if (!after) return nobodyHere(userId);
   return { changed: true, user: asShown(after) };
+}
+
+function nobodyHere(userId: string): Changed {
+  return { changed: false, refused: `${userId} is nobody here`, because: 'nobody' };
 }
 
 /**

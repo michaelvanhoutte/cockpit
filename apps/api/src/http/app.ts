@@ -384,9 +384,9 @@ const addUserRoute = createRoute({
  * in are all in the register and none of them is settable here.
  *
  * A 404 for somebody the register does not hold, and a 409 for a change it
- * holds and will not make - the two refusals that keep the admin pages
- * reachable. The difference matters to the page: one is an address to fix, the
- * other a sentence to show under the form.
+ * holds and will not make - a name of nothing, or either of the two refusals
+ * that keep the admin pages reachable. The difference matters to the page: one
+ * is an address to fix, the other a sentence to show under the form.
  */
 const changeUserRoute = createRoute({
   method: 'patch',
@@ -409,7 +409,7 @@ const changeUserRoute = createRoute({
       content: { 'application/json': { schema: errorSchema } },
     },
     409: {
-      description: 'Refused: the change would leave the admin pages unreachable',
+      description: 'Refused: no name, or a change that would leave the admin pages unreachable',
       content: { 'application/json': { schema: errorSchema } },
     },
     401: {

@@ -129,7 +129,11 @@ export async function changeUser({
   return userChangedSchema.parse(await res.json());
 }
 
-/** Why a change to somebody was refused, in the server's words, for the form to show. */
+/**
+ * Why somebody could not be added or changed, in the server's words, for the
+ * box or the form to show. One class for both, because both forms do the same
+ * thing with it: print the reason and keep what was typed.
+ */
 export class UserRefused extends Error {
   constructor(message: string) {
     super(message);

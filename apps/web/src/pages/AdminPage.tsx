@@ -1,6 +1,14 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ADMIN, ROLES, type RegisteredUser, type Role } from '@cockpit/shared';
+import {
+  ADDRESS_LIMIT,
+  ADMIN,
+  NAME_LIMIT,
+  ROLES,
+  losingAdminIsRefused,
+  type RegisteredUser,
+  type Role,
+} from '@cockpit/shared';
 import { NotSignedIn, SIGN_IN_PATH } from '../api/client';
 import { statusOf } from '../api/loadFailure';
 import { meQuery, registeredUsersQuery, useAddUser, useChangeUser } from '../api/queries';
@@ -113,9 +121,10 @@ export function AdminPage() {
           name={editing.name}
           nameLabel={`Name of ${beingEdited.name}`}
           onName={(named) => setEditing({ ...editing, name: named })}
-          nameLimit={120}
+          nameLimit={NAME_LIMIT}
           choicesHeading="Role"
           choicesLabel={`Role of ${beingEdited.name}`}
+          choicesRole="radiogroup"
           choices={ROLES.map((role) => {
             const stuck = whyTheRoleIsStuck(beingEdited, role, {
               me: me.data?.user.id,
@@ -189,9 +198,12 @@ function whyTheRoleIsStuck(
   role: Role,
   { me, admins }: { me: string | undefined; admins: number },
 ): string | null {
-  if (user.role !== ADMIN || role === ADMIN) return null;
-  if (admins <= 1) return 'The only admin, so make somebody else one first';
-  if (user.id === me) return 'You cannot take your own admin away';
+  // The rule is the server's, shared so the two cannot come apart; only the
+  // wording is this page's, a label inside a choice being no place for a
+  // sentence.
+  const losing = losingAdminIsRefused({ who: user, role, askedBy: me, admins });
+  if (losing === 'the last admin') return 'The only admin, so make somebody else one first';
+  if (losing === 'your own') return 'You cannot take your own admin away';
   return null;
 }
 
@@ -238,11 +250,15 @@ function AddSomebody() {
         );
       }}
     >
+      {/* Bounded at what the contract allows, so the one refusal the server
+          cannot put in its own words - "validation failed", which is all a
+          shape check has to say - cannot be reached by typing. */}
       <label className="flex flex-col gap-1 text-xs text-ink-faint">
         Name
         <input
           className="rounded border border-black/15 px-2 py-1 text-sm text-ink"
           value={name}
+          maxLength={NAME_LIMIT}
           onChange={(event) => setName(event.target.value)}
         />
       </label>
@@ -251,6 +267,7 @@ function AddSomebody() {
         <input
           className="rounded border border-black/15 px-2 py-1 text-sm text-ink"
           value={email}
+          maxLength={ADDRESS_LIMIT}
           onChange={(event) => setEmail(event.target.value)}
         />
       </label>
@@ -320,7 +337,7 @@ function Row({
           register is the allowlist. Said rather than left blank, because a
           blank cell reads as a page that failed to draw. */}
       <td className="py-2 pr-4 text-ink-faint">{user.email ?? 'no address — cannot sign in'}</td>
-      <td className="py-2 pr-4">{user.role}</td>
+      <td className="py-2 pr-4">{roleName(user.role)}</td>
       <td className="py-2 pr-4 text-ink-faint">{user.accountName}</td>
       <td className="py-2 pr-4 text-ink-faint">{user.hasSignedIn ? 'yes' : 'not yet'}</td>
       <td className="py-2">

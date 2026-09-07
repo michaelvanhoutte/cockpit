@@ -97,10 +97,13 @@ export function useChangeUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: changeUser,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['registeredUsers'] });
-      await queryClient.invalidateQueries({ queryKey: ['me'] });
-    },
+    // Together, because the form is closed by the same success: one after the
+    // other would hold it in its saving state through both round trips.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
+        queryClient.invalidateQueries({ queryKey: ['me'] }),
+      ]),
   });
 }
 

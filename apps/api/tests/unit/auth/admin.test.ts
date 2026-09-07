@@ -13,7 +13,11 @@ describe('User management', () => {
   describe('the admin pages are the only addresses a role stands in front of', () => {
     it.each([
       { situation: 'the list of everybody', path: '/v1/admin/users', guarded: true },
-      { situation: 'a page under it nothing serves yet', path: '/v1/admin/users/x', guarded: true },
+      { situation: 'one person’s own address', path: '/v1/admin/users/x', guarded: true },
+      // The half the integration tier cannot ask, which is why this table
+      // exists: an address under the prefix that no route serves is refused
+      // rather than merely absent, and from outside the two look identical.
+      { situation: 'an address under it nothing serves', path: '/v1/admin/nothing', guarded: true },
       { situation: 'the workspaces a person reads', path: '/v1/workspaces', guarded: false },
       { situation: 'the health check', path: '/health', guarded: false },
       { situation: 'the operator’s own routes', path: '/v1/operator/backup/register', guarded: false },
