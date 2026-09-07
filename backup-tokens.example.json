@@ -13,9 +13,13 @@
     "you change the other.",
     "subdomain is not a secret - it is in this repository's own documents - and",
     "is here only because it is the other thing a command cannot work out for",
-    "itself. local needs none, deriving its port from the checkout's path."
+    "itself. local needs none, deriving its port from the checkout's path.",
+    "It ships empty rather than as a placeholder, and that is deliberate: a",
+    "truthy placeholder is accepted, so forgetting to replace it would send a",
+    "real bearer token to whoever has registered that name on workers.dev.",
+    "Empty refuses, the same way the two empty tokens do."
   ],
-  "subdomain": "your-workers-dev-subdomain",
+  "subdomain": "",
   "tokens": {
     "local": "local-operator-secret",
     "staging": "",

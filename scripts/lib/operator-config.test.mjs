@@ -14,9 +14,14 @@
 //
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { CONFIG_FILE, readConfig, resolveSubdomain, resolveToken } from './operator-config.mjs';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 const CONFIG = {
   subdomain: 'someone',
@@ -88,6 +93,35 @@ describe('the environment variable wins where it is set', () => {
       resolveToken('production', { config, env: { COCKPIT_BACKUP_TOKEN: '' } }),
       'production-token',
     );
+  });
+});
+
+describe('the example fails closed on every field somebody has to fill in', () => {
+  /**
+   * The one test here that reads the real file, because the property is about
+   * the artefact that ships rather than about the code: a placeholder that is
+   * truthy is *accepted*, so an operator who fills in the tokens and forgets
+   * the subdomain would have sent a real bearer token to whoever had
+   * registered that name on workers.dev. Empty refuses instead.
+   */
+  const example = JSON.parse(readFileSync(resolve(REPO_ROOT, 'backup-tokens.example.json'), 'utf8'));
+
+  it('ships the subdomain empty rather than as a placeholder', () => {
+    assert.equal(example.subdomain, '');
+  });
+
+  for (const environment of ['staging', 'production']) {
+    it(`ships ${environment} with no token, so forgetting one refuses`, () => {
+      assert.equal(example.tokens[environment], '');
+      assert.throws(() => resolveToken(environment, { config: example }), /has no token/);
+    });
+  }
+
+  // Local is the exception and is meant to be: it ships the value
+  // apps/api/.dev.vars.example ships, so copying both gives a working local
+  // backup rather than a refusal to debug.
+  it('ships local ready to use, matching the Worker’s own example', () => {
+    assert.equal(example.tokens.local, 'local-operator-secret');
   });
 });
 

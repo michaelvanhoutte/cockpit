@@ -100,10 +100,15 @@ export function readAnswer({ status, body }, extra = {}) {
         'checkout as old as it is. The secret was never asked for.'
       );
     }
+    // Naming both sources rather than picking one: this function is handed a
+    // status and a body and cannot know which supplied the token, so blaming
+    // the file sends a CI run - where the file is deliberately absent and the
+    // variable did the work - to look at something that is not there.
     return (
       'refused: the operator secret was not accepted. It is that environment\'s own ' +
-      'BACKUP_TOKEN, set with `wrangler secret put BACKUP_TOKEN`, and this command reads ' +
-      'the value it sends from backup-tokens.json - so the two have to match.'
+      'BACKUP_TOKEN, set with `wrangler secret put BACKUP_TOKEN`, and the value this ' +
+      'command sent came from COCKPIT_BACKUP_TOKEN if that is set and from ' +
+      'backup-tokens.json otherwise - so whichever it was has to match.'
     );
   }
   if (status === 404 || status === 400 || status === 409) return `refused: ${message(body)}`;
