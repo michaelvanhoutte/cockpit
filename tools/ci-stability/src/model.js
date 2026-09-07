@@ -33,9 +33,6 @@ const CONCLUSIONS = new Map([
   ['stale', 'other'],
 ]);
 
-export const COUNTED = ['pass', 'fail'];
-export const EXCLUDED = ['cancelled', 'skipped', 'running', 'other', 'unknown'];
-
 /** @param {{ status?: string, conclusion?: string|null }} item */
 export function classify({ status, conclusion }) {
   if (status && status !== 'completed') return 'running';
@@ -175,16 +172,19 @@ function windowModel(runs, jobsByRun, { days, now, oldestRun }) {
         tally: tally(workflowRuns.map(classify)),
         runs: workflowRuns.length,
         jobs: [...group(jobs, (job) => job.name).entries()]
-          .map(([jobName, jobRuns]) => ({
-            name: jobName,
-            tally: tally(jobRuns.map(classify)),
-            durations: quantiles(
-              jobRuns
-                .filter((job) => classify(job) === 'pass' || classify(job) === 'fail')
-                .map(durationMs)
-                .filter((ms) => ms !== null),
-            ),
-          }))
+          .map(([jobName, jobRuns]) => {
+            const outcomes = jobRuns.map(classify);
+            return {
+              name: jobName,
+              tally: tally(outcomes),
+              durations: quantiles(
+                jobRuns
+                  .filter((_, index) => outcomes[index] === 'pass' || outcomes[index] === 'fail')
+                  .map(durationMs)
+                  .filter((ms) => ms !== null),
+              ),
+            };
+          })
           .sort(byReliability),
       };
     })

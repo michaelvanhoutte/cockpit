@@ -113,4 +113,37 @@ describe('renderHtml', () => {
     const html = render({ runs: [run()] });
     expect(html).toContain('has not been red in this window');
   });
+
+  it('names the window its exclusions column belongs to, since two rate columns sit beside it', () => {
+    const html = render({ runs: [run()], windows: [7, 30] });
+    expect(html).toContain('Left out of 7 days');
+  });
+
+  it('never prints 100% for a rate that is not 100%', () => {
+    // 999 passes and one failure rounds to 100.0 at one decimal; the page must
+    // keep 100% for a job that really has not failed.
+    const runs = [
+      ...Array.from({ length: 999 }, () => run()),
+      run({ conclusion: 'failure' }),
+    ];
+    const html = render({ runs });
+    expect(html).toContain('99.9%');
+    expect(html).not.toContain('>100%<');
+  });
+
+  it('marks its timestamps as UTC everywhere, not only in the masthead', () => {
+    const failed = run({ conclusion: 'failure', createdAt: ago(2) });
+    const passed = run({ createdAt: ago(1) });
+    const html = render({
+      runs: [failed, passed],
+      jobs: [job({ runId: failed.id, conclusion: 'failure' })],
+    });
+    // Both the red stretch and the failure list carry the marker.
+    expect(html.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?!Z)/)).toBeNull();
+  });
+
+  it('says which period the red stretches cover, since it is not the table\'s windows', () => {
+    const html = render({ runs: [run({ createdAt: ago(9) })] });
+    expect(html).toContain('Over all 9 days read, not the windows above');
+  });
 });

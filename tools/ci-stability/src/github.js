@@ -35,12 +35,12 @@ export class GitHubError extends Error {
  * @typedef {object} Run
  * @property {number} id
  * @property {string} workflow
- * @property {string} event
+ * @property {string} path the workflow file this run belongs to, which is how a run that
+ *   belongs to no workflow of ours is told apart — see listRuns.
  * @property {string|null} conclusion
  * @property {string} status
  * @property {string} headSha
  * @property {string} createdAt
- * @property {number} attempt
  * @property {string} url
  */
 
@@ -58,20 +58,48 @@ export class GitHubError extends Error {
  * @property {string} url
  */
 
-async function request(path, { token, fetchImpl }) {
-  const res = await fetchImpl(`${API}${path}`, {
-    headers: {
-      accept: 'application/vnd.github+json',
-      'x-github-api-version': '2022-11-28',
-      'user-agent': 'cockpit-ci-stability',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-  });
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  if (!res.ok) {
+/**
+ * One request, retried only where retrying can help.
+ *
+ * A report is about four hundred requests, so the interesting number is not the
+ * chance of a 502 but the chance of *no* 502 across four hundred of them. A
+ * single transient failure would otherwise discard the whole run — and because
+ * the CI job is advisory, discard it silently, leaving the published page to go
+ * stale with nothing turning red. Only 5xx and a thrown fetch are retried: a
+ * 404 or a spent allowance will say the same thing however many times it is
+ * asked.
+ */
+async function request(path, { token, fetchImpl, retries = 2, retryDelayMs = 250 }) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (attempt > 0) await sleep(retryDelayMs * attempt);
+
+    let res;
+    try {
+      res = await fetchImpl(`${API}${path}`, {
+        headers: {
+          accept: 'application/vnd.github+json',
+          'x-github-api-version': '2022-11-28',
+          'user-agent': 'cockpit-ci-stability',
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+      });
+    } catch (error) {
+      lastError = new GitHubError(`Could not reach GitHub for ${path}: ${error.message}`, {
+        reason: 'network',
+      });
+      continue;
+    }
+
+    if (res.ok) return res.json();
+
     // A spent allowance is worth its own message: it is the one failure that is
     // about *us* rather than about GitHub, and the fix (fetch fewer runs, or
-    // wait) is different from every other status.
+    // wait) is different from every other status. Never retried — asking again
+    // is what spent it.
     const remaining = res.headers?.get?.('x-ratelimit-remaining');
     if ((res.status === 403 || res.status === 429) && remaining === '0') {
       const reset = res.headers?.get?.('x-ratelimit-reset');
@@ -81,13 +109,15 @@ async function request(path, { token, fetchImpl }) {
         { status: res.status, reason: 'rate-limit' },
       );
     }
-    throw new GitHubError(`GitHub answered ${res.status} for ${path}`, {
+
+    lastError = new GitHubError(`GitHub answered ${res.status} for ${path}`, {
       status: res.status,
       reason: 'http',
     });
+    if (res.status < 500) throw lastError;
   }
 
-  return res.json();
+  throw lastError;
 }
 
 /** @returns {Run} */
@@ -96,12 +126,10 @@ function normalizeRun(raw) {
     id: raw.id,
     workflow: raw.name,
     path: raw.path,
-    event: raw.event,
     conclusion: raw.conclusion ?? null,
     status: raw.status,
     headSha: raw.head_sha,
     createdAt: raw.created_at,
-    attempt: raw.run_attempt ?? 1,
     url: raw.html_url,
   };
 }
@@ -142,7 +170,7 @@ function normalizeJob(raw) {
  *   when the budget stopped it before the window did, which is what makes the reported
  *   window partial.
  */
-export async function listRuns({ repo, branch = 'main', since, maxRuns, token, fetchImpl }) {
+export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }) {
   const runs = [];
   let page = 1;
   let truncated = false;
@@ -151,7 +179,7 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, token, f
   for (;;) {
     const body = await request(
       `/repos/${repo}/actions/runs?branch=${encodeURIComponent(branch)}&per_page=${PER_PAGE}&page=${page}`,
-      { token, fetchImpl },
+      ctx,
     );
     const batch = body.workflow_runs ?? [];
     if (batch.length === 0) break;
@@ -182,11 +210,8 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, token, f
 }
 
 /** Every job of one run. @returns {Promise<Job[]>} */
-export async function listJobs({ repo, runId, token, fetchImpl }) {
-  const body = await request(
-    `/repos/${repo}/actions/runs/${runId}/jobs?per_page=${PER_PAGE}`,
-    { token, fetchImpl },
-  );
+export async function listJobs({ repo, runId, ...ctx }) {
+  const body = await request(`/repos/${repo}/actions/runs/${runId}/jobs?per_page=${PER_PAGE}`, ctx);
   return (body.jobs ?? []).map(normalizeJob);
 }
 
@@ -221,23 +246,19 @@ export async function collect({
   concurrency = 8,
   token,
   fetchImpl = globalThis.fetch,
+  retries,
+  retryDelayMs,
 }) {
   if (typeof fetchImpl !== 'function') {
     throw new GitHubError('No fetch available; pass fetchImpl.', { reason: 'no-fetch' });
   }
 
-  const { runs, truncated, ignored } = await listRuns({
-    repo,
-    branch,
-    since,
-    maxRuns,
-    token,
-    fetchImpl,
-  });
+  const ctx = { token, fetchImpl, retries, retryDelayMs };
+  const { runs, truncated, ignored } = await listRuns({ repo, branch, since, maxRuns, ...ctx });
 
   const withJobs = runs.filter((run) => run.conclusion !== 'skipped');
   const jobLists = await pool(withJobs, concurrency, (run) =>
-    listJobs({ repo, runId: run.id, token, fetchImpl }),
+    listJobs({ repo, runId: run.id, ...ctx }),
   );
 
   return { runs, jobs: jobLists.flat(), truncated, ignored, requests: withJobs.length };

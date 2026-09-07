@@ -104,7 +104,57 @@ describe('listRuns', () => {
 describe('collect', () => {
   it('fails loudly on a refusal, so no page is built from half a picture', async () => {
     const fetchImpl = async () => notOk(500);
-    await expect(collect({ repo: 'o/r', since: SINCE, fetchImpl })).rejects.toThrow(GitHubError);
+    await expect(
+      collect({ repo: 'o/r', since: SINCE, fetchImpl, retries: 0 }),
+    ).rejects.toThrow(GitHubError);
+  });
+
+  it('rides out one transient failure, rather than discarding four hundred good requests', async () => {
+    let calls = 0;
+    const fetchImpl = async (url) => {
+      calls += 1;
+      if (calls === 1) return notOk(502);
+      if (url.includes('/jobs')) return ok({ jobs: [] });
+      return ok({ workflow_runs: [rawRun()] });
+    };
+    const { runs } = await collect({ repo: 'o/r', since: SINCE, fetchImpl, retryDelayMs: 0 });
+    expect(runs).toHaveLength(1);
+  });
+
+  it('rides out a connection that never answered, the same way', async () => {
+    let calls = 0;
+    const fetchImpl = async (url) => {
+      calls += 1;
+      if (calls === 1) throw new Error('socket hang up');
+      if (url.includes('/jobs')) return ok({ jobs: [] });
+      return ok({ workflow_runs: [rawRun()] });
+    };
+    const { runs } = await collect({ repo: 'o/r', since: SINCE, fetchImpl, retryDelayMs: 0 });
+    expect(runs).toHaveLength(1);
+  });
+
+  it('does not retry a refusal that would say the same thing again', async () => {
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return notOk(404);
+    };
+    await expect(collect({ repo: 'o/r', since: SINCE, fetchImpl, retryDelayMs: 0 })).rejects.toThrow(
+      GitHubError,
+    );
+    expect(calls).toBe(1);
+  });
+
+  it('never retries a spent rate limit, because asking again is what spent it', async () => {
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return notOk(403, { 'x-ratelimit-remaining': '0' });
+    };
+    await expect(
+      collect({ repo: 'o/r', since: SINCE, fetchImpl, retryDelayMs: 0 }),
+    ).rejects.toMatchObject({ reason: 'rate-limit' });
+    expect(calls).toBe(1);
   });
 
   it('names a spent rate limit as itself, because the fix for it is a different one', async () => {

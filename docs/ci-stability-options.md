@@ -7,7 +7,7 @@
 | 1. Granularity | **1.2, job level.** Per-test (1.3/1.4) was scoped and set aside as too much for now: it needs reporters, a store and a rendering layer, and the job-level numbers are what say whether it is worth building for F3 alone. |
 | 2. Flakiness | **Deferred.** 2.3's scheduled repetition is the only honest measurement and it costs CI minutes, so it waits until the job-level numbers show where the minutes should go. Nothing on the page claims to be a flakiness rate in the meantime. |
 | 3. History | **3.1, none kept.** Job-level history is already stored by GitHub; re-deriving it each build leaves no state to corrupt, migrate or back up. |
-| 4. Publication | **4.1, the existing Pages deployment**, refreshed by merges to `main`. At roughly thirteen merges a day a schedule buys nothing; add 4.2's cron the day the merge rate drops or 2.3 lands. |
+| 4. Publication | **4.1, the existing Pages deployment**, refreshed by merges to `main`. At roughly thirteen merges a day a schedule buys nothing; add the scheduled rebuild (4.2) the day the merge rate drops, or when the flake hunter (2.3) lands and needs a schedule anyway. |
 
 Per-test and the flake hunter keep their sections below as the record of what a second and third slice would be.
 
@@ -44,10 +44,10 @@ Both failures were in test automation rather than the build — `pnpm test:e2e` 
 
 | | Answers | Needs | Sample per day |
 |---|---|---|---|
-| **1.1 Workflow** | Is `main` green | Nothing new | ~17 runs |
-| **1.2 Job** | Which tier is unreliable | Nothing new | ~17 per job |
-| **1.3 Test case** | Which test is unreliable | Reporters + a place to keep results | ~17 per test |
-| **1.4 Test × device project** | Whether it is phone-only | The same, plus keeping the project name | ~17 per pair |
+| **1.1 Workflow** | Is `main` green | Nothing new | ~13 runs |
+| **1.2 Job** | Which tier is unreliable | Nothing new | ~13 per job |
+| **1.3 Test case** | Which test is unreliable | Reporters + a place to keep results | ~13 per test |
+| **1.4 Test × device project** | Whether it is phone-only | The same, plus keeping the project name | ~13 per pair |
 
 **1.1** is one number, and the one number is already visible on the repository's home page. It cannot say what to fix.
 
@@ -81,7 +81,7 @@ Both failures were in test automation rather than the build — `pnpm test:e2e` 
 | **3.4 A table in D1, written by the Worker** | Everything, forever | An endpoint, a token, a migration | Puts CI telemetry in the product's database |
 | **3.5 A SaaS** | Everything | A subscription | Data leaves the repo |
 
-**3.1** is the whole of the recommended first slice: job-level history is *already stored*, by GitHub, and re-deriving it on each build means there is no state to corrupt, migrate or back up. Its ceiling is real though — per-test results live in artifacts, which expire (7 days for the Playwright failures, and 90 is the public-repo maximum), so decision 1.3 cannot be served this way beyond a rolling window.
+**3.1** is the whole of the recommended first slice: job-level history is *already stored*, by GitHub, and re-deriving it on each build means there is no state to corrupt, migrate or back up. Its ceiling is real though — per-test results live in artifacts, which expire (7 days for the Playwright failures, and 90 is the public-repo maximum), so per-test results (1.3) cannot be served this way beyond a rolling window.
 
 **3.2** would keep the page live between deploys without a cron, and the public repo makes it possible without a token. The rate limit is per viewer IP and the work is a fan-out over runs and jobs, so a phone on a shared network can hit it. Reasonable as a *refresh* button over a baked baseline, not as the only source.
 
@@ -89,7 +89,7 @@ Both failures were in test automation rather than the build — `pnpm test:e2e` 
 
 **3.4** couples the dashboard to the product's own deployment and its real data. Rejected for that: the rule that nothing may re-seed or wipe production exists to keep that database boring, and CI telemetry is not worth a table in it.
 
-*Assessment:* 3.1 for the first slice, 3.3 when decision 1.3 lands.
+*Assessment:* keeping nothing (3.1) for the first slice, the data branch (3.3) when per-test results (1.3) land.
 
 ## Decision 4: publication and refresh
 

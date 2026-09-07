@@ -66,14 +66,9 @@ collect(repo)  →  buildModel(...)  →  renderHtml(Model)  →  out/index.html
 `github.js` is the only file that does I/O and `model.js` the only one that computes;
 `render/` imports the model and never the fetcher. `--json` stops after the second arrow.
 
-**Cost shapes `github.js`.** Job detail is one request per run and `GITHUB_TOKEN` is
-capped at 1,000 requests an hour *per repository*, shared with every other workflow. Thirty
-days of `main` is about 400 requests once skipped runs are dropped — they ran no jobs, so
-there is nothing to ask about. `--max-runs` is the budget that keeps it true if the merge
-rate climbs: it stops early and the page reports the shorter window it actually read.
-
-This is why the `Stability` job runs on `main` only. What proves the generator on a branch
-is its own suite, which stubs the API.
+**Request cost is what shapes `github.js`**, and its header comment is where that is worked
+out. It is also the reason for `--max-runs` and for the `Stability` job running on `main`
+only; what proves the generator on a branch is this package's own suite, which stubs the API.
 
 ## What it deliberately does not answer
 

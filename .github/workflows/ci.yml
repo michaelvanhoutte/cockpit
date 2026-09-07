@@ -193,11 +193,10 @@ jobs:
   # standard library and has no dependencies to fetch.
   #
   # `main` only, and not because a branch's report would be published (the
-  # `pages` job below is what decides that). Job detail costs one request per
-  # run and `GITHUB_TOKEN` is capped at 1,000 an hour *per repository*, so a
-  # ~400-request report on every branch push would spend an allowance every
-  # workflow here shares. What proves the generator on a branch is its own
-  # suite, which stubs the API.
+  # `pages` job below is what decides that): a report costs hundreds of API
+  # requests against an hourly allowance every workflow here shares, worked out
+  # in `tools/ci-stability/src/github.js`. What proves the generator on a branch
+  # is its own suite, which stubs the API.
   stability:
     name: Stability
     if: github.ref == 'refs/heads/main'

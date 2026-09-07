@@ -68,6 +68,25 @@ function gh(args) {
   }
 }
 
+/**
+ * A count, or a recorded complaint.
+ *
+ * `Number('8OO')` is NaN, and every comparison against NaN is false — so an
+ * unchecked `--max-runs` typo does not shrink the budget, it removes it, and
+ * the fetch walks the whole run history against an allowance the rest of the
+ * repository's workflows share. `--days` fails the same way, through an Invalid
+ * Date no run is ever older than. Both mistakes fail towards fetching
+ * everything, which is why they are refused rather than defaulted.
+ */
+function positive(raw, name, args) {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    args.invalid ??= `${name} needs a positive number, not ${JSON.stringify(raw ?? null)}`;
+    return undefined;
+  }
+  return value;
+}
+
 export function parseArgs(argv) {
   const args = { windows: [7, 30] };
   for (let i = 0; i < argv.length; i += 1) {
@@ -76,11 +95,14 @@ export function parseArgs(argv) {
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--json') args.json = true;
     else if (arg === '--out') args.out = value();
-    else if (arg === '--days') args.days = Number(value());
-    else if (arg === '--max-runs') args.maxRuns = Number(value());
+    else if (arg === '--days') args.days = positive(value(), '--days', args);
+    else if (arg === '--max-runs') args.maxRuns = positive(value(), '--max-runs', args);
     else if (arg === '--repo') args.repo = value();
     else if (arg === '--branch') args.branch = value();
-    else if (arg === '--windows') args.windows = value().split(',').map(Number);
+    else if (arg === '--windows')
+      args.windows = value()
+        .split(',')
+        .map((each) => positive(each, '--windows', args));
     // The first one, not the last: a misspelled flag leaves its value looking
     // like an argument too, and naming that instead sends the reader after the
     // wrong word.
@@ -93,6 +115,10 @@ export async function main(argv) {
   const args = parseArgs(argv);
   if (args.unknown) {
     process.stderr.write(`unknown argument: ${args.unknown}\n\n${USAGE}`);
+    return 2;
+  }
+  if (args.invalid) {
+    process.stderr.write(`${args.invalid}\n\n${USAGE}`);
     return 2;
   }
   if (args.help) {

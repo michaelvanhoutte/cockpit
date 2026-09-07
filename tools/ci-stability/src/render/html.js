@@ -23,7 +23,11 @@ function rateCell(tally) {
   if (tally.rate === null) {
     return `<td class="num"><span class="rate none">no data</span><span class="of">0 finished</span></td>`;
   }
-  const pct = Math.round(tally.rate * 1000) / 10;
+  // Floored, not rounded, and 100% reserved for a rate that really is 1: at ten
+  // thousand runs, rounding would print "100%" beside the counts 9999/10000.
+  // The whole page is rates that never flatter, and this was the one arithmetic
+  // path that could.
+  const pct = tally.rate === 1 ? 100 : Math.floor(tally.rate * 1000) / 10;
   const band = tally.rate >= 0.99 ? 'good' : tally.rate >= 0.9 ? 'mid' : 'poor';
   return `<td class="num"><span class="rate ${band}">${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}%</span><span class="of">${tally.pass}/${tally.completed}</span></td>`;
 }
@@ -38,7 +42,15 @@ function humanMs(ms) {
   return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
-/** What a rate left out, named rather than merely subtracted. */
+/** Every timestamp on the page is UTC, and says so — the reader is not. */
+const stamp = (iso) => `${iso.slice(0, 16).replace('T', ' ')}Z`;
+
+/**
+ * What a rate left out, named rather than merely subtracted. One column, from
+ * the first window — which is why the header names that window rather than
+ * saying "the rate": with two rate columns beside it, an unlabelled count would
+ * be read against whichever one the eye was on.
+ */
 function excludedCell(tally) {
   if (!tally) return '<td class="excluded">&mdash;</td>';
   const parts = [];
@@ -56,7 +68,6 @@ function excludedCell(tally) {
  * or a job has — see model.js on what that costs across a rename.
  */
 function mergeWindows(model) {
-  const [primary] = model.windows;
   const order = [];
   const seen = new Set();
   for (const window of model.windows) {
@@ -98,7 +109,6 @@ function mergeWindows(model) {
           durations: durations ?? null,
         };
       }),
-      primaryRate: primary?.workflows.find((workflow) => workflow.name === name)?.tally ?? null,
     };
   });
 }
@@ -159,7 +169,7 @@ function reliabilityTable(model) {
       ${model.windows.map((window) => `<th class="num">${esc(windowHeading(window))}</th>`).join('')}
       <th class="num">Median</th>
       <th class="num">p90</th>
-      <th>Left out of the rate</th>
+      <th>Left out of ${esc(windowHeading(model.windows[0]))}</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table></div></div>`;
@@ -176,11 +186,11 @@ function redWindowsSection(model) {
         <span class="detail">${esc(window.workflow)} &middot; ${window.commits} commit${
           window.commits === 1 ? '' : 's'
         } &middot; from <a href="${esc(window.fromUrl)}" target="_blank" rel="noopener">${esc(
-          window.from.slice(0, 16).replace('T', ' '),
+          stamp(window.from),
         )}</a>${
           window.untilUrl
             ? ` to <a href="${esc(window.untilUrl)}" target="_blank" rel="noopener">${esc(
-                window.until.slice(0, 16).replace('T', ' '),
+                stamp(window.until),
               )}</a>`
             : ''
         }</span>
@@ -197,7 +207,7 @@ function failuresSection(model) {
     .map(
       (failure) => `<div class="failure">
         <a href="${esc(failure.url)}" target="_blank" rel="noopener">${esc(failure.workflow)}</a>
-        <span class="when">&middot; ${esc(failure.createdAt.slice(0, 16).replace('T', ' '))}</span>
+        <span class="when">&middot; ${esc(stamp(failure.createdAt))}</span>
         <span class="sha">&middot; ${esc(failure.headSha.slice(0, 7))}</span>
         ${
           failure.jobs.length
@@ -278,11 +288,18 @@ export function renderHtml(model, { explorerHref = '../' } = {}) {
   ${reliabilityTable(model)}
 
   <h2>How long ${esc(model.branch)} stayed red</h2>
-  <p class="sectionnote">From a failing run to the next passing one. Consecutive failures are one stretch; a cancelled run in between neither opens nor closes one.</p>
+  <p class="sectionnote">
+    Over all ${
+      model.coverage.actualDays === null ? 0 : Math.round(model.coverage.actualDays)
+    } days read, not the windows above. From a failing run to the next passing one; consecutive
+    failures are one stretch, and a cancelled run in between neither opens nor closes one.
+  </p>
   ${redWindowsSection(model)}
 
   <h2>Recent failures</h2>
-  <p class="sectionnote">The failing job and the step it died on, linked to the run.</p>
+  <p class="sectionnote">The last ${model.recentFailures.length} across the same ${
+    model.coverage.actualDays === null ? 0 : Math.round(model.coverage.actualDays)
+  } days: the failing job and the step it died on, linked to the run.</p>
   ${failuresSection(model)}
 
   <footer>
