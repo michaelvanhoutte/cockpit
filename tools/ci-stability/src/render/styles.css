@@ -1,0 +1,102 @@
+/* The same palette as the test explorer's, because the two are pages of one
+   site and a reader moving between them should not feel handed to another
+   tool. Layout is this page's own: one scannable table, no detail panel. */
+:root {
+  --bg: #0f1115;
+  --card: #161922;
+  --ink-1: #f0f1f4;
+  --ink-2: #b7bcc9;
+  --ink-3: #98a0b2;
+  --line: #262b38;
+  --accent: #6ea8fe;
+  --bad: #ff8b8b;
+  --warn: #f0c674;
+  --ok: #6fce8d;
+  --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink-1);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 80px; }
+
+.eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; font-weight: 600; margin: 0 0 8px; }
+h1 { font-size: 28px; margin: 0 0 12px; }
+h2 { font-size: 18px; margin: 32px 0 4px; }
+.standfirst { color: var(--ink-2); max-width: 760px; margin: 0 0 20px; }
+.sectionnote { color: var(--ink-3); font-size: 13px; margin: 0 0 12px; max-width: 760px; }
+
+.runmeta { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--ink-3); }
+.runmeta b { color: var(--ink-1); font-weight: 600; }
+.runmeta a { color: inherit; text-decoration: none; }
+.runmeta a:hover b { color: var(--accent); }
+
+.note { margin-top: 16px; padding: 12px 16px; border-radius: 8px; background: var(--card); color: var(--ink-2); font-size: 13px; border: 1px solid var(--line); }
+.note b { color: var(--ink-1); }
+.note.warn { border-color: #4a3a2a; background: #241c14; }
+.note ul { margin: 8px 0 0; padding-left: 20px; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-top: 12px; }
+.tablewrap { overflow-x: auto; padding: 4px; }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); font-weight: 600; }
+tbody tr:last-child td { border-bottom: none; }
+th.num, td.num { text-align: right; }
+
+/* A workflow's own verdict, then its jobs under it. The indent is what says
+   the job rows are inside the workflow rather than beside it. */
+tr.workflow td { background: #1b1f2a; font-weight: 600; }
+tr.workflow td:first-child { color: var(--ink-1); }
+td.jobname { padding-left: 28px; color: var(--ink-2); }
+
+.rate { font-variant-numeric: tabular-nums; font-weight: 600; }
+.rate.good { color: var(--ok); }
+.rate.mid { color: var(--warn); }
+.rate.poor { color: var(--bad); }
+.rate.none { color: var(--ink-3); font-weight: 400; }
+/* The counts are not decoration: a percentage over eleven runs and one over
+   four hundred are different claims, and this is the only thing that says so. */
+.of { color: var(--ink-3); font-weight: 400; font-size: 12px; margin-left: 6px; font-variant-numeric: tabular-nums; }
+.dur { color: var(--ink-2); font-variant-numeric: tabular-nums; font-size: 13px; }
+.excluded { color: var(--ink-3); font-size: 12px; }
+
+.failure { padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.failure:last-child { border-bottom: none; }
+.failure a { color: var(--accent); text-decoration: none; }
+.failure a:hover { text-decoration: underline; }
+.failure .when { color: var(--ink-3); }
+.failure .step { color: var(--ink-2); font-family: var(--mono); font-size: 12px; }
+.failure .sha { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+.redwindow { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.redwindow:last-child { border-bottom: none; }
+.redwindow .len { font-weight: 600; color: var(--ink-1); font-variant-numeric: tabular-nums; }
+.redwindow.open .len { color: var(--bad); }
+.redwindow .detail { color: var(--ink-3); }
+.redwindow a { color: inherit; text-decoration: none; }
+.redwindow a:hover { color: var(--accent); }
+
+.empty { padding: 16px; color: var(--ink-3); font-size: 13px; }
+
+footer { margin-top: 40px; color: var(--ink-3); font-size: 12.5px; }
+footer a { color: var(--accent); text-decoration: none; }
+
+@media (max-width: 620px) {
+  .wrap { padding: 24px 14px 60px; }
+  h1 { font-size: 23px; }
+  /* The table is the page, so it keeps its columns and scrolls sideways rather
+     than reflowing into something that fits but cannot be compared. */
+  th, td { padding: 8px 10px; }
+  td.jobname { padding-left: 20px; }
+}

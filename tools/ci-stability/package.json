@@ -1,0 +1,22 @@
+{
+  "name": "@cockpit/ci-stability",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reports how reliable each CI job on main is, from the Actions API. See docs/ci-stability-options.md.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "generate": "node src/cli.js",
+    "model": "node src/cli.js --json",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:fast": "pnpm test:unit",
+    "test:all": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}
