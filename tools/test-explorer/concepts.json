@@ -38,7 +38,13 @@
       "key": "User management",
       "label": "User management",
       "parent": "Accounts",
-      "sourcePatterns": []
+      "sourcePatterns": [
+        "apps/api/src/auth/admin.ts",
+        "apps/api/src/accounts/register.ts",
+        "packages/shared/src/api/users.ts",
+        "apps/web/src/pages/AdminPage.tsx",
+        "apps/web/src/pages/Layout.tsx"
+      ]
     },
     {
       "key": "Backup",

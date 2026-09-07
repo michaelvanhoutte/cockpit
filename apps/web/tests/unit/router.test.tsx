@@ -37,7 +37,7 @@ const readsSnapshot = vi.mocked(fetchSnapshot);
 const readsWhoIAm = vi.mocked(fetchMe);
 const sends = vi.mocked(sendCommand);
 
-const SIGNED_IN = { user: { id: 'user-michael', name: 'Michael' } };
+const SIGNED_IN = { user: { id: 'user-michael', name: 'Michael', role: 'user' as const } };
 
 const work: Workspace = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
 const personal: Workspace = { id: 'ws-personal', tenantId: 'tenant', name: 'Personal', color: '#c06a45', bar: '#eedcc4', ground: '#f2e5d4', header: '#ead2b3' };

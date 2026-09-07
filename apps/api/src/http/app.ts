@@ -4,6 +4,7 @@ import { streamSSE } from 'hono/streaming';
 import {
   commandResultSchema,
   commandSchemas,
+  registeredUserListSchema,
   signedInSchema,
   itemTypeListSchema,
   workspaceListSchema,
@@ -25,12 +26,14 @@ import {
   openAccount,
   registerContents,
   registeredAccountNames,
+  registeredUsers,
   restoreAccount,
   restoreRegister,
   type AccountBackup,
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
+import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
   OPERATOR_PREFIX,
@@ -166,6 +169,17 @@ app.use('*', gate());
 app.use(`${OPERATOR_PREFIX}*`, operatorGate());
 
 /**
+ * And the admin pages' own gate, which is the `admin` role rather than a secret
+ * ("See who can sign in, on a page only an admin can open", issue 230).
+ *
+ * **After the sign-in gate, not beside it**: it reads the visitor that gate
+ * resolved, so there is one reading of who is asking per request. The addresses
+ * the operator's routes moved off are under this same prefix and are skipped by
+ * `isAdminPath`, since they answer a command line that holds no session at all.
+ */
+app.use(`${ADMIN_PREFIX}*`, adminGate());
+
+/**
  * What this application used to answer, saying so.
  *
  * Every method rather than the one each address used to have: what a retired
@@ -285,6 +299,29 @@ const meRoute = createRoute({
     },
     401: {
       description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
+ * Everyone this Cockpit knows, for the admin pages. The role gate in front of
+ * it is what refuses anybody who is not an admin; nothing here re-asks.
+ */
+const adminUsersRoute = createRoute({
+  method: 'get',
+  path: '/v1/admin/users',
+  responses: {
+    200: {
+      description: 'Everyone in the register',
+      content: { 'application/json': { schema: registeredUserListSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
       content: { 'application/json': { schema: errorSchema } },
     },
   },
@@ -472,9 +509,10 @@ const routes = app
     return c.json({ signedOut: true }, 200);
   })
   .openapi(meRoute, (c) => {
-    const { userId, name } = c.get('visitor');
-    return c.json({ user: { id: userId, name } }, 200);
+    const { userId, name, role } = c.get('visitor');
+    return c.json({ user: { id: userId, name, role } }, 200);
   })
+  .openapi(adminUsersRoute, async (c) => c.json({ users: await registeredUsers(c.env) }, 200))
   .openapi(healthRoute, async (c) => {
     const { register, store, failure } = await checkHealth(c.env);
     // The reason goes to the logs and not into the body: this endpoint answers
