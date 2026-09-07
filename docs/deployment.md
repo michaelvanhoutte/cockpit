@@ -575,8 +575,10 @@ wrangler deploy --env staging
 
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy
 workflow: `seed.sql` puts the accounts *and the people who own them* in the
-register, neither of which the application has an onboarding flow to create. When
-onboarding exists, this step goes away. **Neither environment is seeded again
+register. **It is only ever the first admin now.** Everybody after them is added
+on the admin page ("Add a user on the admin page, so a second person no longer
+needs SQL", issue 231), and this step stays exactly as long as the chicken and
+egg does: nobody can open that page until somebody can sign in. **Neither environment is seeded again
 afterwards**: a bootstrap is not a deploy step, and since 7 September 2026 both
 hold real data, so the runbook above is for a *new* Cloudflare account and
 nothing else. `seed.sql` is `INSERT OR IGNORE` throughout, so re-running it would

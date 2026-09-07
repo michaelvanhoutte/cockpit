@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RegisteredUser } from '@cockpit/shared';
 import { AdminPage } from '../../../src/pages/AdminPage';
@@ -33,10 +34,17 @@ const PEOPLE: RegisteredUser[] = [
 ];
 
 const reads = vi.fn();
+const adds = vi.fn();
 
-vi.mock('../../../src/api/queries', () => ({
-  registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => reads() },
-}));
+vi.mock('../../../src/api/queries', async () => {
+  const { useMutation } = await import('@tanstack/react-query');
+  return {
+    registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => reads() },
+    // The real hook, minus the cache invalidation it does on success - which
+    // needs a client these cases do not have and proves nothing about the form.
+    useAddUser: () => useMutation({ mutationFn: adds }),
+  };
+});
 
 function drawn() {
   return render(
@@ -47,6 +55,78 @@ function drawn() {
 }
 
 describe('User management', () => {
+  describe('adding somebody asks for a name and the address they sign in with', () => {
+    async function fillIn({ name, email }: { name: string; email: string }) {
+      const user = userEvent.setup();
+      reads.mockResolvedValue({ users: PEOPLE });
+      drawn();
+
+      await user.type(await screen.findByLabelText('Name'), name);
+      await user.type(screen.getByLabelText('Signs in with'), email);
+      return user;
+    }
+
+    it('sends what was typed, trimmed', async () => {
+      adds.mockResolvedValue({ user: PEOPLE[1]!, accountReady: true });
+      const user = await fillIn({ name: '  Anna  ', email: '  anna@example.com  ' });
+
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      // The first argument only: react-query hands the mutation a context of
+      // its own as a second, which is its business rather than this page's.
+      await waitFor(() => expect(adds).toHaveBeenCalled());
+      expect(adds.mock.calls[0]?.[0]).toEqual({ name: 'Anna', email: 'anna@example.com' });
+    });
+
+    /**
+     * The refusal is the server's own words, because they name what is wrong -
+     * which address is already somebody's - and the page has nothing better to
+     * say than the reason.
+     */
+    it('shows the refusal and keeps what was typed', async () => {
+      adds.mockRejectedValue(new Error('ada@example.com is already how user-ada signs in'));
+      const user = await fillIn({ name: 'Someone', email: 'ada@example.com' });
+
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/already how user-ada/);
+      expect(screen.getByLabelText('Signs in with')).toHaveValue('ada@example.com');
+    });
+
+    it('clears the box once somebody is added', async () => {
+      adds.mockResolvedValue({ user: PEOPLE[1]!, accountReady: true });
+      const user = await fillIn({ name: 'Anna', email: 'anna@example.com' });
+
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue(''));
+    });
+
+    /**
+     * The person is added either way, so the one thing the page must not do is
+     * stay silent: an admin who is not told would find out when that person
+     * could not get in.
+     */
+    it('says so when somebody was added but their account was not ready', async () => {
+      adds.mockResolvedValue({ user: PEOPLE[1]!, accountReady: false });
+      const user = await fillIn({ name: 'Anna', email: 'anna@example.com' });
+
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      expect(await screen.findByRole('status')).toHaveTextContent(/could not be prepared/);
+    });
+
+    it.each([
+      { situation: 'nothing typed', name: '', email: '' },
+      { situation: 'only a name', name: 'Anna', email: '' },
+      { situation: 'only an address', name: '', email: 'anna@example.com' },
+    ])('does not offer to add on $situation', async ({ name, email }) => {
+      await fillIn({ name: name || '{Escape}', email: email || '{Escape}' });
+
+      expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
+    });
+  });
+
   describe('the list says everything the register knows about a person', () => {
     it.each([
       { situation: 'an admin who has signed in', person: PEOPLE[0]!, signedIn: 'yes' },

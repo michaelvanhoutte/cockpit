@@ -3,6 +3,7 @@ import type { RegisteredUser } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
+import { foldAddress, idsForNewUser, whatIsWrongWith } from './new-user.js';
 
 /**
  * The register: which accounts exist. It stays in D1 rather than moving into
@@ -64,6 +65,105 @@ export async function registeredUsers(env: Env): Promise<RegisteredUser[]> {
     ...user,
     hasSignedIn: googleSubject !== null,
   }));
+}
+
+/**
+ * Somebody was added, or was not and this is why.
+ *
+ * **`accountId` is carried beside the user and is not `user.accountName`.** The
+ * two are different things that read alike: the contract's `accountName` is the
+ * account's *name*, which is what an admin sees, while what addresses the store
+ * is the register's id (`tenant-anna`). Anything opening the account needs this
+ * one.
+ */
+export type Added =
+  | { added: true; user: RegisteredUser; accountId: string }
+  | { added: false; refused: string };
+
+/**
+ * Adds a person and the account they own ("Add a user on the admin page, so a
+ * second person no longer needs SQL", issue 231).
+ *
+ * **Both rows in one write.** A person pointing at an account that is not there
+ * is somebody whose every request fails on a foreign key they cannot see, and a
+ * batch is what makes that state unreachable rather than merely unlikely.
+ *
+ * **The refusals are decided against the register as it was read**, so the write
+ * is guarded again by the register's own uniqueness: if somebody else takes the
+ * address in between, the insert fails and this says so rather than reporting a
+ * person who is not there. The four rules are the register's, not this
+ * function's - an account's id, a user's id, the address, and the Google
+ * identity - which is why the check is a query against them rather than a list
+ * kept here.
+ *
+ * **Everyone arrives ordinary.** Choosing a role while adding waits for
+ * "Rename a user, and make somebody an admin" (issue 232); until then the only
+ * admin is the one the environment was bootstrapped with.
+ */
+export async function addUser(
+  env: Env,
+  { name, address }: { name: string; address: string },
+  now: Date,
+): Promise<Added> {
+  const wrong = whatIsWrongWith({ name, address });
+  if (wrong) return { added: false, refused: wrong.what };
+
+  const db = createDb(env.DB);
+  const email = foldAddress(address);
+  const [held] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+  if (held) return { added: false, refused: `${email} is already how ${held.id} signs in` };
+
+  const [ids, at] = [await freeIds(env, name), now.toISOString()];
+  if (!ids) return { added: false, refused: `${name.trim()} leaves nothing an account could be named after` };
+
+  const user: RegisteredUser = {
+    id: ids.userId,
+    name: name.trim(),
+    email,
+    role: 'user',
+    accountName: name.trim(),
+    hasSignedIn: false,
+  };
+
+  try {
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)').bind(
+        ids.accountId,
+        user.name,
+        at,
+      ),
+      env.DB.prepare(
+        'INSERT INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ).bind(ids.userId, user.name, ids.accountId, user.role, email, at),
+    ]);
+  } catch (error) {
+    // What is left to fail here is the register refusing a row somebody else
+    // wrote between the read above and this write - the address, or an id. Said
+    // as a refusal rather than thrown as a 500, because it is a true answer to
+    // what was asked and the person can act on it by trying again.
+    console.error(JSON.stringify({ level: 'error', message: `adding ${ids.userId} failed`, cause: String(error) }));
+    return { added: false, refused: `somebody else was added at the same moment - try again` };
+  }
+
+  return { added: true, user, accountId: ids.accountId };
+}
+
+/**
+ * The first pair of ids nothing in the register holds.
+ *
+ * One query rather than one per candidate: the ids are derived from a name, and
+ * the only way a second query would be reached is two people of the same name,
+ * so the whole set of ids starting with this name is read once and answered
+ * from.
+ */
+async function freeIds(env: Env, name: string) {
+  const db = createDb(env.DB);
+  const [accounts, people] = await Promise.all([
+    db.select({ id: tenants.id }).from(tenants),
+    db.select({ id: users.id }).from(users),
+  ]);
+  const held = new Set([...accounts.map((row) => row.id), ...people.map((row) => row.id)]);
+  return idsForNewUser(name, ({ accountId, userId }) => held.has(accountId) || held.has(userId));
 }
 
 /** The register as a backup holds it. */

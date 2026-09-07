@@ -71,3 +71,39 @@ export type RegisteredUser = z.infer<typeof registeredUserSchema>;
 /** Everyone this Cockpit knows, for the admin pages. */
 export const registeredUserListSchema = z.object({ users: z.array(registeredUserSchema) });
 export type RegisteredUserList = z.infer<typeof registeredUserListSchema>;
+
+/**
+ * Adding somebody: their name, and the Google address they will sign in with
+ * ("Add a user on the admin page, so a second person no longer needs SQL",
+ * issue 231).
+ *
+ * **No role.** Everyone arrives ordinary; making somebody an admin is its own
+ * page and its own issue. **No account either** - a person owns one account and
+ * it is made with them, so naming it would be asking for something the product
+ * does not let you choose.
+ *
+ * The lengths are what a person can type rather than what the register can
+ * hold, so the refusal happens in front of them rather than as a constraint
+ * error underneath.
+ */
+export const addUserSchema = z.object({
+  name: z.string().min(1).max(120),
+  email: z.string().min(3).max(254),
+});
+export type AddUser = z.infer<typeof addUserSchema>;
+
+/**
+ * What adding somebody answered: the person, and whether their account was
+ * ready when they were added.
+ *
+ * **`accountReady` is false rather than an error**, because the person is added
+ * either way: the account is opened as they are added so that a change which
+ * will not apply lands on the admin who added them rather than on their first
+ * sign-in, and if it does not, their first sign-in tries again. What the admin
+ * needs is to be told, not to be left thinking nothing happened.
+ */
+export const userAddedSchema = z.object({
+  user: registeredUserSchema,
+  accountReady: z.boolean(),
+});
+export type UserAdded = z.infer<typeof userAddedSchema>;
