@@ -151,9 +151,10 @@ jobs:
 
   # Publishes which product concepts own which tests: as a downloadable
   # artifact on every run, and — from `main` only — as the page the `pages` job
-  # below deploys. Does not gate: docs/test-explorer-spec.md §8 deliberately
-  # stops short of failing the build on the report's content, only on
-  # concepts.json drift (a source file the registry can't place).
+  # below deploys. Does not gate: docs/test-explorer-spec.md's "CLI, scripts,
+  # CI" (§8) deliberately stops short of failing the build on the report's
+  # content, only on concepts.json drift (a source file the registry can't
+  # place).
   test-explorer:
     name: Test Explorer
     runs-on: ubuntu-latest

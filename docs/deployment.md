@@ -87,7 +87,8 @@ no commitlint hook to install and nothing for an agent to get wrong.
 | **production** | manual promotion | `cockpit` | `cockpit` | yes | `cockpit.vanhoutte-michael.workers.dev` |
 | **staging** | every commit on `main` | `cockpit-staging` | `cockpit-staging` | yes | `cockpit-staging.vanhoutte-michael.workers.dev` |
 
-There is no third environment for the application; branches are deployed nowhere (§4).
+There is no third environment for the application; branches are deployed nowhere,
+per "No branch environments" (§4).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
 part of the app: it is where CI publishes the test explorer's report from `main`
 (`tools/test-explorer/README.md`).
