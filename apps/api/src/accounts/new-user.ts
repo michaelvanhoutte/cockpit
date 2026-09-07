@@ -118,6 +118,29 @@ export function idsForNewUser(name: string, taken: (ids: NewIds) => boolean): Ne
 /** How many people of one name can be told apart before adding says no. */
 const SUFFIXES_TRIED = 1000;
 
+/**
+ * The prefix every id this name could derive begins with - what a lookup has to
+ * search on to see all of them.
+ *
+ * **It is shorter than the name derives**, and that is the whole point: a
+ * candidate with a suffix has room made for it by trimming the name, so
+ * `tenant-<40 letters>-2` does *not* begin with `tenant-<40 letters>`. A lookup
+ * keyed on the untruncated part cannot see the suffixed ids at all - it hands
+ * out one that is already somebody's, the insert is refused by the register's
+ * own uniqueness, and the person is told to try again for ever, since every
+ * attempt derives the same id. Reserving the longest tag here is what keeps
+ * this and `idsForNewUser` from disagreeing about what an id can look like.
+ *
+ * Trailing dashes are trimmed for the same reason they are in a candidate: a
+ * prefix ending in one would not be a prefix of a base that had it trimmed.
+ */
+export function idSearchPrefix(name: string): string | null {
+  const part = nameAsIdPart(name);
+  if (!part) return null;
+  const room = ACCOUNT_NAME_LIMIT - ACCOUNT_PREFIX.length - `-${SUFFIXES_TRIED}`.length;
+  return part.slice(0, room).replace(/-+$/, '') || part;
+}
+
 /** Why somebody could not be added, in words the person who typed it can act on. */
 export type Refusal = { what: string };
 

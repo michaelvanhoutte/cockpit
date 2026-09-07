@@ -160,6 +160,27 @@ describe('User management', () => {
       expect(user.id).toBe('user-anna-2');
     });
 
+    /**
+     * Three people whose name fills the account limit, which is where the
+     * derivation and the lookup can disagree: the second one's id is trimmed to
+     * make room for its suffix, so a lookup keyed on the untrimmed name cannot
+     * see it - and the third is handed the id the second already has, refused
+     * by the register, and told to try again for ever. Three rather than two,
+     * because two is the case that works either way.
+     */
+    it('tells three people of one very long name apart', async () => {
+      const long = 'Annabellinda'.repeat(4);
+      const ids: string[] = [];
+
+      for (const who of ['one', 'two', 'three']) {
+        const res = await add({ name: long, email: `${who}@example.com` });
+        expect(res.status).toBe(201);
+        ids.push(((await res.json()) as { user: RegisteredUser }).user.id);
+      }
+
+      expect(new Set(ids).size).toBe(3);
+    });
+
     it.each([
       {
         situation: 'an address somebody already has',

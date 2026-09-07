@@ -3,6 +3,7 @@ import {
   ACCOUNT_NAME_LIMIT,
   addressLooksReal,
   foldAddress,
+  idSearchPrefix,
   idsForNewUser,
   nameAsIdPart,
   whatIsWrongWith,
@@ -76,6 +77,33 @@ describe('User management', () => {
      */
     it('gives up rather than searching for ever', () => {
       expect(idsForNewUser('Anna', () => true)).toBeNull();
+    });
+
+    /**
+     * The seam the loop fix opened, and the one a lookup has to close: a
+     * candidate with a suffix has room made for it by trimming the name, so
+     * `tenant-<40 letters>-2` does *not* begin with `tenant-<40 letters>`.
+     * Anything searching the register for "the ids this name could take" has to
+     * search on the shorter prefix, or it cannot see the very rows it is
+     * looking for - hands out one somebody already has, and the person is told
+     * to try again for ever, since every attempt derives the same id.
+     */
+    it.each([
+      { situation: 'a short name', name: 'Anna' },
+      { situation: 'a name that fills the limit', name: 'a'.repeat(60) },
+      { situation: 'a name ending in punctuation once folded', name: `${'b'.repeat(38)}!!!!` },
+    ])('every id $situation can take starts with the prefix a lookup searches on', ({ name }) => {
+      const prefix = idSearchPrefix(name)!;
+      const held = new Set<string>();
+
+      // Several people of this name, so the truncated candidates are reached.
+      for (let person = 0; person < 4; person += 1) {
+        const ids = idsForNewUser(name, ({ accountId }) => held.has(accountId))!;
+        expect(ids.accountId.startsWith(`tenant-${prefix}`)).toBe(true);
+        expect(ids.userId.startsWith(`user-${prefix}`)).toBe(true);
+        held.add(ids.accountId);
+      }
+      expect(held.size).toBe(4);
     });
   });
 

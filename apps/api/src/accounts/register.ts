@@ -3,7 +3,7 @@ import type { RegisteredUser } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
-import { foldAddress, idsForNewUser, nameAsIdPart, whatIsWrongWith } from './new-user.js';
+import { foldAddress, idSearchPrefix, idsForNewUser, whatIsWrongWith } from './new-user.js';
 
 /**
  * The register: which accounts exist. It stays in D1 rather than moving into
@@ -187,8 +187,14 @@ async function freeIds(env: Env, name: string) {
   const db = createDb(env.DB);
   // Filtered to the ids this name could derive, which is what makes the read a
   // question about the people sharing a name rather than about the whole
-  // register: the `Set` below only ever answers for candidates starting here.
-  const part = nameAsIdPart(name);
+  // register.
+  //
+  // **The prefix is `idSearchPrefix`'s, not the name's.** A candidate with a
+  // suffix has room made for it by trimming the name, so searching on the
+  // untrimmed part misses exactly the ids this is looking for - and hands out
+  // one somebody already has, which the register then refuses for ever. That
+  // rule lives with the derivation so the two cannot drift.
+  const part = idSearchPrefix(name);
   if (!part) return null;
   const [accounts, people] = await Promise.all([
     db.select({ id: tenants.id }).from(tenants).where(like(tenants.id, `tenant-${part}%`)),
