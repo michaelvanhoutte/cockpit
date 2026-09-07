@@ -15,8 +15,10 @@ import {
   CHANGE_LEDGER,
   accountTables,
   describeForeignRowsInBackup,
+  describeForeignRowsInStore,
   foreignRows,
   readStoreAsItStands,
+  storeRowsBelongingElsewhere,
   type AccountBackup,
   type ForeignRow,
 } from './backup.js';
@@ -146,6 +148,81 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   }
 
   /**
+   * How much of the account there is, read exactly as it stands ("Delete a
+   * user, and the account they owned with them", issue 234).
+   *
+   * **Not brought up to date first**, unlike every other read here, and that is
+   * the whole point: bringing an account nobody has opened up to date is what
+   * *creates* the workspace it starts with, so asking that way would answer
+   * "one workspace" for an account holding nothing - and make it hold one on
+   * the way past. This is asked before somebody is deleted, where "there is
+   * nothing in it" has to be true rather than made false by the asking.
+   */
+  holdsAsItStands(accountName: string): { workspaces: number } {
+    const sql = this.ctx.storage.sql;
+    if (!accountTables(sql).includes('workspaces')) return { workspaces: 0 };
+    const [row] = [
+      ...sql.exec(
+        'SELECT count(*) AS held FROM workspaces WHERE tenant_id = ? AND deleted_at IS NULL',
+        accountName,
+      ),
+    ];
+    return { workspaces: Number(row?.held ?? 0) };
+  }
+
+  /**
+   * Destroys everything the account holds ("Delete a user, and the account they
+   * owned with them", issue 234).
+   *
+   * **The only thing in the product that empties an account**, and there is no
+   * way back from it but a backup. Everything else that removes something
+   * removes one row and leaves the account standing.
+   *
+   * **The shape goes with the rows.** Dropping the tables rather than emptying
+   * them is what makes the name safe to hand out again: a store addressed by a
+   * name nobody has used is one with no tables, and this is what puts it back
+   * into that state. What the object remembers goes too, since it stays in
+   * memory - so the next touch of this name builds an account from nothing, as
+   * it does for any name that has never been used.
+   *
+   * An account holding nothing is destroyed without complaint: there is no
+   * failure in dropping tables that were never created, which is the ordinary
+   * state of somebody who was added and never signed in.
+   *
+   * **It takes the name and checks it**, though the store it runs in was
+   * addressed by that name and could hardly be another. This is the one
+   * operation in the product with nothing to undo it, and `tenant_id` is the
+   * second lock the architecture leans on; a lock nothing ever tries is one
+   * nobody would notice had broken. It throws rather than answering, so a store
+   * that disagrees stops the deletion where it stands - the register still
+   * holds the person, and nothing has been lost.
+   */
+  destroyEverything(accountName: string): void {
+    const sql = this.ctx.storage.sql;
+    const held = accountTables(sql);
+    const foreign = storeRowsBelongingElsewhere(sql, held, accountName);
+    if (foreign.length > 0) throw new Error(describeForeignRowsInStore(foreign, accountName));
+
+    this.ctx.storage.transactionSync(() => this.#dropEverything(sql, held));
+    this.#db = null;
+    this.#upToDate = false;
+  }
+
+  /**
+   * Clearing the store to nothing - the shape as well as the rows, which is
+   * what makes a name safe to use again.
+   *
+   * Shared by the two callers that need it, because they need the *same* thing:
+   * a table either of them left behind is one the next account under this name
+   * would find. Both call it inside a transaction of their own, which is why it
+   * does not open one.
+   */
+  #dropEverything(sql: SqlStorage, held: readonly string[]): void {
+    dropAccountTables(sql, tablesParentsFirst(sql, held));
+    sql.exec(`DROP TABLE IF EXISTS ${CHANGE_LEDGER}`);
+  }
+
+  /**
    * Puts the account back from a backup, replacing whatever is there.
    *
    * **All of it or none of it.** The drop, the replay, the emptying and the
@@ -206,8 +283,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     let written = { tablesWritten: 0, rowsWritten: 0 };
     try {
       this.ctx.storage.transactionSync(() => {
-        dropAccountTables(sql, tablesParentsFirst(sql, held));
-        sql.exec(`DROP TABLE IF EXISTS ${CHANGE_LEDGER}`);
+        this.#dropEverything(sql, held);
 
         for (const change of changes.filter((one) => backup.changesApplied.includes(one.name))) {
           for (const statement of change.statements) {

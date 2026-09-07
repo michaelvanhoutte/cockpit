@@ -185,6 +185,59 @@ export function describeForeignRowsInBackup(
   )}, and it was being restored into ${accountName}`;
 }
 
+/**
+ * The same finding on the way to destroying a store, which nothing undoes.
+ *
+ * No count, because `storeRowsBelongingElsewhere` asks for the accounts rather
+ * than the rows: how many there are changes nothing about what to do.
+ */
+export function describeForeignRowsInStore(
+  foreign: readonly ForeignRow[],
+  accountName: string,
+): string {
+  const tables = [...new Set(foreign.map((row) => row.table))].join(', ');
+  const tenants = [...new Set(foreign.map((row) => JSON.stringify(row.tenantId)))].join(', ');
+  return (
+    `account ${accountName} was not destroyed: its store holds rows belonging to ` +
+    `${tenants} (in ${tables}), so this is not the store that was meant`
+  );
+}
+
+/**
+ * The same lock as `foreignRows`, turned against the store's tables rather than
+ * a file: which rows it holds that say they belong to another account.
+ *
+ * Asked before an account is destroyed, where the drop is unconditional and
+ * takes the whole store - so if a store were ever reached under the wrong name,
+ * that is the one operation with nothing to undo it. Always none, as ever,
+ * which is the reason for asking.
+ *
+ * `DISTINCT` rather than a row each: what is wanted is who else is in there,
+ * and a store that fails this has failed it whether it is one row or a million.
+ */
+export function storeRowsBelongingElsewhere(
+  sql: SqlStorage,
+  tables: readonly string[],
+  accountName: string,
+): ForeignRow[] {
+  const foreign: ForeignRow[] = [];
+  for (const table of tables) {
+    const quoted = table.replace(/"/g, '""');
+    // A table with no such column carries no claim about whose its rows are.
+    const columns = sql.exec<{ name: string }>(`PRAGMA table_info("${quoted}")`).toArray();
+    if (!columns.some((column) => column.name === ACCOUNT_COLUMN)) continue;
+    for (const row of sql
+      .exec<{ tenantId: SqlStorageValue }>(
+        `SELECT DISTINCT ${ACCOUNT_COLUMN} AS tenantId FROM "${quoted}" WHERE ${ACCOUNT_COLUMN} IS NOT ?`,
+        accountName,
+      )
+      .toArray()) {
+      foreign.push({ table, tenantId: row.tenantId });
+    }
+  }
+  return foreign;
+}
+
 function tableNames(sql: SqlStorage): string[] {
   return sql
     .exec<{ name: string }>(

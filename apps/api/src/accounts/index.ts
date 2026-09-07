@@ -17,8 +17,10 @@ export type { AccountBackup } from './backup.js';
 export {
   RegisterDisagreesError,
   RegisterRowUnusableError,
+  accountOwnedBy,
   addUser,
   changeUser,
+  deleteUser,
   registerContents,
   registeredAccountNames,
   registeredUsers,
@@ -113,6 +115,39 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };
+}
+
+/**
+ * How much an account's store holds, without asking the register first.
+ *
+ * The caller has just read the account off the person's own row, which is a
+ * foreign key into the register - so it is registered, proved by the read that
+ * produced the name. `openAccount` would ask again, which is the same question
+ * twice on a page that asks it once per row an admin looks at.
+ */
+export async function accountStoreHoldings(
+  env: Env,
+  accountName: string,
+): Promise<{ workspaces: number }> {
+  return env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName)).holdsAsItStands(accountName);
+}
+
+/**
+ * Destroys an account's store without asking the register first.
+ *
+ * Everything else goes through `openAccount`, and the register check there is
+ * exactly what turns a name nobody registered into an error rather than an
+ * empty account. Deleting somebody is the one caller that needs the other side
+ * of it: after the register rows are gone, nothing can open that store again -
+ * which is the only moment destroying it is final, and the only moment
+ * `openAccount` would refuse to do it.
+ *
+ * The store's own check on the name it is given (`destroyEverything`) is
+ * untouched, so what is skipped is "does the register know this account", not
+ * "is this the right store".
+ */
+export async function destroyAccountStore(env: Env, accountName: string): Promise<void> {
+  await env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName)).destroyEverything(accountName);
 }
 
 /** A store held a row belonging to another account, so nothing was backed up. */

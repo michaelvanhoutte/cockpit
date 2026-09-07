@@ -7,10 +7,11 @@ import type { WorkspaceSnapshot } from '@cockpit/shared';
 import {
   snapshotQuery,
   useCommand,
+  useDeleteUser,
   useLatestSnapshot,
   type CommandArgs,
 } from '../../../src/api/queries';
-import { fetchSnapshot, sendCommand } from '../../../src/api/client';
+import { deleteUser, fetchSnapshot, sendCommand } from '../../../src/api/client';
 
 /**
  * F1, and deliberately not a browser test: whether a screen refreshes itself
@@ -28,10 +29,12 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
   fetchSnapshot: vi.fn(),
   sendCommand: vi.fn(),
+  deleteUser: vi.fn(),
 }));
 
 const reads = vi.mocked(fetchSnapshot);
 const sends = vi.mocked(sendCommand);
+const removes = vi.mocked(deleteUser);
 
 const snapshot: WorkspaceSnapshot = {
   workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
@@ -63,6 +66,7 @@ async function openTheScreen() {
 beforeEach(() => {
   reads.mockReset();
   sends.mockReset();
+  removes.mockReset();
   reads.mockResolvedValue(snapshot);
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
@@ -155,6 +159,45 @@ describe('Workspace management', () => {
         );
       },
     );
+  });
+});
+
+describe('User management', () => {
+  /**
+   * Ids are derived from the name, so somebody added under a name just deleted
+   * holds the id the deleted person had. An entry merely marked stale is still
+   * handed out while the re-read is in flight, which puts the last person's
+   * count in the question asked about the new one - with the button already
+   * pressable, because a count that is there is a count that has arrived.
+   */
+  describe('what somebody’s account held is not kept to be shown against the next person of that name', () => {
+    function Delete({ userId }: { userId: string }) {
+      const removing = useDeleteUser();
+      return (
+        <button type="button" onClick={() => removing.mutate(userId)}>
+          go
+        </button>
+      );
+    }
+
+    it('throws away what the deleted person’s account held', async () => {
+      removes.mockResolvedValue(undefined);
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      client.setQueryData(['accountHoldings', 'user-anna'], { workspaces: 4 });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(
+        <QueryClientProvider client={client}>
+          <Delete userId="user-anna" />
+        </QueryClientProvider>,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'go' }));
+
+      await waitFor(() => expect(removes).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(client.getQueryData(['accountHoldings', 'user-anna'])).toBeUndefined(),
+      );
+    });
   });
 });
 

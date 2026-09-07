@@ -39,6 +39,9 @@ const reads = vi.fn();
 const adds = vi.fn();
 const changes = vi.fn();
 const access = vi.fn();
+const removes = vi.fn();
+/** What that person's account holds, read only while the question is open. */
+const holds = vi.fn();
 /** Who the page believes is asking, which one of the two role refusals is about. */
 const iAm = vi.fn();
 
@@ -52,6 +55,12 @@ vi.mock('../../../src/api/queries', async () => {
     useAddUser: () => useMutation({ mutationFn: adds }),
     useChangeUser: () => useMutation({ mutationFn: changes }),
     useSetAccess: () => useMutation({ mutationFn: access }),
+    accountHoldingsQuery: (userId: string) => ({
+      queryKey: ['accountHoldings', userId],
+      queryFn: () => holds(userId),
+      retry: false,
+    }),
+    useDeleteUser: () => useMutation({ mutationFn: removes }),
   };
 });
 
@@ -68,6 +77,8 @@ afterEach(() => {
   adds.mockReset();
   changes.mockReset();
   access.mockReset();
+  removes.mockReset();
+  holds.mockReset();
   iAm.mockReset();
 });
 
@@ -451,6 +462,121 @@ describe('User management', () => {
       await menuOn(ada, [PEOPLE[0]!, ada]);
 
       expect(await screen.findByRole('menuitem', { name: 'Disable' })).toBeVisible();
+    });
+  });
+
+  describe('the question asked before deleting somebody names what goes with them', () => {
+    async function askAbout(person: RegisteredUser, people: RegisteredUser[] = PEOPLE) {
+      const user = userEvent.setup();
+      reads.mockResolvedValue({ users: people });
+      drawn();
+
+      await user.click(await screen.findByRole('button', { name: `Actions for ${person.name}` }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
+      return user;
+    }
+
+    /**
+     * The account goes with the person, and what is in it is the part nobody
+     * can see from this page - so the question is where it is said.
+     */
+    it.each([
+      { situation: 'several workspaces', held: { workspaces: 3 }, says: /holds 3 workspaces/ },
+      { situation: 'one workspace', held: { workspaces: 1 }, says: /holds 1 workspace\b/ },
+      // "No workspaces" rather than "nothing", because items, types, dashboards
+      // and deleted workspaces go too and the count says nothing about them.
+      { situation: 'no workspaces', held: { workspaces: 0 }, says: /account has no workspaces/ },
+    ])('says the account holds $situation', async ({ held, says }) => {
+      holds.mockResolvedValue(held);
+
+      await askAbout(PEOPLE[1]!);
+
+      expect(await screen.findByRole('alertdialog')).toHaveTextContent(says);
+    });
+
+    it('says only a backup can bring it back', async () => {
+      holds.mockResolvedValue({ workspaces: 2 });
+
+      await askAbout(PEOPLE[1]!);
+
+      expect(await screen.findByRole('alertdialog')).toHaveTextContent(/only a backup/i);
+    });
+
+    /**
+     * What the account holds is what the sentence says, not what the deleting
+     * needs - so a count that will not come must not trap an admin behind it.
+     */
+    it('still lets it through when what the account holds cannot be read', async () => {
+      holds.mockRejectedValue(new Error('what that account holds failed: 500'));
+      removes.mockResolvedValue(undefined);
+      const user = await askAbout(PEOPLE[1]!);
+
+      const confirm = await screen.findByRole('button', { name: `Yes, delete ${PEOPLE[1]!.name}` });
+      await waitFor(() => expect(confirm).toBeEnabled());
+      expect(screen.getByRole('alertdialog')).toHaveTextContent(/could not be read/);
+
+      await user.click(confirm);
+      await waitFor(() => expect(removes).toHaveBeenCalled());
+      expect(removes.mock.lastCall?.[0]).toBe(PEOPLE[1]!.id);
+    });
+
+    /**
+     * The row the question was asked from goes with the person, so the control
+     * `returnFocusTo` names is not there to return to and the question closes by
+     * ceasing to exist. Left alone the focus falls to the document and the next
+     * Tab starts at the top of the page.
+     */
+    it('puts the focus on the list once the row it was asked from has gone', async () => {
+      holds.mockResolvedValue({ workspaces: 0 });
+      removes.mockResolvedValue(undefined);
+      const user = await askAbout(PEOPLE[1]!);
+      const confirm = await screen.findByRole('button', {
+        name: `Yes, delete ${PEOPLE[1]!.name}`,
+      });
+      await waitFor(() => expect(confirm).toBeEnabled());
+      // The list as it reads once they are gone.
+      reads.mockResolvedValue({ users: [PEOPLE[0]!] });
+
+      await user.click(confirm);
+
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+      await waitFor(() => expect(screen.getByRole('table')).toHaveFocus());
+    });
+
+    it('sends nothing when the question is cancelled', async () => {
+      holds.mockResolvedValue({ workspaces: 1 });
+      const user = await askAbout(PEOPLE[1]!);
+      await screen.findByRole('alertdialog');
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+      expect(removes).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The same rule that guards the role and the access, asked of deleting:
+     * taking an admin away entirely is the most complete way of taking their
+     * admin away.
+     */
+    it.each([
+      { situation: 'the only admin', people: PEOPLE, says: /only admin/i },
+      {
+        situation: 'the admin who is asking, and not the only one',
+        people: [PEOPLE[0]!, { ...PEOPLE[1]!, role: 'admin' as const }],
+        says: /delete yourself/i,
+      },
+    ])('will not delete $situation', async ({ people, says }) => {
+      const user = userEvent.setup();
+      reads.mockResolvedValue({ users: people });
+      drawn();
+      await user.click(await screen.findByRole('button', { name: 'Actions for Michael' }));
+
+      const entry = await screen.findByRole('menuitem', { name: /Delete/ });
+      expect(entry).toHaveAccessibleName(says);
+
+      await user.click(entry);
+      expect(screen.queryByRole('alertdialog')).toBeNull();
     });
   });
 

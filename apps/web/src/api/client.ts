@@ -1,6 +1,7 @@
 import { hc } from 'hono/client';
 import type { AppType } from '@cockpit/api';
 import {
+  accountHoldingsSchema,
   itemTypeListSchema,
   registeredUserListSchema,
   signedInSchema,
@@ -8,6 +9,7 @@ import {
   workspaceSnapshotSchema,
   userAddedSchema,
   userChangedSchema,
+  type AccountHoldings,
   type AddUser,
   type ChangeUser,
   type SetAccess,
@@ -152,9 +154,40 @@ export async function setAccess({
 }
 
 /**
- * Why somebody could not be added or changed, in the server's words, for the
- * box or the form to show. One class for both, because both forms do the same
- * thing with it: print the reason and keep what was typed.
+ * What somebody's account holds, for the question asked before deleting them
+ * ("Delete a user, and the account they owned with them", issue 234).
+ *
+ * Read as the account stands: an account nobody has opened holds nothing, and
+ * the counting must not be what gives it the workspace it starts with.
+ */
+export async function fetchAccountHoldings(userId: string): Promise<AccountHoldings> {
+  const res = await api.v1.admin.users[':userId'].account.$get({ param: { userId } });
+  if (!res.ok) throw refusal('what that account holds', res.status);
+  return accountHoldingsSchema.parse(await res.json());
+}
+
+/**
+ * Deletes somebody and the account they owned ("Delete a user, and the account
+ * they owned with them", issue 234).
+ *
+ * Answers nothing, because there is nothing left to answer with. The refusals
+ * keep the server's words for the reason every other one here does: they name
+ * which rule stopped it.
+ */
+export async function deleteUser(userId: string): Promise<void> {
+  const res = await api.v1.admin.users[':userId'].$delete({ param: { userId } });
+  if (res.status === 409 || res.status === 404) {
+    const { error } = (await res.json()) as { error: string };
+    throw new UserRefused(error);
+  }
+  if (!res.ok) throw refusal('deleting a user', res.status);
+}
+
+/**
+ * Why somebody could not be added, changed or deleted, in the server's words,
+ * for the box, the form or the question to show. One class for all three,
+ * because each does the same thing with it: print the reason and keep what was
+ * typed or asked.
  */
 export class UserRefused extends Error {
   constructor(message: string) {

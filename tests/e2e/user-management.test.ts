@@ -280,6 +280,40 @@ test.describe('User management', () => {
       await expect(workspaceTab(page, HERS)).toBeVisible();
     });
 
+    /**
+     * The capability of "Delete a user, and the account they owned with them"
+     * (issue 234), and only provable here: the question an admin is asked, and
+     * that the person is afterwards somebody this Cockpit does not know. What
+     * the deleting does to the account is settled at
+     * apps/api/tests/integration/http/user-management.test.ts - including the
+     * case the whole issue exists for, a name handed out again - and none of it
+     * is re-proved.
+     */
+    test('deletes somebody, and the account they owned with them', async ({ page, isMobile }) => {
+      const anna = somebodyNew('Anna');
+      await signIn(page, MICHAEL, isMobile);
+      await page.goto('/admin');
+      await addSomebody(page, anna, isMobile);
+
+      await press(page.getByRole('button', { name: `Actions for ${anna.name}` }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Delete…' }), isMobile);
+
+      // The question says what goes with her, and that nothing but a backup
+      // brings it back - which is the whole reason it is asked.
+      const question = page.getByRole('alertdialog');
+      await expect(question).toContainText(/account they own goes with them/i);
+      await expect(question).toContainText(/only a backup/i);
+      await press(page.getByRole('button', { name: `Yes, delete ${anna.name}` }), isMobile);
+
+      await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(0);
+
+      // And she is somebody this Cockpit does not know, rather than somebody
+      // whose access was removed: the register does not hold her at all.
+      await signOut(page, isMobile);
+      await signInWith(page, anna.address, isMobile);
+      await expect(page.getByRole('alert')).toContainText(/not one this Cockpit knows/i);
+    });
+
     test('refuses an ordinary user who types the address, and offers them no way in', async ({
       page,
       isMobile,

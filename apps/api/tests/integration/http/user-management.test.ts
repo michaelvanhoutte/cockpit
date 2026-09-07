@@ -3,6 +3,7 @@ import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
 import type { ChangeUser, RegisteredUser } from '@cockpit/shared';
 import {
+  ACCOUNT_NAME,
   OTHER_ACCOUNT_NAME,
   OTHER_USER_ID,
   USER_ID,
@@ -26,7 +27,10 @@ import {
  */
 
 const ADMIN_USERS = 'http://cockpit.test/v1/admin/users';
+/** Any instant the schema's `is_timestamp` CHECKs accept. */
+const WHEN = '2026-09-07T00:00:00.000Z';
 const ME = 'http://cockpit.test/v1/me';
+const WORKSPACES = 'http://cockpit.test/v1/workspaces';
 
 async function listedBy(userId: string): Promise<RegisteredUser[]> {
   const res = await asUser(ADMIN_USERS, {}, userId);
@@ -41,6 +45,11 @@ function change(who: string, body: ChangeUser, askedBy: string = USER_ID): Promi
     { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
     askedBy,
   );
+}
+
+/** Deleting somebody and the account they owned, from their row's own menu. */
+function remove(who: string, askedBy: string = USER_ID): Promise<Response> {
+  return asUser(`${ADMIN_USERS}/${who}`, { method: 'DELETE' }, askedBy);
 }
 
 /** Taking somebody's access away, or giving it back, from their row's own menu. */
@@ -543,6 +552,276 @@ describe('User management', () => {
 
     it('refuses taking the access of somebody the register does not hold', async () => {
       expect((await access('user-nobody', true)).status).toBe(404);
+    });
+  });
+
+  /**
+   * What the question asked before deleting somebody is built on: the page says
+   * what goes with them, and it cannot say it from anything the list holds.
+   */
+  describe('what somebody’s account holds can be asked before they are deleted', () => {
+    function holdingsOf(who: string, askedBy: string = USER_ID): Promise<Response> {
+      return asUser(`${ADMIN_USERS}/${who}/account`, {}, askedBy);
+    }
+
+    it('counts the workspaces the account has', async () => {
+      expect((await asUser(WORKSPACES, {}, OTHER_USER_ID)).status).toBe(200);
+
+      const res = await holdingsOf(OTHER_USER_ID);
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ workspaces: 1 });
+    });
+
+    /**
+     * The invariant the whole answer rests on. Bringing an account up to date is
+     * what creates the workspace it starts with, so an answer read the ordinary
+     * way would say "one workspace" for an account holding nothing - and make it
+     * hold one on the way past, which is a page creating what it came to count.
+     */
+    it('says an account nobody has opened holds nothing, and does not open it', async () => {
+      const res = await holdingsOf(OTHER_USER_ID);
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ workspaces: 0 });
+      expect(
+        await inStoreAsItIs(OTHER_ACCOUNT_NAME, (sql) => [
+          ...sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").raw(),
+        ]),
+      ).toEqual([]);
+    });
+
+    it('answers somebody the register does not hold as nobody', async () => {
+      expect((await holdingsOf('user-nobody')).status).toBe(404);
+    });
+
+    it('refuses somebody who is not an admin', async () => {
+      expect((await holdingsOf(USER_ID, OTHER_USER_ID)).status).toBe(403);
+    });
+  });
+
+  describe('deleting a user takes the account they owned with them', () => {
+    /** What that account holds, read as it stands - never brought up to date. */
+    function stillHolds(accountName: string) {
+      return inStoreAsItIs(accountName, (sql) => [
+        ...sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").raw(),
+      ]).then((tables) => tables.flat());
+    }
+
+    it('takes the person, their account and its contents', async () => {
+      // Ada opens her account, which is what puts anything in it.
+      expect((await asUser(WORKSPACES, {}, OTHER_USER_ID)).status).toBe(200);
+      expect((await stillHolds(OTHER_ACCOUNT_NAME)).length).toBeGreaterThan(0);
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(204);
+
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
+      expect(
+        (await env.DB.prepare('SELECT id FROM tenants WHERE id = ?').bind(OTHER_ACCOUNT_NAME).all())
+          .results,
+      ).toHaveLength(0);
+      expect(await stillHolds(OTHER_ACCOUNT_NAME)).toEqual([]);
+    });
+
+    /**
+     * The ordinary state of somebody added and never signed in: there is no
+     * data to destroy, and looking for some must not be what stops this.
+     */
+    it('deletes somebody whose account was never opened', async () => {
+      expect(await stillHolds(OTHER_ACCOUNT_NAME)).toEqual([]);
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(204);
+
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
+    });
+
+    it('leaves another account exactly as it was', async () => {
+      const mine = await asUser(WORKSPACES, {}, USER_ID);
+      const before = ((await mine.json()) as { workspaces: { name: string }[] }).workspaces;
+      expect((await asUser(WORKSPACES, {}, OTHER_USER_ID)).status).toBe(200);
+
+      await remove(OTHER_USER_ID);
+
+      const after = await asUser(WORKSPACES, {}, USER_ID);
+      expect(((await after.json()) as { workspaces: { name: string }[] }).workspaces).toEqual(before);
+    });
+
+    /**
+     * D1 still holds the four tables an account's data used to live in
+     * (src/db/schema.ts), rows and all, because promoting an earlier commit is
+     * the first way back and those rows are what it reads. Three of them point
+     * at `tenants` under ON DELETE RESTRICT, so a deployed environment - where
+     * every account that predates the stores has rows there - refuses the
+     * account row unless they go first, and refuses it *after* the store is
+     * already destroyed. Nothing in a migrated-but-empty test database has a
+     * row to restrict it, which is why this one puts one there.
+     */
+    it('takes the rows D1 still holds from before the stores', async () => {
+      await env.DB.batch([
+        env.DB
+          .prepare(
+            'INSERT INTO workspaces (id, tenant_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)',
+          )
+          .bind('ws-before', OTHER_ACCOUNT_NAME, 'Before', '#8b5cf6', WHEN),
+        env.DB
+          .prepare(
+            'INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen,' +
+              ' created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind('item-before', OTHER_ACCOUNT_NAME, 'ws-before', 'internal', 'Hers', 'task', 0, WHEN, WHEN),
+        env.DB
+          .prepare(
+            'INSERT INTO associations (id, tenant_id, item_id, kind, label, created_at)' +
+              ' VALUES (?, ?, ?, ?, ?, ?)',
+          )
+          .bind('assoc-before', OTHER_ACCOUNT_NAME, 'item-before', 'person', 'Ada', WHEN),
+        env.DB
+          .prepare(
+            'INSERT INTO commands (command_id, tenant_id, workspace_id, name, payload, issued_at,' +
+              ' received_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind('cmd-before', OTHER_ACCOUNT_NAME, 'ws-before', 'item.create', '{}', WHEN, WHEN),
+      ]);
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(204);
+
+      for (const table of ['associations', 'items', 'commands', 'workspaces']) {
+        const { results } = await env.DB
+          .prepare(`SELECT 1 FROM ${table} WHERE tenant_id = ?`)
+          .bind(OTHER_ACCOUNT_NAME)
+          .all();
+        expect(results, `${table} still holds rows of the account that was deleted`).toHaveLength(0);
+      }
+      expect(
+        (await env.DB.prepare('SELECT id FROM tenants WHERE id = ?').bind(OTHER_ACCOUNT_NAME).all())
+          .results,
+      ).toHaveLength(0);
+    });
+
+    /** Another account's rows in those same tables are nobody else's to take. */
+    it('leaves the rows D1 holds for another account', async () => {
+      await env.DB
+        .prepare('INSERT INTO workspaces (id, tenant_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)')
+        .bind('ws-mine', ACCOUNT_NAME, 'Mine', '#8b5cf6', WHEN)
+        .run();
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(204);
+
+      const { results } = await env.DB
+        .prepare('SELECT id FROM workspaces WHERE tenant_id = ?')
+        .bind(ACCOUNT_NAME)
+        .all();
+      expect(results).toHaveLength(1);
+    });
+
+    it('refuses the sign-in they were holding at its next request', async () => {
+      const ada = await signInAs(OTHER_USER_ID);
+      expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(200);
+
+      await remove(OTHER_USER_ID);
+
+      expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(401);
+    });
+  });
+
+  /**
+   * The reason this issue exists. An account is addressed by its name, so a
+   * name handed out again would open the store the last person left behind -
+   * and one person would be looking at another's work, with nothing anywhere
+   * saying so.
+   */
+  describe('a name given back carries nothing of the person who had it', () => {
+    it('opens an account with only what every account starts with', async () => {
+      const add = (body: unknown) =>
+        asUser(
+          ADMIN_USERS,
+          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+          USER_ID,
+        );
+
+      await add({ name: 'Anna', email: 'anna@example.com' });
+      /**
+       * Something of hers in the account, so that finding it afterwards would
+       * be finding *her* work rather than what any account starts with. Written
+       * into the store rather than made through a request because only the
+       * seeded people can sign in here; what is being proved is that deleting
+       * takes it, not how it got there.
+       */
+      await inStoreAsItIs('tenant-anna', (sql) =>
+        sql.exec(
+          'INSERT INTO workspaces (id, tenant_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)',
+          'ws-hers',
+          'tenant-anna',
+          'Hers',
+          '#8b5cf6',
+          '2026-09-07T00:00:00.000Z',
+        ),
+      );
+
+      await remove('user-anna');
+
+      // Somebody else, deriving the same name and so the same account.
+      const again = await add({ name: 'Anna', email: 'anna.two@example.com' });
+      expect(((await again.json()) as { user: RegisteredUser }).user.id).toBe('user-anna');
+
+      // Read from the store as it stands: adding somebody opens their account,
+      // so by now it holds what a new account holds - and nothing of Anna's.
+      const names = await inStoreAsItIs('tenant-anna', (sql) => [
+        ...sql.exec('SELECT name FROM workspaces ORDER BY name').raw(),
+      ]);
+      expect(names.flat()).toEqual([FIRST_WORKSPACE_NAME]);
+    });
+  });
+
+  describe('you cannot delete the last way in', () => {
+    it.each([
+      {
+        situation: 'an admin deletes themselves while another admin is there',
+        secondAdmin: true,
+        says: /another admin can do it for you/,
+      },
+      {
+        situation: 'the only admin deletes themselves',
+        secondAdmin: false,
+        says: /only admin/,
+      },
+    ])('refuses it and deletes nothing when $situation', async ({ secondAdmin, says }) => {
+      if (secondAdmin) await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+
+      const res = await remove(USER_ID);
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(says);
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toContain(USER_ID);
+    });
+
+    it('refuses deleting the last admin, whoever asks', async () => {
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+      await change(USER_ID, { name: 'Michael', role: 'user' }, OTHER_USER_ID);
+
+      const res = await remove(OTHER_USER_ID, OTHER_USER_ID);
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(/only admin/);
+    });
+
+    it('refuses somebody who is not an admin, and deletes nothing', async () => {
+      const res = await remove(USER_ID, OTHER_USER_ID);
+
+      expect(res.status).toBe(403);
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toContain(USER_ID);
+    });
+
+    /**
+     * A second attempt, which is also what an interrupted deletion meets: the
+     * register no longer holds them, so there is no such user and nothing else
+     * is touched.
+     */
+    it('answers a second deletion as somebody the register does not hold', async () => {
+      expect((await remove(OTHER_USER_ID)).status).toBe(204);
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(404);
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
     });
   });
 

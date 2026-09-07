@@ -74,6 +74,19 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     backup: AccountBackup,
     force: boolean,
   ): Awaitable<Answer<RestoreReport>>;
+  /**
+   * How much of the account there is, read as it stands rather than after
+   * bringing it up to date - which is what would create the very thing being
+   * counted ("Delete a user, and the account they owned with them", issue 234).
+   */
+  holdsAsItStands(accountName: string): Awaitable<{ workspaces: number }>;
+  /**
+   * Destroys everything the account holds. Not an `Answer`: there is nothing to
+   * refuse and nothing to conflict with, and an account holding nothing is
+   * destroyed as readily as one holding everything. It throws for the one thing
+   * it will not do - a store whose rows say they are somebody else's.
+   */
+  destroyEverything(accountName: string): Awaitable<void>;
 }
 
 type Awaitable<T> = T | Promise<T>;

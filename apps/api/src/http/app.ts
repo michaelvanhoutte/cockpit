@@ -7,6 +7,7 @@ import {
   commandResultSchema,
   commandSchemas,
   itemTypeListSchema,
+  accountHoldingsSchema,
   registeredUserListSchema,
   setAccessSchema,
   signedInSchema,
@@ -28,9 +29,13 @@ import {
   RegisterRowUnusableError,
   RowsFromAnotherAccountError,
   backUpAccount,
+  accountStoreHoldings,
+  destroyAccountStore,
   openAccount,
+  accountOwnedBy,
   addUser,
   changeUser,
+  deleteUser,
   registerContents,
   registeredAccountNames,
   registeredUsers,
@@ -469,6 +474,75 @@ const setAccessRoute = createRoute({
   },
 });
 
+/**
+ * How much of somebody's account there is, for the question asked before
+ * deleting them ("Delete a user, and the account they owned with them", issue
+ * 234).
+ *
+ * Its own read rather than a column on the list: it is one account's, asked at
+ * the moment somebody is about to be deleted, and putting it in the list would
+ * open every account in the register to draw a page.
+ */
+const accountHoldingsRoute = createRoute({
+  method: 'get',
+  path: '/v1/admin/users/{userId}/account',
+  request: { params: z.object({ userId: z.string() }) },
+  responses: {
+    200: {
+      description: 'What that account holds',
+      content: { 'application/json': { schema: accountHoldingsSchema } },
+    },
+    404: {
+      description: 'Nobody the register holds',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
+ * Deleting somebody and the account they owned ("Delete a user, and the account
+ * they owned with them", issue 234).
+ *
+ * **The one thing in this application that destroys data nothing can put back**
+ * except a backup. What it does and in which order is `deleteUser`'s, where the
+ * order is argued; this route hands it the half that lives behind the account
+ * binding.
+ *
+ * A 204 rather than the person deleted: there is nothing left to answer with.
+ */
+const deleteUserRoute = createRoute({
+  method: 'delete',
+  path: '/v1/admin/users/{userId}',
+  request: { params: z.object({ userId: z.string() }) },
+  responses: {
+    204: { description: 'Gone, with the account they owned' },
+    404: {
+      description: 'Nobody the register holds',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    409: {
+      description: 'Refused: deleting them would leave the admin pages unreachable',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
 // --- reads (the snapshot model: architecture, "The read model") --------------
 
 const workspacesRoute = createRoute({
@@ -710,6 +784,26 @@ const routes = app
         : c.json({ error: changed.refused }, 409);
     }
     return c.json({ user: changed.user }, 200);
+  })
+  .openapi(accountHoldingsRoute, async (c) => {
+    const held = await accountOwnedBy(c.env, c.req.valid('param').userId);
+    if (!held) return c.json({ error: 'nobody here owns an account' }, 404);
+    return c.json(await accountStoreHoldings(c.env, held), 200);
+  })
+  .openapi(deleteUserRoute, async (c) => {
+    const { userId } = c.req.valid('param');
+    // Not `openAccount`, because this is called again once the register no
+    // longer holds the account and that is precisely when `openAccount` refuses
+    // (`destroyAccountStore`, and the ordering in `deleteUser`).
+    const gone = await deleteUser(c.env, userId, c.get('visitor').userId, (accountId) =>
+      destroyAccountStore(c.env, accountId),
+    );
+    if (!gone.deleted) {
+      return gone.because === 'nobody'
+        ? c.json({ error: gone.refused }, 404)
+        : c.json({ error: gone.refused }, 409);
+    }
+    return c.body(null, 204);
   })
   .openapi(healthRoute, async (c) => {
     const { register, store, failure } = await checkHealth(c.env);

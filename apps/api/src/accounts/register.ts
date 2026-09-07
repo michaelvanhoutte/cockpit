@@ -411,6 +411,161 @@ async function freeIds(env: Env, name: string) {
   return idsForNewUser(name, ({ accountId, userId }) => held.has(accountId) || held.has(userId));
 }
 
+/**
+ * The account somebody owns, or `null` because the register does not hold them.
+ *
+ * The register's own question, asked before an account is opened: a store is
+ * addressed by name and would answer for any name at all, so this is what turns
+ * an id nobody holds into an answer rather than an empty account.
+ */
+export async function accountOwnedBy(env: Env, userId: string): Promise<string | null> {
+  const [held] = await createDb(env.DB)
+    .select({ accountId: users.accountId })
+    .from(users)
+    .where(eq(users.id, userId));
+  return held?.accountId ?? null;
+}
+
+/**
+ * The four tables an account's data used to live in, which D1 still has (see
+ * src/db/schema.ts), children first: `associations` points at `items`, which
+ * points at `workspaces`, and three of them point at `tenants` - every one of
+ * those under ON DELETE RESTRICT, which D1 enforces and cannot be asked not to
+ * (measured, and recorded in the header of migration 0002).
+ *
+ * So an account's row cannot go while its old rows are still there, and in a
+ * deployed environment - where every account older than the stores has some -
+ * they are. Deleting an account takes them: they are that same account's data,
+ * one release behind.
+ *
+ * `commands` has no foreign key - the command log is the audit trail and
+ * deliberately outlives what it refers to (architecture, "The database is the
+ * second lock") - and is taken anyway. That rule is about an *item* being
+ * deleted; here the account itself goes and its name can be handed out again,
+ * so a log left behind would be one person's under another person's account.
+ * The store's own change ledger is dropped for the same reason.
+ */
+const WHERE_ACCOUNT_DATA_USED_TO_LIVE = ['associations', 'items', 'commands', 'workspaces'] as const;
+
+/**
+ * Deleting those rows, for whichever of those tables D1 still has.
+ *
+ * The lookup rather than four unconditional deletes, because the day the
+ * contract step drops them (schema.ts says when) `DELETE FROM associations`
+ * becomes an error rather than a no-op, and deleting a user would stop working
+ * on the deploy that tidied up.
+ */
+async function alsoWhereItUsedToLive(
+  env: Env,
+  accountId: string,
+  // Named off the binding rather than by the platform's own type, because the
+  // web app's typecheck reads this file for its shared types and has no
+  // Workers globals.
+): Promise<ReturnType<Env['DB']['prepare']>[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (${WHERE_ACCOUNT_DATA_USED_TO_LIVE.map(
+      () => '?',
+    ).join(', ')})`,
+  )
+    .bind(...WHERE_ACCOUNT_DATA_USED_TO_LIVE)
+    .all<{ name: string }>();
+  const stillThere = new Set(results.map((row) => row.name));
+  return WHERE_ACCOUNT_DATA_USED_TO_LIVE.filter((table) => stillThere.has(table)).map((table) =>
+    // The table name is one of those four literals, never anything a request
+    // carried; the account is bound.
+    env.DB.prepare(`DELETE FROM ${table} WHERE tenant_id = ?`).bind(accountId),
+  );
+}
+
+/** Somebody was deleted, or was not and this is why. */
+export type Deleted =
+  | { deleted: true }
+  | { deleted: false; refused: string; because: 'nobody' | 'a rule' };
+
+/**
+ * Deletes somebody and the account they owned ("Delete a user, and the account
+ * they owned with them", issue 234).
+ *
+ * **The order is the whole design, and it is here rather than at the caller so
+ * it cannot be got wrong twice.** Sign-ins, then the account's data, then the
+ * register:
+ *
+ * - Stopping *after the data* leaves somebody who can sign in to an empty
+ *   account. Visible to them, visible in the list, and finished by deleting
+ *   again.
+ * - The other way round leaves an account nobody can see, still holding
+ *   everything, under a name the register will hand out again - and an account
+ *   is addressed by its name, so the next person deriving it would open theirs
+ *   and find somebody else's work. That is the failure this whole issue exists
+ *   to prevent, and it is invisible until the day it happens.
+ *
+ * **Destroying the account is handed in** rather than reached for, because an
+ * account's data lives behind a binding this file cannot touch: the register is
+ * D1 and a store is a Durable Object, and nothing here may join them. The
+ * caller supplies the half it owns; the order stays here. It is called twice -
+ * see the second call for why - so what is handed in must work after the
+ * register has forgotten the account.
+ *
+ * The two refusals are the ones every change to an admin carries.
+ */
+export async function deleteUser(
+  env: Env,
+  userId: string,
+  askedBy: string,
+  destroyTheAccount: (accountId: string) => Promise<void>,
+): Promise<Deleted> {
+  const db = createDb(env.DB);
+  const [[held], admins] = await Promise.all([
+    db
+      .select({ id: users.id, role: users.role, accountId: users.accountId })
+      .from(users)
+      .where(eq(users.id, userId)),
+    db.select({ id: users.id }).from(users).where(adminsCounting(userId)),
+  ]);
+  // Already deleted, which is what a second attempt meets: there is no such
+  // user, and nothing else is touched.
+  if (!held) {
+    return { deleted: false, refused: `${userId} is nobody here`, because: 'nobody' };
+  }
+
+  const losing = losingAdminIsRefused({
+    who: held,
+    stillAnAdmin: false,
+    askedBy,
+    admins: admins.length,
+  });
+  if (losing) {
+    return {
+      deleted: false,
+      because: 'a rule',
+      refused:
+        losing === 'the last admin'
+          ? 'this is the only admin, so make somebody else an admin before deleting this one'
+          : 'you cannot delete yourself - another admin can do it for you',
+    };
+  }
+
+  await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId).run();
+  await destroyTheAccount(held.accountId);
+  // The person and the account they owned, in one write: a user row pointing at
+  // an account that is gone is a foreign key nothing can satisfy, and an account
+  // row with nobody owning it is a name that is taken and unreachable.
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
+    ...(await alsoWhereItUsedToLive(env, held.accountId)),
+    env.DB.prepare('DELETE FROM tenants WHERE id = ?').bind(held.accountId),
+  ]);
+  // **And again, now that nothing can open it.** Between the two lines above, a
+  // request already past the gate - an open event stream, a command mid-flight -
+  // still holds the store and brings it up to date on its next touch, which
+  // creates the account's tables afresh. The register row is what stops that
+  // happening a third time: with it gone, opening the account is an error, so
+  // this sweep has nothing racing it.
+  await destroyTheAccount(held.accountId);
+
+  return { deleted: true };
+}
+
 /** The register as a backup holds it. */
 export interface RegisterBackup {
   tenants: Record<string, unknown>[];

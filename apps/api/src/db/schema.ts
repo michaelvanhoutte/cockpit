@@ -43,6 +43,12 @@ import type { Role } from '@cockpit/shared';
  * code reads. `drizzle-kit generate` will emit the four `DROP TABLE`s the day
  * that release is taken; until then it is one command away and deliberately not
  * run.
+ *
+ * Undescribed is not untouched: three of them point at `tenants` under ON
+ * DELETE RESTRICT, so deleting an account takes its rows there too
+ * (`alsoWhereItUsedToLive` in src/accounts/register.ts, which asks
+ * `sqlite_master` first so the day they go it becomes a no-op rather than an
+ * error).
  */
 export const tenants = sqliteTable(
   'tenants',

@@ -134,9 +134,15 @@ export async function startFromEmpty(): Promise<void> {
   }
   await abortAllDurableObjects();
   // Children before parents: `sessions` points at `users`, which points at
-  // `tenants`, and the foreign keys are real.
+  // `tenants`, and the foreign keys are real - as are the ones from the four
+  // tables an account's data used to live in, which D1 still has (see
+  // src/db/schema.ts) and a case about deleting an account puts rows back into.
   await env.DB.prepare('DELETE FROM sessions').run();
   await env.DB.prepare('DELETE FROM users').run();
+  await env.DB.prepare('DELETE FROM associations').run();
+  await env.DB.prepare('DELETE FROM items').run();
+  await env.DB.prepare('DELETE FROM commands').run();
+  await env.DB.prepare('DELETE FROM workspaces').run();
   await env.DB.prepare('DELETE FROM tenants').run();
   signedIn.clear();
 }

@@ -11,6 +11,8 @@ import {
   CommandRefused,
   addUser,
   changeUser,
+  deleteUser,
+  fetchAccountHoldings,
   fetchItemTypes,
   fetchMe,
   fetchRegisteredUsers,
@@ -115,6 +117,50 @@ export function useSetAccess() {
   return useMutation({
     mutationFn: setAccess,
     onSuccess: () => bothReadAgain(queryClient),
+  });
+}
+
+/**
+ * What somebody's account holds, for the question asked before deleting them
+ * ("Delete a user, and the account they owned with them", issue 234).
+ *
+ * **Read when the question is asked, not with the list.** It is one account's
+ * and it is only ever wanted at that moment; putting it in the list would open
+ * every account in the register to draw a page.
+ */
+export const accountHoldingsQuery = (userId: string) =>
+  queryOptions({
+    queryKey: ['accountHoldings', userId],
+    queryFn: () => fetchAccountHoldings(userId),
+    staleTime: 0,
+    // The question can be answered without it - what it holds is what the
+    // sentence says, not what the deleting needs - so a failure is drawn rather
+    // than retried into a wait.
+    retry: false,
+  });
+
+/**
+ * Deleting somebody and the account they owned ("Delete a user, and the account
+ * they owned with them", issue 234).
+ *
+ * The list and the sign-in are re-read for the reason every other change here
+ * re-reads them, and one more of its own: the person who was deleted is gone
+ * from the list, and if an admin somehow deleted themselves the app has to stop
+ * believing they are signed in.
+ */
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteUser,
+    onSuccess: (_answer, userId) => {
+      // **Removed rather than invalidated**, because the id comes back. Ids are
+      // derived from the name, so somebody added under the name just deleted
+      // holds the same one - and an invalidated entry is still handed out while
+      // the re-read is in flight, which would show the last person's count on
+      // the new one's question with the button already pressable.
+      queryClient.removeQueries({ queryKey: ['accountHoldings', userId] });
+      return bothReadAgain(queryClient);
+    },
   });
 }
 

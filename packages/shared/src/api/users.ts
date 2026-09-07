@@ -168,6 +168,18 @@ export const setAccessSchema = z.object({ disabled: z.boolean() });
 export type SetAccess = z.infer<typeof setAccessSchema>;
 
 /**
+ * How much of somebody's account there is, for the question asked before
+ * deleting them ("Delete a user, and the account they owned with them", issue
+ * 234).
+ *
+ * **Read as the account stands**, not after bringing it up to date: an account
+ * nobody has opened holds nothing, and the counting must not be what gives it
+ * the workspace it starts with.
+ */
+export const accountHoldingsSchema = z.object({ workspaces: z.number().int().min(0) });
+export type AccountHoldings = z.infer<typeof accountHoldingsSchema>;
+
+/**
  * Why an admin may not be left unable to admin - by having the role taken away
  * or by having their access taken away - or `null` when they may. The one rule
  * both sides of every such change have to agree on.
