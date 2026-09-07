@@ -2,20 +2,13 @@
 // Where the backup commands get an environment's secret and address from, so
 // that running one is `pnpm backup:export --env production` and nothing else.
 //
-// **A file rather than an environment variable**, because the variable is the
-// wrong shape for the job: there are three environments and one variable, so
-// every run either sets it or inherits whatever the last run left, and the
-// failure that produces is the worst one available - the right command against
-// the wrong environment's token, which is a refusal, or against the right
-// token and the wrong `--env`, which is not.
-//
 // The file is `backup-tokens.json` in the checkout, gitignored, in the shape
-// `backup-tokens.example.json` shows. It is the same arrangement `.dev.vars`
-// already uses for the Worker's own secrets: a local file git never sees,
-// beside an example that git does.
+// `backup-tokens.example.json` shows. Why it is a file rather than an
+// environment variable is in docs/deployment.md, "Secrets and access", rather
+// than here.
 //
-// The variable still wins where it is set, which is what CI wants - one
-// environment, one token, nothing on disk.
+// `COCKPIT_BACKUP_TOKEN` still wins where it is set, which is what CI wants -
+// one environment, one token, nothing on disk.
 //
 
 import { readFileSync } from 'node:fs';
@@ -73,9 +66,8 @@ export function resolveToken(environment, { config, env = {} }) {
 /**
  * The workers.dev subdomain a deployed environment's address is built from.
  *
- * Not a secret - it is in this repository's own documents - and it lives in the
- * same file only because it is the other thing a command cannot work out for
- * itself. `local` needs none: it derives its port from the checkout's path.
+ * Not a secret; why it lives in the same file as the tokens is in
+ * `backup-tokens.example.json`'s `$comment`, rather than here.
  */
 export function resolveSubdomain({ config, env = {} }) {
   return env.CLOUDFLARE_WORKERS_SUBDOMAIN || config?.subdomain;
