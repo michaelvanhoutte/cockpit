@@ -168,8 +168,9 @@ export const setAccessSchema = z.object({ disabled: z.boolean() });
 export type SetAccess = z.infer<typeof setAccessSchema>;
 
 /**
- * Why taking somebody's admin away is refused, or `null` when it is not - the
- * one rule both sides of the change have to agree on.
+ * Why an admin may not be left unable to admin - by having the role taken away
+ * or by having their access taken away - or `null` when they may. The one rule
+ * both sides of every such change have to agree on.
  *
  * **Here rather than once on each side**, for the reason `ROLES` is: the form
  * draws the choice as unavailable before anybody presses Save and the server

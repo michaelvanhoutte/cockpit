@@ -1,5 +1,6 @@
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { Role } from '@cockpit/shared';
+import { hasNoAccess } from '../accounts/register.js';
 import { createDb } from '../db/client.js';
 import { sessions, users } from '../db/schema.js';
 import type { Env } from '../env.js';
@@ -42,8 +43,9 @@ export interface Visitor {
 }
 
 /**
- * Signs in whoever Google says this is, or answers `null` because they are not
- * somebody this Cockpit knows.
+ * Signs in whoever Google says this is, or says which of the two refusals this
+ * is: somebody this Cockpit does not know, or somebody whose access was taken
+ * away.
  *
  * **The register is the allowlist** ("Sign in with Google, and retire the list
  * of names", issue 196). Proving who you are at Google is not the same as being
@@ -69,7 +71,13 @@ export async function signInWithGoogle(
     .select({ id: users.id, name: users.name, disabledAt: users.disabledAt })
     .from(users)
     .where(eq(users.googleSubject, identity.subject));
-  if (known) return known.disabledAt ? TURNED_AWAY : startVisit(env, known, now);
+  if (known) {
+    if (hasNoAccess(known.disabledAt)) return TURNED_AWAY;
+    // Narrowed here rather than handed on whole, for the reason `SigningIn`
+    // exists: what is signed in with is a row's id and name, and a column that
+    // rode along would be one this path publishes without meaning to.
+    return startVisit(env, { id: known.id, name: known.name }, now);
+  }
 
   const [byAddress] = await db
     .select({
@@ -90,7 +98,7 @@ export async function signInWithGoogle(
    * learning which Google account they are. It is also the honest order: they
    * are refused for having no access, not for being a stranger.
    */
-  if (byAddress.disabledAt) return TURNED_AWAY;
+  if (hasNoAccess(byAddress.disabledAt)) return TURNED_AWAY;
 
   const recorded = await db
     .update(users)
@@ -185,7 +193,7 @@ export async function sessionHeld(
    * access was removed, which is the failure this whole issue exists to
    * prevent; it is caught here rather than left to expire.
    */
-  if (row.disabledAt) return null;
+  if (hasNoAccess(row.disabledAt)) return null;
 
   return {
     session: { id: row.id, userId: row.userId, expiresAt: row.expiresAt },

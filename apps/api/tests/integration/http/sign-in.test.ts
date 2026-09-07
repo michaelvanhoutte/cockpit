@@ -190,25 +190,15 @@ describe('Sign-in', () => {
         .run();
     }
 
-    it.each([
-      {
-        situation: 'somebody whose access was taken away',
-        disabled: true,
-        email: 'michael@example.com',
-        sentTo: '/signin?refused=access-removed',
-      },
-      {
-        situation: 'an address the register never held',
-        disabled: false,
-        email: 'stranger@example.com',
-        sentTo: '/signin?refused=unknown-account',
-      },
-    ])('refuses $situation', async ({ disabled, email, sentTo }) => {
-      if (disabled) await accessTakenFrom(USER_ID);
+    // An address the register never held is answered `unknown-account` by the
+    // case above, which is what makes this a different answer rather than the
+    // same one twice.
+    it('refuses somebody whose access was taken away', async () => {
+      await accessTakenFrom(USER_ID);
 
-      const back = await signInAsGoogleAccount({ email });
+      const back = await signInAsGoogleAccount({ email: 'michael@example.com' });
 
-      expect(back.headers.get('location')).toBe(sentTo);
+      expect(back.headers.get('location')).toBe('/signin?refused=access-removed');
       expect(sessionIn(back)).toBeUndefined();
     });
 

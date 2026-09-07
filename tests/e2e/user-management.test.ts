@@ -29,7 +29,12 @@ async function setAccess(page: Page, who: string, entry: 'Disable' | 'Enable', i
   await press(page.getByRole('button', { name: `Actions for ${who}` }), isMobile);
   await press(page.getByRole('menuitem', { name: entry }), isMobile);
 
+  // The row first, then the mark: a locator scoped to a row that is not there
+  // finds no mark either, so "no longer marked" would pass against a person who
+  // had dropped out of the list altogether - which is the one thing this is
+  // meant to prove does not happen.
   const row = page.getByRole('row').filter({ hasText: who });
+  await expect(row).toHaveCount(1);
   await expect(row.getByText('No access')).toHaveCount(entry === 'Disable' ? 1 : 0);
 }
 

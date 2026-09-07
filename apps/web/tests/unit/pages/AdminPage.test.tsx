@@ -415,6 +415,22 @@ describe('User management', () => {
       expect(access).not.toHaveBeenCalled();
     });
 
+    /**
+     * A menu entry has nowhere of its own to be refused in - the menu is shut
+     * by the time the server answers - so without this a refused Disable is a
+     * row that simply did not change, which reads exactly like a slow one. The
+     * page can be got past its own greyed-out entry: `me` may not have settled,
+     * and the server refuses either way.
+     */
+    it('says what the server refused, rather than leaving the row unchanged in silence', async () => {
+      access.mockRejectedValue(new Error('you cannot take your own access away'));
+      const user = await menuOn(PEOPLE[1]!);
+
+      await user.click(await screen.findByRole('menuitem', { name: 'Disable' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/your own access/);
+    });
+
     it('offers it on an admin who is neither the asker nor the last one', async () => {
       const ada = { ...PEOPLE[1]!, role: 'admin' as const };
 

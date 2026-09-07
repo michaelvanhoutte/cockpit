@@ -385,6 +385,20 @@ describe('User management', () => {
     });
 
     /**
+     * Only a disabling ends anything. Two admins with the list open, one
+     * enables Ada and she gets back to work, the other's copy still shows her
+     * disabled and offers Enable - and pressing it must not throw her out of
+     * what she is doing.
+     */
+    it('leaves the sign-ins of somebody who already has their access alone', async () => {
+      const ada = await signInAs(OTHER_USER_ID);
+
+      expect((await access(OTHER_USER_ID, false)).status).toBe(200);
+
+      expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(200);
+    });
+
+    /**
      * Deleted rather than merely refused, so giving somebody their access back
      * does not revive a sign-in they are no longer at the keyboard for. They
      * sign in afresh, which the sign-in suite proves they can.
@@ -468,6 +482,21 @@ describe('User management', () => {
       expect(res.status).toBe(409);
       expect(((await res.json()) as { error: string }).error).toMatch(says);
       expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(200);
+    });
+
+    /**
+     * An admin who cannot sign in can do nothing for anybody, so counting them
+     * would tell the last one left that somebody else could help - which is the
+     * one sentence this rule exists to get right.
+     */
+    it('does not count an admin who has no access as somebody who could help', async () => {
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+      await access(OTHER_USER_ID, true);
+
+      const res = await access(USER_ID, true);
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(/only admin/);
     });
 
     it('refuses disabling the last admin, whoever asks', async () => {

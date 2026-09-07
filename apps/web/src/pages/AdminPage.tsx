@@ -33,9 +33,9 @@ import { RowMenu } from '../components/Menu';
  * is no workspace behind it to keep, so it heads itself the way Capture does
  * rather than borrowing the band above.
  *
- * **It reads, it adds, and it changes a person's name and role.** Disabling and
- * deleting are the issues after this one; what landed here first was the role
- * check that guards all of them.
+ * **It reads, it adds, it changes a person's name and role, and it takes their
+ * access away or gives it back.** Deleting somebody is the issue after this
+ * one; what landed here first was the role check that guards all of them.
  *
  * **The server is what refuses**, not this page. The entry to it is hidden from
  * an ordinary user, and hiding is a courtesy: whoever types the address anyway
@@ -67,7 +67,10 @@ export function AdminPage() {
   const changing = useChangeUser();
   const access = useSetAccess();
   const askedFrom = useRef<HTMLElement | null>(null);
-  const admins = (data?.users ?? []).filter((user) => user.role === ADMIN);
+  // The admins a lockout rule can count on are the ones who can actually sign
+  // in: one whose access was taken away can do nothing for anybody, so counting
+  // them would tell the last admin left that somebody else could help.
+  const admins = (data?.users ?? []).filter((user) => user.role === ADMIN && !user.disabled);
 
   /**
    * Read from the list rather than kept beside the draft, exactly as a
@@ -108,6 +111,16 @@ export function AdminPage() {
   return (
     <Framed>
       <AddSomebody />
+      {/* A menu entry has nowhere of its own to be refused in - the menu is
+          shut by the time the server answers - so what it could not do is said
+          above the list, where the row it was about is. Without this, a refused
+          Disable is a row that simply did not change, which reads exactly like
+          a slow one. */}
+      {access.error && (
+        <p role="alert" className="mb-4 text-sm text-over">
+          {whatItSaid(access.error)}
+        </p>
+      )}
       {/* A table rather than the rows the management windows use: every column
           here is a fact about somebody that an admin is comparing across
           people - who has signed in, who is an admin - and a list of rows makes
@@ -135,10 +148,13 @@ export function AdminPage() {
                 user={user}
                 onEdit={startEditing}
                 onAccess={(disabled) => access.mutate({ userId: user.id, disabled })}
-                accessStuck={whyAccessIsStuck(user, {
-                  me: me.data?.user.id,
-                  admins: admins.length,
-                })}
+                // Only a disabling is ever refused, so only a row that still
+                // has its access has a reason to carry.
+                accessStuck={
+                  user.disabled
+                    ? null
+                    : whyAccessIsStuck(user, { me: me.data?.user.id, admins: admins.length })
+                }
               />
             ))}
           </tbody>
@@ -429,7 +445,7 @@ function Row({
               keepsFocus: true,
               // Present and unavailable with the reason on it, the way the role
               // it repeats refuses - and the server refuses it as well.
-              ...(user.disabled ? {} : { unavailable: accessStuck ?? undefined }),
+              unavailable: accessStuck ?? undefined,
               destructive: !user.disabled,
               onSelect: () => onAccess(!user.disabled),
             },
