@@ -46,7 +46,7 @@ function stubFetch({ pages = [[]], jobs = [] } = {}) {
 }
 
 describe('listRuns', () => {
-  it('stops at the edge of the window rather than reading the whole history', async () => {
+  it('stops at the edge of the window rather than reading the whole history, and says it got there', async () => {
     const { fetchImpl } = stubFetch({
       pages: [
         [
@@ -55,7 +55,7 @@ describe('listRuns', () => {
         ],
       ],
     });
-    const { runs, truncated } = await listRuns({
+    const { runs, truncated, reachedWindowEdge } = await listRuns({
       repo: 'o/r',
       since: SINCE,
       maxRuns: 100,
@@ -63,6 +63,20 @@ describe('listRuns', () => {
     });
     expect(runs).toHaveLength(1);
     expect(truncated).toBe(false);
+    // The returned runs are all inside the window whatever the history is, so
+    // this flag is the only thing that can tell the model the difference.
+    expect(reachedWindowEdge).toBe(true);
+  });
+
+  it('says it never reached the edge when the branch simply has no more history', async () => {
+    const { fetchImpl } = stubFetch({ pages: [[rawRun()]] });
+    const { reachedWindowEdge } = await listRuns({
+      repo: 'o/r',
+      since: SINCE,
+      maxRuns: 100,
+      fetchImpl,
+    });
+    expect(reachedWindowEdge).toBe(false);
   });
 
   it('stops at its budget and says so, so the window it reports is the one it read', async () => {

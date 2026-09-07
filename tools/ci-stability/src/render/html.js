@@ -101,12 +101,17 @@ function mergeWindows(model) {
         );
         // Durations come from the widest window that has any, for the bigger
         // sample: how long a job takes changes far more slowly than whether it
-        // passes.
-        const durations = [...jobPerWindow].reverse().find((job) => job?.durations)?.durations;
+        // passes. Chosen by the window's own `days`, not by its position —
+        // `--windows` keeps whatever order the caller gave it, so `30,7` would
+        // otherwise hand back the narrower sample of the two.
+        const widest = jobPerWindow
+          .map((job, index) => ({ days: model.windows[index].days, durations: job?.durations }))
+          .filter((entry) => entry.durations)
+          .sort((a, b) => b.days - a.days)[0];
         return {
           name: jobName,
           cells: jobPerWindow.map((job) => job?.tally ?? null),
-          durations: durations ?? null,
+          durations: widest?.durations ?? null,
         };
       }),
     };

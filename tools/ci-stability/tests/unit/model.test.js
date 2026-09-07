@@ -222,6 +222,34 @@ describe('buildModel', () => {
     expect(model.coverage.truncated).toBe(true);
   });
 
+  it('calls nothing partial when history reaches past the window', () => {
+    // Every run the fetch returns is inside the window by construction, so the
+    // oldest one cannot tell a year of history from a week. Having *seen* an
+    // older run is the evidence; without this the banner reads "This covers 30
+    // days, not 30" on a repository with years behind it.
+    const model = build({
+      runs: [run({ createdAt: ago(29) }), run({ createdAt: ago(1) })],
+      requestedDays: 30,
+      reachedWindowEdge: true,
+      windows: [7, 30],
+    });
+    expect(model.coverage.partial).toBe(false);
+    expect(model.windows[0].partial).toBe(false);
+    expect(model.windows[1].partial).toBe(false);
+    expect(model.windows[1].actualDays).toBe(30);
+  });
+
+  it('still calls the shorter window whole when only the longer one runs out of history', () => {
+    const model = build({
+      runs: [run({ createdAt: ago(10) })],
+      requestedDays: 30,
+      reachedWindowEdge: false,
+      windows: [7, 30],
+    });
+    expect(model.windows[0].partial).toBe(false);
+    expect(model.windows[1].partial).toBe(true);
+  });
+
   it('leaves a job with no finish time out of the durations while keeping it in the rate', () => {
     const only = run();
     const model = build({

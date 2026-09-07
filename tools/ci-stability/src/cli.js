@@ -99,8 +99,12 @@ export function parseArgs(argv) {
     else if (arg === '--max-runs') args.maxRuns = positive(value(), '--max-runs', args);
     else if (arg === '--repo') args.repo = value();
     else if (arg === '--branch') args.branch = value();
+    // `?? ''` because a trailing `--windows` with nothing after it would
+    // otherwise throw a TypeError out of parseArgs, which main calls outside any
+    // catch: a stack trace and exit 1, where every other bad argument gets the
+    // usage message and exit 2.
     else if (arg === '--windows')
-      args.windows = value()
+      args.windows = (value() ?? '')
         .split(',')
         .map((each) => positive(each, '--windows', args));
     // The first one, not the last: a misspelled flag leaves its value looking
@@ -160,6 +164,7 @@ export async function main(argv) {
     now,
     requestedDays: days,
     truncated: collected.truncated,
+    reachedWindowEdge: collected.reachedWindowEdge,
     ignored: collected.ignored,
     repo,
     branch,

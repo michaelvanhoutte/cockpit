@@ -33,6 +33,14 @@ describe('parseArgs', () => {
     expect(parseArgs(['--windows', '7,lots']).invalid).toContain('--windows needs a positive number');
   });
 
+  it('refuses a trailing --windows with nothing after it, rather than throwing out of the parser', () => {
+    // main calls parseArgs outside any catch, so a TypeError here would be a
+    // stack trace and exit 1 where every other bad argument gets the usage
+    // message and exit 2.
+    expect(() => parseArgs(['--windows'])).not.toThrow();
+    expect(parseArgs(['--windows']).invalid).toContain('--windows');
+  });
+
   it('refuses zero and a negative count, which are numbers and still not windows', () => {
     expect(parseArgs(['--days', '0']).invalid).toContain('--days');
     expect(parseArgs(['--max-runs', '-5']).invalid).toContain('--max-runs');

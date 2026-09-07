@@ -160,7 +160,7 @@ function group(items, key) {
  * is all the API gives, and inventing continuity across a rename would be a
  * guess rendered as a fact.
  */
-function windowModel(runs, jobsByRun, { days, now, oldestRun }) {
+function windowModel(runs, jobsByRun, { days, now, oldestRun, reachedWindowEdge }) {
   const since = new Date(now.getTime() - days * DAY_MS);
   const inWindow = runs.filter((run) => new Date(run.createdAt) >= since);
 
@@ -193,7 +193,14 @@ function windowModel(runs, jobsByRun, { days, now, oldestRun }) {
   // A window is partial when history does not reach back to its start — a
   // 30-day column over eleven days of data is an eleven-day column, and saying
   // otherwise would make a young repository look like a stable one.
-  const partial = oldestRun !== null && oldestRun > since;
+  //
+  // The oldest run fetched cannot answer that on its own: every run the fetch
+  // returned satisfies `createdAt >= since` by construction, so "the oldest one
+  // is inside the window" is true of a year of history as much as of a week,
+  // and reading it alone would banner every report as partial. `reachedWindowEdge`
+  // is the evidence — a run *older* than the window was actually seen — and the
+  // oldest run then only narrows which of the shorter windows it applies to.
+  const partial = !reachedWindowEdge && oldestRun !== null && oldestRun > since;
   return {
     days,
     since: since.toISOString(),
@@ -211,6 +218,8 @@ function windowModel(runs, jobsByRun, { days, now, oldestRun }) {
  * @param {Date} input.now
  * @param {number} input.requestedDays how far back the fetch was asked to go
  * @param {boolean} input.truncated whether the run budget stopped the fetch short
+ * @param {boolean} [input.reachedWindowEdge] whether a run older than the requested window
+ *   was seen — the only evidence that history reaches back past it
  * @param {number} [input.ignored] runs dropped for belonging to no workflow file
  * @param {number[]} [input.windows] the windows to report, in days
  * @param {number} [input.failureLimit] how many recent failures to list
@@ -221,6 +230,7 @@ export function buildModel({
   now,
   requestedDays,
   truncated,
+  reachedWindowEdge = false,
   ignored = 0,
   repo,
   branch = 'main',
@@ -272,12 +282,25 @@ export function buildModel({
       until: now.toISOString(),
       oldestRun: oldest ? oldest.toISOString() : null,
       actualDays: oldest ? (now - oldest) / DAY_MS : null,
-      partial: truncated || (oldest !== null && oldest > new Date(now.getTime() - requestedDays * DAY_MS)),
+      partial:
+        truncated ||
+        (!reachedWindowEdge &&
+          oldest !== null &&
+          oldest > new Date(now.getTime() - requestedDays * DAY_MS)),
       truncated,
       runs: runs.length,
       ignoredRuns: ignored,
     },
-    windows: windows.map((days) => windowModel(runs, jobsByRun, { days, now, oldestRun: oldest })),
+    windows: windows.map((days) =>
+      windowModel(runs, jobsByRun, {
+        days,
+        now,
+        oldestRun: oldest,
+        // A budget that stopped the fetch short leaves history unread, which is
+        // the same thing as not having reached the edge of the window.
+        reachedWindowEdge: reachedWindowEdge && !truncated,
+      }),
+    ),
     redWindows: [...group(runs, (run) => run.workflow).values()]
       .flatMap((workflowRuns) => redWindows(workflowRuns, { now }))
       .sort((a, b) => new Date(b.from) - new Date(a.from)),

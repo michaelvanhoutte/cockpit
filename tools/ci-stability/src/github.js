@@ -166,15 +166,19 @@ function normalizeJob(raw) {
  * They are also not this repository's automation, which is the honest reason to
  * leave them out.
  *
- * @returns {Promise<{ runs: Run[], truncated: boolean, ignored: number }>} `truncated`
- *   when the budget stopped it before the window did, which is what makes the reported
- *   window partial.
+ * @returns {Promise<{ runs: Run[], truncated: boolean, ignored: number,
+ *   reachedWindowEdge: boolean }>} `truncated` when the budget stopped it before the
+ *   window did. `reachedWindowEdge` when a run older than `since` was actually seen —
+ *   which is the only honest evidence that history reaches back past the window, since
+ *   every run that *is* returned satisfies `createdAt >= since` by construction and so
+ *   can never show it.
  */
 export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }) {
   const runs = [];
   let page = 1;
   let truncated = false;
   let ignored = 0;
+  let reachedWindowEdge = false;
 
   for (;;) {
     const body = await request(
@@ -184,7 +188,6 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }
     const batch = body.workflow_runs ?? [];
     if (batch.length === 0) break;
 
-    let reachedWindowEdge = false;
     for (const raw of batch) {
       const run = normalizeRun(raw);
       if (new Date(run.createdAt) < since) {
@@ -206,7 +209,7 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }
     page += 1;
   }
 
-  return { runs, truncated, ignored };
+  return { runs, truncated, ignored, reachedWindowEdge };
 }
 
 /** Every job of one run. @returns {Promise<Job[]>} */
@@ -254,12 +257,25 @@ export async function collect({
   }
 
   const ctx = { token, fetchImpl, retries, retryDelayMs };
-  const { runs, truncated, ignored } = await listRuns({ repo, branch, since, maxRuns, ...ctx });
+  const { runs, truncated, ignored, reachedWindowEdge } = await listRuns({
+    repo,
+    branch,
+    since,
+    maxRuns,
+    ...ctx,
+  });
 
   const withJobs = runs.filter((run) => run.conclusion !== 'skipped');
   const jobLists = await pool(withJobs, concurrency, (run) =>
     listJobs({ repo, runId: run.id, ...ctx }),
   );
 
-  return { runs, jobs: jobLists.flat(), truncated, ignored, requests: withJobs.length };
+  return {
+    runs,
+    jobs: jobLists.flat(),
+    truncated,
+    ignored,
+    reachedWindowEdge,
+    requests: withJobs.length,
+  };
 }

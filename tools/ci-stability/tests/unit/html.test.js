@@ -114,6 +114,27 @@ describe('renderHtml', () => {
     expect(html).toContain('has not been red in this window');
   });
 
+  it('takes durations from the widest window however the windows were ordered', () => {
+    // `--windows 30,7` is ordered as given, so picking by position rather than
+    // by days would quietly report the narrower sample.
+    const old = run({ createdAt: ago(20) });
+    const recent = run({ createdAt: ago(1) });
+    const jobs = [
+      job({ runId: old.id, startedAt: '2026-08-18T12:00:00Z', completedAt: '2026-08-18T12:10:00Z' }),
+      job({
+        runId: recent.id,
+        startedAt: '2026-09-06T12:00:00Z',
+        completedAt: '2026-09-06T12:01:00Z',
+      }),
+    ];
+    // 30 days holds both runs, so its median is 5m30s; 7 days holds only the
+    // one-minute run.
+    const descending = render({ runs: [old, recent], jobs, windows: [30, 7] });
+    const ascending = render({ runs: [old, recent], jobs, windows: [7, 30] });
+    expect(descending).toContain('5m 30s');
+    expect(ascending).toContain('5m 30s');
+  });
+
   it('names the window its exclusions column belongs to, since two rate columns sit beside it', () => {
     const html = render({ runs: [run()], windows: [7, 30] });
     expect(html).toContain('Left out of 7 days');
