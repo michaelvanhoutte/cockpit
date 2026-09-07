@@ -8,6 +8,16 @@ The design rationale — what was tried and rejected, and why it is shaped this 
 lives in [docs/test-explorer-spec.md](../../docs/test-explorer-spec.md). This is the
 practical "how do I run it and what does it read" version.
 
+## Reading it without running it
+
+The report from the tip of `main` is published on every merge, at
+**<https://michaelvanhoutte.github.io/cockpit/>** — no sign-in needed.
+
+Every run on every branch, `main` included, also uploads its report as the
+`test-explorer-report` artifact, which is where a pull request's own report is, and where
+`main`'s raw `out/` is when the page is not what you want. Both come from the `Test
+Explorer` job in `.github/workflows/ci.yml`.
+
 ## Running it
 
 ```bash

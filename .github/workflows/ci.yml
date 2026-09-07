@@ -29,6 +29,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Read-only by default, because declaring any permissions block sets every scope
+# not listed to `none` (the same mechanism codeql.yml documents). Without this
+# every job here runs on whatever the repository's default token grants, which
+# is `pages: write` and `contents: write` where the default is read-and-write —
+# held by jobs that run arbitrary package code. `pages` below re-grants itself
+# what it needs, and nothing else in this file gets it.
+permissions:
+  contents: read
+
 jobs:
   # Architecture §9.1 asks for the fast test tiers split one job per tier, so a
   # misplaced test is visible. Today Cockpit is one service with one test file,
@@ -140,10 +149,12 @@ jobs:
       - name: Verify the dev, test-stack, health-check and review-gate scripts, and the walks' conventions
         run: node --test scripts/lib/*.test.mjs
 
-  # Publishes which product concepts own which tests, as a downloadable
-  # artifact on every run. Does not gate: docs/test-explorer-spec.md §8
-  # deliberately stops short of failing the build on the report's content,
-  # only on concepts.json drift (a source file the registry can't place).
+  # Publishes which product concepts own which tests: as a downloadable
+  # artifact on every run, and — from `main` only — as the page the `pages` job
+  # below deploys. Does not gate: docs/test-explorer-spec.md's "CLI, scripts,
+  # CI" (§8) deliberately stops short of failing the build on the report's
+  # content, only on concepts.json drift (a source file the registry can't
+  # place).
   test-explorer:
     name: Test Explorer
     runs-on: ubuntu-latest
@@ -161,7 +172,61 @@ jobs:
       # artifact hop, which running it again here avoids needing.
       - run: pnpm test:coverage
       - run: pnpm test:explorer
+      # Kept on every branch, and not replaced by the published page: it is how
+      # a pull request's own report gets read, and the fallback when a deploy
+      # fails.
       - uses: actions/upload-artifact@v4
         with:
           name: test-explorer-report
           path: tools/test-explorer/out/
+      # The same directory again, in the tarball `deploy-pages` expects. Only
+      # from `main`, because this workflow runs on every push and a branch's
+      # report must not replace the published one.
+      - name: Package the report for Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: tools/test-explorer/out/
+
+  # The report from the tip of `main`, at a fixed URL, readable without signing
+  # in — which is what a zipped artifact is not, least of all on a phone, where
+  # the GitHub app has never downloaded one in-app ("Publish the test explorer
+  # at a URL, instead of a zip you have to download", issue 224).
+  #
+  # A separate job because `deploy-pages` needs write access to Pages and an
+  # OIDC token, which the workflow-level block above withholds from everything
+  # else. It deploys what `test-explorer` already generated rather than
+  # generating again, so the instrumented suite still runs exactly once.
+  #
+  # **Pages must be switched on for the repository** (Settings → Pages →
+  # Source: GitHub Actions), as docs/deployment.md records under "Then, by hand".
+  # Until it is, this job fails and takes main's CI red with it. Not automated
+  # with `configure-pages`'s `enablement`: that input cannot use `GITHUB_TOKEN`
+  # and wants a stored PAT, which is a worse trade than one settings click.
+  pages:
+    name: Publish
+    needs: test-explorer
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Names the deployment in the GitHub UI, and is where the URL is shown.
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    # One deploy at a time, and never cancel one that has started — a group
+    # holds only one *pending* job, so a third arrival cancels the second
+    # rather than queueing behind it. It does little on a merge, where the
+    # workflow-level group above already cancels the whole superseded run, this
+    # job with it; it is here for deploys arriving by another route, a re-run or
+    # a dispatch. A lost deploy costs that commit's page and nothing else: a
+    # Pages deployment either replaces the live one or does not happen, and the
+    # next merge publishes the same page one commit later.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

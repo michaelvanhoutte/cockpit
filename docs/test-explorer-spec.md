@@ -455,40 +455,49 @@ tools/test-explorer/package.json
 every ordinary build. The root gains `test:explorer`, `test:explorer:check` and
 `test:coverage` (`pnpm -r test:coverage`).
 
-CI (`.github/workflows/ci.yml`) gains one job, independent of `test`, `typecheck`
-and `build` — it needs neither their success nor their output:
-
-```yaml
-  test-explorer:
-    name: Test Explorer
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - run: pnpm test:explorer:check   # fails the job on concepts.json drift
-      - run: pnpm test:coverage         # instrumented — a second full run, see below
-      - run: pnpm test:explorer
-      - uses: actions/upload-artifact@v4
-        with:
-          name: test-explorer-report
-          path: tools/test-explorer/out/
-```
+CI (`.github/workflows/ci.yml`) gains a `Test Explorer` job, independent of `test`,
+`typecheck` and `build` — it needs neither their success nor their output. In order:
+`test:explorer:check` (fails the job on `concepts.json` drift), `test:coverage`
+(instrumented), `test:explorer`, then the uploads named under "Where the report is
+published" below. The job itself carries the reasoning; it is not repeated here.
 
 The original draft had the job `needs: test` "to reuse the coverage output", which was
 wrong: Actions jobs run in separate VMs, so only an uploaded artifact shares a directory.
 The job runs the suite a second time, instrumented, inside its own VM — roughly doubling
 its runtime, accepted because it keeps the job self-contained and avoids the artifact hop.
 
-**This publishes as a downloadable artifact per run, not a gate.** No job fails on a red
-cell; `check-concepts` only fails on registry drift, which is build hygiene rather than a
-coverage judgment. Gating on content is the last step of the suggested order (generate →
-publish → live with it → gate) precisely because gating creates the incentive to argue a
-node into a thinner obligation rather than test it.
+**This publishes, and does not gate.** No job fails on a red cell; `check-concepts` only
+fails on registry drift, which is build hygiene rather than a coverage judgment. Gating on
+content is the last step of the suggested order (generate → publish → live with it → gate)
+precisely because gating creates the incentive to argue a node into a thinner obligation
+rather than test it. Only the first two steps of that order have been taken.
 
-**Open question:** whether the artifact becomes a persistently published page (Pages, or
-served from the Worker). An artifact is zero new infrastructure; a published page is a
-real decision with new hosting and a deploy step. Recommend artifact now, revisit once
-the registry has stopped changing weekly.
+### Where the report is published
+
+Two places, for two readers. Every run uploads `out/` as a downloadable artifact, which is
+how a pull request's own report is read and the fallback when a deploy fails. Runs on
+`main` additionally publish to **GitHub Pages**, at
+<https://michaelvanhoutte.github.io/cockpit/> — the tip of `main`, at a fixed URL, without
+signing in.
+
+This settles what this section left open until "Publish the test explorer at a URL, instead
+of a zip you have to download" (issue 224). A zipped artifact expiring after
+90 days is read by finding the run, downloading, unzipping and opening a local file, and
+from the GitHub mobile app not at all, since it has never downloaded an artifact in-app. A
+report regenerated on every merge and read approximately never is worth less than the page
+it takes one job to publish.
+
+GitHub Pages, not Cloudflare Pages: deployment.md, "One Worker serves the whole
+application", rejects Cloudflare Pages for serving the *application*, which this is not.
+Pages is free on a public repository, needs no secret, and the report is already one
+self-contained HTML file, so there is nothing to host and nothing to build. Serving it from
+the Worker was the other candidate and is worse on every count: assets are served before
+the Worker runs, so it could not be gated even if it should be, and it would tie the report
+to a deploy.
+
+Only `main` publishes, because CI runs on every push and a branch's report must not replace
+the published one. Pages keeps one deployment live, so history stays in the per-run
+artifacts.
 
 ## 9. Build plan
 
@@ -518,8 +527,9 @@ Rounds 11–12 and the later feedback and review rounds are summarised in "How t
 
 ## 10. Explicitly out of scope
 
-- **Gating CI on report content** (§8).
-- **A persistently published page** (§8).
+- **Gating CI on report content**, per "CLI, scripts, CI" (§8).
+- ~~**A persistently published page.**~~ Built. Merges to `main` publish to GitHub Pages,
+  per "Where the report is published" (§8).
 - **The `describe.todo`/`it.todo` merge-guard.** Related, since todos live in the files
   this tool reads, but it is its own lint or CI rule rather than a rendering concern.
   Worth building next; not blocking this.
