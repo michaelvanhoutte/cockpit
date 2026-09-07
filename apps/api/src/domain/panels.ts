@@ -43,6 +43,12 @@ export function firstPanelFor(
     dashboardId: dashboard.id,
     name: FIRST_PANEL_NAME,
     foldedName: foldName(FIRST_PANEL_NAME),
+    // The panel a dashboard arrives with is the one an item is filed into, so
+    // it is a panel of items - and it holds no text and refuses none, being a
+    // panel that has no text to hold.
+    kind: 'items',
+    body: '',
+    readOnly: false,
     createdAt: dashboard.createdAt,
     deletedAt: null,
   };
@@ -89,6 +95,11 @@ export interface PanelRow extends Panel {
  * `createdAt` is the client's own timestamp, like every other command, so the
  * order panels sit in on a dashboard with no layout yet is the order they were
  * added in even when an add was queued offline.
+ *
+ * **The kind comes from the command and is written once.** Nothing updates it
+ * afterwards, which is the whole of "decided when it is made and never after"
+ * (`panelKindSchema`): there is no command to change it, so there is no code
+ * path that could.
  */
 export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelRow {
   return {
@@ -97,6 +108,16 @@ export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelR
     dashboardId: cmd.dashboardId,
     name: cmd.name,
     foldedName: foldName(cmd.name),
+    kind: cmd.kind,
+    body: '',
+    /**
+     * **Open, and it is the one panel of text that arrives so.** Read-only is
+     * what a panel of text settles into - it is a thing to read, and it is how
+     * the rest of them are found - but the panel somebody has just made is the
+     * one place that would be nonsense: an empty box refusing to be written in,
+     * one menu away from the gesture that made it.
+     */
+    readOnly: false,
     createdAt: cmd.issuedAt,
     deletedAt: null,
   };

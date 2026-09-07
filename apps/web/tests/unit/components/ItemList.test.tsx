@@ -147,7 +147,7 @@ const RESEARCH: Dashboard = {
 };
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId, name };
+  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, body: '', readOnly: false };
 }
 
 function aWorkspace(id: string, name: string): Workspace {
@@ -333,6 +333,29 @@ describe('Panels', () => {
         'To readResearch',
         'AnnaToday',
       ]);
+    });
+
+    /**
+     * A panel of text draws no items, so one filed onto it would leave the
+     * Inbox and be on no screen at all. Offered nowhere here, including in the
+     * recently-filed-into list above the tree - which is the same rule, and
+     * would be a second place to forget it.
+     *
+     * That the store refuses the filing anyway, however the request is made, is
+     * proved in apps/api/tests/integration/http/panel-items.test.ts: the app's
+     * scoping is presentation rather than protection.
+     */
+    it('offers no panel of text, in the tree or among the recent ones', async () => {
+      held.panels = [
+        ...held.panels,
+        { ...aPanel('p-words', TODAY.id, 'What matters'), kind: 'text' as const },
+      ];
+      localStorage.setItem('cockpit.recent-panels.ws-work', JSON.stringify(['p-words', 'p-anna']));
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+
+      expect(offered(dialog).join(' ')).not.toContain('What matters');
     });
 
     it('still opens for a workspace whose only dashboard has no panels', async () => {
