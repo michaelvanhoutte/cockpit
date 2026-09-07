@@ -3,6 +3,7 @@ import { snapshotQuery } from '../api/queries';
 import { itemsInTheInbox } from '../filing';
 import { CaptureForm } from './CaptureForm';
 import { ItemList } from './ItemList';
+import { HOW_TO_FILE_FROM_THE_INBOX } from '../whatThingsAre';
 
 /**
  * The Inbox's name and how much is in it, drawn wherever the Inbox is headed:
@@ -82,6 +83,15 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   // was, rather than a blank screen.
   const inbox = itemsInTheInbox(data.items, data.filings ?? []);
 
+  /**
+   * The other end of the gesture the empty panel explains (`PanelCard.tsx`),
+   * and it exists only while both halves do: something to file, and nothing
+   * filed yet anywhere in this workspace. It goes for good the first time
+   * anything is filed, because the gesture has then been done rather than read
+   * about.
+   */
+  const showHowToFile = inbox.length > 0 && (data.filings ?? []).length === 0;
+
   /* No box of its own and no heading: the column it is drawn in is the hollow
      in the sheet (pages/Layout.tsx), and the name and count are up in the band
      above it. What is left here is what the Inbox actually holds. */
@@ -100,6 +110,12 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
           items={data.items}
         />
       </div>
+
+      {showHowToFile && (
+        <p className="border-b border-black/5 px-4 py-2 text-sm text-ink-faint">
+          {HOW_TO_FILE_FROM_THE_INBOX}
+        </p>
+      )}
 
       <ItemList
         workspaceId={workspaceId}

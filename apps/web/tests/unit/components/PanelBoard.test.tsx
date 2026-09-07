@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
+import { HOW_AN_ITEM_IS_FILED } from '../../../src/whatThingsAre';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand } from '../../../src/api/queries';
 
@@ -907,7 +908,35 @@ describe('Panels', () => {
       ]);
 
       const reading = await screen.findByRole('region', { name: 'To read' });
+      expect(within(reading).getByText(/^Nothing filed here yet\./)).toBeVisible();
+    });
+  });
+
+  /**
+   * "Nothing filed here yet." is true and says nothing about how anything gets
+   * here, and a new account is looking at exactly that: one panel, empty, with
+   * the Inbox beside it. So until the gesture has been done once the empty
+   * panel says how - and afterwards it stops, because it has been done rather
+   * than read about.
+   *
+   * **Asked of the workspace, not the panel.** An empty panel beside a full one
+   * is empty on purpose.
+   */
+  describe('an empty panel says how an item gets onto it, until one has been filed', () => {
+    it('says how while nothing in the workspace has been filed', async () => {
+      showBoard({ items: [], filings: [] });
+
+      const reading = await screen.findByRole('region', { name: 'To read' });
+      expect(within(reading).getByText(HOW_AN_ITEM_IS_FILED, { exact: false })).toBeVisible();
+    });
+
+    it('says only that it is empty once something has been filed anywhere in the workspace', async () => {
+      const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+      showBoard({ items: [bart], filings: [{ panelId: 'falcon', itemId: bart.id, position: 0 }] });
+
+      const reading = await screen.findByRole('region', { name: 'To read' });
       expect(within(reading).getByText('Nothing filed here yet.')).toBeVisible();
+      expect(within(reading).queryByText(HOW_AN_ITEM_IS_FILED, { exact: false })).toBeNull();
     });
   });
 });

@@ -1,4 +1,4 @@
-import { DEFAULT_CELL_SPAN } from '@cockpit/shared';
+import { DEFAULT_CELL_SPAN, FIRST_PANEL_NAME } from '@cockpit/shared';
 import type { AddPanelCommand, Panel, RowInput, SaveLayoutCommand } from '@cockpit/shared';
 import { foldName, namedTheSame } from './names.js';
 
@@ -13,8 +13,7 @@ import { foldName, namedTheSame } from './names.js';
  * of panels, not a grid that wraps").
  */
 
-/** What a dashboard's first panel is called before anybody names one. */
-export const FIRST_PANEL_NAME = 'Panel 1';
+export { FIRST_PANEL_NAME };
 
 /**
  * The panel a dashboard arrives with, so that a workspace has somewhere to file

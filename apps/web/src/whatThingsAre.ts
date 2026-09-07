@@ -29,3 +29,20 @@ export const WHAT_A_DASHBOARD_IS =
 
 export const WHAT_A_PANEL_IS =
   'A box on this dashboard holding whatever you file into it — everything about your one-on-ones, what is waiting on somebody else, or what the next board meeting needs.';
+
+/**
+ * How an item gets onto a panel, said until it has been done once.
+ *
+ * **Both ends of one gesture**, because on a wide screen the Inbox and the
+ * panels are side by side and on a phone they are two screens: whichever half
+ * somebody is looking at says it.
+ *
+ * **Neither says only "drag".** There is no drag from the Inbox to a panel on a
+ * phone - it is a swipe, or *Move to…* in the row's own menu - so both name the
+ * menu, which is the one way that works everywhere.
+ */
+export const HOW_AN_ITEM_IS_FILED =
+  'Drag an item onto it from the Inbox, or file it from the item’s own menu.';
+
+export const HOW_TO_FILE_FROM_THE_INBOX =
+  'Drag one onto a panel to file it, or file it from its own menu.';

@@ -2,6 +2,7 @@ import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
+import { HOW_AN_ITEM_IS_FILED } from '../whatThingsAre';
 
 /**
  * One panel on a dashboard: a titled box you can move, resize and rename in
@@ -72,6 +73,16 @@ export interface PanelCardProps {
    * one that holds the pointer.
    */
   onPickUp: (pointerId: number) => void;
+  /**
+   * That nothing has been filed anywhere in this workspace, which is what makes
+   * an empty panel worth explaining rather than merely reporting: until the
+   * gesture has been done once, "Nothing filed here yet." is a true sentence
+   * that says nothing about how anything gets here.
+   *
+   * The workspace's rather than this panel's, because an empty panel beside a
+   * full one is empty on purpose and needs no lesson.
+   */
+  nothingFiledYet: boolean;
   /** Why the last change to this panel did not happen, if it did not. */
   refusal: string | null;
   busy: boolean;
@@ -81,6 +92,7 @@ export function PanelCard({
   panel,
   workspaceId,
   items,
+  nothingFiledYet,
   sideBySide,
   first,
   last,
@@ -277,7 +289,9 @@ export function PanelCard({
           items={items}
           openDashboardId={panel.dashboardId}
           panelId={panel.id}
-          emptyMessage="Nothing filed here yet."
+          emptyMessage={
+            nothingFiledYet ? `Nothing filed here yet. ${HOW_AN_ITEM_IS_FILED}` : 'Nothing filed here yet.'
+          }
         />
       </div>
 

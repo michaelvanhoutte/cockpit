@@ -597,6 +597,7 @@ export function PanelBoard({
                         panel={panel}
                         workspaceId={workspaceId}
                         items={itemsOnPanel(items, filings, panel.id)}
+                        nothingFiledYet={filings.length === 0}
                         sideBySide={row.cells.length > 1}
                         // Nowhere left to go, which is not the same as being at
                         // the end of a row: a panel at the end of a row it

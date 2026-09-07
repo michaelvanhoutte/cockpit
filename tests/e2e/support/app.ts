@@ -192,10 +192,45 @@ export const ADA = 'Ada';
  * make its own test vacuous.
  */
 export async function signIn(page: Page, name: string, isMobile: boolean): Promise<void> {
+  await signInWithoutSkipping(page, name, isMobile);
+  // Answered the way somebody who wants the app would, where it was asked at
+  // all. **Conditional, and that is not order-dependence sneaking back in:**
+  // whether an account has been started on depends on what else has run - the
+  // tier shares one database - and having been through the question is
+  // remembered in the browser, which Playwright gives every walk fresh. So the
+  // honest thing for a helper whose job is "get me into the app" is to answer
+  // the question when it is asked and notice nothing when it is not.
+  const skip = page.getByRole('button', { name: 'Skip' });
+  if (await skip.isVisible()) await press(skip, isMobile);
+  await expect(dashboardBar(page)).toBeVisible();
+}
+
+/**
+ * The sign-in, stopping at whichever screen it lands on, for the one walk whose
+ * subject is what an account nobody has started on is shown. Everything else
+ * wants `signIn`, which goes on into the app.
+ *
+ * **It waits for one of the two landings before answering.** Pressing the
+ * account and returning leaves the caller on the issuer, mid-redirect, and
+ * whatever it asserts next is asked of a page the app has not drawn - which is
+ * a walk that fails saying it could not find a heading rather than that it
+ * never arrived. `or` is one wait with one timeout, where two raced against
+ * each other would settle on the first to *time out* as readily as on the first
+ * to appear.
+ */
+export async function signInWithoutSkipping(
+  page: Page,
+  name: string,
+  isMobile: boolean,
+): Promise<void> {
   await page.goto('/signin');
   await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
   await press(page.getByRole('link', { name: addressOf(name), exact: true }), isMobile);
-  await expect(dashboardBar(page)).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Skip' })
+    .or(dashboardBar(page))
+    .first()
+    .waitFor({ state: 'visible' });
 }
 
 /**

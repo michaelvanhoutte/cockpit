@@ -1,3 +1,9 @@
+import {
+  FIRST_DASHBOARD_NAME,
+  FIRST_PANEL_NAME,
+  FIRST_WORKSPACE_NAME,
+} from '@cockpit/shared';
+import { foldName } from '../domain/names.js';
 import type { Change } from './up-to-date.js';
 
 /**
@@ -1309,7 +1315,7 @@ function firstWorkspace(accountId: string): Change {
         // (`WORKSPACE_THEMES`), written out rather than left to the column
         // defaults, so the workspace wears a set that belongs together.
         sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, bar, ground, header, position, created_at)
-                SELECT '${FIRST_WORKSPACE_ID}', ?, 'Workspace 1', 'workspace 1', '#6f62b5', '#211d37', '#edebf7', '#18152b', 0, '2026-09-07T00:00:00.000Z'
+                SELECT '${FIRST_WORKSPACE_ID}', ?, '${FIRST_WORKSPACE_NAME}', '${foldName(FIRST_WORKSPACE_NAME)}', '#6f62b5', '#211d37', '#edebf7', '#18152b', 0, '2026-09-07T00:00:00.000Z'
                 WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE tenant_id = ?)`,
         params: [accountId, accountId],
       },
@@ -1319,14 +1325,14 @@ function firstWorkspace(accountId: string): Change {
         // both places, so a workspace's first dashboard has one id whether this
         // made it or `create_workspace` did.
         sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
-                SELECT '${FIRST_DASHBOARD_ID}', ?, '${FIRST_WORKSPACE_ID}', 'Dashboard 1', 'dashboard 1', '2026-09-07T00:00:00.000Z'
+                SELECT '${FIRST_DASHBOARD_ID}', ?, '${FIRST_WORKSPACE_ID}', '${FIRST_DASHBOARD_NAME}', '${foldName(FIRST_DASHBOARD_NAME)}', '2026-09-07T00:00:00.000Z'
                 WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = '${FIRST_WORKSPACE_ID}' AND tenant_id = ?)
                   AND NOT EXISTS (SELECT 1 FROM dashboards WHERE id = '${FIRST_DASHBOARD_ID}' AND tenant_id = ?)`,
         params: [accountId, accountId, accountId],
       },
       {
         sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
-                SELECT '${FIRST_PANEL_ID}', ?, '${FIRST_DASHBOARD_ID}', 'Panel 1', 'panel 1', '2026-09-07T00:00:00.000Z'
+                SELECT '${FIRST_PANEL_ID}', ?, '${FIRST_DASHBOARD_ID}', '${FIRST_PANEL_NAME}', '${foldName(FIRST_PANEL_NAME)}', '2026-09-07T00:00:00.000Z'
                 WHERE EXISTS (SELECT 1 FROM dashboards WHERE id = '${FIRST_DASHBOARD_ID}' AND tenant_id = ?)
                   AND NOT EXISTS (SELECT 1 FROM panels WHERE id = '${FIRST_PANEL_ID}' AND tenant_id = ?)`,
         params: [accountId, accountId, accountId],
