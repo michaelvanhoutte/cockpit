@@ -1,8 +1,9 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, like, sql } from 'drizzle-orm';
 import type { RegisteredUser } from '@cockpit/shared';
 import { createDb } from '../db/client.js';
 import { tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
+import { foldAddress, idSearchPrefix, idsForNewUser, whatIsWrongWith } from './new-user.js';
 
 /**
  * The register: which accounts exist. It stays in D1 rather than moving into
@@ -64,6 +65,143 @@ export async function registeredUsers(env: Env): Promise<RegisteredUser[]> {
     ...user,
     hasSignedIn: googleSubject !== null,
   }));
+}
+
+/**
+ * Somebody was added, or was not and this is why.
+ *
+ * **`accountId` is carried beside the user and is not `user.accountName`.** The
+ * two are different things that read alike: the contract's `accountName` is the
+ * account's *name*, which is what an admin sees, while what addresses the store
+ * is the register's id (`tenant-anna`). Anything opening the account needs this
+ * one.
+ */
+export type Added =
+  | { added: true; user: RegisteredUser; accountId: string }
+  | { added: false; refused: string };
+
+/**
+ * Adds a person and the account they own ("Add a user on the admin page, so a
+ * second person no longer needs SQL", issue 231).
+ *
+ * **Both rows in one write.** A person pointing at an account that is not there
+ * is somebody whose every request fails on a foreign key they cannot see, and a
+ * batch is what makes that state unreachable rather than merely unlikely.
+ *
+ * **The refusals are decided against the register as it was read**, so the write
+ * is guarded again by the register's own uniqueness: if somebody else takes the
+ * address in between, the insert fails and this says so rather than reporting a
+ * person who is not there. The four rules are the register's, not this
+ * function's - an account's id, a user's id, the address, and the Google
+ * identity - which is why the check is a query against them rather than a list
+ * kept here.
+ *
+ * **Everyone arrives ordinary.** Choosing a role while adding waits for
+ * "Rename a user, and make somebody an admin" (issue 232); until then the only
+ * admin is the one the environment was bootstrapped with.
+ */
+export async function addUser(
+  env: Env,
+  { name, address }: { name: string; address: string },
+  now: Date,
+): Promise<Added> {
+  const wrong = whatIsWrongWith({ name, address });
+  if (wrong) return { added: false, refused: wrong.what };
+
+  const db = createDb(env.DB);
+  const email = foldAddress(address);
+  const [held] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+  if (held) return { added: false, refused: `${email} is already how ${held.id} signs in` };
+
+  const ids = await freeIds(env, name);
+  const at = now.toISOString();
+  // Not the same refusal as an unusable name, which `whatIsWrongWith` has
+  // already answered above: this is a name that derives an id and finds every
+  // one of them taken, which only a register holding a thousand people of one
+  // name can do.
+  if (!ids) {
+    return { added: false, refused: `too many people are already called ${name.trim()}` };
+  }
+
+  const user: RegisteredUser = {
+    id: ids.userId,
+    name: name.trim(),
+    email,
+    role: 'user',
+    accountName: name.trim(),
+    hasSignedIn: false,
+  };
+
+  try {
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)').bind(
+        ids.accountId,
+        user.name,
+        at,
+      ),
+      env.DB.prepare(
+        'INSERT INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ).bind(ids.userId, user.name, ids.accountId, user.role, email, at),
+    ]);
+  } catch (error) {
+    console.error(
+      JSON.stringify({ level: 'error', message: `adding ${ids.userId} failed`, cause: String(error) }),
+    );
+    // **Only a uniqueness refusal is answered as one.** What that means here is
+    // somebody else taking the address or an id between the read above and this
+    // write, which the person can act on by trying again. Everything else - D1
+    // unreachable, a column the code has not caught up with, a CHECK refusing a
+    // value - is thrown, so it reaches `app.onError` as a 500 rather than
+    // telling an admin to retry against a database that will refuse them for
+    // ever.
+    if (!isUniquenessRefusal(error)) throw error;
+    return { added: false, refused: 'somebody else was added at the same moment - try again' };
+  }
+
+  return { added: true, user, accountId: ids.accountId };
+}
+
+/**
+ * Whether the register refused a row for already holding one like it - a
+ * primary key or one of the unique indexes - rather than for anything else.
+ *
+ * Read off the message, which is what SQLite gives: D1 surfaces the driver's
+ * text and there is no code to switch on. Deliberately narrow, so anything this
+ * does not recognise is thrown rather than reported to somebody as a conflict
+ * they can retry.
+ */
+function isUniquenessRefusal(error: unknown): boolean {
+  const said = error instanceof Error ? error.message : String(error);
+  return /UNIQUE constraint failed|PRIMARY KEY must be unique/i.test(said);
+}
+
+/**
+ * The first pair of ids nothing in the register holds.
+ *
+ * One query rather than one per candidate: the ids are derived from a name, and
+ * the only way a second query would be reached is two people of the same name,
+ * so the whole set of ids starting with this name is read once and answered
+ * from.
+ */
+async function freeIds(env: Env, name: string) {
+  const db = createDb(env.DB);
+  // Filtered to the ids this name could derive, which is what makes the read a
+  // question about the people sharing a name rather than about the whole
+  // register.
+  //
+  // **The prefix is `idSearchPrefix`'s, not the name's.** A candidate with a
+  // suffix has room made for it by trimming the name, so searching on the
+  // untrimmed part misses exactly the ids this is looking for - and hands out
+  // one somebody already has, which the register then refuses for ever. That
+  // rule lives with the derivation so the two cannot drift.
+  const part = idSearchPrefix(name);
+  if (!part) return null;
+  const [accounts, people] = await Promise.all([
+    db.select({ id: tenants.id }).from(tenants).where(like(tenants.id, `tenant-${part}%`)),
+    db.select({ id: users.id }).from(users).where(like(users.id, `user-${part}%`)),
+  ]);
+  const held = new Set([...accounts.map((row) => row.id), ...people.map((row) => row.id)]);
+  return idsForNewUser(name, ({ accountId, userId }) => held.has(accountId) || held.has(userId));
 }
 
 /** The register as a backup holds it. */

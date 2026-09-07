@@ -8,6 +8,7 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import {
+  addUser,
   fetchItemTypes,
   fetchMe,
   fetchRegisteredUsers,
@@ -63,6 +64,22 @@ export const registeredUsersQuery = queryOptions({
   queryFn: fetchRegisteredUsers,
   staleTime: 0,
 });
+
+/**
+ * Adding somebody, and re-reading the list once they are in.
+ *
+ * The list is invalidated rather than written into: what a person's row says
+ * includes things the server decided - the id derived from their name, the
+ * account they were given - so reading it back is one round trip against
+ * guessing.
+ */
+export function useAddUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: addUser,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
+  });
+}
 
 /** The read model: one snapshot per workspace (§5.2), revalidated in the background. */
 export const snapshotQuery = (workspaceId: string) =>

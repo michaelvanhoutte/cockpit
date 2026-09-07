@@ -17,6 +17,7 @@ export type { AccountBackup } from './backup.js';
 export {
   RegisterDisagreesError,
   RegisterRowUnusableError,
+  addUser,
   registerContents,
   registeredAccountNames,
   registeredUsers,

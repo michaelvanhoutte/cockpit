@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { RegisteredUser } from '@cockpit/shared';
+import { NotSignedIn, SIGN_IN_PATH } from '../api/client';
 import { statusOf } from '../api/loadFailure';
-import { registeredUsersQuery } from '../api/queries';
+import { registeredUsersQuery, useAddUser } from '../api/queries';
 
 /**
  * Who can sign in to this Cockpit, on a page only an admin can open ("See who
@@ -15,9 +17,9 @@ import { registeredUsersQuery } from '../api/queries';
  * is no workspace behind it to keep, so it heads itself the way Capture does
  * rather than borrowing the band above.
  *
- * **It only reads.** Adding, renaming, promoting, disabling and deleting are
- * the issues after this one; what lands here first is the role check, with
- * nothing yet able to change anything through it.
+ * **It reads and it adds.** Renaming, promoting, disabling and deleting are the
+ * issues after this one; what landed here first was the role check that guards
+ * all of them.
  *
  * **The server is what refuses**, not this page. The entry to it is hidden from
  * an ordinary user, and hiding is a courtesy: whoever types the address anyway
@@ -48,6 +50,7 @@ export function AdminPage() {
 
   return (
     <Framed>
+      <AddSomebody />
       {/* A table rather than the rows the management windows use: every column
           here is a fact about somebody that an admin is comparing across
           people - who has signed in, who is an admin - and a list of rows makes
@@ -71,6 +74,92 @@ export function AdminPage() {
         </table>
       </div>
     </Framed>
+  );
+}
+
+/**
+ * The box that adds somebody, above the list rather than on a page of its own:
+ * adding is the thing an admin comes here to do, and the list is what says
+ * whether it worked ("Add a user on the admin page, so a second person no
+ * longer needs SQL", issue 231).
+ *
+ * **What is typed is a name and an address, and nothing else.** The role is
+ * ordinary for everybody until there is a page that changes one, and the
+ * account is made with the person rather than chosen - so a field for either
+ * would be asking for something the product does not offer.
+ */
+function AddSomebody() {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const adding = useAddUser();
+
+  return (
+    <form
+      className="mb-6 flex flex-wrap items-end gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        adding.mutate(
+          { name: name.trim(), email: email.trim() },
+          // Cleared only once it worked: a refusal keeps what was typed, so
+          // fixing an address is an edit rather than typing it all again.
+          { onSuccess: () => { setName(''); setEmail(''); } },
+        );
+      }}
+    >
+      <label className="flex flex-col gap-1 text-xs text-ink-faint">
+        Name
+        <input
+          className="rounded border border-black/15 px-2 py-1 text-sm text-ink"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-ink-faint">
+        Signs in with
+        <input
+          className="rounded border border-black/15 px-2 py-1 text-sm text-ink"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+      </label>
+      <button
+        type="submit"
+        className="rounded bg-black/80 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+        disabled={adding.isPending || name.trim() === '' || email.trim() === ''}
+      >
+        {adding.isPending ? 'Adding…' : 'Add'}
+      </button>
+      {/* The server's own words, because they name which address is already
+          somebody's and what a name left nothing of. */}
+      {adding.error && (
+        <p role="alert" className="w-full text-sm text-ink-faint">
+          {/* A sign-in that lapsed while the page sat open is not a refusal of
+              what was typed, and saying "401" under the box would leave an
+              admin retrying a request that cannot work. Everywhere else in the
+              app a lost sign-in offers the way back in; so does this. */}
+          {adding.error instanceof NotSignedIn ? (
+            <>
+              Your sign-in has ended, so nobody was added.{' '}
+              <a className="underline" href={SIGN_IN_PATH}>
+                Sign in again
+              </a>
+              .
+            </>
+          ) : (
+            adding.error.message
+          )}
+        </p>
+      )}
+      {/* Said rather than swallowed: the person is added either way, and an
+          admin who is not told would find out when that person could not get
+          in. */}
+      {adding.data?.accountReady === false && (
+        <p role="status" className="w-full text-sm text-ink-faint">
+          {adding.data.user.name} was added, but their account could not be prepared. It will be
+          made when they first sign in.
+        </p>
+      )}
+    </form>
   );
 }
 
@@ -100,7 +189,7 @@ function Framed({ children }: { children: React.ReactNode }) {
     <main className="mx-auto w-full max-w-4xl px-4 py-6">
       <h1 className="mb-1 text-lg font-semibold">Who can sign in</h1>
       <p className="mb-4 text-sm text-ink-faint">
-        Everyone this Cockpit knows. Adding and changing them comes next.
+        Everyone this Cockpit knows. Add somebody and they can sign in straight away.
       </p>
       {children}
     </main>

@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { RegisteredUser } from '@cockpit/shared';
-import { OTHER_USER_ID, USER_ID, asUser, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  OTHER_USER_ID,
+  USER_ID,
+  asUser,
+  inStoreAsItIs,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, because every rule here is about who reaches a handler and
@@ -86,6 +93,136 @@ describe('User management', () => {
       await env.DB.prepare('UPDATE users SET role = ? WHERE id = ?').bind('user', USER_ID).run();
 
       expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(403);
+    });
+  });
+
+  describe('adding a user gives them an account of their own, ready to sign in to', () => {
+    async function add(body: unknown, userId: string = USER_ID) {
+      return asUser(
+        ADMIN_USERS,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+        userId,
+      );
+    }
+
+    it('adds the person, and an account holding the workspaces every account starts with', async () => {
+      const res = await add({ name: 'Anna', email: 'anna@example.com' });
+
+      expect(res.status).toBe(201);
+      const { user, accountReady } = (await res.json()) as {
+        user: RegisteredUser;
+        accountReady: boolean;
+      };
+      expect(user).toMatchObject({
+        id: 'user-anna',
+        name: 'Anna',
+        email: 'anna@example.com',
+        role: 'user',
+        accountName: 'Anna',
+        hasSignedIn: false,
+      });
+      expect(accountReady).toBe(true);
+
+      expect(
+        (await env.DB.prepare('SELECT id FROM tenants WHERE id = ?').bind('tenant-anna').all())
+          .results,
+      ).toHaveLength(1);
+
+      /**
+       * The half the register cannot show: her *store*, opened as she was
+       * added, holding the workspaces every account starts with rather than
+       * nothing. Read as it stands - not brought up to date first - because
+       * being already up to date is exactly the claim.
+       */
+      const workspaces = await inStoreAsItIs('tenant-anna', (sql) => [
+        ...sql.exec('SELECT name FROM workspaces ORDER BY name').raw(),
+      ]);
+      expect(workspaces.flat()).toContain('Work');
+    });
+
+    it('lists the person it just added', async () => {
+      await add({ name: 'Anna', email: 'anna@example.com' });
+
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toContain('user-anna');
+    });
+
+    /**
+     * Names are not unique and the register has never asked them to be; the
+     * address is what it enforces. So the second Anna is added with an account
+     * of her own rather than refused.
+     */
+    it('adds a second person of the same name, with an account of their own', async () => {
+      await add({ name: 'Anna', email: 'anna@example.com' });
+      const res = await add({ name: 'Anna', email: 'anna.smith@example.com' });
+
+      expect(res.status).toBe(201);
+      const { user } = (await res.json()) as { user: RegisteredUser };
+      expect(user.id).toBe('user-anna-2');
+    });
+
+    /**
+     * Three people whose name fills the account limit, which is where the
+     * derivation and the lookup can disagree: the second one's id is trimmed to
+     * make room for its suffix, so a lookup keyed on the untrimmed name cannot
+     * see it - and the third is handed the id the second already has, refused
+     * by the register, and told to try again for ever. Three rather than two,
+     * because two is the case that works either way.
+     */
+    it('tells three people of one very long name apart', async () => {
+      const long = 'Annabellinda'.repeat(4);
+      const ids: string[] = [];
+
+      for (const who of ['one', 'two', 'three']) {
+        const res = await add({ name: long, email: `${who}@example.com` });
+        expect(res.status).toBe(201);
+        ids.push(((await res.json()) as { user: RegisteredUser }).user.id);
+      }
+
+      expect(new Set(ids).size).toBe(3);
+    });
+
+    it.each([
+      {
+        situation: 'an address somebody already has',
+        body: { name: 'Someone', email: 'ada@example.com' },
+        says: /already how user-ada signs in/,
+      },
+      {
+        situation: 'the same address spelled in another case',
+        body: { name: 'Someone', email: 'ADA@Example.com' },
+        says: /already how user-ada signs in/,
+      },
+      // What a name derives and what an address has to look like are settled at
+      // apps/api/tests/unit/accounts/new-user.test.ts; re-proving them here
+      // would be the upward duplication the testing strategy rejects. What is
+      // left is the pair only a real register can answer.
+    ])('refuses $situation, and writes nothing', async ({ body, says }) => {
+      const before = (await env.DB.prepare('SELECT id FROM users').all()).results.length;
+
+      const res = await add(body);
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(says);
+      expect((await env.DB.prepare('SELECT id FROM users').all()).results).toHaveLength(before);
+    });
+
+    it('refuses a request with no address at all before it reaches the register', async () => {
+      const res = await add({ name: 'Anna' });
+
+      expect(res.status).toBe(400);
+    });
+
+    /**
+     * The same gate as the list, asked of the write as well: a role that only
+     * guarded reads would be a page an ordinary user cannot see and can still
+     * change.
+     */
+    it('refuses somebody who is not an admin', async () => {
+      const res = await add({ name: 'Anna', email: 'anna@example.com' }, OTHER_USER_ID);
+
+      expect(res.status).toBe(403);
+      expect((await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind('user-anna').all()).results)
+        .toHaveLength(0);
     });
   });
 
