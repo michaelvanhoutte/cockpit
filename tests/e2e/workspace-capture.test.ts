@@ -29,10 +29,11 @@ import type { Page } from '@playwright/test';
  */
 
 /**
- * Two of the three workspaces every account starts with. Named rather than
- * counted, because every spec in a run shares one database and several of them
- * make workspaces of their own; the seeded three are the only ones a walk can
- * name, and no walk deletes them.
+ * The workspace every account starts with. Named rather than counted, because
+ * every spec in a run shares one database and several of them make workspaces
+ * of their own - so an index into the strip is a different workspace depending
+ * on what else is running, and this name and the one below are the two a walk
+ * can count on.
  */
 const CAPTURED_FROM = STARTING_WORKSPACE;
 /**
