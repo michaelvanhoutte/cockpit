@@ -28,8 +28,15 @@ export const USER_ID = 'user-michael';
 export const OTHER_ACCOUNT_NAME = 'tenant-ada';
 export const OTHER_USER_ID = 'user-ada';
 
-/** One of the workspaces every account starts with. */
-export const WORKSPACE_ID = 'ws-work';
+/**
+ * The workspace every account starts with, and for most cases here the only
+ * arrangement they need: something to hang a dashboard, a panel or an item off.
+ * A case that is about there being *several* makes its own (`alsoWorkspaces`).
+ */
+export const WORKSPACE_ID = 'ws-1';
+
+/** The dashboard that workspace arrives with (src/accounts/changes.ts). */
+export const DASHBOARD_ID = `${WORKSPACE_ID}-dashboard-1`;
 
 /**
  * *Task*, one of the two types every account starts with, by the id the store
@@ -260,4 +267,58 @@ export async function inTheStore<T>(work: (sql: SqlStorage) => T): Promise<T> {
  */
 export async function inTheStoreAsItIs<T>(work: (sql: SqlStorage) => T): Promise<T> {
   return inStoreAsItIs(ACCOUNT_NAME, work);
+}
+
+/**
+ * Two more workspaces, for the cases that are about there being several: which
+ * one an item is in, what order they come back in, and that one never sees
+ * another's rows. An account starts with one (src/accounts/changes.ts,
+ * `0015-first-workspace`), so a case that needs a second says so here.
+ *
+ * **Written into the store rather than made through `create_workspace`**, for
+ * the one reason worth a helper: the cases name these by readable ids, and that
+ * command takes a uuid. What it must not do is invent a *shape* - each arrives
+ * with the dashboard and the panel a workspace really arrives with, so a case
+ * that files something into one is filing into a workspace the app could have
+ * made.
+ *
+ * Positions follow the one already there, so the order they come back in is the
+ * order they were made in, which is what the ordering cases are about.
+ */
+export async function alsoWorkspaces(): Promise<void> {
+  await inTheStore((sql) => {
+    const made = [
+      { id: 'ws-atlas', name: 'Atlas Copco', color: '#3a72c8', at: '2026-08-12T00:00:02.000Z' },
+      { id: 'ws-personal', name: 'Personal', color: '#c06a45', at: '2026-08-12T00:00:03.000Z' },
+    ];
+    made.forEach((workspace, index) => {
+      sql.exec(
+        `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, position, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        workspace.id,
+        ACCOUNT_NAME,
+        workspace.name,
+        workspace.name.toLowerCase(),
+        workspace.color,
+        index + 1,
+        workspace.at,
+      );
+      sql.exec(
+        `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+         VALUES (?, ?, ?, 'Dashboard 1', 'dashboard 1', ?)`,
+        `${workspace.id}-dashboard-1`,
+        ACCOUNT_NAME,
+        workspace.id,
+        workspace.at,
+      );
+      sql.exec(
+        `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
+         VALUES (?, ?, ?, 'Panel 1', 'panel 1', ?)`,
+        `${workspace.id}-panel-1`,
+        ACCOUNT_NAME,
+        `${workspace.id}-dashboard-1`,
+        workspace.at,
+      );
+    });
+  });
 }

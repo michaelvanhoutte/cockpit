@@ -111,7 +111,7 @@ describe('Workspace management', () => {
   describe('a new workspace starts out empty and belongs to the person who made it', () => {
     it('records the name, the color and who it belongs to', () => {
       const workspace = workspaceFromCommand(
-        { commandId: 'c', issuedAt: AT, workspaceId: 'ws-new', name: 'Personal' },
+        { commandId: 'c', issuedAt: AT, workspaceId: 'ws-new', panelId: 'p-new', name: 'Personal' },
         TENANT_ID,
         '#3f8f78',
         3,

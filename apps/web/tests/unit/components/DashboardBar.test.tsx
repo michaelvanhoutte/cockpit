@@ -8,6 +8,7 @@ import { CommandRefused } from '../../../src/api/client';
 import { useCommand } from '../../../src/api/queries';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { DWELL_MS } from '../../../src/switchWhileDragging';
+import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../../../src/whatThingsAre';
 
 /**
  * F1: what is under test is the bar's own behaviour - what it shows, what it
@@ -240,6 +241,33 @@ describe('Dashboards', () => {
       expect(await screen.findByText('<img src=x onerror=alert(1)>')).toBeVisible();
       expect(container.querySelector('img')).toBeNull();
     });
+  });
+
+  /**
+   * Nothing in the app said what a dashboard was for, and the word is a third of
+   * the container hierarchy. Explaining it at sign-in does not work - nobody can
+   * decide when they want a second dashboard before using the first - so the
+   * answer goes where the question is actually asked, which is the moment
+   * somebody presses `+`.
+   *
+   * That a question *can* carry an explanation, and that one which only renames
+   * something does not, is the shared question's own rule and is proved on it
+   * (NameQuestion.test.tsx). What is left here is the wiring: that this bar
+   * hands it the right words.
+   */
+  describe('the question that makes a dashboard says what a dashboard is', () => {
+    it('describes the dialog with it', async () => {
+      const { user } = showBar(['Dashboard 1']);
+
+      await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
+
+      // Against the sentence *and* against it saying anything at all: an
+      // emptied constant renders no description, which would otherwise match an
+      // expectation that is itself the empty string.
+      expect(WHAT_A_DASHBOARD_IS).not.toBe('');
+      expect(screen.getByRole('dialog')).toHaveAccessibleDescription(WHAT_A_DASHBOARD_IS);
+    });
+
   });
 
   describe('adding a dashboard asks for the name you typed', () => {
@@ -834,6 +862,24 @@ describe('Layouts', () => {
  */
 describe('Panels', () => {
   const OPEN = 'ws-work-dashboard 1';
+
+  /**
+   * The wiring half, for the reason the dashboard's says: that the shared
+   * question can carry an explanation is proved on the question itself
+   * (NameQuestion.test.tsx), and what belongs here is that this bar hands it
+   * the words about a panel.
+   */
+  describe('the question that makes a panel says what a panel is', () => {
+    it('describes the dialog with it', async () => {
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
+
+      await user.click(await screen.findByRole('button', { name: '+ Panel' }));
+
+      // For the reason the dashboard's says.
+      expect(WHAT_A_PANEL_IS).not.toBe('');
+      expect(screen.getByRole('dialog')).toHaveAccessibleDescription(WHAT_A_PANEL_IS);
+    });
+  });
 
   describe('adding a panel asks for the title you typed, on the dashboard you are on', () => {
     it('sends it without the blanks around it', async () => {

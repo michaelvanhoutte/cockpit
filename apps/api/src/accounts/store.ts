@@ -257,11 +257,12 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
 
     // **A backup of an account nobody had opened restores to one nobody has
     // opened**, rather than to one that has been brought up to date. Bringing
-    // it up to date here would create the tables *and* seed a new account's
-    // three starting workspaces and its standard types - so restoring nothing
-    // would produce eight rows, and the account would no longer be what the
-    // backup held. Left alone, the first request creates it exactly as it does
-    // for any account that has never been touched, which is what it was.
+    // it up to date here would create the tables *and* give a new account the
+    // workspace, dashboard and panel it starts with, and its standard types -
+    // so restoring nothing would produce five rows, and the account would no
+    // longer be what the backup held. Left alone, the first request creates it
+    // exactly as it does for any account that has never been touched, which is
+    // what it was.
     //
     // Found by running the command rather than by a test: the case only shows
     // when a backup covers an account that exists in the register and has never

@@ -8,6 +8,7 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import {
+  CommandRefused,
   addUser,
   changeUser,
   fetchItemTypes,
@@ -299,6 +300,20 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
   }
 
   if (IS_BUILT_ON_THE_LAST_ONE.has(args.name)) return Promise.all(reread);
+}
+
+/**
+ * What to say about a change that did not happen: the server's own words where
+ * it gave any, and something plain where the request never got an answer.
+ *
+ * One reading rather than one per control. The same expression was written out
+ * twelve times across nine files, which is twelve places to edit the sentence
+ * somebody reads when their network drops - and twelve chances for one of them
+ * to say something slightly different about the same failure.
+ */
+export function refusalFrom(command: { error: unknown }): string | null {
+  if (command.error instanceof CommandRefused) return command.error.message;
+  return command.error ? 'That did not reach the server. Try again.' : null;
 }
 
 export function useCommand() {

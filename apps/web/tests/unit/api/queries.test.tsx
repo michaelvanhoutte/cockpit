@@ -251,6 +251,7 @@ describe('Panels', () => {
           issuedAt: AT,
           workspaceId: 'ws-work',
           dashboardId: 'd-today',
+          panelId: 'p-today',
           name: 'Today',
         },
       });

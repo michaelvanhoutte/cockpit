@@ -5,6 +5,7 @@ import type { WorkspaceSnapshot } from '@cockpit/shared';
 import {
   TASK_TYPE_ID,
   WORKSPACE_ID,
+  alsoWorkspaces,
   asUser,
   inTheStore,
   seedRegister,
@@ -78,7 +79,10 @@ async function inOrderOn(panelId: string): Promise<string[]> {
 
 async function aDashboard(workspaceId: string = WORKSPACE_ID): Promise<string> {
   const dashboardId = nextId();
-  expect((await send('add_dashboard', { workspaceId, dashboardId, name: `Today ${seq}` })).status).toBe(200);
+  expect(
+    (await send('add_dashboard', { workspaceId, dashboardId, panelId: nextId(), name: `Today ${seq}` }))
+      .status,
+  ).toBe(200);
   return dashboardId;
 }
 
@@ -138,6 +142,9 @@ beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
   await seedRegister();
+  // An account starts with one workspace, and half of what this file is about
+  // is which workspace something is in.
+  await alsoWorkspaces();
   seq = 0;
 });
 
@@ -547,7 +554,7 @@ describe('Capture', () => {
     return itemId;
   }
 
-  const EVERY_WORKSPACE = ['ws-work', 'ws-atlas', 'ws-personal'];
+  const EVERY_WORKSPACE = [WORKSPACE_ID, 'ws-atlas', 'ws-personal'];
 
   describe('an item belonging to no workspace waits in every workspace’s Inbox', () => {
     it('is in the Inbox of the workspace it was captured from and of every other', async () => {
@@ -559,7 +566,7 @@ describe('Capture', () => {
 
     it('leaves an item captured into a workspace in that workspace alone', async () => {
       await anItem('Reply to Bart');
-      expect(await inboxOf('ws-work')).toContain('Reply to Bart');
+      expect(await inboxOf(WORKSPACE_ID)).toContain('Reply to Bart');
       expect(await inboxOf('ws-personal')).not.toContain('Reply to Bart');
     });
 
@@ -613,13 +620,13 @@ describe('Capture', () => {
       ).toBe(200);
 
       expect(await filedOn(itemId, 'ws-personal')).toEqual(['Errands']);
-      expect(await inboxOf('ws-work')).not.toContain('Where does this go');
+      expect(await inboxOf(WORKSPACE_ID)).not.toContain('Where does this go');
       expect(await inboxOf('ws-atlas')).not.toContain('Where does this go');
     });
 
     it.each([
-      { situation: 'the workspace it was captured from', into: 'ws-work', gone: 'ws-personal' },
-      { situation: 'another workspace entirely', into: 'ws-personal', gone: 'ws-work' },
+      { situation: 'the workspace it was captured from', into: WORKSPACE_ID, gone: 'ws-personal' },
+      { situation: 'another workspace entirely', into: 'ws-personal', gone: WORKSPACE_ID },
     ])('takes $situation when its Inbox is chosen, and leaves the others', async ({ into, gone }) => {
       const itemId = await anItemBelongingNowhere('Where does this go');
 
@@ -640,11 +647,11 @@ describe('Capture', () => {
       // Asked from a workspace it no longer belongs to, which now names
       // nothing that workspace can reach.
       expect(
-        (await send('move_item_to_panel', { workspaceId: 'ws-work', itemId, panelId: null, order: [] })).status,
+        (await send('move_item_to_panel', { workspaceId: WORKSPACE_ID, itemId, panelId: null, order: [] })).status,
       ).toBe(404);
 
       expect(await inboxOf('ws-personal')).toContain('Where does this go');
-      expect(await inboxOf('ws-work')).not.toContain('Where does this go');
+      expect(await inboxOf(WORKSPACE_ID)).not.toContain('Where does this go');
     });
 
     /**
@@ -664,7 +671,7 @@ describe('Capture', () => {
       ).toBe(200);
 
       expect(await filedOn(itemId, 'ws-personal')).toEqual(['Errands']);
-      expect(await inboxOf('ws-work')).not.toContain('Where does this go');
+      expect(await inboxOf(WORKSPACE_ID)).not.toContain('Where does this go');
       expect(await inboxOf('ws-atlas')).not.toContain('Where does this go');
     });
 
@@ -675,7 +682,7 @@ describe('Capture', () => {
           .status,
       ).toBe(404);
       // Still everybody's, because nothing was decided.
-      expect(await inboxOf('ws-work')).toContain('Where does this go');
+      expect(await inboxOf(WORKSPACE_ID)).toContain('Where does this go');
       expect(await inboxOf('ws-personal')).toContain('Where does this go');
     });
   });

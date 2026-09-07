@@ -38,7 +38,13 @@ async function makeWorkspace(name: string): Promise<Response> {
   return asUser('http://cockpit.test/v1/commands/create_workspace', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ commandId: id, issuedAt: AT, workspaceId: id, name }),
+    body: JSON.stringify({
+      commandId: id,
+      issuedAt: AT,
+      workspaceId: id,
+      panelId: `018f0000-0000-7000-8000-1${String(seq).padStart(11, '0')}`,
+      name,
+    }),
   });
 }
 

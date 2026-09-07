@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { themeOf } from '@cockpit/shared';
 import {
+  STARTING_WORKSPACE,
   chooseRowAction,
   closeWindow,
   dashboardBar,
@@ -43,9 +44,9 @@ function asRgb(hex: string): string {
  * apps/web/tests/unit/router.test.tsx owns. One walk per capability - making
  * one, renaming one, deleting one - saying it works for a person.
  *
- * None of them touches a seeded workspace. Every spec in a run, under both
- * projects, shares one database (support/app.ts), so deleting Work would take
- * the other specs' workspace with it; each walk makes the workspace it is
+ * None of them touches the workspace an account starts with. Every spec in a
+ * run, under both projects, shares one database (support/app.ts), so deleting
+ * Workspace 1 would take the other specs' workspace with it; each walk makes the workspace it is
  * going to change. That is also why "the last workspace can be deleted" is not
  * here: it needs a database with nothing in it, which this tier cannot arrange
  * without emptying it for everything else. The router's side of it is proved
@@ -94,6 +95,73 @@ test.describe('Workspace management', () => {
       // on, and a new one has never been opened, so that is its first
       // dashboard ("Add and switch dashboards", issue 32).
       await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+    });
+
+    /**
+     * The other way, and the one somebody new finds. Making a workspace was
+     * reachable only through the header's menu until the question started
+     * saying what a workspace is - which put the explanation behind a door
+     * nobody new would open.
+     */
+    test('makes one from the tab strip, on a question that says what a workspace is', async ({
+      page,
+      isMobile,
+    }) => {
+      await openFirstWorkspace(page, isMobile);
+
+      await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
+
+      // Matched on a clause rather than the whole sentence, so rewording it
+      // does not re-break this walk - and on the half that carries the example,
+      // which is the half that does the work.
+      await expect(
+        page.getByRole('dialog').getByText(/A contractor working for two customers/),
+      ).toBeVisible();
+
+      const name = uniqueTitle('Bookkeeping');
+      await page.getByLabel('Name of the new workspace').fill(name);
+      await page.getByLabel('Name of the new workspace').press('Enter');
+
+      // At the end of the strip, and opened: a new workspace goes after every
+      // one the account has ever had, and making one then having to find it is
+      // two gestures for what reads as one.
+      await expect(workspaceTab(page, name)).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+      // Holding the panel every dashboard arrives with, so it can be filed
+      // into from the moment it exists.
+      await expect(page.getByRole('region', { name: 'Panel 1' })).toBeVisible();
+      await expectNoSidewaysScroll(page);
+
+      // Put back, like the ordering walks do: the run shares one database, and
+      // every workspace left behind pushes the rows those walks drag further
+      // down the window.
+      await openSettings(page, isMobile);
+      await deleteWorkspace(page, name, isMobile);
+    });
+
+    test('refuses a name another workspace already has, and says which', async ({
+      page,
+      isMobile,
+    }) => {
+      const taken = uniqueTitle('Bookkeeping');
+      await openFirstWorkspace(page, isMobile);
+      await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
+      await page.getByLabel('Name of the new workspace').fill(taken);
+      await page.getByLabel('Name of the new workspace').press('Enter');
+      await expect(workspaceTab(page, taken)).toBeVisible();
+
+      await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
+      await page.getByLabel('Name of the new workspace').fill(taken);
+      await page.getByLabel('Name of the new workspace').press('Enter');
+
+      // Still open, with what was typed in it, so the name is corrected rather
+      // than typed again from nothing.
+      await expect(page.getByRole('alert')).toContainText(taken);
+      await expect(page.getByLabel('Name of the new workspace')).toHaveValue(taken);
+
+      await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
+      await openSettings(page, isMobile);
+      await deleteWorkspace(page, taken, isMobile);
     });
   });
 
@@ -293,7 +361,7 @@ test.describe('Workspace management', () => {
       await expect.poll(() => groundOf(page)).toBe(asRgb(themeOf(OLIVE_TINT).ground));
 
       // And switching away takes the colour with it. Polled for the same reason.
-      await switchTo(page, 'Work', isMobile);
+      await switchTo(page, STARTING_WORKSPACE, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
       await expect.poll(() => groundOf(page)).toBe(firstGround);
     });

@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import {
   ADA,
   MICHAEL,
+  STARTING_WORKSPACE,
   addressOf,
   dashboardBar,
   expect,
@@ -29,6 +30,12 @@ async function signOutAndIn(page: Page, address: string, isMobile: boolean) {
   await press(page.getByRole('button', { name: 'Settings' }), isMobile);
   await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
   await signInWith(page, address, isMobile);
+  // Somebody added a moment ago has an account nobody has started on, so they
+  // meet the question it opens on (apps/web/src/pages/WelcomePage.tsx). The
+  // walk that is *about* that question asserts it; this one is getting past it.
+  const skip = page.getByRole('button', { name: 'Skip' });
+  await skip.or(dashboardBar(page)).first().waitFor({ state: 'visible' });
+  if (await skip.isVisible()) await press(skip, isMobile);
   await expect(dashboardBar(page)).toBeVisible();
 }
 
@@ -98,22 +105,35 @@ test.describe('User management', () => {
       const anna = somebodyNew('Anna');
       await page.getByLabel('Name').fill(anna.name);
       await page.getByLabel('Signs in with').fill(anna.address);
-      await press(page.getByRole('button', { name: 'Add' }), isMobile);
+      // Exact, because a name matches as a substring by default and the shell
+      // behind this page carries an *Add a workspace* control.
+      await press(page.getByRole('button', { name: 'Add', exact: true }), isMobile);
 
       const row = page.getByRole('row').filter({ hasText: anna.address });
       await expect(row).toHaveCount(1);
       await expect(row).toContainText('not yet');
 
       // Now hers: a person the register did not hold a minute ago signs in and
-      // arrives in an account with the workspaces every account starts with.
+      // arrives in an account of her own.
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
       await signInWith(page, anna.address, isMobile);
 
       // Asserted here rather than inside the helper: that somebody added a
       // moment ago can get in at all is what this walk claims.
+      //
+      // **And what she gets in *to* is the question a new account opens on**
+      // (apps/web/src/pages/WelcomePage.tsx). Her account is the only one this
+      // tier ever sees untouched - every other is started on by the walks that
+      // share this database - so this is where that lands, and it is one line
+      // rather than a walk of its own.
+      await expect(
+        page.getByRole('heading', { name: 'What are you going to use Cockpit for?' }),
+      ).toBeVisible();
+      await press(page.getByRole('button', { name: 'Skip' }), isMobile);
+
       await expect(dashboardBar(page)).toBeVisible();
-      await expect(workspaceTab(page, 'Work')).toBeVisible();
+      await expect(workspaceTab(page, STARTING_WORKSPACE)).toBeVisible();
     });
 
     /**
@@ -134,7 +154,9 @@ test.describe('User management', () => {
       await page.goto('/admin');
       await page.getByLabel('Name').fill(anna.name);
       await page.getByLabel('Signs in with').fill(anna.address);
-      await press(page.getByRole('button', { name: 'Add' }), isMobile);
+      // Exact, because a name matches as a substring by default and the shell
+      // behind this page carries an *Add a workspace* control.
+      await press(page.getByRole('button', { name: 'Add', exact: true }), isMobile);
       await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(1);
 
       await makeThem(page, anna.name, 'Admin', isMobile);

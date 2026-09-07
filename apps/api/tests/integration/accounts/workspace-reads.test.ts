@@ -1,7 +1,14 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import { themeOf } from '@cockpit/shared';
-import { ACCOUNT_NAME, asUser, inTheStore, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  ACCOUNT_NAME,
+  WORKSPACE_ID,
+  asUser,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, and it could be nothing else: what is under test is the
@@ -68,9 +75,7 @@ describe('Workspace management', () => {
           // palette moves (`accounts/changes.ts`, `0010-workspace-ink`), and a
           // copy of them here would say only that somebody remembered to edit
           // this file.
-          { id: 'ws-work', tenantId: ACCOUNT_NAME, name: 'Work', ...wearing('#6f62b5') },
-          { id: 'ws-atlas', tenantId: ACCOUNT_NAME, name: 'Atlas Copco', ...wearing('#3a72c8') },
-          { id: 'ws-personal', tenantId: ACCOUNT_NAME, name: 'Personal', ...wearing('#c06a45') },
+          { id: WORKSPACE_ID, tenantId: ACCOUNT_NAME, name: 'Workspace 1', ...wearing('#6f62b5') },
         ],
       });
     });

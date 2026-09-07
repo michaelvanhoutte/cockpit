@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
+import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
 import type { ChangeUser, RegisteredUser } from '@cockpit/shared';
 import {
   OTHER_USER_ID,
@@ -100,7 +101,7 @@ describe('User management', () => {
       );
     }
 
-    it('adds the person, and an account holding the workspaces every account starts with', async () => {
+    it('adds the person, and an account holding the workspace every account starts with', async () => {
       const res = await add({ name: 'Anna', email: 'anna@example.com' });
 
       expect(res.status).toBe(201);
@@ -125,14 +126,14 @@ describe('User management', () => {
 
       /**
        * The half the register cannot show: her *store*, opened as she was
-       * added, holding the workspaces every account starts with rather than
+       * added, holding the workspace every account starts with rather than
        * nothing. Read as it stands - not brought up to date first - because
        * being already up to date is exactly the claim.
        */
       const workspaces = await inStoreAsItIs('tenant-anna', (sql) => [
         ...sql.exec('SELECT name FROM workspaces ORDER BY name').raw(),
       ]);
-      expect(workspaces.flat()).toContain('Work');
+      expect(workspaces.flat()).toEqual([FIRST_WORKSPACE_NAME]);
     });
 
     it('lists the person it just added', async () => {
