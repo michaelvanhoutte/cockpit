@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { themeOf } from '@cockpit/shared';
 import {
+  STARTING_WORKSPACE,
   chooseRowAction,
   closeWindow,
   dashboardBar,
@@ -43,9 +44,9 @@ function asRgb(hex: string): string {
  * apps/web/tests/unit/router.test.tsx owns. One walk per capability - making
  * one, renaming one, deleting one - saying it works for a person.
  *
- * None of them touches a seeded workspace. Every spec in a run, under both
- * projects, shares one database (support/app.ts), so deleting Work would take
- * the other specs' workspace with it; each walk makes the workspace it is
+ * None of them touches the workspace an account starts with. Every spec in a
+ * run, under both projects, shares one database (support/app.ts), so deleting
+ * Workspace 1 would take the other specs' workspace with it; each walk makes the workspace it is
  * going to change. That is also why "the last workspace can be deleted" is not
  * here: it needs a database with nothing in it, which this tier cannot arrange
  * without emptying it for everything else. The router's side of it is proved
@@ -293,7 +294,7 @@ test.describe('Workspace management', () => {
       await expect.poll(() => groundOf(page)).toBe(asRgb(themeOf(OLIVE_TINT).ground));
 
       // And switching away takes the colour with it. Polled for the same reason.
-      await switchTo(page, 'Work', isMobile);
+      await switchTo(page, STARTING_WORKSPACE, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
       await expect.poll(() => groundOf(page)).toBe(firstGround);
     });

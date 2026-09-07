@@ -40,6 +40,9 @@ import { inStoreAsItIs, startFromEmpty, storeNamed } from '../seed.js';
  */
 
 const AT = '2026-08-12T10:00:00.000Z';
+/** A second and two seconds later, so the workspaces below have an order to keep. */
+const LATER = '2026-08-12T10:00:01.000Z';
+const LATEST = '2026-08-12T10:00:02.000Z';
 /** When the item that was already finished with was last touched, which is when it was finished. */
 const FINISHED_AT = '2026-08-12T16:00:00.000Z';
 
@@ -95,9 +98,16 @@ const rowsFor: {
     // Every column named out loud, defaults included: this row is here to be
     // what the *next* update meets, so it should be a whole workspace rather
     // than the subset that happens to have no default today.
+    // Three of them, a second apart, because the case below is about the order
+    // they were made in and one row has no order to keep. They are this
+    // fixture's own: an account that has been in use is exactly the account the
+    // workspace an untouched one is given (`0015-first-workspace`) is guarded
+    // against, so nothing arrives here but what this file puts here.
     sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, ground, header, created_at)
-          VALUES ('ws-before', ?, 'Before', 'before', '#6f62b5', '#e3e1f2', '#d2cdea', ?)`,
-    params: (name) => [name, AT],
+          VALUES ('ws-before', ?, 'Before', 'before', '#6f62b5', '#e3e1f2', '#d2cdea', ?),
+                 ('ws-during', ?, 'During', 'during', '#3a72c8', '#d8e5f7', '#bed6f2', ?),
+                 ('ws-after', ?, 'After', 'after', '#c06a45', '#f2e5d4', '#ead2b3', ?)`,
+    params: (name) => [name, AT, name, LATER, name, LATEST],
   },
   {
     table: 'dashboards',
@@ -412,12 +422,11 @@ describe('Workspace management', () => {
             .toArray(),
         ),
       ).toEqual([
-        // The three an account starts with, made one second apart, and then the
-        // one this file adds to every table before the outstanding updates run.
-        { id: 'ws-work', position: 0 },
-        { id: 'ws-atlas', position: 1 },
-        { id: 'ws-personal', position: 2 },
-        { id: 'ws-before', position: 3 },
+        // The three this file adds to every table before the outstanding
+        // updates run, made one second apart, in that order.
+        { id: 'ws-before', position: 0 },
+        { id: 'ws-during', position: 1 },
+        { id: 'ws-after', position: 2 },
       ]);
     });
   });
@@ -703,6 +712,40 @@ describe('Layouts', () => {
         { row_index: 0, height: 248 },
         { row_index: 1, height: 164 },
       ]);
+    });
+  });
+});
+
+describe('Workspace management', () => {
+  /**
+   * The other half of "an account nobody has opened starts with one workspace"
+   * (src/accounts/changes.ts, `0015-first-workspace`): an account that *has*
+   * been opened is left exactly as it is. This file's account is the case -
+   * it has been in use since before most of the change list existed - so the
+   * claim is that bringing it up to date gives it nothing it did not have.
+   */
+  describe('an account that was already in use is given no workspace of its own', () => {
+    it('keeps the workspaces it had, and gains none', async () => {
+      const name = 'aged-store-already-in-use';
+      // Aged to before the workspaces even had an order, so what is brought up
+      // to date afterwards is the whole of the list this change sits at the end
+      // of.
+      await agedTo(
+        name,
+        updates.findIndex((update) => update.name === '0004-workspace-order'),
+      );
+      await fillWithWhatIsAlreadyThere(name);
+
+      // Opening it is what brings it up to date, exactly as the first request
+      // of the day does for a real account - and what it must not do on the way
+      // is hand this account a Workspace 1 it never asked for.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec<{ id: string }>('SELECT id FROM workspaces ORDER BY position').toArray(),
+        ),
+      ).toEqual([{ id: 'ws-before' }, { id: 'ws-during' }, { id: 'ws-after' }]);
     });
   });
 });

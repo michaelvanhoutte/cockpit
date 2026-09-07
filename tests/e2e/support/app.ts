@@ -172,6 +172,14 @@ export function uniqueTitle(label: string): string {
  * The two people the register is seeded with (apps/api/seed.sql). Each owns an
  * account of their own, and they share nothing.
  */
+/**
+ * The workspace an account starts with (apps/api/src/accounts/changes.ts). The
+ * one workspace a walk can name without making it first, and no walk deletes
+ * it: every spec in a run shares one database, so taking it would take the
+ * other specs' workspace with it.
+ */
+export const STARTING_WORKSPACE = 'Workspace 1';
+
 export const MICHAEL = 'Michael';
 export const ADA = 'Ada';
 

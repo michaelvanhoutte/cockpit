@@ -32,7 +32,15 @@ import {
  * page is the order-dependence this tier is arranged to avoid.
  */
 
-/** An empty dashboard of this walk's own, already open. */
+/**
+ * An empty dashboard of this walk's own, already open - **with the panel it
+ * arrives with taken back off**.
+ *
+ * Every dashboard arrives with one, and every walk below is about the panels it
+ * puts there itself: leaving it would put a `Panel 1` at the head of three
+ * expectations that are not about it. That a dashboard arrives with one at all
+ * is walked where it belongs, in tests/e2e/dashboards.test.ts.
+ */
 async function ownDashboard(page: Page, isMobile: boolean): Promise<void> {
   const name = uniqueTitle('Today');
   await signIn(page, ADA, isMobile);
@@ -41,6 +49,14 @@ async function ownDashboard(page: Page, isMobile: boolean): Promise<void> {
   await page.getByLabel('Name of the new dashboard').press('Enter');
   await expect(dashboardBar(page).getByRole('link', { name })).toBeVisible();
   await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible();
+  await deletePanel(page, 'Panel 1', isMobile);
+}
+
+/** Takes a panel off the dashboard, through the question every delete asks. */
+async function deletePanel(page: Page, name: string, isMobile: boolean): Promise<void> {
+  await chooseRowAction(page, name, 'Delete', isMobile);
+  await press(page.getByRole('button', { name: `Yes, delete ${name}` }), isMobile);
+  await expect(page.getByRole('region', { name })).toHaveCount(0);
 }
 
 async function addPanel(page: Page, name: string, isMobile: boolean): Promise<void> {
@@ -171,9 +187,6 @@ test.describe('Panels', () => {
       isMobile,
     }) => {
       await ownDashboard(page, isMobile);
-      await expect(
-        page.getByText(/A dashboard holds the panels you want in view/),
-      ).toBeVisible();
 
       const falcon = uniqueTitle('Project Falcon');
       const reading = uniqueTitle('To read');

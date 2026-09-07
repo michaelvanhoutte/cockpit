@@ -8,6 +8,7 @@ import {
   TASK_TYPE_ID,
   USER_ID,
   WORKSPACE_ID,
+  alsoWorkspaces,
   asUser,
   inTheStore,
   seedRegister,
@@ -45,6 +46,7 @@ async function makeWorkspace(name: string, overrides: { workspaceId?: string } =
       commandId: nextId(),
       issuedAt: '2026-08-12T10:00:00.000Z',
       workspaceId: overrides.workspaceId ?? nextId(),
+      panelId: nextId(),
       name,
     }),
   });
@@ -165,6 +167,9 @@ beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
   await seedRegister();
+  // An account starts with one workspace, and the ordering rule below needs an
+  // order to be about.
+  await alsoWorkspaces();
 });
 
 describe('Workspace management', () => {
@@ -426,7 +431,7 @@ describe('Workspace management', () => {
      * order is what this whole rule is about, so it is written out rather than
      * read from the list under test.
      */
-    const STARTING_ORDER = ['ws-work', 'ws-atlas', 'ws-personal'];
+    const STARTING_ORDER = [WORKSPACE_ID, 'ws-atlas', 'ws-personal'];
 
     it('starts in the order the workspaces were made in', async () => {
       // Which is where an account that has never reordered anything has to be:
@@ -436,7 +441,7 @@ describe('Workspace management', () => {
     });
 
     it('comes back in the order it was given, not the order it was made in', async () => {
-      const wanted = ['ws-personal', 'ws-work', 'ws-atlas'];
+      const wanted = ['ws-personal', WORKSPACE_ID, 'ws-atlas'];
 
       const response = await reorderWorkspaces('ws-personal', wanted);
 
@@ -449,10 +454,11 @@ describe('Workspace management', () => {
       // A separate read rather than the same one twice: the order has to be
       // what the store holds, not something the reordering request answered
       // with. A position written nowhere would pass the case above.
-      await reorderWorkspaces('ws-atlas', ['ws-atlas', 'ws-personal', 'ws-work']);
+      const wanted = ['ws-atlas', 'ws-personal', WORKSPACE_ID];
+      await reorderWorkspaces('ws-atlas', wanted);
 
-      expect(await theOrder()).toEqual(['ws-atlas', 'ws-personal', 'ws-work']);
-      expect(await theOrder()).toEqual(['ws-atlas', 'ws-personal', 'ws-work']);
+      expect(await theOrder()).toEqual(wanted);
+      expect(await theOrder()).toEqual(wanted);
     });
 
     it('puts a workspace you make after all the ones already there', async () => {
@@ -466,11 +472,11 @@ describe('Workspace management', () => {
       // would get wrong, and the reason the count is taken from the highest
       // position rather than from the list: reordering leaves the same count
       // behind, so the new workspace would land on top of one of them.
-      await reorderWorkspaces('ws-personal', ['ws-personal', 'ws-work', 'ws-atlas']);
+      await reorderWorkspaces('ws-personal', ['ws-personal', WORKSPACE_ID, 'ws-atlas']);
 
       const made = await aWorkspace();
 
-      expect(await theOrder()).toEqual(['ws-personal', 'ws-work', 'ws-atlas', made.id]);
+      expect(await theOrder()).toEqual(['ws-personal', WORKSPACE_ID, 'ws-atlas', made.id]);
     });
 
     it('does not give a deleted workspace’s place to the next one made', async () => {
@@ -486,20 +492,22 @@ describe('Workspace management', () => {
     });
 
     it('closes up when a workspace is deleted, leaving the rest as they were', async () => {
-      await reorderWorkspaces('ws-personal', ['ws-personal', 'ws-work', 'ws-atlas']);
+      await reorderWorkspaces('ws-personal', ['ws-personal', WORKSPACE_ID, 'ws-atlas']);
 
-      await deleteWorkspace('ws-work');
+      await deleteWorkspace(WORKSPACE_ID);
 
       expect(await theOrder()).toEqual(['ws-personal', 'ws-atlas']);
     });
 
     it('leaves another account’s workspaces in the order they were in', async () => {
+      // Read rather than written out: this account made two workspaces for
+      // itself in the arrangement above and the other did not, so what says
+      // the other was left alone is that it comes back as it went in.
       const before = await theOrder(OTHER_USER_ID);
 
-      await reorderWorkspaces('ws-personal', ['ws-personal', 'ws-atlas', 'ws-work']);
+      await reorderWorkspaces('ws-personal', ['ws-personal', 'ws-atlas', WORKSPACE_ID]);
 
-      expect(before).toEqual(STARTING_ORDER);
-      expect(await theOrder(OTHER_USER_ID)).toEqual(STARTING_ORDER);
+      expect(await theOrder(OTHER_USER_ID)).toEqual(before);
     });
   });
 
@@ -521,32 +529,32 @@ describe('Workspace management', () => {
     it.each([
       {
         situation: 'an order made before somebody else added a workspace',
-        order: () => ['ws-personal', 'ws-work'],
+        order: () => ['ws-personal', WORKSPACE_ID],
         moved: 'ws-personal',
         refusal: 409,
       },
       {
         situation: 'an order made before somebody else deleted one',
-        order: (extra: string) => ['ws-personal', 'ws-work', 'ws-atlas', extra],
+        order: (extra: string) => ['ws-personal', WORKSPACE_ID, 'ws-atlas', extra],
         moved: 'ws-personal',
         refusal: 409,
       },
       {
         situation: 'an order with the same workspace in two places',
-        order: () => ['ws-work', 'ws-work', 'ws-atlas'],
-        moved: 'ws-work',
+        order: () => [WORKSPACE_ID, WORKSPACE_ID, 'ws-atlas'],
+        moved: WORKSPACE_ID,
         refusal: 400,
       },
       {
         situation: 'an order that does not name the workspace it says moved',
-        order: () => ['ws-work', 'ws-atlas', 'ws-personal'],
+        order: () => [WORKSPACE_ID, 'ws-atlas', 'ws-personal'],
         moved: 'ws-nowhere',
         refusal: 400,
       },
       {
         situation: 'no order at all',
         order: () => [],
-        moved: 'ws-work',
+        moved: WORKSPACE_ID,
         refusal: 400,
       },
     ])('refuses $situation', async ({ order, moved, refusal }) => {
@@ -567,7 +575,7 @@ describe('Workspace management', () => {
       const gone = await aWorkspace();
       await deleteWorkspace(gone.id);
 
-      const response = await reorderWorkspaces('ws-work', ['ws-work', 'ws-atlas', 'ws-personal', gone.id]);
+      const response = await reorderWorkspaces(WORKSPACE_ID, [WORKSPACE_ID, 'ws-atlas', 'ws-personal', gone.id]);
 
       expect(await response.json()).toEqual({
         error: 'the workspaces changed while they were being put in order',
@@ -575,8 +583,8 @@ describe('Workspace management', () => {
     });
 
     it('refuses an order of another account’s workspaces, and leaves both accounts alone', async () => {
-      // The ids are the same in both accounts - every account starts with the
-      // same three - so the case that actually distinguishes the two is one
+      // The id is the same in both accounts - every account starts with the
+      // same one - so the case that actually distinguishes the two is one
       // account naming a workspace only the *other* has.
       const theirs = await asUser(
         'http://cockpit.test/v1/commands/create_workspace',
@@ -587,17 +595,19 @@ describe('Workspace management', () => {
             commandId: nextId(),
             issuedAt: '2026-08-12T10:00:00.000Z',
             workspaceId: nextId(),
+            panelId: nextId(),
             name: aName(),
           }),
         },
         OTHER_USER_ID,
       );
       expect(theirs.status).toBe(200);
-      const onlyTheirs = (await theOrder(OTHER_USER_ID)).at(-1)!;
+      const theirsBefore = await theOrder(OTHER_USER_ID);
+      const onlyTheirs = theirsBefore.at(-1)!;
       const before = await theOrder();
 
-      const response = await reorderWorkspaces('ws-work', [
-        'ws-work',
+      const response = await reorderWorkspaces(WORKSPACE_ID, [
+        WORKSPACE_ID,
         'ws-atlas',
         'ws-personal',
         onlyTheirs,
@@ -605,7 +615,11 @@ describe('Workspace management', () => {
 
       expect(response.status).toBe(409);
       expect(await theOrder()).toEqual(before);
-      expect(await theOrder(OTHER_USER_ID)).toEqual([...before, onlyTheirs]);
+      // Read rather than derived from this account's: only this one was given
+      // the extra workspaces the ordering cases need, so the two lists are not
+      // the same list and what says the other was left alone is that it is
+      // exactly what it was.
+      expect(await theOrder(OTHER_USER_ID)).toEqual(theirsBefore);
     });
   });
 

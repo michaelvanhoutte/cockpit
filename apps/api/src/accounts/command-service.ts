@@ -53,6 +53,7 @@ import {
   PLACEMENT_VALUES_PER_ROW,
   appendedPlacement,
   arrangementRows,
+  firstPanelFor,
   layoutNamed,
   panelFromCommand,
   panelNamed,
@@ -428,9 +429,20 @@ export function runCommand<N extends CommandName>(
         // dashboards", issue 32). Named at the primary key for the same reason
         // the workspace above is: a replayed create must add neither a second
         // workspace nor a second dashboard.
+        const dashboard = firstDashboardFor(workspace);
         tx.insert(dashboards)
-          .values(firstDashboardFor(workspace))
+          .values(dashboard)
           .onConflictDoNothing({ target: dashboards.id })
+          .run();
+        // And that dashboard's panel, in the same act, so the workspace has
+        // somewhere to file an item into from the moment it exists rather than
+        // an Inbox with no way out of it (`firstPanelFor`). Named at the primary
+        // key for the reason the two above are. There is no placement to write:
+        // a dashboard this new has no layout, and the board arranges an
+        // unarranged dashboard itself (`panels/arrangement.ts`).
+        tx.insert(panels)
+          .values(firstPanelFor(dashboard, cmd.panelId))
+          .onConflictDoNothing({ target: panels.id })
           .run();
         tx.insert(commands).values(commandRow).run();
       });
@@ -452,9 +464,17 @@ export function runCommand<N extends CommandName>(
       );
       if (alreadyCalledThat) throw new DashboardNameTakenError(alreadyCalledThat.name);
       db.transaction((tx) => {
+        const dashboard = dashboardFromCommand(cmd, tenantId);
         tx.insert(dashboards)
-          .values(dashboardFromCommand(cmd, tenantId))
+          .values(dashboard)
           .onConflictDoNothing({ target: dashboards.id })
+          .run();
+        // Every dashboard arrives with one, not only a workspace's first:
+        // otherwise the `+` in the bar makes a dashboard nothing can be filed
+        // onto, one dashboard at a time.
+        tx.insert(panels)
+          .values(firstPanelFor(dashboard, cmd.panelId))
+          .onConflictDoNothing({ target: panels.id })
           .run();
         tx.insert(commands).values(commandRow).run();
       });

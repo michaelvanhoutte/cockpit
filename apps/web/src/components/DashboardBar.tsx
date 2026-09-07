@@ -299,6 +299,9 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
           issuedAt: new Date().toISOString(),
           workspaceId,
           dashboardId,
+          // The panel it arrives with, made here for the reason the dashboard's
+          // own id is.
+          panelId: uuidv7(),
           name: trimmed,
         },
       },

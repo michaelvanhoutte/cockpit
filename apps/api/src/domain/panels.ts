@@ -13,6 +13,43 @@ import { foldName, namedTheSame } from './names.js';
  * of panels, not a grid that wraps").
  */
 
+/** What a dashboard's first panel is called before anybody names one. */
+export const FIRST_PANEL_NAME = 'Panel 1';
+
+/**
+ * The panel a dashboard arrives with, so that a workspace has somewhere to file
+ * an item into from the moment it exists.
+ *
+ * **Every dashboard, not only a workspace's first.** The Inbox holds every open
+ * item that no panel holds, so a workspace whose dashboards have no panels has
+ * no way to take anything *out* of the Inbox - the drag has no target - and a
+ * dashboard added later would recreate that one dashboard at a time.
+ *
+ * **A starting condition, not an invariant.** The last panel of a dashboard can
+ * still be deleted and nothing puts one back, unlike the last dashboard of a
+ * workspace, which is refused: a workspace with no dashboard has no view at
+ * all, while a dashboard with no panels is one you can put a panel on.
+ *
+ * The id comes from the command rather than from the dashboard's, which is the
+ * one thing this does not copy from `firstDashboardFor`: five commands take a
+ * `panelId` as a uuid, so a derived id would leave this panel unable to be
+ * renamed, deleted or filed into.
+ */
+export function firstPanelFor(
+  dashboard: { id: string; tenantId: string; createdAt: string },
+  panelId: string,
+): PanelRow {
+  return {
+    id: panelId,
+    tenantId: dashboard.tenantId,
+    dashboardId: dashboard.id,
+    name: FIRST_PANEL_NAME,
+    foldedName: foldName(FIRST_PANEL_NAME),
+    createdAt: dashboard.createdAt,
+    deletedAt: null,
+  };
+}
+
 /**
  * The live panel of *this dashboard* already going by this title, or undefined.
  *

@@ -340,6 +340,9 @@ export function ManageWorkspaces({
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId: uuidv7(),
+          // The panel its first dashboard arrives with, made here for the
+          // reason the workspace's own id is.
+          panelId: uuidv7(),
           name: trimmed,
         },
       },

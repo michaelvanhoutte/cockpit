@@ -38,6 +38,7 @@ async function addDashboard(
       issuedAt: '2026-09-01T10:00:00.000Z',
       workspaceId,
       dashboardId: overrides.dashboardId ?? nextId(),
+      panelId: nextId(),
       name,
     }),
   });
@@ -52,6 +53,7 @@ async function makeWorkspace(name: string): Promise<string> {
       commandId: nextId(),
       issuedAt: '2026-09-01T10:00:00.000Z',
       workspaceId,
+      panelId: nextId(),
       name,
     }),
   });
@@ -111,6 +113,20 @@ async function dashboardsOf(workspaceId: string): Promise<Dashboard[]> {
 
 async function namesOf(workspaceId: string): Promise<string[]> {
   return (await dashboardsOf(workspaceId)).map((d) => d.name);
+}
+
+/** The panels of one dashboard, as the snapshot answers them. */
+async function panelsOn(workspaceId: string, dashboardId: string): Promise<string[]> {
+  const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
+  const body = (await res.json()) as { panels: { id: string; dashboardId: string; name: string }[] };
+  return body.panels.filter((panel) => panel.dashboardId === dashboardId).map((p) => p.name);
+}
+
+/** The one dashboard a workspace arrives with. */
+async function theDashboardOf(workspaceId: string): Promise<string> {
+  const [only] = await dashboardsOf(workspaceId);
+  if (!only) throw new Error(`${workspaceId} has no dashboard`);
+  return only.id;
 }
 
 beforeEach(async () => {
@@ -221,12 +237,8 @@ describe('Dashboards', () => {
   });
 
   describe('every workspace has a dashboard, whether or not anyone made one', () => {
-    it('gives the workspaces an account starts with one each, named Dashboard 1', async () => {
-      // The three an account starts with predate dashboards entirely, so this
-      // is the backfill's own work rather than anything a create did.
-      for (const workspaceId of ['ws-work', 'ws-atlas', 'ws-personal']) {
-        expect(await namesOf(workspaceId)).toEqual(['Dashboard 1']);
-      }
+    it('gives the workspace an account starts with one, named Dashboard 1', async () => {
+      expect(await namesOf(WORKSPACE_ID)).toEqual(['Dashboard 1']);
     });
 
     it('gives a workspace made afterwards one too', async () => {
@@ -254,13 +266,13 @@ describe('Dashboards', () => {
         body: JSON.stringify({
           commandId: nextId(),
           issuedAt: '2026-09-01T10:00:00.000Z',
-          workspaceId: 'ws-atlas',
+          workspaceId: WORKSPACE_ID,
         }),
       });
 
       const afterwards = await inTheStore((sql) =>
         sql
-          .exec('SELECT count(*) AS boards FROM dashboards WHERE workspace_id = ?', 'ws-atlas')
+          .exec('SELECT count(*) AS boards FROM dashboards WHERE workspace_id = ?', WORKSPACE_ID)
           .toArray(),
       );
       expect(afterwards).toEqual([{ boards: 1 }]);
@@ -532,6 +544,75 @@ describe('Dashboards', () => {
       // When it was deleted stays what it was, rather than being moved by a
       // second attempt long afterwards.
       expect(after?.deleted_at).toBe(deleted?.deleted_at);
+    });
+  });
+
+  /**
+   * The Inbox holds every open item that no panel holds, so a workspace whose
+   * dashboards have no panels has no way to take anything *out* of the Inbox -
+   * the drag has no target. Which is why this is about every dashboard rather
+   * than only a workspace's first: the `+` in the bar would otherwise make one
+   * such dashboard at a time.
+   */
+  describe('every dashboard arrives with a panel, so there is somewhere to file into', () => {
+    it('gives the dashboard an account starts with one, named Panel 1', async () => {
+      expect(await panelsOn(WORKSPACE_ID, await theDashboardOf(WORKSPACE_ID))).toEqual(['Panel 1']);
+    });
+
+    it('gives the dashboard of a workspace made afterwards one too', async () => {
+      const workspaceId = await makeWorkspace(aName());
+
+      expect(await panelsOn(workspaceId, await theDashboardOf(workspaceId))).toEqual(['Panel 1']);
+    });
+
+    it('gives a dashboard added to a workspace one', async () => {
+      const dashboardId = await aDashboardIn(WORKSPACE_ID);
+
+      expect(await panelsOn(WORKSPACE_ID, dashboardId)).toEqual(['Panel 1']);
+    });
+
+    it('adds one panel however many times the same add is repeated', async () => {
+      // The panel's id is the client's, like the dashboard's, so a replay
+      // carries the same one and must be a no-op rather than a second panel.
+      const dashboardId = nextId();
+      const commandId = nextId();
+      await addDashboard(WORKSPACE_ID, aName(), { dashboardId, commandId });
+      await addDashboard(WORKSPACE_ID, aName(), { dashboardId, commandId });
+
+      expect(await panelsOn(WORKSPACE_ID, dashboardId)).toEqual(['Panel 1']);
+    });
+
+    /**
+     * Starting with a panel is not the same as always having one. The last
+     * *dashboard* of a workspace is refused, because a workspace with no
+     * dashboard has no view at all; a dashboard with no panels is one you can
+     * put a panel on.
+     */
+    it('lets the last panel be deleted, and does not put one back', async () => {
+      const dashboardId = await aDashboardIn(WORKSPACE_ID);
+      const [panelId] = (
+        (await (await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`)).json()) as {
+          panels: { id: string; dashboardId: string }[];
+        }
+      ).panels
+        .filter((panel) => panel.dashboardId === dashboardId)
+        .map((panel) => panel.id);
+
+      await asUser('http://cockpit.test/v1/commands/delete_panel', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: nextId(),
+          issuedAt: '2026-09-01T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          panelId,
+        }),
+      });
+
+      expect(await panelsOn(WORKSPACE_ID, dashboardId)).toEqual([]);
+      // Asked a second time, because what would put one back is a read that
+      // notices the dashboard has none rather than the delete itself.
+      expect(await panelsOn(WORKSPACE_ID, dashboardId)).toEqual([]);
     });
   });
 });

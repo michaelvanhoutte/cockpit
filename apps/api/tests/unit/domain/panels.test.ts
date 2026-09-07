@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CELL_SPAN } from '@cockpit/shared';
 import type { Panel, SaveLayoutCommand } from '@cockpit/shared';
-import { appendedPlacement, arrangementRows, panelsNotOn } from '../../../src/domain/panels.js';
+import {
+  appendedPlacement,
+  arrangementRows,
+  firstPanelFor,
+  panelsNotOn,
+} from '../../../src/domain/panels.js';
 
 /**
  * L1: where a new panel lands in a layout, which panels an arrangement names
@@ -20,6 +25,26 @@ function row(rowIndex: number, height: number | null = null) {
 function aPanel(id: string): Panel {
   return { id, tenantId: 'tenant', dashboardId: 'today', name: id };
 }
+
+describe('Panels', () => {
+  describe('a dashboard arrives with a panel, so there is somewhere to file into', () => {
+    it('takes the dashboard’s account and moment, and the id it was given', () => {
+      // The id is the command's rather than derived from the dashboard's, which
+      // is the one thing this does not copy from `firstDashboardFor`: five
+      // commands take a panelId as a uuid, so a derived one would leave the
+      // panel unable to be renamed, deleted or filed into.
+      expect(firstPanelFor({ id: 'today', tenantId: 'tenant', createdAt: AT }, 'p-1')).toEqual({
+        id: 'p-1',
+        tenantId: 'tenant',
+        dashboardId: 'today',
+        name: 'Panel 1',
+        foldedName: 'panel 1',
+        createdAt: AT,
+        deletedAt: null,
+      });
+    });
+  });
+});
 
 describe('Layouts', () => {
   describe('a panel added later joins a layout in a row of its own, under everything there', () => {

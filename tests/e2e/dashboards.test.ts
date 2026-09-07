@@ -61,10 +61,10 @@ test.describe('Dashboards', () => {
       const tab = dashboardBar(page).getByRole('link', { name });
       await expect(tab).toBeVisible();
       await expect(page.getByRole('heading', { name })).toBeVisible();
-      // What the screen is for, rather than a report that it is empty
-      // ("Modernise the app shell", issue 125). Matched on the opening clause
-      // so the walk is not re-broken by the sentence being reworded around it.
-      await expect(page.getByText(/A dashboard holds the panels you want in view/)).toBeVisible();
+      // A dashboard you add is one you can file into: it arrives with a panel,
+      // so the Inbox has a target from the moment the dashboard exists rather
+      // than an empty sheet. Matched on the title the panel arrives under.
+      await expect(page.getByRole('heading', { name: 'Panel 1' })).toBeVisible();
       await expectNoSidewaysScroll(page);
 
       // The Inbox is on screen either way, which is what says the bar holds
@@ -133,7 +133,12 @@ test.describe('Dashboards', () => {
       ).toBeVisible();
 
       await chooseRowAction(page, renamed, 'Delete', isMobile);
-      await expect(page.getByText(`Delete ${renamed}? There is nothing on it.`)).toBeVisible();
+      // Its one panel is the one it arrived with, and the question names what
+      // goes with the dashboard rather than only that it is going. The
+      // "nothing on it" wording is now reachable only after that panel has
+      // been deleted, and is proved on the question itself
+      // (apps/web/tests/unit/components/ManageDashboards.test.tsx).
+      await expect(page.getByText(`Delete ${renamed}? Its one panel goes with it.`)).toBeVisible();
       await press(page.getByRole('button', { name: `Yes, delete ${renamed}` }), isMobile);
 
       // The list stays open with the row gone, and closing it is what puts you

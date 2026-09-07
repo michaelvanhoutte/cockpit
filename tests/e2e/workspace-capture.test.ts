@@ -1,12 +1,15 @@
 import {
+  STARTING_WORKSPACE,
   captureBox,
   expect,
   expectNoSidewaysScroll,
   inbox,
   itemRow,
   openInbox,
+  openSettings,
   press,
   switchTo,
+  workspaceTab,
   test,
   uniqueTitle,
 } from './support/app';
@@ -31,8 +34,13 @@ import type { Page } from '@playwright/test';
  * make workspaces of their own; the seeded three are the only ones a walk can
  * name, and no walk deletes them.
  */
-const CAPTURED_FROM = 'Work';
-const ELSEWHERE = 'Atlas Copco';
+const CAPTURED_FROM = STARTING_WORKSPACE;
+/**
+ * The second workspace this walk needs, made by the walk rather than found: an
+ * account starts with one, and every spec in a run shares one database, so a
+ * name unique to this file is what keeps two specs from colliding over it.
+ */
+const ELSEWHERE = uniqueTitle('Elsewhere');
 
 /**
  * Goes to the capture page from the header and writes a note there, without
@@ -66,6 +74,23 @@ async function openTheInboxOf(page: Page, name: string, isMobile: boolean): Prom
   if (isMobile) await press(page.getByRole('link', { name: 'Inbox' }).first(), isMobile);
 }
 
+/**
+ * The second workspace, made once for the file. Every walk below needs an
+ * Inbox that is not the one a note was captured from, and an account starts
+ * with a single workspace - so this is arrangement rather than something to
+ * find.
+ */
+test.beforeEach(async ({ page, isMobile }) => {
+  await openInbox(page, isMobile);
+  if (await workspaceTab(page, ELSEWHERE).count()) return;
+  await openSettings(page, isMobile);
+  await page.getByLabel('Name of the new workspace').fill(ELSEWHERE);
+  await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+  await expect(workspaceTab(page, ELSEWHERE)).toBeVisible();
+  await press(page.getByRole('button', { name: 'Done' }), isMobile);
+  await switchTo(page, CAPTURED_FROM, isMobile);
+});
+
 test.describe('Capture', () => {
   test.describe('a note captured without a workspace waits in every workspace until you say where it belongs', () => {
     test('is in both inboxes, and in one only once it has been put there', async ({
@@ -90,8 +115,8 @@ test.describe('Capture', () => {
       // **Named, not the second tab along.** Every spec in a run shares one
       // database and several of them make workspaces, so an index into the
       // strip is a different workspace depending on what else is running. The
-      // three seeded ones are the only names a walk can count on, and no walk
-      // deletes them.
+      // one an account starts with and the one this file makes are the two
+      // names it can count on, and no walk deletes either.
       await openTheInboxOf(page, ELSEWHERE, isMobile);
       await expect(inbox(page).getByText(note)).toBeVisible();
 
