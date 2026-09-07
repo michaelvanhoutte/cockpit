@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Panel } from '@cockpit/shared';
 
 /**
  * F1: what a panel of text draws, and when its formatting bar is there.
  *
- * **Both chunks are replaced.** The editor is 135KB and the renderer its own
- * fetch (architecture, "Performance budgets"), so there is a window where the
- * panel is on screen and neither has arrived - and a case where one never does.
+ * **Both chunks are replaced.** The editor is 115KB compressed and the renderer
+ * 15KB, over a 21KB Markdown core they share (architecture, "Performance
+ * budgets"), so there is a window where the panel is on screen and neither has
+ * arrived - and a case where one never does.
  * What the editor does with Markdown is proved in
  * tests/unit/description/syntax.test.ts, and what the panel needs from it here
  * is only *when* it appears and whether its bar is drawn.
@@ -67,10 +68,14 @@ async function show(panel: Panel, arrival: Arrival = 'arrives') {
     asked.editor += 1;
     if (arrival === 'never comes') throw new Error('offline');
     return {
-      default: ({ label, toolbar }: { label: string; toolbar: boolean }) => (
+      default: ({ initial, label, toolbar }: { initial: string; label: string; toolbar: boolean }) => (
         <div>
           {toolbar && <div role="toolbar" aria-label="Formatting" />}
-          <div aria-label={label} role="textbox" tabIndex={0} contentEditable suppressContentEditableWarning />
+          {/* Built once from what it was handed, the way the real editor is -
+              which is what makes "what did it open on" assertable. */}
+          <div aria-label={label} role="textbox" tabIndex={0} contentEditable suppressContentEditableWarning>
+            {initial}
+          </div>
         </div>
       ),
     };
@@ -81,8 +86,14 @@ async function show(panel: Panel, arrival: Arrival = 'arrives') {
     return { default: ({ body }: { body: string }) => <div data-testid="drawn">{body}</div> };
   });
   const { PanelText } = await import('../../../src/panels/PanelText');
-  render(<PanelText panel={panel} workspaceId="ws-work" />);
-  return userEvent.setup();
+  const { rerender } = render(<PanelText panel={panel} workspaceId="ws-work" />);
+  return {
+    user: userEvent.setup(),
+    // The same panel drawn differently, which is what a change from anywhere
+    // else arrives as: the component is not remounted, only its box swapped.
+    drawnAs: (drawn: Partial<Panel>) =>
+      rerender(<PanelText panel={{ ...panel, ...drawn }} workspaceId="ws-work" />),
+  };
 }
 
 afterEach(() => {
@@ -141,6 +152,32 @@ describe('Panels', () => {
       expect(asked).toEqual(wants);
     });
 
+    /**
+     * How a panel is drawn is the panel's own state, so it can change while
+     * somebody is typing - from a second tab, or from anybody else looking at
+     * the same dashboard. The box is swapped without this component being
+     * remounted, and both boxes read what they hold once, at mount.
+     *
+     * Found on the pull request for issue 251. Before the fix the new box
+     * opened on what was last *stored*, and the next keystroke serialised that
+     * and wrote it back over the save that had since landed.
+     */
+    it.each([
+      { situation: 'formatting asked for mid-sentence', drawn: { format: 'rich' as const } },
+      { situation: 'the panel locked mid-sentence', drawn: { readOnly: true } },
+    ])('$situation keeps what was typed and not yet sent', async ({ drawn }) => {
+      const { drawnAs } = await show(aPanelOfText({ body: 'as it was stored' }));
+      const box = await screen.findByRole('textbox', { name: 'What matters' });
+      // Typed, and inside the pause before anything is sent.
+      fireEvent.change(box, { target: { value: 'as it is being typed' } });
+
+      drawnAs(drawn);
+
+      // Whatever it is drawn as now, it is drawn from the newer text.
+      expect(await screen.findByText('as it is being typed')).toBeInTheDocument();
+      expect(screen.queryByText('as it was stored')).toBeNull();
+    });
+
     it('leaves the characters readable where the chunk never comes', async () => {
       await show(aPanelOfText({ body: '**Pricing**', format: 'rich', readOnly: true }), 'never comes');
 
@@ -150,7 +187,7 @@ describe('Panels', () => {
 
   describe('formatting is offered only while somebody is writing in the panel', () => {
     it('draws no bar until the panel is written in, and takes it away again', async () => {
-      const user = await show(aPanelOfText({ format: 'rich' }));
+      const { user } = await show(aPanelOfText({ format: 'rich' }));
       const box = await screen.findByRole('textbox', { name: 'What matters' });
 
       // Formatted and open to be written in, but nobody in it: a bar standing

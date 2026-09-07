@@ -113,6 +113,28 @@ export function PanelText({ panel, workspaceId }: { panel: Panel; workspaceId: s
   const refusal = refusalFrom(command);
   const formatted = panel.format === 'rich' && !failed;
 
+  /**
+   * The newest text this panel knows: what has been typed and not yet sent, or
+   * failing that what is stored.
+   *
+   * **This, rather than `panel.body`, is what a box is built from.** Changing
+   * how a panel is drawn - or locking it - swaps one box for another without
+   * unmounting this component, and the replacement reads its content once, at
+   * mount: a textarea's `defaultValue` is, and `RichDescription` builds its
+   * editor with no dependencies on purpose. Handed `panel.body`, the new box
+   * would open on the text as it stood *before* the sentence still in flight,
+   * and the next keystroke would serialise that and write it back over the
+   * save that had since landed.
+   *
+   * **And it is reachable without doing anything odd**, because how a panel is
+   * drawn is the panel's own state: a second tab, or somebody else, can change
+   * it while you are typing.
+   *
+   * Nothing is flushed here. The timer is still running and will send what is
+   * pending on its own; sending it again would be the same text twice.
+   */
+  const latest = () => pending.current ?? panel.body;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Above the text rather than instead of it, the way a panel's other
@@ -124,10 +146,15 @@ export function PanelText({ panel, workspaceId }: { panel: Panel; workspaceId: s
         </p>
       )}
       {panel.readOnly ? (
-        <Reading panel={panel} formatted={formatted} onFailure={() => setFailed(true)} />
+        <Reading
+          text={latest()}
+          formatted={formatted}
+          onFailure={() => setFailed(true)}
+        />
       ) : (
         <Writing
           panel={panel}
+          text={latest()}
           formatted={formatted}
           onChange={changed}
           onFailure={() => setFailed(true)}
@@ -139,22 +166,23 @@ export function PanelText({ panel, workspaceId }: { panel: Panel; workspaceId: s
 
 /** A panel being read: the words as they were typed, or as what they say. */
 function Reading({
-  panel,
+  text,
   formatted,
   onFailure,
 }: {
-  panel: Panel;
+  /** The newest this panel knows, which is not always what is stored. */
+  text: string;
   formatted: boolean;
   onFailure: () => void;
 }) {
-  if (!panel.body) {
+  if (!text) {
     return <p className="px-4 py-3 text-sm text-ink-faint">{NOTHING_WRITTEN_HERE}</p>;
   }
-  if (!formatted) return <AsTyped body={panel.body} />;
+  if (!formatted) return <AsTyped body={text} />;
   return (
     <WhateverTheChunkDoes onFailure={onFailure}>
-      <Suspense fallback={<AsTyped body={panel.body} />}>
-        <DrawnText body={panel.body} />
+      <Suspense fallback={<AsTyped body={text} />}>
+        <DrawnText body={text} />
       </Suspense>
     </WhateverTheChunkDoes>
   );
@@ -170,11 +198,14 @@ function Reading({
  */
 function Writing({
   panel,
+  text,
   formatted,
   onChange,
   onFailure,
 }: {
   panel: Panel;
+  /** The newest this panel knows, which is not always what is stored. */
+  text: string;
   formatted: boolean;
   onChange: (body: string) => void;
   onFailure: () => void;
@@ -197,7 +228,7 @@ function Writing({
     return (
       <textarea
         aria-label={panel.name}
-        defaultValue={panel.body}
+        defaultValue={text}
         onChange={(event) => onChange(event.target.value)}
         placeholder={WRITE_HERE}
         // No resize handle: the panel's height is its row's, and a box that could
@@ -221,12 +252,12 @@ function Writing({
       }}
     >
       <WhateverTheChunkDoes onFailure={onFailure}>
-        <Suspense fallback={<AsTyped body={panel.body} />}>
+        <Suspense fallback={<AsTyped body={text} />}>
           <RichDescription
             // Built once. It takes `toolbar` as it changes, so clicking into
             // the panel and out of it never rebuilds the editor - which would
             // replace what has been typed with what was last stored.
-            initial={panel.body}
+            initial={text}
             onChange={onChange}
             editable
             label={panel.name}
