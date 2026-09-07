@@ -160,7 +160,7 @@ function group(items, key) {
  * is all the API gives, and inventing continuity across a rename would be a
  * guess rendered as a fact.
  */
-function windowModel(runs, jobsByRun, { days, now, oldestRun, reachedWindowEdge }) {
+function windowModel(runs, jobsByRun, { days, now, oldestRun, reachedWindowEdge, fetchedDays }) {
   const since = new Date(now.getTime() - days * DAY_MS);
   const inWindow = runs.filter((run) => new Date(run.createdAt) >= since);
 
@@ -200,7 +200,14 @@ function windowModel(runs, jobsByRun, { days, now, oldestRun, reachedWindowEdge 
   // and reading it alone would banner every report as partial. `reachedWindowEdge`
   // is the evidence — a run *older* than the window was actually seen — and the
   // oldest run then only narrows which of the shorter windows it applies to.
-  const partial = !reachedWindowEdge && oldestRun !== null && oldestRun > since;
+  //
+  // That evidence is about the *fetch*, though, so it says nothing about a
+  // window wider than the fetch was: `--days 7` with the default `7,30` reaches
+  // the edge of its seven days and would otherwise render a plain "30 days"
+  // heading over seven days of runs. A window can only be whole if the fetch
+  // went at least as far back as the window does.
+  const coveredByFetch = reachedWindowEdge && days <= fetchedDays;
+  const partial = !coveredByFetch && oldestRun !== null && oldestRun > since;
   return {
     days,
     since: since.toISOString(),
@@ -299,6 +306,7 @@ export function buildModel({
         // A budget that stopped the fetch short leaves history unread, which is
         // the same thing as not having reached the edge of the window.
         reachedWindowEdge: reachedWindowEdge && !truncated,
+        fetchedDays: requestedDays,
       }),
     ),
     redWindows: [...group(runs, (run) => run.workflow).values()]

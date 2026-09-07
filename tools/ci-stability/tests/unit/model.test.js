@@ -239,6 +239,21 @@ describe('buildModel', () => {
     expect(model.windows[1].actualDays).toBe(30);
   });
 
+  it('never calls a window whole when the fetch did not go back as far as the window does', () => {
+    // `--days 7` with the default `--windows 7,30`, which the README's own
+    // example invocation produces: the fetch reaches the edge of its seven days,
+    // which says nothing about the thirty the second column claims.
+    const model = build({
+      runs: [run({ createdAt: ago(6) })],
+      requestedDays: 7,
+      reachedWindowEdge: true,
+      windows: [7, 30],
+    });
+    expect(model.windows[0].partial).toBe(false);
+    expect(model.windows[1].partial).toBe(true);
+    expect(Math.round(model.windows[1].actualDays)).toBe(6);
+  });
+
   it('still calls the shorter window whole when only the longer one runs out of history', () => {
     const model = build({
       runs: [run({ createdAt: ago(10) })],
