@@ -30,6 +30,7 @@ function aPanel(id: string): Panel {
     dashboardId: 'today',
     name: id,
     kind: 'items',
+    format: 'plain',
     body: '',
     readOnly: false,
   };
@@ -49,6 +50,7 @@ describe('Panels', () => {
         name: 'Panel 1',
         foldedName: 'panel 1',
         kind: 'items',
+        format: 'plain',
         body: '',
         readOnly: false,
         createdAt: AT,

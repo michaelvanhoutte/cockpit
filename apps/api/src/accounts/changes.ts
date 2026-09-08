@@ -71,6 +71,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     // be reordered any more than it can be edited.
     DROP_ITEM_PREVIEW,
     TEXT_PANELS,
+    PANEL_TEXT_FORMAT,
     firstWorkspace(accountId),
   ];
 }
@@ -1293,6 +1294,40 @@ const TEXT_PANELS: Change = {
     { sql: `ALTER TABLE \`panels\` ADD COLUMN \`body\` text DEFAULT '' NOT NULL` },
     {
       sql: 'ALTER TABLE `panels` ADD COLUMN `read_only` integer DEFAULT 0 NOT NULL CHECK (read_only IN (0, 1))',
+    },
+  ],
+};
+
+/**
+ * Whether a panel of text's words are drawn as the characters that were typed
+ * or as what they mean ("Format what a panel says, without making every
+ * dashboard pay for an editor", issue 251).
+ *
+ * **One column, defaulting to what every panel of text already was.** Nothing
+ * is rewritten and nothing changes on screen the day this lands: a panel drawn
+ * as characters yesterday is drawn as characters tomorrow, until somebody asks
+ * otherwise from its own menu.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, and a change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts).
+ * - **The second time it runs:** it does not, having been recorded - which is
+ *   what an `ADD COLUMN` needs, being no more idempotent here than in
+ *   `0016-text-panels`.
+ * - **Rows that already break the new rule:** there can be none. Every panel
+ *   takes the default and the default satisfies the CHECK.
+ * - **What is in each environment:** every panel gains a column and none is
+ *   rewritten.
+ */
+const PANEL_TEXT_FORMAT: Change = {
+  name: '0017-panel-text-format',
+  statements: [
+    {
+      sql: `ALTER TABLE \`panels\` ADD COLUMN \`format\` text DEFAULT 'plain' NOT NULL CHECK (format IN ('plain', 'rich'))`,
     },
   ],
 };

@@ -65,6 +65,8 @@ export interface PanelCardProps {
    * items, which is not offered the choice.
    */
   onReadOnlyChange: (readOnly: boolean) => void;
+  /** Draw a panel of text's words as what they mean, or as the characters typed. */
+  onFormatChange: (format: 'plain' | 'rich') => void;
   /**
    * That this is the panel in the air, so it can say so. The board knows
    * which one it is; the card is what draws it.
@@ -112,6 +114,7 @@ export function PanelCard({
   onDelete,
   onMove,
   onReadOnlyChange,
+  onFormatChange,
   lifted,
   onPickUp,
   refusal,
@@ -306,6 +309,13 @@ export function PanelCard({
                         label: panel.readOnly ? 'Allow editing' : 'Make read-only',
                         keepsFocus: true,
                         onSelect: () => onReadOnlyChange(!panel.readOnly),
+                      },
+                      {
+                        // What the same characters are drawn as. Named for what
+                        // choosing it gives you, like the entry above it.
+                        label: panel.format === 'rich' ? 'Use plain text' : 'Use rich text',
+                        keepsFocus: true,
+                        onSelect: () => onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
                       },
                     ]
                   : []),

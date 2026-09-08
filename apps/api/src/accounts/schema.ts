@@ -13,12 +13,13 @@ import {
   GRID_COLUMNS,
   ITEM_TYPE_COLORS,
   MAX_ROW_HEIGHT,
-  PANEL_KINDS,
   MIN_ROW_HEIGHT,
+  PANEL_FORMATS,
+  PANEL_KINDS,
   prioritySchema,
   sourceSchema,
 } from '@cockpit/shared';
-import type { AssociationKind, PanelKind, Priority, Source } from '@cockpit/shared';
+import type { AssociationKind, PanelFormat, PanelKind, Priority, Source } from '@cockpit/shared';
 
 /**
  * The values the three dead columns on `items` are allowed to hold.
@@ -380,6 +381,11 @@ export const panels = sqliteTable(
      */
     kind: text('kind').notNull().default('items').$type<PanelKind>(),
     /**
+     * Whether that text is drawn as the characters that were typed or as what
+     * they mean. Not a property of the text, which is Markdown either way.
+     */
+    format: text('format').notNull().default('plain').$type<PanelFormat>(),
+    /**
      * The Markdown of a panel of text, and the empty string for a panel of
      * items. NOT NULL with a default rather than nullable: "no text" and "the
      * empty string" are the same thing to everything that reads this, and one
@@ -407,6 +413,7 @@ export const panels = sqliteTable(
     // Built from the same enum the wire contract uses, per "The database is the
     // second lock": a kind the contract has never heard of cannot be stored.
     check('panels_kind_is_known', oneOf('kind', PANEL_KINDS)),
+    check('panels_format_is_known', oneOf('format', PANEL_FORMATS)),
     // A STRICT integer column takes any integer, and this one is a flag.
     check('panels_read_only_is_a_flag', sql`read_only IN (0, 1)`),
   ],

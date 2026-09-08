@@ -326,6 +326,20 @@ function refuseAPanelOfText(panel: { name: string; kind: PanelKind } | null) {
 }
 
 /**
+ * Refuses a panel that holds items where its text is being changed.
+ *
+ * The mirror of the guard above, and one function for the same reason: three
+ * commands are about a panel's text - what it says, whether it is written in,
+ * and how it is drawn - and three copies of one rule are three chances for them
+ * to answer differently about the same panel.
+ */
+function refuseUnlessPanelOfText(panel: { name: string; kind: PanelKind }) {
+  if (panel.kind !== 'text') {
+    throw new PanelHoldsSomethingElseError(`${panel.name} holds items, not text`);
+  }
+}
+
+/**
  * The panel a change names, checked all the way up: it is live, its dashboard
  * is live, and that dashboard is in the workspace the envelope names. A panel
  * is addressed by its own id alone, so without the last step a change could
@@ -635,9 +649,7 @@ export function runCommand<N extends CommandName>(
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
       // A panel of items has no text to hold, so writing to one is refused
       // rather than quietly filling a column nothing draws.
-      if (panel.kind !== 'text') {
-        throw new PanelHoldsSomethingElseError(`${panel.name} holds items, not text`);
-      }
+      refuseUnlessPanelOfText(panel);
       // **A read-only panel is not refused, and that is deliberate.** Read-only
       // says what the panel is for rather than who may write to it - there are
       // no roles inside an account, and anybody looking at it can hand it back
@@ -656,15 +668,29 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
+    case 'set_panel_format': {
+      const cmd = payload as CommandPayload<'set_panel_format'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // A panel of items has no words to draw, either way.
+      refuseUnlessPanelOfText(panel);
+      db.transaction((tx) => {
+        // The `body` is deliberately untouched. What is stored is Markdown
+        // whichever way it is drawn, so switching is not a conversion and
+        // cannot lose a character somebody typed.
+        tx.update(panels)
+          .set({ format: cmd.format })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'set_panel_read_only': {
       const cmd = payload as CommandPayload<'set_panel_read_only'>;
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
-      // The same refusal the text takes, for the same reason: a panel of items
-      // has nothing to lock, and a flag nobody reads is a state to explain
-      // later.
-      if (panel.kind !== 'text') {
-        throw new PanelHoldsSomethingElseError(`${panel.name} holds items, not text`);
-      }
+      // A panel of items has nothing to lock, and a flag nobody reads is a
+      // state to explain later.
+      refuseUnlessPanelOfText(panel);
       db.transaction((tx) => {
         tx.update(panels)
           .set({ readOnly: cmd.readOnly })

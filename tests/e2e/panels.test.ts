@@ -428,6 +428,64 @@ test.describe('Panels', () => {
     });
   });
 
+  test.describe('a panel of text is drawn as what its words mean once you ask', () => {
+    /**
+     * The two claims no level below this one can make: what a real browser
+     * draws from Markdown, and what having the cursor in the panel does. Both
+     * need real focus and a real layout engine.
+     *
+     * **Not what the page fetches**, which is what the split is for and is not
+     * provable here: this tier runs the Vite dev server (scripts/e2e-stack.mjs),
+     * which pre-bundles and serves a dependency whether or not anything renders
+     * it. That the editor and the renderer are separate files, each charged on
+     * its own against the budget, is `scripts/bundle-budget.mjs` in CI; that
+     * reading a formatted panel never asks for the editor is
+     * apps/web/tests/unit/panels/PanelText.test.tsx.
+     */
+    test('draws the words, shows its bar only while you write, and gives the characters back', async ({
+      page,
+      isMobile,
+    }) => {
+      await ownDashboard(page, isMobile);
+      const name = uniqueTitle('What matters');
+      await addPanelOfText(page, name, isMobile);
+      const panel = page.getByRole('region', { name });
+
+      const written = answerTo(page, 'set_panel_text');
+      await page.getByRole('textbox', { name }).fill('**Pricing** for Atlas Copco');
+      expect((await written).status()).toBe(200);
+      // Plain: the characters that were typed, asterisks and all.
+      await expect(panel).toContainText('**Pricing**');
+
+      const formatted = answerTo(page, 'set_panel_format');
+      await chooseRowAction(page, name, 'Use rich text', isMobile);
+      expect((await formatted).status()).toBe(200);
+      await expect(panel.getByRole('strong')).toHaveText('Pricing');
+
+      // Open to be written in, but nobody in it: no bar over the dashboard.
+      await expect(panel.getByRole('toolbar', { name: 'Formatting' })).toHaveCount(0);
+      await panel.getByRole('textbox', { name }).click();
+      await expect(panel.getByRole('toolbar', { name: 'Formatting' })).toBeVisible();
+      // The focus taken out of the panel, rather than a click somewhere: a
+      // press on another panel's header is the start of a drag, and a press on
+      // the sheet between them would depend on there being a gap to hit at
+      // whatever width this is running at.
+      await page.getByRole('button', { name: 'Dashboard actions' }).focus();
+      await expect(panel.getByRole('toolbar', { name: 'Formatting' })).toHaveCount(0);
+
+      const plain = answerTo(page, 'set_panel_format');
+      await chooseRowAction(page, name, 'Use plain text', isMobile);
+      expect((await plain).status()).toBe(200);
+      // The plain box specifically, not whatever is playing a textbox: the
+      // editor is still mounted for the moment between the change landing and
+      // the panel being redrawn, and it answers to the same name and role.
+      //
+      // To the character, because how it is drawn was never what it is.
+      await expect(panel.locator('textarea')).toHaveValue('**Pricing** for Atlas Copco');
+      await expectNoSidewaysScroll(page);
+    });
+  });
+
   test.describe('a panel goes where you drag it', () => {
     // Desktop only, and the reason is the gesture rather than the screen: a
     // panel is moved with a pointer held down and dragged, which a finger
