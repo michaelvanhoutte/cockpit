@@ -1,4 +1,10 @@
-import { DEFAULT_CELL_SPAN, MOST_ACROSS } from '@cockpit/shared';
+import {
+  DEFAULT_CELL_SPAN,
+  GRID_COLUMNS,
+  MAX_ROW_HEIGHT,
+  MIN_ROW_HEIGHT,
+  MOST_ACROSS,
+} from '@cockpit/shared';
 import type { Layout, LayoutCell, LayoutRow, Panel } from '@cockpit/shared';
 
 /**
@@ -487,5 +493,108 @@ export function sameArrangement(
         })
       );
     })
+  );
+}
+
+/**
+ * The arrangement with one row given a height, or given none.
+ *
+ * **The bounds live here rather than in the gesture**, so a height is in range
+ * by the time anything can hold one: the board hands over whatever the pointer
+ * says and gets back a row a screen can draw. A height outside them is clamped
+ * rather than refused, because the pointer is always allowed to keep going -
+ * the row simply stops, which is what a person sees and reads as the limit.
+ *
+ * `null` is not a height and passes straight through: it is a row going back to
+ * being as tall as what is in it, which is what a row is until somebody says
+ * otherwise.
+ */
+export function withRowHeight(
+  rows: readonly LayoutRow[],
+  rowIndex: number,
+  height: number | null,
+): LayoutRow[] {
+  const kept = height === null ? null : Math.round(clamp(height, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT));
+  return rows.map((row, at) =>
+    at === rowIndex ? { height: kept, cells: row.cells.map((cell) => ({ ...cell })) } : row,
+  );
+}
+
+/**
+ * A row's spans as whole twelfths of it, drawing exactly the proportions it
+ * already has.
+ *
+ * A divider moves whole columns between two neighbours, so the row has to add
+ * up to twelve before one can be moved within it - and a row nobody has ever
+ * dragged is twelve per cell, which is the same proportions and not a total
+ * anything can be moved inside. Largest-remainder, so the twelve are shared out
+ * as close to the proportions as whole numbers get, and no cell is ever given
+ * less than the one column `cellInputSchema` allows.
+ *
+ * A row of more cells than there are columns cannot be written this way at all -
+ * twelve columns will not give thirteen cells one each - and comes back as it
+ * is. Only a converted arrangement can be that wide, `MOST_ACROSS` being four.
+ */
+function inTwelfths(row: LayoutRow): number[] {
+  const count = row.cells.length;
+  if (count === 0 || count > GRID_COLUMNS) return row.cells.map((cell) => cell.span);
+  const wanted = sharesOf(row).map((share) => share * GRID_COLUMNS);
+  const spans = wanted.map((value) => Math.max(1, Math.floor(value)));
+  const byRemainder = wanted
+    .map((value, at) => ({ at, rest: value - Math.floor(value) }))
+    .sort((one, other) => other.rest - one.rest);
+  let left = GRID_COLUMNS - spans.reduce((sum, span) => sum + span, 0);
+  for (let step = 0; left > 0; step += 1) {
+    const at = byRemainder[step % count]!.at;
+    spans[at] = spans[at]! + 1;
+    left -= 1;
+  }
+  // Flooring at one can overshoot twelve on a row of many narrow cells; the
+  // columns come back off the widest, which is the cell that can spare them.
+  while (left < 0) {
+    const widest = spans.indexOf(Math.max(...spans));
+    if (spans[widest]! <= 1) break;
+    spans[widest] = spans[widest]! - 1;
+    left += 1;
+  }
+  return spans;
+}
+
+/**
+ * The arrangement with whole columns moved across one of a row's dividers: the
+ * panel on the left of it gains exactly what the panel on the right loses.
+ *
+ * **The row still adds up to a whole**, so the panels either side of the pair
+ * keep the share they had - a divider is a question about two neighbours, not
+ * about the row.
+ *
+ * **A move of no columns changes nothing at all**, and that is not a shortcut:
+ * writing the row in twelfths would rewrite every span of a row nobody has
+ * dragged (twelve per cell becomes four per cell on a row of three) for the
+ * same proportions, and a gesture that ends where it started would be kept as a
+ * change. The rewrite happens only once a column actually moves.
+ *
+ * Neither neighbour can be squeezed out: a panel stops at the one column
+ * `cellInputSchema` allows, which is a twelfth of the row.
+ */
+export function dividerMoved(
+  rows: readonly LayoutRow[],
+  rowIndex: number,
+  dividerAt: number,
+  columns: number,
+): LayoutRow[] {
+  const row = rows[rowIndex];
+  if (!row || columns === 0) return [...rows];
+  if (dividerAt < 0 || dividerAt + 1 >= row.cells.length) return [...rows];
+  if (row.cells.length > GRID_COLUMNS) return [...rows];
+  const spans = inTwelfths(row);
+  const pair = spans[dividerAt]! + spans[dividerAt + 1]!;
+  const takes = Math.round(clamp(spans[dividerAt]! + columns, 1, pair - 1));
+  spans[dividerAt] = takes;
+  spans[dividerAt + 1] = pair - takes;
+  return rows.map((one, at) =>
+    at === rowIndex
+      ? { height: one.height, cells: one.cells.map((cell, where) => ({ ...cell, span: spans[where]! })) }
+      : one,
   );
 }

@@ -586,7 +586,75 @@ test.describe('Panels', () => {
       await expectTheDashboardFits(page);
     });
   });
+
+  test.describe('a row is as tall, and a panel as wide, as the line you drag says', () => {
+    // Desktop only for the reason the drag above is: both lines are taken hold
+    // of with a pointer, which a finger spends on scrolling the page.
+    test.skip(({ isMobile }) => !!isMobile, 'sizing a row is a pointer gesture');
+
+    test('keeps the height and the shares a drag sets, across a reload', async ({
+      page,
+      isMobile,
+    }) => {
+      // The one claim no level below can make: both lines are four pixels of
+      // gap, and whether a hand can take hold of one at all is a question about
+      // a real pointer against a real layout. What the gestures *mean* is
+      // settled in apps/web/tests/unit/components/PanelBoard.test.tsx, and the
+      // arithmetic under them in apps/web/tests/unit/panels/arrangement.test.ts.
+      await ownDashboard(page, isMobile);
+      const first = uniqueTitle('Project Falcon');
+      const second = uniqueTitle('To read');
+      await addPanel(page, first, isMobile);
+      await addPanel(page, second, isMobile);
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
+
+      const row = page.locator('main [style*="grid-template-columns"]').first();
+      const wasTall = (await row.boundingBox())!.height;
+
+      // Waited for from before the gesture, because the board draws the size
+      // under the hand and sends it only when the hand stops.
+      let saved = answerTo(page, 'save_layout');
+      const under = page.getByTestId('row-line').first();
+      const [lineX, lineY] = await centreOf(under);
+      await page.mouse.move(lineX, lineY);
+      await page.mouse.down();
+      await page.mouse.move(lineX, lineY + 120, { steps: 8 });
+      await page.mouse.up();
+      expect((await saved).status()).toBe(200);
+      await expect.poll(async () => (await row.boundingBox())!.height).toBe(wasTall + 120);
+
+      // Two whole columns across the line between them, which takes an even row
+      // to three quarters and one quarter - a share, so it is read as the ratio
+      // of the two rather than as a width in pixels.
+      saved = answerTo(page, 'save_layout');
+      const between = page.getByTestId('column-line').first();
+      const [betweenX, betweenY] = await centreOf(between);
+      const aColumn = (await row.boundingBox())!.width / 12;
+      await page.mouse.move(betweenX, betweenY);
+      await page.mouse.down();
+      await page.mouse.move(betweenX + aColumn * 2, betweenY, { steps: 8 });
+      await page.mouse.up();
+      expect((await saved).status()).toBe(200);
+      await expect.poll(() => shareOfTheRow(page, first, second)).toBeCloseTo(2, 1);
+
+      // Kept rather than merely drawn: everything above would pass on a change
+      // still sitting in the browser.
+      await page.reload();
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
+      await expect.poll(async () => (await row.boundingBox())!.height).toBe(wasTall + 120);
+      await expect.poll(() => shareOfTheRow(page, first, second)).toBeCloseTo(2, 1);
+      await expectNoSidewaysScroll(page);
+      await expectTheDashboardFits(page);
+    });
+  });
 });
+
+/** How many times wider one panel is drawn than another beside it on its row. */
+async function shareOfTheRow(page: Page, wider: string, narrower: string): Promise<number> {
+  const of = async (name: string) =>
+    (await page.getByRole('region', { name }).boundingBox())!.width;
+  return (await of(wider)) / (await of(narrower));
+}
 
 /** The middle of something, as the pair `page.mouse.move` takes. */
 async function centreOf(what: Locator): Promise<[number, number]> {

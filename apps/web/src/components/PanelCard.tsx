@@ -23,7 +23,9 @@ import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThing
  * phone - the browser's own drag-and-drop is a mouse protocol - so the panel's
  * own menu carries the same path a step at a time, which is also what makes it
  * provable below the browser tier. **A panel has no size of its own**: it fills
- * its share of its row, and the row is what carries a height.
+ * its share of its row, and the row is what carries a height - so both are set
+ * by dragging the lines the *row* is drawn with, and neither is a control on
+ * the panel (`PanelBoard`, `RowSeam` and `ColumnLine`).
  */
 
 /**
