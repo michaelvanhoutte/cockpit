@@ -224,6 +224,12 @@ const commandSenders = {
     api.v1.commands.rename_layout.$post({ json: p }),
   delete_layout: (p: CommandPayload<'delete_layout'>) =>
     api.v1.commands.delete_layout.$post({ json: p }),
+  create_screen_size: (p: CommandPayload<'create_screen_size'>) =>
+    api.v1.commands.create_screen_size.$post({ json: p }),
+  rename_screen_size: (p: CommandPayload<'rename_screen_size'>) =>
+    api.v1.commands.rename_screen_size.$post({ json: p }),
+  delete_screen_size: (p: CommandPayload<'delete_screen_size'>) =>
+    api.v1.commands.delete_screen_size.$post({ json: p }),
   capture_item: (p: CommandPayload<'capture_item'>) => api.v1.commands.capture_item.$post({ json: p }),
   move_item_to_panel: (p: CommandPayload<'move_item_to_panel'>) =>
     api.v1.commands.move_item_to_panel.$post({ json: p }),

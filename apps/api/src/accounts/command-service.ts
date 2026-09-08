@@ -13,6 +13,7 @@ import {
   panelItems,
   panelPlacements,
   panels,
+  screenSizes,
   workspaces,
 } from './schema.js';
 import {
@@ -22,6 +23,7 @@ import {
   getItemType,
   getLayout,
   getPanel,
+  getScreenSize,
   getWorkspace,
   lastWorkspacePosition,
   listDashboards,
@@ -33,6 +35,7 @@ import {
   listLayoutsOn,
   listPanels,
   listPlacements,
+  listScreenSizes,
   listWorkspaces,
 } from './repo.js';
 import { ACCOUNT_WIDE, isPaletteTheme } from '@cockpit/shared';
@@ -72,6 +75,7 @@ import {
   itemTypeNamed,
   ordersTypesExactly,
 } from '../domain/item-types.js';
+import { screenSizeNamed } from '../domain/screen-sizes.js';
 import {
   applySetDescription,
   applySetDismissed,
@@ -266,6 +270,32 @@ export class LastLayoutError extends Error {
   constructor() {
     super('a dashboard keeps at least one layout');
     this.name = 'LastLayoutError';
+  }
+}
+
+/**
+ * A screen size that is not the account's - gone, or never made ("Draw a
+ * dashboard against the screen sizes its account has", issue 263). There is no
+ * deleting-the-last refusal beside this one: unlike a Layout, an account
+ * keeping none is a normal state, meaning every Dashboard is drawn fitted to
+ * the screen it is on.
+ */
+export class ScreenSizeNotFoundError extends Error {
+  constructor(screenSizeId: string) {
+    super(`screen size ${screenSizeId} not found`);
+    this.name = 'ScreenSizeNotFoundError';
+  }
+}
+
+/**
+ * Its own kind rather than the type one, for the reason every name-taken error
+ * here has its own: the message is what a person reads, and it has to name the
+ * list that is actually in the way.
+ */
+export class ScreenSizeNameTakenError extends Error {
+  constructor(name: string) {
+    super(`a screen size called ${name} already exists`);
+    this.name = 'ScreenSizeNameTakenError';
   }
 }
 
@@ -947,6 +977,133 @@ export function runCommand<N extends CommandName>(
           .run();
         tx.delete(layouts)
           .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, cmd.layoutId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'create_screen_size': {
+      const cmd = payload as CommandPayload<'create_screen_size'>;
+      // A screen size is the account's, offered in every Workspace it has, so
+      // every tab open on any of them needs telling - not only the one this
+      // change happened to be sent from. Unconditional, unlike the item
+      // commands above that call this only once a Workspace is decided: a
+      // screen size is never workspace-scoped in the first place.
+      everyWorkspaceSees(commandRow);
+      const already = listScreenSizes(db, tenantId);
+      // A name another size has is refused rather than reused, exactly as a
+      // Type's is - a screen size is only ever made deliberately (R5).
+      const alreadyCalledThat = screenSizeNamed(already, cmd.name);
+      if (alreadyCalledThat) throw new ScreenSizeNameTakenError(alreadyCalledThat.name);
+      db.transaction((tx) => {
+        tx.insert(screenSizes)
+          .values({
+            id: cmd.screenSizeId,
+            tenantId,
+            name: cmd.name,
+            foldedName: foldName(cmd.name),
+            width: cmd.width,
+            createdAt: cmd.issuedAt,
+          })
+          // Named at the primary key, like `create_workspace`'s and for the
+          // same reason: a screen size also carries a second unique index, the
+          // one on its folded name. A bare call would treat a race lost against
+          // the check above as proof the request had already been granted, and
+          // this client would go on to define a Layout against the id it sent
+          // rather than the id that actually won - a foreign key with nothing
+          // on the other end. Named at the id, a replayed create is the only
+          // conflict this quietly absorbs, and a genuine name collision still
+          // raises.
+          .onConflictDoNothing({ target: screenSizes.id })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'rename_screen_size': {
+      const cmd = payload as CommandPayload<'rename_screen_size'>;
+      everyWorkspaceSees(commandRow); // account-wide - see create_screen_size
+      const live = listScreenSizes(db, tenantId);
+      const size = live.find((candidate) => candidate.id === cmd.screenSizeId);
+      if (!size) throw new ScreenSizeNotFoundError(cmd.screenSizeId);
+      // Its own name back is a rename that changes nothing, not a collision.
+      const taken = screenSizeNamed(live, cmd.name, cmd.screenSizeId);
+      if (taken) throw new ScreenSizeNameTakenError(taken.name);
+      db.transaction((tx) => {
+        tx.update(screenSizes)
+          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
+          .where(and(eq(screenSizes.tenantId, tenantId), eq(screenSizes.id, cmd.screenSizeId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_screen_size': {
+      const cmd = payload as CommandPayload<'delete_screen_size'>;
+      everyWorkspaceSees(commandRow); // account-wide - see create_screen_size
+      // Deleted for real, so the same delete sent twice with a fresh request id
+      // finds nothing the second time.
+      if (!getScreenSize(db, tenantId, cmd.screenSizeId)) {
+        throw new ScreenSizeNotFoundError(cmd.screenSizeId);
+      }
+      db.transaction((tx) => {
+        // A join rather than the ids read out and bound in, for the reason
+        // `delete_panel`'s cascade above is: every Dashboard of every
+        // Workspace the account has may hold a Layout at this size - not only
+        // one Dashboard's, which is the whole difference from `delete_layout`
+        // - so that count is uncapped, and an `IN` list as long as it is a
+        // statement whose parameter count grows with the data (architecture,
+        // "No statement's parameter count grows with the data").
+        //
+        // Placements and rows before the layouts themselves, which is what
+        // the RESTRICT on both makes explicit rather than silent.
+        tx.delete(panelPlacements)
+          .where(
+            and(
+              eq(panelPlacements.tenantId, tenantId),
+              exists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(layouts)
+                  .where(
+                    and(
+                      eq(layouts.tenantId, tenantId),
+                      eq(layouts.id, panelPlacements.layoutId),
+                      eq(layouts.screenSizeId, cmd.screenSizeId),
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .run();
+        tx.delete(layoutRows)
+          .where(
+            and(
+              eq(layoutRows.tenantId, tenantId),
+              exists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(layouts)
+                  .where(
+                    and(
+                      eq(layouts.tenantId, tenantId),
+                      eq(layouts.id, layoutRows.layoutId),
+                      eq(layouts.screenSizeId, cmd.screenSizeId),
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .run();
+        tx.delete(layouts)
+          .where(and(eq(layouts.tenantId, tenantId), eq(layouts.screenSizeId, cmd.screenSizeId)))
+          .run();
+        // Items filed on the Panels those Layouts arranged are untouched:
+        // `panel_placements` is where a Panel sits in a Layout, and
+        // `panel_items` is what is filed on a Panel - two tables one word
+        // apart, holding two completely different things.
+        tx.delete(screenSizes)
+          .where(and(eq(screenSizes.tenantId, tenantId), eq(screenSizes.id, cmd.screenSizeId)))
           .run();
         tx.insert(commands).values(commandRow).run();
       });
