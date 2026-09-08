@@ -381,17 +381,23 @@ export async function switchTo(page: Page, name: string, isMobile: boolean): Pro
 }
 
 /**
- * Drags one row of the workspace settings list onto another's place, by its
- * grip.
+ * Drags one workspace tab onto another's place along the strip.
  *
- * Driven with the mouse under both projects, and that is a limit of the tool
- * rather than a claim about the product: Playwright's touchscreen can tap and
- * nothing else, so a finger drag cannot be expressed at all. What the phone
- * project still gets out of this is the gesture against the 480px layout. The
- * way to move a workspace with a finger - or a keyboard - is the row's own
- * menu, and that is walked with `press`, which really does tap.
+ * Driven with the mouse, and only under the desktop project: Playwright's
+ * touchscreen can tap and nothing else, so a finger drag cannot be expressed
+ * here at all - and the app's drag is the pointer's anyway. The way to move a
+ * tab with a finger, or a keyboard, is the tab's own Move left / Move right,
+ * walked with `press`, which really does tap.
  */
 export async function dragTabOnto(page: Page, tab: string, onto: string): Promise<void> {
+  // Scrolled to before they are measured, and that is not a nicety:
+  // `boundingBox` reports a position without scrolling to it, so a tab outside
+  // the strip's visible part is measured at a coordinate the mouse cannot be
+  // moved to - and the drag then silently moves nothing while every assertion
+  // after it is asked of a strip nothing touched. That is how the workspace
+  // list's own drag walk once passed while dragging nothing at all.
+  await workspaceTab(page, tab).scrollIntoViewIfNeeded();
+  await workspaceTab(page, onto).scrollIntoViewIfNeeded();
   const from = await workspaceTab(page, tab).boundingBox();
   const to = await workspaceTab(page, onto).boundingBox();
   if (!from || !to) throw new Error(`cannot drag ${tab} onto ${onto}: one of them is not on screen`);
@@ -404,51 +410,6 @@ export async function dragTabOnto(page: Page, tab: string, onto: string): Promis
   await page.mouse.up();
 }
 
-export async function dragRowOnto(page: Page, row: string, onto: string): Promise<void> {
-  const grip = page.getByTitle(`Drag to reorder ${row}`);
-  const target = page.getByRole('listitem').filter({ hasText: onto });
-  // Scrolled to before it is measured, which is what a person does before
-  // dragging a row they cannot see. Everything else in these walks is a
-  // Playwright action, and those scroll to what they act on; a drag is two
-  // rectangles and a stream of mouse moves, and `boundingBox` reports where an
-  // element is relative to the viewport without scrolling to it. So a row below
-  // the fold is measured at a coordinate the mouse cannot be moved to, and the
-  // drag silently does nothing - the rows this walk drags are the two it just
-  // made, which are the last two in the list.
-  //
-  // It went unnoticed for as long as it did because the box for making a
-  // workspace used to sit below the list: pressing New workspace scrolled the
-  // page to the bottom, which happened to leave the newest rows on screen.
-  // Moving that box above the list took the accident away and the drag stopped
-  // moving anything, while every assertion about where the rows ended up went
-  // on being asked of a list nothing had touched.
-  await grip.scrollIntoViewIfNeeded();
-  await target.scrollIntoViewIfNeeded();
-  const from = await grip.boundingBox();
-  const to = await target.boundingBox();
-  if (!from || !to) throw new Error(`cannot drag ${row} onto ${onto}: one of them is not on screen`);
-  // Said plainly rather than left as a drag that quietly moved nothing. Two
-  // adjacent rows fit on both projects' screens; if that ever stops being true
-  // the walk needs a drag that scrolls as it goes, which the page does not do.
-  const viewport = page.viewportSize();
-  for (const [what, box] of [
-    [row, from],
-    [onto, to],
-  ] as const) {
-    if (viewport && (box.y < 0 || box.y + box.height > viewport.height)) {
-      throw new Error(
-        `cannot drag ${row} onto ${onto}: ${what} is at ${box.y}px of a ${viewport.height}px screen, so the mouse cannot reach it`,
-      );
-    }
-  }
-
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-  await page.mouse.down();
-  // In steps, because a drag is a stream of moves: one jump would leave the
-  // list never having been told where the pointer went.
-  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
-  await page.mouse.up();
-}
 
 /**
  * The bar of views under the workspace tabs: the workspace's dashboards, and
@@ -473,7 +434,7 @@ export function dashboardTab(page: Page, name: string): Locator {
  * Opens a dashboard, and does nothing where it is already the one on screen -
  * which is not a nicety: pressing the tab you are on opens that tab's menu
  * rather than switching ("Change a workspace or a dashboard on the tab it is",
- * issue 255), so a walk that pressed it anyway would carry on with a menu over
+ * issue 267), so a walk that pressed it anyway would carry on with a menu over
  * the page. On a phone the Inbox is a screen of its own, so coming back from it
  * really is a switch; on a wide screen the dashboard was never left.
  */
@@ -520,7 +481,7 @@ export async function makeWorkspace(page: Page, name: string, isMobile: boolean)
 
 /**
  * Chooses what to do to a workspace or a dashboard, on the tab it is ("Change
- * a workspace or a dashboard on the tab it is", issue 255).
+ * a workspace or a dashboard on the tab it is", issue 267).
  *
  * **One gesture per project, and each is the one that input really has.** A
  * mouse right-clicks. A finger cannot, so the phone project presses the tab it
@@ -538,8 +499,15 @@ export async function chooseTabAction(
   if (isMobile) {
     await tab.tap();
     // A tap on a tab you were not on switches to it, and the menu comes on the
-    // next press. On the one you were already on the first press is the menu.
-    if (!(await page.getByRole('menuitem', { name: entry }).count())) await tab.tap();
+    // next press; on the one you were already on the first press is the menu.
+    // Waited for rather than counted straight away, which would race the menu
+    // being drawn and tap a second time - closing the one just opened.
+    const opened = await page
+      .getByRole('menuitem', { name: entry })
+      .waitFor({ state: 'visible', timeout: 2_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!opened) await tab.tap();
   } else {
     await tab.click({ button: 'right' });
   }
@@ -735,7 +703,7 @@ export async function tabOnIsWhollyInView(page: Page): Promise<boolean> {
  *
  * **Driven through CDP because Playwright cannot express a finger drag**: its
  * touchscreen taps and does nothing else, which is the limit recorded on
- * `dragRowOnto` above. `Input.dispatchTouchEvent` puts the touch in at the
+ * `dragTabOnto` above. `Input.dispatchTouchEvent` puts the touch in at the
  * browser's own input layer, so `touch-action`, the pointer events React sees
  * and the scrolling this gesture has to coexist with are all the real ones.
  * Driving `dispatchEvent` from `page.evaluate` would prove only that a handler
@@ -826,12 +794,12 @@ export async function holdRow(page: Page, title: string): Promise<void> {
  *
  * **The mouse, under both projects, and that is a limit of the tool rather than
  * a claim about the product**: Playwright's touchscreen cannot express a drag
- * at all (see `dragRowOnto`), and the browser's own drag-and-drop is a mouse
+ * at all (see `dragTabOnto`), and the browser's own drag-and-drop is a mouse
  * gesture anyway — a row is swiped on a phone, not dragged. The phone project
  * still gets the gesture against a 480px layout.
  *
  * Both rows are scrolled to and measured before the mouse moves, for the reason
- * `dragRowOnto` records: `boundingBox` reports a position without scrolling to
+ * `dragTabOnto` records: `boundingBox` reports a position without scrolling to
  * it, so a row below the fold is measured at a coordinate the mouse cannot
  * reach and the drag silently does nothing.
  */

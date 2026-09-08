@@ -10,7 +10,7 @@ import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { layoutsOf } from '../panels/arrangement';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LayoutPicker } from './LayoutPicker';
-import { TabMenu, opensOnPress } from './Menu';
+import { TabMenu, opensOnPress, type MenuEntry } from './Menu';
 import { NameQuestion } from './NameQuestion';
 import { RowForm } from './RowForm';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_HOLDS, WHAT_A_PANEL_IS } from '../whatThingsAre';
@@ -144,6 +144,10 @@ export function DashboardBar({
       a form open on a dashboard nothing holds would save into nothing. */
   const beingEdited = dashboards.find((d) => d.id === editing?.id);
   const beingDeleted = dashboards.find((d) => d.id === deleting);
+  /** How many panels the question is about, which is what it says goes with it. */
+  const panelsGoingWithIt = (data?.panels ?? []).filter(
+    (panel) => panel.dashboardId === beingDeleted?.id,
+  ).length;
 
   /**
    * Sends the name if it actually changed, and nothing otherwise: a form saved
@@ -253,7 +257,7 @@ export function DashboardBar({
    * so rather than disappearing, and rather than being offered and then
    * refused.
    */
-  const entriesFor = (dashboard: Dashboard) => [
+  const entriesFor = (dashboard: Dashboard): MenuEntry[] => [
     {
       label: 'Edit…',
       onSelect: (from: HTMLElement | null) => {
@@ -267,8 +271,7 @@ export function DashboardBar({
     {
       label: 'Delete',
       destructive: true,
-      unavailable:
-        dashboards.length === 1 ? 'A workspace keeps its last dashboard' : (undefined as undefined),
+      unavailable: dashboards.length === 1 ? 'A workspace keeps its last dashboard' : undefined,
       onSelect: (from: HTMLElement | null) => {
         setEditing(null);
         command.reset();
@@ -383,7 +386,7 @@ export function DashboardBar({
       {/* The bar had a menu of its own at this end, holding one entry: the
           list the dashboards were renamed and deleted in. Both are gone - what
           can be done to a dashboard is on the dashboard's own tab now ("Change
-          a workspace or a dashboard on the tab it is", issue 255) - and a menu
+          a workspace or a dashboard on the tab it is", issue 267) - and a menu
           with nothing in it is not a menu. */}
 
       {beingEdited && editing && (
@@ -406,7 +409,7 @@ export function DashboardBar({
       {beingDeleted && (
         <DeleteQuestion
           open
-          question={deleteQuestion(beingDeleted.name, panelsOn(data?.panels, beingDeleted.id))}
+          question={deleteQuestion(beingDeleted.name, panelsGoingWithIt)}
           confirmLabel={`Yes, delete ${beingDeleted.name}`}
           canConfirm={!command.isPending}
           // The refusal belongs to the control that asked for it, and
@@ -698,11 +701,6 @@ function WhatItHolds({
       </div>
     </fieldset>
   );
-}
-
-/** How many panels a dashboard holds, which is what deleting it takes with it. */
-function panelsOn(panels: { dashboardId: string }[] | undefined, dashboardId: string): number {
-  return (panels ?? []).filter((panel) => panel.dashboardId === dashboardId).length;
 }
 
 /**

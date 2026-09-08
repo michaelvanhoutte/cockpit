@@ -348,7 +348,7 @@ export const STILL_READING = 'Still reading your workspace — your note is safe
  *
  * The `+` rather than a menu: making a workspace is the strip's own control,
  * and the window this used to name is gone ("Change a workspace or a dashboard
- * on the tab it is", issue 255).
+ * on the tab it is", issue 267).
  */
 export const NO_WORKSPACE =
   'No workspace to capture into — your note is safe. Make one with the + beside the tabs.';

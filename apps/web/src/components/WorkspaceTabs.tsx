@@ -15,12 +15,12 @@ import { litForChrome } from '../chrome';
 import { movedBy } from '../reorder';
 import { useTabDrag } from '../tabDrag';
 import { DeleteQuestion } from './DeleteQuestion';
-import { TabMenu, opensOnPress } from './Menu';
+import { TabMenu, opensOnPress, type MenuEntry } from './Menu';
 import { RowForm } from './RowForm';
 
 /**
  * The workspaces across the top, and everything that can be done to one
- * ("Change a workspace or a dashboard on the tab it is", issue 255): its name
+ * ("Change a workspace or a dashboard on the tab it is", issue 267): its name
  * and colour on a form, its place in the strip, and deleting it.
  *
  * **It was a window opened from the header's menu**, and the window was two
@@ -267,7 +267,16 @@ export function WorkspaceTabs({
   const here = params.workspaceId;
   useEffect(() => {
     const deleted = focusOwedAfterDeleting.current;
-    if (!deleted || beingDeleted || !here || here === deleted) return;
+    if (!deleted || beingDeleted) return;
+    // Nowhere to put it: capture is under the shell in no workspace, so there
+    // is no tab to land on. Forgotten rather than kept, or the next workspace
+    // opened by hand would have the focus taken to its tab by a delete made
+    // minutes ago.
+    if (!here) {
+      focusOwedAfterDeleting.current = null;
+      return;
+    }
+    if (here === deleted) return;
     const tab = drag.strip.current?.querySelector<HTMLElement>(
       `[data-tab-id="${CSS.escape(here)}"]`,
     );
@@ -311,7 +320,7 @@ export function WorkspaceTabs({
    * disappearing: it is the only way a keyboard has to move a tab, and the
    * comfortable one on a phone.
    */
-  const entriesFor = (ws: Workspace, at: number): MenuEntryList => [
+  const entriesFor = (ws: Workspace, at: number): MenuEntry[] => [
     // One entry for changing a workspace rather than a Rename beside it: the
     // form is what renames, and two ways to reach the same box is one more
     // thing to choose between.
@@ -463,8 +472,6 @@ export function WorkspaceTabs({
     </>
   );
 }
-
-type MenuEntryList = React.ComponentProps<typeof TabMenu>['entries'];
 
 /**
  * The look every tab in the strip wears - the workspaces, and Capture ahead of

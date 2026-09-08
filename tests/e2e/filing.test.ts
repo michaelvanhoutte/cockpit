@@ -356,7 +356,7 @@ test.describe('Panels', () => {
       const row = itemRow(page, title);
       const tab = dashboardBar(page).getByRole('link', { name: elsewhere });
       // Scrolled to the middle of the bar before it is measured, which is what
-      // `dragRowOnto` records one half of: the bar scrolls sideways once a
+      // `dragTabOnto` records one half of: the bar scrolls sideways once a
       // workspace has a few dashboards, and `boundingBox` reports where a tab is
       // without scrolling to it — so a tab off the end is measured at a
       // coordinate the mouse cannot reach and the drag silently does nothing.

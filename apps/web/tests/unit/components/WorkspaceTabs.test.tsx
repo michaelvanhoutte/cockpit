@@ -302,6 +302,13 @@ describe('Workspace management', () => {
       // dismissed, so nothing else puts the focus anywhere and it falls to the
       // top of a page you cannot see. It goes to the tab you are on, which is
       // the nearest thing to where you were.
+      //
+      // **This is the easy half.** The list here is fixed, so the workspace
+      // deleted is one this walk was not looking at and the tab to land on is
+      // there already. Deleting the one you *are* on moves the app to another
+      // workspace first, and the focus has to wait for that - which passed
+      // here while the app put the focus on a tab about to be taken away, and
+      // is held in tests/e2e/workspace-management.test.ts instead.
       const { user } = showTabs(['Work', 'Personal'], { here: 'ws-work', items: 0 });
       await menuOf('Personal');
       await user.click(screen.getByRole('menuitem', { name: 'Delete' }));

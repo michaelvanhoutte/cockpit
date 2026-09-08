@@ -137,11 +137,33 @@ test.describe('Workspace management', () => {
           };
         });
 
+      /**
+       * The same reading, once two in a row agree.
+       *
+       * Switching workspace repaints the chrome from the list the shell
+       * re-reads, which lands a moment after the address does - so a reading
+       * taken the instant a switch finishes is the *previous* workspace's
+       * colour, and the comparison at the end of this walk then fails on a
+       * repaint nobody asked about.
+       */
+      const settledChrome = async () => {
+        let last = '';
+        await expect
+          .poll(async () => {
+            const now = JSON.stringify(await chrome());
+            const twice = now === last;
+            last = now;
+            return twice;
+          })
+          .toBe(true);
+        return JSON.parse(last) as Awaited<ReturnType<typeof chrome>>;
+      };
+
       const name = uniqueTitle('Bookkeeping');
       await openFirstWorkspace(page, isMobile);
       await makeWorkspace(page, name, isMobile);
       await switchTo(page, name, isMobile);
-      const before = await chrome();
+      const before = await settledChrome();
 
       await chooseTabAction(page, workspaceTab(page, name), 'Edit…', isMobile);
       await expect(page.getByLabel(`Name of ${name}`)).toBeVisible();

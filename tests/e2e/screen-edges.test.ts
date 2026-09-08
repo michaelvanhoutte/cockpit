@@ -177,7 +177,7 @@ test.describe('Screen edges', () => {
       await press(naming.getByRole('button', { name: 'Cancel' }), isMobile);
 
       // The form a dashboard is changed on, which is opened from its own tab
-      // ("Change a workspace or a dashboard on the tab it is", issue 255) and
+      // ("Change a workspace or a dashboard on the tab it is", issue 267) and
       // is the dialog that used to be the list of dashboards.
       await chooseTabAction(page, dashboardTab(page, 'Dashboard 1'), 'Edit…', isMobile);
       const form = page.getByRole('dialog', { name: 'Edit Dashboard 1' });

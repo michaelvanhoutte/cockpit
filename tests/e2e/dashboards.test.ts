@@ -111,7 +111,7 @@ test.describe('Dashboards', () => {
       const itsAddress = page.url();
 
       // The tab itself is how what can be done to a dashboard is reached
-      // ("Change a workspace or a dashboard on the tab it is", issue 255): a
+      // ("Change a workspace or a dashboard on the tab it is", issue 267): a
       // right-click with a mouse, a press on the tab you are on with a finger.
       // Which gesture opens a menu is a browser question, and the form it
       // opens is a dialog over the workspace rather than a screen, which is a

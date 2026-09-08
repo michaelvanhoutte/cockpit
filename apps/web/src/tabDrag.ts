@@ -3,7 +3,7 @@ import { movedTo } from './reorder';
 
 /**
  * Dragging a tab along its strip to where you want it ("Change a workspace or a
- * dashboard on the tab it is", issue 255).
+ * dashboard on the tab it is", issue 267).
  *
  * **The same move as the menu's**, computed through `reorder.ts` like Move left
  * and Move right, so the two cannot disagree about what moving a tab one place
@@ -61,9 +61,13 @@ export function useTabDrag({
     return tabs.length - 1;
   };
 
-  const stop = () => {
+  const stop = ({ clickFollows }: { clickFollows: boolean }) => {
     pressed.current = null;
     live.current = null;
+    // Cleared with the drag unless a click is still coming to be swallowed: a
+    // drag released outside the window ends without one, and a flag left
+    // standing would eat the next ordinary press on a tab instead.
+    if (!clickFollows) dragged.current = false;
     setDragging(null);
   };
 
@@ -105,9 +109,11 @@ export function useTabDrag({
       live.current = { id, to };
       setDragging(live.current);
     },
-    onPointerUp: () => {
+    onPointerUp: (event: React.PointerEvent<HTMLElement>) => {
       const held = live.current;
-      stop();
+      // A release over the tab itself is followed by a click; one anywhere
+      // else - the drag left the strip, or the window - is not.
+      stop({ clickFollows: event.currentTarget.contains(event.target as Node) });
       if (!held) return;
       const moved = movedTo(order, held.id, held.to);
       // A drag that ends where it started asks for nothing.
@@ -116,7 +122,7 @@ export function useTabDrag({
     // The browser taking the pointer back - a scroll, a window losing focus -
     // leaves the tabs where they were rather than dropping them wherever the
     // drag had got to.
-    onPointerCancel: stop,
+    onPointerCancel: () => stop({ clickFollows: false }),
     onClickCapture: (event: React.MouseEvent) => {
       // A drag ends with a click on whatever it landed on, which would
       // otherwise switch to that tab.

@@ -214,7 +214,7 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
 /**
  * The menu a tab carries, holding what can be done to the workspace or the
  * dashboard it names ("Change a workspace or a dashboard on the tab it is",
- * issue 255).
+ * issue 267).
  *
  * **The tab is the trigger, so there is no control to add.** The strips are the
  * thing you use all day and a three-dot button on every tab would be permanent
@@ -230,8 +230,9 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
  * - **the keyboard's own menu key**, which the browser turns into the same
  *   event a right-click makes, so the keyboard costs nothing to support.
  *
- * A long press opens it too - Radix's own doing on a touchscreen - which is a
- * fourth way in rather than a designed one, and reaches a tab you are not on.
+ * (A long press may open it as well, which is Radix's own doing on a
+ * touchscreen. Nothing here relies on it and no walk drives it, so it is not
+ * one of the ways in above.)
  *
  * **The menu is the row menu's, in a context menu's clothes.** Same entries,
  * same look, same rules about an entry that cannot be chosen: only the way it
@@ -318,6 +319,12 @@ export function TabMenu({
 export function opensOnPress(here: boolean) {
   return (event: React.MouseEvent<HTMLElement>) => {
     if (!here) return;
+    // A press, rather than a keyboard's Enter on the focused tab: that arrives
+    // as a click with no pointer behind it (`detail` 0, and coordinates of
+    // zero), so opening the menu on it would put the menu in the corner of the
+    // window. The keyboard has the menu key for this, which arrives as the
+    // event below rather than as a click.
+    if (event.detail === 0) return;
     event.preventDefault();
     event.currentTarget.dispatchEvent(
       new MouseEvent('contextmenu', {
