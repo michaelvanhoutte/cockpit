@@ -80,6 +80,7 @@ function aLayout(id: string, screenWidth: number, panelIds: string[]): Layout {
     dashboardId: 'today',
     name: id,
     screenWidth,
+    screenSizeId: null,
     rows: [{ height: null, cells: panelIds.map((panelId) => ({ panelId, span: 12 })) }],
   };
 }

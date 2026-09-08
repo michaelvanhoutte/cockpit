@@ -8,6 +8,7 @@ import type {
   Layout,
   LayoutRow,
   Panel,
+  ScreenSize,
   Workspace,
 } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
@@ -23,6 +24,7 @@ import {
   panelItems,
   panelPlacements,
   panels,
+  screenSizes,
   workspaces,
 } from './schema.js';
 
@@ -392,6 +394,7 @@ export function listLayoutsInWorkspace(
       dashboardId: layouts.dashboardId,
       name: layouts.name,
       screenWidth: layouts.screenWidth,
+      screenSizeId: layouts.screenSizeId,
     })
     .from(layouts)
     .innerJoin(dashboards, eq(layouts.dashboardId, dashboards.id))
@@ -682,6 +685,34 @@ export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean
  * where nothing has set a position - which is every account until "Manage the
  * types, and put them in the order you want" (issue 156) lands.
  */
+/**
+ * Every screen size of the account, narrowest first ("Give the account a list
+ * of screen sizes, before anything reads it", issue 262).
+ *
+ * Narrowest first because that is the order they are offered in, and a size is
+ * matched to a window by distance rather than by membership - so the list has
+ * no order of its own to preserve and the one a person reads is the useful one.
+ * `createdAt` breaks a tie, so two sizes at one width are still in a total
+ * order.
+ *
+ * The account's, so it takes no workspace: it is read once per snapshot the way
+ * `listItemTypes` is.
+ */
+export function listScreenSizes(db: AccountDb, tenantId: string): ScreenSize[] {
+  return db
+    .select({
+      id: screenSizes.id,
+      tenantId: screenSizes.tenantId,
+      name: screenSizes.name,
+      width: screenSizes.width,
+      createdAt: screenSizes.createdAt,
+    })
+    .from(screenSizes)
+    .where(eq(screenSizes.tenantId, tenantId))
+    .orderBy(screenSizes.width, screenSizes.createdAt)
+    .all();
+}
+
 export function listItemTypes(db: AccountDb, tenantId: string): ItemType[] {
   return db
     .select({

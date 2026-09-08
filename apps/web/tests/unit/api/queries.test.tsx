@@ -41,6 +41,7 @@ const snapshot: WorkspaceSnapshot = {
   layouts: [],
   associations: [],
   itemTypes: [],
+    screenSizes: [],
   filings: [],
   generatedAt: '2026-08-31T10:00:00.000Z',
 };

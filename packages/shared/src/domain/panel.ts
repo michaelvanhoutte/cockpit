@@ -224,6 +224,18 @@ export const layoutSchema = z.object({
   dashboardId: z.string(),
   name: z.string().default(''),
   screenWidth: z.number(),
+  /**
+   * The Screen size this Layout arranges the Dashboard for, or null where it
+   * predates them ("Give the account a list of screen sizes, before anything
+   * reads it", issue 262).
+   *
+   * **Nullable only for this release and the next.** Nothing writes one yet;
+   * "Draw a dashboard against the screen sizes its account has" (issue 263)
+   * makes every save carry one and stops reading a Layout without one, and the
+   * contract half drops both the nullability and the `name` and `screenWidth`
+   * above.
+   */
+  screenSizeId: z.string().nullable().default(null),
   /** The rows, top to bottom, each holding its Panels left to right. */
   rows: z.array(layoutRowSchema).default([]),
 });

@@ -52,8 +52,8 @@ export const DEAD_STATUS_VALUE = 'to_process';
 
 /**
  * The tables inside one account's store (architecture, "One store per account,
- * and `tenant_id` stays"): its workspaces, dashboards, panels, layouts, items,
- * associations and change log.
+ * and `tenant_id` stays"): its workspaces, dashboards, panels, screen sizes,
+ * layouts, items, associations and change log.
  * They live in the account's own Durable Object, never in D1, which holds only
  * the register of which accounts exist (src/db/schema.ts).
  *
@@ -85,8 +85,12 @@ export const DEAD_STATUS_VALUE = 'to_process';
  *   TEXT column will happily store an integer. STRICT (SQLite 3.37+, which a
  *   Durable Object's SQLite runs) makes declared types enforced. Drizzle
  *   cannot express it, so every statement in `changes.ts` carries it by hand.
- * - **CHECK constraints for every closed set**, built from the same Zod enums
- *   the wire contract uses, so the two cannot drift.
+ * - **CHECK constraints for what is true by definition, never for what the
+ *   product tunes**: a timestamp, a flag, an order index. A set the product
+ *   will extend - the kinds a panel can be, the statuses an item moves
+ *   through, the heights a row may take - is guarded by its Zod enum alone,
+ *   because a CHECK is as expensive to change as to add and every extension
+ *   would cost a rebuild.
  * - **Foreign keys**, ON DELETE RESTRICT throughout, so that removing anything
  *   has to decide what happens to what points at it rather than inheriting a
  *   silent cascade: deleting a workspace ("Rename and delete a workspace",
@@ -413,6 +417,52 @@ export const panels = sqliteTable(
 );
 
 /**
+ * A screen size: one of the screens this account works on, and the width to
+ * match a window against ("Give the account a list of screen sizes, before
+ * anything reads it", issue 262).
+ *
+ * **The account's, not a dashboard's**, which is the point: a layout carried
+ * its own name and width, so every dashboard re-declared the same screens and
+ * renaming one was a rename per dashboard. It hangs off nothing but
+ * `tenant_id`, the way `item_types` does.
+ *
+ * **Nothing writes one in this release.** The table, `layouts.screen_size_id`
+ * and the snapshot field land together so that issue 263 changes behaviour
+ * rather than shape.
+ *
+ * **Deleted for real, not tombstoned**, for the reason a layout is: a size
+ * records nothing that happened, only which screens somebody said they use.
+ * Every layout at it goes first, which the RESTRICT below makes explicit
+ * rather than silent.
+ */
+export const screenSizes = sqliteTable(
+  'screen_sizes',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    name: text('name').notNull(),
+    foldedName: text('folded_name').notNull(),
+    width: integer('width').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    /**
+     * Unique within the *account*, the way a type's name is - not within a
+     * workspace or a dashboard, because one list of screens is the whole idea.
+     * Not partial on a tombstone, because a size is deleted for real.
+     */
+    uniqueIndex('screen_sizes_folded_name').on(t.tenantId, t.foldedName),
+    index('screen_sizes_tenant').on(t.tenantId),
+    // Bounded, because a window is matched to the size closest to it: one
+    // absurd width would win that comparison everywhere or never. True by
+    // definition rather than a number the product tunes, so the database holds
+    // it (architecture, "The database is the second lock").
+    check('screen_sizes_width_is_a_width', sql.raw('width BETWEEN 1 AND 100000')),
+    check('screen_sizes_created_at_is_timestamp', isTimestamp('created_at')),
+  ],
+);
+
+/**
  * A layout: one arrangement of a dashboard's panels, what it is called, and the
  * screen width it was made at.
  *
@@ -452,6 +502,19 @@ export const layouts = sqliteTable(
     name: text('name').notNull().default(''),
     foldedName: text('folded_name').notNull().default(''),
     screenWidth: integer('screen_width').notNull(),
+    /**
+     * Which screen size this layout arranges the dashboard for.
+     *
+     * **Nullable, and only for as long as it takes to stop needing to be.**
+     * Nothing writes it in this release, so every existing layout keeps NULL;
+     * issue 263 makes every save carry one and draws no layout without one, and
+     * the contract half rebuilds the table with it NOT NULL. RESTRICT, like
+     * everything else here: deleting a size has to say what happens to the
+     * layouts at it rather than taking them silently.
+     */
+    screenSizeId: text('screen_size_id').references(() => screenSizes.id, {
+      onDelete: 'restrict',
+    }),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
@@ -463,6 +526,9 @@ export const layouts = sqliteTable(
      */
     uniqueIndex('layouts_dashboard_folded_name').on(t.tenantId, t.dashboardId, t.foldedName),
     index('layouts_tenant_dashboard').on(t.tenantId, t.dashboardId),
+    // Reached whenever a size is asked what it takes with it, which is every
+    // delete of one and the count its confirm names.
+    index('layouts_tenant_screen_size').on(t.tenantId, t.screenSizeId),
     // Bounded, because a screen is matched to "the layout closest to this
     // screen": one absurd width would win that comparison everywhere or never.
     check('layouts_screen_width_is_a_width', sql.raw('screen_width BETWEEN 1 AND 100000')),

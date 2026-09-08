@@ -7,6 +7,7 @@ import {
 } from '../domain/item.js';
 import { itemTypeSchema } from '../domain/item-type.js';
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
+import { screenSizeSchema } from '../domain/screen-size.js';
 
 /**
  * The read model (architecture, "The read model: persisted snapshot,
@@ -64,6 +65,17 @@ export const workspaceSnapshotSchema = z.object({
    * and a second chance for a row to be drawn before its type has arrived.
    */
   itemTypes: z.array(itemTypeSchema),
+  /**
+   * Every Screen size of the account, narrowest first ("Give the account a list
+   * of screen sizes, before anything reads it", issue 262).
+   *
+   * In the workspace's snapshot although sizes belong to the account, for the
+   * reason Types are: a Dashboard's own bar offers them, and this is the one
+   * call a workspace makes. **Empty until "Draw a dashboard against the screen
+   * sizes its account has" (issue 263)**, which is what makes that issue a
+   * change of behaviour rather than of shape.
+   */
+  screenSizes: z.array(screenSizeSchema).default([]),
   generatedAt: z.iso.datetime(),
 });
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
