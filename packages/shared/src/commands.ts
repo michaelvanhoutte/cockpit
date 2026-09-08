@@ -368,12 +368,11 @@ export type DeleteLayoutCommand = z.infer<typeof deleteLayoutSchema>;
 export const captureItemSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   /**
-   * What was said, which is the Item's captured message and the only text
-   * capture writes. The title is left empty and the row falls through to this
-   * (`itemLabel`), so nothing has to guess a name for a thought at the moment
-   * of having it. What capture *should* write into the three texts - a cleaned
-   * title, several suggestions to pick from - is its own piece of work
-   * (docs/ideas.md, "Capture and the task creator").
+   * What was said, which is the one text capture takes: it is kept as the
+   * Item's captured message and it names the Item, by the rule in
+   * `textsFromCapture`. Something cleverer than a cut at 200 characters
+   * proposing that name - a cleaned title, several suggestions to pick from -
+   * is its own piece of work (docs/ideas.md, "Capture and the task creator").
    *
    * Capped where a description is capped, and for the same reason: it lands in
    * the same snapshot, which every device holds a copy of. Only on the way in -

@@ -17,9 +17,18 @@ const descriptionBox = (page: Page) => form(page).getByRole('textbox', { name: '
  * The description's editor is fetched behind the form (architecture,
  * "Performance budgets"), so for the first moment the box is the read-only
  * stand-in that says formatting is on its way. Filling that fills nothing.
+ *
+ * **The toolbar alone is not the editor.** It is drawn as soon as the chunk
+ * arrives and its buttons are disabled until the document has been built from
+ * the description - so a walk gated on the toolbar being visible is gated on
+ * the chrome around an editor that may still be empty. The buttons coming alive
+ * is the editor saying its document is there, which is what the walks after
+ * this line act on.
  */
 async function theEditorIsThere(page: Page): Promise<void> {
-  await expect(form(page).getByRole('toolbar', { name: 'Formatting' })).toBeVisible();
+  const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+  await expect(toolbar).toBeVisible();
+  await expect(toolbar.getByRole('button', { name: 'bold' })).toBeEnabled();
 }
 
 /**
@@ -83,14 +92,14 @@ test.describe('Item editing', () => {
 
       await openItem(page, thought, isMobile);
 
-      // The captured message is what the row was showing, and it is behind the
-      // disclosure rather than in a box: it can never be edited.
-      await expect(titleBox(page)).toHaveValue('');
+      // The title box holds what the row was showing, which is the whole of
+      // what capture wrote it from: one title, in the one place it is edited.
+      await expect(titleBox(page)).toHaveValue(thought);
+      // And what was captured is behind the disclosure as a record, which can
+      // never be edited. Scoped to the disclosure's own group, because the
+      // description's editor writes paragraphs of its own the moment it
+      // arrives, which is a race against this line.
       await press(form(page).getByText('What was captured'), isMobile);
-      // The paragraph the disclosure holds, not the heading, which now carries
-      // the same label because the item has no title yet - and scoped to the
-      // disclosure, because the description's editor writes paragraphs of its
-      // own the moment it arrives, which is a race against this line.
       await expect(form(page).getByRole('group').getByRole('paragraph')).toHaveText(thought);
 
       const named = uniqueTitle('Part 11');

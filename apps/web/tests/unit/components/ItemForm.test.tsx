@@ -227,20 +227,38 @@ describe('Item editing', () => {
     });
   });
 
+  /**
+   * Said rather than shown: the row that opened this form was labelled by the
+   * title, and the title box sits directly under the heading, so drawing it
+   * would put the same words on the form twice. It is still announced, which is
+   * what a dialog has to do.
+   */
   describe('the form says which item is open', () => {
     it.each([
       { situation: 'an item with a title', item: {}, named: 'Part 11' },
-      // The case that needs it: both boxes are empty, so without this the form
-      // is two blank fields over the word "Item".
+      // Reachable by clearing a title somebody had written: the captured
+      // message does not come back as a name, here or on the row.
       {
-        situation: 'an item with only a captured message',
+        situation: 'an item nobody has named',
         item: { title: '', capturedMessage: 'Ask Novy about part 11' },
-        named: 'Ask Novy about part 11',
+        named: 'Untitled',
       },
     ])('$situation', async ({ item, named }) => {
       await theForm(anItem(item));
 
       expect(screen.getByRole('heading')).toHaveTextContent(named);
+    });
+
+    // Said and not drawn, which is the whole point: the title box under it
+    // holds the same words, and a heading showing them too is the duplicate
+    // this removed. Asserted on the class because a 1px-clipped element is
+    // still visible to jsdom, so nothing else here can tell the two apart -
+    // that it reads correctly on screen is the walk in
+    // tests/e2e/item-editing.test.ts.
+    it('does not draw the name it announces', async () => {
+      await theForm();
+
+      expect(screen.getByRole('heading')).toHaveClass('sr-only');
     });
   });
 
