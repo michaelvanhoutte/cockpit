@@ -184,6 +184,7 @@
         "apps/api/src/domain/panels.ts",
         "apps/api/src/accounts/changes.ts",
         "packages/shared/src/domain/panel.ts",
+        "packages/shared/src/domain/screen-size.ts",
         "packages/shared/src/commands.ts"
       ]
     },

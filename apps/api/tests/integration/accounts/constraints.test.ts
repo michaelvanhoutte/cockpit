@@ -634,7 +634,7 @@ describe('Panels', () => {
   });
 });
 
-describe('Screen sizes', () => {
+describe('Layouts', () => {
   /**
    * A screen size written straight into the store, past the handlers that would
    * have checked it - which is what the constraints are there for
