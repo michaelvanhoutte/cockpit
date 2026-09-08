@@ -17,9 +17,18 @@ const descriptionBox = (page: Page) => form(page).getByRole('textbox', { name: '
  * The description's editor is fetched behind the form (architecture,
  * "Performance budgets"), so for the first moment the box is the read-only
  * stand-in that says formatting is on its way. Filling that fills nothing.
+ *
+ * **The toolbar alone is not the editor.** It is drawn as soon as the chunk
+ * arrives and its buttons are disabled until the document has been built from
+ * the description - so a walk gated on the toolbar being visible is gated on
+ * the chrome around an editor that may still be empty. The buttons coming alive
+ * is the editor saying its document is there, which is what the walks after
+ * this line act on.
  */
 async function theEditorIsThere(page: Page): Promise<void> {
-  await expect(form(page).getByRole('toolbar', { name: 'Formatting' })).toBeVisible();
+  const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+  await expect(toolbar).toBeVisible();
+  await expect(toolbar.getByRole('button', { name: 'bold' })).toBeEnabled();
 }
 
 /**
