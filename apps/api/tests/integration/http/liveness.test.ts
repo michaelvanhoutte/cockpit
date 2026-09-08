@@ -53,46 +53,48 @@ beforeEach(async () => {
   seq = 0;
 });
 
-describe('How current a snapshot says it is', () => {
-  it('names the newest change the account has taken', async () => {
-    await capture('Something to be newer than');
+describe('Live updates', () => {
+  describe('a snapshot says how current it is', () => {
+    it('names the newest change the account has taken', async () => {
+      await capture('Something to be newer than');
 
-    const upTo = await upToOf();
+      const upTo = await upToOf();
 
-    // A timestamp of the store's own making, not the Worker's - which is the
-    // whole reason the field exists rather than `generatedAt` being reused.
-    expect(upTo).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-  });
+      // A timestamp of the store's own making, not the Worker's - which is the
+      // whole reason the field exists rather than `generatedAt` being reused.
+      expect(upTo).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    });
 
-  it('moves forward when another change is taken', async () => {
-    await capture('The first one');
-    const before = await upToOf();
+    it('moves forward when another change is taken', async () => {
+      await capture('The first one');
+      const before = await upToOf();
 
-    await capture('The second one');
-    const after = await upToOf();
+      await capture('The second one');
+      const after = await upToOf();
 
-    expect(before).toBeDefined();
-    expect(after! > before!).toBe(true);
-  });
+      expect(before).toBeDefined();
+      expect(after! > before!).toBe(true);
+    });
 
-  /**
-   * **Never ahead of what the snapshot holds**, which is the one direction that
-   * cannot be allowed: a stamp naming a change the copy does not contain makes
-   * a tab skip a refetch it needed, and nothing later corrects it. Behind is
-   * free - it costs a refetch that was not necessary.
-   */
-  it('never names a change the snapshot does not contain', async () => {
-    await capture('An item the snapshot must hold');
+    /**
+     * **Never ahead of what the snapshot holds**, which is the one direction
+     * that cannot be allowed: a stamp naming a change the copy does not contain
+     * makes a tab skip a refetch it needed, and nothing later corrects it.
+     * Behind is free - it costs a refetch that was not necessary.
+     */
+    it('never names a change the snapshot does not contain', async () => {
+      await capture('An item the snapshot must hold');
 
-    const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
-    const snapshot = (await res.json()) as {
-      upTo?: string;
-      items: { capturedMessage: string }[];
-    };
+      const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+      const snapshot = (await res.json()) as {
+        upTo?: string;
+        items: { capturedMessage: string }[];
+      };
 
-    expect(snapshot.items.map((item) => item.capturedMessage)).toContain(
-      'An item the snapshot must hold',
-    );
-    expect(snapshot.upTo).toBeDefined();
+      expect(snapshot.items.map((item) => item.capturedMessage)).toContain(
+        'An item the snapshot must hold',
+      );
+      expect(snapshot.upTo).toBeDefined();
+    });
   });
 });
