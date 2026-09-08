@@ -26,10 +26,17 @@ const RichDescription = lazy(() => import('../description/RichDescription').catc
  *
  * **Marked here because this is the only place that can tell them apart.** The
  * boundary below catches both and sees the same thing from each, and they are
- * not the same thing at all: a file that is not there says this build has been
- * replaced under the tab and the new one is one reload away (`updating.ts`,
- * `takeTheNewVersion`), where a component that threw is a bug, and offering a
- * new version for it would be offering a cure for the wrong illness.
+ * not the same thing at all: a fetch that failed may say this build has been
+ * replaced under the tab (`updating.ts`, `takeTheNewVersion`), where a
+ * component that threw as it drew is a bug, and offering a new version for it
+ * would be offering a cure for the wrong illness.
+ *
+ * **It divides the fetch from the drawing, and not quite failure from bug.** An
+ * editor that threw while being *evaluated* rejects the same fetch and is
+ * marked with the rest, which is a line drawn where it can be drawn rather than
+ * where one would want it. Harmless, because nothing here decides on the mark
+ * alone: `takeTheNewVersion` goes and asks what is being served, finds this
+ * same version, and declines.
  *
  * A module-level flag rather than state, because the fetch belongs to the
  * module and not to whichever box is on screen: `lazy` remembers its first
