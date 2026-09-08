@@ -931,14 +931,15 @@ describe('Layouts', () => {
       expect(await layoutsOf(dashboardId)).toHaveLength(1);
     });
 
-    it('supersedes a legacy layout in the way, rather than refusing every save forever', async () => {
+    it('renames a legacy layout in the way, rather than deleting it or refusing forever', async () => {
       // A Layout from before this release has `screen_size_id` NULL and is
       // still named after the removed screen bands ("Wide"/"Phone"/"Tablet"/
       // "Laptop") - nothing in this release writes one, but nothing removes
-      // one already there either. It is invisible and unmanageable in the
-      // new UI, so it must not be able to permanently block every future
-      // save on its dashboard merely by holding a name a screen size is
-      // later given.
+      // one already there either, and every Layout deployed today is one of
+      // these. It must not be able to permanently block every future save on
+      // its dashboard merely by holding a name a screen size is later given -
+      // and what it arranges is real, deployed data, so freeing the name must
+      // not delete it (CLAUDE.md, "Deployed data is real").
       const dashboardId = await aDashboard();
       const panelId = nextId();
       expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
@@ -969,9 +970,13 @@ describe('Layouts', () => {
 
       expect(saved.status).toBe(200);
       const layouts = await layoutsOf(dashboardId);
-      expect(layouts).toHaveLength(1);
-      expect(layouts[0]!.id).not.toBe(legacyLayoutId);
-      expect(layouts[0]!.screenSizeId).toBe(screenSizeId);
+      expect(layouts).toHaveLength(2);
+      const legacy = layouts.find((layout) => layout.id === legacyLayoutId);
+      expect(legacy).toBeDefined();
+      expect(legacy!.name).not.toBe('Wide');
+      const live = layouts.find((layout) => layout.screenSizeId === screenSizeId);
+      expect(live).toBeDefined();
+      expect(live!.name).toBe('Wide');
     });
 
     it('lets another dashboard have a layout at the same size', async () => {
