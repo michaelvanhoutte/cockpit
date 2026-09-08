@@ -82,7 +82,7 @@ export type Update =
   | 'could-not-ask';
 
 /**
- * The three things about the browser that a test cannot have and must not need,
+ * The four things about the browser that a test cannot have and must not need,
  * injected the way `Surroundings` is in api/loadFailure.ts.
  */
 export interface Versions {
