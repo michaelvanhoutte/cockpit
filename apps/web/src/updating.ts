@@ -42,7 +42,9 @@ import { statusOf } from './api/loadFailure';
  */
 
 /**
- * The two ways the server can tell this build it is behind.
+ * The two ways the *server* can tell this build it is behind. There is a third
+ * way to be behind that no answer can carry, because it is a file rather than
+ * an answer - see `takeTheNewVersion`.
  *
  * **A shape it cannot read** is the first, and was for a while the whole
  * condition: the server answered something these schemas reject, so this build
@@ -164,6 +166,49 @@ export async function pickUpTheNewVersion(
   }
   if (!waiting) return 'nothing-new';
 
+  return take(versions, memory, build);
+}
+
+/**
+ * The third way to be behind: **a file this build named is not being served.**
+ *
+ * The two above are things the server *said*. This one is a file that is not
+ * there: the shell is split, and the parts fetched on demand are content-hashed,
+ * so a deploy replaces their names. A tab open across one keeps running the old
+ * page while the new worker claims it and deletes the precache that page was
+ * loaded from (vite.config.ts), and the next part it asks for is in neither the
+ * cache nor the deployment. Which the gate above cannot see: the API answers
+ * this build perfectly well - an older client reading a newer server is what
+ * expand-then-contract is for (deployment, "Migrations and rollback") - and a
+ * file the browser fetches for itself passes through neither cache the gate
+ * watches.
+ *
+ * **`newVersionWaiting` is deliberately not asked, because it answers the wrong
+ * question.** It looks for a worker installing or waiting, and by the time a
+ * part has gone missing the new worker has already installed, skipped waiting
+ * and claimed the page - that takeover is what took the file. So it reports
+ * nothing waiting, and reporting nothing waiting is right: what is out of step
+ * here is the page against its worker, not the worker against the server.
+ *
+ * **The missing file is the evidence, and it is better evidence than a probe.**
+ * A page that asked for a part of *itself* and was told it is gone is running a
+ * build that is no longer served. There is nothing left to check.
+ *
+ * The guard is shared with the gate above and does the same work: never twice
+ * from the same build, so a reload that changes nothing says so instead of
+ * going round again.
+ */
+export function takeTheNewVersion(
+  versions: Versions = realVersions,
+  memory: Storage | undefined = tabMemory(),
+): Update {
+  const build = versions.thisBuild();
+  if (read(memory) === build) return 'nothing-new';
+  return take(versions, memory, build);
+}
+
+/** Mark the build being left, then leave it. */
+function take(versions: Versions, memory: Storage | undefined, build: string): Update {
   write(memory, build);
   versions.reload();
   return 'taken';

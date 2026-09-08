@@ -1,4 +1,5 @@
 import { Component, Suspense, lazy, useState, type ReactNode } from 'react';
+import { takeTheNewVersion } from '../updating';
 
 /**
  * The description on the Item's form: a formatted editor over Markdown, with
@@ -17,7 +18,30 @@ import { Component, Suspense, lazy, useState, type ReactNode } from 'react';
  * padded). Showing the re-printed text would mean opening a form, touching
  * nothing, and finding the description had changed.
  */
-const RichDescription = lazy(() => import('../description/RichDescription'));
+const RichDescription = lazy(() => import('../description/RichDescription').catch(neverArrived));
+
+/**
+ * That the editor's file itself did not arrive, as against having arrived and
+ * thrown while rendering.
+ *
+ * **Marked here because this is the only place that can tell them apart.** The
+ * boundary below catches both and sees the same thing from each, and they are
+ * not the same thing at all: a file that is not there says this build has been
+ * replaced under the tab and the new one is one reload away (`updating.ts`,
+ * `takeTheNewVersion`), where a component that threw is a bug, and offering a
+ * new version for it would be offering a cure for the wrong illness.
+ *
+ * A module-level flag rather than state, because the fetch belongs to the
+ * module and not to whichever box is on screen: `lazy` remembers its first
+ * answer, so the second form opened after a failure never asks again and would
+ * otherwise have nothing to read.
+ */
+let theEditorNeverArrived = false;
+
+function neverArrived(notThere: unknown): never {
+  theEditorNeverArrived = true;
+  throw notThere;
+}
 
 /** Which of the two views is being shown, and why. */
 type View = 'formatted' | 'source';
@@ -86,10 +110,41 @@ export function DescriptionBox({ value, onChange, editable }: DescriptionBoxProp
       {failed && (
         <p role="alert" className="mt-1 text-xs font-normal normal-case tracking-normal text-over">
           Formatting could not be loaded. The description is still here, as Markdown, and still
-          saves.
+          saves.{' '}
+          {/* Offered rather than taken, which is the difference between this and
+              the gate around the whole window (components/Updating.tsx). That
+              one reloads unasked because carrying on is actively wrong - it
+              cannot read what the server says. Here carrying on works: the box
+              below takes text and saves it, so reloading unasked would trade a
+              description somebody is part-way through for a formatting bar. */}
+          {theEditorNeverArrived && <NewerVersion />}
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * The way out of a formatting bar that will never arrive: take the version this
+ * one's file belongs to (`updating.ts`, `takeTheNewVersion`).
+ *
+ * **It can say nothing is newer, and that is the honest answer** rather than a
+ * failure. A reload already made from this build changed nothing, so making it
+ * again would change nothing twice - `takeTheNewVersion` is what knows, by the
+ * mark it shares with the gate.
+ */
+function NewerVersion() {
+  const [asked, setAsked] = useState(false);
+
+  if (asked) return <>Cockpit is already the newest version.</>;
+  return (
+    <button
+      type="button"
+      onClick={() => setAsked(takeTheNewVersion() === 'nothing-new')}
+      className="underline underline-offset-2 hover:no-underline"
+    >
+      Get the new version
+    </button>
   );
 }
 

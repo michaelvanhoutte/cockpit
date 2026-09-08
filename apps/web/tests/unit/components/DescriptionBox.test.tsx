@@ -17,8 +17,13 @@ import userEvent from '@testing-library/user-event';
  * from it is *when* it appears.
  */
 
-/** What the fetch for the editor's chunk does. One of the three, per test. */
-type Arrival = 'arrives' | 'still coming' | 'never comes';
+/**
+ * What the fetch for the editor's chunk does. `never comes` is the file not
+ * being there; `arrives broken` is the file being there and the editor throwing
+ * as it renders, which the same boundary catches and which is a bug rather than
+ * a version behind.
+ */
+type Arrival = 'arrives' | 'still coming' | 'never comes' | 'arrives broken';
 
 /**
  * The box, with the chunk arriving the way this test wants it to.
@@ -28,11 +33,26 @@ type Arrival = 'arrives' | 'still coming' | 'never comes';
  * one registration would make these three tests share whichever arrival ran
  * first. Resetting the registry and registering again is what makes them three.
  */
+/**
+ * What asking for the new version answers. Replaced rather than driven, because
+ * what it decides is proved in tests/unit/components/Updating.test.tsx and what
+ * is asked here is only that the box asks it and shows what comes back.
+ */
+const taken = vi.fn<() => 'taken' | 'nothing-new'>(() => 'taken');
+
 async function theBox(arrival: Arrival, value = 'A **bold** word') {
   vi.resetModules();
+  vi.doMock('../../../src/updating', () => ({ takeTheNewVersion: taken }));
   vi.doMock('../../../src/description/RichDescription', async () => {
     if (arrival === 'never comes') throw new Error('offline');
     if (arrival === 'still coming') await new Promise(() => {});
+    if (arrival === 'arrives broken') {
+      return {
+        default: () => {
+          throw new Error('the editor threw while rendering');
+        },
+      };
+    }
     return {
       default: ({ initial, editable }: { initial: string; editable: boolean }) => (
         <div>
@@ -72,7 +92,11 @@ async function theBox(arrival: Arrival, value = 'A **bold** word') {
   return { changes, user: userEvent.setup() };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  taken.mockReset();
+  taken.mockReturnValue('taken');
+});
 
 describe('Item editing', () => {
   describe('the form works before its editor has loaded', () => {
@@ -114,6 +138,45 @@ describe('Item editing', () => {
       await user.type(screen.getByLabelText('Description'), '!');
 
       expect(changes.at(-1)).toBe('A **bold** word!');
+    });
+  });
+
+  /**
+   * A chunk that never came is this build asking for a part of itself and being
+   * told it is gone, which happens when a tab is open across a deploy: what the
+   * decision is, and why it is offered rather than taken, is on
+   * `takeTheNewVersion` in src/updating.ts and on the message here.
+   */
+  describe('a description whose formatting has gone can pick up the new version', () => {
+    it('offers it when the editor never arrives', async () => {
+      const { user } = await theBox('never comes');
+      await screen.findByRole('alert');
+
+      await user.click(screen.getByRole('button', { name: 'Get the new version' }));
+
+      expect(taken).toHaveBeenCalledTimes(1);
+    });
+
+    it('says so instead when this is already the newest', async () => {
+      taken.mockReturnValue('nothing-new');
+      const { user } = await theBox('never comes');
+      await screen.findByRole('alert');
+
+      await user.click(screen.getByRole('button', { name: 'Get the new version' }));
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Cockpit is already the newest version.');
+      expect(screen.queryByRole('button', { name: 'Get the new version' })).toBeNull();
+    });
+
+    // The same boundary catches both, and they are not the same thing: an
+    // editor that arrived and threw is a bug, and no version fixes it.
+    it('offers nothing when the editor arrived and threw', async () => {
+      await theBox('arrives broken');
+
+      await waitFor(() =>
+        expect(screen.getByRole('alert')).toHaveTextContent(/Formatting could not be loaded/),
+      );
+      expect(screen.queryByRole('button', { name: 'Get the new version' })).toBeNull();
     });
   });
 

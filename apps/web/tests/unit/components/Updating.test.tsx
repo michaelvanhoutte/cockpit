@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { workspaceListSchema } from '@cockpit/shared';
 import { Updating } from '../../../src/components/Updating';
-import { realVersions, type Versions } from '../../../src/updating';
+import { realVersions, takeTheNewVersion, type Versions } from '../../../src/updating';
 
 /**
  * F1: both facts about the browser this needs - whether anything newer is
@@ -278,6 +278,55 @@ describe('Updating', () => {
 
       expect(reload).not.toHaveBeenCalled();
       expect(screen.getByText('Your workspace')).toBeVisible();
+    });
+  });
+
+  /**
+   * The third way to be behind, and the one no answer can carry: a file this
+   * build named is not being served. The gate above cannot see it - the API
+   * answers an older client perfectly well, and a file the browser fetches for
+   * itself passes through neither cache that gate watches - so this is asked of
+   * `takeTheNewVersion` directly, which is the whole of the decision.
+   *
+   * That the description's box actually asks it is
+   * tests/unit/components/DescriptionBox.test.tsx.
+   */
+  describe('a tab whose own files have gone can still pick up the new version', () => {
+    it('takes it on the strength of the missing file alone', () => {
+      const reload = vi.fn();
+      // The question the gate asks, answered the way it is answered once the
+      // new worker has already claimed the page: nothing installing, nothing
+      // waiting. Taking the new version anyway is the point - the missing file
+      // is the evidence, and that takeover is what took it.
+      const newVersionWaiting = vi.fn(() => Promise.resolve(false));
+
+      expect(takeTheNewVersion({ newVersionWaiting, thisBuild: () => 'build-1', reload }, scratchMemory())).toBe('taken');
+
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(newVersionWaiting).not.toHaveBeenCalled();
+    });
+
+    it('says nothing is newer rather than reloading twice from the same version', () => {
+      const reload = vi.fn();
+      const memory = scratchMemory();
+      const versions = { newVersionWaiting: () => Promise.resolve(false), thisBuild: () => 'build-1', reload };
+
+      expect(takeTheNewVersion(versions, memory)).toBe('taken');
+      expect(takeTheNewVersion(versions, memory)).toBe('nothing-new');
+
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    // The mark is the build it was written from, so a tab open across two
+    // deployments takes the second as readily as the first.
+    it('takes it again once the tab is on a version it has not tried from', () => {
+      const reload = vi.fn();
+      const memory = scratchMemory();
+
+      expect(takeTheNewVersion({ newVersionWaiting: () => Promise.resolve(false), thisBuild: () => 'build-1', reload }, memory)).toBe('taken');
+      expect(takeTheNewVersion({ newVersionWaiting: () => Promise.resolve(false), thisBuild: () => 'build-2', reload }, memory)).toBe('taken');
+
+      expect(reload).toHaveBeenCalledTimes(2);
     });
   });
 });
