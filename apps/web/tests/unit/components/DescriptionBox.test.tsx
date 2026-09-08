@@ -38,7 +38,9 @@ type Arrival = 'arrives' | 'still coming' | 'never comes' | 'arrives broken';
  * what it decides is proved in tests/unit/components/Updating.test.tsx and what
  * is asked here is only that the box asks it and shows what comes back.
  */
-const taken = vi.fn<() => 'taken' | 'nothing-new'>(() => 'taken');
+const taken = vi.fn<() => Promise<'taken' | 'nothing-new' | 'could-not-ask'>>(() =>
+  Promise.resolve('taken'),
+);
 
 async function theBox(arrival: Arrival, value = 'A **bold** word') {
   vi.resetModules();
@@ -95,7 +97,7 @@ async function theBox(arrival: Arrival, value = 'A **bold** word') {
 afterEach(() => {
   cleanup();
   taken.mockReset();
-  taken.mockReturnValue('taken');
+  taken.mockResolvedValue('taken');
 });
 
 describe('Item editing', () => {
@@ -157,14 +159,29 @@ describe('Item editing', () => {
       expect(taken).toHaveBeenCalledTimes(1);
     });
 
-    it('says so instead when this is already the newest', async () => {
-      taken.mockReturnValue('nothing-new');
+    // The two ways it can decline are different things, and are said as
+    // different things: one is an answer, the other is the absence of one.
+    it.each([
+      {
+        situation: 'says so where this is already the newest version',
+        answer: 'nothing-new' as const,
+        said: 'This is already the newest version of Cockpit.',
+      },
+      {
+        situation: 'says it could not find out where nothing answered',
+        answer: 'could-not-ask' as const,
+        said: 'Cockpit could not check for a new version.',
+      },
+    ])('$situation', async ({ answer, said }) => {
+      taken.mockResolvedValue(answer);
       const { user } = await theBox('never comes');
       await screen.findByRole('alert');
 
       await user.click(screen.getByRole('button', { name: 'Get the new version' }));
 
-      expect(screen.getByRole('alert')).toHaveTextContent('Cockpit is already the newest version.');
+      // Asked of the whole message, because what it says is one sentence added
+      // to the one already there rather than a line of its own.
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(said));
       expect(screen.queryByRole('button', { name: 'Get the new version' })).toBeNull();
     });
 

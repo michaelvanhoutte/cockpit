@@ -124,24 +124,44 @@ export function DescriptionBox({ value, onChange, editable }: DescriptionBoxProp
   );
 }
 
+/** What is said where asking changed nothing. Never said before asking. */
+const ANSWER = {
+  'nothing-new': 'This is already the newest version of Cockpit.',
+  'could-not-ask': 'Cockpit could not check for a new version.',
+} as const;
+
 /**
  * The way out of a formatting bar that will never arrive: take the version this
  * one's file belongs to (`updating.ts`, `takeTheNewVersion`).
  *
- * **It can say nothing is newer, and that is the honest answer** rather than a
- * failure. A reload already made from this build changed nothing, so making it
- * again would change nothing twice - `takeTheNewVersion` is what knows, by the
- * mark it shares with the gate.
+ * **Both of the ways it can decline are said out loud, and they are not the
+ * same thing.** A file goes missing for dull reasons too - a connection that
+ * dropped, a proxy that ate the request - and the difference between *there is
+ * nothing newer* and *I could not find out* is the difference between having
+ * checked and having failed to. Saying the first for the second would be
+ * telling somebody they are up to date on the strength of a question nobody
+ * answered.
  */
 function NewerVersion() {
-  const [asked, setAsked] = useState(false);
+  const [answer, setAnswer] = useState<keyof typeof ANSWER | null>(null);
+  const [asking, setAsking] = useState(false);
 
-  if (asked) return <>Cockpit is already the newest version.</>;
+  if (answer) return <>{ANSWER[answer]}</>;
   return (
     <button
       type="button"
-      onClick={() => setAsked(takeTheNewVersion() === 'nothing-new')}
-      className="underline underline-offset-2 hover:no-underline"
+      disabled={asking}
+      onClick={() => {
+        setAsking(true);
+        void takeTheNewVersion().then((what) => {
+          // 'taken' is only ever the instant before the page goes, and is
+          // deliberately left saying nothing: a message that flashed up and
+          // vanished would be one nobody could read anyway.
+          if (what !== 'taken') setAnswer(what);
+          setAsking(false);
+        });
+      }}
+      className="underline underline-offset-2 hover:no-underline disabled:no-underline disabled:opacity-60"
     >
       Get the new version
     </button>

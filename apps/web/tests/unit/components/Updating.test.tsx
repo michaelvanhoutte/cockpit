@@ -3,7 +3,12 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { workspaceListSchema } from '@cockpit/shared';
 import { Updating } from '../../../src/components/Updating';
-import { realVersions, takeTheNewVersion, type Versions } from '../../../src/updating';
+import {
+  pickUpTheNewVersion,
+  realVersions,
+  takeTheNewVersion,
+  type Versions,
+} from '../../../src/updating';
 
 /**
  * F1: both facts about the browser this needs - whether anything newer is
@@ -101,7 +106,16 @@ describe('Updating', () => {
     it.each(situations)('$situation', async ({ newVersionWaiting, picksItUp }) => {
       const reload = vi.fn();
       const client = newClient();
-      show(client, { newVersionWaiting, thisBuild: () => 'build-1', reload }, scratchMemory());
+      show(
+        client,
+        {
+          newVersionWaiting,
+          thisBuild: () => 'build-1',
+          servedBuild: () => Promise.resolve('build-1'),
+          reload,
+        },
+        scratchMemory(),
+      );
       await anOlderVersion(client);
 
       if (picksItUp) {
@@ -132,6 +146,8 @@ describe('Updating', () => {
       const versions = {
         newVersionWaiting: () => Promise.resolve(true),
         thisBuild: () => 'build-1',
+        // The gate never asks this one; it is here because the shape has it.
+        servedBuild: () => Promise.resolve('build-1'),
         reload,
       };
       const memory = scratchMemory();
@@ -163,6 +179,8 @@ describe('Updating', () => {
       const versions = {
         newVersionWaiting: () => Promise.resolve(true),
         thisBuild: () => build,
+        // The gate never asks this one; it is here because the shape has it.
+        servedBuild: () => Promise.resolve(build),
         reload,
       };
 
@@ -184,7 +202,7 @@ describe('Updating', () => {
   describe('nothing of the app is usable while it is out of date', () => {
     it('takes the window, because the copy in hand is no safer than the answer', async () => {
       const client = newClient();
-      show(client, { newVersionWaiting: () => Promise.resolve(false), thisBuild: () => 'build-1', reload: vi.fn() }, scratchMemory());
+      show(client, { newVersionWaiting: () => Promise.resolve(false), thisBuild: () => 'build-1', servedBuild: () => Promise.resolve('build-1'), reload: vi.fn() }, scratchMemory());
       expect(screen.getByText('Your workspace')).toBeVisible();
 
       await anOlderVersion(client);
@@ -195,7 +213,7 @@ describe('Updating', () => {
 
     it('is nowhere to be seen while Cockpit can read what it is told', async () => {
       const client = newClient();
-      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', reload: vi.fn() }, scratchMemory());
+      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', servedBuild: () => Promise.resolve('build-1'), reload: vi.fn() }, scratchMemory());
 
       await client.fetchQuery({ queryKey: ['workspaces'], queryFn: () => Promise.resolve({}) });
 
@@ -222,7 +240,7 @@ describe('Updating', () => {
     it('fetches the new version when the address has been retired', async () => {
       const reload = vi.fn();
       const client = newClient();
-      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', reload }, scratchMemory());
+      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', servedBuild: () => Promise.resolve('build-1'), reload }, scratchMemory());
 
       await reading(client, () => Promise.reject(refused(410)));
 
@@ -239,7 +257,7 @@ describe('Updating', () => {
     it('fetches the new version when a change is refused as retired', async () => {
       const reload = vi.fn();
       const client = newClient();
-      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', reload }, scratchMemory());
+      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', servedBuild: () => Promise.resolve('build-1'), reload }, scratchMemory());
 
       await client
         .getMutationCache()
@@ -272,7 +290,7 @@ describe('Updating', () => {
     ])('leaves $situation to the app', async ({ answer }) => {
       const reload = vi.fn();
       const client = newClient();
-      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', reload }, scratchMemory());
+      show(client, { newVersionWaiting: () => Promise.resolve(true), thisBuild: () => 'build-1', servedBuild: () => Promise.resolve('build-1'), reload }, scratchMemory());
 
       await reading(client, answer);
 
@@ -291,40 +309,107 @@ describe('Updating', () => {
    * That the description's box actually asks it is
    * tests/unit/components/DescriptionBox.test.tsx.
    */
+  /**
+   * The third way to be behind, and the one no answer can carry: a file this
+   * build named is not being served. The gate above cannot see it - the API
+   * answers an older client perfectly well, and a file the browser fetches for
+   * itself passes through neither cache that gate watches - so this is asked of
+   * `takeTheNewVersion` directly, which is the whole of the decision.
+   *
+   * That the description's box actually asks it is
+   * tests/unit/components/DescriptionBox.test.tsx.
+   */
   describe('a tab whose own files have gone can still pick up the new version', () => {
-    it('takes it on the strength of the missing file alone', () => {
-      const reload = vi.fn();
-      // The question the gate asks, answered the way it is answered once the
-      // new worker has already claimed the page: nothing installing, nothing
-      // waiting. Taking the new version anyway is the point - the missing file
-      // is the evidence, and that takeover is what took it.
-      const newVersionWaiting = vi.fn(() => Promise.resolve(false));
-
-      expect(takeTheNewVersion({ newVersionWaiting, thisBuild: () => 'build-1', reload }, scratchMemory())).toBe('taken');
-
-      expect(reload).toHaveBeenCalledTimes(1);
-      expect(newVersionWaiting).not.toHaveBeenCalled();
+    /** What the tab is running, what the server hands out, and what happens. */
+    const asking = (served: string | null, reload = vi.fn(), memory = scratchMemory()) => ({
+      reload,
+      memory,
+      versions: {
+        // The question the gate asks, answered the way it is answered once the
+        // new version has already claimed the page: nothing on its way. Taking
+        // the new version anyway is the point, and nothing here may ask it.
+        newVersionWaiting: () => Promise.reject(new Error('must not be asked')),
+        thisBuild: () => 'build-1',
+        servedBuild: () => Promise.resolve(served),
+        reload,
+      },
     });
 
-    it('says nothing is newer rather than reloading twice from the same version', () => {
-      const reload = vi.fn();
-      const memory = scratchMemory();
-      const versions = { newVersionWaiting: () => Promise.resolve(false), thisBuild: () => 'build-1', reload };
+    it('takes it when the server is handing out a different version', async () => {
+      const { versions, memory, reload } = asking('build-2');
 
-      expect(takeTheNewVersion(versions, memory)).toBe('taken');
-      expect(takeTheNewVersion(versions, memory)).toBe('nothing-new');
+      await expect(takeTheNewVersion(versions, memory)).resolves.toBe('taken');
 
       expect(reload).toHaveBeenCalledTimes(1);
     });
 
-    // The mark is the build it was written from, so a tab open across two
+    // The file goes missing for dull reasons too - a connection that dropped,
+    // a proxy that ate it - and those reloads land back where they started with
+    // the same thing broken, having thrown away whatever was half-written.
+    it('leaves the page alone when the server is handing out this same version', async () => {
+      const { versions, memory, reload } = asking('build-1');
+
+      await expect(takeTheNewVersion(versions, memory)).resolves.toBe('nothing-new');
+
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    // Which is not the same as there being nothing newer, and is not said as
+    // though it were.
+    it('says it could not find out when the server could not be asked', async () => {
+      const { versions, memory, reload } = asking(null);
+
+      await expect(takeTheNewVersion(versions, memory)).resolves.toBe('could-not-ask');
+
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    it('says nothing is newer rather than reloading twice from the same version', async () => {
+      const { versions, memory, reload } = asking('build-2');
+
+      await expect(takeTheNewVersion(versions, memory)).resolves.toBe('taken');
+      await expect(takeTheNewVersion(versions, memory)).resolves.toBe('nothing-new');
+
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    // The mark is the version it was written from, so a tab open across two
     // deployments takes the second as readily as the first.
-    it('takes it again once the tab is on a version it has not tried from', () => {
+    it('takes it again once the tab is on a version it has not tried from', async () => {
       const reload = vi.fn();
       const memory = scratchMemory();
+      const onward = (build: string) => ({
+        newVersionWaiting: () => Promise.reject(new Error('must not be asked')),
+        thisBuild: () => build,
+        servedBuild: () => Promise.resolve('newer'),
+        reload,
+      });
 
-      expect(takeTheNewVersion({ newVersionWaiting: () => Promise.resolve(false), thisBuild: () => 'build-1', reload }, memory)).toBe('taken');
-      expect(takeTheNewVersion({ newVersionWaiting: () => Promise.resolve(false), thisBuild: () => 'build-2', reload }, memory)).toBe('taken');
+      await expect(takeTheNewVersion(onward('build-1'), memory)).resolves.toBe('taken');
+      await expect(takeTheNewVersion(onward('build-2'), memory)).resolves.toBe('taken');
+
+      expect(reload).toHaveBeenCalledTimes(2);
+    });
+
+    /**
+     * The two ways of taking a version keep their marks apart. The gate returns
+     * `true` from `newVersionWaiting` merely for there being no worker
+     * registered yet, so its reload can land back on the same version and mark
+     * it - and one key for both would then have this one telling somebody they
+     * are up to date while a file of theirs is provably gone.
+     */
+    it('is not silenced by the window gate having already reloaded from this version', async () => {
+      const memory = scratchMemory();
+      const reload = vi.fn();
+      const gate = {
+        newVersionWaiting: () => Promise.resolve(true),
+        thisBuild: () => 'build-1',
+        servedBuild: () => Promise.resolve('build-1'),
+        reload,
+      };
+
+      await expect(pickUpTheNewVersion(gate, memory)).resolves.toBe('taken');
+      await expect(takeTheNewVersion({ ...gate, servedBuild: () => Promise.resolve('build-2') }, memory)).resolves.toBe('taken');
 
       expect(reload).toHaveBeenCalledTimes(2);
     });
