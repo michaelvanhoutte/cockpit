@@ -117,16 +117,20 @@ describe('Triage', () => {
   // ever decided apart again.
   describe('the action a row promises is the one letting go takes', () => {
     it.each([
-      { situation: 'right, and stopped short', dx: short },
-      { situation: 'left, and stopped short', dx: -short },
-      { situation: 'right, far enough to act', dx: past },
-      { situation: 'left, far enough to act', dx: -past },
-      { situation: 'exactly the threshold', dx: SWIPE_THRESHOLD_PX },
-      { situation: 'one pixel short of it', dx: SWIPE_THRESHOLD_PX - 1 },
-      { situation: 'a scroll that drifted sideways', dx: short },
-    ])('$situation', ({ dx }) => {
-      const promised = whatTheSwipeIsPromising(dx, 0);
-      expect(whatTheSwipeMeant(dx, 0)).toBe(promised?.wouldAct ? promised.action : null);
+      { situation: 'right, and stopped short', dx: short, dy: 0 },
+      { situation: 'left, and stopped short', dx: -short, dy: 0 },
+      { situation: 'right, far enough to act', dx: past, dy: 0 },
+      { situation: 'left, far enough to act', dx: -past, dy: 0 },
+      { situation: 'exactly the threshold', dx: SWIPE_THRESHOLD_PX, dy: 0 },
+      { situation: 'one pixel short of it', dx: SWIPE_THRESHOLD_PX - 1, dy: 0 },
+      // The vertical rule carries its own `dy`, because it is the branch the
+      // two could most plausibly come apart on - one of them calling a scroll
+      // nothing and the other still reading a direction off it.
+      { situation: 'a scroll that drifted sideways', dx: past, dy: 400 },
+      { situation: 'as far across as it went down', dx: past, dy: past },
+    ])('$situation', ({ dx, dy }) => {
+      const promised = whatTheSwipeIsPromising(dx, dy);
+      expect(whatTheSwipeMeant(dx, dy)).toBe(promised?.wouldAct ? promised.action : null);
     });
   });
 

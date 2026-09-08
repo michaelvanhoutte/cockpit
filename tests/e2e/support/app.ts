@@ -714,10 +714,17 @@ async function touchARowAcross(
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: touch(from) });
     for (let step = 1; step <= 8; step += 1) await moveTo(from + (across * step) / 8);
     if (check) {
-      await check();
-      // Home again, so the release below means nothing. In a `try` of its own
-      // is not worth it: if this throws, the finally still lifts the finger.
-      for (let step = 7; step >= 0; step -= 1) await moveTo(from + (across * step) / 8);
+      try {
+        await check();
+      } finally {
+        // Home again, so the release below means nothing - and in a `finally`
+        // of its own, because a check that threw would otherwise let go at the
+        // far end and *act*: a walk that failed reading the band would dismiss
+        // the item on its way out, which is the one thing this walk home is
+        // here to prevent. Measured with a check made to throw, not reasoned
+        // about: without this `finally` the row was gone and the undo bar up.
+        for (let step = 7; step >= 0; step -= 1) await moveTo(from + (across * step) / 8);
+      }
     }
   } finally {
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
