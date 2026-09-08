@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, focusManager, useQuery } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
-import type { WorkspaceSnapshot } from '@cockpit/shared';
+import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
 import {
   snapshotQuery,
   useCommand,
@@ -11,6 +11,7 @@ import {
   type CommandArgs,
 } from '../../../src/api/queries';
 import { fetchSnapshot, sendCommand } from '../../../src/api/client';
+import { ItemForm } from '../../../src/components/ItemForm';
 
 /**
  * F1, and deliberately not a browser test: whether a screen refreshes itself
@@ -32,6 +33,44 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
 
 const reads = vi.mocked(fetchSnapshot);
 const sends = vi.mocked(sendCommand);
+
+/**
+ * The item's form is rendered for real by the last rule here, because what it
+ * is about is the form and the copy it is filled from together. Only the two
+ * things it reaches outside this file are replaced: the address it is opened
+ * and closed by, and its 135KB editor.
+ */
+const opened = vi.hoisted(() => ({ item: undefined as string | undefined }));
+
+vi.mock('@tanstack/react-router', () => ({ useParams: () => ({ workspaceId: 'ws-work' }) }));
+
+vi.mock('../../../src/itemForm', () => ({
+  useItemForm: () => ({
+    openItemId: opened.item,
+    close: () => {
+      opened.item = undefined;
+    },
+  }),
+}));
+
+vi.mock('../../../src/description/RichDescription', () => ({
+  default: ({
+    initial,
+    onChange,
+    editable,
+  }: {
+    initial: string;
+    onChange: (markdown: string) => void;
+    editable: boolean;
+  }) => (
+    <textarea
+      aria-label="Description"
+      disabled={!editable}
+      value={initial}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
+}));
 
 const snapshot: WorkspaceSnapshot = {
   workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
@@ -387,5 +426,109 @@ describe('Capture', () => {
         );
       },
     );
+  });
+});
+
+/**
+ * The item this rule saves and opens again. Its description is empty to start
+ * with, which is the state a captured thought is in and the one the browser
+ * walk is in when it first presses Save.
+ */
+function anItem(over: Partial<Item> = {}): Item {
+  return {
+    id: 'item-1',
+    tenantId: 'tenant',
+    workspaceId: 'ws-work',
+    workspaceDecided: true,
+    source: 'internal',
+    sourceId: null,
+    sourceLink: null,
+    sender: null,
+    sourceTimestamp: null,
+    capturedMessage: 'Ask Novy about part 11',
+    sourceResolvedAt: null,
+    title: 'Part 11',
+    description: null,
+    typeId: null,
+    nextAction: null,
+    completedAt: null,
+    priority: null,
+    dueDate: null,
+    unseen: false,
+    deletedAt: null,
+    createdAt: '2026-08-31T10:00:00.000Z',
+    updatedAt: '2026-08-31T10:00:00.000Z',
+    ...over,
+  };
+}
+
+describe('Item editing', () => {
+  describe('an item opened again holds the text it was last saved with', () => {
+    /**
+     * **The bug this is here for.** A form fills its boxes from the copy the
+     * cache holds and never refills them, so a form opened again while the
+     * workspace was still being read back after the save opened on the text
+     * from *before* it - and stayed there, since a later read does not refill a
+     * form already filled. The browser walk lost that race in CI with the
+     * re-read out for 215ms, and read the description it had just written as
+     * empty (tests/e2e/item-editing.test.ts, "the formatted description and its
+     * source are one text").
+     *
+     * The re-read is held open rather than resolved at once, which is what
+     * makes this able to fail: with both reads instant, waiting for the re-read
+     * and not waiting for it look exactly the same.
+     */
+    it('is not finished saving until the workspace has been read back', async () => {
+      const written = 'Tolerances, and the sign-off date';
+      let letTheRereadFinish!: () => void;
+      reads.mockReset();
+      reads
+        .mockResolvedValueOnce({ ...snapshot, items: [anItem()] })
+        .mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              letTheRereadFinish = () =>
+                resolve({ ...snapshot, items: [anItem({ description: written })] });
+            }),
+        );
+      sends.mockResolvedValue({ ok: true, applied: true });
+
+      opened.item = 'item-1';
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      // A fresh element each time: passing the identical one back lets React
+      // bail out of the re-render, and the form never sees the address change.
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      // The editor is fetched behind the form, so for a tick the description is
+      // the read-only stand-in. Typing into that would be typing into nothing.
+      await waitFor(() =>
+        expect(screen.getByLabelText('Description')).not.toHaveAttribute('readonly'),
+      );
+
+      await user.type(screen.getByLabelText('Description'), written);
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      // The server has taken the change and the re-read is still out, which is
+      // the window this whole rule is about: the form is still up, so there is
+      // nothing to open again on text that is about to be replaced.
+      await waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
+      expect(opened.item).toBe('item-1');
+
+      letTheRereadFinish();
+      await waitFor(() => expect(opened.item).toBeUndefined());
+
+      // Opened again at once, the way the row's menu allows and the walk does.
+      // Waiting here cannot hide the bug: the read is already in by this line,
+      // so what the box is filled from can no longer change.
+      rerender(shell());
+      opened.item = 'item-1';
+      rerender(shell());
+      await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue(written));
+    });
   });
 });
