@@ -373,7 +373,7 @@ export async function switchTo(page: Page, name: string, isMobile: boolean): Pro
   // Already there, which a walk cannot always know: making a workspace opens
   // it. Pressing the tab you are on opens that tab's menu rather than
   // switching ("Change a workspace or a dashboard on the tab it is", issue
-  // 255), so a switch that is not one would leave a menu over the page.
+  // 267), so a switch that is not one would leave a menu over the page.
   const where = new URL(page.url()).pathname;
   if (where === workspace || where.startsWith(`${workspace}/`)) return;
   await press(tab, isMobile);
