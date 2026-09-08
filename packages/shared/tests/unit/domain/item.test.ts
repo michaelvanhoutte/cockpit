@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  LABEL_LENGTH,
+  TITLE_LENGTH,
   UNTITLED,
   itemDescriptionSchema,
   itemLabel,
   itemSchema,
   itemTitleSchema,
+  textsFromCapture,
   workspaceNameSchema,
 } from '../../../src/domain/item.js';
 
@@ -63,75 +64,48 @@ describe('Workspace management', () => {
 });
 
 /**
- * L1: what a row shows is a pure decision over an Item's three texts, worked
- * out where the row is drawn rather than stored, so this is where it is
- * decided. That a row actually asks it is one case in
+ * L1: what a row shows is a pure decision over an Item's texts, worked out
+ * where the row is drawn rather than stored, so this is where it is decided.
+ * That a row actually asks it is one case in
  * apps/web/tests/unit/components/ItemRow.test.tsx.
  */
 describe('Item editing', () => {
-  describe('a row shows the next action, or the title, or the start of the captured message', () => {
+  describe('a row shows the next action, or the title', () => {
     const texts = (over: Partial<Parameters<typeof itemLabel>[0]>) => ({
       nextAction: null,
       title: '',
-      capturedMessage: null,
       ...over,
     });
 
     it.each([
       {
-        situation: 'a next action, which wins over both the others',
-        item: texts({
-          nextAction: 'Reply to Tom',
-          title: 'Part 11',
-          capturedMessage: 'Tom asked about part 11',
-        }),
+        situation: 'a next action, which wins over the title',
+        item: texts({ nextAction: 'Reply to Tom', title: 'Part 11' }),
         shows: 'Reply to Tom',
       },
-      {
-        situation: 'no next action but a title',
-        item: texts({ title: 'Part 11', capturedMessage: 'Tom asked about part 11' }),
-        shows: 'Part 11',
-      },
-      {
-        situation: 'neither, so the captured message stands in',
-        item: texts({ capturedMessage: 'Tom asked about part 11' }),
-        shows: 'Tom asked about part 11',
-      },
-      // Blank is absent, or a title of spaces would leave the row unreadable
-      // while a perfectly good captured message sat behind it.
-      {
-        situation: 'a title of nothing but blanks',
-        item: texts({ title: '   ', capturedMessage: 'Tom asked about part 11' }),
-        shows: 'Tom asked about part 11',
-      },
+      { situation: 'no next action but a title', item: texts({ title: 'Part 11' }), shows: 'Part 11' },
+      // Blank is absent, or a row whose title is a space would be a gap where
+      // a name should be rather than something a person can read.
+      { situation: 'a title of nothing but blanks', item: texts({ title: '   ' }), shows: UNTITLED },
       {
         situation: 'a next action of nothing but blanks',
         item: texts({ nextAction: ' ', title: 'Part 11' }),
         shows: 'Part 11',
       },
-      // Reachable on an Item made before it had a captured message: its only
-      // text is its title, so clearing that empties all three.
+      { situation: 'nothing written anywhere', item: texts({}), shows: UNTITLED },
+      // Reachable on a title written before a title was one line, and on one
+      // an older release stored from a captured message.
       {
-        situation: 'nothing written anywhere',
-        item: texts({}),
-        shows: UNTITLED,
-      },
-      // A captured message runs to paragraphs and a row is one line, so the cut
-      // has to land in the label a person sees.
-      {
-        situation: 'a captured message written over several lines',
-        item: texts({ capturedMessage: 'Ask Tom\n\n  about part 11\t' }),
+        situation: 'a title written over several lines',
+        item: texts({ title: 'Ask Tom\n\n  about part 11\t' }),
         shows: 'Ask Tom about part 11',
       },
+      // The captured message is a record and never a name: an Item nobody has
+      // named reads as Untitled rather than borrowing it back.
       {
-        situation: 'a captured message of exactly the length that fits',
-        item: texts({ capturedMessage: 'x'.repeat(LABEL_LENGTH) }),
-        shows: 'x'.repeat(LABEL_LENGTH),
-      },
-      {
-        situation: 'a captured message one character too long',
-        item: texts({ capturedMessage: 'x'.repeat(LABEL_LENGTH + 1) }),
-        shows: `${'x'.repeat(LABEL_LENGTH)}…`,
+        situation: 'nothing but the message it was captured from',
+        item: { ...texts({}), capturedMessage: 'Tom asked about part 11' },
+        shows: UNTITLED,
       },
     ])('$situation', ({ item, shows }) => {
       expect(itemLabel(item)).toBe(shows);
@@ -157,7 +131,56 @@ describe('Item editing', () => {
   });
 });
 
+/**
+ * L1: which of an Item's texts a captured message becomes is a pure decision
+ * over a string. That capture actually asks it is one case in
+ * apps/api/tests/unit/domain/items.test.ts, and that a person sees the answer
+ * in the box they opened is the walk in tests/e2e/item-editing.test.ts.
+ */
 describe('Capture', () => {
+  describe('what you capture names the item it makes', () => {
+    it.each([
+      {
+        situation: 'a note that fits a title, which is the whole of what it makes',
+        typed: 'Ask Novy about part 11',
+        named: 'Ask Novy about part 11',
+        alsoSays: null,
+      },
+      {
+        situation: 'a note of exactly the length a title holds',
+        typed: 'x'.repeat(TITLE_LENGTH),
+        named: 'x'.repeat(TITLE_LENGTH),
+        alsoSays: null,
+      },
+      // The whole note, not the part the title left behind: a description that
+      // started at the 201st character would read as a sentence cut in half.
+      {
+        situation: 'a note one character too long for a title',
+        typed: 'x'.repeat(TITLE_LENGTH + 1),
+        named: 'x'.repeat(TITLE_LENGTH),
+        alsoSays: 'x'.repeat(TITLE_LENGTH + 1),
+      },
+      // A title is one line and a note may be several, so the line breaks close
+      // up for the title and the note is kept as it was written.
+      {
+        situation: 'a note written over several lines',
+        typed: 'Ask Novy\nabout part 11',
+        named: 'Ask Novy about part 11',
+        alsoSays: 'Ask Novy\nabout part 11',
+      },
+      // Half a character is worse than one character less: the cut lands
+      // between the two halves of an emoji, which renders as a broken box.
+      {
+        situation: 'a note whose cut would land inside a character',
+        typed: `${'x'.repeat(TITLE_LENGTH - 1)}\u{1F600}tail`,
+        named: 'x'.repeat(TITLE_LENGTH - 1),
+        alsoSays: `${'x'.repeat(TITLE_LENGTH - 1)}\u{1F600}tail`,
+      },
+    ])('$situation', ({ typed, named, alsoSays }) => {
+      expect(textsFromCapture(typed)).toEqual({ title: named, description: alsoSays });
+    });
+  });
+
   /**
    * The shape read back is permissive on purpose: what is stored has to render
    * even where it predates a rule, and refusing it blanks the screen it is on
