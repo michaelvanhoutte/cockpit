@@ -2,15 +2,7 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { PANEL_TEXT_LIMIT } from '@cockpit/shared';
 import type { Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
-import {
-  ACCOUNT_NAME,
-  WORKSPACE_ID,
-  alsoWorkspaces,
-  asUser,
-  inTheStore,
-  seedRegister,
-  startFromEmpty,
-} from '../seed.js';
+import { WORKSPACE_ID, alsoWorkspaces, asUser, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`asUser`), because every rule
@@ -501,7 +493,7 @@ describe('Panels', () => {
     // the store, so that what is under test is a workspace somebody could
     // actually have. About four seconds here and slower on a shared runner,
     // where the default five would be a coin toss.
-    it('still reads the workspace when it holds more layouts than a statement can name', { timeout: 30_000 }, async () => {
+    it('still reads the workspace when it holds more layouts than a statement can name', { timeout: 60_000 }, async () => {
       // A workspace accumulates a layout per dashboard per screen, and the read
       // that paints it once named every one of them in a single statement -
       // which SQLite refuses past a limit, failing the *whole* workspace read
@@ -512,30 +504,31 @@ describe('Panels', () => {
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       // Comfortably past the limit rather than exactly on it, so the case goes
       // on being about the limit if the limit ever moves. A hundred and twenty
-      // screen sizes this dashboard defines a layout at each of, written
-      // straight into the store rather than through a hundred and twenty more
-      // round trips: what is under test is the read past the limit, which
-      // `create_screen_size` has its own cases for already.
-      const widths = Array.from({ length: 120 }, (_, at) => 320 + at);
-      const screenSizeIds = widths.map(() => nextId());
-      await inTheStore((sql) => {
-        widths.forEach((width, at) => {
-          sql.exec(
-            `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            screenSizeIds[at],
-            ACCOUNT_NAME,
-            `Size ${at}`,
-            `size ${at}`,
-            width,
-            AT,
-          );
-        });
-      });
+      // screen sizes this dashboard defines a layout at each of, made the way
+      // a person makes them - through `create_screen_size` - for the same
+      // reason the layouts below are: what is under test is a workspace
+      // somebody could actually have.
+      //
       // Sent together rather than one after another: the store serialises
       // them anyway, and a hundred and twenty round trips in a row is the
       // difference between a case that runs in a moment and one that outlasts
       // the runner's patience.
+      const widths = Array.from({ length: 120 }, (_, at) => 320 + at);
+      const screenSizeIds = widths.map(() => nextId());
+      expect(
+        (
+          await Promise.all(
+            widths.map((width, at) =>
+              send('create_screen_size', {
+                workspaceId: WORKSPACE_ID,
+                screenSizeId: screenSizeIds[at],
+                name: `Size ${at}`,
+                width,
+              }),
+            ),
+          )
+        ).every((res) => res.status === 200),
+      ).toBe(true);
       const saved = await Promise.all(
         widths.map((screenWidth, at) =>
           saveLayout(
@@ -885,6 +878,30 @@ describe('Layouts', () => {
       expect(await layoutsOf(dashboardId)).toHaveLength(1);
     });
 
+    it('still refuses a second layout at a size renamed since the first was made', async () => {
+      // A Layout's own name is frozen at its creation and a rename never
+      // touches it, so the first Layout here still carries the size's old
+      // name - and the check has to compare the size itself, not that
+      // frozen name, or a rename landing between two saves would let both
+      // through.
+      const { dashboardId, panelId, screenSizeId } = await arranged('Wide');
+      expect(
+        (await send('rename_screen_size', { workspaceId: WORKSPACE_ID, screenSizeId, name: 'Big' }))
+          .status,
+      ).toBe(200);
+
+      const again = await saveLayout(
+        dashboardId,
+        nextId(),
+        2560,
+        [{ panelId, span: 12 }],
+        screenSizeId,
+      );
+
+      expect(again.status).toBe(409);
+      expect(await layoutsOf(dashboardId)).toHaveLength(1);
+    });
+
     it('lets another dashboard have a layout at the same size', async () => {
       // One level further down than a dashboard's own name: the scope is the
       // dashboard, the way a panel's title is.
@@ -961,6 +978,34 @@ describe('Layouts', () => {
       expect((await snapshot('ws-atlas')).screenSizes.map((size) => size.name)).toEqual(['Default']);
     });
 
+    it('lets Default be renamed and deleted like any other size', async () => {
+      // Its id is derived from the account's own rather than being a uuid
+      // (`defaultScreenSizeId`) - so every command naming an existing screen
+      // size has to take the envelope's plain string, or Default could be
+      // made but never touched again.
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+      expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
+      await saveLayout(dashboardId, nextId(), 1280, [{ panelId, span: 4 }]);
+      const [defaultSize] = (await snapshot()).screenSizes;
+
+      const renamed = await send('rename_screen_size', {
+        workspaceId: WORKSPACE_ID,
+        screenSizeId: defaultSize!.id,
+        name: 'Wide',
+      });
+      expect(renamed.status).toBe(200);
+      expect((await snapshot()).screenSizes.map((size) => size.name)).toEqual(['Wide']);
+
+      const deleted = await send('delete_screen_size', {
+        workspaceId: WORKSPACE_ID,
+        screenSizeId: defaultSize!.id,
+      });
+      expect(deleted.status).toBe(200);
+      expect(await snapshot()).toMatchObject({ screenSizes: [] });
+      expect(await layoutsOf(dashboardId)).toHaveLength(0);
+    });
+
     it('keeps an arrangement with nothing defined in the nearest size the account already has', async () => {
       const dashboardId = await aDashboard();
       const panelId = nextId();
@@ -977,8 +1022,13 @@ describe('Layouts', () => {
     });
   });
 
-  describe('renaming a screen size renames every layout drawn from it, and nothing else about them', () => {
-    it('keeps the arrangement and the width it was made at', async () => {
+  describe('renaming a screen size changes nothing about the layouts already drawn from it', () => {
+    // What a person reads as "this layout's new name" is `layoutLabel`
+    // resolving the size's current name (apps/web/tests/unit/panels/
+    // arrangement.test.ts, "follows a rename of its screen size") - a
+    // Layout's own stored name is frozen at its creation and a rename never
+    // touches it, which is what this proves from the row outward.
+    it('leaves the arrangement, the width, and the layout’s own stored name alone', async () => {
       const { dashboardId, panelId, layoutId, screenSizeId } = await arranged('Wide', 2560);
 
       const renamed = await send('rename_screen_size', {
@@ -989,6 +1039,7 @@ describe('Layouts', () => {
 
       expect(renamed.status).toBe(200);
       expect((await layoutsOf(dashboardId))[0]).toMatchObject({
+        name: 'Wide',
         screenWidth: 2560,
         rows: [{ height: null, cells: [{ panelId, span: 4 }] }],
       });
@@ -1166,40 +1217,43 @@ describe('Layouts', () => {
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       await addPanel(dashboardId, 'On its own line', { panelId: alone });
       // A hundred and twenty screen sizes this dashboard defines a layout at
-      // each of, written straight into the store for the reason the other
-      // case at this scale does (above): what is under test is the row read
-      // and write past the limit, not `create_screen_size`.
+      // each of, made through `create_screen_size` for the reason the other
+      // case at this scale is (above): a workspace somebody could actually
+      // have, not a shortcut around the command that makes one.
       const screenSizeIds = Array.from({ length: 120 }, () => nextId());
-      await inTheStore((sql) => {
-        screenSizeIds.forEach((id, n) => {
-          sql.exec(
-            `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            id,
-            ACCOUNT_NAME,
-            `Size ${n}`,
-            `size ${n}`,
-            1280 + n,
-            AT,
-          );
-        });
-      });
-      for (let n = 0; n < 120; n += 1) {
-        expect(
-          (
-            await saveRows(
-              dashboardId,
-              nextId(),
-              1280 + n,
-              [
-                { height: null, cells: [{ panelId: falcon, span: 12 }] },
-                { height: null, cells: [{ panelId: alone, span: 12 }] },
-              ],
-              screenSizeIds[n],
-            )
-          ).status,
-        ).toBe(200);
-      }
+      expect(
+        (
+          await Promise.all(
+            screenSizeIds.map((screenSizeId, n) =>
+              send('create_screen_size', {
+                workspaceId: WORKSPACE_ID,
+                screenSizeId,
+                name: `Size ${n}`,
+                width: 1280 + n,
+              }),
+            ),
+          )
+        ).every((res) => res.status === 200),
+      ).toBe(true);
+      // Sent together, for the reason the screen sizes just above are.
+      expect(
+        (
+          await Promise.all(
+            screenSizeIds.map((screenSizeId, n) =>
+              saveRows(
+                dashboardId,
+                nextId(),
+                1280 + n,
+                [
+                  { height: null, cells: [{ panelId: falcon, span: 12 }] },
+                  { height: null, cells: [{ panelId: alone, span: 12 }] },
+                ],
+                screenSizeId,
+              ),
+            ),
+          )
+        ).every((res) => res.status === 200),
+      ).toBe(true);
 
       expect(
         (await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: alone })).status,
@@ -1208,8 +1262,9 @@ describe('Layouts', () => {
       const its = await layoutsOf(dashboardId);
       expect(its).toHaveLength(120);
       expect(its.every((layout) => layout.rows.length === 1)).toBe(true);
-      // A hundred and twenty saves against the workers pool, past the default
-      // five seconds on requests alone.
-    }, 60_000);
+      // Two hundred and forty round trips against the workers pool now - a
+      // screen size and a layout per iteration - past the default five
+      // seconds on requests alone.
+    }, 120_000);
   });
 });

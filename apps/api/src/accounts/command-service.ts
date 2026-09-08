@@ -874,12 +874,16 @@ export function runCommand<N extends CommandName>(
             name = makingSize.name;
           }
         }
-        // At most one Layout of a Dashboard per screen size, for free: a
-        // Layout's name is now always the size's, so the same index that has
-        // always refused a Dashboard two Layouts of one name refuses this
-        // Dashboard a second one at a size it already has.
-        const alreadyCalledThat = layoutNamed(listLayoutsOn(db, tenantId, dashboard.id), name);
-        if (alreadyCalledThat) throw new LayoutNameTakenError(alreadyCalledThat.name);
+        // At most one Layout of a Dashboard per screen size. Compared by the
+        // id itself, not by the name it resolved to: a Layout's own name is
+        // frozen at its creation and `rename_screen_size` never touches it,
+        // so two Layouts made at one size before and after a rename would
+        // carry two different frozen names and slip straight past a check
+        // that compared those instead.
+        const alreadyThere = listLayoutsOn(db, tenantId, dashboard.id).find(
+          (layout) => layout.screenSizeId === screenSizeId,
+        );
+        if (alreadyThere) throw new LayoutNameTakenError(name);
       }
       // Every screen size is the account's, offered in every Workspace it has -
       // see `create_screen_size`. Only where this save makes one; an ordinary

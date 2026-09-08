@@ -330,9 +330,11 @@ export const saveLayoutSchema = commandEnvelopeSchema.extend({
   /**
    * Which screen size this save defines a Layout for, where this is the save
    * that creates it. Optional - see the class comment for what happens where
-   * it is left out.
+   * it is left out. The envelope's plain string rather than a uuid: it names
+   * a size that already exists, and *Default* has an id derived from the
+   * account's own (`renameScreenSizeSchema` says why that matters here too).
    */
-  screenSizeId: z.uuid().optional(),
+  screenSizeId: z.string().min(1).optional(),
   /**
    * The rows, top to bottom. An arrangement is the whole list, so a layout
    * saved with none is a layout arranging nothing - which is what a dashboard
@@ -406,9 +408,15 @@ export type CreateScreenSizeCommand = z.infer<typeof createScreenSizeSchema>;
  * rename_screen_size — renames it for every Dashboard that offers it, from the
  * one list the account holds, exactly as renaming a Type does for every Item
  * wearing it.
+ *
+ * `screenSizeId` is the envelope's plain string rather than a uuid, for the
+ * reason renaming a workspace takes one: it names something that already
+ * exists, and *Default* - the one screen size the product still makes for
+ * itself ("Draw a dashboard against the screen sizes its account has", issue
+ * 263) - has an id derived from the account's own rather than a uuid.
  */
 export const renameScreenSizeSchema = commandEnvelopeSchema.extend({
-  screenSizeId: z.uuid(),
+  screenSizeId: z.string().min(1),
   name: screenSizeNameSchema,
 });
 export type RenameScreenSizeCommand = z.infer<typeof renameScreenSizeSchema>;
@@ -420,9 +428,12 @@ export type RenameScreenSizeCommand = z.infer<typeof renameScreenSizeSchema>;
  * Layout this way is drawn fitted to the screen, exactly as one that was never
  * arranged is; deleting the account's last size is allowed, the same as
  * deleting its last Layout is not.
+ *
+ * `screenSizeId` is the envelope's plain string, not a uuid - see
+ * `renameScreenSizeSchema` for why: *Default* has to be nameable here too.
  */
 export const deleteScreenSizeSchema = commandEnvelopeSchema.extend({
-  screenSizeId: z.uuid(),
+  screenSizeId: z.string().min(1),
 });
 export type DeleteScreenSizeCommand = z.infer<typeof deleteScreenSizeSchema>;
 

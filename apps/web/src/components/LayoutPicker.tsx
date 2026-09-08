@@ -6,7 +6,7 @@ import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
-import { drawnRows, layoutToDraw, layoutsOf } from '../panels/arrangement';
+import { drawnRows, layoutLabel, layoutToDraw, layoutsOf } from '../panels/arrangement';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { DeleteQuestion } from './DeleteQuestion';
 import { MenuContent, menuItemClass } from './Menu';
@@ -56,6 +56,14 @@ export function LayoutPicker({
   const drawnSize = drawnWith
     ? (screenSizes.find((size) => size.id === drawnWith.screenSizeId) ?? null)
     : null;
+  /**
+   * What the button says, which is not quite `drawnSize?.name`: a Layout
+   * whose size is not in this list at all - reachable only by something
+   * written straight into the store, never through the app - still reads as
+   * the width it was made at rather than as a blank "No layout" claiming
+   * nothing is drawn when something plainly is (`layoutLabel`).
+   */
+  const drawnLabel = drawnWith ? layoutLabel(drawnWith, screenSizes) : 'No layout';
 
   const definedIds = new Set(
     layoutsOf(layouts, dashboardId)
@@ -283,14 +291,14 @@ export function LayoutPicker({
             // "Layout for this dashboard" alone tells a screen reader that
             // there is one and never which, and which is the whole point of
             // it.
-            aria-label={`Layout for this dashboard: ${drawnSize ? drawnSize.name : 'no layout'}`}
+            aria-label={`Layout for this dashboard: ${drawnLabel}`}
             // On the chrome, so it takes the chrome's light set rather than the
             // ink and accent tint every control on the sheet wears - both of
             // which are invisible on a near-black bar (Menu.tsx says why this is
             // a set rather than a class).
             className="mb-1 flex max-w-52 shrink-0 items-center gap-1.5 rounded-md border border-white/15 bg-white/6 px-2 py-1 text-xs text-chrome-ink hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/12"
           >
-            <span className="truncate">{drawnSize ? drawnSize.name : 'No layout'}</span>
+            <span className="truncate">{drawnLabel}</span>
             <svg viewBox="0 0 10 6" className="size-2 shrink-0" aria-hidden="true">
               <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
             </svg>
@@ -357,7 +365,17 @@ export function LayoutPicker({
                 >
                   {`Rename ${drawnSize.name}…`}
                 </DropdownMenu.Item>
-                <DropdownMenu.Item className={menuItemClass} onSelect={opens(removeLayout)}>
+                <DropdownMenu.Item
+                  className={menuItemClass}
+                  onSelect={() => {
+                    // Not `opens()`: nothing opens here, so the focus Radix
+                    // would otherwise put back on the trigger must not be
+                    // claimed away from it the way an entry that opens a
+                    // dialog claims it.
+                    command.reset();
+                    removeLayout();
+                  }}
+                >
                   {`Remove this dashboard's ${drawnSize.name} layout`}
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
