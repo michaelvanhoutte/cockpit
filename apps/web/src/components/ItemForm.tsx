@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { itemLabel, uuidv7, type Item } from '@cockpit/shared';
+import { TITLE_LENGTH, itemLabel, uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
 import { useItemForm } from '../itemForm';
@@ -13,7 +13,6 @@ interface Draft {
   description: string;
 }
 
-const TITLE_LIMIT = 200;
 const DESCRIPTION_LIMIT = 60_000;
 
 /**
@@ -112,7 +111,7 @@ function TheForm({
    */
   const changing = editing ? whatChanged(editing.was, editing.now) : {};
   const overCap =
-    (changing.title !== undefined && changing.title.length > TITLE_LIMIT
+    (changing.title !== undefined && changing.title.length > TITLE_LENGTH
       ? ('title' as const)
       : undefined) ??
     (changing.description != null && changing.description.length > DESCRIPTION_LIMIT
@@ -218,15 +217,13 @@ function TheForm({
           // most Android phones - leaves the title 8px under the status bar.
           className="fixed left-1/2 top-1/2 flex max-h-[min(44rem,calc(100vh_-_2rem_-_2_*_max(var(--edge-top),var(--edge-bottom))))] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
         >
-          {/* The label the row was showing, so the form says which item is open.
-              "Item" alone over two empty boxes says nothing at all - and the
-              boxes are empty exactly when the item has only a captured message,
-              which is the case that needs it most. Read from the stored item
-              rather than from the boxes, so it holds still while a new title is
-              being typed under it. */}
-          <Dialog.Title className="truncate text-base font-semibold">
-            {item ? itemLabel(item) : 'Item'}
-          </Dialog.Title>
+          {/* Said rather than shown. A dialog has to name itself, and this one
+              is opened by a row whose label is now the title box directly under
+              it - so drawing it would put the same words on the form twice,
+              which is the duplicate capture writing the title removed. Read
+              from the stored item rather than from the boxes, so it holds still
+              while a new title is being typed under it. */}
+          <Dialog.Title className="sr-only">{item ? itemLabel(item) : 'Item'}</Dialog.Title>
 
           {!item ? (
             <p role="alert" className="pt-3 text-sm text-ink-soft">
@@ -283,7 +280,7 @@ function TheForm({
           {tooLong && (
             <p role="alert" className="pt-3 text-sm text-over">
               {overCap === 'title'
-                ? `A title is at most ${TITLE_LIMIT} characters.`
+                ? `A title is at most ${TITLE_LENGTH} characters.`
                 : `A description is at most ${DESCRIPTION_LIMIT.toLocaleString()} characters.`}
             </p>
           )}

@@ -388,6 +388,120 @@ describe('Accounts', () => {
   });
 });
 
+describe('Capture', () => {
+  describe('an item captured before capture wrote a title is named by what was captured', () => {
+    /**
+     * Capture used to leave the title empty and let the row fall through to the
+     * captured message, which is the duplicate this release removed. Nothing
+     * reads the captured message as a label any more, so without
+     * `0018-title-from-captured-message` every item captured before it would
+     * read *Untitled*.
+     *
+     * Integration rather than lower down because this is a rewrite of rows that
+     * already exist, against a store that already holds them: the rule itself
+     * is decided in packages/shared/tests/unit/domain/item.test.ts, and what a
+     * statement does to a full table is not a thing a pure test can ask.
+     */
+    const LONG = `Ask Novy ${'x'.repeat(250)}`;
+    /**
+     * The run-lengths a single break cannot tell apart: `\r\n` is two break
+     * characters together and a blank line is two more. A title is one space at
+     * each, not one space per character - which is what replacing them one at a
+     * time gives, and is a title no fresh capture of the same note would have.
+     */
+    const RUN = 'Ask Novy\r\nabout\n\npart 11';
+
+    it('gives each of them the title it should have had, and rewrites nothing that has one', async () => {
+      const name = 'aged-store-title-from-captured';
+      await agedTo(name, justBefore('0018-title-from-captured-message'));
+      await fillWithWhatIsAlreadyThere(name);
+      await inStoreAsItIs(name, (sql) => {
+        // Four items as capture left them, and one a person has since written
+        // about: what was captured, whether it fits a title, and whether there
+        // is already a description are the three things this decides on.
+        sql.exec(
+          `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen,
+                              captured_message, description, created_at, updated_at)
+             VALUES ('it-fits', ?, 'ws-before', 'internal', '', 'task', 0, ?, NULL, ?, ?),
+                    ('it-long', ?, 'ws-before', 'internal', '', 'task', 0, ?, NULL, ?, ?),
+                    ('it-lines', ?, 'ws-before', 'internal', '  ', 'task', 0, ?, NULL, ?, ?),
+                    ('it-run', ?, 'ws-before', 'internal', '', 'task', 0, ?, NULL, ?, ?),
+                    ('it-written-about', ?, 'ws-before', 'internal', '', 'task', 0, ?, ?, ?, ?)`,
+          name,
+          'Ask Novy about part 11',
+          AT,
+          AT,
+          name,
+          LONG,
+          AT,
+          AT,
+          name,
+          'Ask Novy\nabout part 11',
+          AT,
+          AT,
+          name,
+          RUN,
+          AT,
+          AT,
+          name,
+          LONG,
+          'Tolerances, and the sign-off date',
+          AT,
+          AT,
+        );
+      });
+
+      // Opening the store is what applies it, as the first request of the day
+      // does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      // Read through the real query rather than out of the table, because what
+      // a person ends up seeing is the snapshot the app reads.
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok' });
+      const texts = (id: string) => {
+        const item = snapshot.status === 'ok' ? snapshot.value.items.find((it) => it.id === id) : undefined;
+        return item && { title: item.title, description: item.description };
+      };
+
+      expect(texts('it-fits')).toEqual({
+        title: 'Ask Novy about part 11',
+        description: null,
+      });
+      // Cut for the title, kept whole in the description, so the 201st
+      // character onwards is not left only in a text nobody can edit.
+      expect(texts('it-long')).toEqual({ title: LONG.slice(0, 200), description: LONG });
+      // A title is one line, so the break closes up rather than being stored.
+      expect(texts('it-lines')).toEqual({
+        title: 'Ask Novy about part 11',
+        description: 'Ask Novy\nabout part 11',
+      });
+      // A run of breaks closes up to one space too, so a note backfilled here
+      // is named exactly as the same note captured fresh would be.
+      expect(texts('it-run')).toEqual({ title: 'Ask Novy about part 11', description: RUN });
+      // What somebody wrote is never overwritten by what was captured.
+      expect(texts('it-written-about')).toEqual({
+        title: LONG.slice(0, 200),
+        description: 'Tolerances, and the sign-off date',
+      });
+      // And an item that already had a title keeps it, untouched.
+      expect(texts('it-before')).toEqual({
+        title: 'Captured before the update',
+        description: null,
+      });
+
+      // `updated_at` is what every change measures staleness by, so moving it
+      // would refuse an edit made on a device between its last read and this -
+      // and nothing a person did happened here.
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec("SELECT updated_at FROM items WHERE id = 'it-fits'").toArray(),
+        ),
+      ).toEqual([{ updated_at: AT }]);
+    });
+  });
+});
+
 describe('Workspace management', () => {
   describe('an account that was already in use keeps its workspaces in the order they were made', () => {
     /**

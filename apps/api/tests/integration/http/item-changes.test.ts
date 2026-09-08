@@ -585,10 +585,10 @@ describe('Item editing', () => {
 
       const [made] = await storedIn('items', 'id', itemId);
       expect(made?.captured_message).toBe('Ask Novy about part 11');
-      // Capture writes no title deliberately: naming a thought is a second act,
-      // and the row falls through to the captured message until somebody
-      // performs it.
-      expect(made?.title).toBe('');
+      // What was said names the item, and is kept beside it: the two texts are
+      // the same words here and stop being the same the moment either the
+      // person or a later capture that proposes a title changes one.
+      expect(made?.title).toBe('Ask Novy about part 11');
       expect(made?.description).toBe(null);
 
       await postChange('set_title', {

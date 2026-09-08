@@ -48,6 +48,16 @@ describe('Capture', () => {
       expect(item.createdAt).toBe(MADE);
       expect(item.updatedAt).toBe(MADE);
     });
+
+    // Which of the two texts a message becomes is decided in
+    // packages/shared/tests/unit/domain/item.test.ts; what is asked here is
+    // that capture asks it, and keeps the message itself beside the answer.
+    it('is named by what was captured, and keeps what was captured as well', () => {
+      const item = anItem();
+      expect(item.title).toBe('Make appointment with Novy');
+      expect(item.description).toBeNull();
+      expect(item.capturedMessage).toBe('Make appointment with Novy');
+    });
   });
 });
 

@@ -72,6 +72,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     DROP_ITEM_PREVIEW,
     TEXT_PANELS,
     PANEL_TEXT_FORMAT,
+    TITLE_FROM_CAPTURED_MESSAGE,
     firstWorkspace(accountId),
   ];
 }
@@ -1328,6 +1329,122 @@ const PANEL_TEXT_FORMAT: Change = {
   statements: [
     {
       sql: `ALTER TABLE \`panels\` ADD COLUMN \`format\` text DEFAULT 'plain' NOT NULL CHECK (format IN ('plain', 'rich'))`,
+    },
+  ],
+};
+
+/**
+ * What a captured message would be if it were a title: one line, trimmed, and
+ * cut to the 200 characters `itemTitleSchema` allows. The same rule as
+ * `textsFromCapture` in packages/shared/src/domain/item.ts, written twice
+ * because SQLite has no regular expressions and this one runs where that one
+ * cannot be called - and read against it whenever either moves.
+ *
+ * **A run of them is one space, not one space each.** `\r\n` and a blank line
+ * are the everyday runs, and replacing each character on its own put two spaces
+ * in the middle of a backfilled title where a fresh capture of the same note
+ * puts one - a mismatch written permanently into the rows this touches. So the
+ * breaks become a token first, runs of the token collapse, and the token
+ * becomes the space. Twenty halvings, which reaches one from any run a stored
+ * message could hold: `capture_item` caps it at 60,000 characters and 2^20 is
+ * past a million.
+ *
+ * **The token is `char(1)`, which is safe by being unsafe.** It is a control
+ * character, so a message holding one is a message `textsFromCapture` would
+ * also have turned into a space - being mistaken for a token is the behaviour
+ * to want rather than a collision to avoid.
+ *
+ * The two still differ in two ways, both harmless. `replace` names the line
+ * breaks and the tab rather than the whole `\p{Cc}` class, so an exotic control
+ * character survives here and becomes a space there; a title holding one
+ * renders oddly rather than breaking, the read model being permissive on
+ * purpose (`itemSchema`). And SQLite counts characters where the cap counts
+ * UTF-16 units, so a title of 200 emoji is stored longer than the cap; also
+ * permissive on the way out, and never split in half, which is the failure that
+ * would matter.
+ */
+const AS_A_TITLE = (() => {
+  const token = 'char(1)';
+  const breaks = ['char(10)', 'char(13)', 'char(9)', 'char(8232)', 'char(8233)'];
+  let text = breaks.reduce((so_far, mark) => `replace(${so_far}, ${mark}, ${token})`, 'captured_message');
+  for (let halving = 0; halving < 20; halving += 1) {
+    text = `replace(${text}, ${token} || ${token}, ${token})`;
+  }
+  return `substr(trim(replace(${text}, ${token}, ' ')), 1, 200)`;
+})();
+
+/**
+ * A title for every Item captured before capture wrote one.
+ *
+ * Nothing reads the captured message as a label any more (`itemLabel`), so
+ * without this every Item captured before today would read *Untitled*. The
+ * naming rule this repeats in SQL, and why an Item has both texts, are on
+ * `textsFromCapture` in packages/shared/src/domain/item.ts.
+ *
+ * **The whole message goes to the description where it did not fit the title**,
+ * so the 201st character onwards is not left only in a text nobody can edit.
+ * Written first, because the second statement is what stops it matching.
+ *
+ * **`updated_at` is deliberately not touched.** It is what every handler
+ * measures staleness by (`isStale`), so bumping it would refuse changes made on
+ * a device between its last read and this - and nothing a person did happened
+ * here anyway.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Interrupted partway.** It cannot be. A change's statements and the record
+ *   that they ran commit in one `transactionSync` (store.ts), so a failure
+ *   leaves neither write and the whole change is retried next time somebody
+ *   opens the account.
+ * - **Run again.** Only an unfinished change runs again, and it is idempotent
+ *   regardless: after it, no row matches `trim(title) = ''` any more except one
+ *   whose captured message is nothing but blanks, which both statements leave
+ *   as they found it.
+ * - **Rows the new rule rejects.** None is refused and none is dropped. A row
+ *   that already has a title keeps it, exactly as it is - a person's own name
+ *   for something is never overwritten by what was captured. A row that already
+ *   has a description keeps that too, which is why the first statement asks for
+ *   `description IS NULL`: an Item captured before this and then written about
+ *   would otherwise lose what was written.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop, in
+ *   staging and in production alike. No seeding step differs.
+ * - **The windows it can be interrupted in.** Three. *Before it runs*: nothing
+ *   is touched, and the release in front of it still reads the captured message
+ *   as a label, so the Items look exactly as they did. *After it runs, with the
+ *   previous release promoted back*: that release prefers the title over the
+ *   captured message (`itemLabel`), so it shows the titles this wrote - the same
+ *   text, cut at 200 rather than at 150. Neither needs repairing.
+ *
+ *   *Capturing while that older release is running* does. It writes an empty
+ *   title, this change is recorded as applied so it never runs again
+ *   (`bringUpToDate`), and rolling forward leaves those Items reading
+ *   *Untitled* - their text intact under *What was captured*, and their name
+ *   gone. **So this puts a floor under promotion the way a contract half does**
+ *   (deployment, "Migrations and rollback"), and a softer one: the repair is
+ *   another change carrying these same two statements rather than a restore,
+ *   since both are idempotent and would find exactly the rows that window made.
+ * - **A backup taken before this.** Restored intact: `restore.ts` replays the
+ *   changes the backup recorded and puts the rows back as they were, and the
+ *   store then applies this the next time it is opened.
+ */
+const TITLE_FROM_CAPTURED_MESSAGE: Change = {
+  name: '0018-title-from-captured-message',
+  statements: [
+    {
+      sql: `UPDATE items
+               SET description = captured_message
+             WHERE trim(title) = ''
+               AND captured_message IS NOT NULL
+               AND description IS NULL
+               AND ${AS_A_TITLE} <> captured_message`,
+    },
+    {
+      sql: `UPDATE items
+               SET title = ${AS_A_TITLE}
+             WHERE trim(title) = ''
+               AND captured_message IS NOT NULL`,
     },
   ],
 };
