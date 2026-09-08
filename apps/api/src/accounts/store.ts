@@ -28,7 +28,7 @@ import {
   writeRows,
 } from './restore.js';
 import { createAccountDb, type AccountDb } from './client.js';
-import { collectInvalidations } from './events.js';
+import { collectInvalidations, watermark } from './events.js';
 import {
   DashboardNameTakenError,
   DashboardNotFoundError,
@@ -99,7 +99,11 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     return this.#answer(accountName, (db) => {
       const workspace = getWorkspace(db, accountName, workspaceId);
       if (!workspace) throw new WorkspaceNotFoundError(workspaceId);
+      // POC (own-event refetch): before the rows, not after - `watermark` says
+      // why the order is the whole safety argument.
+      const upTo = watermark(db, accountName);
       return {
+        upTo,
         workspace,
         items: listOpenItems(db, accountName, workspaceId),
         dashboards: listDashboards(db, accountName, workspaceId),

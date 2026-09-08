@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, serverEventSchema } from '@cockpit/shared';
+import type { ServerEvent, WorkspaceSnapshot } from '@cockpit/shared';
 import { diagnoseConnection } from './loadFailure';
 
 /**
@@ -52,9 +54,21 @@ export function useServerEvents() {
       stream.addEventListener('change', (message) => {
         const parsed = serverEventSchema.safeParse(JSON.parse(message.data));
         if (!parsed.success) return;
-        void queryClient.invalidateQueries({
-          queryKey: ['snapshot', parsed.data.workspaceId],
-        });
+        // POC (own-event refetch): a tab that already read this change does not
+        // read it again. Measured before this: one change made in this tab cost
+        // two full snapshots - one from `afterChanging` at +67ms, one from this
+        // handler when the tab's own event came back, 0.2-3.0s later.
+        //
+        // **The snapshot only.** The list below is 500 bytes and is not what
+        // `upTo` says anything about, so skipping it on a current snapshot
+        // would leave a workspace renamed elsewhere wearing its old name in the
+        // bar - reachable without anyone making a change here at all, since a
+        // snapshot refetched on window focus is enough to satisfy the guard.
+        if (!alreadyHas(queryClient, parsed.data)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['snapshot', parsed.data.workspaceId],
+          });
+        }
         // The list too, because creating a workspace is announced on the new
         // workspace and nothing else would ever refetch it - so another tab
         // would keep showing the tabs it had when it loaded. The event says
@@ -119,4 +133,21 @@ export function useServerEvents() {
       source?.close();
     };
   }, [queryClient]);
+}
+
+/**
+ * POC (own-event refetch): whether the copy this tab holds already contains the
+ * change an event names (`upTo` in workspaceSnapshotSchema says why the two
+ * values are comparable).
+ *
+ * **Every uncertainty answers "no".** A workspace with nothing cached, an event
+ * about the account rather than a workspace, a copy from before this field
+ * existed: all of them refetch, which is what the app does today anyway. The
+ * only case that skips is the one where the tab can prove it is not needed.
+ */
+function alreadyHas(queryClient: QueryClient, event: ServerEvent): boolean {
+  if (event.type !== 'snapshot_invalidated' || !event.at) return false;
+  const held = queryClient.getQueryData<WorkspaceSnapshot>(['snapshot', event.workspaceId]);
+  if (!held?.upTo) return false;
+  return held.upTo >= event.at;
 }

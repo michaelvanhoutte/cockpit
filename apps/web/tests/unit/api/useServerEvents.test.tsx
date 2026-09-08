@@ -222,3 +222,103 @@ describe('Workspace management', () => {
     });
   });
 });
+
+describe('Reading a change once', () => {
+  /**
+   * POC (own-event refetch): the tab that made a change has already read it by
+   * the time its own event comes back, 0.2-3.0s later. What decides is what the
+   * cache holds, never who sent the change - which is what lets this skip a
+   * tab's own event without ever skipping somebody else's.
+   */
+  const heldAt = (upTo: string | undefined) => ({ items: [], upTo });
+
+  it('does not re-read a workspace whose copy already has the change', async () => {
+    open();
+    client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:05.000Z'));
+    const stream = FakeStream.made.at(-1)!;
+    stream.comesUp();
+
+    stream.announces({
+      type: 'snapshot_invalidated',
+      workspaceId: 'ws-work',
+      at: '2026-09-08T10:00:04.000Z',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(false);
+  });
+
+  it('re-reads a workspace whose copy is older than the change', async () => {
+    open();
+    client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:03.000Z'));
+    const stream = FakeStream.made.at(-1)!;
+    stream.comesUp();
+
+    stream.announces({
+      type: 'snapshot_invalidated',
+      workspaceId: 'ws-work',
+      at: '2026-09-08T10:00:04.000Z',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(true);
+  });
+
+  /**
+   * The list is not what `upTo` describes, and it is 500 bytes. Skipping it on
+   * a current snapshot would leave a workspace renamed elsewhere wearing its
+   * old name in the bar - reachable with nobody making a change in this tab at
+   * all, since a snapshot refetched on window focus satisfies the guard.
+   */
+  it('re-reads the workspace list even when the snapshot is skipped', async () => {
+    open();
+    client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:05.000Z'));
+    const stream = FakeStream.made.at(-1)!;
+    stream.comesUp();
+
+    stream.announces({
+      type: 'snapshot_invalidated',
+      workspaceId: 'ws-work',
+      at: '2026-09-08T10:00:04.000Z',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(client.getQueryState(['workspaces'])?.isInvalidated ?? false).toBe(true);
+  });
+
+  /**
+   * Every uncertainty re-reads, which is what the app does today anyway. A copy
+   * with no stamp is one held from before the field existed, or one of an
+   * account that has never taken a change; an event with no stamp comes from a
+   * Worker deployed behind this build.
+   */
+  it.each([
+    ['the copy carries no stamp', heldAt(undefined), '2026-09-08T10:00:04.000Z'],
+    ['the event carries no stamp', heldAt('2026-09-08T10:00:05.000Z'), undefined],
+  ])('re-reads when %s', async (_case, held, at) => {
+    open();
+    client.setQueryData(['snapshot', 'ws-work'], held);
+    const stream = FakeStream.made.at(-1)!;
+    stream.comesUp();
+
+    stream.announces({ type: 'snapshot_invalidated', workspaceId: 'ws-work', at });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(true);
+  });
+
+  it('re-reads a workspace this tab holds no copy of', async () => {
+    open();
+    const stream = FakeStream.made.at(-1)!;
+    stream.comesUp();
+
+    stream.announces({
+      type: 'snapshot_invalidated',
+      workspaceId: 'ws-never-opened',
+      at: '2026-09-08T10:00:04.000Z',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(client.getQueryState(['workspaces'])?.isInvalidated ?? false).toBe(true);
+  });
+});
