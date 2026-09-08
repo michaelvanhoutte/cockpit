@@ -1,18 +1,18 @@
-import { useRef, useState, type CSSProperties } from 'react';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { uuidv7, type Dashboard, type PanelKind } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
-import { snapshotQuery, useCommand } from '../api/queries';
+import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { layoutsOf } from '../panels/arrangement';
+import { DeleteQuestion } from './DeleteQuestion';
 import { LayoutPicker } from './LayoutPicker';
-import { ManageDashboards } from './ManageDashboards';
-import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
+import { TabMenu, opensOnPress } from './Menu';
 import { NameQuestion } from './NameQuestion';
+import { RowForm } from './RowForm';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_HOLDS, WHAT_A_PANEL_IS } from '../whatThingsAre';
 
 /**
@@ -52,23 +52,33 @@ export function DashboardBar({
   const roomForTheInbox = useRoomForTheInbox();
   const navigate = useNavigate();
 
+  const command = useCommand();
+  const send = useSendCommand();
+  const queryClient = useQueryClient();
   /**
-   * Whether the list of dashboards is open over the workspace, and the control
-   * it was opened from, which gets the focus back when it closes.
-   *
-   * The menu's own control is the only way in, so the dialog has no trigger to
-   * return to and Radix would leave the focus at the top of the page - which,
-   * from a bar you were half way along, is losing your place.
+   * The dashboard whose form is open and the name typed into it, and the one
+   * whose delete is waiting to be confirmed. Nothing is sent until Save or
+   * Delete, so both are drafts.
    */
-  const [managing, setManaging] = useState(false);
-  const barMenu = useRef<HTMLButtonElement>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
   /**
-   * That the entry just chosen opens something, so the menu closing must not
-   * pull the focus back onto its own control - it would take it straight off
-   * the dialog that has just opened. `RowMenu` does this for the row menus; the
-   * bar's menu is not a row's, and this is the whole of what it borrows.
+   * The tab the form or the question was opened from, so the focus can go back
+   * to it. A ref rather than state: nothing on screen depends on it, and it is
+   * read only as the thing it opened closes.
    */
-  const opening = useRef(false);
+  const askedFrom = useRef<HTMLElement | null>(null);
+  /**
+   * The dashboard just deleted, while the focus is still owed to the bar. Null
+   * once it has been given somewhere. Which one it was is the whole of what
+   * this has to remember: the tab is still drawn for as long as the snapshot in
+   * hand holds it, so "is there a tab to focus" would put the focus on the one
+   * about to be taken away.
+   */
+  const focusOwedAfterDeleting = useRef<string | null>(null);
+  const bar = useRef<HTMLElement>(null);
 
   /**
    * Which dashboard's name a drag is resting on, and since when.
@@ -129,6 +139,145 @@ export function DashboardBar({
     restingOn.current = null;
   };
 
+  /** The dashboard each thing is about, read from the list rather than kept
+      beside the id: one deleted in another tab is gone from the next list, and
+      a form open on a dashboard nothing holds would save into nothing. */
+  const beingEdited = dashboards.find((d) => d.id === editing?.id);
+  const beingDeleted = dashboards.find((d) => d.id === deleting);
+
+  /**
+   * Sends the name if it actually changed, and nothing otherwise: a form saved
+   * with the box untouched must send no change at all, or it would carry the
+   * name the form was opened with over an edit made somewhere else in the
+   * meantime.
+   */
+  const saveForm = async () => {
+    if (!editing || !beingEdited) return;
+    const named = editing.name.trim();
+    if (!named) return;
+    setSaving(true);
+    setSaveRefusal(null);
+    try {
+      if (named !== beingEdited.name) {
+        await send({
+          name: 'rename_dashboard',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            dashboardId: editing.id,
+            name: named,
+          },
+        });
+      }
+      setEditing(null);
+    } catch (failure) {
+      // The form stays open with what was typed still in it, so a name the
+      // server would not take can be corrected rather than typed again.
+      setSaveRefusal(
+        failure instanceof CommandRefused
+          ? failure.message
+          : 'That did not reach the server. Try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = (dashboardId: string) => {
+    command.mutate(
+      {
+        name: 'delete_dashboard',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          dashboardId,
+        },
+      },
+      {
+        onSuccess: async () => {
+          setDeleting(null);
+          focusOwedAfterDeleting.current = dashboardId;
+          // Deleting the one you are looking at moves the workspace on behind
+          // you, its own address deciding where you land; deleting any other
+          // leaves the screen alone.
+          if (dashboardId !== openDashboardId) return;
+          // Re-read before going anywhere, for the reason adding one does: the
+          // snapshot in hand still holds the dashboard that has just gone, and
+          // the workspace's own route reads it to decide where to land -
+          // without this it lands back on the deleted one and remembers it,
+          // leaving you on a dashboard that is not there. `useCommand` asks for
+          // the same re-read but does not wait for it, and this is the caller
+          // that has to.
+          await queryClient.refetchQueries({ queryKey: ['snapshot', workspaceId] });
+          void navigate({ to: '/w/$workspaceId', params: { workspaceId } });
+        },
+      },
+    );
+  };
+
+  /**
+   * The focus, once a delete has taken the tab it was asked from. It goes to
+   * the tab you are on, which is the nearest thing to where you were: the
+   * question closes by ceasing to exist rather than by being dismissed, so
+   * nothing else puts the focus anywhere and it falls to the top of the page.
+   * A frame later, because the question's own focus scope is still restoring as
+   * it unmounts - onto a tab that is no longer there.
+   */
+  useEffect(() => {
+    // Deleting the dashboard you were looking at moves the workspace on, and
+    // until that lands the bar still draws the dashboard that has just gone -
+    // from the snapshot in hand. So this waits for a dashboard that is not the
+    // deleted one, and runs again on the one it lands on: what makes the focus
+    // survive rather than being put on a tab about to be taken away.
+    const deleted = focusOwedAfterDeleting.current;
+    if (!deleted || beingDeleted || !openDashboardId || openDashboardId === deleted) return;
+    const tab = bar.current?.querySelector<HTMLElement>('a.active');
+    if (!tab) return;
+    focusOwedAfterDeleting.current = null;
+    // A frame later, because the question's own focus scope is still restoring
+    // as it unmounts - onto a tab that is no longer there.
+    const frame = requestAnimationFrame(() => tab.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [beingDeleted, openDashboardId]);
+
+  /**
+   * What can be done to this dashboard. One entry for changing it rather than a
+   * Rename beside it: the form is what renames, and it is where a dashboard's
+   * second field will go when it has one.
+   *
+   * **A workspace's last dashboard cannot be deleted** - the one place the app
+   * refuses to delete something, because a workspace with no dashboard has no
+   * view at all (functional definition, "Container hierarchy"). The entry says
+   * so rather than disappearing, and rather than being offered and then
+   * refused.
+   */
+  const entriesFor = (dashboard: Dashboard) => [
+    {
+      label: 'Edit…',
+      onSelect: (from: HTMLElement | null) => {
+        setDeleting(null);
+        command.reset();
+        setSaveRefusal(null);
+        askedFrom.current = from;
+        setEditing({ id: dashboard.id, name: dashboard.name });
+      },
+    },
+    {
+      label: 'Delete',
+      destructive: true,
+      unavailable:
+        dashboards.length === 1 ? 'A workspace keeps its last dashboard' : (undefined as undefined),
+      onSelect: (from: HTMLElement | null) => {
+        setEditing(null);
+        command.reset();
+        askedFrom.current = from;
+        setDeleting(dashboard.id);
+      },
+    },
+  ];
+
   /*
    * Rounded at the top only, and filled with the page's color when it is the
    * one you are on, so the tab runs into the page under it with no line
@@ -153,6 +302,7 @@ export function DashboardBar({
 
   return (
     <nav
+      ref={bar}
       aria-label="Dashboards"
       // No background of its own: the band around it is the workspace's, and is
       // painted by the shell so the tabs can be inset from the left without a
@@ -175,17 +325,23 @@ export function DashboardBar({
         </Link>
       )}
       {dashboards.map((dashboard: Dashboard) => (
-        <Link
+        <TabMenu
           key={dashboard.id}
-          to="/w/$workspaceId/d/$dashboardId"
-          params={{ workspaceId, dashboardId: dashboard.id }}
-          onDragOver={(event) => restOn(event, dashboard.id)}
-          onDragLeave={leftIt}
-          onDrop={droppedOnIt}
-          className={tabClass}
+          label={`Actions for ${dashboard.name}`}
+          entries={entriesFor(dashboard)}
         >
-          {dashboard.name}
-        </Link>
+          <Link
+            to="/w/$workspaceId/d/$dashboardId"
+            params={{ workspaceId, dashboardId: dashboard.id }}
+            onDragOver={(event) => restOn(event, dashboard.id)}
+            onDragLeave={leftIt}
+            onDrop={droppedOnIt}
+            onClick={opensOnPress(dashboard.id === openDashboardId)}
+            className={tabClass}
+          >
+            {dashboard.name}
+          </Link>
+        </TabMenu>
       ))}
       <AddDashboard workspaceId={workspaceId} />
 
@@ -224,47 +380,46 @@ export function DashboardBar({
         </div>
       )}
 
-      {/* The way to what a dashboard has beyond its name. This was three dots
-          that navigated - a menu's glyph on a link, so pressing three dots
-          sometimes opened a menu and sometimes left the page. It is a menu now
-          ("Open every menu from the same control", issue 115).
+      {/* The bar had a menu of its own at this end, holding one entry: the
+          list the dashboards were renamed and deleted in. Both are gone - what
+          can be done to a dashboard is on the dashboard's own tab now ("Change
+          a workspace or a dashboard on the tab it is", issue 255) - and a menu
+          with nothing in it is not a menu. */}
 
-          This is the bar's menu, and it holds what is true of the whole bar:
-          one entry today, more later. */}
-      <DropdownMenu.Root>
-        <MenuTrigger
-          label="Dashboard actions"
-          onChrome
-          className={`mb-1${openDashboardId ? '' : ' ml-auto'}`}
-          ref={barMenu}
-        />
-        <MenuContent
-          onCloseAutoFocus={(event) => {
-            const claimed = opening.current;
-            opening.current = false;
-            if (claimed) event.preventDefault();
+      {beingEdited && editing && (
+        <RowForm
+          title={`Edit ${beingEdited.name}`}
+          name={editing.name}
+          nameLabel={`Name of ${beingEdited.name}`}
+          onName={(named) => setEditing({ ...editing, name: named })}
+          refusal={saveRefusal}
+          saving={saving}
+          returnFocusTo={askedFrom.current}
+          onCancel={() => {
+            setEditing(null);
+            setSaveRefusal(null);
           }}
-        >
-          {/* An entry rather than a link: the list opens over the workspace
-              instead of replacing it, so renaming a dashboard is a detour and
-              not a journey. */}
-          <DropdownMenu.Item
-            className={menuItemClass}
-            onSelect={() => {
-              opening.current = true;
-              setManaging(true);
-            }}
-          >
-            Manage dashboards
-          </DropdownMenu.Item>
-        </MenuContent>
-      </DropdownMenu.Root>
-      <ManageDashboards
-        workspaceId={workspaceId}
-        open={managing}
-        onClose={() => setManaging(false)}
-        returnFocusTo={barMenu.current}
-      />
+          onSave={() => void saveForm()}
+        />
+      )}
+
+      {beingDeleted && (
+        <DeleteQuestion
+          open
+          question={deleteQuestion(beingDeleted.name, panelsOn(data?.panels, beingDeleted.id))}
+          confirmLabel={`Yes, delete ${beingDeleted.name}`}
+          canConfirm={!command.isPending}
+          // The refusal belongs to the control that asked for it, and
+          // `variables` is the last thing sent with only ever one in flight.
+          refusal={command.variables?.name === 'delete_dashboard' ? refusalFrom(command) : null}
+          returnFocusTo={askedFrom.current}
+          onCancel={() => {
+            setDeleting(null);
+            command.reset();
+          }}
+          onConfirm={() => confirmDelete(beingDeleted.id)}
+        />
+      )}
     </nav>
   );
 }
@@ -543,4 +698,26 @@ function WhatItHolds({
       </div>
     </fieldset>
   );
+}
+
+/** How many panels a dashboard holds, which is what deleting it takes with it. */
+function panelsOn(panels: { dashboardId: string }[] | undefined, dashboardId: string): number {
+  return (panels ?? []).filter((panel) => panel.dashboardId === dashboardId).length;
+}
+
+/**
+ * What deleting takes with it, in the words a person would use.
+ *
+ * Panels are what a dashboard holds ("Panels on a dashboard, with
+ * per-screen-size layouts", issue 33), so the count is the whole of the answer
+ * and a dashboard with none says so rather than saying "0 panels".
+ *
+ * The count is never missing the way a workspace's item count can be. It comes
+ * from the same snapshot the tabs are drawn from, so a tab on screen always has
+ * its panels in hand and there is nothing to wait for.
+ */
+function deleteQuestion(name: string, panels: number): string {
+  if (panels === 0) return `Delete ${name}? There is nothing on it.`;
+  if (panels === 1) return `Delete ${name}? Its one panel goes with it.`;
+  return `Delete ${name}? Its ${panels} panels go with it.`;
 }

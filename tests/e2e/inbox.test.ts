@@ -72,16 +72,12 @@ test.describe('Triage', () => {
       // you go, it is somewhere you are.
       await expect(dashboardBar(page).getByRole('link', { name: 'Inbox' })).toHaveCount(0);
 
-      // Managing the dashboards used to be a second screen inside the
-      // workspace, and is not one any more: the list opens over this one
-      // (apps/web/src/components/ManageDashboards.tsx), so there is no other
-      // screen here to ask the same question of.
-
-      // Gone from the page reached without a workspace, which has no Inbox
-      // to show.
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
-      await expect(page.getByLabel('Name of the new workspace')).toBeVisible();
+      // Gone from the screen reached without a workspace, which has no Inbox
+      // to show. Capture is that screen: it is deliberately in no workspace
+      // ("Capture something before you know which workspace it belongs to",
+      // issue 165).
+      await press(page.locator('header a[href="/capture"]'), isMobile);
+      await expect(page.getByRole('heading', { name: 'Capture' })).toBeVisible();
       await expect(column).toHaveCount(0);
     });
   });

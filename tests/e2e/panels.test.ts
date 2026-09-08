@@ -470,7 +470,7 @@ test.describe('Panels', () => {
       // press on another panel's header is the start of a drag, and a press on
       // the sheet between them would depend on there being a gap to hit at
       // whatever width this is running at.
-      await page.getByRole('button', { name: 'Dashboard actions' }).focus();
+      await page.getByRole('button', { name: 'Add a dashboard' }).focus();
       await expect(panel.getByRole('toolbar', { name: 'Formatting' })).toHaveCount(0);
 
       const plain = answerTo(page, 'set_panel_format');

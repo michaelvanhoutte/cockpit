@@ -8,6 +8,7 @@ import {
   inbox,
   itemRow,
   itemsOn,
+  openDashboard,
   press,
   signIn,
   test,
@@ -60,7 +61,7 @@ async function goToTheInbox(page: Page, isMobile: boolean): Promise<void> {
 }
 
 async function goToTheDashboard(page: Page, dashboard: string, isMobile: boolean): Promise<void> {
-  if (isMobile) await press(dashboardBar(page).getByRole('link', { name: dashboard }), isMobile);
+  await openDashboard(page, dashboard, isMobile);
   await expect(page.getByRole('heading', { name: dashboard, level: 2 })).toBeVisible();
 }
 
@@ -341,7 +342,7 @@ test.describe('Panels', () => {
       await page.getByLabel('Name of the new panel').fill(toRead);
       await page.getByLabel('Name of the new panel').press('Enter');
       await expect(page.getByRole('region', { name: toRead })).toBeVisible();
-      await press(dashboardBar(page).getByRole('link', { name: dashboard }), isMobile);
+      await openDashboard(page, dashboard, isMobile);
       await expect(page.getByRole('region', { name: panel })).toBeVisible();
 
       const title = uniqueTitle('Goes to the other dashboard');

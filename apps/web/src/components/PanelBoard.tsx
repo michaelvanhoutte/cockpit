@@ -352,7 +352,7 @@ export function PanelBoard({
    * Measured against the rows *as drawn*, which already show the preview - so
    * once the panel is under the pointer it stays there and the reading
    * settles, instead of flickering between two placements. The same thing the
-   * list of workspaces does for the same reason (`ManageWorkspaces.tsx`).
+   * strip of workspace tabs does for the same reason (`tabDrag.ts`).
    */
   const rowsOnScreen = (): DrawnRow[] => {
     const rows = rowsRef.current?.querySelectorAll('[data-panel-row]') ?? [];

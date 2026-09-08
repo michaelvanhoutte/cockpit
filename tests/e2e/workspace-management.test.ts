@@ -2,16 +2,15 @@ import { type Page } from '@playwright/test';
 import { themeOf } from '@cockpit/shared';
 import {
   STARTING_WORKSPACE,
-  chooseRowAction,
-  closeWindow,
+  chooseTabAction,
   dashboardBar,
   deleteWorkspace,
-  dragRowOnto,
+  dragTabOnto,
   expect,
   expectNoSidewaysScroll,
   groundOf,
+  makeWorkspace,
   openFirstWorkspace,
-  openSettings,
   press,
   switchTo,
   tabOnIsWhollyInView,
@@ -31,77 +30,34 @@ function asRgb(hex: string): string {
 }
 
 /**
- * F3, because none of this exists below a real browser: the header's menu is
- * opened by a tap on a 480px screen and by a mouse on a 1280px one, the route
- * it leads to is real navigation, and the new workspace has to turn up in the
- * header of a page that was already open.
+ * F3, because none of this exists below a real browser: a tab's menu is opened
+ * by a right-click on a 1280px screen and by a tap on a 480px one, the drag
+ * that moves a tab is measured off real rectangles, and a workspace renamed on
+ * one tab has to change in a header that was already drawn.
  *
  * It is not re-proving the naming rules, which
  * apps/api/tests/integration/http/workspace-management.test.ts owns against a
- * real database, nor the form's own behaviour, which
- * apps/web/tests/unit/components/ManageWorkspaces.test.tsx owns, nor where the
+ * real database, nor what the tab's menu and its form send, which
+ * apps/web/tests/unit/components/WorkspaceTabs.test.tsx owns, nor where the
  * router sends you when a workspace is gone, which
  * apps/web/tests/unit/router.test.tsx owns. One walk per capability - making
- * one, renaming one, deleting one - saying it works for a person.
+ * one, changing one, moving one, deleting one - saying it works for a person.
  *
  * None of them touches the workspace an account starts with. Every spec in a
  * run, under both projects, shares one database (support/app.ts), so deleting
- * Workspace 1 would take the other specs' workspace with it; each walk makes the workspace it is
- * going to change. That is also why "the last workspace can be deleted" is not
- * here: it needs a database with nothing in it, which this tier cannot arrange
- * without emptying it for everything else. The router's side of it is proved
- * in apps/web/tests/unit/router.test.tsx, and the server's in the integration
- * tests above.
+ * Workspace 1 would take the other specs' workspace with it; each walk makes
+ * the workspace it is going to change, and puts it back. That is also why "the
+ * last workspace can be deleted" is not here: it needs a database with nothing
+ * in it, which this tier cannot arrange without emptying it for everything
+ * else. The router's side of it is proved in apps/web/tests/unit/router.test.tsx,
+ * and the server's in the integration tests above.
  */
 test.describe('Workspace management', () => {
   test.describe('a workspace you make is one you can switch to', () => {
-    test('reaches the settings from the header and puts the new workspace in the tabs', async ({
-      page,
-      isMobile,
-    }) => {
-      await openFirstWorkspace(page, isMobile);
-
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
-
-      await expect(page.getByRole('dialog', { name: 'Manage workspaces' })).toBeVisible();
-      const box = page.getByLabel('Name of the new workspace');
-      // All of it, rather than any of it. `toBeInViewport()` on its own passes
-      // on a single visible pixel, and that is what it was doing: ten
-      // workspaces on the 480px project put the box 1001px down a 1040px
-      // viewport, on screen by 39 pixels and by nothing anyone chose. How many
-      // workspaces are there when this runs is decided by whatever ran before
-      // it - the run shares one database - so the box is now above the list
-      // rather than after it (ManageWorkspaces.tsx) and this can ask for
-      // the whole control.
-      await expect(box).toBeInViewport({ ratio: 1 });
-      await expectNoSidewaysScroll(page);
-
-      const name = uniqueTitle('Bookkeeping');
-      await box.fill(name);
-      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-
-      // In the header, not merely somewhere in the window: being able to
-      // switch to it is the whole point of having made it.
-      const tab = workspaceTab(page, name);
-      await expect(tab).toBeVisible();
-      await expectNoSidewaysScroll(page);
-
-      // The window is over the workspace rather than instead of it, so it has
-      // to be shut before the header underneath can be pressed.
-      await closeWindow(page, isMobile);
-      await switchTo(page, name, isMobile);
-      // Open, on a view of itself: a workspace opens on the view it was last
-      // on, and a new one has never been opened, so that is its first
-      // dashboard ("Add and switch dashboards", issue 32).
-      await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
-    });
-
     /**
-     * The other way, and the one somebody new finds. Making a workspace was
-     * reachable only through the header's menu until the question started
-     * saying what a workspace is - which put the explanation behind a door
-     * nobody new would open.
+     * The `+` at the end of the strip is the only way in, and the question it
+     * opens says what a workspace is - which is the moment somebody pressing it
+     * is asking.
      */
     test('makes one from the tab strip, on a question that says what a workspace is', async ({
       page,
@@ -132,10 +88,8 @@ test.describe('Workspace management', () => {
       await expect(page.getByRole('region', { name: 'Panel 1' })).toBeVisible();
       await expectNoSidewaysScroll(page);
 
-      // Put back, like the ordering walks do: the run shares one database, and
-      // every workspace left behind pushes the rows those walks drag further
-      // down the window.
-      await openSettings(page, isMobile);
+      // Put back: the run shares one database, and every workspace left behind
+      // is one more tab in every other spec's strip.
       await deleteWorkspace(page, name, isMobile);
     });
 
@@ -145,10 +99,7 @@ test.describe('Workspace management', () => {
     }) => {
       const taken = uniqueTitle('Bookkeeping');
       await openFirstWorkspace(page, isMobile);
-      await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
-      await page.getByLabel('Name of the new workspace').fill(taken);
-      await page.getByLabel('Name of the new workspace').press('Enter');
-      await expect(workspaceTab(page, taken)).toBeVisible();
+      await makeWorkspace(page, taken, isMobile);
 
       await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
       await page.getByLabel('Name of the new workspace').fill(taken);
@@ -160,19 +111,18 @@ test.describe('Workspace management', () => {
       await expect(page.getByLabel('Name of the new workspace')).toHaveValue(taken);
 
       await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
-      await openSettings(page, isMobile);
       await deleteWorkspace(page, taken, isMobile);
     });
   });
 
-  test.describe('managing the account does not take the workspace away', () => {
+  test.describe('changing a workspace does not take the workspace away', () => {
     /**
      * F3 and only F3: what the shell is painted in, and how tall it is, are
      * things a browser computes. In jsdom every rectangle is zero pixels tall
      * in the same place, so nothing below this tier can tell a shell that
      * changed from one that did not.
      */
-    test('leaves the header, its colour and the workspace behind the window', async ({
+    test('leaves the header, its colour and the workspace behind the form', async ({
       page,
       isMobile,
     }) => {
@@ -187,15 +137,19 @@ test.describe('Workspace management', () => {
           };
         });
 
+      const name = uniqueTitle('Bookkeeping');
       await openFirstWorkspace(page, isMobile);
+      await makeWorkspace(page, name, isMobile);
+      await switchTo(page, name, isMobile);
       const before = await chrome();
 
-      await openSettings(page, isMobile);
+      await chooseTabAction(page, workspaceTab(page, name), 'Edit…', isMobile);
+      await expect(page.getByLabel(`Name of ${name}`)).toBeVisible();
 
       // The workspaces were a page, and reaching it took the shell somewhere it
       // has no state for: no workspace to colour the header, fill a tab or
-      // offer Capture… So the list opens over the workspace instead, and none
-      // of that moves.
+      // offer Capture… The form opens over the workspace instead, and none of
+      // that moves.
       expect(await chrome()).toEqual(before);
       // By selector, for the reason `workspaceTab` gives: a modal hides what is
       // behind it from assistive technology, and the point here is that the
@@ -204,70 +158,55 @@ test.describe('Workspace management', () => {
       // issue 165), so it is a link rather than a control.
       await expect(page.locator('header a[href="/capture"]')).toBeVisible();
 
-      // And closing it puts you back with nothing to reload.
-      await closeWindow(page, isMobile);
+      // And cancelling puts you back with nothing to reload.
+      await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
       await expect(dashboardBar(page)).toBeVisible();
       expect(await chrome()).toEqual(before);
+
+      await switchTo(page, STARTING_WORKSPACE, isMobile);
+      await deleteWorkspace(page, name, isMobile);
     });
   });
 
   test.describe('a workspace you rename is called that everywhere you see it', () => {
-    test('changes the name in the tabs, from the window it is managed in', async ({
-      page,
-      isMobile,
-    }) => {
+    test('changes the name in the tabs, from the tab’s own menu', async ({ page, isMobile }) => {
       const before = uniqueTitle('Bookkeeping');
       const after = uniqueTitle('Accounts');
       await openFirstWorkspace(page, isMobile);
-      await openSettings(page, isMobile);
-      await page.getByLabel('Name of the new workspace').fill(before);
-      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-      await expect(workspaceTab(page, before)).toBeVisible();
+      await makeWorkspace(page, before, isMobile);
 
-      await chooseRowAction(page, before, 'Edit…', isMobile);
+      await chooseTabAction(page, workspaceTab(page, before), 'Edit…', isMobile);
       await page.getByLabel(`Name of ${before}`).fill(after);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
 
       await expect(workspaceTab(page, after)).toBeVisible();
       await expect(workspaceTab(page, before)).toHaveCount(0);
       await expectNoSidewaysScroll(page);
+
+      await deleteWorkspace(page, after, isMobile);
     });
   });
 
   test.describe('a workspace you move is where you put it in the tabs', () => {
     /**
      * F3 for both halves, for different reasons. The menu's half has to be
-     * proved in the *header* - what the window sends is settled in
-     * apps/web/tests/unit/components/ManageWorkspaces.test.tsx, and that the
-     * server keeps the order in apps/api/tests/integration/http - and the
-     * header is a different component on a page that was already open. The
-     * drag exists nowhere below a browser at all: where the pointer is over
-     * the list is measured from the rows' rectangles, and jsdom has no layout
+     * proved in the *header*: what the entry sends is settled in
+     * apps/web/tests/unit/components/WorkspaceTabs.test.tsx, and that the
+     * server keeps the order in apps/api/tests/integration/http. The drag
+     * exists nowhere below a browser at all - where the pointer is over the
+     * strip is measured from the tabs' rectangles, and jsdom has no layout
      * engine to give it any.
      *
      * Two workspaces of this walk's own, for the reason every spec here makes
      * its own: the run shares one database, so a walk that moved a seeded
-     * workspace would reorder the tabs under every other spec.
-     *
-     * And put back afterwards, which the other walks here do not have to do
-     * because they make one workspace rather than two. Four extra rows on the
-     * window once pushed the box for making a new one off the bottom of
-     * a 480px screen and failed the walk above that says it is reachable there;
-     * the box sits above the list now, so that is no longer what this is
-     * guarding. What it guards is this walk itself: the two rows it drags are
-     * the last two, so every row another spec leaves behind pushes the pair it
-     * has to reach further down a 480px screen.
+     * workspace would reorder the tabs under every other spec. Both are put
+     * back afterwards.
      */
     async function twoOfMyOwn(page: Page, isMobile: boolean): Promise<[string, string]> {
       const first = uniqueTitle('Anchor');
       const second = uniqueTitle('Mover');
       await openFirstWorkspace(page, isMobile);
-      await openSettings(page, isMobile);
-      for (const name of [first, second]) {
-        await page.getByLabel('Name of the new workspace').fill(name);
-        await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-        await expect(workspaceTab(page, name)).toBeVisible();
-      }
+      for (const name of [first, second]) await makeWorkspace(page, name, isMobile);
       // Made one after the other, so the second is after the first - which is
       // the thing the move is about to change.
       await expect
@@ -279,10 +218,10 @@ test.describe('Workspace management', () => {
       return [first, second];
     }
 
-    test('moves it in the tabs, from the row’s own menu', async ({ page, isMobile }) => {
+    test('moves it in the tabs, from the tab’s own menu', async ({ page, isMobile }) => {
       const [first, second] = await twoOfMyOwn(page, isMobile);
 
-      await chooseRowAction(page, second, 'Move up', isMobile);
+      await chooseTabAction(page, workspaceTab(page, second), 'Move left', isMobile);
 
       await expect
         .poll(async () => {
@@ -295,13 +234,20 @@ test.describe('Workspace management', () => {
       for (const name of [first, second]) await deleteWorkspace(page, name, isMobile);
     });
 
-    test('moves it in the tabs when its row is dragged over another', async ({
+    /**
+     * The pointer's half, and the phone project deliberately skips it: an
+     * HTML5-less pointer drag is a mouse gesture, and the way a finger moves a
+     * tab is the menu above. Playwright's touchscreen can tap and nothing
+     * else, so a finger drag cannot be expressed here at all.
+     */
+    test('moves it in the tabs when the tab is dragged over another', async ({
       page,
       isMobile,
     }) => {
+      test.skip(isMobile, 'a drag is the pointer’s; a finger moves a tab from its menu');
       const [first, second] = await twoOfMyOwn(page, isMobile);
 
-      await dragRowOnto(page, second, first);
+      await dragTabOnto(page, second, first);
 
       await expect
         .poll(async () => {
@@ -323,26 +269,24 @@ test.describe('Workspace management', () => {
       // F3 for the reason the whole rule is F3: "the page is a different
       // colour" is a computed style, and there is no computed style without a
       // browser. Everything below it - which four colours a theme is, what the
-      // picker asks for, what the server stores - is settled at its own level.
+      // form asks for, what the server stores - is settled at its own level.
       const mine = uniqueTitle('Repainted');
       await openFirstWorkspace(page, isMobile);
       const firstGround = await groundOf(page);
+      await makeWorkspace(page, mine, isMobile);
 
-      await openSettings(page, isMobile);
-      await page.getByLabel('Name of the new workspace').fill(mine);
-      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
       // Deliberately not asserting that a *new* workspace already differs from
       // the first: which colour it is handed depends on how many workspaces
       // exist, every spec in the run shares one database, and the palette wraps
       // once all eight are taken - so that claim is true or false depending on
       // what ran before. It is the server's rule anyway, and is proved against
       // a real database in apps/api/tests/integration/http.
-      // Through the row's form, which is where a colour is chosen now: the
+      //
+      // Through the tab's own form, which is where a colour is chosen: the
       // swatches are a draft until Save, so nothing is sent by looking.
-      await chooseRowAction(page, mine, 'Edit…', isMobile);
+      await chooseTabAction(page, workspaceTab(page, mine), 'Edit…', isMobile);
       await press(page.getByRole('button', { name: `Olive for ${mine}` }), isMobile);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
-      await closeWindow(page, isMobile);
       await switchTo(page, mine, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
 
@@ -364,6 +308,8 @@ test.describe('Workspace management', () => {
       await switchTo(page, STARTING_WORKSPACE, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
       await expect.poll(() => groundOf(page)).toBe(firstGround);
+
+      await deleteWorkspace(page, mine, isMobile);
     });
   });
 
@@ -374,42 +320,34 @@ test.describe('Workspace management', () => {
     }) => {
       const name = uniqueTitle('Doomed');
       await openFirstWorkspace(page, isMobile);
-      await openSettings(page, isMobile);
-      await page.getByLabel('Name of the new workspace').fill(name);
-      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
+      await makeWorkspace(page, name, isMobile);
 
       // Look at it, so what is deleted is the workspace being viewed.
       const tab = workspaceTab(page, name);
-      await expect(tab).toBeVisible();
-      // The window is over the workspace rather than instead of it, so it has
-      // to be shut before the header underneath can be pressed.
-      await closeWindow(page, isMobile);
       await switchTo(page, name, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
       const itsUrl = page.url();
 
-      await openSettings(page, isMobile);
-      await chooseRowAction(page, name, 'Delete', isMobile);
+      await chooseTabAction(page, tab, 'Delete', isMobile);
       // What goes with it, before it goes: nothing was put in this one.
       await expect(page.getByText(`Delete ${name}? There is nothing in it.`)).toBeVisible();
       await press(page.getByRole('button', { name: `Yes, delete ${name}` }), isMobile);
 
       await expect(tab).toHaveCount(0);
-      await expect(page.getByRole('button', { name: `Actions for ${name}` })).toHaveCount(0);
       await expectNoSidewaysScroll(page);
 
-      // **The workspace behind the window moves on by itself**, without
-      // going anywhere by hand. The list used to be a page, so the workspace
-      // being deleted was never the one on the screen; it is a window over
-      // one now, and this walk asked for the address by hand afterwards -
-      // which passed while the app sat on a workspace that was not there,
-      // its tabs short one and its dashboards empty behind the window.
+      // The focus lands in the strip rather than at the top of a page you
+      // cannot see: the question closes by ceasing to exist along with the tab
+      // it was asked from, so nothing else puts it anywhere - and the workspace
+      // it should land on is one the app is still moving to when the question
+      // goes, which is the half only a browser can hold.
+      await expect(page.locator('nav[aria-label="Workspaces"] a:focus')).toHaveCount(1);
+
+      // **The workspace moves on by itself**, without going anywhere by hand:
+      // the one being deleted is the one on the screen, so leaving the app on
+      // it would leave it on a workspace that is not there, its tabs short one
+      // and its dashboards empty.
       await expect.poll(() => page.url()).not.toBe(itsUrl);
-      // The list stays open on top of it, minus the row: the row going is
-      // the confirmation, and a second delete should not cost opening it
-      // again.
-      await expect(page.getByRole('dialog', { name: 'Manage workspaces' })).toBeVisible();
-      await closeWindow(page, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
 
       // And the address it left is not a dead end either: a workspace you can
@@ -444,24 +382,16 @@ test.describe('Workspace management', () => {
        * knowing before trusting this to catch a regression in that line.
        */
       await openFirstWorkspace(page, isMobile);
-      await openSettings(page, isMobile);
 
       // Enough of them that the strip has to scroll on a phone. They are made
       // rather than assumed: every spec in a run shares one database, so how
       // many workspaces already exist is whatever ran before.
       const names = [0, 1, 2].map((n) => uniqueTitle(`Crowding the strip ${n}`));
-      for (const name of names) {
-        await page.getByLabel('Name of the new workspace').fill(name);
-        await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-        await expect(workspaceTab(page, name)).toBeVisible();
-      }
+      for (const name of names) await makeWorkspace(page, name, isMobile);
 
       // The last one made is the last one in the strip, which is the one most
       // likely to be outside it.
       const last = names[names.length - 1]!;
-      // The window is over the workspace rather than instead of it, so it has
-      // to be shut before the header underneath can be pressed.
-      await closeWindow(page, isMobile);
       await switchTo(page, last, isMobile);
       await expect(dashboardBar(page)).toBeVisible();
 
@@ -470,12 +400,10 @@ test.describe('Workspace management', () => {
       // and how long that takes is not something to assert against once.
       await expect.poll(() => tabOnIsWhollyInView(page)).toBe(true);
 
-      // Put back, the way the reordering walks put theirs back. This is the
-      // only walk that makes several at once, and every spec in a run shares
-      // one database: three left behind lengthen the window's list for every
-      // walk after this one, which is how this first went red - a later walk
-      // on a phone found its own form pushed below the fold.
-      await openSettings(page, isMobile);
+      // Put back, the way the other walks put theirs back: every workspace
+      // left behind is one more tab every later walk has to reach past on a
+      // 480px screen.
+      await switchTo(page, STARTING_WORKSPACE, isMobile);
       for (const name of names) await deleteWorkspace(page, name, isMobile);
     });
   });

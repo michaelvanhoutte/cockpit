@@ -61,12 +61,16 @@ export function RowForm({
   /**
    * The other thing this row has, drawn by the page: a workspace picks a theme,
    * a type a colour, a person the role that decides what they may reach.
+   *
+   * Absent where the thing being edited has only a name today - a dashboard -
+   * which is a form with one field rather than a different kind of form: it
+   * gains its second half by passing one, and nothing else about it moves.
    */
-  choices: React.ReactNode;
+  choices?: React.ReactNode;
   /** What that group is called above it, in the caption a sighted reader gets. */
-  choicesHeading: string;
+  choicesHeading?: string;
   /** The same thing said to a screen reader, as the group's own name. */
-  choicesLabel: string;
+  choicesLabel?: string;
   /**
    * What kind of set it is. A row of swatches is a `group`; a set of radios is
    * a `radiogroup`, which is what tells a screen reader it is one choice among
@@ -139,12 +143,14 @@ export function RowForm({
                 and what makes it a choice among others is being one of these.
                 The caption is what a sighted reader gets, `aria-label` what a
                 screen reader gets from the group itself. */}
-            <div role={choicesRole} aria-label={choicesLabel} className="mt-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                {choicesHeading}
-              </p>
-              <div className="mt-1 flex flex-wrap gap-1.5">{choices}</div>
-            </div>
+            {choices !== undefined && (
+              <div role={choicesRole} aria-label={choicesLabel} className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                  {choicesHeading}
+                </p>
+                <div className="mt-1 flex flex-wrap gap-1.5">{choices}</div>
+              </div>
+            )}
 
             {refusal && (
               <p role="alert" className="pt-3 text-sm text-over">

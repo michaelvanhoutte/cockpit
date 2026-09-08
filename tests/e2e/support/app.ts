@@ -311,19 +311,18 @@ export async function openFirstWorkspace(page: Page, isMobile: boolean): Promise
  * workspaces it does not need afterwards puts them back.
  */
 export async function deleteWorkspace(page: Page, name: string, isMobile: boolean): Promise<void> {
-  await chooseRowAction(page, name, 'Delete', isMobile);
+  await chooseTabAction(page, workspaceTab(page, name), 'Delete', isMobile);
   await press(page.getByRole('button', { name: `Yes, delete ${name}` }), isMobile);
-  await expect(page.getByRole('button', { name: `Actions for ${name}` })).toHaveCount(0);
+  await expect(workspaceTab(page, name)).toHaveCount(0);
 }
 
 /**
  * One workspace's tab in the header, and all of them left to right - which is
- * the order the reordering is about ("Reorder workspaces", issue 31). Read
- * from the header rather than from the list, because the window is where a
- * workspace is moved and the tabs are where the move is for.
+ * the order the reordering is about ("Reorder workspaces", issue 31), and now
+ * also what a workspace is changed on.
  *
- * **By selector rather than by role**, which is not a style choice. The
- * management windows are modals, so while one is open the browser hides
+ * **By selector rather than by role**, which is not a style choice. A form or
+ * a delete question is a modal, so while one is open the browser hides
  * everything behind it from assistive technology and a role query finds
  * nothing in the header at all - correctly, and not at all the same as the
  * tab having gone. These walks are about what is on the screen, and the tabs
@@ -371,6 +370,12 @@ export async function switchTo(page: Page, name: string, isMobile: boolean): Pro
   const tab = workspaceTab(page, name);
   const workspace = await tab.getAttribute('href');
   if (!workspace) throw new Error(`the tab for ${name} has no address to wait for`);
+  // Already there, which a walk cannot always know: making a workspace opens
+  // it. Pressing the tab you are on opens that tab's menu rather than
+  // switching ("Change a workspace or a dashboard on the tab it is", issue
+  // 255), so a switch that is not one would leave a menu over the page.
+  const where = new URL(page.url()).pathname;
+  if (where === workspace || where.startsWith(`${workspace}/`)) return;
   await press(tab, isMobile);
   await page.waitForURL((url) => url.pathname.startsWith(`${workspace}/`));
 }
@@ -386,6 +391,19 @@ export async function switchTo(page: Page, name: string, isMobile: boolean): Pro
  * way to move a workspace with a finger - or a keyboard - is the row's own
  * menu, and that is walked with `press`, which really does tap.
  */
+export async function dragTabOnto(page: Page, tab: string, onto: string): Promise<void> {
+  const from = await workspaceTab(page, tab).boundingBox();
+  const to = await workspaceTab(page, onto).boundingBox();
+  if (!from || !to) throw new Error(`cannot drag ${tab} onto ${onto}: one of them is not on screen`);
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  // In steps, because a drag is a stream of moves: one jump would leave the
+  // strip never having been told where the pointer went, and the first few
+  // pixels are what tell a press from a drag at all.
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+  await page.mouse.up();
+}
+
 export async function dragRowOnto(page: Page, row: string, onto: string): Promise<void> {
   const grip = page.getByTitle(`Drag to reorder ${row}`);
   const target = page.getByRole('listitem').filter({ hasText: onto });
@@ -442,6 +460,35 @@ export function dashboardBar(page: Page): Locator {
 }
 
 /**
+ * One dashboard's tab in that bar, which is what it is renamed and deleted on.
+ * By selector rather than by role for the reason `workspaceTab` gives: a form
+ * or a question open over the workspace hides the bar behind it from assistive
+ * technology, and these walks are about what is on the screen.
+ */
+export function dashboardTab(page: Page, name: string): Locator {
+  return page.locator('nav[aria-label="Dashboards"] a').filter({ hasText: name });
+}
+
+/**
+ * Opens a dashboard, and does nothing where it is already the one on screen -
+ * which is not a nicety: pressing the tab you are on opens that tab's menu
+ * rather than switching ("Change a workspace or a dashboard on the tab it is",
+ * issue 255), so a walk that pressed it anyway would carry on with a menu over
+ * the page. On a phone the Inbox is a screen of its own, so coming back from it
+ * really is a switch; on a wide screen the dashboard was never left.
+ */
+export async function openDashboard(page: Page, name: string, isMobile: boolean): Promise<void> {
+  const tab = dashboardTab(page, name);
+  // Asked of the element's own class list rather than of the attribute as a
+  // string: the tab's classes include the variants that style the current one
+  // (`[&.active]:…`), so "does the attribute contain active" is true of every
+  // tab there is.
+  if (await tab.evaluate((el) => el.classList.contains('active'))) return;
+  await press(tab, isMobile);
+  await expect(tab).toHaveClass(/(^|\s)active(\s|$)/);
+}
+
+/**
  * Opens the first workspace with its Inbox on screen, which is where capture
  * and triage happen.
  *
@@ -458,29 +505,53 @@ export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
 }
 
 /**
- * Opens the workspaces window through the header's menu. Used as arrangement
- * by the walks about renaming and deleting; the walk about *reaching* it
- * asserts its own way through those two controls rather than calling this,
- * because a helper that both arranges and asserts is a helper that can make
- * its own test vacuous.
+ * Makes a workspace from the `+` at the end of the strip, and waits for its
+ * tab. Arrangement for every walk that needs a workspace of its own; the walk
+ * about *making* one asserts its own way through the question rather than
+ * calling this, because a helper that both arranges and asserts is a helper
+ * that can make its own test vacuous.
  */
-export async function openSettings(page: Page, isMobile: boolean): Promise<void> {
-  await press(page.getByRole('button', { name: 'Settings' }), isMobile);
-  await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
-  await expect(page.getByRole('dialog', { name: 'Manage workspaces' })).toBeVisible();
-}
-
-/** Shuts whichever management window is open, so the workspace behind is reachable again. */
-export async function closeWindow(page: Page, isMobile: boolean): Promise<void> {
-  await press(page.getByRole('button', { name: 'Done' }), isMobile);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+export async function makeWorkspace(page: Page, name: string, isMobile: boolean): Promise<void> {
+  await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
+  await page.getByLabel('Name of the new workspace').fill(name);
+  await page.getByLabel('Name of the new workspace').press('Enter');
+  await expect(workspaceTab(page, name)).toBeVisible();
 }
 
 /**
- * Chooses what to do to one row of a management window: its own menu, then the
- * entry ("Ask before deleting in a dialog, from the row's own menu", issue
- * 116). All three windows offer their rows the same way, so every walk reaches
- * them the same way.
+ * Chooses what to do to a workspace or a dashboard, on the tab it is ("Change
+ * a workspace or a dashboard on the tab it is", issue 255).
+ *
+ * **One gesture per project, and each is the one that input really has.** A
+ * mouse right-clicks. A finger cannot, so the phone project presses the tab it
+ * is already on - which opens that tab's menu rather than switching to where
+ * you already are, and is the way in a touchscreen has without a long press.
+ * That is why this switches first on a phone: the walk asks for the menu of a
+ * tab, and on a phone the way to a tab's menu goes through being on it.
+ */
+export async function chooseTabAction(
+  page: Page,
+  tab: Locator,
+  entry: string,
+  isMobile: boolean,
+): Promise<void> {
+  if (isMobile) {
+    await tab.tap();
+    // A tap on a tab you were not on switches to it, and the menu comes on the
+    // next press. On the one you were already on the first press is the menu.
+    if (!(await page.getByRole('menuitem', { name: entry }).count())) await tab.tap();
+  } else {
+    await tab.click({ button: 'right' });
+  }
+  await press(page.getByRole('menuitem', { name: entry }), isMobile);
+}
+
+/**
+ * Chooses what to do to one row of a list: its own menu, then the entry ("Ask
+ * before deleting in a dialog, from the row's own menu", issue 116). The types
+ * window and the panels offer their rows the same way, so every walk reaches
+ * them the same way; a workspace and a dashboard are tabs rather than rows and
+ * have `chooseTabAction`.
  *
  * This is also how a phone edits a row: the double-click that opens the same
  * form with a mouse is a gesture a touchscreen has already spent on zooming.

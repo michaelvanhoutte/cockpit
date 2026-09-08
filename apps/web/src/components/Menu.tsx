@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 
 /**
@@ -130,12 +131,14 @@ export interface MenuEntry {
 }
 
 /**
- * The menu a row of one of the management windows carries, holding what can
- * be done to that row ("Ask before deleting in a dialog, from the row's own
- * menu", issue 116).
+ * The menu a row carries, holding what can be done to that row ("Ask before
+ * deleting in a dialog, from the row's own menu", issue 116) - a Type in the
+ * window they are managed in, a Panel on a dashboard, an Item in a list.
  *
- * One component rather than the same dozen lines in each window: what the
- * three of them offer differs, how a row offers it does not.
+ * One component rather than the same dozen lines in each: what they offer
+ * differs, how a row offers it does not. A workspace and a dashboard are tabs
+ * rather than rows and carry `TabMenu` below, which is the same menu opened
+ * by the tab itself.
  *
  * The entries are named for the action alone - "Rename", "Delete" - because the
  * control that opened them is named for the row, so a reader who cannot see the
@@ -206,4 +209,124 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
       </MenuContent>
     </DropdownMenu.Root>
   );
+}
+
+/**
+ * The menu a tab carries, holding what can be done to the workspace or the
+ * dashboard it names ("Change a workspace or a dashboard on the tab it is",
+ * issue 255).
+ *
+ * **The tab is the trigger, so there is no control to add.** The strips are the
+ * thing you use all day and a three-dot button on every tab would be permanent
+ * chrome for something done a few times a month - and it would have to fit
+ * beside the name in a strip that already scrolls. So the tab opens its own
+ * menu three ways, which is one gesture per input rather than three ways of
+ * being thorough:
+ *
+ * - **a right-click**, anywhere on the tab, which is what a pointer has;
+ * - **a press on the tab you are already on**, which is what a finger has: that
+ *   press has no other job, since you are looking at what it would switch to,
+ *   and it is the only way in that needs no gesture at all (`opensOnPress`);
+ * - **the keyboard's own menu key**, which the browser turns into the same
+ *   event a right-click makes, so the keyboard costs nothing to support.
+ *
+ * A long press opens it too - Radix's own doing on a touchscreen - which is a
+ * fourth way in rather than a designed one, and reaches a tab you are not on.
+ *
+ * **The menu is the row menu's, in a context menu's clothes.** Same entries,
+ * same look, same rules about an entry that cannot be chosen: only the way it
+ * is opened differs, and that is the whole reason this is a second component
+ * rather than a flag on `RowMenu` - Radix keeps context menus and dropdowns in
+ * separate primitives because what opens them is different.
+ */
+export function TabMenu({
+  label,
+  entries,
+  children,
+}: {
+  /** What the menu is called to somebody who cannot see the tab it belongs to. */
+  label: string;
+  entries: MenuEntry[];
+  /** The tab itself, which is the trigger. */
+  children: React.ReactNode;
+}) {
+  const chose = useRef(false);
+  const tab = useRef<HTMLElement>(null);
+
+  return (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger ref={tab} asChild>
+        {children}
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content
+          aria-label={label}
+          onCloseAutoFocus={(event) => {
+            // The row menu's reasoning, and the same code: an entry that opens
+            // something has to keep the focus it just took.
+            const claimed = chose.current;
+            chose.current = false;
+            if (!claimed) return;
+            event.preventDefault();
+          }}
+          className="min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+        >
+          {entries.map((entry) => (
+            <ContextMenu.Item
+              key={entry.label}
+              {...(entry.unavailable
+                ? { 'aria-disabled': true, 'aria-label': `${entry.label}: ${entry.unavailable}` }
+                : {})}
+              className={
+                entry.unavailable
+                  ? unavailableItemClass
+                  : entry.destructive
+                    ? destructiveItemClass
+                    : menuItemClass
+              }
+              onSelect={(event) => {
+                if (entry.unavailable) {
+                  event.preventDefault();
+                  return;
+                }
+                chose.current = !entry.keepsFocus;
+                entry.onSelect(tab.current);
+              }}
+            >
+              {entry.label}
+              {entry.unavailable && <span className="block text-xs">{entry.unavailable}</span>}
+            </ContextMenu.Item>
+          ))}
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
+  );
+}
+
+/**
+ * What a press on the tab you are already on does: open that tab's menu instead
+ * of going where you already are.
+ *
+ * It opens the menu by making the event the trigger is listening for, rather
+ * than by holding the menu open in state, because Radix's context menu has no
+ * open of its own to set - which is also what keeps this one behaviour rather
+ * than a second, parallel way for a tab menu to be open.
+ *
+ * The coordinates are the press's own, so the menu appears under the finger
+ * that asked for it rather than at a corner of the tab.
+ */
+export function opensOnPress(here: boolean) {
+  return (event: React.MouseEvent<HTMLElement>) => {
+    if (!here) return;
+    event.preventDefault();
+    event.currentTarget.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        button: 2,
+      }),
+    );
+  };
 }

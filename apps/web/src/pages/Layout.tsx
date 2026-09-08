@@ -11,9 +11,9 @@ import { InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { ManageTypes } from '../components/ManageTypes';
-import { ManageWorkspaces } from '../components/ManageWorkspaces';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
 import { NameQuestion } from '../components/NameQuestion';
+import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
@@ -59,32 +59,6 @@ function paint(workspace: Painted | undefined): Painted {
   if (isPaletteTheme({ tint: color, bar, ground, header })) return workspace;
   const theme = themeOf(color);
   return { color, bar: theme.bar, ground: theme.ground, header: theme.header };
-}
-
-/**
- * The look every tab in the strip across the top wears - the workspaces, and
- * Capture ahead of them - said once because two tabs side by side in one strip
- * cannot each carry their own copy of what "the one you are on" looks like.
- *
- * The band's tabs below wear the same shape the other way up (`components/
- * DashboardBar.tsx`, `tabClass`), and the reasoning for it is there: rounded at
- * the top only so the tab and the surface it is filled with are one, the tint
- * along the top edge because a joined tab does not by itself read as selected,
- * and an inset shadow rather than a border so becoming current does not change
- * the tab's height. What differs here is the ink - the strip is filled with the
- * near-black bar, so a selected tab takes the chrome's light ink where the
- * band's takes the app's dark one - and that the fill comes from the shell
- * inline, since it is the band's colour rather than the tab's own.
- *
- * Horizontal padding is the caller's, and the only thing that differs between
- * the two: Capture is set a little wider than a workspace.
- */
-function stripTabClass(here: boolean): string {
-  return `shrink-0 whitespace-nowrap rounded-t-lg pt-1.5 pb-2 text-sm ${
-    here
-      ? 'font-medium text-chrome-ink shadow-[inset_0_2px_0_0_var(--tab-mark)]'
-      : 'text-chrome-ink-soft hover:bg-white/8 hover:text-chrome-ink'
-  }`;
 }
 
 /**
@@ -136,16 +110,16 @@ function TheShell() {
   const roomForTheInbox = useRoomForTheInbox();
 
   /**
-   * Which of the account's two lists is open over the workspace, and the
+   * Whether the account's list of types is open over the workspace, and the
    * control it was opened from - the header's own menu, which has nothing to
    * return the focus to by itself.
    *
-   * Over the workspace rather than at an address of their own
+   * Over the workspace rather than at an address of its own
    * (`components/ManageWindow.tsx`): the shell has one state, which is being
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'workspaces' | 'types' | null>(null);
+  const [managing, setManaging] = useState<'types' | null>(null);
   const settingsMenu = useRef<HTMLButtonElement>(null);
   /**
    * That the entry just chosen opens a window, so the menu closing must not
@@ -415,45 +389,13 @@ function TheShell() {
               unnamed navigations are two identical landmarks to choose between.
               The name is what says which is which, and it is what the walks
               reach for when they ask what order the workspaces are in. */}
-          <nav
-            aria-label="Workspaces"
-            className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {data?.workspaces.map((ws) => {
-              const here = ws.id === params.workspaceId;
-              return (
-                <Link
-                  key={ws.id}
-                  ref={here ? bringIntoView : undefined}
-                  to="/w/$workspaceId"
-                  params={{ workspaceId: ws.id }}
-                  className={`${stripTabClass(here)} px-3`}
-                  style={
-                    {
-                      // The band's own colour rather than the workspace's
-                      // stored one, so the tab you are on and the strip it runs
-                      // into are the same fill even when the stored copy is
-                      // from an older palette (`paint` above).
-                      ...(here ? { backgroundColor: theme.bar } : undefined),
-                      // Lifted towards white before it is drawn on the chrome
-                      // (`chrome.ts`), which is where the reason is.
-                      '--tab-mark': litForChrome(ws.color),
-                    } as React.CSSProperties
-                  }
-                >
-                  <span
-                    className="mr-1.5 inline-block size-2 rounded-full align-middle bg-[var(--tab-mark)]"
-                    // Only the one you are in glows. It is the cheapest way to
-                    // say *this* workspace with a mark this small, and a bar of
-                    // glowing dots would say nothing at all.
-                    style={here ? { boxShadow: `0 0 8px ${ws.color}` } : undefined}
-                  />
-                  {ws.name}
-                </Link>
-              );
-            })}
+          {/* The tabs and everything that can be done to one are the strip's
+              own (components/WorkspaceTabs.tsx). The shell keeps what is about
+              the shell: which workspace is open, what it is painted in, and
+              the `+` that makes another. */}
+          <WorkspaceTabs bar={theme.bar} bringIntoView={bringIntoView}>
             <AddWorkspace />
-          </nav>
+          </WorkspaceTabs>
 
           {/* The same control as every other menu in the app (components/
               Menu.tsx). It used to be a bordered pill, given that weight
@@ -469,22 +411,18 @@ function TheShell() {
                 if (claimed) event.preventDefault();
               }}
             >
-              {/* Entries rather than links: both open a window over the
-                  workspace instead of replacing it, so managing either is a
+              {/* An entry rather than a link: it opens a window over the
+                  workspace instead of replacing it, so managing the types is a
                   detour and not a journey - and there is no address to come
-                  back from. */}
-              <DropdownMenu.Item
-                className={menuItemClass}
-                onSelect={() => {
-                  opening.current = true;
-                  setManaging('workspaces');
-                }}
-              >
-                Manage workspaces
-              </DropdownMenu.Item>
-              {/* Beside the workspaces rather than inside one: types belong to
-                  the account ("Manage the types, and put them in the order you
-                  want", issue 156). */}
+                  back from.
+
+                  **The workspaces are not here.** They were, beside this, and
+                  the list they opened is gone: a workspace is changed on its
+                  own tab, which is a press away rather than two
+                  (components/WorkspaceTabs.tsx). The types keep a window
+                  because they have no tab - they belong to the account and are
+                  chosen while capturing, not switched between ("Manage the
+                  types, and put them in the order you want", issue 156). */}
               <DropdownMenu.Item
                 className={menuItemClass}
                 onSelect={() => {
@@ -656,14 +594,9 @@ function TheShell() {
         </div>
       </main>
 
-      {/* The account's own two lists, over the workspace rather than instead
+      {/* The account's list of types, over the workspace rather than instead
           of it. Here rather than in a page, because there is no page: the
           shell is the one thing that is always drawn inside a workspace. */}
-      <ManageWorkspaces
-        open={managing === 'workspaces'}
-        onClose={() => setManaging(null)}
-        returnFocusTo={settingsMenu.current}
-      />
       <ManageTypes
         open={managing === 'types'}
         onClose={() => setManaging(null)}
@@ -690,10 +623,10 @@ function TheShell() {
  * the asymmetry that made workspaces feel hidden: the dashboards have a `+` on
  * the strip below this one, and the panels one at its right.
  *
- * **The rest of managing them stays where it was.** Renaming, recolouring,
- * reordering and deleting are still the window's, exactly as they are for
- * dashboards: adding is a one-gesture thing you do from the bar the new tab
- * will appear on, and everything else is a list you go to.
+ * **The rest of what can be done to one is on the tab itself**, exactly as it
+ * is for dashboards: adding is a one-gesture thing you do from the strip the
+ * new tab will appear on, and renaming, recolouring, moving and deleting are
+ * the tab's own menu (components/WorkspaceTabs.tsx).
  */
 function AddWorkspace() {
   const [naming, setNaming] = useState<string | null>(null);

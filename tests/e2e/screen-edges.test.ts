@@ -2,7 +2,10 @@ import { type Locator, type Page } from '@playwright/test';
 import {
   capture,
   captureBox,
+  chooseTabAction,
   dashboardBar,
+  dashboardTab,
+  openDashboard,
   expect,
   holdRow,
   itemRow,
@@ -166,19 +169,21 @@ test.describe('Screen edges', () => {
       // the top of a phone rather than centred on it, because the keyboard
       // takes the bottom half. Neither is answered - opening one is what puts
       // it on the screen, and this walk is about where it lands.
-      await press(dashboardBar(page).getByRole('link', { name: 'Dashboard 1' }), isMobile);
+      await openDashboard(page, 'Dashboard 1', isMobile);
       await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
       const naming = page.getByRole('dialog', { name: 'What is the new panel called?' });
       await expect(naming).toBeVisible();
       await expectClearOfTheEdges(page, naming, 'the question naming a new panel', UPRIGHT);
       await press(naming.getByRole('button', { name: 'Cancel' }), isMobile);
 
-      await press(dashboardBar(page).getByRole('button', { name: 'Dashboard actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Manage dashboards' }), isMobile);
-      const dashboards = page.getByRole('dialog', { name: 'Manage dashboards' });
-      await expect(dashboards).toBeVisible();
-      await expectClearOfTheEdges(page, dashboards, 'the list of dashboards', UPRIGHT);
-      await press(dashboards.getByRole('button', { name: 'Done' }), isMobile);
+      // The form a dashboard is changed on, which is opened from its own tab
+      // ("Change a workspace or a dashboard on the tab it is", issue 255) and
+      // is the dialog that used to be the list of dashboards.
+      await chooseTabAction(page, dashboardTab(page, 'Dashboard 1'), 'Edit…', isMobile);
+      const form = page.getByRole('dialog', { name: 'Edit Dashboard 1' });
+      await expect(form).toBeVisible();
+      await expectClearOfTheEdges(page, form, 'the form a dashboard is changed on', UPRIGHT);
+      await press(form.getByRole('button', { name: 'Cancel' }), isMobile);
 
       // Turned on its side, where the notch takes an end of the screen instead
       // of the top of it. The tabs and the Inbox are what run to the edges.

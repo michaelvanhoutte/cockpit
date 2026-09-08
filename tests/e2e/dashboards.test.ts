@@ -1,12 +1,11 @@
 import {
-  chooseRowAction,
-  closeWindow,
-  workspaceTab,
+  chooseTabAction,
   dashboardBar,
+  dashboardTab,
   expect,
   expectNoSidewaysScroll,
+  makeWorkspace,
   openFirstWorkspace,
-  openSettings,
   press,
   switchTo,
   test,
@@ -38,13 +37,7 @@ test.describe('Dashboards', () => {
       // Work would leave its bar filled for whatever spec ran next.
       const workspace = uniqueTitle('Bookkeeping');
       await openFirstWorkspace(page, isMobile);
-      await openSettings(page, isMobile);
-      await page.getByLabel('Name of the new workspace').fill(workspace);
-      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-      await expect(workspaceTab(page, workspace)).toBeVisible();
-      // The window is over the workspace rather than instead of it, so it has
-      // to be shut before the header underneath can be pressed.
-      await closeWindow(page, isMobile);
+      await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
       await expect(dashboardBar(page)).toBeInViewport();
       await expectNoSidewaysScroll(page);
@@ -97,7 +90,7 @@ test.describe('Dashboards', () => {
   });
 
   test.describe('deleting the dashboard you are on leaves you somewhere that works', () => {
-    test('opens the list from the bar, renames one, and lands elsewhere after deleting', async ({
+    test('renames one on its own tab, and lands elsewhere after deleting it', async ({
       page,
       isMobile,
     }) => {
@@ -106,13 +99,7 @@ test.describe('Dashboards', () => {
       // next.
       const workspace = uniqueTitle('Bookkeeping');
       await openFirstWorkspace(page, isMobile);
-      await openSettings(page, isMobile);
-      await page.getByLabel('Name of the new workspace').fill(workspace);
-      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-      await expect(workspaceTab(page, workspace)).toBeVisible();
-      // The window is over the workspace rather than instead of it, so it has
-      // to be shut before the header underneath can be pressed.
-      await closeWindow(page, isMobile);
+      await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
 
       const doomed = uniqueTitle('Recherche');
@@ -123,46 +110,33 @@ test.describe('Dashboards', () => {
       // The dashboard being deleted is the one being looked at.
       const itsAddress = page.url();
 
-      // The menu at the right of the bar is how the list is reached, and
-      // choosing the entry is what proves it still opens it: the control opens
-      // a menu rather than navigating ("Open every menu from the same control",
-      // issue 115), and the list is a dialog over the workspace rather than a
-      // screen, which is a stacking and focus-trapping question only a browser
-      // answers.
-      await press(dashboardBar(page).getByRole('button', { name: 'Dashboard actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Manage dashboards' }), isMobile);
-      await expect(page.getByRole('dialog', { name: 'Manage dashboards' })).toBeVisible();
+      // The tab itself is how what can be done to a dashboard is reached
+      // ("Change a workspace or a dashboard on the tab it is", issue 255): a
+      // right-click with a mouse, a press on the tab you are on with a finger.
+      // Which gesture opens a menu is a browser question, and the form it
+      // opens is a dialog over the workspace rather than a screen, which is a
+      // stacking and focus-trapping question only a browser answers.
       const renamed = uniqueTitle('Renamed');
-      await chooseRowAction(page, doomed, 'Rename', isMobile);
-      await page.getByLabel(`New name for ${doomed}`).fill(renamed);
+      await chooseTabAction(page, dashboardTab(page, doomed), 'Edit…', isMobile);
+      await page.getByLabel(`Name of ${doomed}`).fill(renamed);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
-      // In the list, not in the bar: the bar is behind the dialog and hidden
-      // from a reader while it is open, which is what a modal is for. That the
-      // bar keeps up with the list is what the end of this walk shows.
-      await expect(
-        page.getByRole('dialog', { name: 'Manage dashboards' }).getByText(renamed),
-      ).toBeVisible();
+      // In the bar, which is the only place a dashboard's name is now: the
+      // list that used to hold a second copy of it is gone.
+      await expect(dashboardTab(page, renamed)).toBeVisible();
 
-      await chooseRowAction(page, renamed, 'Delete', isMobile);
+      await chooseTabAction(page, dashboardTab(page, renamed), 'Delete', isMobile);
       // Its one panel is the one it arrived with, and the question names what
       // goes with the dashboard rather than only that it is going. The
-      // "nothing on it" wording is now reachable only after that panel has
-      // been deleted, and is proved on the question itself
-      // (apps/web/tests/unit/components/ManageDashboards.test.tsx).
+      // "nothing on it" wording is reachable only after that panel has been
+      // deleted, and is proved on the question itself
+      // (apps/web/tests/unit/components/DashboardBar.test.tsx).
       await expect(page.getByText(`Delete ${renamed}? Its one panel goes with it.`)).toBeVisible();
       await press(page.getByRole('button', { name: `Yes, delete ${renamed}` }), isMobile);
 
-      // The list stays open with the row gone, and closing it is what puts you
-      // back on the workspace - which moved underneath while it was open,
-      // because the dashboard being deleted was the one being looked at.
-      const list = page.getByRole('dialog', { name: 'Manage dashboards' });
-      await expect(list).toBeVisible();
-      await expect(list.getByText(renamed)).toHaveCount(0);
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
-      await expect(page.getByRole('dialog', { name: 'Manage dashboards' })).toHaveCount(0);
-
-      // Somewhere that works: a dashboard that is still there, and no entry in
-      // the bar pointing at the one that has gone.
+      // Somewhere that works: a dashboard that is still there, and no tab in
+      // the bar pointing at the one that has gone. The workspace moved
+      // underneath by itself, the dashboard deleted being the one being looked
+      // at.
       await expect(dashboardBar(page).getByRole('link', { name: renamed })).toHaveCount(0);
       await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
       expect(page.url()).not.toBe(itsAddress);
