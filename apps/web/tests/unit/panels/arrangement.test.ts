@@ -28,7 +28,7 @@ function aLayout(
   rows: LayoutRow[] = [],
   name = id,
 ): Layout {
-  return { id, tenantId: 'tenant', dashboardId: 'today', name, screenWidth, rows };
+  return { id, tenantId: 'tenant', dashboardId: 'today', name, screenWidth, screenSizeId: null, rows };
 }
 
 function cell(panelId: string, span: number): LayoutCell {

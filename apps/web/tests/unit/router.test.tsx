@@ -95,6 +95,7 @@ async function open(
       layouts: [],
       associations: [],
       itemTypes: types,
+      screenSizes: [],
       filings: [],
       generatedAt: '2026-08-31T10:00:00.000Z',
     };
@@ -427,6 +428,7 @@ describe('Dashboards', () => {
           layouts: [],
           associations: [],
           itemTypes: [],
+    screenSizes: [],
           filings: [],
           generatedAt: '2026-08-31T10:00:00.000Z',
         },
@@ -540,6 +542,7 @@ describe('Sign-in', () => {
         layouts: [],
         associations: [],
         itemTypes: [],
+    screenSizes: [],
         filings: [],
         generatedAt: '2026-08-31T10:00:00.000Z',
       });

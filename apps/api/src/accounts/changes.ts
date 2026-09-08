@@ -73,6 +73,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     TEXT_PANELS,
     PANEL_TEXT_FORMAT,
     TITLE_FROM_CAPTURED_MESSAGE,
+    SCREEN_SIZES,
     firstWorkspace(accountId),
   ];
 }
@@ -1445,6 +1446,77 @@ const TITLE_FROM_CAPTURED_MESSAGE: Change = {
                SET title = ${AS_A_TITLE}
              WHERE trim(title) = ''
                AND captured_message IS NOT NULL`,
+    },
+  ],
+};
+
+/**
+ * The account gains a list of screen sizes, and a layout gains a place to say
+ * which one it is for ("Give the account a list of screen sizes, before
+ * anything reads it", issue 262).
+ *
+ * **The expand half, and nothing else.** No command writes either, and nothing
+ * drawn on screen reads them, so every account ends this change with an empty
+ * list and every layout keeping NULL. That is what lets "Draw a dashboard
+ * against the screen sizes its account has" (issue 263) be a change of
+ * behaviour rather than of shape, and the contract half a release later again
+ * drop the `name`, `folded_name` and `screen_width` a layout no longer needs.
+ *
+ * **`screen_size_id` is nullable and carries no CHECK.** Nullable because
+ * every layout that exists predates it and nothing backfills one - which size
+ * an old layout was for is a question "Draw a dashboard against the screen sizes its account has" (issue 263) answers by not
+ * drawing it. No
+ * CHECK because the foreign key is the constraint that matters and a width
+ * bound belongs on the size, not on the pointer to it.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Interrupted partway.** It cannot be. A change's statements and the record
+ *   that they ran commit in one `transactionSync` (store.ts), so the table, the
+ *   column and the indexes arrive together or not at all.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left neither the table nor the column - which is why neither needs `IF NOT
+ *   EXISTS`, and why a re-run over a store that somehow had them would fail
+ *   loudly rather than quietly agreeing.
+ * - **Rows the new rules reject.** None, and none is possible: the table is new
+ *   and the column is nullable, so every row that was legal stays legal.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop, in
+ *   staging and in production alike. `seed.sql` creates no layouts and no sizes.
+ * - **The windows it can be interrupted in.** None that matter. The column set
+ *   only grows, so every deployed release - before this and after it - reads a
+ *   subset of the columns present, and a release promoted back over it reads
+ *   the store it always did.
+ */
+const SCREEN_SIZES: Change = {
+  name: '0019-screen-sizes',
+  statements: [
+    {
+      // The numbers are written out rather than interpolated from the shared
+      // constants, for the reason `0005-panels` gives: a change that has
+      // shipped may never be edited, so a constant that later moves would
+      // rewrite this statement for the accounts that have not applied it yet.
+      sql: `CREATE TABLE \`screen_sizes\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`folded_name\` text NOT NULL,
+	\`width\` integer NOT NULL,
+	\`created_at\` text NOT NULL,
+	CONSTRAINT "screen_sizes_width_is_a_width" CHECK(width BETWEEN 1 AND 100000),
+	CONSTRAINT "screen_sizes_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX `screen_sizes_folded_name` ON `screen_sizes` (`tenant_id`,`folded_name`)',
+    },
+    {
+      // The action spelled out, like every other foreign key here: SQLite's
+      // default is NO ACTION, which is not what `schema.ts` declares, and
+      // nothing in the constraints test compares the two - it reads the target
+      // table and not the action.
+      sql: 'ALTER TABLE `layouts` ADD COLUMN `screen_size_id` text REFERENCES `screen_sizes`(`id`) ON UPDATE no action ON DELETE restrict',
     },
   ],
 };
