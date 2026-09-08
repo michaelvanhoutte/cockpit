@@ -80,19 +80,6 @@ async function putLayoutAtSize(layout: {
   });
 }
 
-/** A panel placed on a layout, written straight in alongside it. */
-async function putPlacement(layoutId: string, panelId: string): Promise<void> {
-  await inTheStore((sql) => {
-    sql.exec(
-      `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
-       VALUES (?, ?, ?, 0, 0, 12)`,
-      ACCOUNT_NAME,
-      layoutId,
-      panelId,
-    );
-  });
-}
-
 async function rowCount(table: string, where: string, ...params: unknown[]): Promise<number> {
   return inTheStore(
     (sql) => sql.exec(`SELECT 1 FROM ${table} WHERE ${where}`, ...params).toArray().length,
@@ -120,6 +107,28 @@ describe('Layouts', () => {
       expect(response.status).toBe(200);
       expect((await theSizes(WORKSPACE_ID)).map((s) => s.name)).toEqual(['Wide']);
       expect((await theSizes('ws-atlas')).map((s) => s.name)).toEqual(['Wide']);
+    });
+
+    it('is seen by every workspace even when the change was sent from one of them', async () => {
+      await alsoWorkspaces();
+
+      // Sent from a real workspace rather than the account-wide sentinel, the
+      // way a change is sent from wherever the size happens to be managed -
+      // this must not leave any other open tab unable to tell the account's
+      // list has moved on.
+      await postChange('create_screen_size', {
+        commandId: nextId(),
+        issuedAt: '2026-09-08T10:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        screenSizeId: nextId(),
+        name: 'Wide',
+        width: 1280,
+      });
+
+      const stored = await inTheStore((sql) =>
+        sql.exec('SELECT workspace_id FROM commands ORDER BY received_at DESC LIMIT 1').toArray(),
+      );
+      expect(stored).toEqual([{ workspace_id: ACCOUNT_WIDE }]);
     });
   });
 
@@ -291,7 +300,14 @@ describe('Layouts', () => {
       // Two dashboards' worth of Layouts at the size being deleted, one of
       // them carrying the arrangement above, plus one at a size that survives.
       await putLayoutAtSize({ id: 'lay-here-wide', dashboardId: DASHBOARD_ID, screenSizeId: wide, width: 1280 });
-      await putPlacement('lay-here-wide', panelId);
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
+           VALUES (?, 'lay-here-wide', ?, 0, 0, 12)`,
+          ACCOUNT_NAME,
+          panelId,
+        );
+      });
       await putLayoutAtSize({
         id: 'lay-elsewhere-wide',
         dashboardId: 'ws-atlas-dashboard-1',
@@ -361,38 +377,29 @@ describe('Layouts', () => {
       const wide = nextId();
       await postChange('create_screen_size', { ...envelope(), screenSizeId: wide, name: 'Wide', width: 1280 });
       const COUNT = 150;
+      const dashboardIds = Array.from({ length: COUNT }, (_, i) => `dash-bulk-${i}`);
       await inTheStore((sql) => {
-        for (let i = 0; i < COUNT; i += 1) {
-          const dashboardId = `dash-bulk-${i}`;
+        for (const dashboardId of dashboardIds) {
           sql.exec(
             `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
              VALUES (?, ?, ?, ?, ?, ?)`,
             dashboardId,
             ACCOUNT_NAME,
             WORKSPACE_ID,
-            `Bulk ${i}`,
-            `bulk ${i}`,
-            '2026-09-08T10:00:00.000Z',
-          );
-          sql.exec(
-            `INSERT INTO layouts (id, tenant_id, dashboard_id, name, folded_name, screen_width, screen_size_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            `lay-bulk-${i}`,
-            ACCOUNT_NAME,
             dashboardId,
-            `Bulk ${i}`,
-            `bulk ${i}`,
-            1280,
-            wide,
+            dashboardId,
             '2026-09-08T10:00:00.000Z',
           );
         }
       });
+      for (const dashboardId of dashboardIds) {
+        await putLayoutAtSize({ id: `lay-${dashboardId}`, dashboardId, screenSizeId: wide, width: 1280 });
+      }
 
       const response = await postChange('delete_screen_size', { ...envelope(), screenSizeId: wide });
 
       expect(response.status).toBe(200);
-      expect(await rowCount('layouts', "id LIKE 'lay-bulk-%'")).toBe(0);
+      expect(await rowCount('layouts', "id LIKE 'lay-dash-bulk-%'")).toBe(0);
     });
   });
 });

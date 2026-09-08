@@ -1,4 +1,4 @@
-import { and, eq, exists, inArray, notExists, sql } from 'drizzle-orm';
+import { and, eq, exists, notExists, sql } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
@@ -984,6 +984,12 @@ export function runCommand<N extends CommandName>(
     }
     case 'create_screen_size': {
       const cmd = payload as CommandPayload<'create_screen_size'>;
+      // A screen size is the account's, offered in every Workspace it has, so
+      // every tab open on any of them needs telling - not only the one this
+      // change happened to be sent from. Unconditional, unlike the item
+      // commands above that call this only once a Workspace is decided: a
+      // screen size is never workspace-scoped in the first place.
+      everyWorkspaceSees(commandRow);
       const already = listScreenSizes(db, tenantId);
       // A name another size has is refused rather than reused, exactly as a
       // Type's is - a screen size is only ever made deliberately (R5).
@@ -1016,12 +1022,13 @@ export function runCommand<N extends CommandName>(
     }
     case 'rename_screen_size': {
       const cmd = payload as CommandPayload<'rename_screen_size'>;
+      everyWorkspaceSees(commandRow); // account-wide - see create_screen_size
       const live = listScreenSizes(db, tenantId);
       const size = live.find((candidate) => candidate.id === cmd.screenSizeId);
       if (!size) throw new ScreenSizeNotFoundError(cmd.screenSizeId);
       // Its own name back is a rename that changes nothing, not a collision.
       const taken = screenSizeNamed(live, cmd.name, cmd.screenSizeId);
-      if (taken) throw new ScreenSizeNameTakenError(cmd.name);
+      if (taken) throw new ScreenSizeNameTakenError(taken.name);
       db.transaction((tx) => {
         tx.update(screenSizes)
           .set({ name: cmd.name, foldedName: foldName(cmd.name) })
@@ -1033,38 +1040,64 @@ export function runCommand<N extends CommandName>(
     }
     case 'delete_screen_size': {
       const cmd = payload as CommandPayload<'delete_screen_size'>;
+      everyWorkspaceSees(commandRow); // account-wide - see create_screen_size
       // Deleted for real, so the same delete sent twice with a fresh request id
       // finds nothing the second time.
       if (!getScreenSize(db, tenantId, cmd.screenSizeId)) {
         throw new ScreenSizeNotFoundError(cmd.screenSizeId);
       }
-      // Every Layout at this size, on every Dashboard of every Workspace the
-      // account has - not only one Dashboard's, which is the whole difference
-      // from `delete_layout`. Read outside the transaction and before it,
-      // with nothing awaited in between: this store's transactions are
-      // synchronous, so nothing else can run on this account between the two.
-      const affected = db
-        .select({ id: layouts.id })
-        .from(layouts)
-        .where(and(eq(layouts.tenantId, tenantId), eq(layouts.screenSizeId, cmd.screenSizeId)))
-        .all()
-        .map((row) => row.id);
       db.transaction((tx) => {
-        // Batched, because the size of this write is the account's rather than
-        // the request's: enough Dashboards and the ids alone would cross the
-        // 100-bound-value ceiling one statement may carry (`inBatchesOf`,
-        // domain/statements.ts). Each batch's ids came from the tenant-scoped
-        // select above, so the delete need not repeat that condition and can
-        // spend the whole 100 on ids rather than 99 and a tenant id.
+        // A join rather than the ids read out and bound in, for the reason
+        // `delete_panel`'s cascade above is: every Dashboard of every
+        // Workspace the account has may hold a Layout at this size - not only
+        // one Dashboard's, which is the whole difference from `delete_layout`
+        // - so that count is uncapped, and an `IN` list as long as it is a
+        // statement whose parameter count grows with the data (architecture,
+        // "No statement's parameter count grows with the data").
         //
-        // Placements and rows before the layout itself, which is what the
-        // RESTRICT on both makes explicit rather than silent - the same order
-        // `delete_layout` takes, one layout at a time.
-        for (const batch of inBatchesOf(affected, 1)) {
-          tx.delete(panelPlacements).where(inArray(panelPlacements.layoutId, batch)).run();
-          tx.delete(layoutRows).where(inArray(layoutRows.layoutId, batch)).run();
-          tx.delete(layouts).where(inArray(layouts.id, batch)).run();
-        }
+        // Placements and rows before the layouts themselves, which is what
+        // the RESTRICT on both makes explicit rather than silent.
+        tx.delete(panelPlacements)
+          .where(
+            and(
+              eq(panelPlacements.tenantId, tenantId),
+              exists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(layouts)
+                  .where(
+                    and(
+                      eq(layouts.tenantId, tenantId),
+                      eq(layouts.id, panelPlacements.layoutId),
+                      eq(layouts.screenSizeId, cmd.screenSizeId),
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .run();
+        tx.delete(layoutRows)
+          .where(
+            and(
+              eq(layoutRows.tenantId, tenantId),
+              exists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(layouts)
+                  .where(
+                    and(
+                      eq(layouts.tenantId, tenantId),
+                      eq(layouts.id, layoutRows.layoutId),
+                      eq(layouts.screenSizeId, cmd.screenSizeId),
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .run();
+        tx.delete(layouts)
+          .where(and(eq(layouts.tenantId, tenantId), eq(layouts.screenSizeId, cmd.screenSizeId)))
+          .run();
         // Items filed on the Panels those Layouts arranged are untouched:
         // `panel_placements` is where a Panel sits in a Layout, and
         // `panel_items` is what is filed on a Panel - two tables one word
