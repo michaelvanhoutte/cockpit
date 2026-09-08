@@ -28,6 +28,8 @@ export interface AccountSnapshot {
   associations: Association[];
   /** Every live Type of the account, in the order they are offered in. */
   itemTypes: ItemType[];
+  /** POC (own-event refetch): the newest change this snapshot is built on. */
+  upTo: string | undefined;
 }
 
 /**

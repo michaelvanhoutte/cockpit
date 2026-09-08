@@ -1,5 +1,4 @@
-import { and, gt } from 'drizzle-orm';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, gt } from 'drizzle-orm';
 import type { ServerEvent } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { commands } from './schema.js';
@@ -31,15 +30,48 @@ export function collectInvalidations(
     .all();
 
   let cursor = since;
-  const workspaceIds = new Set<string>();
+  // POC (own-event refetch): the newest change per workspace rather than the
+  // set of workspaces, so each event can say when it happened. A poll covering
+  // several changes to one workspace answers for the last of them, which is
+  // what a tab compares its own copy against.
+  const newestPerWorkspace = new Map<string, string>();
   for (const row of rows) {
-    workspaceIds.add(row.workspaceId);
+    const seen = newestPerWorkspace.get(row.workspaceId);
+    if (seen === undefined || row.receivedAt > seen) {
+      newestPerWorkspace.set(row.workspaceId, row.receivedAt);
+    }
     if (row.receivedAt > cursor) cursor = row.receivedAt;
   }
 
-  const events: ServerEvent[] = [...workspaceIds].map((workspaceId) => ({
+  const events: ServerEvent[] = [...newestPerWorkspace].map(([workspaceId, at]) => ({
     type: 'snapshot_invalidated',
     workspaceId,
+    at,
   }));
   return { events, cursor };
+}
+
+/**
+ * POC (own-event refetch): the newest change this account has taken, for a
+ * snapshot to be stamped with (`upTo` in workspaceSnapshotSchema, where the
+ * reasoning lives).
+ *
+ * **Read before the rows it vouches for, never after.** Both orders are atomic
+ * inside the object today, so both work; they fail differently if that ever
+ * stops being true. Read first, a snapshot can only under-claim - it contains
+ * changes its stamp does not mention - and the cost is a refetch that was not
+ * needed. Read last, it can claim a change it does not contain, and a tab
+ * skips a refetch it needed. Only one of those two heals on its own.
+ *
+ * `undefined` where the account has never taken a change.
+ */
+export function watermark(db: AccountDb, tenantId: string): string | undefined {
+  const row = db
+    .select({ receivedAt: commands.receivedAt })
+    .from(commands)
+    .where(eq(commands.tenantId, tenantId))
+    .orderBy(desc(commands.receivedAt))
+    .limit(1)
+    .get();
+  return row?.receivedAt;
 }

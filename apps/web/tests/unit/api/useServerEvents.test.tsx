@@ -222,3 +222,102 @@ describe('Workspace management', () => {
     });
   });
 });
+
+describe('Live updates', () => {
+  describe('a change you have already read is not read again', () => {
+    /**
+     * POC (own-event refetch): the tab that made a change has already read it
+     * by the time its own event comes back, 0.2-3.0s later. What decides is
+     * what the cache holds, never who sent the change - which is what lets this
+     * skip a tab's own event without ever skipping somebody else's.
+     */
+    const heldAt = (upTo: string | undefined) => ({ items: [], upTo });
+
+    it('does not re-read a workspace whose copy already has the change', async () => {
+      open();
+      client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:05.000Z'));
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.announces({
+        type: 'snapshot_invalidated',
+        workspaceId: 'ws-work',
+        at: '2026-09-08T10:00:04.000Z',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(false);
+    });
+
+    it('re-reads a workspace whose copy is older than the change', async () => {
+      open();
+      client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:03.000Z'));
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.announces({
+        type: 'snapshot_invalidated',
+        workspaceId: 'ws-work',
+        at: '2026-09-08T10:00:04.000Z',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(true);
+    });
+
+    /**
+     * The workspaces you have are not what this reading describes, and they
+     * cost 500 bytes. Skipping them on a current copy would leave a workspace
+     * renamed elsewhere wearing its old name in the tabs - reachable with
+     * nobody making a change in this tab at all, since a copy re-read when the
+     * window is focused is enough.
+     */
+    it('re-reads the workspaces you have even when the workspace itself is skipped', async () => {
+      open();
+      client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:05.000Z'));
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.announces({
+        type: 'snapshot_invalidated',
+        workspaceId: 'ws-work',
+        at: '2026-09-08T10:00:04.000Z',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['workspaces'])?.isInvalidated ?? false).toBe(true);
+    });
+
+    /**
+     * Every uncertainty re-reads, which is what the app does today anyway. A
+     * copy that cannot say how current it is was held from before this was
+     * sent, or belongs to an account that has never taken a change; a change
+     * that cannot say when it happened comes from a server older than this
+     * build.
+     */
+    it.each([
+      ['the copy cannot say how current it is', heldAt(undefined), '2026-09-08T10:00:04.000Z'],
+      [
+        'the change does not say when it happened',
+        heldAt('2026-09-08T10:00:05.000Z'),
+        undefined,
+      ],
+    ])('re-reads when %s', async (_case, held, at) => {
+      // A tab holding no copy at all is the same expression as the first row -
+      // `held?.upTo` is undefined either way - which is why it is not a case of
+      // its own. It had one, asserting on a spy because a workspace with no
+      // entry cannot be asked of the cache; that assertion was on the calls
+      // made rather than on what came of them, which F1 does not allow.
+      open();
+      client.setQueryData(['snapshot', 'ws-work'], held);
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.announces({ type: 'snapshot_invalidated', workspaceId: 'ws-work', at });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(true);
+    });
+
+  });
+});
