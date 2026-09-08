@@ -403,13 +403,20 @@ describe('Capture', () => {
      * statement does to a full table is not a thing a pure test can ask.
      */
     const LONG = `Ask Novy ${'x'.repeat(250)}`;
+    /**
+     * The run-lengths a single break cannot tell apart: `\r\n` is two break
+     * characters together and a blank line is two more. A title is one space at
+     * each, not one space per character - which is what replacing them one at a
+     * time gives, and is a title no fresh capture of the same note would have.
+     */
+    const RUN = 'Ask Novy\r\nabout\n\npart 11';
 
     it('gives each of them the title it should have had, and rewrites nothing that has one', async () => {
       const name = 'aged-store-title-from-captured';
       await agedTo(name, justBefore('0018-title-from-captured-message'));
       await fillWithWhatIsAlreadyThere(name);
       await inStoreAsItIs(name, (sql) => {
-        // Three items as capture left them, and one a person has since written
+        // Four items as capture left them, and one a person has since written
         // about: what was captured, whether it fits a title, and whether there
         // is already a description are the three things this decides on.
         sql.exec(
@@ -418,6 +425,7 @@ describe('Capture', () => {
              VALUES ('it-fits', ?, 'ws-before', 'internal', '', 'task', 0, ?, NULL, ?, ?),
                     ('it-long', ?, 'ws-before', 'internal', '', 'task', 0, ?, NULL, ?, ?),
                     ('it-lines', ?, 'ws-before', 'internal', '  ', 'task', 0, ?, NULL, ?, ?),
+                    ('it-run', ?, 'ws-before', 'internal', '', 'task', 0, ?, NULL, ?, ?),
                     ('it-written-about', ?, 'ws-before', 'internal', '', 'task', 0, ?, ?, ?, ?)`,
           name,
           'Ask Novy about part 11',
@@ -429,6 +437,10 @@ describe('Capture', () => {
           AT,
           name,
           'Ask Novy\nabout part 11',
+          AT,
+          AT,
+          name,
+          RUN,
           AT,
           AT,
           name,
@@ -464,6 +476,9 @@ describe('Capture', () => {
         title: 'Ask Novy about part 11',
         description: 'Ask Novy\nabout part 11',
       });
+      // A run of breaks closes up to one space too, so a note backfilled here
+      // is named exactly as the same note captured fresh would be.
+      expect(texts('it-run')).toEqual({ title: 'Ask Novy about part 11', description: RUN });
       // What somebody wrote is never overwritten by what was captured.
       expect(texts('it-written-about')).toEqual({
         title: LONG.slice(0, 200),

@@ -1340,18 +1340,38 @@ const PANEL_TEXT_FORMAT: Change = {
  * because SQLite has no regular expressions and this one runs where that one
  * cannot be called - and read against it whenever either moves.
  *
- * The two differ in exactly two ways, both harmless. `replace` names the line
- * breaks and the tab rather than the whole `\p{Cc}` class, because the
- * remaining control characters are not something a person types and a title
- * holding one renders oddly rather than breaking - the read model is permissive
- * on purpose (`itemSchema`). And SQLite counts characters where the cap counts
+ * **A run of them is one space, not one space each.** `\r\n` and a blank line
+ * are the everyday runs, and replacing each character on its own put two spaces
+ * in the middle of a backfilled title where a fresh capture of the same note
+ * puts one - a mismatch written permanently into the rows this touches. So the
+ * breaks become a token first, runs of the token collapse, and the token
+ * becomes the space. Twenty halvings, which reaches one from any run a stored
+ * message could hold: `capture_item` caps it at 60,000 characters and 2^20 is
+ * past a million.
+ *
+ * **The token is `char(1)`, which is safe by being unsafe.** It is a control
+ * character, so a message holding one is a message `textsFromCapture` would
+ * also have turned into a space - being mistaken for a token is the behaviour
+ * to want rather than a collision to avoid.
+ *
+ * The two still differ in two ways, both harmless. `replace` names the line
+ * breaks and the tab rather than the whole `\p{Cc}` class, so an exotic control
+ * character survives here and becomes a space there; a title holding one
+ * renders oddly rather than breaking, the read model being permissive on
+ * purpose (`itemSchema`). And SQLite counts characters where the cap counts
  * UTF-16 units, so a title of 200 emoji is stored longer than the cap; also
  * permissive on the way out, and never split in half, which is the failure that
  * would matter.
  */
-const AS_A_TITLE = `substr(trim(replace(replace(replace(replace(replace(
-  captured_message, char(10), ' '), char(13), ' '), char(9), ' '),
-  char(8232), ' '), char(8233), ' ')), 1, 200)`;
+const AS_A_TITLE = (() => {
+  const token = 'char(1)';
+  const breaks = ['char(10)', 'char(13)', 'char(9)', 'char(8232)', 'char(8233)'];
+  let text = breaks.reduce((so_far, mark) => `replace(${so_far}, ${mark}, ${token})`, 'captured_message');
+  for (let halving = 0; halving < 20; halving += 1) {
+    text = `replace(${text}, ${token} || ${token}, ${token})`;
+  }
+  return `substr(trim(replace(${text}, ${token}, ' ')), 1, 200)`;
+})();
 
 /**
  * A title for every Item captured before capture wrote one.
