@@ -352,6 +352,17 @@ been read rather than reasoned about** — for that one,
 production `pnpm backup:export`, because "nothing writes it" is a claim about
 code and the rows are somebody's text.
 
+**A one-shot backfill puts a softer floor under promotion, and it is easy to
+miss** — the rows already there are fine in both directions, and the rows made
+*while the older release runs* are not. `0018-title-from-captured-message` gives
+a title to every Item captured before capture wrote one; an account records it
+as applied and never runs it again, so an Item captured after a rollback by
+promotion keeps the empty title that release still writes, and reads *Untitled*
+once the newer one is back. The repair is another change carrying the same
+statements rather than a restore, both being idempotent — but it is a repair,
+so a rollback past a backfill is a decision to make rather than a promotion to
+run.
+
 Rollback, in order of preference:
 
 1. **Re-promote the previous commit.** Run *Promote to production* with the previous `sha`. Fast, touches no data, safe because of expand-contract.

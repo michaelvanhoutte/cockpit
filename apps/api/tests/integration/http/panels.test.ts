@@ -110,6 +110,10 @@ function setReadOnly(panelId: string, readOnly: boolean) {
   return send('set_panel_read_only', { workspaceId: WORKSPACE_ID, panelId, readOnly });
 }
 
+function setFormat(panelId: string, format: string) {
+  return send('set_panel_format', { workspaceId: WORKSPACE_ID, panelId, format });
+}
+
 type Cell = { panelId: string; span: number };
 
 /**
@@ -700,6 +704,46 @@ describe('Panels', () => {
       expect((await ask(panelId)).status).toBe(400);
 
       expect(await panelNow(panelId)).toMatchObject({ body: '', readOnly: false });
+    });
+  });
+
+  describe('a panel of text shows the characters that were typed until somebody asks for formatting', () => {
+    it('starts plain, takes either answer, and never touches the words', async () => {
+      const { panelId } = await aPanelOfText();
+      // Markdown that says one thing as characters and another as meaning, so a
+      // conversion in either direction would be visible in the stored text.
+      const written = ['# Standing agenda', '', '**Pricing** for Atlas Copco'].join('\n');
+      expect((await setText(panelId, written)).status).toBe(200);
+      expect((await panelNow(panelId)).format).toBe('plain');
+
+      expect((await setFormat(panelId, 'rich')).status).toBe(200);
+      expect(await panelNow(panelId)).toMatchObject({ format: 'rich', body: written });
+
+      expect((await setFormat(panelId, 'plain')).status).toBe(200);
+      // To the character: how it is drawn is not what it is, so switching back
+      // and forth is not a conversion and cannot normalise anything.
+      expect(await panelNow(panelId)).toMatchObject({ format: 'plain', body: written });
+    });
+
+    it('refuses a way of drawing that nothing knows about, and changes nothing', async () => {
+      const { panelId } = await aPanelOfText();
+
+      expect(
+        (await send('set_panel_format', { workspaceId: WORKSPACE_ID, panelId, format: 'html' }))
+          .status,
+      ).toBe(400);
+
+      expect((await panelNow(panelId)).format).toBe('plain');
+    });
+
+    it('is not something a panel of items is asked', async () => {
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+      expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
+
+      expect((await setFormat(panelId, 'rich')).status).toBe(400);
+
+      expect((await panelNow(panelId)).format).toBe('plain');
     });
   });
 

@@ -94,6 +94,25 @@ export const panelKindSchema = z.enum(PANEL_KINDS);
 export type PanelKind = z.infer<typeof panelKindSchema>;
 
 /**
+ * How a Panel of text's words are drawn: as the characters that were typed, or
+ * as what they mean ("Format what a panel says, without making every dashboard
+ * pay for an editor", issue 251).
+ *
+ * **Not a conversion either way.** The same Markdown is stored throughout, so
+ * `plain` shows the characters and `rich` draws what they say; switching back
+ * and forth loses nothing, and nothing rewrites what somebody typed.
+ *
+ * **`plain` is the default, and that is the performance answer.** Drawing
+ * characters needs nothing fetched at all, while formatting needs a renderer
+ * and writing formatted text needs the editor - so a Dashboard costs nothing to
+ * open until somebody asks for formatting on a Panel (architecture,
+ * "Performance budgets").
+ */
+export const PANEL_FORMATS = ['plain', 'rich'] as const;
+export const panelFormatSchema = z.enum(PANEL_FORMATS);
+export type PanelFormat = z.infer<typeof panelFormatSchema>;
+
+/**
  * The most a Panel of text holds, which is exactly what a Description holds
  * (`itemDescriptionSchema`): both are Markdown somebody typed, and a second
  * number would be a second rule to explain. Over it is refused rather than cut,
@@ -139,6 +158,8 @@ export const panelSchema = z.object({
    * Panel stored by the code serving requests during the deploy looks like.
    */
   kind: panelKindSchema.catch('items'),
+  /** Whether that text is drawn as characters or as what they mean. Permissive like `kind`. */
+  format: panelFormatSchema.catch('plain'),
   /** The Markdown of a Panel of text. Empty for a Panel of items. */
   body: z.string().default(''),
   /**

@@ -23,7 +23,9 @@ import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThing
  * phone - the browser's own drag-and-drop is a mouse protocol - so the panel's
  * own menu carries the same path a step at a time, which is also what makes it
  * provable below the browser tier. **A panel has no size of its own**: it fills
- * its share of its row, and the row is what carries a height.
+ * its share of its row, and the row is what carries a height - so both are set
+ * by dragging the lines the *row* is drawn with, and neither is a control on
+ * the panel (`PanelBoard`, `RowSeam` and `ColumnLine`).
  */
 
 /**
@@ -65,6 +67,8 @@ export interface PanelCardProps {
    * items, which is not offered the choice.
    */
   onReadOnlyChange: (readOnly: boolean) => void;
+  /** Draw a panel of text's words as what they mean, or as the characters typed. */
+  onFormatChange: (format: 'plain' | 'rich') => void;
   /**
    * That this is the panel in the air, so it can say so. The board knows
    * which one it is; the card is what draws it.
@@ -112,6 +116,7 @@ export function PanelCard({
   onDelete,
   onMove,
   onReadOnlyChange,
+  onFormatChange,
   lifted,
   onPickUp,
   refusal,
@@ -306,6 +311,13 @@ export function PanelCard({
                         label: panel.readOnly ? 'Allow editing' : 'Make read-only',
                         keepsFocus: true,
                         onSelect: () => onReadOnlyChange(!panel.readOnly),
+                      },
+                      {
+                        // What the same characters are drawn as. Named for what
+                        // choosing it gives you, like the entry above it.
+                        label: panel.format === 'rich' ? 'Use plain text' : 'Use rich text',
+                        keepsFocus: true,
+                        onSelect: () => onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
                       },
                     ]
                   : []),

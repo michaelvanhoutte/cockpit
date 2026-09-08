@@ -149,7 +149,7 @@ const RESEARCH: Dashboard = {
 };
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, body: '', readOnly: false };
+  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false };
 }
 
 function aWorkspace(id: string, name: string): Workspace {
@@ -167,14 +167,14 @@ function aWorkspace(id: string, name: string): Workspace {
 const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
 
 /**
- * A captured item, which is what capture actually makes: no title, and the text
- * in the captured message. Every other fixture here has a title, and with one
- * the old `item.nextAction ?? item.title` and `itemLabel(item)` say the same
- * thing - so nothing else in this file can tell the two apart.
+ * An item whose label is not its title: the next action wins over both the
+ * other texts. Every other fixture here has a title and no next action, and
+ * with one the bare `item.title` and `itemLabel(item)` say the same thing - so
+ * nothing else in this file can tell the two apart.
  */
-const JUST_CAPTURED: Item = {
-  ...anItem('11111111-1111-7111-8111-000000000009', ''),
-  capturedMessage: 'Ask Novy about the part 11 tolerances',
+const LABELLED_BY_ITS_NEXT_ACTION: Item = {
+  ...anItem('11111111-1111-7111-8111-000000000009', 'Part 11'),
+  nextAction: 'Ask Novy about the part 11 tolerances',
 };
 
 /**
@@ -240,12 +240,12 @@ async function showList({
 
 describe('Item editing', () => {
   describe('a dialog names an item the way its row does', () => {
-    // The bug this holds: every dialog and undo offer read `title`, which
-    // capture no longer writes, so each named a captured item as an empty pair
-    // of quotation marks. Found in the browser, which is the only tier that
-    // reads these dialogs - and this is the level that can hold it.
-    it('names a captured item by what was captured, in the picker', async () => {
-      const user = await showList({ items: [JUST_CAPTURED], openDashboardId: TODAY.id });
+    // The bug this holds: every dialog and undo offer read `title` directly
+    // rather than asking what the row shows, so each named an item by a text
+    // the row was not showing. Found in the browser, which is the only tier
+    // that reads these dialogs - and this is the level that can hold it.
+    it('names it by its next action rather than by its title, in the picker', async () => {
+      const user = await showList({ items: [LABELLED_BY_ITS_NEXT_ACTION], openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
 
@@ -258,7 +258,7 @@ describe('Item editing', () => {
       held.mutate.mockImplementation((_args, options?: { onSuccess?: () => void }) =>
         options?.onSuccess?.(),
       );
-      const user = await showList({ items: [JUST_CAPTURED], openDashboardId: TODAY.id });
+      const user = await showList({ items: [LABELLED_BY_ITS_NEXT_ACTION], openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
       await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));

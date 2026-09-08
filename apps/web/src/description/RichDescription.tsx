@@ -61,6 +61,25 @@ export interface RichDescriptionProps {
   initial: string;
   onChange: (markdown: string) => void;
   editable: boolean;
+  /**
+   * What this editor is called, for the box and the toolbar beside it. A panel
+   * of text passes the panel's own name, so a screen reader says which panel
+   * the cursor is in rather than "Description" once per panel on the screen.
+   */
+  label?: string;
+  /**
+   * Whether the toolbar is drawn at all. A description's is always there, being
+   * on a form somebody opened to edit; a panel's is drawn only while somebody
+   * is writing in that panel, a formatting bar standing over a dashboard the
+   * rest of the time being chrome for something nobody is doing.
+   */
+  toolbar?: boolean;
+  /**
+   * Whether to fill what it is in rather than sit in a box of its own. A
+   * panel's well is already the box, and a second border inside it reads as an
+   * editor stuck to the top of a panel.
+   */
+  fill?: boolean;
 }
 
 /**
@@ -68,14 +87,27 @@ export interface RichDescriptionProps {
  * chosen on measured chunk size and measured round-trip fidelity
  * (docs/rich-text-options.md, "What the spike found").
  *
- * **This module is the lazy chunk.** It is 135KB compressed against a 200KB
- * budget the entry already spends 173KB of, so nothing on the cold-open path
- * may import it - only `DescriptionBox` may, and only through `React.lazy`.
+ * **This module is the lazy chunk.** It is the largest thing this app fetches -
+ * 115KB compressed, against a 200KB budget the entry already spends most of -
+ * so nothing on the cold-open path may import it. Two things may, and both only
+ * through `React.lazy`: `DescriptionBox`, for an item's description, and
+ * `panels/PanelText`, for a panel of text somebody is writing in formatted
+ * ("Format what a panel says, without making every dashboard pay for an
+ * editor", issue 251). **Reading formatted text does not come here** - that is
+ * `panels/DrawnText`, a chunk a seventh of the size, and keeping the two apart
+ * is the whole reason a panel has two answers rather than one.
  *
  * What it may contain is `descriptionSyntax`, which is wider than this toolbar
  * on purpose - see that module.
  */
-export default function RichDescription({ initial, onChange, editable }: RichDescriptionProps) {
+export default function RichDescription({
+  initial,
+  onChange,
+  editable,
+  label = 'Description',
+  toolbar = true,
+  fill = false,
+}: RichDescriptionProps) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Editor | null>(null);
   // The toolbar is drawn before the editor is built, and every one of its
@@ -106,7 +138,7 @@ export default function RichDescription({ initial, onChange, editable }: RichDes
         ctx.update(editorViewOptionsCtx, (was) => ({
           ...was,
           attributes: {
-            'aria-label': 'Description',
+            'aria-label': label,
             role: 'textbox',
             'aria-multiline': 'true',
             class: 'description-prose',
@@ -256,25 +288,37 @@ export default function RichDescription({ initial, onChange, editable }: RichDes
   };
 
   return (
-    <div className="mt-1 rounded-md border border-black/10 bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40">
-      <div
-        role="toolbar"
-        aria-label="Formatting"
-        className="flex flex-wrap gap-1 border-b border-black/10 px-2 py-1.5"
-      >
-        {(Object.keys(KEY_FOR) as Formatting[]).map((command) => (
-          <button
-            key={command}
-            type="button"
-            disabled={!editable || !ready}
-            title={`${command} (${KEY_FOR[command].replace('Mod', modifierName())})`}
-            onClick={() => apply(command)}
-            className="rounded px-2 py-0.5 text-xs font-medium normal-case tracking-normal text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-          >
-            {command}
-          </button>
-        ))}
-      </div>
+    <div
+      className={
+        fill
+          ? 'flex min-h-0 flex-1 flex-col'
+          : 'mt-1 rounded-md border border-black/10 bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40'
+      }
+    >
+      {toolbar && (
+        <div
+          role="toolbar"
+          // Unqualified, and it can be: a description's form is modal, and a
+          // panel's toolbar is drawn only while somebody is writing in that
+          // panel - so there is never a second one on the screen to tell it
+          // apart from.
+          aria-label="Formatting"
+          className="flex flex-wrap gap-1 border-b border-black/10 px-2 py-1.5"
+        >
+          {(Object.keys(KEY_FOR) as Formatting[]).map((command) => (
+            <button
+              key={command}
+              type="button"
+              disabled={!editable || !ready}
+              title={`${command} (${KEY_FOR[command].replace('Mod', modifierName())})`}
+              onClick={() => apply(command)}
+              className="rounded px-2 py-0.5 text-xs font-medium normal-case tracking-normal text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+            >
+              {command}
+            </button>
+          ))}
+        </div>
+      )}
 
       {asking && editable && (
         <div className="flex flex-wrap items-center gap-2 border-b border-black/10 px-2 py-1.5">
@@ -310,7 +354,14 @@ export default function RichDescription({ initial, onChange, editable }: RichDes
         </div>
       )}
 
-      <div ref={host} className="max-h-96 overflow-y-auto px-3 py-2" />
+      <div
+        ref={host}
+        className={
+          fill
+            ? 'min-h-0 flex-1 overflow-y-auto px-4 py-3'
+            : 'max-h-96 overflow-y-auto px-3 py-2'
+        }
+      />
     </div>
   );
 }

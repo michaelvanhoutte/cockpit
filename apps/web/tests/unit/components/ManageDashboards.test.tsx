@@ -77,6 +77,7 @@ function showList(names: string[], answer: { error?: Error; panelsOnEach?: numbe
       dashboardId: dashboard.id,
       name: `Panel ${at}`,
       kind: 'items' as const,
+      format: 'plain' as const,
       body: '',
       readOnly: false,
     })),

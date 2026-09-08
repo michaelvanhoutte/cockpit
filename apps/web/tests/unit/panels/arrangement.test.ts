@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type { Layout, LayoutCell, LayoutRow, Panel } from '@cockpit/shared';
 import {
+  dividerMoved,
   drawnRows,
   freeName,
   layoutLabel,
@@ -10,6 +12,7 @@ import {
   movedToOwnRow,
   nameForScreen,
   sharesOf,
+  withRowHeight,
 } from '../../../src/panels/arrangement';
 
 /**
@@ -42,7 +45,7 @@ function idsOf(rows: readonly LayoutRow[]): string[][] {
 }
 
 function aPanel(id: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId: 'today', name: id, kind: 'items' as const, body: '', readOnly: false };
+  return { id, tenantId: 'tenant', dashboardId: 'today', name: id, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false };
 }
 
 describe('Layouts', () => {
@@ -144,6 +147,84 @@ describe('Layouts', () => {
       { situation: 'spans stored as nonsense', spans: [0, 0], shares: [0.5, 0.5] },
     ])('$situation', ({ spans, shares }) => {
       expect(sharesOf(aRow(spans.map((span, at) => cell(`p${at}`, span))))).toEqual(shares);
+    });
+  });
+
+  describe('a row is as tall as it was set to, and as tall as what is in it until it is set', () => {
+    const two = [aRow([cell('a', 12), cell('b', 12)]), aRow([cell('c', 12)])];
+
+    it.each([
+      { situation: 'a height a screen can draw', asked: 300, kept: 300 },
+      { situation: 'taller than any screen should show', asked: 5000, kept: MAX_ROW_HEIGHT },
+      { situation: 'shorter than a list can be read in', asked: 20, kept: MIN_ROW_HEIGHT },
+      { situation: 'exactly the tallest allowed', asked: MAX_ROW_HEIGHT, kept: MAX_ROW_HEIGHT },
+      { situation: 'exactly the shortest allowed', asked: MIN_ROW_HEIGHT, kept: MIN_ROW_HEIGHT },
+      // The pointer lands between two pixels; what is kept is a whole one.
+      { situation: 'a height between two pixels', asked: 300.4, kept: 300 },
+    ])('$situation', ({ asked, kept }) => {
+      expect(withRowHeight(two, 0, asked)[0]!.height).toBe(kept);
+    });
+
+    it('puts a row back to being as tall as what is in it', () => {
+      const sized = withRowHeight(two, 0, 400);
+      expect(withRowHeight(sized, 0, null)[0]!.height).toBeNull();
+    });
+
+    it('leaves every other row exactly as tall as it was', () => {
+      const sized = withRowHeight(withRowHeight(two, 1, 400), 0, 200);
+      expect(sized.map((row) => row.height)).toEqual([200, 400]);
+    });
+
+    it('leaves the panels of the row it sizes, and their order, alone', () => {
+      expect(idsOf(withRowHeight(two, 0, 400))).toEqual(idsOf(two));
+    });
+  });
+
+  describe('moving the line between two panels moves whole columns from one to the other', () => {
+    /** What each panel of the row ends up holding, as twelfths. */
+    const spansOf = (rows: readonly LayoutRow[]) => rows[0]!.cells.map((one) => one.span);
+    const rowOf = (...spans: number[]) => [aRow(spans.map((span, at) => cell(`p${at}`, span)))];
+
+    it.each([
+      // A row nobody has dragged is the default span per cell, which is the
+      // same proportions as an even share of twelve.
+      { situation: 'two even panels, one column to the right', row: [12, 12], at: 0, columns: 1, spans: [7, 5] },
+      { situation: 'two even panels, one column to the left', row: [12, 12], at: 0, columns: -1, spans: [5, 7] },
+      { situation: 'three even panels, the first line moved', row: [12, 12, 12], at: 0, columns: 1, spans: [5, 3, 4] },
+      { situation: 'three even panels, the second line moved', row: [12, 12, 12], at: 1, columns: 2, spans: [4, 6, 2] },
+      { situation: 'a row already uneven', row: [8, 4], at: 0, columns: 1, spans: [9, 3] },
+      // Neither neighbour is squeezed out: a panel stops at a twelfth.
+      { situation: 'dragged far past its neighbour', row: [12, 12], at: 0, columns: 40, spans: [11, 1] },
+      { situation: 'dragged far the other way', row: [12, 12], at: 0, columns: -40, spans: [1, 11] },
+      // Only a converted arrangement is wider than the gestures allow, and it
+      // is still drawn rather than rewritten.
+      { situation: 'a row of six from an arrangement that wrapped', row: [5, 5, 5, 5, 5, 5], at: 0, columns: 1, spans: [3, 1, 2, 2, 2, 2] },
+    ])('$situation', ({ row, at, columns, spans }) => {
+      expect(spansOf(dividerMoved(rowOf(...row), 0, at, columns))).toEqual(spans);
+    });
+
+    it('leaves the row adding up to a whole, so the panels beside the pair keep their share', () => {
+      const moved = dividerMoved(rowOf(12, 12, 12), 0, 0, 1);
+      const spans = moved[0]!.cells.map((one) => one.span);
+      expect(spans.reduce((sum, span) => sum + span, 0)).toBe(12);
+      expect(spans[2]).toBe(4);
+    });
+
+    it.each([
+      { situation: 'moved no column at all', row: [12, 12], at: 0, columns: 0 },
+      { situation: 'a panel alone on its row', row: [12], at: 0, columns: 1 },
+      { situation: 'a line beyond the last panel', row: [12, 12], at: 1, columns: 1 },
+      { situation: 'a line before the first', row: [12, 12], at: -1, columns: 1 },
+    ])('changes nothing when $situation', ({ row, at, columns }) => {
+      const before = rowOf(...row);
+      expect(dividerMoved(before, 0, at, columns)).toEqual(before);
+    });
+
+    it('leaves how tall the row is, and every other row, alone', () => {
+      const rows = [aRow([cell('a', 12), cell('b', 12)], 300), aRow([cell('c', 12)], 200)];
+      const moved = dividerMoved(rows, 0, 0, 1);
+      expect(moved.map((row) => row.height)).toEqual([300, 200]);
+      expect(idsOf(moved)).toEqual(idsOf(rows));
     });
   });
 

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { MIN_ROW_HEIGHT, uuidv7 } from '@cockpit/shared';
+import { GRID_COLUMNS, MIN_ROW_HEIGHT, uuidv7 } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, LayoutRow, Panel } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
@@ -9,6 +10,7 @@ import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
+  dividerMoved,
   drawnRows,
   layoutLabel,
   layoutsOf,
@@ -18,6 +20,7 @@ import {
   nameForScreen,
   sameArrangement,
   sharesOf,
+  withRowHeight,
   SAME_SCREEN_TOLERANCE,
 } from '../panels/arrangement';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -157,13 +160,40 @@ export function PanelBoard({
   const draggingNow = useRef<string | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
   const askedFrom = useRef<HTMLElement | null>(null);
+  /**
+   * The arrangement a size being dragged is asking for, which is what the board
+   * draws while the hand is down.
+   *
+   * Its own state rather than the draft, because a draft has been *sent*: this
+   * one is redrawn on every pointer move and sent once, when the hand stops. A
+   * command per pointer move would be a command per pixel.
+   */
+  const [sizing, setSizing] = useState<LayoutRow[] | null>(null);
+  /**
+   * What the size was when it was taken hold of, and what it is now.
+   *
+   * A ref beside the state for the reason `draggingNow` is one: the pointer
+   * handler asks it in the same tick the gesture begins, before any render has
+   * happened. **Measured once**, so a pointer that wanders composes nothing -
+   * every move says where the line is now, from where the line started.
+   */
+  const sizingFrom = useRef<{
+    rowIndex: number;
+    /** Null for the line under a row; the cell left of the line between two panels otherwise. */
+    dividerAt: number | null;
+    at: number;
+    startHeight: number;
+    rowWidth: number;
+    from: LayoutRow[];
+    latest: LayoutRow[];
+  } | null>(null);
 
   const its = layoutsOf(layouts, dashboard.id);
   const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth, pick);
   const stored = drawnRows(drawnWith, panels, acrossWidth);
   // The preview while a drag is on, then a draft that has been sent and is
   // waiting for the store to agree, then what the store holds.
-  const shown = dragging?.preview ?? draft ?? stored;
+  const shown = dragging?.preview ?? sizing ?? draft ?? stored;
   /**
    * Read from the list rather than kept beside the id, for the reason the list
    * of dashboards does it: a panel deleted in another tab is gone
@@ -181,7 +211,12 @@ export function PanelBoard({
 
   /** The refusal belongs to the control that asked for it. */
   const refusalFor = (
-    what: 'rename_panel' | 'delete_panel' | 'save_layout' | 'set_panel_read_only',
+    what:
+      | 'rename_panel'
+      | 'delete_panel'
+      | 'save_layout'
+      | 'set_panel_read_only'
+      | 'set_panel_format',
     id?: string,
   ) => {
     if (!refusal || command.variables?.name !== what) return null;
@@ -369,6 +404,102 @@ export function PanelBoard({
   };
 
   /**
+   * Takes hold of one of the lines a row is drawn with. `dividerAt` is null for
+   * the line under a row, which sets its height, and the index of the cell to
+   * its left for the line between two panels, which moves columns across it.
+   *
+   * The row is measured now because a row without a height of its own has one
+   * only on the page: it is as tall as what is in it, and the drag has to start
+   * from that rather than from a number nothing holds.
+   */
+  const takeLine = (event: ReactPointerEvent, rowIndex: number, dividerAt: number | null) => {
+    // The primary button only, for the reason a panel's header asks the same
+    // question (`PanelCard`): a right-click opens a menu over the line, so no
+    // release ever reaches this handler - and the gesture would go on sizing
+    // the row under every mouse move until some later click ended it.
+    if (event.button !== 0) return;
+    const row = rowsRef.current?.querySelectorAll('[data-panel-row]')[rowIndex];
+    if (!row || !shown[rowIndex]) return;
+    // The board's own handlers would otherwise read this as a panel being
+    // picked up off the row the line belongs to.
+    event.preventDefault();
+    event.stopPropagation();
+    command.reset();
+    setRenaming(null);
+    setDeleting(null);
+    const box = row.getBoundingClientRect();
+    sizingFrom.current = {
+      rowIndex,
+      dividerAt,
+      at: dividerAt === null ? event.clientY : event.clientX,
+      startHeight: box.bottom - box.top,
+      rowWidth: box.right - box.left,
+      from: shown,
+      latest: shown,
+    };
+    setSizing(shown);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Allowed to fail, as the panel drag's capture is: the moves still arrive
+      // while the pointer is over the board, which is nearly all of the gesture.
+    }
+  };
+
+  /** Where the line has got to, redrawn as the arrangement it is asking for. */
+  const lineTo = (point: { x: number; y: number }) => {
+    const held = sizingFrom.current;
+    if (!held) return;
+    if (held.dividerAt === null) {
+      const moved = point.y - held.at;
+      // A line that has not moved has not been dragged, and the difference is
+      // not nothing: a row with no height of its own would be handed the
+      // number it happens to be drawn at, which looks identical and is a size
+      // somebody now has to undo. The divider says the same thing about a move
+      // of no whole columns.
+      held.latest = moved === 0 ? held.from : withRowHeight(held.from, held.rowIndex, held.startHeight + moved);
+    } else {
+      // A twelfth of the row is what one column measures, so the gesture lands
+      // on the grid the spans are counted in rather than on the pixel - which
+      // is what keeps a row adding up to a whole.
+      const perColumn = held.rowWidth / GRID_COLUMNS;
+      const columns = perColumn > 0 ? Math.round((point.x - held.at) / perColumn) : 0;
+      // The arrangement itself back where no column has moved, not a copy of
+      // it: the first half-column of every divider drag is dozens of pointer
+      // moves, and a fresh array each time is a board redrawn for a size that
+      // has not changed. The height above says the same thing the same way.
+      held.latest =
+        columns === 0 ? held.from : dividerMoved(held.from, held.rowIndex, held.dividerAt, columns);
+    }
+    setSizing(held.latest);
+  };
+
+  /** Let go: what is drawn is what is kept, and this is the only thing sent. */
+  const letGoOfLine = () => {
+    const held = sizingFrom.current;
+    sizingFrom.current = null;
+    setSizing(null);
+    if (held) propose(held.latest);
+  };
+
+  /** The browser taking the gesture back, or Escape: the row goes back to its size. */
+  const abandonLine = () => {
+    sizingFrom.current = null;
+    setSizing(null);
+  };
+
+  /**
+   * A row put back to being as tall as what is in it, which is the only way
+   * back: a drag always leaves a number behind, and the height a row has
+   * without one is not a number anything could drag to.
+   */
+  const fitRowToContents = (rowIndex: number) => {
+    abandonLine();
+    command.reset();
+    propose(withRowHeight(shown, rowIndex, null));
+  };
+
+  /**
    * Picks a panel up. Nothing is sent; the board just starts drawing it moved.
    *
    * **The board takes the pointer**, rather than the header the grab happened
@@ -466,6 +597,36 @@ export function PanelBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging]);
 
+  /**
+   * The same two ends, for a line being dragged. Worth having for the reason
+   * the drag's are: where the capture was refused, a release outside the board
+   * would leave the row sized with nothing sent, and the next press anywhere
+   * would go on sizing it.
+   */
+  useEffect(() => {
+    if (!sizing) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') abandonLine();
+    };
+    const onMove = (event: PointerEvent) => lineTo({ x: event.clientX, y: event.clientY });
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', letGoOfLine);
+    window.addEventListener('pointercancel', abandonLine);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', letGoOfLine);
+      window.removeEventListener('pointercancel', abandonLine);
+      window.removeEventListener('keydown', onKey);
+    };
+    // On the size itself rather than on whether there is one, exactly as the
+    // drag's is on `dragging`: these close over `propose`, which compares what
+    // is being kept against what the store holds, and a listener captured once
+    // at the start of the gesture would still be comparing against the
+    // arrangement from before an update that arrived while the hand was down.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sizing]);
+
   const renamePanel = () => {
     if (!renaming) return;
     const trimmed = renaming.name.trim();
@@ -501,6 +662,23 @@ export function PanelBoard({
         workspaceId,
         panelId,
         readOnly,
+      },
+    });
+  };
+
+  /**
+   * What a panel of text's words are drawn as. Nothing is converted: the same
+   * Markdown is stored either way, so this only changes how it is read.
+   */
+  const setFormat = (panelId: string, format: 'plain' | 'rich') => {
+    command.mutate({
+      name: 'set_panel_format',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        panelId,
+        format,
       },
     });
   };
@@ -573,7 +751,17 @@ export function PanelBoard({
               // would leave the menu somebody was pressing, a half-typed rename
               // would go, and a scrolled list would jump to the top.
               <Fragment key={rowIndex}>
-                <RowSeam dragging={dragging !== null} />
+                <RowSeam
+                  dragging={dragging !== null}
+                  // A seam sets the height of the row *above* it, so every row
+                  // has exactly one line under it to pull and the seam over the
+                  // first row has none to set.
+                  sizes={rowIndex === 0 ? null : rowIndex - 1}
+                  onTake={takeLine}
+                  onMove={lineTo}
+                  onLetGo={letGoOfLine}
+                  onFitToContents={fitRowToContents}
+                />
                 <div
                   // What a drag measures to work out which row the pointer is
                   // over (`panels/dragging.ts`). On the row rather than read
@@ -586,14 +774,10 @@ export function PanelBoard({
                   // `minmax(auto, 1fr)`, so one long unbroken word inside a
                   // panel would widen its column and take the page with it.
                   //
-                  // **The height the row was given, where it has one.** A row
-                  // converted from the arrangement that came before this
-                  // carries the height its panels were drawn at
-                  // (changes.ts, `0013-panel-rows`), and a row nobody has ever
-                  // sized carries none - so drawing the stored one is what
-                  // makes "nothing changes size on the day this lands" true.
-                  // The *gesture* that sets one is the next slice; reading what
-                  // is already there is not.
+                  // **The height the row was given, where it has one**, set by
+                  // dragging the line under it and dropped by double-clicking
+                  // that line. A row nobody has ever sized carries none and is
+                  // as tall as what is in it.
                   //
                   // Never shorter than a row may be set to, whichever it is.
                   // The floor is not decoration: a panel's list is its drop
@@ -605,64 +789,80 @@ export function PanelBoard({
                     height: row.height ?? undefined,
                     minHeight: MIN_ROW_HEIGHT,
                     display: 'grid',
+                    // The gap between two panels is a track of its own rather
+                    // than a `gap`, so it is an element a hand can take hold
+                    // of. Same four pixels either way: nothing about how a row
+                    // is drawn changes, only whether the space between two
+                    // panels is something or nothing.
                     gridTemplateColumns: shares
                       .map((share) => `minmax(0, ${share}fr)`)
-                      .join(' '),
-                    gap: PANEL_GAP,
+                      .join(` ${PANEL_GAP}px `),
+                    gap: 0,
                   }}
                 >
                   {row.cells.map((cell, at) => {
                     const panel = panels.find((one) => one.id === cell.panelId);
                     if (!panel) return null;
                     return (
-                      <PanelCard
-                        key={panel.id}
-                        panel={panel}
-                        workspaceId={workspaceId}
-                        items={itemsOnPanel(items, filings, panel.id)}
-                        nothingFiledYet={filings.length === 0}
-                        sideBySide={row.cells.length > 1}
-                        // Nowhere left to go, which is not the same as being at
-                        // the end of a row: a panel at the end of a row it
-                        // *shares* can still move onto a line of its own beyond
-                        // it, and that is the only way a keyboard has of making a
-                        // row. Only a panel alone on the first or last line has
-                        // run out of places.
-                        first={rowIndex === 0 && at === 0 && row.cells.length === 1}
-                        last={
-                          rowIndex === shown.length - 1 &&
-                          at === row.cells.length - 1 &&
-                          row.cells.length === 1
-                        }
-                        renaming={renaming?.id === panel.id ? renaming.name : null}
-                        onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
-                        onStartRenaming={() => {
-                          command.reset();
-                          setDeleting(null);
-                          setRenaming({ id: panel.id, name: panel.name });
-                        }}
-                        onRename={renamePanel}
-                        onStopRenaming={() => {
-                          setRenaming(null);
-                          command.reset();
-                        }}
-                        onDelete={(openedFrom) => {
-                          command.reset();
-                          setRenaming(null);
-                          askedFrom.current = openedFrom;
-                          setDeleting(panel.id);
-                        }}
-                        onMove={(places) => propose(movedBy(shown, panel.id, places))}
-                        onReadOnlyChange={(readOnly) => setReadOnly(panel.id, readOnly)}
-                        lifted={dragging?.id === panel.id}
-                        onPickUp={(pointerId) => pickUp(panel.id, pointerId)}
-                        refusal={
-                          refusalFor('rename_panel', panel.id) ??
-                          refusalFor('delete_panel', panel.id) ??
-                          refusalFor('set_panel_read_only', panel.id)
-                        }
-                        busy={command.isPending}
-                      />
+                      <Fragment key={panel.id}>
+                        {at > 0 && (
+                          <ColumnLine
+                            dragging={dragging !== null}
+                            onTake={(event) => takeLine(event, rowIndex, at - 1)}
+                            onMove={lineTo}
+                            onLetGo={letGoOfLine}
+                          />
+                        )}
+                        <PanelCard
+                          panel={panel}
+                          workspaceId={workspaceId}
+                          items={itemsOnPanel(items, filings, panel.id)}
+                          nothingFiledYet={filings.length === 0}
+                          sideBySide={row.cells.length > 1}
+                          // Nowhere left to go, which is not the same as being
+                          // at the end of a row: a panel at the end of a row it
+                          // *shares* can still move onto a line of its own
+                          // beyond it, and that is the only way a keyboard has
+                          // of making a row. Only a panel alone on the first or
+                          // last line has run out of places.
+                          first={rowIndex === 0 && at === 0 && row.cells.length === 1}
+                          last={
+                            rowIndex === shown.length - 1 &&
+                            at === row.cells.length - 1 &&
+                            row.cells.length === 1
+                          }
+                          renaming={renaming?.id === panel.id ? renaming.name : null}
+                          onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
+                          onStartRenaming={() => {
+                            command.reset();
+                            setDeleting(null);
+                            setRenaming({ id: panel.id, name: panel.name });
+                          }}
+                          onRename={renamePanel}
+                          onStopRenaming={() => {
+                            setRenaming(null);
+                            command.reset();
+                          }}
+                          onDelete={(openedFrom) => {
+                            command.reset();
+                            setRenaming(null);
+                            askedFrom.current = openedFrom;
+                            setDeleting(panel.id);
+                          }}
+                          onMove={(places) => propose(movedBy(shown, panel.id, places))}
+                          onReadOnlyChange={(readOnly) => setReadOnly(panel.id, readOnly)}
+                          onFormatChange={(format) => setFormat(panel.id, format)}
+                          lifted={dragging?.id === panel.id}
+                          onPickUp={(pointerId) => pickUp(panel.id, pointerId)}
+                          refusal={
+                            refusalFor('rename_panel', panel.id) ??
+                            refusalFor('delete_panel', panel.id) ??
+                            refusalFor('set_panel_read_only', panel.id) ??
+                            refusalFor('set_panel_format', panel.id)
+                          }
+                          busy={command.isPending}
+                        />
+                      </Fragment>
                     );
                   })}
                 </div>
@@ -670,8 +870,16 @@ export function PanelBoard({
             );
           })}
           {/* The gap under the last row, so a panel can be dropped below
-              everything rather than only between two things. */}
-          <RowSeam dragging={dragging !== null} />
+              everything rather than only between two things - and, being under
+              a row, the line that sets that row's height. */}
+          <RowSeam
+            dragging={dragging !== null}
+            sizes={shown.length ? shown.length - 1 : null}
+            onTake={takeLine}
+            onMove={lineTo}
+            onLetGo={letGoOfLine}
+            onFitToContents={fitRowToContents}
+          />
         </div>
       )}
 
@@ -720,15 +928,95 @@ export function PanelBoard({
  * wherever the pointer went - including the two seams either side of a panel
  * already alone on its line, where dropping did nothing and said nothing.
  */
-function RowSeam({ dragging }: { dragging: boolean }) {
+function RowSeam({
+  dragging,
+  sizes,
+  onTake,
+  onMove,
+  onLetGo,
+  onFitToContents,
+}: {
+  dragging: boolean;
+  /** The row whose height this seam sets, or null where there is no row above it. */
+  sizes: number | null;
+  onTake: (event: ReactPointerEvent, rowIndex: number, dividerAt: number | null) => void;
+  onMove: (point: { x: number; y: number }) => void;
+  onLetGo: () => void;
+  onFitToContents: (rowIndex: number) => void;
+}) {
   return (
     <div
       // The height is on the box rather than on a child so the rows either side
       // really do move apart, which is the affordance: a gap that opens is a
       // gap saying something can go in it.
       data-testid="row-seam"
-      style={{ height: dragging ? 22 : PANEL_GAP }}
+      style={{ height: dragging ? 22 : PANEL_GAP, position: 'relative' }}
       className="shrink-0 transition-[height] duration-100"
-    />
+    >
+      {/* Four pixels is the seam and four pixels is not a target, so the line
+          reaches past it - **upwards only**. Reaching down would put it over
+          the top of the panels below, whose headers are what a drag is started
+          from, and the first few pixels of a grab would silently size the row
+          above instead of picking that panel up.
+
+          Absent while a panel is in the air, where the seam is the drag's and
+          means a place to drop rather than a size to set. */}
+      {sizes !== null && !dragging && (
+        <div
+          data-testid="row-line"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Drag to set how tall this row is, double-click to fit its contents"
+          onPointerDown={(event) => onTake(event, sizes, null)}
+          onPointerMove={(event) => onMove({ x: event.clientX, y: event.clientY })}
+          onPointerUp={onLetGo}
+          onDoubleClick={() => onFitToContents(sizes)}
+          style={{ top: -8, height: 8 + PANEL_GAP }}
+          className="group absolute inset-x-0 z-10 cursor-row-resize touch-none"
+        >
+          {/* Nothing at rest: a line drawn permanently under every row would be
+              chrome charged to every dashboard for a gesture used rarely. */}
+          <div className="absolute inset-x-0 bottom-0 h-[2px] rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-60 group-active:opacity-100" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The line between two panels of one row, which moves whole columns from one to
+ * the other.
+ *
+ * It *is* the gap - the grid track between the two, rather than something drawn
+ * over them - and it reaches four pixels either side so a hand has twelve to
+ * aim at. Nothing either side of it is a gesture, so unlike the row's line this
+ * one may overhang in both directions.
+ */
+function ColumnLine({
+  dragging,
+  onTake,
+  onMove,
+  onLetGo,
+}: {
+  dragging: boolean;
+  onTake: (event: ReactPointerEvent) => void;
+  onMove: (point: { x: number; y: number }) => void;
+  onLetGo: () => void;
+}) {
+  if (dragging) return <div />;
+  return (
+    <div
+      data-testid="column-line"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Drag to set how much of the row this panel takes"
+      onPointerDown={onTake}
+      onPointerMove={(event) => onMove({ x: event.clientX, y: event.clientY })}
+      onPointerUp={onLetGo}
+      className="group relative z-10 cursor-col-resize touch-none"
+    >
+      <div className="absolute inset-y-0 -left-[4px] -right-[4px]" />
+      <div className="absolute inset-y-2 left-1/2 w-[2px] -translate-x-1/2 rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-60 group-active:opacity-100" />
+    </div>
   );
 }

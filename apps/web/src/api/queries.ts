@@ -160,24 +160,6 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<CommandName>([
 ]);
 
 /**
- * The changes that are not finished until the workspace has been read again,
- * because **the next one of them is built from what this one left behind**.
- *
- * Filing sends the panel's whole order and the server checks it against the
- * order it holds, so filing a second item straight after the first built its
- * order from a workspace that did not have the first item in it yet, and was
- * refused. Removing one is here for the same reason from the other end: it
- * changes the order the next filing will send.
- *
- * **Only these.** Making every change wait is the same fix and it was tried
- * first; it broke adding a dashboard, whose own success handler navigates to
- * the dashboard it just made. Waiting first meant the new dashboard appeared in
- * the bar *before* that navigation ran, so the navigation could land while
- * somebody was already typing a panel name on the dashboard they were still on
- * - remounting the board and taking what they had typed with it. A change that
- * carries only its own fields has nothing to wait for, so it does not.
- */
-/**
  * The changes after which the account's types are not what they were.
  *
  * Every one of them also changes every workspace's read model, because a type
@@ -193,10 +175,38 @@ const CHANGES_THE_TYPES = new Set<CommandName>([
   'reorder_item_types',
 ]);
 
-const IS_BUILT_ON_THE_LAST_ONE = new Set<CommandName>([
+/**
+ * The changes that are not finished until the workspace has been read again,
+ * because **what happens next is built on what this one left behind**.
+ *
+ * Filing sends the panel's whole order and the server checks it against the
+ * order it holds, so filing a second item straight after the first built its
+ * order from a workspace that did not have the first item in it yet, and was
+ * refused. Removing one is here for the same reason from the other end: it
+ * changes the order the next filing will send.
+ *
+ * The two texts are here because what is built on them is a *read*: the form
+ * closes on Save and the item can be opened again at once, and a form fills its
+ * boxes from the copy the cache holds and never refills them
+ * (`ItemForm.tsx`) - so a form reopened inside the re-read opens on the text as
+ * it was before the save, and stays on it. The browser walk lost that race in
+ * CI with the re-read out for 215ms.
+ *
+ * **Only these.** Making every change wait is the same fix and it was tried
+ * first; it broke adding a dashboard, whose own success handler navigates to
+ * the dashboard it just made. Waiting first meant the new dashboard appeared in
+ * the bar *before* that navigation ran, so the navigation could land while
+ * somebody was already typing a panel name on the dashboard they were still on
+ * - remounting the board and taking what they had typed with it. A change that
+ * carries only its own fields, and that nothing is read back after, has nothing
+ * to wait for.
+ */
+const NOT_DONE_UNTIL_READ_BACK = new Set<CommandName>([
   'move_item_to_panel',
   'add_item_to_panel',
   'remove_item_from_panel',
+  'set_title',
+  'set_description',
 ]);
 
 /**
@@ -241,7 +251,7 @@ export function useSendCommand(): (args: CommandArgs) => Promise<CommandResult> 
  *
  * **Fetched rather than read off the cache**, which is not the same thing here.
  * The changes that carry an order wait for a re-read before they finish
- * (`IS_BUILT_ON_THE_LAST_ONE`), but `invalidateQueries` only refetches the
+ * (`NOT_DONE_UNTIL_READ_BACK`), but `invalidateQueries` only refetches the
  * queries something is still watching - and the workspace's snapshot stops
  * being watched the moment you navigate off the workspace (`Layout.tsx` runs it
  * `enabled` on the route's own id). The bar offering the way back outlives that
@@ -262,7 +272,7 @@ export function useLatestSnapshot(): (workspaceId: string) => Promise<WorkspaceS
  * What has to be re-read once a change has landed. One function, so the two
  * senders above cannot come to disagree about it.
  *
- * Returned rather than dropped for the changes in `IS_BUILT_ON_THE_LAST_ONE`,
+ * Returned rather than dropped for the changes in `NOT_DONE_UNTIL_READ_BACK`,
  * which is where the reason lives; every other change finishes the moment the
  * server takes it, as they always have.
  */
@@ -320,7 +330,7 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     reread.push(queryClient.invalidateQueries({ queryKey: ['workspaces'] }));
   }
 
-  if (IS_BUILT_ON_THE_LAST_ONE.has(args.name)) return Promise.all(reread);
+  if (NOT_DONE_UNTIL_READ_BACK.has(args.name)) return Promise.all(reread);
 }
 
 /**

@@ -1,14 +1,15 @@
-import type {
-  AssociateCommand,
-  Association,
-  CaptureItemCommand,
-  Item,
-  SetDescriptionCommand,
-  SetDismissedCommand,
-  SetDoneCommand,
-  SetNextActionCommand,
-  SetPriorityCommand,
-  SetTitleCommand,
+import {
+  textsFromCapture,
+  type AssociateCommand,
+  type Association,
+  type CaptureItemCommand,
+  type Item,
+  type SetDescriptionCommand,
+  type SetDismissedCommand,
+  type SetDoneCommand,
+  type SetNextActionCommand,
+  type SetPriorityCommand,
+  type SetTitleCommand,
 } from '@cockpit/shared';
 
 /**
@@ -27,6 +28,7 @@ export function isStale(item: Item, issuedAt: string): boolean {
 }
 
 export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
+  const texts = textsFromCapture(cmd.message);
   return {
     id: cmd.itemId,
     tenantId,
@@ -43,12 +45,12 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     sourceLink: null,
     sender: null,
     sourceTimestamp: null,
-    // What was said is the captured message and nothing else. The title is left
-    // empty deliberately: naming a thought is a second act, and the row falls
-    // through to the captured message until somebody performs it (`itemLabel`).
+    // What was said names the Item, and is kept beside it exactly as it was
+    // said. Which of the two texts it becomes is `textsFromCapture`, and why an
+    // Item has both is on the field in packages/shared/src/domain/item.ts.
     capturedMessage: cmd.message,
-    title: '',
-    description: null,
+    title: texts.title,
+    description: texts.description,
     sourceResolvedAt: null,
     // Every capture names one, so nothing is defaulted here. The column stays
     // nullable for the Items that have no Type - captured before Types

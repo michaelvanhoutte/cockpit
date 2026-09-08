@@ -4,8 +4,9 @@ import { Component, Suspense, lazy, useState, type ReactNode } from 'react';
  * The description on the Item's form: a formatted editor over Markdown, with
  * the Markdown itself one button away.
  *
- * **This component is the async boundary the budget requires.** The editor is
- * 135KB compressed against a 200KB gate the entry already spends 173KB of
+ * **This component is the async boundary the budget requires.** The editor's
+ * own file is 115KB compressed and the Markdown core it shares with a panel's
+ * renderer another 21KB, against a 200KB gate the entry already spends 183KB of
  * (architecture, "Performance budgets"), so it is fetched only once a form is
  * open and never on the cold-open path. Everything here - the states, the
  * toggle, the fallback - exists because that fetch can be slow, and can fail.
