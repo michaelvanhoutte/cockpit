@@ -236,7 +236,17 @@ export function DashboardBar({
     // deleted one, and runs again on the one it lands on: what makes the focus
     // survive rather than being put on a tab about to be taken away.
     const deleted = focusOwedAfterDeleting.current;
-    if (!deleted || beingDeleted || !openDashboardId || openDashboardId === deleted) return;
+    if (!deleted || beingDeleted) return;
+    // Nowhere to put it: the Inbox is a screen of this workspace with no
+    // dashboard current, so no tab is the one to land on. Forgotten rather
+    // than kept, or opening any dashboard later - by hand, by the back button,
+    // by a drag resting on its tab - would have the focus taken to it by a
+    // delete made minutes ago. The strip does the same with its own debt.
+    if (!openDashboardId) {
+      focusOwedAfterDeleting.current = null;
+      return;
+    }
+    if (openDashboardId === deleted) return;
     const tab = bar.current?.querySelector<HTMLElement>('a.active');
     if (!tab) return;
     focusOwedAfterDeleting.current = null;

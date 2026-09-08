@@ -264,6 +264,32 @@ describe('Workspace management', () => {
       });
     });
 
+    it('leaves the tabs alone under a pointer holding nothing', async () => {
+      // A press can end where this strip never hears about it: below the
+      // threshold nothing has been captured yet, so a release that slid off
+      // the tab - into the gap between two, or the space above a short one -
+      // is delivered elsewhere and leaves the press recorded. The next hover
+      // back across that tab must not read as that drag continuing, or the
+      // strip reorders under a pointer holding nothing and sends a move
+      // nobody asked for.
+      const { mutate } = showTabs(['Work', 'Personal', 'Acme']);
+      const tab = await screen.findByRole('link', { name: 'Work' });
+
+      fireEvent.pointerDown(tab, { button: 0, pointerType: 'mouse', clientX: 100, buttons: 1 });
+      // Let go somewhere that is not a tab, which is what leaves the press behind.
+      fireEvent.pointerUp(document.body);
+      fireEvent.pointerMove(tab, { pointerType: 'mouse', clientX: 400, buttons: 0 });
+      fireEvent.click(tab);
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(
+        screen
+          .getAllByRole('link')
+          .map((each) => each.textContent)
+          .filter((name) => name !== ''),
+      ).toEqual(['Work', 'Personal', 'Acme']);
+    });
+
     it('puts the tabs back when the move is refused', async () => {
       const { user } = showTabs(['Work', 'Personal', 'Acme'], {
         error: new CommandRefused(409, 'the list of workspaces has changed'),

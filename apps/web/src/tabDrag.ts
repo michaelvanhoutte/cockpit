@@ -94,6 +94,22 @@ export function useTabDrag({
     onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
       const from = pressed.current;
       if (!from || from.id !== id) return;
+      /*
+       * Nothing held down, so this is a hover rather than a drag.
+       *
+       * **A press can end without this strip hearing about it.** Below the
+       * threshold no pointer has been captured yet, so a release is delivered
+       * by ordinary hit-testing - and a press that slid off the tab on its way
+       * up, into the gap between two tabs or the space above a short one, ends
+       * on neither tab and leaves the press recorded here. Without this, the
+       * next hover back across that tab reads as the drag continuing: the
+       * strip reorders under a pointer holding nothing, and the click that
+       * followed would send a real move nobody asked for.
+       */
+      if (event.buttons === 0) {
+        pressed.current = null;
+        return;
+      }
       // Far enough across to mean it, so switching to a tab does not need a
       // steady hand: below this a press is still a press.
       if (!dragged.current && Math.abs(event.clientX - from.x) < DRAG_STARTS_AT) return;

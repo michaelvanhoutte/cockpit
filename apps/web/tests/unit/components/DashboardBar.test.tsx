@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
@@ -20,6 +20,12 @@ const held = vi.hoisted(() => ({
   dashboards: [] as Dashboard[],
   panels: [] as Panel[],
   layouts: [] as Layout[],
+  /**
+   * Which dashboard the address names, so the stand-in `Link` below can mark
+   * that tab the way the router marks it. Without it no tab is ever current
+   * here, and every rule about the tab you are on would pass by asking nothing.
+   */
+  openDashboardId: null as string | null,
 }));
 
 // The router is not under test, and `to`/`params` are its props rather than an
@@ -37,14 +43,24 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
     to: _to,
-    params: _params,
+    params,
+    className,
     ...rest
   }: {
     children?: React.ReactNode;
     to?: unknown;
-    params?: unknown;
+    params?: { dashboardId?: string };
   } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a href="#" {...rest}>
+    <a
+      href="#"
+      // `active` the way the router adds it to the tab whose address is the one
+      // on screen, which is what the bar's own styling and its focus after a
+      // delete both read.
+      className={`${className ?? ''}${
+        params?.dashboardId && params.dashboardId === held.openDashboardId ? ' active' : ''
+      }`}
+      {...rest}
+    >
       {children}
     </a>
   ),
@@ -136,14 +152,26 @@ function showBar(
   held.dashboards = names.map(aDashboard);
   held.panels = answer.panels ?? [];
   held.layouts = answer.layouts ?? [];
+  held.openDashboardId = answer.openDashboardId ?? null;
   wentTo.calls = [];
   const asked: { error: Error | null; variables: unknown } = {
     error: answer.error ?? null,
     variables: null,
   };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const mutate = vi.fn((args: AskedFor, options?: { onSuccess?: () => void }) => {
     asked.variables = args;
-    if (!answer.error) options?.onSuccess?.();
+    if (answer.error) return;
+    // A delete really takes the dashboard out of the workspace, and the read
+    // behind the bar is asked again - which the real `useCommand` does through
+    // `afterChanging`. Without it the bar goes on drawing the dashboard that
+    // has just gone, and every rule about what happens once it has gone passes
+    // by never happening.
+    if (args.name === 'delete_dashboard') {
+      held.dashboards = held.dashboards.filter((one) => one.id !== args.payload.dashboardId);
+      void client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'] });
+    }
+    options?.onSuccess?.();
   });
   const reset = vi.fn(() => {
     asked.error = null;
@@ -166,17 +194,28 @@ function showBar(
     answer.sendFails ? Promise.reject(answer.sendFails) : Promise.resolve(),
   );
   mockUseSendCommand.mockImplementation(() => sent as never);
-  const { container } = render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  const bar = (openDashboardId: string | null) => (
+    <QueryClientProvider client={client}>
       <DashboardBar
         workspaceId="ws-work"
         tint="#6f62b5"
         ground="#e3e1f2"
-        openDashboardId={answer.openDashboardId ?? null}
+        openDashboardId={openDashboardId}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { mutate, sent, container, user: userEvent.setup() };
+  const { container, rerender } = render(bar(answer.openDashboardId ?? null));
+  return {
+    mutate,
+    sent,
+    container,
+    /** The same bar with another dashboard open, which is what a switch is. */
+    switchTo: (openDashboardId: string | null) => {
+      held.openDashboardId = openDashboardId;
+      rerender(bar(openDashboardId));
+    },
+    user: userEvent.setup(),
+  };
 }
 
 describe('Dashboards', () => {
@@ -315,6 +354,28 @@ describe('Dashboards', () => {
       await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
 
       expect(await screen.findByRole('alertdialog', { name: row.asks })).toBeVisible();
+    });
+
+    it('does not take the focus to the next dashboard opened after a delete made on the Inbox', async () => {
+      // The bar is the shell's and stays mounted, so a focus owed but never
+      // given is a debt carried around: on the Inbox no tab is the current
+      // one, and the next dashboard opened - by hand, by the back button, by a
+      // drag resting on its tab - would have the focus taken to it by a delete
+      // made minutes ago.
+      const { user, switchTo } = showBar(['Dashboard 1', 'Research'], { openDashboardId: null });
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Research' }));
+
+      switchTo('ws-work-dashboard 1');
+
+      // Waited a frame out, which is when the focus would be taken: the bar
+      // puts it back on the next frame so the question's own restore has
+      // finished. Asserting straight away would pass by being early.
+      await act(async () => {
+        await new Promise((frame) => requestAnimationFrame(() => frame(null)));
+      });
+      expect(screen.getByRole('link', { name: 'Dashboard 1' })).not.toHaveFocus();
     });
 
     it('sends the delete only once the question has been answered', async () => {
