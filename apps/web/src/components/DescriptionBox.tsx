@@ -1,4 +1,5 @@
 import { Component, Suspense, lazy, useState, type ReactNode } from 'react';
+import { takeTheNewVersion } from '../updating';
 
 /**
  * The description on the Item's form: a formatted editor over Markdown, with
@@ -17,7 +18,37 @@ import { Component, Suspense, lazy, useState, type ReactNode } from 'react';
  * padded). Showing the re-printed text would mean opening a form, touching
  * nothing, and finding the description had changed.
  */
-const RichDescription = lazy(() => import('../description/RichDescription'));
+const RichDescription = lazy(() => import('../description/RichDescription').catch(neverArrived));
+
+/**
+ * That the editor's file itself did not arrive, as against having arrived and
+ * thrown while rendering.
+ *
+ * **Marked here because this is the only place that can tell them apart.** The
+ * boundary below catches both and sees the same thing from each, and they are
+ * not the same thing at all: a fetch that failed may say this build has been
+ * replaced under the tab (`updating.ts`, `takeTheNewVersion`), where a
+ * component that threw as it drew is a bug, and offering a new version for it
+ * would be offering a cure for the wrong illness.
+ *
+ * **It divides the fetch from the drawing, and not quite failure from bug.** An
+ * editor that threw while being *evaluated* rejects the same fetch and is
+ * marked with the rest, which is a line drawn where it can be drawn rather than
+ * where one would want it. Harmless, because nothing here decides on the mark
+ * alone: `takeTheNewVersion` goes and asks what is being served, finds this
+ * same version, and declines.
+ *
+ * A module-level flag rather than state, because the fetch belongs to the
+ * module and not to whichever box is on screen: `lazy` remembers its first
+ * answer, so the second form opened after a failure never asks again and would
+ * otherwise have nothing to read.
+ */
+let theEditorNeverArrived = false;
+
+function neverArrived(notThere: unknown): never {
+  theEditorNeverArrived = true;
+  throw notThere;
+}
 
 /** Which of the two views is being shown, and why. */
 type View = 'formatted' | 'source';
@@ -86,10 +117,61 @@ export function DescriptionBox({ value, onChange, editable }: DescriptionBoxProp
       {failed && (
         <p role="alert" className="mt-1 text-xs font-normal normal-case tracking-normal text-over">
           Formatting could not be loaded. The description is still here, as Markdown, and still
-          saves.
+          saves.{' '}
+          {/* Offered rather than taken, which is the difference between this and
+              the gate around the whole window (components/Updating.tsx). That
+              one reloads unasked because carrying on is actively wrong - it
+              cannot read what the server says. Here carrying on works: the box
+              below takes text and saves it, so reloading unasked would trade a
+              description somebody is part-way through for a formatting bar. */}
+          {theEditorNeverArrived && <NewerVersion />}
         </p>
       )}
     </div>
+  );
+}
+
+/** What is said where asking changed nothing. Never said before asking. */
+const ANSWER = {
+  'nothing-new': 'This is already the newest version of Cockpit.',
+  'could-not-ask': 'Cockpit could not check for a new version.',
+} as const;
+
+/**
+ * The way out of a formatting bar that will never arrive: take the version this
+ * one's file belongs to (`updating.ts`, `takeTheNewVersion`).
+ *
+ * **Both of the ways it can decline are said out loud, and they are not the
+ * same thing.** A file goes missing for dull reasons too - a connection that
+ * dropped, a proxy that ate the request - and the difference between *there is
+ * nothing newer* and *I could not find out* is the difference between having
+ * checked and having failed to. Saying the first for the second would be
+ * telling somebody they are up to date on the strength of a question nobody
+ * answered.
+ */
+function NewerVersion() {
+  const [answer, setAnswer] = useState<keyof typeof ANSWER | null>(null);
+  const [asking, setAsking] = useState(false);
+
+  if (answer) return <>{ANSWER[answer]}</>;
+  return (
+    <button
+      type="button"
+      disabled={asking}
+      onClick={() => {
+        setAsking(true);
+        void takeTheNewVersion().then((what) => {
+          // 'taken' is only ever the instant before the page goes, and is
+          // deliberately left saying nothing: a message that flashed up and
+          // vanished would be one nobody could read anyway.
+          if (what !== 'taken') setAnswer(what);
+          setAsking(false);
+        });
+      }}
+      className="underline underline-offset-2 hover:no-underline disabled:no-underline disabled:opacity-60"
+    >
+      Get the new version
+    </button>
   );
 }
 
