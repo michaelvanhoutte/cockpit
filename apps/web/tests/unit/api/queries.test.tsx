@@ -539,7 +539,13 @@ describe('Item editing', () => {
 
       // Opened again the moment it closes, which is what the row's menu allows
       // and what the walk does.
-      await waitFor(() => expect(opened.item).toBeUndefined());
+      //
+      // **This is the one wait that spans the arranged delay, so it is the one
+      // that has to be told to outlast it.** `waitFor` allows 1000ms by default
+      // (@testing-library/dom, unoverridden here), which is `SLOW` itself - so
+      // left alone this deadline races the delay it is waiting on, and the test
+      // written to catch a race would lose one of its own.
+      await waitFor(() => expect(opened.item).toBeUndefined(), { timeout: SLOW * 3 });
       rerender(shell());
       opened.item = 'item-1';
       rerender(shell());
