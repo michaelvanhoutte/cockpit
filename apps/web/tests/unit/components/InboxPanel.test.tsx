@@ -48,6 +48,7 @@ vi.mock('../../../src/api/queries', () => ({
         layouts: [],
         associations: [],
         itemTypes: [],
+    screenSizes: [],
         filings: held.filings,
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),

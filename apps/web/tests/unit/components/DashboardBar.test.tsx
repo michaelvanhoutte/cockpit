@@ -94,6 +94,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         layouts: held.layouts,
         associations: [],
         itemTypes: [],
+    screenSizes: [],
         filings: [],
         generatedAt: '2026-09-01T09:00:00.000Z',
       } as WorkspaceSnapshot),
@@ -646,6 +647,7 @@ describe('Layouts', () => {
       dashboardId: OPEN,
       name,
       screenWidth,
+      screenSizeId: null,
       rows: [{ height: null, cells: [{ panelId: 'falcon', span: 12 }] }],
     };
   }
