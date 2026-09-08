@@ -2,7 +2,7 @@ import { useRef, useState, type CSSProperties } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { uuidv7, type Dashboard } from '@cockpit/shared';
+import { uuidv7, type Dashboard, type PanelKind } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { snapshotQuery, useCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -13,7 +13,7 @@ import { LayoutPicker } from './LayoutPicker';
 import { ManageDashboards } from './ManageDashboards';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 import { NameQuestion } from './NameQuestion';
-import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../whatThingsAre';
+import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_HOLDS, WHAT_A_PANEL_IS } from '../whatThingsAre';
 
 /**
  * The bar under the workspace tabs: the workspace's dashboards, a `+` that adds
@@ -410,6 +410,13 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
  */
 function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboardId: string }) {
   const [naming, setNaming] = useState<string | null>(null);
+  /**
+   * What the new panel holds, asked here because here is the only place it can
+   * be: it is settled when the panel is made and never after
+   * (`panelKindSchema`), so a panel added without being asked would be a panel
+   * of items nobody chose.
+   */
+  const [kind, setKind] = useState<PanelKind>('items');
   const command = useCommand();
   const button = useRef<HTMLButtonElement>(null);
 
@@ -433,6 +440,7 @@ function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboard
           dashboardId,
           panelId: uuidv7(),
           name: trimmed,
+          kind,
         },
       },
       // Closed and emptied only once it worked, so a refused title is still
@@ -448,6 +456,10 @@ function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboard
         ref={button}
         onClick={() => {
           command.reset();
+          // Back to Items every time it opens. The kind is not a preference -
+          // it is a question about the panel being made now, and carrying the
+          // last answer into it would decide it for somebody who never looked.
+          setKind('items');
           setNaming('');
         }}
         className="mb-1 shrink-0 rounded-md border border-white/15 bg-white/6 px-2 py-1 text-xs text-chrome-ink hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft"
@@ -458,6 +470,7 @@ function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboard
         open={naming !== null}
         question="What is the new panel called?"
         explains={WHAT_A_PANEL_IS}
+        alsoAsks={<WhatItHolds kind={kind} onKindChange={setKind} />}
         fieldLabel="Name of the new panel"
         placeholder="One-on-ones, Waiting on…"
         submitLabel="Add"
@@ -473,5 +486,61 @@ function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboard
         returnFocusTo={button.current}
       />
     </>
+  );
+}
+
+/**
+ * What the new panel holds, asked in the same breath as its name.
+ *
+ * **Two choices in the naming question rather than two controls on the bar.**
+ * The bar already carries the dashboards, a `+`, the layout picker and a menu,
+ * and a fifth control would push one of them off a laptop. It is also the
+ * honest shape: this is one decision with two answers, made at the only moment
+ * it can be made.
+ *
+ * Radios rather than buttons, because that is what a choice between two
+ * exclusive answers is - and what gives a keyboard the arrow keys and a screen
+ * reader "one of two". The circles are hidden and the whole card is the target,
+ * which is why the label carries the focus ring.
+ */
+function WhatItHolds({
+  kind,
+  onKindChange,
+}: {
+  kind: PanelKind;
+  onKindChange: (kind: PanelKind) => void;
+}) {
+  return (
+    <fieldset className="mt-6">
+      {/* `block` and a margin, not padding: a legend is laid out in the
+          fieldset's top border rather than in its content box, so padding on
+          either moves everything except the words. */}
+      <legend className="mb-2 block text-xs font-semibold uppercase tracking-wide text-ink-faint">
+        What it holds
+      </legend>
+      <div className="flex gap-2">
+        {WHAT_A_PANEL_HOLDS.map((choice) => (
+          <label
+            key={choice.kind}
+            className={`flex-1 cursor-pointer rounded-md border px-3 py-2 text-sm has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${
+              kind === choice.kind
+                ? 'border-accent bg-accent-tint text-accent-deep'
+                : 'border-black/10 hover:bg-accent-tint/50'
+            }`}
+          >
+            <input
+              type="radio"
+              name="panel-kind"
+              value={choice.kind}
+              className="sr-only"
+              checked={kind === choice.kind}
+              onChange={() => onKindChange(choice.kind)}
+            />
+            <span className="block font-medium">{choice.label}</span>
+            <span className="block pt-0.5 text-xs text-ink-soft">{choice.says}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }

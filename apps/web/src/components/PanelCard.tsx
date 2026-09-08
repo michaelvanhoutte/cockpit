@@ -1,6 +1,7 @@
 import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
+import { PanelText } from '../panels/PanelText';
 import { RowMenu } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
 
@@ -8,11 +9,13 @@ import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThing
  * One panel on a dashboard: a titled box you can move, resize and rename in
  * place ("Panels on a dashboard, with per-screen-size layouts", issue 33).
  *
- * **It holds the items filed into it**, in the order they were filed into
- * ("Panels hold the items filed into them, and the Inbox holds the rest", issue
- * 36). What it shows is still only that - a rule for what *arrives* in a panel on
- * its own is configuration it does not have yet ("Panel configuration:
- * connections and free-text description", issue 35).
+ * **It holds either the items filed into it or the text written in it** ("Put a
+ * panel of text on a dashboard, and write in it", issue 250), and which of the
+ * two is settled when the panel is made. Items come in the order they were
+ * filed ("Panels hold the items filed into them, and the Inbox holds the rest",
+ * issue 36); a rule for what *arrives* in a panel on its own is configuration
+ * it does not have yet ("Panel configuration: connections and free-text
+ * description", issue 35).
  *
  * **Moving is in the menu as well as under the pointer.** Dragging the header
  * onto another panel joins that panel's row, and into the gap between two rows
@@ -57,6 +60,13 @@ export interface PanelCardProps {
   onStopRenaming: () => void;
   onDelete: (openedFrom: HTMLElement | null) => void;
   onMove: (places: number) => void;
+  /**
+   * Lock a panel of text's prose, or hand it back. Never called for a panel of
+   * items, which is not offered the choice.
+   */
+  onReadOnlyChange: (readOnly: boolean) => void;
+  /** Draw a panel of text's words as what they mean, or as the characters typed. */
+  onFormatChange: (format: 'plain' | 'rich') => void;
   /**
    * That this is the panel in the air, so it can say so. The board knows
    * which one it is; the card is what draws it.
@@ -103,11 +113,16 @@ export function PanelCard({
   onStopRenaming,
   onDelete,
   onMove,
+  onReadOnlyChange,
+  onFormatChange,
   lifted,
   onPickUp,
   refusal,
   busy,
 }: PanelCardProps) {
+  // What this panel is made of, and so what its well holds, what its header
+  // says beside its name and what its menu offers.
+  const text = panel.kind === 'text';
 
   return (
     <section
@@ -251,14 +266,59 @@ export function PanelCard({
                   seventy-six of them, and the count another seventeen, so below
                   this the name is being truncated to make room for a number the
                   list underneath spells out. */}
-              <span className="shrink-0 text-xs tabular-nums text-ink-faint @max-[200px]:hidden">
-                {items.length}
-              </span>
+              {/* How much is on it, which a panel of text has no answer to:
+                  it holds no items, and drawing a nought beside its name would
+                  be reporting on something it is not. */}
+              {!text && (
+                <span className="shrink-0 text-xs tabular-nums text-ink-faint @max-[200px]:hidden">
+                  {items.length}
+                </span>
+              )}
+              {/* That the text is read rather than written in, said out loud
+                  because nothing else on the panel says it: a box with no
+                  cursor in it looks exactly like one nobody has clicked yet.
+
+                  **It stays at every width, where the count goes.** The count
+                  may go because the list underneath spells it out; nothing
+                  repeats this. A panel squeezed under two hundred pixels that
+                  dropped it would show prose, no cursor and no reason - and
+                  the name being truncated to keep it is the better trade,
+                  a truncated name still being recognisable. */}
+              {text && panel.readOnly && (
+                <span className="shrink-0 text-xs font-normal normal-case tracking-normal text-ink-faint">
+                  read-only
+                </span>
+              )}
             </div>
             <RowMenu
               label={`Actions for ${panel.name}`}
               entries={[
                 { label: 'Rename', onSelect: onStartRenaming },
+                // Only on a panel of text. A panel of items has no text to
+                // lock, and an entry that means nothing where it is offered is
+                // worse than one that is not there - the menu's own rule keeps
+                // an *unavailable* entry visible, and this one is not
+                // unavailable, it is about something else entirely.
+                //
+                // Named for what choosing it gives you rather than for the
+                // state it leaves behind, which is how every other entry here
+                // reads.
+                ...(text
+                  ? [
+                      {
+                        label: panel.readOnly ? 'Allow editing' : 'Make read-only',
+                        keepsFocus: true,
+                        onSelect: () => onReadOnlyChange(!panel.readOnly),
+                      },
+                      {
+                        // What the same characters are drawn as. Named for what
+                        // choosing it gives you, like the entry above it.
+                        label: panel.format === 'rich' ? 'Use plain text' : 'Use rich text',
+                        keepsFocus: true,
+                        onSelect: () => onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
+                      },
+                    ]
+                  : []),
                 ...movesFor({ first, last, sideBySide }, onMove),
                 { label: 'Delete', destructive: true, onSelect: onDelete },
               ]}
@@ -274,7 +334,12 @@ export function PanelCard({
           whole of the treatment: the header sits up on the sheet and the list
           sits down in it, and a panel holding nothing is still a panel because
           the hollow is what draws it. */}
-      <div className="well min-h-0 flex-1 overflow-auto">
+      {/* A panel of text fills its well with one box and lets that box scroll,
+          rather than scrolling the well around it: a textarea that grew past
+          the panel would put a second scrollbar inside the first. */}
+      <div
+        className={`well min-h-0 flex-1 ${text ? 'flex flex-col overflow-hidden' : 'overflow-auto'}`}
+      >
         {/* Above the list rather than instead of it. Refusing a rename says
             nothing about what the panel holds, and hiding the items while
             somebody decides what else to call it takes away the thing they are
@@ -284,13 +349,17 @@ export function PanelCard({
             {refusal}
           </p>
         )}
-        <ItemList
-          workspaceId={workspaceId}
-          items={items}
-          openDashboardId={panel.dashboardId}
-          panelId={panel.id}
-          emptyMessage={nothingFiledYet ? NOTHING_FILED_HERE_YET_AND_HOW : NOTHING_FILED_HERE}
-        />
+        {text ? (
+          <PanelText panel={panel} workspaceId={workspaceId} />
+        ) : (
+          <ItemList
+            workspaceId={workspaceId}
+            items={items}
+            openDashboardId={panel.dashboardId}
+            panelId={panel.id}
+            emptyMessage={nothingFiledYet ? NOTHING_FILED_HERE_YET_AND_HOW : NOTHING_FILED_HERE}
+          />
+        )}
       </div>
 
     </section>

@@ -472,6 +472,48 @@ describe('Backup', () => {
     });
   });
 
+  /**
+   * The columns the last two changes add, by table - none, unless one of them
+   * altered a table the backup carries rows for.
+   *
+   * **Written out rather than derived, and it is the fixture's second half.** A
+   * backup records the shape its rows were in, so the changes it names and the
+   * columns on its rows have to agree: a backup naming changes that have not
+   * added a column, whose rows carry that column anyway, is a state no backup
+   * can be in - and the restore rightly refuses to insert it. Without this, the
+   * case below went red on the day a change added a column, as a 400 that named
+   * nothing, and read as a broken restore rather than a stale fixture.
+   *
+   * Keep it in step when a change is added to the end of `accountChanges`.
+   */
+  const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
+    // 0017-panel-text-format.
+    panels: ['format'],
+  };
+
+  /** That backup as it would really have been taken, both halves agreeing. */
+  function takenBeforeTheLastTwoChanges(taken: AccountFile, everything: string[]): AccountFile {
+    return {
+      ...taken,
+      changesApplied: everything.slice(0, -2),
+      tables: Object.fromEntries(
+        Object.entries(taken.tables).map(([table, rows]): [string, Record<string, unknown>[]] => {
+          const added = COLUMNS_THE_LAST_TWO_CHANGES_ADD[table] ?? [];
+          return [
+            table,
+            rows.map((row) => {
+              const older: Record<string, unknown> = {};
+              for (const [column, value] of Object.entries(row)) {
+                if (!added.includes(column)) older[column] = value;
+              }
+              return older;
+            }),
+          ];
+        }),
+      ),
+    };
+  }
+
   describe('an account behind the current version is brought up to date once it is restored', () => {
     /**
      * The half the whole design rests on. A backup records the shape its rows
@@ -484,8 +526,7 @@ describe('Backup', () => {
       await captureInto(USER_ID, 'written under an older shape');
       const taken = await backUp(ACCOUNT_NAME);
       const everything = accountChanges(ACCOUNT_NAME).map((change) => change.name);
-      // A backup taken before the last two changes existed.
-      const older = { ...taken, changesApplied: everything.slice(0, -2) };
+      const older = takenBeforeTheLastTwoChanges(taken, everything);
       await emptyTheStore(ACCOUNT_NAME);
 
       expect((await restore(ACCOUNT_NAME, older)).status).toBe(200);

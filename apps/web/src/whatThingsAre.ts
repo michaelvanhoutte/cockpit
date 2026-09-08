@@ -43,6 +43,31 @@ export const WHAT_A_PANEL_IS =
  */
 export const NOTHING_FILED_HERE = 'Nothing filed here yet.';
 
+/**
+ * What a panel of text says when nothing has been written in it and nobody may
+ * ("Put a panel of text on a dashboard, and write in it", issue 250).
+ *
+ * Only when it is read-only: a panel somebody may write in says so in the box
+ * itself, which is a placeholder rather than a sentence about emptiness.
+ */
+export const NOTHING_WRITTEN_HERE = 'Nothing written here yet.';
+
+/** The invitation in an empty panel of text somebody may write in. */
+export const WRITE_HERE = 'Write here…';
+
+/**
+ * What a panel is made of, asked when it is made because it is settled then and
+ * never after (`panelKindSchema`).
+ *
+ * **Items, not actions.** A panel holds Items of whatever Type - a Task, a
+ * Note, anything else somebody names - and *Action* stopped being one of the
+ * product's words with "Call the two standard types Task and Note" (issue 194).
+ */
+export const WHAT_A_PANEL_HOLDS = [
+  { kind: 'items' as const, label: 'Items', says: 'Holds whatever you file into it.' },
+  { kind: 'text' as const, label: 'Text', says: 'A box you write in.' },
+];
+
 /** What that says instead, while nobody has filed anything in this workspace. */
 export const NOTHING_FILED_HERE_YET_AND_HOW =
   `${NOTHING_FILED_HERE} Drag an item onto it from the Inbox, or file it from the item’s own menu.`;

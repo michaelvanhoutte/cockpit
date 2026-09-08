@@ -76,6 +76,57 @@ export const DEFAULT_CELL_SPAN = 12;
 export const panelNameSchema = workspaceNameSchema;
 
 /**
+ * What a Panel is made of: the Items filed into it, or the text written in it
+ * ("Put a panel of text on a dashboard, and write in it", issue 250).
+ *
+ * **Decided when the Panel is made and never after.** A Panel of items holds
+ * filings and a Panel of text holds prose, so turning one into the other is a
+ * question about what happens to what is already in it, and nobody has needed
+ * it answered.
+ *
+ * `items` is what every Panel before this was, and it is the default in both
+ * directions - on the way back so a Panel stored before this reads as one, and
+ * on the way in so a client that has never heard of kinds adds the Panel it
+ * always added.
+ */
+export const PANEL_KINDS = ['items', 'text'] as const;
+export const panelKindSchema = z.enum(PANEL_KINDS);
+export type PanelKind = z.infer<typeof panelKindSchema>;
+
+/**
+ * How a Panel of text's words are drawn: as the characters that were typed, or
+ * as what they mean ("Format what a panel says, without making every dashboard
+ * pay for an editor", issue 251).
+ *
+ * **Not a conversion either way.** The same Markdown is stored throughout, so
+ * `plain` shows the characters and `rich` draws what they say; switching back
+ * and forth loses nothing, and nothing rewrites what somebody typed.
+ *
+ * **`plain` is the default, and that is the performance answer.** Drawing
+ * characters needs nothing fetched at all, while formatting needs a renderer
+ * and writing formatted text needs the editor - so a Dashboard costs nothing to
+ * open until somebody asks for formatting on a Panel (architecture,
+ * "Performance budgets").
+ */
+export const PANEL_FORMATS = ['plain', 'rich'] as const;
+export const panelFormatSchema = z.enum(PANEL_FORMATS);
+export type PanelFormat = z.infer<typeof panelFormatSchema>;
+
+/**
+ * The most a Panel of text holds, which is exactly what a Description holds
+ * (`itemDescriptionSchema`): both are Markdown somebody typed, and a second
+ * number would be a second rule to explain. Over it is refused rather than cut,
+ * because repairing input is where the bypasses live.
+ *
+ * Not trimmed, unlike a Description. A Panel's text is edited in place on the
+ * Dashboard rather than saved off a form, so it is written on every pause -
+ * and trimming would take the blank line somebody is in the middle of typing
+ * out from under the cursor.
+ */
+export const PANEL_TEXT_LIMIT = 60_000;
+export const panelTextSchema = z.string().max(PANEL_TEXT_LIMIT);
+
+/**
  * A Panel, as it is read back.
  *
  * `name`, `id` and `dashboardId` are the permissive `z.string()` for the reason
@@ -99,6 +150,25 @@ export const panelSchema = z.object({
   tenantId: z.string(),
   dashboardId: z.string(),
   name: z.string(),
+  /**
+   * Permissive in the way the strings above are, and for the same reason: this
+   * is the shape read *back*, so a kind this version has never heard of should
+   * draw as the Panel every Panel used to be rather than blanking the Dashboard
+   * it sits on. `catch` also covers the field being absent, which is what a
+   * Panel stored by the code serving requests during the deploy looks like.
+   */
+  kind: panelKindSchema.catch('items'),
+  /** Whether that text is drawn as characters or as what they mean. Permissive like `kind`. */
+  format: panelFormatSchema.catch('plain'),
+  /** The Markdown of a Panel of text. Empty for a Panel of items. */
+  body: z.string().default(''),
+  /**
+   * Whether that text is read rather than written in. A property of the Panel
+   * and not of the person looking at it: it says what the Panel is *for* - a
+   * standing agenda, a note the team reads - so it travels with the Panel to
+   * every screen it is drawn on.
+   */
+  readOnly: z.boolean().default(false),
 });
 export type Panel = z.infer<typeof panelSchema>;
 

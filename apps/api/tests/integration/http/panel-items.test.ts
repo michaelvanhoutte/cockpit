@@ -92,6 +92,16 @@ async function aPanel(dashboardId: string, name: string, workspaceId = WORKSPACE
   return panelId;
 }
 
+/** A panel made of text, which is a panel nothing is filed onto. */
+async function aPanelOfText(dashboardId: string, name: string): Promise<string> {
+  const panelId = nextId();
+  expect(
+    (await send('add_panel', { workspaceId: WORKSPACE_ID, dashboardId, panelId, name, kind: 'text' }))
+      .status,
+  ).toBe(200);
+  return panelId;
+}
+
 async function anItem(message: string, workspaceId: string = WORKSPACE_ID): Promise<string> {
   const itemId = nextId();
   expect(
@@ -276,6 +286,50 @@ describe('Panels', () => {
       // from. Its filing stays, deliberately: nothing has erased the item, and
       // putting it back has to put it back where it was.
       expect((await snapshot()).items.map((item) => item.id)).not.toContain(itemId);
+    });
+  });
+
+  describe('nothing is filed onto a panel of text', () => {
+    /**
+     * A panel of text draws no items, so one filed onto it would leave the
+     * Inbox and be on no screen at all - recoverable only by an undo somebody
+     * would have to think to reach for.
+     *
+     * **Refused by the store and not only hidden in the app**, because the
+     * app's scoping is presentation rather than protection (architecture,
+     * "Security"). Both commands, because filing an item and adding it to one
+     * more panel are the same act with different answers about where it was
+     * before, and the two must not come to disagree about what a panel takes.
+     *
+     * 400 rather than 404 or 409: the panel exists, it is on this dashboard,
+     * and nothing is in the way - it simply does not take items.
+     */
+    it.each([
+      { situation: 'moved onto one', file: move },
+      { situation: 'added to one', file: addTo },
+    ])('$situation', async ({ file }) => {
+      const dashboardId = await aDashboard();
+      const words = await aPanelOfText(dashboardId, 'What matters');
+      const itemId = await anItem('still to deal with');
+
+      const res = await file(itemId, words);
+
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain('What matters');
+      // Still in the Inbox, which is where an item filed nowhere is.
+      expect(await filedOn(itemId)).toEqual([]);
+    });
+
+    it('leaves an item where it already was', async () => {
+      const dashboardId = await aDashboard();
+      const falcon = await aPanel(dashboardId, 'Project Falcon');
+      const words = await aPanelOfText(dashboardId, 'Notes');
+      const itemId = await anItem('already filed');
+      expect((await move(itemId, falcon)).status).toBe(200);
+
+      expect((await move(itemId, words)).status).toBe(400);
+
+      expect(await filedOn(itemId)).toEqual(['Project Falcon']);
     });
   });
 
