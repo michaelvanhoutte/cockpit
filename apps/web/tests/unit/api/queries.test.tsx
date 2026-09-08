@@ -38,7 +38,7 @@ const sends = vi.mocked(sendCommand);
  * The item's form is rendered for real by the last rule here, because what it
  * is about is the form and the copy it is filled from together. Only the two
  * things it reaches outside this file are replaced: the address it is opened
- * and closed by, and its 135KB editor.
+ * and closed by, and its 115KB editor.
  */
 const opened = vi.hoisted(() => ({ item: undefined as string | undefined }));
 
@@ -103,6 +103,9 @@ beforeEach(() => {
   reads.mockReset();
   sends.mockReset();
   reads.mockResolvedValue(snapshot);
+  // Which item's form is open outlives the test that opened one, and a form
+  // left open would be drawn by the next test to render anything.
+  opened.item = undefined;
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
 
@@ -485,8 +488,15 @@ describe('Item editing', () => {
      *
      * A slow API rather than a fast machine is also how this class is found at
      * all (the `testing` skill, "Flakiness").
+     *
+     * **A second, not a tenth of one**, because fake time here advances with
+     * real time: the guard below reads "the form has not closed yet" one poll
+     * after the change was taken, and a run descheduled for longer than this
+     * would find the read already in and the form gone, failing for the
+     * contention rather than for the bug. A second is far more than any poll
+     * gap and costs this one test the same second.
      */
-    const SLOW = 300;
+    const SLOW = 1_000;
 
     it('is not finished saving until the workspace has been read back', async () => {
       const written = 'Tolerances, and the sign-off date';
