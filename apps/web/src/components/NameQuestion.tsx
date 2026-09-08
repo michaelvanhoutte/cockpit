@@ -41,6 +41,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 export function NameQuestion({
   question,
   explains,
+  alsoAsks,
   fieldLabel,
   placeholder,
   submitLabel,
@@ -60,6 +61,13 @@ export function NameQuestion({
    * renaming something you have already made needs.
    */
   explains?: string;
+  /**
+   * Anything else the same question has to settle, drawn under the field. A new
+   * panel needs what it holds decided here, because that is settled when the
+   * panel is made and never after (`panelKindSchema`); a question that renames
+   * something already made has nothing of the sort and must not grow one.
+   */
+  alsoAsks?: React.ReactNode;
   fieldLabel: string;
   placeholder: string;
   submitLabel: string;
@@ -125,6 +133,8 @@ export function NameQuestion({
               autoFocus
               className="w-full rounded-md border border-black/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
             />
+
+            {alsoAsks}
 
             {refusal && (
               <p role="alert" className="pt-3 text-sm text-over">

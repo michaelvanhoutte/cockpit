@@ -5,8 +5,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
-import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../../../src/whatThingsAre';
+import { QUIET } from '../../../src/panels/PanelText';
+import {
+  NOTHING_FILED_HERE,
+  NOTHING_FILED_HERE_YET_AND_HOW,
+  NOTHING_WRITTEN_HERE,
+} from '../../../src/whatThingsAre';
 import { CommandRefused } from '../../../src/api/client';
+import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { useCommand } from '../../../src/api/queries';
 
 /**
@@ -37,7 +43,31 @@ const DASHBOARD: Dashboard = {
 };
 
 function aPanel(id: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId: 'today', name };
+  return {
+    id,
+    tenantId: 'tenant',
+    dashboardId: 'today',
+    name,
+    kind: 'items',
+    format: 'plain',
+    body: '',
+    readOnly: false,
+  };
+}
+
+/** A panel made of text, empty and open to be written in unless a case says otherwise. */
+function aPanelOfText(
+  id: string,
+  name: string,
+  holding: { body?: string; readOnly?: boolean; format?: 'plain' | 'rich' } = {},
+): Panel {
+  return {
+    ...aPanel(id, name),
+    kind: 'text',
+    format: holding.format ?? 'plain',
+    body: holding.body ?? '',
+    readOnly: holding.readOnly ?? false,
+  };
 }
 
 /**
@@ -128,7 +158,7 @@ function showBoard({
     error: error ?? null,
     variables,
   } as never);
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <PanelBoard
         workspaceId="ws-work"
@@ -140,7 +170,9 @@ function showBoard({
       />
     </QueryClientProvider>,
   );
-  return { mutate, user: userEvent.setup() };
+  // `unmount` because a panel of text sends what is unsent on the way out, and
+  // switching dashboard is what takes it off screen.
+  return { mutate, unmount, user: userEvent.setup() };
 }
 
 /** What a panel offers is in the panel's own menu, so reaching any of it is two gestures. */
@@ -180,7 +212,10 @@ function layOut() {
   const rows = [...document.querySelectorAll('[data-panel-row]')];
   rows.forEach((row, index) => {
     const top = index * 122;
-    row.getBoundingClientRect = () => ({ top, bottom: top + 100 }) as DOMRect;
+    // A width as well as a band, because sizing a row asks how wide it is - a
+    // column is a twelfth of the row, and a twelfth of nothing is nothing.
+    row.getBoundingClientRect = () =>
+      ({ top, bottom: top + 100, left: 0, right: 600 }) as DOMRect;
     const cells = [...row.querySelectorAll('[data-panel-cell]')];
     const width = 600 / cells.length;
     cells.forEach((cell, at) => {
@@ -264,6 +299,63 @@ function sentOrder(mutate: ReturnType<typeof vi.fn>): string[] {
   return sentRows(mutate).flat();
 }
 
+/** How tall the last save_layout said each row is. */
+function sentHeights(mutate: ReturnType<typeof vi.fn>): (number | null)[] {
+  const [asked] = mutate.mock.calls.at(-1)!;
+  return asked.payload.rows.map((row: { height: number | null }) => row.height);
+}
+
+/** What share of its row the last save_layout gave each panel, row by row. */
+function sentSpans(mutate: ReturnType<typeof vi.fn>): number[][] {
+  const [asked] = mutate.mock.calls.at(-1)!;
+  return asked.payload.rows.map((row: { cells: { span: number }[] }) =>
+    row.cells.map((cell) => cell.span),
+  );
+}
+
+/** How tall the board is drawing each row right now, which is not what it has sent. */
+function drawnHeights(): string[] {
+  return [...document.querySelectorAll('[data-panel-row]')].map(
+    (row) => (row as HTMLElement).style.height,
+  );
+}
+
+/**
+ * A whole column of a row, in the pixels `layOut` measures one in: the rows are
+ * 600 wide there, and a column is a twelfth of the row.
+ */
+const ONE_COLUMN = 600 / 12;
+
+/**
+ * Drags the line under row `rowIndex` by `byY` pixels.
+ *
+ * `layOut` first, because this gesture measures the row the moment it is taken
+ * hold of - a row without a height of its own has one only on the page, and
+ * jsdom measures every element as nothing. The rows are 100 tall there, so a
+ * drag of 200 asks for 300.
+ */
+function dragRowLine(rowIndex: number, byY: number, andLetGo = true) {
+  layOut();
+  const line = screen.getAllByTestId('row-line')[rowIndex]!;
+  fireEvent.pointerDown(line, { button: 0, pointerId: 1, clientX: 300, clientY: 0 });
+  fireEvent.pointerMove(line, { pointerId: 1, clientX: 300, clientY: byY });
+  if (andLetGo) fireEvent.pointerUp(line, { pointerId: 1 });
+}
+
+/** Lets go of a line left in hand by `dragRowLine(..., false)`. */
+function letGoOfRowLine() {
+  fireEvent.pointerUp(window, { pointerId: 1 });
+}
+
+/** Drags the line to the right of the panel at `at` on the first row, by `byX` pixels. */
+function dragColumnLine(at: number, byX: number) {
+  layOut();
+  const line = screen.getAllByTestId('column-line')[at]!;
+  fireEvent.pointerDown(line, { button: 0, pointerId: 1, clientX: 0, clientY: 50 });
+  fireEvent.pointerMove(line, { pointerId: 1, clientX: byX, clientY: 50 });
+  fireEvent.pointerUp(line, { pointerId: 1 });
+}
+
 beforeEach(() => {
   screenIs(1280);
   localStorage.clear();
@@ -317,6 +409,22 @@ describe('Panels', () => {
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('delete_panel');
       expect(asked.payload.panelId).toBe('reading');
+    });
+
+    it('names the text when the panel going is one of text', async () => {
+      const { user } = showBoard({
+        panels: [aPanelOfText('words', 'What matters', { body: 'Standing agenda' })],
+      });
+
+      await choose(user, 'What matters', 'Delete');
+
+      // The layouts are an arrangement anybody can make again; the words are
+      // not, so they are what the question has to name.
+      expect(
+        screen.getByText(
+          'Delete What matters? The text in it goes too, and it goes from every layout of this dashboard.',
+        ),
+      ).toBeVisible();
     });
 
     it.each([
@@ -799,6 +907,166 @@ describe('Panels', () => {
     });
   });
 
+  describe('the line under a row sets how tall it is, and the line between two panels how much each takes', () => {
+    /** One panel, so the board has the one row these are about. */
+    const oneRow = { panels: [aPanel('falcon', 'Project Falcon')] };
+
+    it('keeps the height the line was dragged to, and sends nothing until the hand stops', () => {
+      // The whole gesture: what is under the hand is the size letting go will
+      // keep. Sending as the pointer moved would be a change per pixel.
+      const { mutate } = showBoard({
+        ...oneRow,
+        layouts: [aLayout('laptop', 1280, ['falcon'])],
+      });
+
+      dragRowLine(0, 200, false);
+      expect(drawnHeights()).toEqual(['300px']);
+      expect(mutate).not.toHaveBeenCalled();
+
+      letGoOfRowLine();
+      expect(sentHeights(mutate)).toEqual([300]);
+    });
+
+    it('gives one panel what the other gives up, and leaves the row adding up to a whole', () => {
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+
+      dragColumnLine(0, ONE_COLUMN);
+
+      expect(sentSpans(mutate)).toEqual([[7, 5]]);
+    });
+
+    it('puts a row back to being as tall as what is in it when the line is double-clicked', () => {
+      // The only way back: a drag always leaves a number behind, and the height
+      // a row has without one is not a number anything could drag to.
+      const { mutate } = showBoard({
+        ...oneRow,
+        layouts: [
+          {
+            ...aLayout('laptop', 1280, ['falcon']),
+            rows: [{ height: 400, cells: [{ panelId: 'falcon', span: 12 }] }],
+          },
+        ],
+      });
+
+      fireEvent.doubleClick(screen.getAllByTestId('row-line')[0]!);
+
+      expect(sentHeights(mutate)).toEqual([null]);
+    });
+
+    it.each([
+      { situation: 'a row already the height it is being dragged to', act: () => dragRowLine(0, 0) },
+      { situation: 'a line moved less than a whole column', act: () => dragColumnLine(0, 4) },
+    ])('sends nothing for $situation', ({ act }) => {
+      const { mutate } = showBoard({
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+
+      act();
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('takes no hold of a line pressed with anything but the primary button', () => {
+      // A right-click opens a menu over the line, so no release ever reaches
+      // the handler - and a gesture begun by it would go on sizing the row
+      // under every mouse move until some later click ended it.
+      const { mutate } = showBoard({
+        ...oneRow,
+        layouts: [aLayout('laptop', 1280, ['falcon'])],
+      });
+
+      layOut();
+      const line = screen.getAllByTestId('row-line')[0]!;
+      fireEvent.pointerDown(line, { button: 2, pointerId: 1, clientX: 300, clientY: 0 });
+      fireEvent.pointerMove(window, { pointerId: 1, clientX: 300, clientY: 200 });
+
+      expect(drawnHeights()).toEqual(['']);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('sizes the row the line belongs to and leaves every other row alone', () => {
+      const { mutate } = showBoard({
+        layouts: [
+          {
+            ...aLayout('laptop', 1280, ['falcon']),
+            rows: [
+              { height: 240, cells: [{ panelId: 'falcon', span: 12 }] },
+              { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+            ],
+          },
+        ],
+      });
+
+      // The second of the two lines, which is the one under the second row.
+      dragRowLine(1, 200);
+
+      expect(sentHeights(mutate)).toEqual([240, 300]);
+      expect(sentRows(mutate)).toEqual([['falcon'], ['reading']]);
+    });
+  });
+
+  describe('a size the hand did not finish setting is not kept', () => {
+    it.each([
+      {
+        situation: 'the gesture is abandoned with Escape',
+        end: () => fireEvent.keyDown(window, { key: 'Escape' }),
+      },
+      {
+        situation: 'the browser takes the gesture back',
+        end: () => fireEvent.pointerCancel(window, { pointerId: 1 }),
+      },
+    ])('puts the row back and sends nothing when $situation', ({ end }) => {
+      const { mutate } = showBoard({
+        panels: [aPanel('falcon', 'Project Falcon')],
+        layouts: [aLayout('laptop', 1280, ['falcon'])],
+      });
+
+      dragRowLine(0, 200, false);
+      expect(drawnHeights()).toEqual(['300px']);
+
+      end();
+
+      expect(drawnHeights()).toEqual(['']);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('while a panel is in the air the lines between the rows are the drag’s', () => {
+    it('takes the lines away for the length of a drag and gives them back when it lands', () => {
+      // The seam a panel is dropped into and the line that sizes a row are the
+      // same four pixels, so only one of them can mean anything at a time.
+      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const handle = handleOf('To read');
+      expect(screen.queryAllByTestId('row-line')).not.toHaveLength(0);
+
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      expect(screen.queryAllByTestId('row-line')).toHaveLength(0);
+      expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
+
+      fireEvent.pointerUp(handle, { pointerId: 1 });
+
+      expect(screen.queryAllByTestId('row-line')).not.toHaveLength(0);
+    });
+
+    // One line per row and none above the first, so every row has exactly the
+    // one under it to pull and a dashboard with nothing on it has none at all.
+    it.each([
+      { situation: 'no panels on it at all', panels: [] as Panel[], lines: 0 },
+      { situation: 'one row', panels: [aPanel('falcon', 'Project Falcon')], lines: 1 },
+      {
+        situation: 'two rows',
+        panels: [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')],
+        lines: 2,
+      },
+    ])('gives a dashboard with $situation $lines of them', ({ panels, lines }) => {
+      showBoard({ panels, layouts: [aLayout('laptop', 1280, ['falcon'])] });
+
+      expect(screen.queryAllByTestId('row-line')).toHaveLength(lines);
+    });
+  });
+
   describe('a change that could not happen says so where it was asked for', () => {
     it.each([
       {
@@ -885,6 +1153,188 @@ function panelOrderOnScreen(): string[] {
 }
 
 describe('Panels', () => {
+  describe('a panel holds either the items filed into it or the text written in it', () => {
+    /**
+     * What each kind draws. The kind itself is settled when the panel is made
+     * and proved in apps/api/tests/unit/domain/panels.test.ts; what is asked
+     * here is that the board draws two different things from it.
+     */
+    it('draws a list and a count for items, and a box to write in for text', async () => {
+      showBoard({
+        panels: [aPanel('falcon', 'Project Falcon'), aPanelOfText('words', 'What matters')],
+        items: [anItem('one', 'Answer Tom')],
+        filings: [{ panelId: 'falcon', itemId: 'one', position: 0 }],
+      });
+
+      expect(await screen.findByText('Answer Tom')).toBeInTheDocument();
+      // The count belongs to a panel that holds items; a panel of text has no
+      // answer to "how many", so it draws none.
+      const words = screen.getByRole('region', { name: 'What matters' });
+      expect(within(words).queryByText('0')).not.toBeInTheDocument();
+      expect(within(words).getByRole('textbox', { name: 'What matters' })).toBeInTheDocument();
+    });
+
+    it('shows a read-only panel’s text without a box, and says it is read-only', async () => {
+      showBoard({
+        panels: [aPanelOfText('words', 'What matters', { body: 'Standing agenda', readOnly: true })],
+      });
+
+      const words = await screen.findByRole('region', { name: 'What matters' });
+      expect(within(words).getByText('Standing agenda')).toBeInTheDocument();
+      expect(within(words).getByText('read-only')).toBeInTheDocument();
+      expect(within(words).queryByRole('textbox')).not.toBeInTheDocument();
+    });
+
+    /**
+     * The third way an item reaches a panel, after the picker and a direct
+     * request. There is nothing to drop on because the list is not drawn at
+     * all - which is the point: the target is the list, so a panel without one
+     * offers none.
+     *
+     * The picker's half is in tests/unit/components/ItemList.test.tsx and the
+     * store's refusal, whatever the app does, in
+     * apps/api/tests/integration/http/panel-items.test.ts.
+     */
+    it('takes no item dropped on it', async () => {
+      const { mutate } = showBoard({ panels: [aPanelOfText('words', 'What matters')] });
+      const words = await screen.findByRole('region', { name: 'What matters' });
+
+      expect(within(words).queryByRole('list')).not.toBeInTheDocument();
+      const carrying = { types: [ITEM_BEING_DRAGGED], getData: () => 'one', setData: vi.fn() };
+      fireEvent.dragOver(words, { dataTransfer: carrying });
+      fireEvent.drop(words, { dataTransfer: carrying });
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('says so rather than showing an empty box when there is nothing to read', async () => {
+      showBoard({ panels: [aPanelOfText('words', 'What matters', { readOnly: true })] });
+
+      expect(await screen.findByText(NOTHING_WRITTEN_HERE)).toBeInTheDocument();
+    });
+  });
+
+  describe('a panel of text is read-only until somebody says otherwise', () => {
+    it.each([
+      { situation: 'locking one that is open', readOnly: false, entry: 'Make read-only', sends: true },
+      { situation: 'opening one that is locked', readOnly: true, entry: 'Allow editing', sends: false },
+    ])('$situation', async ({ readOnly, entry, sends }) => {
+      const { mutate, user } = showBoard({
+        panels: [aPanelOfText('words', 'What matters', { readOnly })],
+      });
+
+      await choose(user, 'What matters', entry);
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_read_only',
+          payload: expect.objectContaining({ panelId: 'words', readOnly: sends }),
+        }),
+      );
+    });
+
+    it.each([
+      { situation: 'asking for formatting', format: 'plain' as const, entry: 'Use rich text', sends: 'rich' },
+      { situation: 'asking for the characters back', format: 'rich' as const, entry: 'Use plain text', sends: 'plain' },
+    ])('$situation', async ({ format, entry, sends }) => {
+      const { mutate, user } = showBoard({
+        panels: [aPanelOfText('words', 'What matters', { format })],
+      });
+
+      await choose(user, 'What matters', entry);
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_format',
+          payload: expect.objectContaining({ panelId: 'words', format: sends }),
+        }),
+      );
+    });
+
+    /**
+     * A panel of items has no text to lock and none to draw, and an entry that
+     * means nothing where it is offered is worse than one that is not there -
+     * which is why these are absent rather than unavailable, unlike the moves
+     * beside them.
+     */
+    it('offers the choice on a panel of text and on no other', async () => {
+      const { user } = showBoard({
+        panels: [aPanel('falcon', 'Project Falcon'), aPanelOfText('words', 'What matters')],
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+      expect(screen.queryByRole('menuitem', { name: /read-only|Allow editing/ })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /rich text|plain text/ })).toBeNull();
+      await user.keyboard('{Escape}');
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for What matters' }));
+      expect(await screen.findByRole('menuitem', { name: 'Make read-only' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Use rich text' })).toBeInTheDocument();
+    });
+  });
+
+  describe('what is written in a panel of text is kept', () => {
+    /**
+     * A clock this describe owns, because both cases below are about *when* the
+     * change is sent rather than about what is in it.
+     *
+     * `shouldAdvanceTime`, so the queries that find the box still settle: a
+     * frozen clock stops `findBy*` polling and every case here would time out
+     * waiting for a board that is already drawn.
+     */
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /**
+     * Not on a keystroke, and not lost either. The box reports every change as
+     * it happens; what is sent is one change once the typing stops, and again
+     * on the way out - so a panel left mid-sentence is saved rather than losing
+     * the sentence with the timer that never fired.
+     */
+    it('sends what was typed once the typing stops', async () => {
+      {
+        const { mutate } = showBoard({ panels: [aPanelOfText('words', 'What matters')] });
+        const box = await screen.findByRole('textbox', { name: 'What matters' });
+
+        fireEvent.change(box, { target: { value: 'Standing' } });
+        fireEvent.change(box, { target: { value: 'Standing agenda' } });
+        expect(mutate).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(QUIET);
+
+        expect(mutate).toHaveBeenCalledTimes(1);
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_panel_text',
+            payload: expect.objectContaining({ panelId: 'words', body: 'Standing agenda' }),
+          }),
+        );
+      }
+    });
+
+    it('sends what was typed but not yet sent when the panel goes off screen', async () => {
+      {
+        const { mutate, unmount } = showBoard({ panels: [aPanelOfText('words', 'What matters')] });
+        const box = await screen.findByRole('textbox', { name: 'What matters' });
+        fireEvent.change(box, { target: { value: 'Mid-sentence' } });
+
+        // Switching dashboard, before the pause was long enough to send.
+        unmount();
+
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_panel_text',
+            payload: expect.objectContaining({ body: 'Mid-sentence' }),
+          }),
+        );
+      }
+    });
+  });
+
   describe('a dashboard draws each panel with the items filed on it', () => {
     it('hands each panel the items filed on it, and says so when one has none', async () => {
       const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');

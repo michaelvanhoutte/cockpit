@@ -14,10 +14,12 @@ import {
   ITEM_TYPE_COLORS,
   MAX_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
+  PANEL_FORMATS,
+  PANEL_KINDS,
   prioritySchema,
   sourceSchema,
 } from '@cockpit/shared';
-import type { AssociationKind, Priority, Source } from '@cockpit/shared';
+import type { AssociationKind, PanelFormat, PanelKind, Priority, Source } from '@cockpit/shared';
 
 /**
  * The values the three dead columns on `items` are allowed to hold.
@@ -372,6 +374,26 @@ export const panels = sqliteTable(
      * one function that folds, for all three tables.
      */
     foldedName: text('folded_name').notNull(),
+    /**
+     * What the panel is made of: the items filed into it, or the text written
+     * in it. Written when the panel is made and never again, which is what
+     * `panelKindSchema` in the contract says and why no command updates it.
+     */
+    kind: text('kind').notNull().default('items').$type<PanelKind>(),
+    /**
+     * Whether that text is drawn as the characters that were typed or as what
+     * they mean. Not a property of the text, which is Markdown either way.
+     */
+    format: text('format').notNull().default('plain').$type<PanelFormat>(),
+    /**
+     * The Markdown of a panel of text, and the empty string for a panel of
+     * items. NOT NULL with a default rather than nullable: "no text" and "the
+     * empty string" are the same thing to everything that reads this, and one
+     * of the two would then be a state nobody meant.
+     */
+    body: text('body').notNull().default(''),
+    /** Whether that text is read rather than written in. */
+    readOnly: integer('read_only', { mode: 'boolean' }).notNull().default(false),
     createdAt: text('created_at').notNull(),
     deletedAt: text('deleted_at'),
   },
@@ -388,6 +410,12 @@ export const panels = sqliteTable(
     index('panels_tenant_dashboard').on(t.tenantId, t.dashboardId),
     check('panels_created_at_is_timestamp', isTimestamp('created_at')),
     check('panels_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+    // Built from the same enum the wire contract uses, per "The database is the
+    // second lock": a kind the contract has never heard of cannot be stored.
+    check('panels_kind_is_known', oneOf('kind', PANEL_KINDS)),
+    check('panels_format_is_known', oneOf('format', PANEL_FORMATS)),
+    // A STRICT integer column takes any integer, and this one is a flag.
+    check('panels_read_only_is_a_flag', sql`read_only IN (0, 1)`),
   ],
 );
 

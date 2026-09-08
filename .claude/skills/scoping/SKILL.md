@@ -1,6 +1,6 @@
 ---
 name: scoping
-description: Cockpit's process for sharpening fuzzy requirements, sizing a piece of work as a vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
+description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped, sharpening fuzzy requirements, sizing it as a vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
 ---
 
 # Scoping a piece of work
@@ -15,7 +15,25 @@ Fuzzy scope is where features go wrong, before a line of code or an issue exists
 - The existing rules for every part of the product this touches: [functional-definition.md](../../../docs/functional-definition.md), [architecture.md](../../../docs/architecture.md), and any topic doc for the area (e.g. [routing-learning.md](../../../docs/routing-learning.md), [testing-strategy.md](../../../docs/testing-strategy.md) for test placement).
 - Open and closed issues and pull requests touching the same area (`gh issue list`, `gh pr list`), so this doesn't redo something already decided or in flight.
 
-### 2. Sharpen fuzzy language before sizing anything
+### 2. Decide whether it has to be seen first
+
+Prose that reads fine fails on contact — two designs agreed in discussion over the new-user onboarding work were rejected the moment they were on screen. So where the work puts a surface in front of the user, decide here, once, which of three things it needs.
+
+| | Answers | Costs | Take it when |
+|---|---|---|---|
+| **Nothing** | — | — | the default: the surface exists and the change follows a pattern already settled in the app |
+| **A design canvas** (`design` skill) | what it should look like, with the arrangements you rejected beside it | minutes, no branch | the surface is new and more than one layout is defensible |
+| **A POC** on a branch in the real app | whether it survives contact with what is already there | a branch and a sitting, thrown away | the doubt is about affordance, interaction, or fit with existing behaviour — none of which a mockup shows |
+
+**Escalate only against a named doubt.** Write down the question the artifact will answer; if you cannot write one, take *Nothing*.
+
+**The request wins over the table, and neither answer is silent.** "Just scope it" or "mock it first" settles it and is not asked again; otherwise this is question 1 of the round in step 3, carrying your recommendation. Never start a POC unannounced, and never skip the question on a surface nobody has seen.
+
+**Challenge the result rather than presenting it**: name what you chose and what you rejected, and ask about the concept and its presentation separately — the concept is usually right and the presentation is what comes back.
+
+**A POC is throwaway**: in the real app rather than `poc/`, no tests, no docs. Save the diff outside git before reverting, because what it found is an input to step 3 and rows in step 6.
+
+### 3. Sharpen fuzzy language before sizing anything
 
 Resolve any term used inconsistently with those docs, and any unstated product decision, before drafting. Never guess, and never ask the user what you could answer by reading the docs or the code.
 
@@ -23,7 +41,7 @@ Use the `grilling` skill's round-based interview (mattpocock-skills): number eac
 
 Do not write to `CONTEXT.md` or `docs/adr/` — Cockpit's glossary and decisions live in `functional-definition.md`, `architecture.md` and the `*-options.md` docs. Record anything permanent there, in that document's own style.
 
-### 3. Size it as a vertical slice
+### 4. Size it as a vertical slice
 
 One unit of work is one narrow but complete path through every layer it touches (schema, API, UI, tests): demoable on its own, and sized to fit a single fresh context window.
 
@@ -35,7 +53,7 @@ If the request doesn't fit, split it into units in dependency order, each declar
 
 **When the work grows mid-session, say what it now costs.** Each addition gets judged against the one before it rather than the original ask, so a run of reasonable expansions quadruples a change without anyone deciding to. Name the new total and what it drags behind it — its own tests, another documentation sweep, another review round — so continuing is chosen rather than defaulted into.
 
-### 4. Enumerate the failure modes when state cannot be put back
+### 5. Enumerate the failure modes when state cannot be put back
 
 **Skip this step unless the work changes state it cannot put back** — a migration, a backfill, a script that rewrites or deletes rows, a secret rotation, a one-way call into somebody else's system. Most work is safe to get wrong once, because a wrong query just returns wrong rows until somebody fixes it. This kind is not: get it wrong and what it touched is gone. The test is whether running it twice, or running only half of it, could leave something nobody can put back.
 
@@ -49,9 +67,9 @@ If the request doesn't fit, split it into units in dependency order, each declar
 
 None of these was asked on "Make the database enforce the schema conventions, not just the callers" (pull request 69). It then took five rounds of review to find four separate ways that one change could have destroyed data — the first being a rebuild that would have emptied staging and production — and three of the four were introduced by the fix for the one before it. The question that set the whole sequence off was the fourth one above, and two greps would have answered it.
 
-The answers are also rows for the statement list in step 5: *a re-run after an interruption loses nothing* is one rule with a case per interruption window.
+The answers are also rows for the statement list in step 6: *a re-run after an interruption loses nothing* is one rule with a case per interruption window.
 
-### 5. Generate the statement list
+### 6. Generate the statement list
 
 Follow [.claude/skills/testing/references/statement-lists.md](../testing/references/statement-lists.md) exactly — the passes in order, the collapsing step, the pruning criterion, the ways-things-break checklist — using the docs read in step 1.
 
@@ -59,13 +77,14 @@ This tells the build agent which tests to implement, which is why it is drafted 
 
 > Drafted for build-time reference. Once implemented, these become test names in source per the testing skill; this list is not maintained afterward.
 
-### 6. Gate before building or filing
+### 7. Gate before building or filing
 
 Do not proceed — to code or to `gh issue create` — if any of these holds:
 
-- The slice is too big for one sitting → step 3.
-- The work changes state it cannot put back and its failure modes are not written down → step 4. A review round is an expensive way to be told what a checklist asks.
-- Any real behaviour this work describes has no row in the statement list → step 5.
+- The work puts up a surface nobody has seen and step 2's question was never asked → step 2.
+- The slice is too big for one sitting → step 4.
+- The work changes state it cannot put back and its failure modes are not written down → step 5. A review round is an expensive way to be told what a checklist asks.
+- Any real behaviour this work describes has no row in the statement list → step 6.
 
 ## Output
 

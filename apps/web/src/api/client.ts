@@ -213,6 +213,12 @@ const commandSenders = {
     api.v1.commands.rename_panel.$post({ json: p }),
   delete_panel: (p: CommandPayload<'delete_panel'>) =>
     api.v1.commands.delete_panel.$post({ json: p }),
+  set_panel_text: (p: CommandPayload<'set_panel_text'>) =>
+    api.v1.commands.set_panel_text.$post({ json: p }),
+  set_panel_read_only: (p: CommandPayload<'set_panel_read_only'>) =>
+    api.v1.commands.set_panel_read_only.$post({ json: p }),
+  set_panel_format: (p: CommandPayload<'set_panel_format'>) =>
+    api.v1.commands.set_panel_format.$post({ json: p }),
   save_layout: (p: CommandPayload<'save_layout'>) => api.v1.commands.save_layout.$post({ json: p }),
   rename_layout: (p: CommandPayload<'rename_layout'>) =>
     api.v1.commands.rename_layout.$post({ json: p }),

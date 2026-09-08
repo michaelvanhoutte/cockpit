@@ -5,6 +5,7 @@ import {
   appendedPlacement,
   arrangementRows,
   firstPanelFor,
+  panelFromCommand,
   panelsNotOn,
 } from '../../../src/domain/panels.js';
 
@@ -23,7 +24,16 @@ function row(rowIndex: number, height: number | null = null) {
 }
 
 function aPanel(id: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId: 'today', name: id };
+  return {
+    id,
+    tenantId: 'tenant',
+    dashboardId: 'today',
+    name: id,
+    kind: 'items',
+    format: 'plain',
+    body: '',
+    readOnly: false,
+  };
 }
 
 describe('Panels', () => {
@@ -39,9 +49,65 @@ describe('Panels', () => {
         dashboardId: 'today',
         name: 'Panel 1',
         foldedName: 'panel 1',
+        kind: 'items',
+        format: 'plain',
+        body: '',
+        readOnly: false,
         createdAt: AT,
         deletedAt: null,
       });
+    });
+  });
+
+  describe('a panel holds either the items filed into it or the text written in it', () => {
+    /**
+     * The kind is written once, from the command, and nothing updates it - so
+     * this is the whole of "decided when it is made and never after". What each
+     * kind then draws is the screen's, and the scope the decision is applied in
+     * is proved against a real store in tests/integration/http/panels.test.ts.
+     */
+    it.each([
+      { situation: 'a panel of items', kind: 'items' as const },
+      { situation: 'a panel of text', kind: 'text' as const },
+    ])('$situation is made holding what it was asked to hold', ({ kind }) => {
+      const made = panelFromCommand(
+        {
+          commandId: 'c-1',
+          issuedAt: AT,
+          workspaceId: 'ws-1',
+          dashboardId: 'today',
+          panelId: 'p-2',
+          name: 'What matters',
+          kind,
+        },
+        'tenant',
+      );
+
+      expect(made).toMatchObject({ kind, body: '' });
+    });
+
+    /**
+     * Read-only is what a panel of text settles into, and the panel just made
+     * is the one that arrives open: an empty box refusing to be written in, one
+     * menu away from the gesture that made it, is nonsense.
+     */
+    it('arrives open to be written in, whichever it holds', () => {
+      for (const kind of ['items', 'text'] as const) {
+        expect(
+          panelFromCommand(
+            {
+              commandId: 'c-1',
+              issuedAt: AT,
+              workspaceId: 'ws-1',
+              dashboardId: 'today',
+              panelId: 'p-3',
+              name: 'What matters',
+              kind,
+            },
+            'tenant',
+          ).readOnly,
+        ).toBe(false);
+      }
     });
   });
 });

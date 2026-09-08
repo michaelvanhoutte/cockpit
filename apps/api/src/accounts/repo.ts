@@ -201,6 +201,13 @@ const panelColumns = {
   tenantId: panels.tenantId,
   dashboardId: panels.dashboardId,
   name: panels.name,
+  // What the panel is made of, what it holds when that is text, how those
+  // words are drawn, and whether they are written in. Every screen that draws a
+  // panel reads all of them, so they travel in the snapshot like the name does.
+  kind: panels.kind,
+  format: panels.format,
+  body: panels.body,
+  readOnly: panels.readOnly,
 };
 
 /**

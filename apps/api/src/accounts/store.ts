@@ -40,6 +40,7 @@ import {
   LastLayoutError,
   LayoutNameTakenError,
   LayoutNotFoundError,
+  PanelHoldsSomethingElseError,
   PanelNameTakenError,
   PanelNotFoundError,
   PanelOrderStaleError,
@@ -347,7 +348,12 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       ) {
         return { status: 'conflict', what: error.message };
       }
-      if (error instanceof UnknownThemeError) {
+      if (
+        error instanceof UnknownThemeError ||
+        // A 400 rather than a 404 or a 409: the panel exists and nothing is in
+        // the way - it is simply not the kind of panel that takes this.
+        error instanceof PanelHoldsSomethingElseError
+      ) {
         return { status: 'refused', what: error.message };
       }
       throw error;

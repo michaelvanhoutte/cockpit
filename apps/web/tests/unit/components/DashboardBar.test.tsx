@@ -492,6 +492,10 @@ describe('Layouts', () => {
     tenantId: 'tenant',
     dashboardId: OPEN,
     name: 'Project Falcon',
+    kind: 'items',
+    format: 'plain',
+    body: '',
+    readOnly: false,
   };
 
   /** The width the picker reads, which is what a screen is matched on. */
@@ -907,5 +911,42 @@ describe('Panels', () => {
       expect(screen.getByLabelText('Name of the new panel')).toHaveFocus();
     });
 
+  });
+
+  describe('adding a panel asks what it holds, because that is settled when it is made', () => {
+    it.each([
+      { situation: 'left as it opens', choose: null, kind: 'items' },
+      { situation: 'asked for a panel of items', choose: 'Items', kind: 'items' },
+      { situation: 'asked for a panel of text', choose: 'Text', kind: 'text' },
+    ])('$situation', async ({ choose, kind }) => {
+      const { user, mutate } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
+
+      await user.click(await screen.findByRole('button', { name: '+ Panel' }));
+      if (choose) await user.click(screen.getByRole('radio', { name: new RegExp(choose) }));
+      await user.type(screen.getByLabelText('Name of the new panel'), 'What matters');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('add_panel');
+      expect(asked.payload.kind).toBe(kind);
+    });
+
+    /**
+     * Not a preference. The kind is a question about the panel being made now,
+     * so carrying the last answer into the next question would decide it for
+     * somebody who never looked at it.
+     */
+    it('starts from Items again every time it is opened', async () => {
+      const { user, mutate } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
+      await user.click(await screen.findByRole('button', { name: '+ Panel' }));
+      await user.click(screen.getByRole('radio', { name: /Text/ }));
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      await user.click(await screen.findByRole('button', { name: '+ Panel' }));
+      await user.type(screen.getByLabelText('Name of the new panel'), 'Project Falcon');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      expect(mutate.mock.calls[0]![0].payload.kind).toBe('items');
+    });
   });
 });

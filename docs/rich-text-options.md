@@ -66,7 +66,7 @@ On mobile all three are comparable — ProseMirror's Android `MutationObserver` 
 
 ## Recommendation
 
-**Milkdown, lazy-loaded behind the item detail dialog, with `react-markdown` for the read-only view.**
+**Milkdown, lazy-loaded behind the item detail dialog, with `react-markdown` for the read-only view.** *(Both landed: Milkdown in "Format a description, and edit its source" (issue 160), and `react-markdown` in "Format what a panel says, without making every dashboard pay for an editor" (issue 251) — where the read-only view is a panel of text rather than a description, and keeping the two apart is what lets a dashboard draw formatted prose without fetching an editor.)*
 
 1. **Markdown is Milkdown's document model, not an export format.** Constraint 2 is the hard one, and Milkdown is the only WYSIWYG candidate that was designed around it — remark parses and prints, ProseMirror only edits in between.
 2. **The growth path is a preset line.** Tables arrive as `@milkdown/preset-gfm`, images are already in `preset-commonmark`, and both round-trip through remark with no serializer written by us. Tiptap costs a package and a serialization rule per feature; Lexical costs a hand-written transformer for tables and a hand-written node *and* transformer for images.
@@ -91,7 +91,7 @@ Five Vite builds of the same React shell, differing only in what the lazy chunk 
 
 Bundlephobia was close on the first row and useless on the last: Tiptap's table extension reads as 4KB there and costs 17.5KB here. **Milkdown is smaller at both feature sets**, and the gap widens rather than closes with tables.
 
-The shape the numbers actually decide is the budget: the app's entry is **173KB gzip against a 200KB gate**, so no candidate fits inline and the editor's own chunk needs its own budget line. That is the CI check this issue adds.
+The shape the numbers actually decide is the budget: the app's entry was **173KB gzip against a 200KB gate** when this was measured, and is 183KB now, so no candidate fits inline and the editor's own chunk needs its own budget line. That is the CI check this issue adds.
 
 ### Fidelity, measured
 
