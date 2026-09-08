@@ -4,7 +4,7 @@ import { itemLabel, uuidv7, workspaceIsDecided, type Item, type ItemType } from 
 import { useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { HOLD_MS, stillHolding } from '../hold';
-import { howFarItHasGone, SWIPE_THRESHOLD_PX, whatTheSwipeMeant } from '../swipe';
+import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
@@ -269,10 +269,9 @@ export function ItemRow({
     onPointerMove: (event: React.PointerEvent) => {
       const start = from.current;
       if (!start || event.pointerId !== start.pointer) return;
-      // A spent gesture draws nothing. The row slides under the finger and
-      // colours itself to say what letting go would do, and letting go will now
-      // do nothing at all - so without this it promises a dismissal it has
-      // already refused to make.
+      // A spent gesture draws nothing. The row slides under the finger and says
+      // what letting go would do, and letting go will now do nothing at all -
+      // so without this it promises a dismissal it has already refused to make.
       if (held.current) return;
       const dx = event.clientX - start.x;
       const dy = event.clientY - start.y;
@@ -305,9 +304,6 @@ export function ItemRow({
       setGone(0);
     },
   };
-
-  /** Past the point where letting go would do something. */
-  const wouldAct = Math.abs(gone) >= SWIPE_THRESHOLD_PX;
 
   return (
     // `gap-1.5` rather than `gap-2`: the row gained a mark at its head and an
@@ -353,209 +349,339 @@ export function ItemRow({
         event.dataTransfer.setData('text/plain', itemLabel(item));
         event.dataTransfer.effectAllowed = 'move';
       }}
-      style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
       // `touch-action: pan-y` leaves vertical scrolling to the browser and
       // gives this the horizontal component. `select-none` stops a long press
       // turning the row into selected text mid-swipe, and is
       // `pointer-coarse:` rather than plain: a mouse never swipes, and taking
       // selection off a row for everyone would mean a title that cannot be
       // copied to pay for a gesture only a finger makes.
-      className={`group flex touch-pan-y items-center gap-1.5 border-b border-black/5 px-4 py-2 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
-        wouldAct ? (gone > 0 ? 'bg-accent-tint' : 'bg-over/15') : selecting?.picked ? 'bg-accent-tint' : ''
+      //
+      // **The row's own colour, and nothing about the swipe.** It used to tint
+      // itself past the threshold, in the same `accent-tint` a picked row
+      // wears - so a row swiped far enough to file looked exactly like a row
+      // somebody had ticked. What the swipe would do is the band below instead,
+      // which can say it in words.
+      className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
+        selecting?.picked ? 'bg-accent-tint' : ''
       }`}
     >
-      {/* Picking the row out to be acted on with others. Always in the markup
-          and hidden by CSS rather than drawn only on hover: a tick that is not
-          there cannot be reached by Tab, and the keyboard is the one way in
-          that neither a pointer nor a finger provides. Shown for good once the
-          list has a selection, because a column of ticks with one filled and
-          the rest invisible reads as a row that is somehow different. */}
-      {selecting && (
-        <input
-          type="checkbox"
-          checked={selecting.picked}
-          aria-label={`Select “${itemLabel(item)}”`}
-          // `onClick` rather than `onChange`, because whether shift was held is
-          // what tells a range from a single pick and only the click carries it.
-          onClick={(event) => {
-            event.stopPropagation();
-            selecting.onPick(event.shiftKey);
-          }}
-          // React wants one on a checked box; the click above is what acts.
-          onChange={() => {}}
-          // **Invisible means untouchable, not merely unseen.** An opacity of
-          // zero still takes its place in the row and still catches what lands
-          // on it, so a tick nobody can see was eating the start of a swipe in
-          // the leading sixteen pixels of every row - on a device that could
-          // not select anything anyway. It goes back to being a target when it
-          // is drawn: hovered, focused, or once the list has a selection. Tab
-          // still reaches it either way, because focus is not a pointer.
-          className={`size-4 shrink-0 accent-accent ${
-            selecting.picked || selecting.revealed
-              ? ''
-              : 'pointer-events-none opacity-0 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100'
-          }`}
-        />
-      )}
-      {/* What kind of thing it is, before anything is read. Decorative on
-          purpose: the word it stands for is on the line below, so announcing
-          the colour as well would say the type twice. An item with no type has
-          no dot rather than a grey one - absent reads as absent, where a
-          neutral colour reads as a type you cannot name. */}
-      {itemType && (
-        <span
-          aria-hidden="true"
-          className="mt-0.5 size-2 shrink-0 self-start rounded-full"
-          style={{ backgroundColor: itemType.color }}
-        />
-      )}
-      <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-1 text-sm">
-          <span className="truncate">{itemLabel(item)}</span>
-          {/* That there is something written about this Item, not what it says
-              - the description is paragraphs and this is a row. A mark rather
-              than a snippet, so the row keeps the height "Create an item on a
-              panel, edit it in place, and list every item plainly" (issue 140)
-              settled, and
-              titled rather than lettered because it has nothing to spell. */}
-          {item.description && (
-            <span
-              className="shrink-0 text-ink-faint"
-              title="Has a description"
-              aria-label="Has a description"
-              role="img"
-            >
-              ¶
-            </span>
-          )}
-        </span>
-        {/* What it is and where it came from, on one line under the title. The
-            two marks the status used to hold - the dot at the head of the row
-            and the first word here - are what the type took ("Capture a thought
-            or an action, and see which it is", issue 155). Its own element, so
-            it is a thing on the row rather than part of a sentence. */}
-        <span className="flex min-w-0 gap-1 text-xs text-ink-faint">
-          {itemType && <span className="shrink-0 text-accent-deep">{itemType.name}</span>}
-          <span className="truncate">
-            {itemType ? '· ' : ''}
-            {item.source === 'internal' ? 'Own' : item.source}
-            {item.sender ? ` · ${item.sender}` : ''}
+      <WhatLettingGoWouldDo across={gone} />
+      {/* The row itself, which is what moves: the band above has to stay where
+          the finger uncovered it, so the transform cannot be on the `li` any
+          more. Everything the row is made of - its padding, its spacing - came
+          down here with it, and the `li` keeps what belongs to its place in the
+          list. */}
+      <div
+        className="flex items-center gap-1.5 px-4 py-2"
+        style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
+      >
+        {/* Picking the row out to be acted on with others. Always in the markup
+            and hidden by CSS rather than drawn only on hover: a tick that is not
+            there cannot be reached by Tab, and the keyboard is the one way in
+            that neither a pointer nor a finger provides. Shown for good once the
+            list has a selection, because a column of ticks with one filled and
+            the rest invisible reads as a row that is somehow different. */}
+        {selecting && (
+          <input
+            type="checkbox"
+            checked={selecting.picked}
+            aria-label={`Select “${itemLabel(item)}”`}
+            // `onClick` rather than `onChange`, because whether shift was held is
+            // what tells a range from a single pick and only the click carries it.
+            onClick={(event) => {
+              event.stopPropagation();
+              selecting.onPick(event.shiftKey);
+            }}
+            // React wants one on a checked box; the click above is what acts.
+            onChange={() => {}}
+            // **Invisible means untouchable, not merely unseen.** An opacity of
+            // zero still takes its place in the row and still catches what lands
+            // on it, so a tick nobody can see was eating the start of a swipe in
+            // the leading sixteen pixels of every row - on a device that could
+            // not select anything anyway. It goes back to being a target when it
+            // is drawn: hovered, focused, or once the list has a selection. Tab
+            // still reaches it either way, because focus is not a pointer.
+            className={`size-4 shrink-0 accent-accent ${
+              selecting.picked || selecting.revealed
+                ? ''
+                : 'pointer-events-none opacity-0 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100'
+            }`}
+          />
+        )}
+        {/* What kind of thing it is, before anything is read. Decorative on
+            purpose: the word it stands for is on the line below, so announcing
+            the colour as well would say the type twice. An item with no type has
+            no dot rather than a grey one - absent reads as absent, where a
+            neutral colour reads as a type you cannot name. */}
+        {itemType && (
+          <span
+            aria-hidden="true"
+            className="mt-0.5 size-2 shrink-0 self-start rounded-full"
+            style={{ backgroundColor: itemType.color }}
+          />
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1 text-sm">
+            <span className="truncate">{itemLabel(item)}</span>
+            {/* That there is something written about this Item, not what it says
+                - the description is paragraphs and this is a row. A mark rather
+                than a snippet, so the row keeps the height "Create an item on a
+                panel, edit it in place, and list every item plainly" (issue 140)
+                settled, and
+                titled rather than lettered because it has nothing to spell. */}
+            {item.description && (
+              <span
+                className="shrink-0 text-ink-faint"
+                title="Has a description"
+                aria-label="Has a description"
+                role="img"
+              >
+                ¶
+              </span>
+            )}
           </span>
-          {/* That this row is not this workspace's own ("Capture something
-              before you know which workspace it belongs to", issue 165). Said
-              in words rather than as a colour or an icon, because it is the one
-              thing about the row a reader cannot infer from where they are
-              looking: every other row in this Inbox belongs here and this one
-              is in every Inbox at once. */}
-          {undecided && (
-            <span className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep">
-              Any workspace
+          {/* What it is and where it came from, on one line under the title. The
+              two marks the status used to hold - the dot at the head of the row
+              and the first word here - are what the type took ("Capture a thought
+              or an action, and see which it is", issue 155). Its own element, so
+              it is a thing on the row rather than part of a sentence. */}
+          <span className="flex min-w-0 gap-1 text-xs text-ink-faint">
+            {itemType && <span className="shrink-0 text-accent-deep">{itemType.name}</span>}
+            <span className="truncate">
+              {itemType ? '· ' : ''}
+              {item.source === 'internal' ? 'Own' : item.source}
+              {item.sender ? ` · ${item.sender}` : ''}
             </span>
-          )}
+            {/* That this row is not this workspace's own ("Capture something
+                before you know which workspace it belongs to", issue 165). Said
+                in words rather than as a colour or an icon, because it is the one
+                thing about the row a reader cannot infer from where they are
+                looking: every other row in this Inbox belongs here and this one
+                is in every Inbox at once. */}
+            {undecided && (
+              <span className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep">
+                Any workspace
+              </span>
+            )}
+          </span>
         </span>
-      </span>
 
-      {/* How long it has waited. Tabular figures so the column does not shuffle
-          sideways as the numbers change under it, and `title` because `14d` is
-          short enough to be worth spelling out on hover. */}
-      {waited && (
-        <span className="shrink-0 text-xs tabular-nums text-ink-faint" title={`Waiting ${waited}`}>
-          {waited}
-        </span>
-      )}
+        {/* How long it has waited. Tabular figures so the column does not shuffle
+            sideways as the numbers change under it, and `title` because `14d` is
+            short enough to be worth spelling out on hover. */}
+        {waited && (
+          <span className="shrink-0 text-xs tabular-nums text-ink-faint" title={`Waiting ${waited}`}>
+            {waited}
+          </span>
+        )}
 
-      <DropdownMenu.Root>
-        <MenuTrigger label="Item actions" ref={trigger} />
-        <MenuContent
-          onCloseAutoFocus={(event) => {
-            // Choosing Move to… opens the picker, which takes the focus itself;
-            // Radix would put it back on this control as the menu closes and
-            // take it straight off the dialog. Every other entry here opens
-            // nothing, so the focus belongs back on the control.
-            if (!opening.current) return;
-            opening.current = false;
-            event.preventDefault();
-          }}
-        >
-          {onOpen && (
-            <DropdownMenu.Item
-              className={menuItemClass}
-              onSelect={() => {
-                // The form takes the focus itself, like the pickers below.
-                opening.current = true;
-                onOpen();
-              }}
-            >
-              Open
-            </DropdownMenu.Item>
-          )}
-          {/* The common case in one press ("Capture something before you know
-              which workspace it belongs to", issue 165): a row read in Work is
-              usually Work's, and saying so should not cost a dialog listing
-              every alternative. Above Move to…, which is the same answer with
-              the other workspaces in it.
-
-              Only on a row that belongs to no workspace: on any other it would
-              be an entry that does nothing. */}
-          {undecided && onMoveHere && (
-            <DropdownMenu.Item className={menuItemClass} onSelect={onMoveHere}>
-              Move to this workspace
-            </DropdownMenu.Item>
-          )}
-          {onMoveTo && (
-            <DropdownMenu.Item
-              className={menuItemClass}
-              onSelect={() => {
-                opening.current = true;
-                onMoveTo(trigger.current);
-              }}
-            >
-              Move to…
-            </DropdownMenu.Item>
-          )}
-          {onAddTo && (
-            <DropdownMenu.Item
-              className={menuItemClass}
-              onSelect={() => {
-                opening.current = true;
-                onAddTo(trigger.current);
-              }}
-            >
-              Add to…
-            </DropdownMenu.Item>
-          )}
-          {onRemoveFromHere && (
-            <DropdownMenu.Item className={menuItemClass} onSelect={onRemoveFromHere}>
-              Remove from this panel
-            </DropdownMenu.Item>
-          )}
-          {ordering && (
-            <>
-              <MoveAStep
-                label="Move up"
-                unavailable={ordering.at === 0 ? 'This is already the first' : undefined}
-                onMove={() => ordering.onMove(-1)}
-              />
-              <MoveAStep
-                label="Move down"
-                unavailable={ordering.at === ordering.of - 1 ? 'This is already the last' : undefined}
-                onMove={() => ordering.onMove(1)}
-              />
-            </>
-          )}
-          <DropdownMenu.Item className={menuItemClass} onSelect={markDone}>
-            Mark done
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
-          <DropdownMenu.Item
-            className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
-            onSelect={dismiss}
+        <DropdownMenu.Root>
+          <MenuTrigger label="Item actions" ref={trigger} />
+          <MenuContent
+            onCloseAutoFocus={(event) => {
+              // Choosing Move to… opens the picker, which takes the focus itself;
+              // Radix would put it back on this control as the menu closes and
+              // take it straight off the dialog. Every other entry here opens
+              // nothing, so the focus belongs back on the control.
+              if (!opening.current) return;
+              opening.current = false;
+              event.preventDefault();
+            }}
           >
-            Dismiss
-          </DropdownMenu.Item>
-        </MenuContent>
-      </DropdownMenu.Root>
+            {onOpen && (
+              <DropdownMenu.Item
+                className={menuItemClass}
+                onSelect={() => {
+                  // The form takes the focus itself, like the pickers below.
+                  opening.current = true;
+                  onOpen();
+                }}
+              >
+                Open
+              </DropdownMenu.Item>
+            )}
+            {/* The common case in one press ("Capture something before you know
+                which workspace it belongs to", issue 165): a row read in Work is
+                usually Work's, and saying so should not cost a dialog listing
+                every alternative. Above Move to…, which is the same answer with
+                the other workspaces in it.
+
+                Only on a row that belongs to no workspace: on any other it would
+                be an entry that does nothing. */}
+            {undecided && onMoveHere && (
+              <DropdownMenu.Item className={menuItemClass} onSelect={onMoveHere}>
+                Move to this workspace
+              </DropdownMenu.Item>
+            )}
+            {onMoveTo && (
+              <DropdownMenu.Item
+                className={menuItemClass}
+                onSelect={() => {
+                  opening.current = true;
+                  onMoveTo(trigger.current);
+                }}
+              >
+                Move to…
+              </DropdownMenu.Item>
+            )}
+            {onAddTo && (
+              <DropdownMenu.Item
+                className={menuItemClass}
+                onSelect={() => {
+                  opening.current = true;
+                  onAddTo(trigger.current);
+                }}
+              >
+                Add to…
+              </DropdownMenu.Item>
+            )}
+            {onRemoveFromHere && (
+              <DropdownMenu.Item className={menuItemClass} onSelect={onRemoveFromHere}>
+                Remove from this panel
+              </DropdownMenu.Item>
+            )}
+            {ordering && (
+              <>
+                <MoveAStep
+                  label="Move up"
+                  unavailable={ordering.at === 0 ? 'This is already the first' : undefined}
+                  onMove={() => ordering.onMove(-1)}
+                />
+                <MoveAStep
+                  label="Move down"
+                  unavailable={
+                    ordering.at === ordering.of - 1 ? 'This is already the last' : undefined
+                  }
+                  onMove={() => ordering.onMove(1)}
+                />
+              </>
+            )}
+            <DropdownMenu.Item className={menuItemClass} onSelect={markDone}>
+              Mark done
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
+            <DropdownMenu.Item
+              className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
+              onSelect={dismiss}
+            >
+              Dismiss
+            </DropdownMenu.Item>
+          </MenuContent>
+        </DropdownMenu.Root>
+      </div>
     </li>
+  );
+}
+
+/**
+ * The band a swipe uncovers, naming what letting go would do ("Show what a
+ * swipe will do before the finger lifts").
+ *
+ * **Exactly as wide as the row has moved**, pinned to the edge it moved away
+ * from, so it is the strip of floor the row has left bare rather than a layer
+ * the row is drawn on top of. That is what lets the row go on being transparent
+ * over the well it sits in: an opaque row would be a fourth surface colour to
+ * keep in step with the Inbox's well, the panels' well and the sheet.
+ *
+ * **The word sits against the outer edge and stays there**, clipped by the band
+ * rather than centred in it, so it slides into view as the gap widens instead
+ * of drifting across the screen under the thumb.
+ *
+ * Nothing here is announced: a screen reader reaches these two actions by their
+ * names in the row's own menu, and a band that appears and vanishes under a
+ * finger has nothing to tell it.
+ */
+function WhatLettingGoWouldDo({ across }: { across: number }) {
+  // Asked with no vertical component because `across` has already had that rule
+  // applied to it - a thumb scrolling the list has left it at zero, and zero is
+  // what promises nothing. Derived here rather than handed in beside the
+  // distance, so a band's colour cannot be answering one gesture and its width
+  // another.
+  const promise = whatTheSwipeIsPromising(across, 0);
+  if (!promise) return null;
+  const filing = promise.action === 'file';
+  return (
+    <span
+      aria-hidden="true"
+      className={`absolute inset-y-0 flex items-center overflow-hidden whitespace-nowrap text-xs font-medium transition-colors ${
+        filing ? 'left-0 justify-start pl-3' : 'right-0 justify-end pr-3'
+      } ${
+        promise.wouldAct
+          ? filing
+            ? 'bg-accent-deep text-white'
+            : 'bg-over-deep text-white'
+          : // Not `accent-tint`, which is the colour a picked row already
+            // wears: a row ticked and then swiped uncovered a band exactly the
+            // shade of itself, so nothing appeared until the threshold - the
+            // stretch of the gesture this whole band exists to cover.
+            filing
+            ? 'bg-accent-soft/45 text-accent-deep'
+            : 'bg-over/25 text-over-deep'
+      }`}
+      style={{ width: `${Math.abs(across)}px` }}
+    >
+      {/* Reversed on the dismissing side so the icon is the outermost thing
+          either way: it sits against the screen edge the row is moving away
+          from, which is where the band starts, so it is the first thing to
+          come into view rather than the last. */}
+      <span className={`flex shrink-0 items-center gap-1.5 ${filing ? '' : 'flex-row-reverse'}`}>
+        {filing ? <IntoAPanel /> : <Gone />}
+        {/* The menu's own words rather than new ones for the gesture, so the two
+            ways to the same action are not two things to learn. Filing keeps its
+            ellipsis because it opens the picker rather than making a move that
+            has already been decided. */}
+        {Math.abs(across) >= ROOM_FOR_THE_WORD && (filing ? 'Move to…' : 'Dismiss')}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * How wide the band has to be before the word goes in it, in CSS pixels.
+ *
+ * **A word half off the edge is worse than no word**, which is what a band
+ * narrower than this one holds: the band clips whatever will not fit, and on
+ * the dismissing side it clips the front of the word, so a barely-swiped row
+ * read "s ✕". Below this the icon says which way the gesture is going on its
+ * own, and it is the icon rather than the word because an icon has no wrong
+ * half to show.
+ *
+ * Measured in the browser rather than reasoned about: the wider of the two
+ * groups - the icon, the gap and "Move to…" - comes to 79px, and the band's
+ * padding to 12, so 91 is what it takes and this is that with a little room.
+ * A swipe that acts passes it long before the finger stops, since the row
+ * keeps moving under a thumb that has decided.
+ */
+const ROOM_FOR_THE_WORD = 96;
+
+/** An item dropping into one of the boxes on a dashboard. */
+function IntoAPanel() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4 shrink-0" aria-hidden="true">
+      <path
+        d="M2.5 9.5v3a1 1 0 001 1h9a1 1 0 001-1v-3M8 2v7.5M5 6.5L8 9.5l3-3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** An item being got rid of. */
+function Gone() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4 shrink-0" aria-hidden="true">
+      <path
+        d="M4.5 4.5l7 7M11.5 4.5l-7 7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 

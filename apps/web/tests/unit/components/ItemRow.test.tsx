@@ -106,6 +106,43 @@ function swipe({
   fireEvent.pointerUp(row, { pointerType, pointerId, clientX: dx, clientY: dy });
 }
 
+/**
+ * The same, stopped with the finger still down, which is where the row says
+ * what letting go would do.
+ */
+function swipeAndHold({
+  dx,
+  dy = 0,
+  pointerType = 'touch',
+  pointerId = 1,
+}: { dx: number; dy?: number; pointerType?: string; pointerId?: number }) {
+  const row = screen.getByRole('listitem');
+  fireEvent.pointerDown(row, { pointerType, pointerId, clientX: 0, clientY: 0 });
+  fireEvent.pointerMove(row, { pointerType, pointerId, clientX: dx, clientY: dy });
+}
+
+const lift = (row: HTMLElement, dx: number) =>
+  fireEvent.pointerUp(row, { pointerType: 'touch', pointerId: 1, clientX: dx, clientY: 0 });
+
+/**
+ * The band a swipe uncovers, or null while nothing is being named.
+ *
+ * A direct child of the `li`, which is what tells it from everything else the
+ * row draws: the row's own contents live inside the wrapper that slides.
+ */
+const namedByTheRow = () =>
+  screen.getByRole('listitem').querySelector(':scope > span[aria-hidden="true"]');
+
+/**
+ * The part of the row that slides under a finger, which is not the `li` itself.
+ *
+ * A direct child, like the band above: the `li` holds exactly two things, and
+ * asking for the first `div` anywhere beneath it would happily return some
+ * wrapper nested deeper - which is how the transform assertions went vacuous
+ * when the transform moved off the `li` in the first place.
+ */
+const theSlidingPart = () => screen.getByRole('listitem').querySelector(':scope > div');
+
 const past = SWIPE_THRESHOLD_PX + 10;
 
 async function choose(user: ReturnType<typeof userEvent.setup>, option: string) {
@@ -248,6 +285,67 @@ describe('Triage', () => {
         expect(mutate).not.toHaveBeenCalled();
       });
     });
+  });
+
+  describe('a row being swiped names the action, and stops naming it when the gesture ends', () => {
+    // What the words are for each distance is apps/web/tests/unit/swipe.test.ts;
+    // what is only true here is that the row draws them at all, and takes them
+    // away again on every way a gesture can finish.
+    // A word half off the edge is worse than no word, so a band too narrow to
+    // hold one carries the mark alone - which is why the wide cases are what
+    // say the words and the narrow ones say none.
+    it.each([
+      { situation: 'swiped right, barely', dx: 20, named: '' },
+      { situation: 'swiped right, far enough to act but too narrow to read', dx: past, named: '' },
+      { situation: 'swiped right, wide enough for the word', dx: 160, named: 'Move to…' },
+      { situation: 'swiped left, barely', dx: -20, named: '' },
+      { situation: 'swiped left, wide enough for the word', dx: -160, named: 'Dismiss' },
+    ])('$situation', ({ dx, named }) => {
+      aRow({ onMoveTo: vi.fn() });
+
+      swipeAndHold({ dx });
+
+      const band = namedByTheRow();
+      expect(band).not.toBeNull();
+      expect(band?.textContent).toBe(named);
+    });
+
+    it('says nothing to a thumb that is scrolling the list past it', () => {
+      aRow({ onMoveTo: vi.fn() });
+
+      swipeAndHold({ dx: 40, dy: 90 });
+
+      expect(namedByTheRow()).toBeNull();
+    });
+
+    it.each([
+      { situation: 'the finger lifts', finish: (row: HTMLElement) => lift(row, -past) },
+      {
+        // A scroll the browser decided was a scroll after all is no swipe at
+        // all, and a band left behind would name an action nothing took.
+        situation: 'the browser takes the gesture over',
+        finish: (row: HTMLElement) =>
+          fireEvent.pointerCancel(row, { pointerType: 'touch', pointerId: 1 }),
+      },
+    ])('says nothing once $situation', ({ finish }) => {
+      aRow({ onMoveTo: vi.fn() });
+      const row = screen.getByRole('listitem');
+
+      swipeAndHold({ dx: -past });
+      expect(namedByTheRow()).not.toBeNull();
+
+      finish(row);
+
+      expect(namedByTheRow()).toBeNull();
+    });
+
+    it('says nothing to a mouse, which never swipes', () => {
+      aRow({ onMoveTo: vi.fn() });
+
+      swipeAndHold({ dx: -past, pointerType: 'mouse' });
+
+      expect(namedByTheRow()).toBeNull();
+    });
 
     it('leaves a mouse alone, because a desktop row is dragged rather than swiped', () => {
       const asked = vi.fn();
@@ -320,7 +418,7 @@ describe('Triage', () => {
       // The dot at the head of the row and the word under the title were the
       // status's two places, and both went to the type ("An item is either
       // yours to deal with or finished with", issue 154).
-      expect(container.querySelector('li > span[aria-hidden="true"]')).toBeNull();
+      expect(container.querySelector('li span[aria-hidden="true"]')).toBeNull();
       expect(screen.queryByText('To process')).toBeNull();
       expect(screen.getByText(/Own/)).toBeInTheDocument();
     });
@@ -454,7 +552,12 @@ describe('Triage', () => {
       const { container, unmount } = aRowOf(itemType);
 
       expect(screen.getByText(itemType.name)).toBeInTheDocument();
-      const mark = container.querySelector('li > span[aria-hidden="true"]');
+      // Anywhere in the row rather than a child of it: the row's contents moved
+      // inside a wrapper that slides under a finger, and where the mark is
+      // nested is not what this rule is about. At rest it is the only
+      // undecorated mark a row has - the band a swipe uncovers is drawn only
+      // while one is happening.
+      const mark = container.querySelector('li span[aria-hidden="true"]');
       // The colour is the dot's, and the word is what carries it to anyone not
       // looking at colours - neither alone would be the whole mark.
       expect(mark).not.toBeNull();
@@ -466,7 +569,7 @@ describe('Triage', () => {
       const { container } = aRowOf(undefined);
 
       expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
-      expect(container.querySelector('li > span[aria-hidden="true"]')).toBeNull();
+      expect(container.querySelector('li span[aria-hidden="true"]')).toBeNull();
     });
   });
 });
@@ -595,7 +698,7 @@ describe('Selection', () => {
       hold({ dx: HOLD_DRIFT_PX });
 
       expect(onPick).toHaveBeenCalledWith(false);
-      expect(screen.getByRole('listitem')).not.toHaveStyle({
+      expect(theSlidingPart()).not.toHaveStyle({
         transform: `translateX(${HOLD_DRIFT_PX}px)`,
       });
     });
@@ -636,10 +739,14 @@ describe('Selection', () => {
       fireEvent.pointerMove(row, { pointerType: 'touch', pointerId: 1, clientX: -past, clientY: 0 });
 
       // Asserted here, with the finger still down: it does not draw the gesture
-      // it will not make. The row would otherwise slide and colour itself to
-      // promise a dismissal that has already been refused - and letting go puts
-      // it back either way, so after the release the two are indistinguishable.
-      expect(row).not.toHaveStyle({ transform: `translateX(${-past}px)` });
+      // it will not make. The row would otherwise slide and name a dismissal
+      // that has already been refused - and letting go puts it back either way,
+      // so after the release the two are indistinguishable.
+      //
+      // Against the part that slides rather than the `li`, which stopped moving
+      // when the band a swipe uncovers needed something to stay still behind.
+      expect(theSlidingPart()).not.toHaveStyle({ transform: `translateX(${-past}px)` });
+      expect(namedByTheRow()).toBeNull();
 
       fireEvent.pointerUp(row, { pointerType: 'touch', pointerId: 1, clientX: -past, clientY: 0 });
 

@@ -30,6 +30,38 @@ export const SWIPE_THRESHOLD_PX = 72;
 export type SwipeMeaning = 'file' | 'dismiss' | null;
 
 /**
+ * What a swipe still in progress is saying, or nothing at all.
+ *
+ * `wouldAct` is the difference between naming the direction's meaning and
+ * promising it: below the threshold the row is saying *this way dismisses*,
+ * past it *letting go now dismisses*.
+ */
+export type SwipePromise = { action: Exclude<SwipeMeaning, null>; wouldAct: boolean } | null;
+
+/**
+ * What the row should say it would do, while the finger is still down ("Show
+ * what a swipe will do before the finger lifts").
+ *
+ * **From the first pixel across, rather than from the threshold**, because the
+ * thing a person cannot see is which direction means what - and by the time
+ * the threshold is reached the decision to swipe that way has been made. The
+ * row names the direction's action immediately and only promises it once
+ * letting go would take it.
+ *
+ * It is decided from `howFarItHasGone` rather than from `dx`, so a thumb
+ * scrolling the list past a row promises nothing: the same rule that stops the
+ * row shuffling sideways stops it making an offer.
+ */
+export function whatTheSwipeIsPromising(dx: number, dy: number): SwipePromise {
+  const across = howFarItHasGone(dx, dy);
+  if (across === 0) return null;
+  return {
+    action: across > 0 ? 'file' : 'dismiss',
+    wouldAct: Math.abs(across) >= SWIPE_THRESHOLD_PX,
+  };
+}
+
+/**
  * What the swipe meant, from how far it went in each direction.
  *
  * **A gesture that is mostly vertical means nothing, however far sideways it
@@ -38,11 +70,16 @@ export type SwipeMeaning = 'file' | 'dismiss' | null;
  * tens of pixels across on the way. The list scrolling wins ties, because a
  * scroll that files something is far worse than a swipe that has to be made
  * again.
+ *
+ * **Read off the promise rather than decided again**, so the row cannot name
+ * one action and the release take another. Two copies of "past the threshold,
+ * to the right" would be two places to change the rule and one place to forget
+ * it, and the failure that leaves - a row saying **Dismiss** under the thumb
+ * and filing on release - is the one this gesture can least afford.
  */
 export function whatTheSwipeMeant(dx: number, dy: number): SwipeMeaning {
-  if (Math.abs(dy) >= Math.abs(dx)) return null;
-  if (Math.abs(dx) < SWIPE_THRESHOLD_PX) return null;
-  return dx > 0 ? 'file' : 'dismiss';
+  const promised = whatTheSwipeIsPromising(dx, dy);
+  return promised?.wouldAct ? promised.action : null;
 }
 
 /**

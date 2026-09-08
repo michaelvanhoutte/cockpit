@@ -678,8 +678,24 @@ export async function tabOnIsWhollyInView(page: Page): Promise<boolean> {
  * dispatched to it - measured: after a swipe, `tap()` on a button does nothing
  * while `click()` on the same button works. It is the two input paths
  * disagreeing, not the page: assert what the swipe did and end the walk there.
+ * That holds for `whileSwipingRow` below as much as for `swipeRow` — it is the
+ * CDP touch that spends the page, not what the gesture went on to mean.
  */
-export async function swipeRow(page: Page, title: string, across: number): Promise<void> {
+async function touchARowAcross(
+  page: Page,
+  title: string,
+  across: number,
+  /**
+   * Read the row with the finger still down and put it back where it started
+   * before lifting, rather than letting go at the far end.
+   *
+   * Both halves matter. The check has to run mid-gesture because that is the
+   * only moment the row is saying anything; and the finger has to come home
+   * afterwards because letting go past the threshold *acts* - so a walk that
+   * only wanted to read the band would dismiss the item as it tidied up.
+   */
+  check?: () => Promise<void>,
+): Promise<void> {
   const row = itemRow(page, title);
   await row.scrollIntoViewIfNeeded();
   const box = await row.boundingBox();
@@ -691,20 +707,41 @@ export async function swipeRow(page: Page, title: string, across: number): Promi
   const from = box.x + box.width / 2;
 
   const cdp = await page.context().newCDPSession(page);
+  const touch = (x: number) => [{ x, y, radiusX: 8, radiusY: 8, force: 1 }];
+  const moveTo = (x: number) =>
+    cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: touch(x) });
   try {
-    const touch = (x: number) => [{ x, y, radiusX: 8, radiusY: 8, force: 1 }];
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: touch(from) });
-    for (let step = 1; step <= 8; step += 1) {
-      await cdp.send('Input.dispatchTouchEvent', {
-        type: 'touchMove',
-        touchPoints: touch(from + (across * step) / 8),
-      });
+    for (let step = 1; step <= 8; step += 1) await moveTo(from + (across * step) / 8);
+    if (check) {
+      await check();
+      // Home again, so the release below means nothing. In a `try` of its own
+      // is not worth it: if this throws, the finally still lifts the finger.
+      for (let step = 7; step >= 0; step -= 1) await moveTo(from + (across * step) / 8);
     }
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   } finally {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await cdp.detach();
   }
 }
+
+export const swipeRow = (page: Page, title: string, across: number): Promise<void> =>
+  touchARowAcross(page, title, across);
+
+/**
+ * The same finger, stopped part-way across with the row still under it, so
+ * whatever the row is saying mid-gesture can be read ("Show what a swipe will
+ * do before the finger lifts").
+ *
+ * It leaves nothing behind: the finger goes back to where it started before it
+ * lifts, so reading the band is not also a dismissal.
+ */
+export const whileSwipingRow = (
+  page: Page,
+  title: string,
+  across: number,
+  check: () => Promise<void>,
+): Promise<void> => touchARowAcross(page, title, across, check);
 
 /**
  * Rests a finger on an item row and holds it still, which is how a selection
