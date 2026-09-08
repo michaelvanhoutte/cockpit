@@ -105,6 +105,8 @@ Everything that flows in — email, Slack message, Notion page, later a calendar
 
 **Only two of the three are ever shown.** The captured message is a record, not a name: it is what the title is read back against once something cleverer than a cut at 200 characters is proposing one ([ideas.md](ideas.md), "Capture and the task creator"). It stood in as a label until an Item had two names — the one its row showed and the empty one its form offered under it — which is what **capture writing the title** fixed: what you capture becomes the title, and where it does not fit one line of 200 characters the title takes the first 200 and the whole of it goes into the description, so nothing you typed is only in a text you cannot edit.
 
+**A note that lands in the description is Markdown, not escaped text**, decided when capture started writing there: somebody who captured a `- ` list meant a list, and the source view and *What was captured* both hold the note exactly as typed for the times they did not. The cost is that a note written over several lines reads as one paragraph, a single line break being a soft break in CommonMark; making capture propose formatting rather than inherit it belongs with the rest of the smarter capture ([ideas.md](ideas.md), "Capture and the task creator").
+
 **A row shows the next action, or the title**, and *Untitled* where an Item has neither — the best label it has, worked out where the row is drawn. Not stored as a text of its own, which would be a summary free to go stale behind the two it summarises.
 
 
