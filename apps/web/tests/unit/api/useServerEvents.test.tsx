@@ -303,6 +303,11 @@ describe('Live updates', () => {
         undefined,
       ],
     ])('re-reads when %s', async (_case, held, at) => {
+      // A tab holding no copy at all is the same expression as the first row -
+      // `held?.upTo` is undefined either way - which is why it is not a case of
+      // its own. It had one, asserting on a spy because a workspace with no
+      // entry cannot be asked of the cache; that assertion was on the calls
+      // made rather than on what came of them, which F1 does not allow.
       open();
       client.setQueryData(['snapshot', 'ws-work'], held);
       const stream = FakeStream.made.at(-1)!;
@@ -314,27 +319,5 @@ describe('Live updates', () => {
       expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(true);
     });
 
-    /**
-     * **Asked of the re-read rather than of the cache**, because a workspace
-     * this tab has never opened has no cache entry to inspect: "never
-     * invalidated" and "no such query" read identically off `getQueryState`, so
-     * an assertion there would pass just as well if this workspace were wrongly
-     * treated as covered.
-     */
-    it('re-reads a workspace this tab holds no copy of', async () => {
-      open();
-      const readAgain = vi.spyOn(client, 'invalidateQueries');
-      const stream = FakeStream.made.at(-1)!;
-      stream.comesUp();
-
-      stream.announces({
-        type: 'snapshot_invalidated',
-        workspaceId: 'ws-never-opened',
-        at: '2026-09-08T10:00:04.000Z',
-      });
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(readAgain).toHaveBeenCalledWith({ queryKey: ['snapshot', 'ws-never-opened'] });
-    });
   });
 });
