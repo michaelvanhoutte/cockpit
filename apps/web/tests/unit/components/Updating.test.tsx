@@ -309,16 +309,6 @@ describe('Updating', () => {
    * That the description's box actually asks it is
    * tests/unit/components/DescriptionBox.test.tsx.
    */
-  /**
-   * The third way to be behind, and the one no answer can carry: a file this
-   * build named is not being served. The gate above cannot see it - the API
-   * answers an older client perfectly well, and a file the browser fetches for
-   * itself passes through neither cache that gate watches - so this is asked of
-   * `takeTheNewVersion` directly, which is the whole of the decision.
-   *
-   * That the description's box actually asks it is
-   * tests/unit/components/DescriptionBox.test.tsx.
-   */
   describe('a tab whose own files have gone can still pick up the new version', () => {
     /** What the tab is running, what the server hands out, and what happens. */
     const asking = (served: string | null, reload = vi.fn(), memory = scratchMemory()) => ({
