@@ -1410,14 +1410,21 @@ const AS_A_TITLE = (() => {
  * - **What each environment does.** The same thing: an account applies its
  *   outstanding changes inside the first request that opens it, on a laptop, in
  *   staging and in production alike. No seeding step differs.
- * - **The windows it can be interrupted in.** Two, and both are safe. *Before
- *   it runs*: nothing is touched, and the release in front of it still reads
- *   the captured message as a label, so the Items look exactly as they did.
- *   *After it runs, with the previous release promoted back*: that release
- *   prefers the title over the captured message (`itemLabel`), so it shows the
- *   titles this wrote - the same text, cut at 200 rather than at 150. Nothing
- *   has to be repaired in either direction, which is what makes this safe to
- *   ship with the code that stops reading the fallback.
+ * - **The windows it can be interrupted in.** Three. *Before it runs*: nothing
+ *   is touched, and the release in front of it still reads the captured message
+ *   as a label, so the Items look exactly as they did. *After it runs, with the
+ *   previous release promoted back*: that release prefers the title over the
+ *   captured message (`itemLabel`), so it shows the titles this wrote - the same
+ *   text, cut at 200 rather than at 150. Neither needs repairing.
+ *
+ *   *Capturing while that older release is running* does. It writes an empty
+ *   title, this change is recorded as applied so it never runs again
+ *   (`bringUpToDate`), and rolling forward leaves those Items reading
+ *   *Untitled* - their text intact under *What was captured*, and their name
+ *   gone. **So this puts a floor under promotion the way a contract half does**
+ *   (deployment, "Migrations and rollback"), and a softer one: the repair is
+ *   another change carrying these same two statements rather than a restore,
+ *   since both are idempotent and would find exactly the rows that window made.
  * - **A backup taken before this.** Restored intact: `restore.ts` replays the
  *   changes the backup recorded and puts the rows back as they were, and the
  *   store then applies this the next time it is opened.
