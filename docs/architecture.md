@@ -129,6 +129,8 @@ The server is authoritative; the client keeps a persisted cache purely for speed
 - **Which layout a dashboard is drawn with is decided client-side too**, from that same snapshot, which carries every panel and every layout of the workspace: switching dashboard, resizing the window and picking a layout by name all reflow without a request (functional definition, "Layouts: the arrangement that follows your screen"). Only *changing* an arrangement is a write, and it is one command carrying the whole arrangement rather than one per gesture.
 - **Liveness via SSE**, since phone and desktop are commonly open at once: the API pushes invalidation events and the client also revalidates on focus. SSE over WebSockets because the channel is strictly server-to-client and SSE is plain HTTP — simpler to run, proxy and test. An idle SSE stream on Workers costs essentially nothing; a Durable Object is the designated upgrade path if connection churn ever bites.
 
+  **An event says *that* something changed and when, never what.** The stamp is there so a tab can tell it already holds the change and skip the read — a change made in a tab otherwise cost it two full snapshots, one immediately and one when its own event came back 0.2–3.0s later. It is compared against the same stamp on the snapshot, both taken from the account's own store: the Worker's clock and the object's are different clocks, and a comparison across them would decide a read on skew. The event still carries nothing *about* the change, so the doorbell does not say who is at the door.
+
   **`EventSource` reconnects natively — but only from some failures, and not the ones that matter.** Measured 2026-08-31 against the built app: a *dropped* connection retries every three seconds indefinitely, while a connection *answered* badly (a redirect to sign-in, a `503`) is abandoned after one attempt, permanently and silently. So the browser handles the failure that would heal anyway and gives up on the two that need handling. `apps/web/src/api/useServerEvents.ts` therefore replaces a permanently-closed stream itself, backing off 3s→60s, and asks the ungated `/health` first so an expired sign-in surfaces through the same screen a failed read uses rather than being announced twice.
 
 ### 5.3 The local-first decision, recorded
@@ -158,7 +160,7 @@ Everything is plain HTTP to the one API in `apps/api`: no second protocol, no di
 |---|---|---|
 | **Snapshot reads** | `GET`, one call per workspace | The read model of §5.2; every panel is derived locally rather than fetched. |
 | **Commands** | `POST`, one endpoint per command (§4.3) | Every write to an **account's** data, idempotent via client-generated command IDs. |
-| **Push invalidation** | SSE (long-lived HTTP response) | "Something changed" events that trigger revalidation, keeping phone and desktop in agreement. |
+| **Push invalidation** | SSE (long-lived HTTP response) | "Something changed, at this moment" events that trigger revalidation, keeping phone and desktop in agreement — and let a tab that already read the change skip it. |
 
 So it is deliberately **not a resource-oriented REST surface**: a narrow contract of snapshots, commands and events, which is what makes the persisted cache, optimistic UI, the capture outbox and any future offline retrofit fall out of the same shapes.
 

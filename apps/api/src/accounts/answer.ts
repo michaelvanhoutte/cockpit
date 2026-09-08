@@ -37,6 +37,8 @@ export interface AccountSnapshot {
    * Empty in every account until issue 263, since nothing writes one yet.
    */
   screenSizes: ScreenSize[];
+  /** POC (own-event refetch): the newest change this snapshot is built on. */
+  upTo: string | undefined;
 }
 
 /**

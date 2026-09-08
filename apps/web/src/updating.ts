@@ -42,7 +42,9 @@ import { statusOf } from './api/loadFailure';
  */
 
 /**
- * The two ways the server can tell this build it is behind.
+ * The two ways the *server* can tell this build it is behind. There is a third
+ * way to be behind that no answer can carry, because it is a file rather than
+ * an answer - see `takeTheNewVersion`.
  *
  * **A shape it cannot read** is the first, and was for a while the whole
  * condition: the server answered something these schemas reject, so this build
@@ -70,10 +72,17 @@ export type Update =
   /** One was there; the page is on its way to it. */
   | 'taken'
   /** There was none to take, so reloading would land on this same build. */
-  | 'nothing-new';
+  | 'nothing-new'
+  /**
+   * The server could not be asked - offline, refused, or answering something
+   * that is not the page. Deliberately not folded into `nothing-new`: saying
+   * "you are already up to date" on the strength of a question nobody answered
+   * is the one thing here that would be a lie.
+   */
+  | 'could-not-ask';
 
 /**
- * The three things about the browser that a test cannot have and must not need,
+ * The four things about the browser that a test cannot have and must not need,
  * injected the way `Surroundings` is in api/loadFailure.ts.
  */
 export interface Versions {
@@ -81,6 +90,17 @@ export interface Versions {
   newVersionWaiting(): Promise<boolean>;
   /** Which build this page is running, so an attempt can be told from a repeat. */
   thisBuild(): string;
+  /**
+   * Which build is being served now, in the same terms `thisBuild` answers in,
+   * or null where the question could not be asked at all.
+   *
+   * **Null is not "the same one".** A browser that is offline, behind a proxy
+   * that ate the request, or on a connection that dropped answers nothing here,
+   * and nothing is the one answer that must not be read as evidence either way
+   * - it is the difference between "there is nothing newer" and "I could not
+   * find out", which is a difference somebody is told about.
+   */
+  servedBuild(): Promise<string | null>;
   reload(): void;
 }
 
@@ -107,14 +127,46 @@ export const realVersions: Versions = {
    * generate, inject or bump it: it is already in the page, and it is already
    * what the precache is keyed on.
    */
-  thisBuild: () =>
-    globalThis.document?.querySelector('script[type="module"][src]')?.getAttribute('src') ??
-    'unknown',
+  thisBuild: () => buildOf(globalThis.document) ?? 'unknown',
+
+  /**
+   * The same question asked of the page the server would hand out now, rather
+   * than of the one this tab is running.
+   *
+   * `no-store` so the browser's own cache cannot answer with the copy this page
+   * came from, which would make every build look current. The service worker
+   * may still answer it, and that is right: its precache belongs to whichever
+   * worker is installed, so a page left behind by a takeover is compared
+   * against the build that took over.
+   *
+   * Anything at all going wrong is null rather than a guess - a refusal, a
+   * connection that is not there, a page with no module script in it.
+   */
+  servedBuild: async () => {
+    try {
+      const answer = await fetch('/index.html', { cache: 'no-store' });
+      if (!answer.ok) return null;
+      return buildOf(new DOMParser().parseFromString(await answer.text(), 'text/html'));
+    } catch {
+      return null;
+    }
+  },
 
   reload: () => globalThis.location.reload(),
 };
 
+/** Which build a page is, read the one way that is already content-hashed. */
+function buildOf(page: Document | undefined): string | null {
+  return page?.querySelector('script[type="module"][src]')?.getAttribute('src') ?? null;
+}
+
+/**
+ * Where each way of taking a new version keeps its own mark. Two keys and not
+ * one: they ask different questions from the same tab, and a mark written by
+ * one is no answer at all to the other.
+ */
 const TRIED_FROM = 'cockpit.updating.tried-from';
+const MISSING_FILE = 'cockpit.updating.tried-from-missing-file';
 
 /** Where the guard is kept: this tab, this visit. */
 export function tabMemory(): Storage | undefined {
@@ -152,7 +204,7 @@ export async function pickUpTheNewVersion(
   memory: Storage | undefined = tabMemory(),
 ): Promise<Update> {
   const build = versions.thisBuild();
-  if (read(memory) === build) return 'nothing-new';
+  if (read(memory, TRIED_FROM) === build) return 'nothing-new';
 
   let waiting: boolean;
   try {
@@ -164,22 +216,82 @@ export async function pickUpTheNewVersion(
   }
   if (!waiting) return 'nothing-new';
 
-  write(memory, build);
+  return take(versions, memory, build, TRIED_FROM);
+}
+
+/**
+ * The third way to be behind: **a file this build named is not being served.**
+ *
+ * The two above are things the server *said*. This one is a file that is not
+ * there: the shell is split, and the parts fetched on demand are content-hashed,
+ * so a deploy replaces their names. A tab open across one keeps running the old
+ * page while the new worker claims it and deletes the precache that page was
+ * loaded from (vite.config.ts), and the next part it asks for is in neither the
+ * cache nor the deployment. Which the gate above cannot see: the API answers
+ * this build perfectly well - an older client reading a newer server is what
+ * expand-then-contract is for (deployment, "Migrations and rollback") - and a
+ * file the browser fetches for itself passes through neither cache the gate
+ * watches.
+ *
+ * **`newVersionWaiting` is deliberately not asked, because it answers the wrong
+ * question.** It looks for a worker installing or waiting, and by the time a
+ * part has gone missing the new worker has already installed, skipped waiting
+ * and claimed the page - that takeover is what took the file. So it reports
+ * nothing waiting, and reporting nothing waiting is right: what is out of step
+ * here is the page against its worker, not the worker against the server.
+ *
+ * **The file being missing is not on its own evidence that anything is newer.**
+ * A part of the shell fails to arrive for the dull reasons too - a connection
+ * that dropped, a proxy that ate the request - and *those* reloads land back on
+ * the same page with the same thing broken, having thrown away whatever was
+ * half-written. So what is compared is the page this tab is running against the
+ * page the server would hand out now, which is the question actually being
+ * asked, and a build that cannot be asked about is said to be unknown rather
+ * than assumed either way.
+ *
+ * **Its own mark, not the gate's.** They answer different questions from the
+ * same tab, and one key for both lets the gate's reload - which returns `true`
+ * from `newVersionWaiting` merely for there being no worker registered yet -
+ * mark a build and leave this one telling somebody they are up to date while a
+ * file of theirs is provably gone.
+ */
+export async function takeTheNewVersion(
+  versions: Versions = realVersions,
+  memory: Storage | undefined = tabMemory(),
+): Promise<Update> {
+  const build = versions.thisBuild();
+  if (read(memory, MISSING_FILE) === build) return 'nothing-new';
+
+  const served = await versions.servedBuild();
+  if (served === null) return 'could-not-ask';
+  if (served === build) return 'nothing-new';
+
+  return take(versions, memory, build, MISSING_FILE);
+}
+
+/** Mark the build being left, then leave it. */
+function take(
+  versions: Versions,
+  memory: Storage | undefined,
+  build: string,
+  mark: string,
+): Update {
+  write(memory, build, mark);
   versions.reload();
   return 'taken';
 }
 
-function read(memory: Storage | undefined): string | null {
+function read(memory: Storage | undefined, mark: string): string | null {
   try {
-    return memory?.getItem(TRIED_FROM) ?? null;
+    return memory?.getItem(mark) ?? null;
   } catch {
     return null;
   }
 }
 
-function write(memory: Storage | undefined, build: string): void {
+function write(memory: Storage | undefined, build: string, mark: string): void {
   try {
-    memory?.setItem(TRIED_FROM, build);
+    memory?.setItem(mark, build);
   } catch {
     // Nothing to do: without the mark a build that is still behind reaches the
     // dead end one reload later than it would have, rather than never.

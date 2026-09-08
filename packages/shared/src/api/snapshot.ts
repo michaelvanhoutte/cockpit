@@ -77,6 +77,28 @@ export const workspaceSnapshotSchema = z.object({
    */
   screenSizes: z.array(screenSizeSchema).default([]),
   generatedAt: z.iso.datetime(),
+  /**
+   * POC (own-event refetch): the newest change this snapshot is built on, as
+   * the account's own store stamped it. A tab compares it against a change
+   * event's `at` to tell whether it already holds what the event announces, and
+   * skips the refetch when it does.
+   *
+   * **Not `generatedAt`, though that looks like the same fact.** `generatedAt`
+   * is the Worker's wall clock and a change is stamped by the account's object,
+   * a different process on a possibly different machine - so comparing those
+   * two would decide a refetch on clock skew. This is one clock read twice.
+   *
+   * **Known limit, and the thing to settle before this ships.** A millisecond
+   * is not a monotone cursor: two changes stamped in the same millisecond, with
+   * a snapshot read between them, make this claim the second one. The command
+   * log has a real sequence to use instead.
+   *
+   * **Optional and absent rather than empty**, both for an account that has
+   * never taken a change and for every fixture and hand-built snapshot. A copy
+   * held from before this field existed comes back from IndexedDB without it,
+   * and a tab holding one refetches the way it does today.
+   */
+  upTo: z.iso.datetime().optional(),
 });
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
 
