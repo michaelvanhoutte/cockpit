@@ -8,7 +8,13 @@ import {
   workspaceNameSchema,
 } from './domain/item.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
-import { layoutNameSchema, panelNameSchema, rowInputSchema } from './domain/panel.js';
+import {
+  layoutNameSchema,
+  panelKindSchema,
+  panelNameSchema,
+  panelTextSchema,
+  rowInputSchema,
+} from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
 /**
@@ -201,6 +207,12 @@ export const addPanelSchema = commandEnvelopeSchema.extend({
   dashboardId: z.string(),
   panelId: z.uuid(),
   name: panelNameSchema,
+  /**
+   * What the panel is made of, which is settled here and nowhere else
+   * (`panelKindSchema`). Defaulted rather than required, so a client that has
+   * never heard of kinds adds the panel it always added.
+   */
+  kind: panelKindSchema.default('items'),
 });
 export type AddPanelCommand = z.infer<typeof addPanelSchema>;
 
@@ -223,6 +235,32 @@ export const deletePanelSchema = commandEnvelopeSchema.extend({
   panelId: z.uuid(),
 });
 export type DeletePanelCommand = z.infer<typeof deletePanelSchema>;
+
+/**
+ * set_panel_text — the whole text of a Panel of text, as it now reads.
+ *
+ * **Whole rather than a patch**, like every other text this app stores: what is
+ * sent is the document the box holds, so two people typing at once is the later
+ * write standing rather than a merge nobody asked for. It is also what makes
+ * the same change sent twice land once - the second writes the same characters
+ * over the same ones.
+ *
+ * Nothing here says the Panel is one of text, or that it is not read-only.
+ * Both are the handler's to check, because both are facts about the stored
+ * Panel rather than about the shape of the request.
+ */
+export const setPanelTextSchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+  body: panelTextSchema,
+});
+export type SetPanelTextCommand = z.infer<typeof setPanelTextSchema>;
+
+/** set_panel_read_only — whether a Panel of text is read or written in. */
+export const setPanelReadOnlySchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+  readOnly: z.boolean(),
+});
+export type SetPanelReadOnlyCommand = z.infer<typeof setPanelReadOnlySchema>;
 
 /**
  * save_layout — one arrangement of a dashboard's panels, whole.
@@ -645,6 +683,8 @@ export const commandSchemas = {
   add_panel: addPanelSchema,
   rename_panel: renamePanelSchema,
   delete_panel: deletePanelSchema,
+  set_panel_text: setPanelTextSchema,
+  set_panel_read_only: setPanelReadOnlySchema,
   save_layout: saveLayoutSchema,
   rename_layout: renameLayoutSchema,
   delete_layout: deleteLayoutSchema,

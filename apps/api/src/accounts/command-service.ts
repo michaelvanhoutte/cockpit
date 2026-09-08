@@ -1,5 +1,5 @@
 import { and, eq, exists, notExists, sql } from 'drizzle-orm';
-import type { CommandName, CommandPayload, CommandResult } from '@cockpit/shared';
+import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
   associations,
@@ -206,6 +206,24 @@ export class PanelNotFoundError extends Error {
 }
 
 /**
+ * A panel of text asked to hold an item, or a panel of items asked to hold
+ * text. Nothing is filed onto a panel of text and nothing is written into a
+ * panel of items: what a panel is made of is settled when it is made
+ * (`panelKindSchema`), and the two hold different things.
+ *
+ * **Refused here and not only hidden in the app**, because the app's scoping is
+ * presentation rather than protection (architecture, "Security"). An item filed
+ * onto a panel that does not draw items leaves the Inbox and is then on no
+ * screen at all.
+ */
+export class PanelHoldsSomethingElseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PanelHoldsSomethingElseError';
+  }
+}
+
+/**
  * Its own kind rather than the dashboard one, for the reason that one is not
  * the workspace one: the message is what a person reads, and it has to name the
  * thing that is actually in the way.
@@ -284,6 +302,27 @@ function dashboardTheChangeIsAbout(
   const dashboard = getDashboard(db, tenantId, workspaceId, dashboardId);
   if (!dashboard) throw new DashboardNotFoundError(dashboardId);
   return dashboard;
+}
+
+/**
+ * Refuses a panel that holds text where an item is being filed.
+ *
+ * One function rather than the check written twice, because filing an item and
+ * adding it to one more panel are the same act with different answers about
+ * where it was before ("Ask whether to move an item to a panel or add it to
+ * one", issue 142) - so they cannot be allowed to come to disagree about what
+ * a panel will take.
+ *
+ * Takes the null a move to the Inbox carries, so the caller need not ask twice.
+ *
+ * The kind is the contract's own type rather than a bare string: the check is a
+ * comparison against a literal, and a mistyped one would compile, never refuse,
+ * and quietly reopen the hole this exists to close.
+ */
+function refuseAPanelOfText(panel: { name: string; kind: PanelKind } | null) {
+  if (panel && panel.kind === 'text') {
+    throw new PanelHoldsSomethingElseError(`${panel.name} holds text, so nothing is filed on it`);
+  }
 }
 
 /**
@@ -587,6 +626,50 @@ export function runCommand<N extends CommandName>(
             })
             .run();
         }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_panel_text': {
+      const cmd = payload as CommandPayload<'set_panel_text'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // A panel of items has no text to hold, so writing to one is refused
+      // rather than quietly filling a column nothing draws.
+      if (panel.kind !== 'text') {
+        throw new PanelHoldsSomethingElseError(`${panel.name} holds items, not text`);
+      }
+      // **A read-only panel is not refused, and that is deliberate.** Read-only
+      // says what the panel is for rather than who may write to it - there are
+      // no roles inside an account, and anybody looking at it can hand it back
+      // in one gesture. Refusing would mean that somebody typing when a second
+      // person locks the panel loses the sentence in flight, which is the one
+      // thing writing on a pause exists to prevent.
+      db.transaction((tx) => {
+        // The whole document, over whatever is there. Two people typing at once
+        // is the later write standing, which is the same answer this app gives
+        // everywhere else and the reason the command carries the text whole.
+        tx.update(panels)
+          .set({ body: cmd.body })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_panel_read_only': {
+      const cmd = payload as CommandPayload<'set_panel_read_only'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // The same refusal the text takes, for the same reason: a panel of items
+      // has nothing to lock, and a flag nobody reads is a state to explain
+      // later.
+      if (panel.kind !== 'text') {
+        throw new PanelHoldsSomethingElseError(`${panel.name} holds items, not text`);
+      }
+      db.transaction((tx) => {
+        tx.update(panels)
+          .set({ readOnly: cmd.readOnly })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -997,6 +1080,9 @@ export function runCommand<N extends CommandName>(
       if (!panel && !getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
+      // Nothing is filed onto a panel of text, which draws no items: one filed
+      // there would leave the Inbox and be on no screen at all.
+      refuseAPanelOfText(panel);
 
       // Checked against what the panel actually holds rather than left to the
       // foreign key, which could not tell an item of another workspace from one
@@ -1049,6 +1135,8 @@ export function runCommand<N extends CommandName>(
         throw new ItemNotFoundError(cmd.itemId);
       }
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // The same rule the move above carries, and for the same reason.
+      refuseAPanelOfText(panel);
 
       refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
 

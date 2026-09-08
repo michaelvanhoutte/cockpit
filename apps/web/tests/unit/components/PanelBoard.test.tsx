@@ -5,8 +5,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
-import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../../../src/whatThingsAre';
+import { QUIET } from '../../../src/panels/PanelText';
+import {
+  NOTHING_FILED_HERE,
+  NOTHING_FILED_HERE_YET_AND_HOW,
+  NOTHING_WRITTEN_HERE,
+} from '../../../src/whatThingsAre';
 import { CommandRefused } from '../../../src/api/client';
+import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { useCommand } from '../../../src/api/queries';
 
 /**
@@ -37,7 +43,29 @@ const DASHBOARD: Dashboard = {
 };
 
 function aPanel(id: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId: 'today', name };
+  return {
+    id,
+    tenantId: 'tenant',
+    dashboardId: 'today',
+    name,
+    kind: 'items',
+    body: '',
+    readOnly: false,
+  };
+}
+
+/** A panel made of text, empty and open to be written in unless a case says otherwise. */
+function aPanelOfText(
+  id: string,
+  name: string,
+  holding: { body?: string; readOnly?: boolean } = {},
+): Panel {
+  return {
+    ...aPanel(id, name),
+    kind: 'text',
+    body: holding.body ?? '',
+    readOnly: holding.readOnly ?? false,
+  };
 }
 
 /**
@@ -128,7 +156,7 @@ function showBoard({
     error: error ?? null,
     variables,
   } as never);
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <PanelBoard
         workspaceId="ws-work"
@@ -140,7 +168,9 @@ function showBoard({
       />
     </QueryClientProvider>,
   );
-  return { mutate, user: userEvent.setup() };
+  // `unmount` because a panel of text sends what is unsent on the way out, and
+  // switching dashboard is what takes it off screen.
+  return { mutate, unmount, user: userEvent.setup() };
 }
 
 /** What a panel offers is in the panel's own menu, so reaching any of it is two gestures. */
@@ -317,6 +347,22 @@ describe('Panels', () => {
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('delete_panel');
       expect(asked.payload.panelId).toBe('reading');
+    });
+
+    it('names the text when the panel going is one of text', async () => {
+      const { user } = showBoard({
+        panels: [aPanelOfText('words', 'What matters', { body: 'Standing agenda' })],
+      });
+
+      await choose(user, 'What matters', 'Delete');
+
+      // The layouts are an arrangement anybody can make again; the words are
+      // not, so they are what the question has to name.
+      expect(
+        screen.getByText(
+          'Delete What matters? The text in it goes too, and it goes from every layout of this dashboard.',
+        ),
+      ).toBeVisible();
     });
 
     it.each([
@@ -885,6 +931,167 @@ function panelOrderOnScreen(): string[] {
 }
 
 describe('Panels', () => {
+  describe('a panel holds either the items filed into it or the text written in it', () => {
+    /**
+     * What each kind draws. The kind itself is settled when the panel is made
+     * and proved in apps/api/tests/unit/domain/panels.test.ts; what is asked
+     * here is that the board draws two different things from it.
+     */
+    it('draws a list and a count for items, and a box to write in for text', async () => {
+      showBoard({
+        panels: [aPanel('falcon', 'Project Falcon'), aPanelOfText('words', 'What matters')],
+        items: [anItem('one', 'Answer Tom')],
+        filings: [{ panelId: 'falcon', itemId: 'one', position: 0 }],
+      });
+
+      expect(await screen.findByText('Answer Tom')).toBeInTheDocument();
+      // The count belongs to a panel that holds items; a panel of text has no
+      // answer to "how many", so it draws none.
+      const words = screen.getByRole('region', { name: 'What matters' });
+      expect(within(words).queryByText('0')).not.toBeInTheDocument();
+      expect(within(words).getByRole('textbox', { name: 'What matters' })).toBeInTheDocument();
+    });
+
+    it('shows a read-only panel’s text without a box, and says it is read-only', async () => {
+      showBoard({
+        panels: [aPanelOfText('words', 'What matters', { body: 'Standing agenda', readOnly: true })],
+      });
+
+      const words = await screen.findByRole('region', { name: 'What matters' });
+      expect(within(words).getByText('Standing agenda')).toBeInTheDocument();
+      expect(within(words).getByText('read-only')).toBeInTheDocument();
+      expect(within(words).queryByRole('textbox')).not.toBeInTheDocument();
+    });
+
+    /**
+     * The third way an item reaches a panel, after the picker and a direct
+     * request. There is nothing to drop on because the list is not drawn at
+     * all - which is the point: the target is the list, so a panel without one
+     * offers none.
+     *
+     * The picker's half is in tests/unit/components/ItemList.test.tsx and the
+     * store's refusal, whatever the app does, in
+     * apps/api/tests/integration/http/panel-items.test.ts.
+     */
+    it('takes no item dropped on it', async () => {
+      const { mutate } = showBoard({ panels: [aPanelOfText('words', 'What matters')] });
+      const words = await screen.findByRole('region', { name: 'What matters' });
+
+      expect(within(words).queryByRole('list')).not.toBeInTheDocument();
+      const carrying = { types: [ITEM_BEING_DRAGGED], getData: () => 'one', setData: vi.fn() };
+      fireEvent.dragOver(words, { dataTransfer: carrying });
+      fireEvent.drop(words, { dataTransfer: carrying });
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('says so rather than showing an empty box when there is nothing to read', async () => {
+      showBoard({ panels: [aPanelOfText('words', 'What matters', { readOnly: true })] });
+
+      expect(await screen.findByText(NOTHING_WRITTEN_HERE)).toBeInTheDocument();
+    });
+  });
+
+  describe('a panel of text is read-only until somebody says otherwise', () => {
+    it.each([
+      { situation: 'locking one that is open', readOnly: false, entry: 'Make read-only', sends: true },
+      { situation: 'opening one that is locked', readOnly: true, entry: 'Allow editing', sends: false },
+    ])('$situation', async ({ readOnly, entry, sends }) => {
+      const { mutate, user } = showBoard({
+        panels: [aPanelOfText('words', 'What matters', { readOnly })],
+      });
+
+      await choose(user, 'What matters', entry);
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_read_only',
+          payload: expect.objectContaining({ panelId: 'words', readOnly: sends }),
+        }),
+      );
+    });
+
+    /**
+     * A panel of items has no text to lock, and an entry that means nothing
+     * where it is offered is worse than one that is not there - which is why
+     * this one is absent rather than unavailable, unlike the moves beside it.
+     */
+    it('offers the choice on a panel of text and on no other', async () => {
+      const { user } = showBoard({
+        panels: [aPanel('falcon', 'Project Falcon'), aPanelOfText('words', 'What matters')],
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+      expect(screen.queryByRole('menuitem', { name: /read-only|Allow editing/ })).toBeNull();
+      await user.keyboard('{Escape}');
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for What matters' }));
+      expect(await screen.findByRole('menuitem', { name: 'Make read-only' })).toBeInTheDocument();
+    });
+  });
+
+  describe('what is written in a panel of text is kept', () => {
+    /**
+     * A clock this describe owns, because both cases below are about *when* the
+     * change is sent rather than about what is in it.
+     *
+     * `shouldAdvanceTime`, so the queries that find the box still settle: a
+     * frozen clock stops `findBy*` polling and every case here would time out
+     * waiting for a board that is already drawn.
+     */
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /**
+     * Not on a keystroke, and not lost either. The box reports every change as
+     * it happens; what is sent is one change once the typing stops, and again
+     * on the way out - so a panel left mid-sentence is saved rather than losing
+     * the sentence with the timer that never fired.
+     */
+    it('sends what was typed once the typing stops', async () => {
+      {
+        const { mutate } = showBoard({ panels: [aPanelOfText('words', 'What matters')] });
+        const box = await screen.findByRole('textbox', { name: 'What matters' });
+
+        fireEvent.change(box, { target: { value: 'Standing' } });
+        fireEvent.change(box, { target: { value: 'Standing agenda' } });
+        expect(mutate).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(QUIET);
+
+        expect(mutate).toHaveBeenCalledTimes(1);
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_panel_text',
+            payload: expect.objectContaining({ panelId: 'words', body: 'Standing agenda' }),
+          }),
+        );
+      }
+    });
+
+    it('sends what was typed but not yet sent when the panel goes off screen', async () => {
+      {
+        const { mutate, unmount } = showBoard({ panels: [aPanelOfText('words', 'What matters')] });
+        const box = await screen.findByRole('textbox', { name: 'What matters' });
+        fireEvent.change(box, { target: { value: 'Mid-sentence' } });
+
+        // Switching dashboard, before the pause was long enough to send.
+        unmount();
+
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_panel_text',
+            payload: expect.objectContaining({ body: 'Mid-sentence' }),
+          }),
+        );
+      }
+    });
+  });
+
   describe('a dashboard draws each panel with the items filed on it', () => {
     it('hands each panel the items filed on it, and says so when one has none', async () => {
       const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');

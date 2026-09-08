@@ -70,6 +70,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     // is applied in accounts already, and a change that has shipped can never
     // be reordered any more than it can be edited.
     DROP_ITEM_PREVIEW,
+    TEXT_PANELS,
     firstWorkspace(accountId),
   ];
 }
@@ -1244,6 +1245,56 @@ function standardTypes(accountId: string): Change {
 const DROP_ITEM_PREVIEW: Change = {
   name: '0014-drop-item-preview',
   statements: [{ sql: 'ALTER TABLE `items` DROP COLUMN `preview`' }],
+};
+
+/**
+ * What a panel is made of, the text one of text holds, and whether that text is
+ * read rather than written in ("Put a panel of text on a dashboard, and write
+ * in it", issue 250).
+ *
+ * **Three columns, each with the default that is what every panel already
+ * was**, which is the whole of why this is additive: a panel written before
+ * this, and a panel written by the old Worker during the deploy, both read as a
+ * panel of items holding nothing and open to be written in - which is what
+ * makes "nothing a person recognises changes on the day this lands" true.
+ *
+ * **The CHECKs come with the columns rather than in a rebuild.** SQLite refuses
+ * to add a CHECK to a table that already has children (architecture, "A CHECK
+ * cannot be added to a table that already has children") - `panels` has three -
+ * but `ALTER TABLE ... ADD COLUMN` carries its own, and it is only ever asked
+ * about rows written afterwards. Every row already there holds the default,
+ * which satisfies both.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): three `ADD COLUMN`s, and not one statement that writes to a
+ *   row.
+ * - **If it stops halfway:** it cannot be left half applied. A change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts), so a failure leaves nothing of itself behind and it is retried
+ *   whole.
+ * - **The second time it runs:** it does not, having been recorded. `ADD
+ *   COLUMN` is not idempotent on its own - a second run would fail on the
+ *   duplicate name - and the record is what stops it, exactly as it is for
+ *   every other change here.
+ * - **Rows that already break the new rule:** there can be none. Every panel
+ *   takes the defaults and every default satisfies its CHECK.
+ * - **What is in each environment:** every panel gains three columns and none
+ *   is rewritten, so what production and staging show the morning after is what
+ *   they showed the night before.
+ */
+const TEXT_PANELS: Change = {
+  name: '0016-text-panels',
+  statements: [
+    {
+      sql: `ALTER TABLE \`panels\` ADD COLUMN \`kind\` text DEFAULT 'items' NOT NULL CHECK (kind IN ('items', 'text'))`,
+    },
+    { sql: `ALTER TABLE \`panels\` ADD COLUMN \`body\` text DEFAULT '' NOT NULL` },
+    {
+      sql: 'ALTER TABLE `panels` ADD COLUMN `read_only` integer DEFAULT 0 NOT NULL CHECK (read_only IN (0, 1))',
+    },
+  ],
 };
 
 /** The workspace an account nobody has opened is given, its dashboard, and its panel. */

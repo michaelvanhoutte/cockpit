@@ -59,12 +59,33 @@ async function deletePanel(page: Page, name: string, isMobile: boolean): Promise
   await expect(page.getByRole('region', { name })).toHaveCount(0);
 }
 
-async function addPanel(page: Page, name: string, isMobile: boolean): Promise<void> {
+async function addPanelOfText(page: Page, name: string, isMobile: boolean): Promise<void> {
+  await addPanel(page, name, isMobile, 'Text');
+}
+
+async function addPanel(
+  page: Page,
+  name: string,
+  isMobile: boolean,
+  holds: 'Items' | 'Text' = 'Items',
+): Promise<void> {
   // In the dashboard's own bar, beside the control naming its layout ("Pick the
   // layout you are on, by name"), rather than in a strip at the foot of the
   // board.
   await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
   await page.getByLabel('Name of the new panel').fill(name);
+  // What it holds is settled here and never after, so a walk that wants a panel
+  // of text has to say so before the panel exists.
+  //
+  // **The label rather than the control**, which is what a hand hits: the radio
+  // itself is drawn for screen readers only, so the whole card is the target
+  // and a click aimed at the input lands on the words inside it.
+  if (holds === 'Text') {
+    await press(
+      page.locator('label').filter({ has: page.getByRole('radio', { name: /Text/ }) }),
+      isMobile,
+    );
+  }
   await page.getByLabel('Name of the new panel').press('Enter');
   await expect(page.getByRole('region', { name })).toBeVisible();
 }
@@ -364,6 +385,46 @@ test.describe('Panels', () => {
         room.name,
         `the name has ${Math.round(room.name)}px of a ${Math.round(room.header)}px header`,
       ).toBeGreaterThan(room.header - room.name);
+    });
+  });
+
+  test.describe('a panel of text is a box on the dashboard you write in', () => {
+    /**
+     * The one walk this feature needs, and what it says that no level below it
+     * can: the box, the change it sends and the store all agree through a real
+     * reload. What each kind draws is proved in
+     * apps/web/tests/unit/components/PanelBoard.test.tsx, and what the store
+     * keeps in apps/api/tests/integration/http/panels.test.ts; neither can say
+     * the words are still there after the page has been thrown away and rebuilt
+     * from the server.
+     */
+    test('keeps what was written in it across a reload, and locks from its own menu', async ({
+      page,
+      isMobile,
+    }) => {
+      await ownDashboard(page, isMobile);
+      const name = uniqueTitle('What matters');
+      await addPanelOfText(page, name, isMobile);
+
+      const written = answerTo(page, 'set_panel_text');
+      await page.getByRole('textbox', { name }).fill('Standing agenda');
+      // Nothing else to do: what was typed goes up once the typing stops, so
+      // the walk waits for the change rather than pressing anything to force
+      // it. Clicking away would not help either — the header is the panel's
+      // drag handle, so a click there is the start of a gesture, not a blur.
+      expect((await written).status()).toBe(200);
+
+      await page.reload();
+      await expect(page.getByRole('textbox', { name })).toHaveValue('Standing agenda');
+
+      const locked = answerTo(page, 'set_panel_read_only');
+      await chooseRowAction(page, name, 'Make read-only', isMobile);
+      expect((await locked).status()).toBe(200);
+
+      // No box left to type in, and the words still there to read.
+      await expect(page.getByRole('textbox', { name })).toHaveCount(0);
+      await expect(page.getByRole('region', { name }).getByText('Standing agenda')).toBeVisible();
+      await expectNoSidewaysScroll(page);
     });
   });
 

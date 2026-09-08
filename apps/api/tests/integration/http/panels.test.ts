@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
+import { PANEL_TEXT_LIMIT } from '@cockpit/shared';
 import type { Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { WORKSPACE_ID, asUser, seedRegister, startFromEmpty } from '../seed.js';
 
@@ -63,7 +64,13 @@ async function aDashboard(): Promise<string> {
 async function addPanel(
   dashboardId: string,
   name: string,
-  overrides: { panelId?: string; commandId?: string; workspaceId?: string } = {},
+  overrides: {
+    panelId?: string;
+    commandId?: string;
+    workspaceId?: string;
+    /** Left out on purpose by most cases: a panel holds items unless asked. */
+    kind?: string;
+  } = {},
 ) {
   return send('add_panel', {
     workspaceId: overrides.workspaceId ?? WORKSPACE_ID,
@@ -71,7 +78,36 @@ async function addPanel(
     panelId: overrides.panelId ?? nextId(),
     name,
     ...(overrides.commandId ? { commandId: overrides.commandId } : {}),
+    ...(overrides.kind ? { kind: overrides.kind } : {}),
   });
+}
+
+/** A panel of text on a dashboard of its own, which is what most cases below want. */
+async function aPanelOfText(name = 'What matters'): Promise<{ dashboardId: string; panelId: string }> {
+  const dashboardId = await aDashboard();
+  const panelId = nextId();
+  expect((await addPanel(dashboardId, name, { panelId, kind: 'text' })).status).toBe(200);
+  return { dashboardId, panelId };
+}
+
+/** One panel as the snapshot hands it back. */
+async function panelNow(panelId: string): Promise<Panel> {
+  const found = (await snapshot()).panels.find((panel) => panel.id === panelId);
+  expect(found).toBeDefined();
+  return found!;
+}
+
+function setText(panelId: string, body: string, commandId?: string) {
+  return send('set_panel_text', {
+    workspaceId: WORKSPACE_ID,
+    panelId,
+    body,
+    ...(commandId ? { commandId } : {}),
+  });
+}
+
+function setReadOnly(panelId: string, readOnly: boolean) {
+  return send('set_panel_read_only', { workspaceId: WORKSPACE_ID, panelId, readOnly });
 }
 
 type Cell = { panelId: string; span: number };
@@ -552,6 +588,121 @@ describe('Panels', () => {
    * arrangement used to fail at seventeen panels. Forty rather than seventeen,
    * so the case goes on being about the limit if the batch size moves.
    */
+  describe('a panel holds either the items filed into it or the text written in it', () => {
+    /**
+     * Decided when the panel is made and never after, so this is the only place
+     * it is read. The first row is what a client that has never heard of kinds
+     * sends, which is every client that existed before this and every one
+     * serving requests during the deploy.
+     */
+    it.each([
+      { situation: 'nothing said about what it holds', kind: undefined, holds: 'items' },
+      { situation: 'asked for a panel of items', kind: 'items', holds: 'items' },
+      { situation: 'asked for a panel of text', kind: 'text', holds: 'text' },
+    ])('$situation', async ({ kind, holds }) => {
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+
+      // Spread rather than passed, so "nothing said about what it holds" is a
+      // request with no `kind` in it at all rather than one saying undefined.
+      expect(
+        (await addPanel(dashboardId, aName(), { panelId, ...(kind ? { kind } : {}) })).status,
+      ).toBe(200);
+
+      expect(await panelNow(panelId)).toMatchObject({ kind: holds });
+    });
+
+    it('refuses a kind nothing knows about, and stores no panel', async () => {
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+
+      expect((await addPanel(dashboardId, aName(), { panelId, kind: 'spreadsheet' })).status).toBe(
+        400,
+      );
+
+      expect(await panelsOn(dashboardId)).toHaveLength(0);
+    });
+  });
+
+  describe('what is written in a panel of text is kept, and is what everybody sees', () => {
+    it('is read back as it was written, however many times it is written', async () => {
+      const { panelId } = await aPanelOfText();
+
+      expect((await setText(panelId, 'Standing agenda')).status).toBe(200);
+      expect((await panelNow(panelId)).body).toBe('Standing agenda');
+
+      // The whole text, over what was there: the later write stands, which is
+      // what makes two people typing at once an answer rather than a merge.
+      const twoParagraphs = ['Standing agenda', '', 'Pricing'].join('\n');
+      expect((await setText(panelId, twoParagraphs)).status).toBe(200);
+      expect((await panelNow(panelId)).body).toBe(twoParagraphs);
+    });
+
+    it('is written once however often the same change arrives', async () => {
+      const { panelId } = await aPanelOfText();
+      const twice = nextId();
+
+      expect((await setText(panelId, 'Sent twice', twice)).status).toBe(200);
+      expect((await setText(panelId, 'Sent twice', twice)).status).toBe(200);
+
+      expect((await panelNow(panelId)).body).toBe('Sent twice');
+    });
+
+    it.each([
+      { situation: 'as much as a panel of text holds', length: PANEL_TEXT_LIMIT, status: 200 },
+      { situation: 'one character more than it holds', length: PANEL_TEXT_LIMIT + 1, status: 400 },
+    ])('$situation', async ({ length, status }) => {
+      const { panelId } = await aPanelOfText();
+
+      expect((await setText(panelId, 'x'.repeat(length))).status).toBe(status);
+    });
+
+    it('is never written through a workspace that does not hold the panel', async () => {
+      const { panelId } = await aPanelOfText();
+
+      const res = await send('set_panel_text', {
+        workspaceId: 'ws-nobody-has',
+        panelId,
+        body: 'from somewhere else',
+      });
+
+      expect(res.status).toBe(404);
+      expect((await panelNow(panelId)).body).toBe('');
+    });
+  });
+
+  describe('a panel of text is read-only until somebody says otherwise, except the one just made', () => {
+    it('arrives open, and afterwards is whatever it was last set to', async () => {
+      const { panelId } = await aPanelOfText();
+      expect(await panelNow(panelId)).toMatchObject({ readOnly: false, body: '' });
+
+      expect((await setReadOnly(panelId, true)).status).toBe(200);
+      expect((await panelNow(panelId)).readOnly).toBe(true);
+
+      expect((await setReadOnly(panelId, false)).status).toBe(200);
+      expect((await panelNow(panelId)).readOnly).toBe(false);
+    });
+
+    /**
+     * A panel of items has no text to lock and none to write, so both are
+     * refused rather than quietly filling columns nothing draws. Refused rather
+     * than not found: the panel is real and on this dashboard, and what is
+     * wrong is what is being asked of it.
+     */
+    it.each([
+      { situation: 'asked to hold text', send: (id: string) => setText(id, 'words') },
+      { situation: 'asked to be read-only', send: (id: string) => setReadOnly(id, true) },
+    ])('a panel of items, $situation', async ({ send: ask }) => {
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+      expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
+
+      expect((await ask(panelId)).status).toBe(400);
+
+      expect(await panelNow(panelId)).toMatchObject({ body: '', readOnly: false });
+    });
+  });
+
   describe('a dashboard is arranged however many panels are on it', () => {
     it('stores all forty in the order given, at the sizes given', async () => {
       const dashboardId = await aDashboard();

@@ -180,7 +180,10 @@ export function PanelBoard({
         : null;
 
   /** The refusal belongs to the control that asked for it. */
-  const refusalFor = (what: 'rename_panel' | 'delete_panel' | 'save_layout', id?: string) => {
+  const refusalFor = (
+    what: 'rename_panel' | 'delete_panel' | 'save_layout' | 'set_panel_read_only',
+    id?: string,
+  ) => {
     if (!refusal || command.variables?.name !== what) return null;
     if (!id) return refusal;
     const payload = command.variables.payload as { panelId?: string };
@@ -482,6 +485,26 @@ export function PanelBoard({
     );
   };
 
+  /**
+   * Lock a panel of text's prose, or hand it back.
+   *
+   * No `onSuccess`: nothing closes and nothing is emptied, so what the change
+   * lands on is the re-read snapshot redrawing the panel - which is also what
+   * makes the choice hold for everybody rather than for this tab.
+   */
+  const setReadOnly = (panelId: string, readOnly: boolean) => {
+    command.mutate({
+      name: 'set_panel_read_only',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        panelId,
+        readOnly,
+      },
+    });
+  };
+
   const deletePanel = (panelId: string) => {
     command.mutate(
       {
@@ -630,10 +653,13 @@ export function PanelBoard({
                           setDeleting(panel.id);
                         }}
                         onMove={(places) => propose(movedBy(shown, panel.id, places))}
+                        onReadOnlyChange={(readOnly) => setReadOnly(panel.id, readOnly)}
                         lifted={dragging?.id === panel.id}
                         onPickUp={(pointerId) => pickUp(panel.id, pointerId)}
                         refusal={
-                          refusalFor('rename_panel', panel.id) ?? refusalFor('delete_panel', panel.id)
+                          refusalFor('rename_panel', panel.id) ??
+                          refusalFor('delete_panel', panel.id) ??
+                          refusalFor('set_panel_read_only', panel.id)
                         }
                         busy={command.isPending}
                       />
@@ -652,7 +678,15 @@ export function PanelBoard({
       {beingDeleted && (
         <DeleteQuestion
           open
-          question={`Delete ${beingDeleted.name}? It goes from every layout of this dashboard.`}
+          // What goes with it, which for a panel of text is the text: the
+          // layouts are an arrangement anybody can make again, and the words
+          // are not (the Deleting rule - "naming what is going and what goes
+          // with it").
+          question={`Delete ${beingDeleted.name}? ${
+            beingDeleted.kind === 'text'
+              ? 'The text in it goes too, and it goes from every layout of this dashboard.'
+              : 'It goes from every layout of this dashboard.'
+          }`}
           confirmLabel={`Yes, delete ${beingDeleted.name}`}
           canConfirm={!command.isPending}
           refusal={refusalFor('delete_panel', beingDeleted.id)}

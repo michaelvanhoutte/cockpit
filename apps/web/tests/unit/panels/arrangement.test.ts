@@ -42,7 +42,7 @@ function idsOf(rows: readonly LayoutRow[]): string[][] {
 }
 
 function aPanel(id: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId: 'today', name: id };
+  return { id, tenantId: 'tenant', dashboardId: 'today', name: id, kind: 'items' as const, body: '', readOnly: false };
 }
 
 describe('Layouts', () => {

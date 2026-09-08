@@ -106,12 +106,19 @@ export function MoveToPicker({
     'title' in moving
       ? `“${moving.title}”`
       : `${moving.several} ${moving.several === 1 ? 'item' : 'items'}`;
+  // **Only the panels that take items**, which is every panel except one made
+  // of text ("Put a panel of text on a dashboard, and write in it", issue 250):
+  // an item filed onto one of those would leave the Inbox and be drawn nowhere.
+  // Filtered once, here, so the tree below and the recent list above it cannot
+  // come to disagree - and so the three call sites that hand this its panels
+  // cannot each forget separately.
+  const takesItems = panels.filter((panel) => panel.kind !== 'text');
   const groups = dashboardsInOrder(dashboards, openDashboardId).map((dashboard) => ({
     dashboard,
-    panels: panels.filter((panel) => panel.dashboardId === dashboard.id),
+    panels: takesItems.filter((panel) => panel.dashboardId === dashboard.id),
   }));
   const recentPanels = recent
-    .map((panelId) => panels.find((panel) => panel.id === panelId))
+    .map((panelId) => takesItems.find((panel) => panel.id === panelId))
     .filter((panel): panel is Panel => panel !== undefined);
 
   return (
