@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { SWIPE_THRESHOLD_PX, howFarItHasGone, whatTheSwipeMeant } from '../../src/swipe';
+import {
+  SWIPE_THRESHOLD_PX,
+  howFarItHasGone,
+  whatTheSwipeIsPromising,
+  whatTheSwipeMeant,
+} from '../../src/swipe';
 
 /**
  * F1, and this is where the rules live rather than in the handler that uses
@@ -49,6 +54,83 @@ describe('Triage', () => {
       },
     ])('$situation', ({ dx, dy, meant }) => {
       expect(whatTheSwipeMeant(dx, dy)).toBe(meant);
+    });
+  });
+
+  describe('a row being swiped says what letting go would do, from the first pixel', () => {
+    it.each([
+      {
+        situation: 'barely moved right',
+        dx: 4,
+        dy: 0,
+        promised: { action: 'file', wouldAct: false },
+      },
+      {
+        situation: 'barely moved left',
+        dx: -4,
+        dy: 0,
+        promised: { action: 'dismiss', wouldAct: false },
+      },
+      {
+        situation: 'right, and stopped short',
+        dx: short,
+        dy: 0,
+        promised: { action: 'file', wouldAct: false },
+      },
+      {
+        situation: 'left, and stopped short',
+        dx: -short,
+        dy: 0,
+        promised: { action: 'dismiss', wouldAct: false },
+      },
+      {
+        situation: 'right, far enough to act',
+        dx: past,
+        dy: 0,
+        promised: { action: 'file', wouldAct: true },
+      },
+      {
+        situation: 'left, far enough to act',
+        dx: -past,
+        dy: 0,
+        promised: { action: 'dismiss', wouldAct: true },
+      },
+      {
+        situation: 'exactly the threshold',
+        dx: SWIPE_THRESHOLD_PX,
+        dy: 0,
+        promised: { action: 'file', wouldAct: true },
+      },
+      { situation: 'not moved at all', dx: 0, dy: 0, promised: null },
+      // The row promises nothing to a thumb that is scrolling the list past
+      // it, for the same reason it does not shuffle sideways under one.
+      { situation: 'a long scroll that drifted a little sideways', dx: short, dy: 400, promised: null },
+      { situation: 'as far across as it went down', dx: past, dy: past, promised: null },
+    ])('$situation', ({ dx, dy, promised }) => {
+      expect(whatTheSwipeIsPromising(dx, dy)).toEqual(promised);
+    });
+  });
+
+  // The failure this guards is a row saying **Dismiss** under the thumb and
+  // filing on release, which is the one this gesture can least afford. The two
+  // answers come from one function, so this is what would go red if they were
+  // ever decided apart again.
+  describe('the action a row promises is the one letting go takes', () => {
+    it.each([
+      { situation: 'right, and stopped short', dx: short, dy: 0 },
+      { situation: 'left, and stopped short', dx: -short, dy: 0 },
+      { situation: 'right, far enough to act', dx: past, dy: 0 },
+      { situation: 'left, far enough to act', dx: -past, dy: 0 },
+      { situation: 'exactly the threshold', dx: SWIPE_THRESHOLD_PX, dy: 0 },
+      { situation: 'one pixel short of it', dx: SWIPE_THRESHOLD_PX - 1, dy: 0 },
+      // The vertical rule carries its own `dy`, because it is the branch the
+      // two could most plausibly come apart on - one of them calling a scroll
+      // nothing and the other still reading a direction off it.
+      { situation: 'a scroll that drifted sideways', dx: past, dy: 400 },
+      { situation: 'as far across as it went down', dx: past, dy: past },
+    ])('$situation', ({ dx, dy }) => {
+      const promised = whatTheSwipeIsPromising(dx, dy);
+      expect(whatTheSwipeMeant(dx, dy)).toBe(promised?.wouldAct ? promised.action : null);
     });
   });
 

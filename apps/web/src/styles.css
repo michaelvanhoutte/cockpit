@@ -40,6 +40,15 @@
   --color-accent-tint: #e7e5fe;
   --color-due: #c98a4b;
   --color-over: #bf5d55;
+  /*
+   * The missing half of a pair the accent already has: `over` is a tint to
+   * mark with, and this is the same colour dark enough to write white on. It
+   * exists because the swipe reveal fills a band with it and puts a word
+   * inside ("Show what a swipe will do before the finger lifts") - white on
+   * `over` itself is 4.4:1, which is the wrong side of the line for a word
+   * this small.
+   */
+  --color-over-deep: #a04a43;
 
   /*
    * What an item is doing, as a color. The dot on a row is the scannable half

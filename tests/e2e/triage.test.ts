@@ -1,4 +1,14 @@
-import { capture, expect, itemRow, openInbox, press, swipeRow, test, uniqueTitle } from './support/app';
+import {
+  capture,
+  expect,
+  itemRow,
+  openInbox,
+  press,
+  swipeRow,
+  test,
+  uniqueTitle,
+  whileSwipingRow,
+} from './support/app';
 
 /**
  * F3, and specifically on both projects, because the way this action is
@@ -120,5 +130,31 @@ test.describe('Triage', () => {
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(page.getByRole('status')).toHaveCount(0);
     });
+  });
+
+  /**
+   * What the row says at each distance is apps/web/tests/unit/swipe.test.ts,
+   * and that the handlers draw it is
+   * apps/web/tests/unit/components/ItemRow.test.tsx. What is only true here is
+   * that the band a swipe uncovers is really on screen under a moving thumb -
+   * a strip of floor the row's own width has left bare, which jsdom lays out
+   * as nothing at all.
+   */
+  test.describe('a thumb can read what letting go will do, before letting go', () => {
+    for (const { situation, across, says } of [
+      { situation: 'swiping right, towards the picker', across: 160, says: 'Move to…' },
+      { situation: 'swiping left, towards dismissing', across: -160, says: 'Dismiss' },
+    ]) {
+      test(situation, async ({ page, isMobile }) => {
+        test.skip(!isMobile, 'a swipe is a touch gesture, and this project has no touch');
+        await openInbox(page, isMobile);
+        const thought = uniqueTitle('Read me mid-swipe');
+        await capture(page, thought, isMobile);
+
+        await whileSwipingRow(page, thought, across, async () => {
+          await expect(itemRow(page, thought).getByText(says, { exact: true })).toBeVisible();
+        });
+      });
+    }
   });
 });
