@@ -1464,7 +1464,8 @@ const TITLE_FROM_CAPTURED_MESSAGE: Change = {
  *
  * **`screen_size_id` is nullable and carries no CHECK.** Nullable because
  * every layout that exists predates it and nothing backfills one - which size
- * an old layout was for is a question issue 263 answers by not drawing it. No
+ * an old layout was for is a question "Draw a dashboard against the screen sizes its account has" (issue 263) answers by not
+ * drawing it. No
  * CHECK because the foreign key is the constraint that matters and a width
  * bound belongs on the size, not on the pointer to it.
  *

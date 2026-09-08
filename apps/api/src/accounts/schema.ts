@@ -438,8 +438,9 @@ export const panels = sqliteTable(
  * `tenant_id`, the way `item_types` does.
  *
  * **Nothing writes one in this release.** The table, `layouts.screen_size_id`
- * and the snapshot field land together so that issue 263 changes behaviour
- * rather than shape.
+ * and the snapshot field land together so that "Draw a dashboard against the
+ * screen sizes its account has" (issue 263) changes behaviour rather than
+ * shape.
  *
  * **Deleted for real, not tombstoned**, for the reason a layout is: a size
  * records nothing that happened, only which screens somebody said they use.
@@ -520,8 +521,9 @@ export const layouts = sqliteTable(
      *
      * **Nullable, and only for as long as it takes to stop needing to be.**
      * Nothing writes it in this release, so every existing layout keeps NULL;
-     * issue 263 makes every save carry one and draws no layout without one, and
-     * the contract half rebuilds the table with it NOT NULL. RESTRICT, like
+     * "Draw a dashboard against the screen sizes its account has" (issue 263)
+     * makes every save carry one and draws no layout without one, and the
+     * contract half rebuilds the table with it NOT NULL. RESTRICT, like
      * everything else here: deleting a size has to say what happens to the
      * layouts at it rather than taking them silently.
      */

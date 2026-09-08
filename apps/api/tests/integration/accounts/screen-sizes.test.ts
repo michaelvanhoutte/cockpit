@@ -93,7 +93,7 @@ describe('Layouts', () => {
       expect(snapshot.screenSizes).toEqual([]);
     });
 
-    it('is an empty list where the account has none, which is every account until issue 263', async () => {
+    it('is an empty list where the account has none, which is every account so far', async () => {
       const snapshot = await snapshotOf(WORKSPACE_ID);
 
       expect(snapshot.screenSizes).toEqual([]);
@@ -101,7 +101,7 @@ describe('Layouts', () => {
   });
 
   describe('a layout says which screen size it is for, or that it is for none', () => {
-    it('comes back naming no size, which is every layout until issue 263', async () => {
+    it('comes back naming no size, which is every layout while nothing writes one', async () => {
       // The other half of the shape this release changes, and it needs saying
       // out loud: `layoutSchema` defaults `screenSizeId` to null, so a read
       // path that stopped selecting the column would leave every case above

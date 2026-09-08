@@ -718,7 +718,7 @@ describe('Layouts', () => {
       ).rejects.toThrow();
     });
 
-    it('is stored with no size at all, which is every layout until issue 263', async () => {
+    it('is stored with no size at all, which is every layout while nothing writes one', async () => {
       await expect(putLayoutAt()).resolves.toBeUndefined();
     });
 

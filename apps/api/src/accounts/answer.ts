@@ -34,7 +34,8 @@ export interface AccountSnapshot {
    * Types above, and in the workspace's snapshot for the same reason ("Give the
    * account a list of screen sizes, before anything reads it", issue 262).
    *
-   * Empty in every account until issue 263, since nothing writes one yet.
+   * Empty in every account until "Draw a dashboard against the screen sizes
+   * its account has" (issue 263), since nothing writes one yet.
    */
   screenSizes: ScreenSize[];
   /** POC (own-event refetch): the newest change this snapshot is built on. */
