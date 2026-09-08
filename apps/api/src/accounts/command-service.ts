@@ -845,6 +845,16 @@ export function runCommand<N extends CommandName>(
       let screenSizeId: string | null = null;
       let name = cmd.name;
       let makingSize: { id: string; name: string; width: number } | null = null;
+      // A Layout from before this release, named by the removed
+      // `nameForScreen` bands - "Wide", "Phone", "Tablet", "Laptop" - and
+      // never touched again: the new code never draws it, the menu never
+      // lists it (both read by `screenSizeId`, which it has none of), and
+      // nothing can rename or remove it. It still holds its folded name
+      // against the index below, so it is cleared here rather than left to
+      // block, forever and invisibly, the first size anyone names the same
+      // word its Dashboard happened to be arranged for. Nothing is lost that
+      // was not already lost the moment this release stopped drawing it.
+      let supersedingLegacyLayoutId: string | null = null;
       if (!held) {
         if (cmd.screenSizeId) {
           // Explicit - "Define a layout for X". A tab that raced a delete of
@@ -891,7 +901,14 @@ export function runCommand<N extends CommandName>(
         // actually in the way, rather than left to surface as the raw
         // constraint the index behind it would otherwise raise.
         const sameNameElsewhere = layoutNamed(its, name);
-        if (sameNameElsewhere) throw new LayoutNameTakenError(sameNameElsewhere.name);
+        if (sameNameElsewhere) {
+          if (sameNameElsewhere.screenSizeId !== null) {
+            throw new LayoutNameTakenError(sameNameElsewhere.name);
+          }
+          // A legacy Layout is in the way rather than a live one - see the
+          // comment on `supersedingLegacyLayoutId` above.
+          supersedingLegacyLayoutId = sameNameElsewhere.id;
+        }
       }
       // Every screen size is the account's, offered in every Workspace it has -
       // see `create_screen_size`. Only where this save makes one; an ordinary
@@ -899,6 +916,27 @@ export function runCommand<N extends CommandName>(
       if (makingSize) everyWorkspaceSees(commandRow);
       const arrangement = arrangementRows(tenantId, cmd.layoutId, cmd.rows);
       db.transaction((tx) => {
+        if (supersedingLegacyLayoutId) {
+          // Its placements and rows first, the same order `delete_layout`
+          // takes, so the folded name it was holding is free by the time the
+          // insert below runs.
+          tx.delete(panelPlacements)
+            .where(
+              and(
+                eq(panelPlacements.tenantId, tenantId),
+                eq(panelPlacements.layoutId, supersedingLegacyLayoutId),
+              ),
+            )
+            .run();
+          tx.delete(layoutRows)
+            .where(
+              and(eq(layoutRows.tenantId, tenantId), eq(layoutRows.layoutId, supersedingLegacyLayoutId)),
+            )
+            .run();
+          tx.delete(layouts)
+            .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, supersedingLegacyLayoutId)))
+            .run();
+        }
         if (makingSize) {
           tx.insert(screenSizes)
             .values({

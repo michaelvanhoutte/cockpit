@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { PANEL_TEXT_LIMIT } from '@cockpit/shared';
 import type { Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
-import { WORKSPACE_ID, alsoWorkspaces, asUser, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  ACCOUNT_NAME,
+  WORKSPACE_ID,
+  alsoWorkspaces,
+  asUser,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`asUser`), because every rule
@@ -921,6 +929,49 @@ describe('Layouts', () => {
 
       expect(again.status).toBe(409);
       expect(await layoutsOf(dashboardId)).toHaveLength(1);
+    });
+
+    it('supersedes a legacy layout in the way, rather than refusing every save forever', async () => {
+      // A Layout from before this release has `screen_size_id` NULL and is
+      // still named after the removed screen bands ("Wide"/"Phone"/"Tablet"/
+      // "Laptop") - nothing in this release writes one, but nothing removes
+      // one already there either. It is invisible and unmanageable in the
+      // new UI, so it must not be able to permanently block every future
+      // save on its dashboard merely by holding a name a screen size is
+      // later given.
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+      expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
+      const legacyLayoutId = nextId();
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO layouts
+             (id, tenant_id, dashboard_id, name, folded_name, screen_width, screen_size_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+          legacyLayoutId,
+          ACCOUNT_NAME,
+          dashboardId,
+          'Wide',
+          'wide',
+          1280,
+          AT,
+        );
+      });
+
+      const screenSizeId = await aScreenSize('Wide', 1280);
+      const saved = await saveLayout(
+        dashboardId,
+        nextId(),
+        1280,
+        [{ panelId, span: 12 }],
+        screenSizeId,
+      );
+
+      expect(saved.status).toBe(200);
+      const layouts = await layoutsOf(dashboardId);
+      expect(layouts).toHaveLength(1);
+      expect(layouts[0]!.id).not.toBe(legacyLayoutId);
+      expect(layouts[0]!.screenSizeId).toBe(screenSizeId);
     });
 
     it('lets another dashboard have a layout at the same size', async () => {
