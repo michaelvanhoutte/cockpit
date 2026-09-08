@@ -21,3 +21,15 @@ export function screenSizeNamed(
 ): ScreenSize | undefined {
   return namedTheSame(taken, name, except);
 }
+
+/**
+ * The id the account's *Default* screen size has, derived rather than sent -
+ * the same rule `firstDashboardId` follows (domain/dashboards.ts), and for the
+ * same reason: `save_layout` makes this size at most once per account, and a
+ * server-generated id would let a retry under a fresh request id make a second
+ * one. Derived from the tenant's own id, there is only ever one to conflict
+ * with.
+ */
+export function defaultScreenSizeId(tenantId: string): string {
+  return `${tenantId}-screen-size-default`;
+}

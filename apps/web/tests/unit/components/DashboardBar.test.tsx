@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Dashboard, Layout, Panel, ScreenSize, WorkspaceSnapshot } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
@@ -20,6 +20,7 @@ const held = vi.hoisted(() => ({
   dashboards: [] as Dashboard[],
   panels: [] as Panel[],
   layouts: [] as Layout[],
+  screenSizes: [] as ScreenSize[],
   /**
    * Which dashboard the address names, so the stand-in `Link` below can mark
    * that tab the way the router marks it. Without it no tab is ever current
@@ -94,7 +95,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         layouts: held.layouts,
         associations: [],
         itemTypes: [],
-    screenSizes: [],
+        screenSizes: held.screenSizes,
         filings: [],
         generatedAt: '2026-09-01T09:00:00.000Z',
       } as WorkspaceSnapshot),
@@ -146,6 +147,7 @@ function showBar(
     openDashboardId?: string | null;
     panels?: Panel[];
     layouts?: Layout[];
+    screenSizes?: ScreenSize[];
     /** What a Save comes back with, the form sending its own change. */
     sendFails?: Error;
   } = {},
@@ -153,6 +155,7 @@ function showBar(
   held.dashboards = names.map(aDashboard);
   held.panels = answer.panels ?? [];
   held.layouts = answer.layouts ?? [];
+  held.screenSizes = answer.screenSizes ?? [];
   held.openDashboardId = answer.openDashboardId ?? null;
   wentTo.calls = [];
   const asked: { error: Error | null; variables: unknown } = {
@@ -640,14 +643,18 @@ describe('Panels', () => {
 describe('Layouts', () => {
   const OPEN = 'ws-work-dashboard 1';
 
-  function aLayout(id: string, name: string, screenWidth: number): Layout {
+  function aScreenSize(id: string, name: string, width: number): ScreenSize {
+    return { id, tenantId: 'tenant', name, width, createdAt: '2026-09-01T09:00:00.000Z' };
+  }
+
+  function aLayout(id: string, screenSizeId: string, screenWidth: number): Layout {
     return {
       id,
       tenantId: 'tenant',
       dashboardId: OPEN,
-      name,
+      name: id,
       screenWidth,
-      screenSizeId: null,
+      screenSizeId,
       rows: [{ height: null, cells: [{ panelId: 'falcon', span: 12 }] }],
     };
   }
@@ -693,7 +700,11 @@ describe('Layouts', () => {
 
   describe('the dashboard’s own controls are on the right of its bar, and only where there is one', () => {
     it('offers the layout in use and the way to add a panel while a dashboard is open', async () => {
-      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: [aLayout('l', 'Wide', 1280)] });
+      showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('l', 'sz-wide', 1280)],
+        screenSizes: [aScreenSize('sz-wide', 'Wide', 1280)],
+      });
 
       expect(
         await screen.findByRole('button', { name: /^Layout for this dashboard/ }),
@@ -713,66 +724,64 @@ describe('Layouts', () => {
     });
   });
 
-  describe('the control names the layout you are looking at, and its menu offers only layouts', () => {
-    /** A pick of `layoutId`, made on a screen whose nearest layout is `whileNearestIs`. */
-    function picked(layoutId: string, whileNearestIs: string) {
-      localStorage.setItem(
-        'cockpit.layout.' + OPEN,
-        JSON.stringify({ layoutId, whileNearestIs }),
-      );
+  describe('the control names the size you are looking at, and its menu offers only what this dashboard has, plus what it can define', () => {
+    /** A pick of `screenSizeId`, made on a screen whose account-nearest size is `whileNearestIs`. */
+    function picked(screenSizeId: string, whileNearestIs: string) {
+      localStorage.setItem('cockpit.layoutPick', JSON.stringify({ screenSizeId, whileNearestIs }));
     }
 
-    const BOTH = [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)];
+    const SIZES = [aScreenSize('sz-laptop', 'Laptop', 1280), aScreenSize('sz-wide', 'Wide', 2560)];
+    const BOTH = [aLayout('laptop', 'sz-laptop', 1280), aLayout('wide', 'sz-wide', 2560)];
 
     it.each([
       { situation: 'nothing has been picked in this browser', pick: null, names: 'Laptop' },
       {
-        situation: 'a layout was picked by hand, on this screen',
-        pick: ['wide', 'laptop'],
+        situation: 'a size was picked by hand, on this screen',
+        pick: ['sz-wide', 'sz-laptop'],
         names: 'Wide',
       },
       // The screen moved out from under the pick, which is the feature: *Wide*
       // was pressed on the 4K screen and this is the laptop, so the bar names
       // the laptop's own layout rather than the one still stored.
       {
-        situation: 'a layout picked on a screen you have since left',
-        pick: ['wide', 'wide'],
+        situation: 'a size picked on a screen you have since left',
+        pick: ['sz-wide', 'sz-wide'],
         names: 'Laptop',
       },
       // The stored pick outlives the layout it names: falling through to the
       // nearest remaining one is deliberate, and nothing clears the id.
       {
-        situation: 'a picked layout another device deleted',
-        pick: ['deleted-elsewhere', 'laptop'],
+        situation: 'a picked size whose layout another device removed',
+        pick: ['gone', 'sz-laptop'],
         names: 'Laptop',
       },
     ])('$situation', async ({ pick, names }) => {
       if (pick) picked(pick[0]!, pick[1]!);
-      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH, screenSizes: SIZES });
 
       await theControl(names);
     });
 
-    it('says nothing about how the layout was picked, there being no mode to be in', async () => {
+    it('says nothing about how the size was picked, there being no mode to be in', async () => {
       // The badge said which of two ways you were on a layout, and it went with
       // the mode it was reporting on. A dashboard follows the screen now.
-      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH, screenSizes: SIZES });
 
       expect(await theControl('Laptop')).not.toHaveTextContent('Auto');
     });
 
     it.each([
       { situation: 'nothing has been picked', pick: null, announced: 'Laptop' },
-      { situation: 'a layout was picked by hand', pick: ['wide', 'laptop'], announced: 'Wide' },
-    ])('names the layout in use to a screen reader too, when $situation', async ({
+      { situation: 'a size was picked by hand', pick: ['sz-wide', 'sz-laptop'], announced: 'Wide' },
+    ])('names the size in use to a screen reader too, when $situation', async ({
       pick,
       announced,
     }) => {
       // The label used to name the control and not its value, so anything not
       // looking at the bar was told there was a layout control and never which
-      // layout - which is the whole of what it is for.
+      // size - which is the whole of what it is for.
       if (pick) picked(pick[0]!, pick[1]!);
-      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH, screenSizes: SIZES });
 
       expect(
         await screen.findByRole('button', {
@@ -783,18 +792,18 @@ describe('Layouts', () => {
 
     it.each([
       { situation: 'nothing has been picked', pick: null, marks: 'Laptop' },
-      { situation: 'a layout was picked by hand', pick: ['wide', 'laptop'], marks: 'Wide' },
-      // Read raw, a pick naming a layout that has gone would leave the menu
-      // marking nothing at all - the undifferentiated list this control exists
-      // to replace, one menu deeper.
+      { situation: 'a size was picked by hand', pick: ['sz-wide', 'sz-laptop'], marks: 'Wide' },
+      // Read raw, a pick naming a size this dashboard no longer has a layout at
+      // would leave the menu marking nothing at all - the undifferentiated
+      // list this control exists to replace, one menu deeper.
       {
-        situation: 'a picked layout another device deleted',
-        pick: ['deleted-elsewhere', 'laptop'],
+        situation: 'a picked size whose layout another device removed',
+        pick: ['gone', 'sz-laptop'],
         marks: 'Laptop',
       },
-    ])('marks the layout actually drawn, when $situation', async ({ pick, marks }) => {
+    ])('marks the size actually drawn, when $situation', async ({ pick, marks }) => {
       if (pick) picked(pick[0]!, pick[1]!);
-      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH, screenSizes: SIZES });
 
       await user.click(await theControl(marks));
 
@@ -804,22 +813,26 @@ describe('Layouts', () => {
       );
     });
 
-    it('lists the layouts and no entry that is not one', async () => {
+    it('lists the sizes this dashboard has defined as choices, and the rest as things to define', async () => {
       // There was an *Automatic* row above them, meaning "draw whichever is
       // nearest". Following the screen is what a dashboard does rather than a
-      // row you can be on, so the list is layouts and only layouts.
-      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+      // row you can be on, so the radio list is only the sizes it has.
+      const { user } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        screenSizes: SIZES,
+      });
 
       await user.click(await theControl('Laptop'));
 
       expect(screen.getAllByRole('menuitemradio').map((entry) => entry.textContent)).toEqual([
-        'Laptopmade at 1280 px',
-        'Widemade at 2560 px',
+        'Laptop1280 px',
       ]);
+      expect(screen.getByRole('menuitem', { name: /^Wide/ }).textContent).toBe('Wide2560 px');
     });
 
-    it('puts you on the layout you press, for as long as you are on this screen', async () => {
-      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+    it('puts you on the size you press, for as long as you are on this screen', async () => {
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH, screenSizes: SIZES });
 
       await user.click(await theControl('Laptop'));
       await user.click(screen.getByRole('menuitemradio', { name: /^Wide/ }));
@@ -827,199 +840,168 @@ describe('Layouts', () => {
       await theControl('Wide');
       // The answer it overrides, not the width it was pressed at: that is what
       // makes it expire on the screen rather than on a resize.
-      expect(JSON.parse(localStorage.getItem('cockpit.layout.' + OPEN)!)).toEqual({
-        layoutId: 'wide',
-        whileNearestIs: 'laptop',
+      expect(JSON.parse(localStorage.getItem('cockpit.layoutPick')!)).toEqual({
+        screenSizeId: 'sz-wide',
+        whileNearestIs: 'sz-laptop',
       });
     });
 
-    it('goes back to the screen’s own layout when you press the one it would draw', async () => {
-      // Pressing the nearest layout is the way out of a pick, and the only one
+    it('goes back to the screen’s own size when you press the one it would draw', async () => {
+      // Pressing the nearest size is the way out of a pick, and the only one
       // from the menu - which is why it is stored even though it changes
       // nothing on its own. Without it the press would be a no-op and *Wide*
-      // would still be drawn on a screen whose own layout is *Laptop*.
-      picked('wide', 'laptop');
-      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH });
+      // would still be drawn on a screen whose own size is *Laptop*.
+      picked('sz-wide', 'sz-laptop');
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: BOTH, screenSizes: SIZES });
 
       await user.click(await theControl('Wide'));
       await user.click(screen.getByRole('menuitemradio', { name: /^Laptop/ }));
 
       await theControl('Laptop');
     });
-
-    it('draws a layout written before names existed as the width it was made for', async () => {
-      // What old code writes for the seconds of a deploy that both versions
-      // serve. A blank entry in the menu would be worse than the old label.
-      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: [aLayout('l', '', 1440)] });
-
-      await theControl('1440 px');
-    });
-
-    it('draws one from a copy stored before names existed, rather than taking the bar down', async () => {
-      // Not an empty name but no name at all, which is what the stored copy
-      // holds: nothing parses what comes back out of IndexedDB, so a layout
-      // written before the name existed arrives without the field. Reading it
-      // threw inside this control and took the whole workspace off screen.
-      const nameless = { ...aLayout('l', '', 1440) } as Partial<Layout>;
-      delete nameless.name;
-      showBar(['Dashboard 1'], { openDashboardId: OPEN, layouts: [nameless as Layout] });
-
-      await theControl('1440 px');
-    });
   });
 
-  describe('a dashboard that has a layout keeps one', () => {
-    it('says why the only one cannot go, rather than offering it and refusing', async () => {
-      const { user } = showBar(['Dashboard 1'], {
+  describe('removing a dashboard’s only layout is allowed', () => {
+    it('takes it with one press, and the dashboard is drawn fitted to the screen', async () => {
+      const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
-        layouts: [aLayout('l', 'Wide', 1280)],
+        layouts: [aLayout('l', 'sz-wide', 1280)],
+        screenSizes: [aScreenSize('sz-wide', 'Wide', 1280)],
       });
 
       await user.click(await theControl('Wide'));
+      await user.click(screen.getByRole('menuitem', { name: "Remove this dashboard's Wide layout" }));
 
-      expect(
-        screen.getByRole('menuitem', { name: /A dashboard keeps at least one layout/ }),
-      ).toHaveAttribute('aria-disabled', 'true');
-    });
-
-    it('offers the delete when there is another layout to fall back to', async () => {
-      const { user } = showBar(['Dashboard 1'], {
-        openDashboardId: OPEN,
-        layouts: [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)],
-      });
-
-      await user.click(await theControl('Laptop'));
-
-      expect(screen.getByRole('menuitem', { name: 'Delete Laptop' })).not.toHaveAttribute(
-        'aria-disabled',
-      );
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('delete_layout');
+      expect(asked.payload.layoutId).toBe('l');
     });
   });
 
-  describe('a layout is renamed, made and deleted from the same control', () => {
-    it('renames the one being drawn, without resending the arrangement', async () => {
+  describe('a screen size is renamed, made and defined at, and removed - from the same control', () => {
+    it('renames the size in use, without resending the arrangement', async () => {
       // Its own command, so a bar holding a stale arrangement cannot put the
       // panels back as the price of changing a word.
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
-        layouts: [aLayout('laptop', 'Laptop', 1280)],
+        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        screenSizes: [aScreenSize('sz-laptop', 'Laptop', 1280)],
       });
 
       await user.click(await theControl('Laptop'));
       await user.click(screen.getByRole('menuitem', { name: 'Rename Laptop…' }));
-      const box = screen.getByLabelText('New name for this layout');
+      const box = screen.getByLabelText('New name for this screen size');
       await user.clear(box);
       await user.type(box, '  The big one  ');
       await user.click(screen.getByRole('button', { name: 'Rename' }));
 
       const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('rename_layout');
-      expect(asked.payload.layoutId).toBe('laptop');
+      expect(asked.name).toBe('rename_screen_size');
+      expect(asked.payload.screenSizeId).toBe('sz-laptop');
       expect(asked.payload.name).toBe('The big one');
-      expect(asked.payload.placements).toBeUndefined();
     });
 
-    it('makes a new one from the arrangement on screen, and puts you on it', async () => {
-      // The one layout it has was made for a wider screen than this one, so
-      // what is being made here is the nearest thing to 1280 the moment it
-      // lands - the ordinary case, with the tie below as the other one.
+    it('makes a new screen size and defines a layout at it from the arrangement on screen, and puts you on it', async () => {
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
         panels: [FALCON],
-        layouts: [aLayout('wide', 'Wide', 2560)],
+        layouts: [aLayout('wide', 'sz-wide', 2560)],
+        screenSizes: [aScreenSize('sz-wide', 'Wide', 2560)],
       });
 
       await user.click(await theControl('Wide'));
-      await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
+      await user.click(screen.getByRole('menuitem', { name: 'New screen size…' }));
+      const box = screen.getByLabelText('Name of the new screen size');
+      await user.type(box, 'Laptop');
       await user.click(screen.getByRole('button', { name: 'Create' }));
 
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('save_layout');
-      expect(asked.payload.screenWidth).toBe(1280);
-      // A copy, which is what "from this one" means.
-      expect(asked.payload.rows).toEqual([
+      const [madeSize, definedLayout] = mutate.mock.calls;
+      expect(madeSize![0].name).toBe('create_screen_size');
+      expect(madeSize![0].payload.name).toBe('Laptop');
+      expect(madeSize![0].payload.width).toBe(1280);
+      expect(definedLayout![0].name).toBe('save_layout');
+      expect(definedLayout![0].payload.screenSizeId).toBe(madeSize![0].payload.screenSizeId);
+      // A copy, which is what "starts as a copy" means.
+      expect(definedLayout![0].payload.rows).toEqual([
         { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
       ]);
       // Making one and then having to pick it is two gestures for what reads
-      // as one - and on this screen only, since a layout made on the laptop is
-      // not one the 4K screen should be left drawing. It is recorded at this
-      // width, so it is what the screen will land on by itself.
-      expect(JSON.parse(localStorage.getItem('cockpit.layout.' + OPEN)!)).toEqual({
-        layoutId: asked.payload.layoutId,
-        whileNearestIs: asked.payload.layoutId,
+      // as one - and on this screen only. Nothing already at this exact
+      // width, so the size just made ties with nothing and is its own
+      // nearest answer here - which is what lets a real move to a screen an
+      // existing size already answers for expire the pick correctly, rather
+      // than reading the account's stale, pre-creation list and naming a size
+      // that was never actually near this screen.
+      expect(JSON.parse(localStorage.getItem('cockpit.layoutPick')!)).toEqual({
+        screenSizeId: madeSize![0].payload.screenSizeId,
+        whileNearestIs: madeSize![0].payload.screenSizeId,
       });
     });
 
-    it('puts you on a new one made at a width another layout already has', async () => {
-      // The tie-break hands the width rule to whichever came first, so the one
-      // just made is not what the screen would land on - and making a layout
-      // and not being put on it is the gesture failing in front of you. This
-      // is the case that makes recording the pick necessary at all.
+    it('puts you on a new screen size made at a width another size already has', async () => {
+      // The tie-break hands the width rule to whichever came first, so the
+      // one just made is not what the screen would land on by itself - and
+      // making a size and not being put on it is the gesture failing in
+      // front of you. This is the case that makes recording the pick
+      // necessary at all.
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
         panels: [FALCON],
-        layouts: [aLayout('laptop', 'Laptop', 1280)],
+        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        screenSizes: [aScreenSize('sz-laptop', 'Laptop', 1280)],
       });
 
       await user.click(await theControl('Laptop'));
-      await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
+      await user.click(screen.getByRole('menuitem', { name: 'New screen size…' }));
+      await user.type(screen.getByLabelText('Name of the new screen size'), 'Also 1280');
       await user.click(screen.getByRole('button', { name: 'Create' }));
 
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.payload.screenWidth).toBe(1280);
-      expect(JSON.parse(localStorage.getItem('cockpit.layout.' + OPEN)!)).toEqual({
-        layoutId: asked.payload.layoutId,
-        whileNearestIs: 'laptop',
+      const [madeSize] = mutate.mock.calls;
+      expect(madeSize![0].payload.width).toBe(1280);
+      expect(JSON.parse(localStorage.getItem('cockpit.layoutPick')!)).toEqual({
+        screenSizeId: madeSize![0].payload.screenSizeId,
+        whileNearestIs: 'sz-laptop',
       });
     });
 
-    it('copies the arrangement as drawn, not the one stored, so it cannot name a panel that has gone', async () => {
-      // The layout still names a panel the dashboard no longer has. The board
-      // reconciles that when it draws (`drawnArrangement`); the copy has to as
-      // well, or it sends a placement the server refuses outright.
+    it('defines a layout for a size the account already has but this dashboard has not, copying what is drawn', async () => {
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
-        panels: [],
-        layouts: [aLayout('laptop', 'Laptop', 1280)],
+        panels: [FALCON],
+        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        screenSizes: [aScreenSize('sz-laptop', 'Laptop', 1280), aScreenSize('sz-phone', 'Phone', 480)],
       });
 
       await user.click(await theControl('Laptop'));
-      await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
-      await user.click(screen.getByRole('button', { name: 'Create' }));
+      await user.click(screen.getByRole('menuitem', { name: /^Phone/ }));
+      expect(screen.getByRole('alertdialog')).toHaveTextContent(
+        'Give this dashboard its own layout for Phone? It starts as a copy of Laptop.',
+      );
+      await user.click(screen.getByRole('button', { name: 'Yes, define Phone' }));
 
-      expect(mutate.mock.calls[0]![0].payload.rows).toEqual([]);
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('save_layout');
+      expect(asked.payload.screenSizeId).toBe('sz-phone');
+      expect(asked.payload.rows).toEqual([
+        { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+      ]);
     });
 
-    it('offers a name for the screen it is being made on, free on this dashboard', async () => {
-      // The server refuses a name this dashboard already holds, and the offered
-      // one is generated rather than typed - so a press cannot be met with a
-      // collision the person did not cause.
-      const { user } = showBar(['Dashboard 1'], {
-        openDashboardId: OPEN,
-        layouts: [aLayout('wide', 'Wide', 1280)],
-      });
-
-      await user.click(await theControl('Wide'));
-      await user.click(screen.getByRole('menuitem', { name: 'New layout from this one…' }));
-
-      // 1280px is a wide screen, and this dashboard already has a *Wide*.
-      expect(screen.getByLabelText('Name of the new layout')).toHaveValue('Wide 2');
-    });
-
-    it('asks before deleting one, and says the panels are staying', async () => {
+    it('asks before deleting a size everywhere, naming what goes', async () => {
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
-        layouts: [aLayout('laptop', 'Laptop', 1280), aLayout('wide', 'Wide', 2560)],
+        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        screenSizes: [aScreenSize('sz-laptop', 'Laptop', 1280)],
       });
 
       await user.click(await theControl('Laptop'));
-      await user.click(screen.getByRole('menuitem', { name: 'Delete Laptop' }));
-      expect(screen.getByRole('alertdialog')).toHaveTextContent(/The panels stay/);
-      await user.click(screen.getByRole('button', { name: 'Yes, delete Laptop' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Delete Laptop everywhere' }));
+      expect(screen.getByRole('alertdialog')).toHaveTextContent(/every workspace/);
+      await user.click(screen.getByRole('button', { name: 'Yes, delete Laptop everywhere' }));
 
       const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('delete_layout');
-      expect(asked.payload.layoutId).toBe('laptop');
+      expect(asked.name).toBe('delete_screen_size');
+      expect(asked.payload.screenSizeId).toBe('sz-laptop');
     });
   });
 });

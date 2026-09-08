@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { GRID_COLUMNS, MIN_ROW_HEIGHT, uuidv7 } from '@cockpit/shared';
-import type { Dashboard, Filing, Item, Layout, LayoutRow, Panel } from '@cockpit/shared';
+import type { Dashboard, Filing, Item, Layout, LayoutRow, Panel, ScreenSize } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { itemsOnPanel } from '../filing';
@@ -12,12 +12,9 @@ import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
   dividerMoved,
   drawnRows,
-  layoutLabel,
-  layoutsOf,
   layoutToDraw,
   movedBeside,
   movedBy,
-  nameForScreen,
   sameArrangement,
   sharesOf,
   withRowHeight,
@@ -65,6 +62,7 @@ export function PanelBoard({
   dashboard,
   panels,
   layouts,
+  screenSizes,
   items,
   filings,
 }: {
@@ -72,6 +70,8 @@ export function PanelBoard({
   dashboard: Dashboard;
   panels: readonly Panel[];
   layouts: readonly Layout[];
+  /** Every screen size the account has, whether or not this dashboard has defined one at it. */
+  screenSizes: readonly ScreenSize[];
   /** Every open item of the workspace; each panel is handed the ones filed on it. */
   items: readonly Item[];
   filings: readonly Filing[];
@@ -96,7 +96,7 @@ export function PanelBoard({
    * this is the page, that is the shell - so what they share is a store rather
    * than a prop one would have to be handed through the router.
    */
-  const [pick, choose] = useChosenLayout(browserStore(), dashboard.id);
+  const [pick, choose] = useChosenLayout(browserStore());
   /**
    * An arrangement that has been made but not yet stored. It is what the board
    * draws while it exists, so the panel really does move under the hand that
@@ -188,8 +188,7 @@ export function PanelBoard({
     latest: LayoutRow[];
   } | null>(null);
 
-  const its = layoutsOf(layouts, dashboard.id);
-  const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth, pick);
+  const drawnWith = layoutToDraw(layouts, screenSizes, dashboard.id, screenWidth, pick);
   const stored = drawnRows(drawnWith, panels, acrossWidth);
   // The preview while a drag is on, then a draft that has been sent and is
   // waiting for the store to agree, then what the store holds.
@@ -239,7 +238,6 @@ export function PanelBoard({
 
   const saveArrangement = (
     layoutId: string,
-    nameIfNew: string,
     screenWidthOfLayout: number,
     rows: readonly LayoutRow[],
   ) => {
@@ -252,10 +250,10 @@ export function PanelBoard({
           workspaceId,
           dashboardId: dashboard.id,
           layoutId,
-          // Read by the server only where this save is the one creating the
-          // layout, so a board holding a name from before a rename cannot put
-          // the old one back.
-          name: nameIfNew,
+          // Never read once a screen size is resolved, which every creation
+          // now does - see `saveLayoutSchema`, `screenSizeId`. Kept only
+          // because the column it fills is still required.
+          name: 'Layout',
           screenWidth: screenWidthOfLayout,
           // Named field by field rather than sent as read, so a row that
           // arrived from a snapshot with something extra on it cannot carry
@@ -268,16 +266,10 @@ export function PanelBoard({
       },
       {
         onSuccess: () => {
-          // The board only ever saves into the layout it is drawing, so the
-          // pick is already right - except where it names a layout that is not
-          // there. Either half can go: another device deletes the layout you
-          // picked, or the one your pick was overriding. Both are already inert
-          // (arrangement.ts falls through to the nearest), so this only clears
-          // the value out rather than changing what is drawn - and it is
-          // cleared rather than repointed, because falling through is the
-          // dashboard following the screen, which is what it should be doing.
-          const alive = (id: string) => its.some((layout) => layout.id === id);
-          if (pick && !(alive(pick.layoutId) && alive(pick.whileNearestIs))) choose(null);
+          // The pick needs no help here: a pick naming a size this dashboard
+          // no longer has, or whose account-nearest answer has moved on, is
+          // already inert or expired on its own (arrangement.ts,
+          // `layoutToDraw`) - nothing has to notice either case and clear it.
           void settle();
         },
         /**
@@ -355,25 +347,14 @@ export function PanelBoard({
     command.reset();
     setDraft(next);
     if (drawnWith) {
-      // The label rather than the stored name, and the difference is not
-      // cosmetic: a name is required on the way in, and a layout can genuinely
-      // have none. Every layout in a snapshot cached before names existed
-      // parses with an empty one (`layoutSchema`), as does one old code wrote
-      // during the deploy - so sending the stored name would have the first
-      // drag after an upgrade refused for a field the person never typed. The
-      // server ignores it on a layout that already exists either way.
-      saveArrangement(drawnWith.id, layoutLabel(drawnWith), drawnWith.screenWidth, next);
+      saveArrangement(drawnWith.id, drawnWith.screenWidth, next);
       return;
     }
-    // The first arrangement of a dashboard names its layout after the screen it
-    // was made on - *Wide*, *Laptop*, *Phone*. Asking would be the question
-    // this feature exists to remove, one gesture earlier.
-    //
-    // Nothing has to make that name free here, unlike in the picker: there is
-    // no layout to draw only when the dashboard has none at all (`layoutToDraw`
-    // returns the closest of whatever it is given), so there is nothing on this
-    // dashboard for the name to collide with.
-    saveArrangement(layoutForThisScreen(), nameForScreen(screenWidth), screenWidth, next);
+    // Nothing defined asks nothing: the server keeps this in the nearest
+    // screen size the account has, or makes one called Default where it has
+    // none at all (`save_layout`, `screenSizeId`) - the same silent choice
+    // making a layout used to be, one layer further down.
+    saveArrangement(layoutForThisScreen(), screenWidth, next);
   };
 
   /**

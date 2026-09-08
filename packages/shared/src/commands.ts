@@ -292,10 +292,20 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
  * layout you are on by name and every change goes into it ("Pick the layout you
  * are on, by name"), so the id sent is simply the id of the layout on screen.
  *
- * **`name` and `screenWidth` are only read when the layout is created.** A
- * layout records the width it was made at, so changing one from another screen
- * must not quietly move it to that screen; and a rename is `rename_layout`, so
- * an arrangement saved from a tab holding a stale name cannot rename it back.
+ * **`name` and `screenWidth` are only read when the layout is created**, and so
+ * is `screenSizeId` now beside them - a rename is `rename_layout` (or, since a
+ * Layout's name is nobody's business now, `rename_screen_size`), and a screen
+ * size is fixed at creation the same way a layout's own width always has been.
+ *
+ * **`screenSizeId` names which size this save defines a Layout for, and is
+ * optional for the one case that cannot name one in advance**: an ordinary
+ * arrangement gesture on a Dashboard with nothing defined asks nothing ("A
+ * change goes into the layout in use, and is kept even where there is none"),
+ * so the id is resolved on the way in - the nearest size the account has, or a
+ * size called *Default* at `screenWidth` where the account has none at all.
+ * Sent explicitly, it is what *Define a layout for X* means, and `name` is
+ * ignored either way: what a Layout is called, to the one place left that
+ * still asks, is the screen size's own name.
  *
  * The order of `placements` is the order the panels are drawn in. Nothing else
  * carries it, which is why this is a list rather than a map.
@@ -303,15 +313,26 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
 export const saveLayoutSchema = commandEnvelopeSchema.extend({
   dashboardId: z.string(),
   layoutId: z.uuid(),
-  /** What to call it, where this is the save that creates it. */
+  /**
+   * What to call it, where this is the save that creates it - ignored once a
+   * screen size is resolved, which is every creation now, and kept only for as
+   * long as the column it fills is (`layoutSchema`, `screenSizeId`).
+   */
   name: layoutNameSchema,
   /**
    * The width of the screen this arrangement was made on, in CSS pixels.
-   * Bounded so a layout can never record a width no screen has: the automatic
-   * choice is "the layout whose width is closest to this screen", and one
-   * absurd entry would win it everywhere or nowhere.
+   * Bounded so a layout can never record a width no screen has - which
+   * matters even now that the automatic choice reads a screen size's own
+   * width instead: it is still what a size gets made at, where none exists to
+   * resolve against (see `screenSizeId`).
    */
   screenWidth: z.number().int().min(1).max(100_000),
+  /**
+   * Which screen size this save defines a Layout for, where this is the save
+   * that creates it. Optional - see the class comment for what happens where
+   * it is left out.
+   */
+  screenSizeId: z.uuid().optional(),
   /**
    * The rows, top to bottom. An arrangement is the whole list, so a layout
    * saved with none is a layout arranging nothing - which is what a dashboard
@@ -350,12 +371,14 @@ export type RenameLayoutCommand = z.infer<typeof renameLayoutSchema>;
 /**
  * delete_layout — which layout. The panels stay exactly where they are; what
  * goes is one way of arranging them, and the dashboard falls back to the
- * closest remaining one.
+ * closest one it has left, or is drawn fitted to the screen where it has none
+ * at all.
  *
- * **A dashboard that has a layout keeps one**, so deleting the last is refused
- * ("Pick the layout you are on, by name"). A dashboard that has never been
- * arranged has none and is drawn fitted to the screen it is on; what this
- * protects is an arrangement somebody made, not the existence of a row.
+ * **Deleting a dashboard's last layout is allowed** ("Draw a dashboard against
+ * the screen sizes its account has") - having none is a normal state, not one
+ * this protects against. It used to be refused; the rule is gone, and a
+ * dashboard with nothing defined being drawn fitted to the screen is what its
+ * absence now means.
  */
 export const deleteLayoutSchema = commandEnvelopeSchema.extend({
   layoutId: z.uuid(),

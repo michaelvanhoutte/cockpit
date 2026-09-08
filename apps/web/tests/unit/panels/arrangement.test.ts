@@ -1,16 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from '@cockpit/shared';
-import type { Layout, LayoutCell, LayoutRow, Panel } from '@cockpit/shared';
+import type { Layout, LayoutCell, LayoutRow, Panel, ScreenSize } from '@cockpit/shared';
 import {
   dividerMoved,
   drawnRows,
-  freeName,
   layoutLabel,
   layoutToDraw,
   movedBeside,
   movedBy,
   movedToOwnRow,
-  nameForScreen,
+  nearestLayout,
   sharesOf,
   withRowHeight,
 } from '../../../src/panels/arrangement';
@@ -22,13 +21,25 @@ import {
  * can make, and it is proved in the browser by tests/e2e/panels.test.ts.
  */
 
+function aScreenSize(id: string, width: number, name = id): ScreenSize {
+  return { id, tenantId: 'tenant', name, width, createdAt: '2026-09-08T10:00:00.000Z' };
+}
+
 function aLayout(
   id: string,
   screenWidth: number,
   rows: LayoutRow[] = [],
-  name = id,
+  screenSizeId: string | null = null,
 ): Layout {
-  return { id, tenantId: 'tenant', dashboardId: 'today', name, screenWidth, screenSizeId: null, rows };
+  return {
+    id,
+    tenantId: 'tenant',
+    dashboardId: 'today',
+    name: id,
+    screenWidth,
+    screenSizeId,
+    rows,
+  };
 }
 
 function cell(panelId: string, span: number): LayoutCell {
@@ -49,13 +60,17 @@ function aPanel(id: string): Panel {
 }
 
 describe('Layouts', () => {
-  describe('a dashboard is drawn with the layout nearest the screen it is on, unless you picked one and the nearest has not changed since', () => {
-    const phone = aLayout('phone', 480);
-    const laptop = aLayout('laptop', 1280);
-    const wide = aLayout('wide', 2560);
+  describe('a dashboard is drawn with a layout it has defined, and never with a size it has not', () => {
+    const szPhone = aScreenSize('sz-phone', 480, 'Phone');
+    const szLaptop = aScreenSize('sz-laptop', 1280, 'Laptop');
+    const szWide = aScreenSize('sz-wide', 2560, 'Wide');
+    const sizes = [szPhone, szLaptop, szWide];
+    const phone = aLayout('phone', 480, [], 'sz-phone');
+    const laptop = aLayout('laptop', 1280, [], 'sz-laptop');
+    const wide = aLayout('wide', 2560, [], 'sz-wide');
 
-    /** Picking `layoutId` on a screen the nearest layout is `whileNearestIs`. */
-    const picked = (layoutId: string, whileNearestIs: string) => ({ layoutId, whileNearestIs });
+    /** Picking `screenSizeId` on a screen the account's nearest size is `whileNearestIs`. */
+    const picked = (screenSizeId: string, whileNearestIs: string) => ({ screenSizeId, whileNearestIs });
 
     it.each([
       { situation: 'a phone', screenWidth: 480, pick: null, drawn: 'phone' },
@@ -65,71 +80,88 @@ describe('Layouts', () => {
       // than nothing at all.
       { situation: 'a tablet nothing was made for', screenWidth: 900, pick: null, drawn: 'laptop' },
       {
-        situation: 'a layout picked by hand, on the screen it was picked on',
+        situation: 'a size picked by hand, on the screen it was picked on',
         screenWidth: 480,
-        pick: picked('wide', 'phone'),
+        pick: picked('sz-wide', 'sz-phone'),
         drawn: 'wide',
       },
       // The window moved and the screen did not: a pick scoped to a width would
       // be thrown away here, and there is nothing about resizing a window that
       // means "put me back on the other layout".
       {
-        situation: 'a window resized without the nearest layout changing',
+        situation: 'a window resized without the account’s nearest size changing',
         screenWidth: 560,
-        pick: picked('wide', 'phone'),
+        pick: picked('sz-wide', 'sz-phone'),
         drawn: 'wide',
       },
       // The screen really did change, which is the whole feature: the pick was
       // made on the phone and this is the laptop, so the laptop's own layout is
       // what the dashboard goes back to.
       {
-        situation: 'moving to a screen with a layout of its own',
+        situation: 'moving to a screen with a size of its own',
         screenWidth: 1280,
-        pick: picked('wide', 'phone'),
+        pick: picked('sz-wide', 'sz-phone'),
         drawn: 'laptop',
       },
-      // Pressing the layout the screen was already going to draw is still a
+      // Pressing the size the screen was already going to draw is still a
       // pick, and it still expires: this is the 4K screen picked on the 4K
       // screen, read back from the laptop.
       {
-        situation: 'a pick of the layout that was nearest anyway, read on another screen',
+        situation: 'a pick of the size that was nearest anyway, read on another screen',
         screenWidth: 1280,
-        pick: picked('wide', 'wide'),
+        pick: picked('sz-wide', 'sz-wide'),
         drawn: 'laptop',
       },
       // A deleted layout arrives by the only route it can: the pick still names
-      // it and it is not in the list any more.
+      // its size and there is no layout at it any more.
       {
-        situation: 'a picked layout another device has since deleted',
+        situation: 'a picked size whose layout another device has since removed',
         screenWidth: 480,
-        pick: picked('gone', 'phone'),
+        pick: picked('gone', 'sz-phone'),
         drawn: 'phone',
       },
       // The other half of that, and it expires the pick rather than falling
       // through it: what the pick was overriding is no longer an answer anybody
       // can give.
       {
-        situation: 'a picked layout whose overridden answer has been deleted',
+        situation: 'a picked size whose overridden answer has been deleted',
         screenWidth: 480,
-        pick: picked('wide', 'gone'),
+        pick: picked('sz-wide', 'gone'),
         drawn: 'phone',
       },
     ])('$situation', ({ screenWidth, pick, drawn }) => {
-      expect(layoutToDraw([phone, laptop, wide], 'today', screenWidth, pick)?.id).toBe(drawn);
+      expect(layoutToDraw([phone, laptop, wide], sizes, 'today', screenWidth, pick)?.id).toBe(drawn);
     });
 
     it('goes to the narrower one when two are equally close, so two screens agree', () => {
-      expect(layoutToDraw([phone, laptop], 'today', 880, null)?.id).toBe('phone');
+      expect(layoutToDraw([phone, laptop], sizes, 'today', 880, null)?.id).toBe('phone');
     });
 
     it('draws another dashboard’s layouts with nothing of this one', () => {
-      const elsewhere = { ...aLayout('elsewhere', 1280), dashboardId: 'research' };
+      const elsewhere = { ...aLayout('elsewhere', 1280, [], 'sz-laptop'), dashboardId: 'research' };
 
-      expect(layoutToDraw([elsewhere], 'today', 1280, null)).toBeNull();
+      expect(layoutToDraw([elsewhere], sizes, 'today', 1280, null)).toBeNull();
     });
 
     it('draws a dashboard that has no layouts at all with none', () => {
-      expect(layoutToDraw([], 'today', 1280, null)).toBeNull();
+      expect(layoutToDraw([], sizes, 'today', 1280, null)).toBeNull();
+    });
+
+    it('is never drawn at a size the account has but this dashboard has not defined', () => {
+      // Only the phone is this dashboard's; the laptop and the wide sizes are
+      // the account's, offered but not chosen automatically.
+      expect(layoutToDraw([phone], sizes, 'today', 2400, null)?.id).toBe('phone');
+    });
+
+    it('draws fitted to the screen rather than a layout that predates screen sizes', () => {
+      // No `screenSizeId` at all - every layout that exists before this
+      // release, per the failure modes "Draw a dashboard against the screen
+      // sizes its account has" (issue 263) accepts: it is never chosen
+      // automatically again, however close its own recorded width is.
+      const undated = aLayout('undated', 480, []);
+
+      expect(layoutToDraw([undated], sizes, 'today', 480, null)).toBeNull();
+      expect(nearestLayout([undated], sizes, 'today', 480)).toBeNull();
     });
   });
 
@@ -467,74 +499,32 @@ describe('Layouts', () => {
   });
 
 
-  describe('a layout is known by its name, and by the width it was made for where it has none', () => {
+  describe('a layout is known by the screen size it is drawn for, and by the width it was made for where it has none', () => {
+    it('is known by its screen size’s current name, not by anything the layout itself stores', () => {
+      const wide = aScreenSize('sz-wide', 1440, 'Wide');
+      const layout = aLayout('l', 1440, [], 'sz-wide');
+
+      expect(layoutLabel(layout, [wide])).toBe('Wide');
+    });
+
+    it('follows a rename of its screen size, since the layout’s own name is never read for this', () => {
+      const layout = aLayout('l', 1440, [], 'sz-wide');
+
+      expect(layoutLabel(layout, [aScreenSize('sz-wide', 1440, 'The big one')])).toBe('The big one');
+    });
+
     it.each([
-      { situation: 'a layout somebody named', name: 'Wide', screenWidth: 1440, label: 'Wide' },
-      // What old code writes for the seconds of a deploy that both versions
-      // serve: the row is real, and the app draws it as every layout was drawn
-      // before names existed.
-      { situation: 'a layout written before names existed', name: '', screenWidth: 1440, label: '1440 px' },
-      { situation: 'a name that is only spaces', name: '   ', screenWidth: 480, label: '480 px' },
-      // Not an empty name but no name at all, which is what a copy stored
-      // before names existed holds: nothing parses what comes back out of
-      // IndexedDB, so the field is absent and the type that says otherwise is
-      // describing the parsed answer instead.
-      {
-        situation: 'a layout in a copy stored before names existed',
-        name: undefined,
-        screenWidth: 1440,
-        label: '1440 px',
-      },
-    ])('$situation', ({ name, screenWidth, label }) => {
-      expect(layoutLabel({ ...aLayout('l', screenWidth), name } as Layout)).toBe(label);
+      // A layout from before "Draw a dashboard against the screen sizes its
+      // account has" (issue 263) names no screen size at all.
+      { situation: 'a layout that predates screen sizes', screenSizeId: null, screenWidth: 1440 },
+      // Reachable only by something written straight into the store, since
+      // the app cascades a layout's own deletion with its size's - but a
+      // total function still needs an answer for it.
+      { situation: 'a layout whose screen size is not in the list', screenSizeId: 'gone', screenWidth: 480 },
+    ])('falls back to the width it was made at for $situation', ({ screenSizeId, screenWidth }) => {
+      const layout = aLayout('l', screenWidth, [], screenSizeId);
+
+      expect(layoutLabel(layout, [aScreenSize('sz-wide', 1440, 'Wide')])).toBe(`${screenWidth} px`);
     });
   });
-
-  describe('a layout made without being named is named for the size of screen it was made on', () => {
-    it.each([
-      { situation: 'a phone', screenWidth: 390, named: 'Phone' },
-      { situation: 'a small tablet', screenWidth: 700, named: 'Tablet' },
-      { situation: 'a laptop', screenWidth: 1100, named: 'Laptop' },
-      { situation: 'a 4K screen', screenWidth: 2560, named: 'Wide' },
-    ])('$situation', ({ screenWidth, named }) => {
-      expect(nameForScreen(screenWidth)).toBe(named);
-    });
-  });
-
-  describe('a name generated rather than typed is made free before it is sent', () => {
-    // The server refuses a name this dashboard already holds, and a drag is the
-    // worst place to learn that.
-    it.each([
-      { situation: 'nothing is called that yet', taken: [] as Layout[], wanted: 'Wide', free: 'Wide' },
-      {
-        situation: 'one already is',
-        taken: [aLayout('a', 2560, [], 'Wide')],
-        wanted: 'Wide',
-        free: 'Wide 2',
-      },
-      {
-        situation: 'the numbered one is taken too',
-        taken: [aLayout('a', 2560, [], 'Wide'), aLayout('b', 2400, [], 'Wide 2')],
-        wanted: 'Wide',
-        free: 'Wide 3',
-      },
-      {
-        situation: 'the name is taken in another capitalization',
-        taken: [aLayout('a', 2560, [], 'WIDE')],
-        wanted: 'Wide',
-        free: 'Wide 2',
-      },
-      // A layout old code left unnamed is drawn as its width, so that is the
-      // name it is really holding on this dashboard.
-      {
-        situation: 'an unnamed layout is drawn under the name being asked for',
-        taken: [aLayout('a', 1440, [], '')],
-        wanted: '1440 px',
-        free: '1440 px 2',
-      },
-    ])('$situation', ({ taken, wanted, free }) => {
-      expect(freeName(taken, wanted)).toBe(free);
-    });
-  });
-
 });

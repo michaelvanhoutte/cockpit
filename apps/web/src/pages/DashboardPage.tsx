@@ -50,6 +50,7 @@ export function DashboardPage() {
           // coming to repair it.
           panels={(data.panels ?? []).filter((panel) => panel.dashboardId === dashboard.id)}
           layouts={data.layouts ?? []}
+          screenSizes={data.screenSizes ?? []}
           items={data.items}
           filings={data.filings ?? []}
         />

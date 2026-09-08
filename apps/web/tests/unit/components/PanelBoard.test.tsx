@@ -3,7 +3,7 @@ import { createEvent, fireEvent, render, screen, waitFor, within } from '@testin
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
-import type { Dashboard, Filing, Item, Layout, Panel } from '@cockpit/shared';
+import type { Dashboard, Filing, Item, Layout, Panel, ScreenSize } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { QUIET } from '../../../src/panels/PanelText';
 import {
@@ -74,6 +74,11 @@ function aPanelOfText(
  * A layout of one row holding every panel, side by side - which is what the
  * flat arrangement these cases were written against drew at this width, so a
  * panel still has somewhere to move left to.
+ *
+ * Defined at a screen size of its own, one per layout, so the automatic
+ * choice (`arrangement.ts`, `nearestLayout`) has something to find it by -
+ * `showBoard` derives the matching `screenSizes` list from these unless a
+ * case hands it its own.
  */
 function aLayout(id: string, screenWidth: number, panelIds: string[]): Layout {
   return {
@@ -82,8 +87,19 @@ function aLayout(id: string, screenWidth: number, panelIds: string[]): Layout {
     dashboardId: 'today',
     name: id,
     screenWidth,
-    screenSizeId: null,
+    screenSizeId: `sz-${id}`,
     rows: [{ height: null, cells: panelIds.map((panelId) => ({ panelId, span: 12 })) }],
+  };
+}
+
+/** The screen size a layout made by `aLayout` is drawn for. */
+function screenSizeOf(layout: Layout): ScreenSize {
+  return {
+    id: layout.screenSizeId!,
+    tenantId: 'tenant',
+    name: layout.id,
+    width: layout.screenWidth,
+    createdAt: '2026-09-08T10:00:00.000Z',
   };
 }
 
@@ -122,6 +138,13 @@ function anItem(id: string, title: string): Item {
 function showBoard({
   panels = [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')],
   layouts = [] as Layout[],
+  // Derived from the layouts unless a case wants its own - most cases here
+  // are about drag-and-drop mechanics, not about which screen sizes an
+  // account has, and every layout `aLayout` makes needs its own size for the
+  // board to draw it automatically at all.
+  screenSizes = layouts
+    .filter((layout) => layout.screenSizeId !== null)
+    .map(screenSizeOf) as ScreenSize[],
   items = [] as Item[],
   filings = [] as Filing[],
   error,
@@ -137,6 +160,7 @@ function showBoard({
 }: {
   panels?: Panel[];
   layouts?: Layout[];
+  screenSizes?: ScreenSize[];
   items?: Item[];
   filings?: Filing[];
   error?: Error;
@@ -166,6 +190,7 @@ function showBoard({
         dashboard={DASHBOARD}
         panels={panels}
         layouts={layouts}
+        screenSizes={screenSizes}
         items={items}
         filings={filings}
       />
@@ -571,40 +596,21 @@ describe('Panels', () => {
       expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
     });
 
-    it('sends a name for a layout that has none, rather than one the server must refuse', async () => {
-      // Every layout in a snapshot cached before names existed parses with an
-      // empty name, as does one old code wrote during the deploy - and a name
-      // is required on the way in. Sending the stored one would have the first
-      // drag after an upgrade refused for a field nobody typed.
-      const legacy = { ...aLayout('laptop', 1280, ['falcon', 'reading']), name: '' };
-      const { user, mutate } = showBoard({ layouts: [legacy] });
+    it('makes an arrangement with nothing defined without naming a screen size, and leaves the server to resolve one', async () => {
+      // There is nothing to change and nothing worth interrupting a drag to
+      // ask - the server keeps it in the nearest size the account has, or
+      // makes one called Default where it has none at all (`save_layout`,
+      // `screenSizeId`). The board asks nothing about either.
+      screenIs(1280);
+      const { user, mutate } = showBoard();
 
       await choose(user, 'To read', 'Move left');
 
-      expect(mutate.mock.calls[0]![0].payload.name).toBe('1280 px');
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('save_layout');
+      expect(asked.payload.screenSizeId).toBeUndefined();
+      expect(asked.payload.screenWidth).toBe(1280);
     });
-
-    it.each([
-      // A phone stacks its panels, so the entry that moves one names the
-      // direction that screen actually goes in.
-      { situation: 'a phone', screenWidth: 390, named: 'Phone', move: 'Move up' },
-      { situation: 'a laptop', screenWidth: 1280, named: 'Wide', move: 'Move left' },
-    ])(
-      'makes a layout named for the screen when the dashboard has none, on $situation',
-      async ({ screenWidth, named, move }) => {
-        // There is nothing to change and nothing worth interrupting a drag to
-        // ask, so the first arrangement records one and names it itself.
-        screenIs(screenWidth);
-        const { user, mutate } = showBoard();
-
-        await choose(user, 'To read', move);
-
-        const [asked] = mutate.mock.calls[0]!;
-        expect(asked.name).toBe('save_layout');
-        expect(asked.payload.name).toBe(named);
-        expect(asked.payload.screenWidth).toBe(screenWidth);
-      },
-    );
 
     it('changes the layout it just made rather than defining a second one at the same width', async () => {
       // Two gestures before the first has been re-read both find a dashboard

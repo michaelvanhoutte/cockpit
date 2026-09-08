@@ -779,7 +779,7 @@ const routes = app
     commandRoute('rename_layout', { conflict: 'The dashboard already has a layout by that name' }),
     async (c) => c.json(await change(c, 'rename_layout', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('delete_layout', { conflict: 'A dashboard keeps at least one layout' }), async (c) => c.json(await change(c, 'delete_layout', c.req.valid('json')), 200))
+  .openapi(commandRoute('delete_layout'), async (c) => c.json(await change(c, 'delete_layout', c.req.valid('json')), 200))
   .openapi(
     commandRoute('create_screen_size', { conflict: 'The account already has a screen size by that name' }),
     async (c) => c.json(await change(c, 'create_screen_size', c.req.valid('json')), 200),

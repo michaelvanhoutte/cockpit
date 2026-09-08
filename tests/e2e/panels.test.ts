@@ -34,14 +34,15 @@ import {
 
 /**
  * An empty dashboard of this walk's own, already open - **with the panel it
- * arrives with taken back off**.
+ * arrives with taken back off**. Its own name is returned for the rare walk
+ * that switches away and has to come back.
  *
  * Every dashboard arrives with one, and every walk below is about the panels it
  * puts there itself: leaving it would put a `Panel 1` at the head of three
  * expectations that are not about it. That a dashboard arrives with one at all
  * is walked where it belongs, in tests/e2e/dashboards.test.ts.
  */
-async function ownDashboard(page: Page, isMobile: boolean): Promise<void> {
+async function ownDashboard(page: Page, isMobile: boolean): Promise<string> {
   const name = uniqueTitle('Today');
   await signIn(page, ADA, isMobile);
   await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
@@ -50,6 +51,7 @@ async function ownDashboard(page: Page, isMobile: boolean): Promise<void> {
   await expect(dashboardBar(page).getByRole('link', { name })).toBeVisible();
   await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible();
   await deletePanel(page, 'Panel 1', isMobile);
+  return name;
 }
 
 /** Takes a panel off the dashboard, through the question every delete asks. */
@@ -299,14 +301,14 @@ test.describe('Panels', () => {
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
 
-      // A layout for this screen, made by name rather than as the answer to a
-      // question about a drag. It is picked as it is made, so what is drawn
-      // afterwards is the new one.
+      // A screen size named by hand, with a layout defined at it from what is
+      // drawn - rather than the answer to a question about a drag. It is
+      // picked as it is made, so what is drawn afterwards is the new one.
       await press(layoutControl(page), isMobile);
-      await press(page.getByRole('menuitem', { name: /^New layout from this one/ }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'New screen size…' }), isMobile);
       const named = uniqueTitle('Narrow');
-      await page.getByLabel('Name of the new layout').fill(named);
-      await page.getByLabel('Name of the new layout').press('Enter');
+      await page.getByLabel('Name of the new screen size').fill(named);
+      await page.getByLabel('Name of the new screen size').press('Enter');
       await expect(layoutControl(page)).toHaveText(new RegExp(named));
 
       // Two layouts now, one per screen, and a change made here goes into the
@@ -337,6 +339,70 @@ test.describe('Panels', () => {
       await expect(layoutControl(page)).toHaveText(firstLayout);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+    });
+  });
+
+  test.describe('a screen size can be defined for later, removed from one dashboard, or deleted for every dashboard', () => {
+    test('defines a layout at a size another dashboard made, removes it here, then deletes it everywhere', async ({
+      page,
+      isMobile,
+    }) => {
+      const here = await ownDashboard(page, isMobile);
+      const alpha = uniqueTitle('Alpha');
+      const beta = uniqueTitle('Beta');
+
+      // Alpha, made and defined here the ordinary way.
+      await press(layoutControl(page), isMobile);
+      await press(page.getByRole('menuitem', { name: 'New screen size…' }), isMobile);
+      await page.getByLabel('Name of the new screen size').fill(alpha);
+      await page.getByLabel('Name of the new screen size').press('Enter');
+      await expect(layoutControl(page)).toHaveText(new RegExp(alpha));
+
+      // Beta, made from a dashboard of its own - the account's, not this
+      // dashboard's, so it shows up here as something to define rather than
+      // something drawn.
+      await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+      const elsewhere = uniqueTitle('Elsewhere');
+      await page.getByLabel('Name of the new dashboard').fill(elsewhere);
+      await page.getByLabel('Name of the new dashboard').press('Enter');
+      // Waited for by name, the way switching workspace is waited for
+      // (support/app.ts) - the control is keyed by the dashboard and remounts
+      // on the switch, and pressing it before that has settled presses
+      // whichever copy is mid-remount.
+      await expect(page.getByRole('heading', { name: elsewhere, level: 2 })).toBeVisible();
+      await expect(layoutControl(page)).toHaveText('No layout');
+      await press(layoutControl(page), isMobile);
+      await press(page.getByRole('menuitem', { name: 'New screen size…' }), isMobile);
+      await page.getByLabel('Name of the new screen size').fill(beta);
+      await page.getByLabel('Name of the new screen size').press('Enter');
+      await expect(layoutControl(page)).toHaveText(new RegExp(beta));
+      await press(dashboardBar(page).getByRole('link', { name: here }), isMobile);
+      await expect(layoutControl(page)).toHaveText(new RegExp(alpha));
+
+      // Defining a layout for Beta here, from what Alpha already draws.
+      await press(layoutControl(page), isMobile);
+      await press(page.getByRole('menuitem', { name: new RegExp(`^${beta}`) }), isMobile);
+      await expect(page.getByRole('alertdialog')).toHaveText(
+        new RegExp(`Give this dashboard its own layout for ${beta}\\? It starts as a copy of ${alpha}\\.`),
+      );
+      await press(page.getByRole('button', { name: `Yes, define ${beta}` }), isMobile);
+      await expect(layoutControl(page)).toHaveText(new RegExp(beta));
+      await expectLayouts(page, 2, isMobile);
+
+      // Removed from this dashboard alone, which falls back to Alpha - its
+      // only Layout left.
+      await press(layoutControl(page), isMobile);
+      await press(page.getByRole('menuitem', { name: `Remove this dashboard's ${beta} layout` }), isMobile);
+      await expect(layoutControl(page)).toHaveText(new RegExp(alpha));
+      await expectLayouts(page, 1, isMobile);
+
+      // Deleted everywhere: gone from the account's list, and this dashboard
+      // is drawn fitted to the screen, having nothing left defined.
+      await press(layoutControl(page), isMobile);
+      await press(page.getByRole('menuitem', { name: `Delete ${alpha} everywhere` }), isMobile);
+      await expect(page.getByRole('alertdialog')).toHaveText(/every workspace/);
+      await press(page.getByRole('button', { name: `Yes, delete ${alpha} everywhere` }), isMobile);
+      await expect(layoutControl(page)).toHaveText('No layout');
     });
   });
 

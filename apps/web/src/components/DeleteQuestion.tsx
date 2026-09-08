@@ -2,7 +2,9 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
 
 /**
  * The question asked before anything is deleted ("Ask before deleting in a
- * dialog, from the row's own menu", issue 116).
+ * dialog, from the row's own menu", issue 116) - and, since "Draw a dashboard
+ * against the screen sizes its account has" (issue 263), before defining a
+ * Layout at a screen size, which is not a deletion at all.
  *
  * **The row it was asked from does not change.** Before this, asking rewrote
  * the row in place: the name was replaced by the question, the destructive
@@ -11,13 +13,23 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
  * changed meaning between the press that asks and the press that answers, in
  * the one place in the app where that must never happen.
  *
- * **Cancel then Delete, in that order, always.** All three management windows
- * use this, so the answer is in the same place whatever is being deleted.
+ * **Cancel then the answer, in that order, always.** Every window that asks a
+ * yes/no question this way uses this component, so the answer is in the same
+ * place whatever is being asked.
+ *
+ * **The confirming button draws its own label rather than a fixed word.** It
+ * used to say "Delete" no matter what was passed in, which is why every caller
+ * before issue 263 was asking about a deletion - the one non-destructive
+ * question this app asks, defining a Layout, could not reuse it until this
+ * drew the word it was actually given. `destructive` (the default, so every
+ * existing caller is unchanged) wears the same red the confirm always has;
+ * `affirmative` is the ordinary accent, for a question whose answer is not
+ * something going away.
  *
  * **A refusal keeps the dialog open.** The confirming button is an ordinary
  * button rather than `AlertDialog.Action`, which would close the dialog on
  * press: a dialog that closed and left a message behind on the page would make
- * a refusal look like a delete that had worked. `AlertDialog.Cancel` really
+ * a refusal look like the answer had not been kept. `AlertDialog.Cancel` really
  * does close, because that is what cancelling is.
  *
  * **Pressing outside does not answer it**, deliberately and not as an
@@ -33,6 +45,8 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
 export function DeleteQuestion({
   question,
   confirmLabel,
+  confirmText = 'Delete',
+  variant = 'destructive',
   open,
   onCancel,
   onConfirm,
@@ -42,8 +56,12 @@ export function DeleteQuestion({
 }: {
   /** The whole question, in one sentence: what is going, and what goes with it. */
   question: string;
-  /** The name of the confirming button, which says which thing it deletes. */
+  /** What a screen reader announces for the confirming button. */
   confirmLabel: string;
+  /** What the confirming button reads on screen - "Delete" where nothing more specific is given. */
+  confirmText?: string;
+  /** The red of a deletion, or the ordinary accent of a question that is not one. */
+  variant?: 'destructive' | 'affirmative';
   open: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -85,9 +103,13 @@ export function DeleteQuestion({
               disabled={!canConfirm}
               onClick={onConfirm}
               aria-label={confirmLabel}
-              className="shrink-0 rounded-md bg-over px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              className={
+                variant === 'destructive'
+                  ? 'shrink-0 rounded-md bg-over px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50'
+                  : 'shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50'
+              }
             >
-              Delete
+              {confirmText}
             </button>
           </div>
         </AlertDialog.Content>

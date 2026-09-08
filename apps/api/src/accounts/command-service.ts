@@ -38,7 +38,7 @@ import {
   listScreenSizes,
   listWorkspaces,
 } from './repo.js';
-import { ACCOUNT_WIDE, isPaletteTheme } from '@cockpit/shared';
+import { ACCOUNT_WIDE, DEFAULT_SCREEN_SIZE_NAME, isPaletteTheme, nearestScreenSize } from '@cockpit/shared';
 import { foldName } from '../domain/names.js';
 import {
   dashboardFromCommand,
@@ -75,7 +75,7 @@ import {
   itemTypeNamed,
   ordersTypesExactly,
 } from '../domain/item-types.js';
-import { screenSizeNamed } from '../domain/screen-sizes.js';
+import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import {
   applySetDescription,
   applySetDismissed,
@@ -256,20 +256,6 @@ export class LayoutNameTakenError extends Error {
   constructor(name: string) {
     super(`a layout called ${name} already arranges this dashboard`);
     this.name = 'LayoutNameTakenError';
-  }
-}
-
-/**
- * The second delete Cockpit refuses, and for the reason the first does: a
- * dashboard that has been arranged keeps that arrangement ("Pick the layout you
- * are on, by name"). A dashboard nobody has arranged has no layout at all and
- * is drawn fitted to the screen it is on, so what this protects is work
- * somebody did rather than the existence of a row.
- */
-export class LastLayoutError extends Error {
-  constructor() {
-    super('a dashboard keeps at least one layout');
-    this.name = 'LastLayoutError';
   }
 }
 
@@ -852,35 +838,90 @@ export function runCommand<N extends CommandName>(
       // change goes into it.
       const held = getLayout(db, tenantId, cmd.layoutId);
       if (held && held.dashboardId !== dashboard.id) throw new LayoutNotFoundError(cmd.layoutId);
-      // Only where this save is the one creating it. A save onto a layout that
-      // exists leaves the name alone, so the name it carries - which may be
-      // from a tab that has not seen a rename - cannot undo one.
+      // Resolved only where this save is the one creating the layout - see
+      // `saveLayoutSchema`'s `screenSizeId` for what each branch means.
+      // `name` is never `cmd.name` here: what a Layout is called, to the one
+      // place left that still asks, is the screen size's own name.
+      let screenSizeId: string | null = null;
+      let name = cmd.name;
+      let makingSize: { id: string; name: string; width: number } | null = null;
       if (!held) {
-        const alreadyCalledThat = layoutNamed(
-          listLayoutsOn(db, tenantId, dashboard.id),
-          cmd.name,
-        );
+        if (cmd.screenSizeId) {
+          // Explicit - "Define a layout for X". A tab that raced a delete of
+          // this size past the menu offering it is refused naming the size,
+          // not left to the foreign key underneath.
+          const named = getScreenSize(db, tenantId, cmd.screenSizeId);
+          if (!named) throw new ScreenSizeNotFoundError(cmd.screenSizeId);
+          screenSizeId = named.id;
+          name = named.name;
+        } else {
+          // Implicit - an ordinary arrangement gesture on a Dashboard with
+          // nothing defined. Kept in the nearest size the account has; where
+          // it has none at all, this is the one save in the product that
+          // still makes one, called `DEFAULT_SCREEN_SIZE_NAME`.
+          const sizes = listScreenSizes(db, tenantId);
+          const nearest = nearestScreenSize(sizes, cmd.screenWidth);
+          if (nearest) {
+            screenSizeId = nearest.id;
+            name = nearest.name;
+          } else {
+            makingSize = {
+              id: defaultScreenSizeId(tenantId),
+              name: DEFAULT_SCREEN_SIZE_NAME,
+              width: cmd.screenWidth,
+            };
+            screenSizeId = makingSize.id;
+            name = makingSize.name;
+          }
+        }
+        // At most one Layout of a Dashboard per screen size, for free: a
+        // Layout's name is now always the size's, so the same index that has
+        // always refused a Dashboard two Layouts of one name refuses this
+        // Dashboard a second one at a size it already has.
+        const alreadyCalledThat = layoutNamed(listLayoutsOn(db, tenantId, dashboard.id), name);
         if (alreadyCalledThat) throw new LayoutNameTakenError(alreadyCalledThat.name);
       }
+      // Every screen size is the account's, offered in every Workspace it has -
+      // see `create_screen_size`. Only where this save makes one; an ordinary
+      // arrangement change stays scoped to the Workspace it was made in.
+      if (makingSize) everyWorkspaceSees(commandRow);
       const arrangement = arrangementRows(tenantId, cmd.layoutId, cmd.rows);
       db.transaction((tx) => {
+        if (makingSize) {
+          tx.insert(screenSizes)
+            .values({
+              id: makingSize.id,
+              tenantId,
+              name: makingSize.name,
+              foldedName: foldName(makingSize.name),
+              width: makingSize.width,
+              createdAt: cmd.issuedAt,
+            })
+            // Named at the primary key, like `create_screen_size`'s and for
+            // the same reason: the id is derived from the tenant's own rather
+            // than sent, so a retry under a fresh request id makes the same
+            // one, not a second `Default`.
+            .onConflictDoNothing({ target: screenSizes.id })
+            .run();
+        }
         tx.insert(layouts)
           .values({
             id: cmd.layoutId,
             tenantId,
             dashboardId: dashboard.id,
-            name: cmd.name,
-            foldedName: foldName(cmd.name),
+            name,
+            foldedName: foldName(name),
             screenWidth: cmd.screenWidth,
+            screenSizeId,
             createdAt: cmd.issuedAt,
           })
-          // `DoNothing` is what records the name and the width once and once
-          // only, and it is the whole of that rule rather than a guard on a
-          // branch: a layout records the width it was *created* at, so changing
-          // one from another screen has to leave that alone - and its name is
-          // changed by `rename_layout` or not at all. Named at the primary key
-          // rather than bare, so a collision on anything else - the name index,
-          // in particular - would still raise.
+          // `DoNothing` is what records the name, the width and the screen
+          // size once and once only, and it is the whole of that rule rather
+          // than a guard on a branch: a layout records the width - and now the
+          // size - it was *created* at, so changing one from another screen
+          // has to leave that alone. Named at the primary key rather than
+          // bare, so a collision on anything else - the name index, in
+          // particular - would still raise.
           .onConflictDoNothing({ target: layouts.id })
           .run();
         // Replaced whole rather than merged: an arrangement is an answer to
@@ -959,10 +1000,8 @@ export function runCommand<N extends CommandName>(
       if (!getDashboard(db, tenantId, cmd.workspaceId, held.dashboardId)) {
         throw new LayoutNotFoundError(cmd.layoutId);
       }
-      // Counted here rather than left to a rule somewhere else, the way the
-      // last dashboard is: a dashboard that has been arranged keeps that
-      // arrangement.
-      if (listLayoutsOn(db, tenantId, held.dashboardId).length === 1) throw new LastLayoutError();
+      // Deleting a Dashboard's last Layout is allowed: having none is a
+      // normal state now, meaning fitted to the screen, not one this refuses.
       db.transaction((tx) => {
         // Its placements first, which is what ON DELETE RESTRICT is for: what
         // happens to the rows pointing at this one is said here rather than
