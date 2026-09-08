@@ -220,7 +220,7 @@ const rowsFor: {
   {
     // Nothing writes a screen size yet, so this row is here for the reason the
     // file exists rather than for the reason the feature does: whatever update
-    // comes after `0017-screen-sizes` should meet a table with something in it.
+    // comes after `0019-screen-sizes` should meet a table with something in it.
     table: 'screen_sizes',
     sql: `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
           VALUES ('sz-before', ?, 'Before', 'before', 1280, ?)`,
