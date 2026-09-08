@@ -228,7 +228,16 @@ test.describe('Panels', () => {
       // Moving, by the entry the screen makes true: the panels are side by side
       // on a laptop and stacked on a phone, so the direction is named for what
       // the person is actually looking at.
+      // Waited on the server's answer as well as on the board, which is the
+      // difference between a walk that acts on what the app has drawn and one
+      // that acts on what it has kept: the move sends a layout, the board
+      // redraws when the answer lands, and a redraw that arrives between
+      // opening the next menu and pressing an entry in it takes the menu with
+      // it. That is what failed this walk under load in CI while the same
+      // commit passed beside it.
+      const moved = answerTo(page, 'save_layout');
       await chooseRowAction(page, reading, isMobile ? 'Move up' : 'Move left', isMobile);
+      expect((await moved).status()).toBe(200);
       await expect
         .poll(() => panelsOnScreen(page))
         .toEqual([reading, renamed]);
@@ -470,7 +479,7 @@ test.describe('Panels', () => {
       // press on another panel's header is the start of a drag, and a press on
       // the sheet between them would depend on there being a gap to hit at
       // whatever width this is running at.
-      await page.getByRole('button', { name: 'Dashboard actions' }).focus();
+      await page.getByRole('button', { name: 'Add a dashboard' }).focus();
       await expect(panel.getByRole('toolbar', { name: 'Formatting' })).toHaveCount(0);
 
       const plain = answerTo(page, 'set_panel_format');

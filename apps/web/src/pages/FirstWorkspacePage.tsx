@@ -12,10 +12,9 @@ import { meQuery, useCommand } from '../api/queries';
  * exists. Everything under the shell is drawn inside a workspace - the header
  * wears that workspace's colour, holds its Capture… control and marks its tab -
  * so an address reached without one had the shell painting a default theme over
- * a strip with nothing selected, which read as a different app. The workspaces
- * are managed in a window over a workspace now (`components/ManageWorkspaces
- * .tsx`), which leaves exactly one case that has no workspace to be over: not
- * having any. This is that case, and it is a screen rather than a page under
+ * a strip with nothing selected, which read as a different app. A workspace is changed on
+ * its own tab now (`components/WorkspaceTabs.tsx`), which leaves exactly one
+ * case with no workspace and so no tab: not having any. This is that case, and it is a screen rather than a page under
  * the shell.
  *
  * It is where the router sends you when the account holds none - a first visit,

@@ -311,19 +311,18 @@ export async function openFirstWorkspace(page: Page, isMobile: boolean): Promise
  * workspaces it does not need afterwards puts them back.
  */
 export async function deleteWorkspace(page: Page, name: string, isMobile: boolean): Promise<void> {
-  await chooseRowAction(page, name, 'Delete', isMobile);
+  await chooseTabAction(page, workspaceTab(page, name), 'Delete', isMobile);
   await press(page.getByRole('button', { name: `Yes, delete ${name}` }), isMobile);
-  await expect(page.getByRole('button', { name: `Actions for ${name}` })).toHaveCount(0);
+  await expect(workspaceTab(page, name)).toHaveCount(0);
 }
 
 /**
  * One workspace's tab in the header, and all of them left to right - which is
- * the order the reordering is about ("Reorder workspaces", issue 31). Read
- * from the header rather than from the list, because the window is where a
- * workspace is moved and the tabs are where the move is for.
+ * the order the reordering is about ("Reorder workspaces", issue 31), and now
+ * also what a workspace is changed on.
  *
- * **By selector rather than by role**, which is not a style choice. The
- * management windows are modals, so while one is open the browser hides
+ * **By selector rather than by role**, which is not a style choice. A form or
+ * a delete question is a modal, so while one is open the browser hides
  * everything behind it from assistive technology and a role query finds
  * nothing in the header at all - correctly, and not at all the same as the
  * tab having gone. These walks are about what is on the screen, and the tabs
@@ -371,66 +370,46 @@ export async function switchTo(page: Page, name: string, isMobile: boolean): Pro
   const tab = workspaceTab(page, name);
   const workspace = await tab.getAttribute('href');
   if (!workspace) throw new Error(`the tab for ${name} has no address to wait for`);
+  // Already there, which a walk cannot always know: making a workspace opens
+  // it. Pressing the tab you are on opens that tab's menu rather than
+  // switching ("Change a workspace or a dashboard on the tab it is", issue
+  // 267), so a switch that is not one would leave a menu over the page.
+  const where = new URL(page.url()).pathname;
+  if (where === workspace || where.startsWith(`${workspace}/`)) return;
   await press(tab, isMobile);
   await page.waitForURL((url) => url.pathname.startsWith(`${workspace}/`));
 }
 
 /**
- * Drags one row of the workspace settings list onto another's place, by its
- * grip.
+ * Drags one workspace tab onto another's place along the strip.
  *
- * Driven with the mouse under both projects, and that is a limit of the tool
- * rather than a claim about the product: Playwright's touchscreen can tap and
- * nothing else, so a finger drag cannot be expressed at all. What the phone
- * project still gets out of this is the gesture against the 480px layout. The
- * way to move a workspace with a finger - or a keyboard - is the row's own
- * menu, and that is walked with `press`, which really does tap.
+ * Driven with the mouse, and only under the desktop project: Playwright's
+ * touchscreen can tap and nothing else, so a finger drag cannot be expressed
+ * here at all - and the app's drag is the pointer's anyway. The way to move a
+ * tab with a finger, or a keyboard, is the tab's own Move left / Move right,
+ * walked with `press`, which really does tap.
  */
-export async function dragRowOnto(page: Page, row: string, onto: string): Promise<void> {
-  const grip = page.getByTitle(`Drag to reorder ${row}`);
-  const target = page.getByRole('listitem').filter({ hasText: onto });
-  // Scrolled to before it is measured, which is what a person does before
-  // dragging a row they cannot see. Everything else in these walks is a
-  // Playwright action, and those scroll to what they act on; a drag is two
-  // rectangles and a stream of mouse moves, and `boundingBox` reports where an
-  // element is relative to the viewport without scrolling to it. So a row below
-  // the fold is measured at a coordinate the mouse cannot be moved to, and the
-  // drag silently does nothing - the rows this walk drags are the two it just
-  // made, which are the last two in the list.
-  //
-  // It went unnoticed for as long as it did because the box for making a
-  // workspace used to sit below the list: pressing New workspace scrolled the
-  // page to the bottom, which happened to leave the newest rows on screen.
-  // Moving that box above the list took the accident away and the drag stopped
-  // moving anything, while every assertion about where the rows ended up went
-  // on being asked of a list nothing had touched.
-  await grip.scrollIntoViewIfNeeded();
-  await target.scrollIntoViewIfNeeded();
-  const from = await grip.boundingBox();
-  const to = await target.boundingBox();
-  if (!from || !to) throw new Error(`cannot drag ${row} onto ${onto}: one of them is not on screen`);
-  // Said plainly rather than left as a drag that quietly moved nothing. Two
-  // adjacent rows fit on both projects' screens; if that ever stops being true
-  // the walk needs a drag that scrolls as it goes, which the page does not do.
-  const viewport = page.viewportSize();
-  for (const [what, box] of [
-    [row, from],
-    [onto, to],
-  ] as const) {
-    if (viewport && (box.y < 0 || box.y + box.height > viewport.height)) {
-      throw new Error(
-        `cannot drag ${row} onto ${onto}: ${what} is at ${box.y}px of a ${viewport.height}px screen, so the mouse cannot reach it`,
-      );
-    }
-  }
-
+export async function dragTabOnto(page: Page, tab: string, onto: string): Promise<void> {
+  // Scrolled to before they are measured, and that is not a nicety:
+  // `boundingBox` reports a position without scrolling to it, so a tab outside
+  // the strip's visible part is measured at a coordinate the mouse cannot be
+  // moved to - and the drag then silently moves nothing while every assertion
+  // after it is asked of a strip nothing touched. That is how the workspace
+  // list's own drag walk once passed while dragging nothing at all.
+  await workspaceTab(page, tab).scrollIntoViewIfNeeded();
+  await workspaceTab(page, onto).scrollIntoViewIfNeeded();
+  const from = await workspaceTab(page, tab).boundingBox();
+  const to = await workspaceTab(page, onto).boundingBox();
+  if (!from || !to) throw new Error(`cannot drag ${tab} onto ${onto}: one of them is not on screen`);
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   // In steps, because a drag is a stream of moves: one jump would leave the
-  // list never having been told where the pointer went.
+  // strip never having been told where the pointer went, and the first few
+  // pixels are what tell a press from a drag at all.
   await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
   await page.mouse.up();
 }
+
 
 /**
  * The bar of views under the workspace tabs: the workspace's dashboards, and
@@ -439,6 +418,35 @@ export async function dragRowOnto(page: Page, row: string, onto: string): Promis
  */
 export function dashboardBar(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Dashboards' });
+}
+
+/**
+ * One dashboard's tab in that bar, which is what it is renamed and deleted on.
+ * By selector rather than by role for the reason `workspaceTab` gives: a form
+ * or a question open over the workspace hides the bar behind it from assistive
+ * technology, and these walks are about what is on the screen.
+ */
+export function dashboardTab(page: Page, name: string): Locator {
+  return page.locator('nav[aria-label="Dashboards"] a').filter({ hasText: name });
+}
+
+/**
+ * Opens a dashboard, and does nothing where it is already the one on screen -
+ * which is not a nicety: pressing the tab you are on opens that tab's menu
+ * rather than switching ("Change a workspace or a dashboard on the tab it is",
+ * issue 267), so a walk that pressed it anyway would carry on with a menu over
+ * the page. On a phone the Inbox is a screen of its own, so coming back from it
+ * really is a switch; on a wide screen the dashboard was never left.
+ */
+export async function openDashboard(page: Page, name: string, isMobile: boolean): Promise<void> {
+  const tab = dashboardTab(page, name);
+  // Asked of the element's own class list rather than of the attribute as a
+  // string: the tab's classes include the variants that style the current one
+  // (`[&.active]:…`), so "does the attribute contain active" is true of every
+  // tab there is.
+  if (await tab.evaluate((el) => el.classList.contains('active'))) return;
+  await press(tab, isMobile);
+  await expect(tab).toHaveClass(/(^|\s)active(\s|$)/);
 }
 
 /**
@@ -458,29 +466,60 @@ export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
 }
 
 /**
- * Opens the workspaces window through the header's menu. Used as arrangement
- * by the walks about renaming and deleting; the walk about *reaching* it
- * asserts its own way through those two controls rather than calling this,
- * because a helper that both arranges and asserts is a helper that can make
- * its own test vacuous.
+ * Makes a workspace from the `+` at the end of the strip, and waits for its
+ * tab. Arrangement for every walk that needs a workspace of its own; the walk
+ * about *making* one asserts its own way through the question rather than
+ * calling this, because a helper that both arranges and asserts is a helper
+ * that can make its own test vacuous.
  */
-export async function openSettings(page: Page, isMobile: boolean): Promise<void> {
-  await press(page.getByRole('button', { name: 'Settings' }), isMobile);
-  await press(page.getByRole('menuitem', { name: 'Manage workspaces' }), isMobile);
-  await expect(page.getByRole('dialog', { name: 'Manage workspaces' })).toBeVisible();
-}
-
-/** Shuts whichever management window is open, so the workspace behind is reachable again. */
-export async function closeWindow(page: Page, isMobile: boolean): Promise<void> {
-  await press(page.getByRole('button', { name: 'Done' }), isMobile);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+export async function makeWorkspace(page: Page, name: string, isMobile: boolean): Promise<void> {
+  await press(page.getByRole('button', { name: 'Add a workspace' }), isMobile);
+  await page.getByLabel('Name of the new workspace').fill(name);
+  await page.getByLabel('Name of the new workspace').press('Enter');
+  await expect(workspaceTab(page, name)).toBeVisible();
 }
 
 /**
- * Chooses what to do to one row of a management window: its own menu, then the
- * entry ("Ask before deleting in a dialog, from the row's own menu", issue
- * 116). All three windows offer their rows the same way, so every walk reaches
- * them the same way.
+ * Chooses what to do to a workspace or a dashboard, on the tab it is ("Change
+ * a workspace or a dashboard on the tab it is", issue 267).
+ *
+ * **One gesture per project, and each is the one that input really has.** A
+ * mouse right-clicks. A finger cannot, so the phone project presses the tab it
+ * is already on - which opens that tab's menu rather than switching to where
+ * you already are, and is the way in a touchscreen has without a long press.
+ * That is why this switches first on a phone: the walk asks for the menu of a
+ * tab, and on a phone the way to a tab's menu goes through being on it.
+ */
+export async function chooseTabAction(
+  page: Page,
+  tab: Locator,
+  entry: string,
+  isMobile: boolean,
+): Promise<void> {
+  if (isMobile) {
+    await tab.tap();
+    // A tap on a tab you were not on switches to it, and the menu comes on the
+    // next press; on the one you were already on the first press is the menu.
+    // Waited for rather than counted straight away, which would race the menu
+    // being drawn and tap a second time - closing the one just opened.
+    const opened = await page
+      .getByRole('menuitem', { name: entry })
+      .waitFor({ state: 'visible', timeout: 2_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!opened) await tab.tap();
+  } else {
+    await tab.click({ button: 'right' });
+  }
+  await press(page.getByRole('menuitem', { name: entry }), isMobile);
+}
+
+/**
+ * Chooses what to do to one row of a list: its own menu, then the entry ("Ask
+ * before deleting in a dialog, from the row's own menu", issue 116). The types
+ * window and the panels offer their rows the same way, so every walk reaches
+ * them the same way; a workspace and a dashboard are tabs rather than rows and
+ * have `chooseTabAction`.
  *
  * This is also how a phone edits a row: the double-click that opens the same
  * form with a mouse is a gesture a touchscreen has already spent on zooming.
@@ -664,7 +703,7 @@ export async function tabOnIsWhollyInView(page: Page): Promise<boolean> {
  *
  * **Driven through CDP because Playwright cannot express a finger drag**: its
  * touchscreen taps and does nothing else, which is the limit recorded on
- * `dragRowOnto` above. `Input.dispatchTouchEvent` puts the touch in at the
+ * `dragTabOnto` above. `Input.dispatchTouchEvent` puts the touch in at the
  * browser's own input layer, so `touch-action`, the pointer events React sees
  * and the scrolling this gesture has to coexist with are all the real ones.
  * Driving `dispatchEvent` from `page.evaluate` would prove only that a handler
@@ -799,12 +838,12 @@ export async function holdRow(page: Page, title: string): Promise<void> {
  *
  * **The mouse, under both projects, and that is a limit of the tool rather than
  * a claim about the product**: Playwright's touchscreen cannot express a drag
- * at all (see `dragRowOnto`), and the browser's own drag-and-drop is a mouse
+ * at all (see `dragTabOnto`), and the browser's own drag-and-drop is a mouse
  * gesture anyway — a row is swiped on a phone, not dragged. The phone project
  * still gets the gesture against a 480px layout.
  *
  * Both rows are scrolled to and measured before the mouse moves, for the reason
- * `dragRowOnto` records: `boundingBox` reports a position without scrolling to
+ * `dragTabOnto` records: `boundingBox` reports a position without scrolling to
  * it, so a row below the fold is measured at a coordinate the mouse cannot
  * reach and the drag silently does nothing.
  */

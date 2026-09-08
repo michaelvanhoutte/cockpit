@@ -127,7 +127,6 @@
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/DashboardBar.tsx",
         "apps/web/src/pages/DashboardPage.tsx",
-        "apps/web/src/components/ManageDashboards.tsx",
         "apps/web/src/components/PanelBoard.tsx",
         "apps/web/src/lastVisited.ts",
         "apps/web/src/router.tsx",
@@ -226,10 +225,11 @@
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/item.ts",
         "packages/shared/src/domain/workspace-themes.ts",
-        "apps/web/src/components/ManageWorkspaces.tsx",
+        "apps/web/src/components/WorkspaceTabs.tsx",
         "apps/web/src/pages/Layout.tsx",
         "apps/web/src/router.tsx",
         "apps/web/src/reorder.ts",
+        "apps/web/src/tabDrag.ts",
         "apps/web/src/components/Menu.tsx",
         "apps/web/src/components/DeleteQuestion.tsx"
       ]
@@ -272,7 +272,7 @@
       "key": "Ordering",
       "label": "Ordering",
       "parent": "Across the app",
-      "sourcePatterns": ["apps/web/src/reorder.ts"]
+      "sourcePatterns": ["apps/web/src/reorder.ts", "apps/web/src/tabDrag.ts"]
     },
     {
       "key": "Selection",
@@ -309,7 +309,7 @@
         "apps/web/src/pages/Layout.tsx",
         "apps/web/src/undo.tsx",
         "apps/web/src/components/NameQuestion.tsx",
-        "apps/web/src/components/ManageDashboards.tsx",
+        "apps/web/src/components/DashboardBar.tsx",
         "apps/web/src/components/MoveToPicker.tsx",
         "apps/web/src/components/ItemForm.tsx"
       ]

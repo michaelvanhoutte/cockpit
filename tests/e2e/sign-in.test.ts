@@ -3,12 +3,11 @@ import {
   MICHAEL,
   addressOf,
   captureBox,
-  closeWindow,
   dashboardBar,
   expect,
   inbox,
   itemRow,
-  openSettings,
+  makeWorkspace,
   press,
   signIn,
   switchTo,
@@ -153,13 +152,7 @@ test.describe('Accounts', () => {
       // round the walk goes proves the same thing either way; this way it costs
       // nobody else anything.
       await signIn(page, ADA, isMobile);
-      await openSettings(page, isMobile);
-      await page.getByLabel('Name of the new workspace').fill(workspace);
-      await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-      await expect(workspaceTab(page, workspace)).toBeVisible();
-      // The window is over the workspace rather than instead of it, so it has
-      // to be shut before the header underneath can be pressed.
-      await closeWindow(page, isMobile);
+      await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
       // Already beside the dashboards on the wide project; a tab to switch to
       // on the narrow one (issue 117, as above).

@@ -6,7 +6,7 @@ import {
   inbox,
   itemRow,
   openInbox,
-  openSettings,
+  makeWorkspace,
   press,
   switchTo,
   workspaceTab,
@@ -89,11 +89,7 @@ async function openTheInboxOf(page: Page, name: string, isMobile: boolean): Prom
 test.beforeEach(async ({ page, isMobile }) => {
   await openInbox(page, isMobile);
   if (await workspaceTab(page, ELSEWHERE).count()) return;
-  await openSettings(page, isMobile);
-  await page.getByLabel('Name of the new workspace').fill(ELSEWHERE);
-  await press(page.getByRole('button', { name: 'New workspace' }), isMobile);
-  await expect(workspaceTab(page, ELSEWHERE)).toBeVisible();
-  await press(page.getByRole('button', { name: 'Done' }), isMobile);
+  await makeWorkspace(page, ELSEWHERE, isMobile);
   await switchTo(page, CAPTURED_FROM, isMobile);
 });
 

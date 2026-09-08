@@ -115,12 +115,15 @@ describe('Workspace management', () => {
     });
   });
 
-  describe('the account\u2019s lists open over the workspace rather than replacing it', () => {
-    it.each(['Manage workspaces', 'Manage types'])('opens %s from the header\u2019s menu', async (entry) => {
-      // Both were pages, and reaching one took the shell somewhere it has no
+  describe('the account\u2019s list of types opens over the workspace rather than replacing it', () => {
+    it.each(['Manage types'])('opens %s from the header\u2019s menu', async (entry) => {
+      // It was a page, and reaching one took the shell somewhere it has no
       // state for: no workspace to colour the header, fill a tab or offer
       // Capture\u2026 So the header stays exactly as it is and the list is drawn
-      // over it, which is what the dashboards' list already did.
+      // over it.
+      //
+      // The workspaces are no longer beside it: a workspace is changed on its
+      // own tab, which tests/unit/components/WorkspaceTabs.test.tsx holds.
       const user = userEvent.setup();
       const { container } = render(
         <QueryClientProvider

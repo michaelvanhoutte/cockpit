@@ -40,7 +40,7 @@ export function CapturePage() {
    * different question: it is answered once, at load. This one has to keep
    * being answered, because the workspace can go while you sit here - deleting
    * one that is neither the last nor the screen behind you leaves you on this
-   * page on purpose (components/ManageWorkspaces.tsx), and a frozen answer
+   * page on purpose (components/WorkspaceTabs.tsx), and a frozen answer
    * would then point at a workspace whose snapshot is a 404, leaving nothing to
    * capture with and no chip to say so.
    */
@@ -345,9 +345,13 @@ export const STILL_READING = 'Still reading your workspace — your note is safe
  * And what it says when there is no workspace to capture into at all. Named
  * where one is made, the way the types' line names where a type is made, rather
  * than inviting a retry that cannot come good.
+ *
+ * The `+` rather than a menu: making a workspace is the strip's own control,
+ * and the window this used to name is gone ("Change a workspace or a dashboard
+ * on the tab it is", issue 267).
  */
 export const NO_WORKSPACE =
-  'No workspace to capture into — your note is safe. Make one in Settings → Manage workspaces.';
+  'No workspace to capture into — your note is safe. Make one with the + beside the tabs.';
 
 /**
  * The key that captures, said the way this keyboard says it. A Mac reads ⌘ and

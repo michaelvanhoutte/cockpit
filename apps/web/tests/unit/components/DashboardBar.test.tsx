@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
 import { CommandRefused } from '../../../src/api/client';
-import { useCommand } from '../../../src/api/queries';
+import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { DWELL_MS } from '../../../src/switchWhileDragging';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../../../src/whatThingsAre';
@@ -20,6 +20,12 @@ const held = vi.hoisted(() => ({
   dashboards: [] as Dashboard[],
   panels: [] as Panel[],
   layouts: [] as Layout[],
+  /**
+   * Which dashboard the address names, so the stand-in `Link` below can mark
+   * that tab the way the router marks it. Without it no tab is ever current
+   * here, and every rule about the tab you are on would pass by asking nothing.
+   */
+  openDashboardId: null as string | null,
 }));
 
 // The router is not under test, and `to`/`params` are its props rather than an
@@ -37,14 +43,24 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
     to: _to,
-    params: _params,
+    params,
+    className,
     ...rest
   }: {
     children?: React.ReactNode;
     to?: unknown;
-    params?: unknown;
+    params?: { dashboardId?: string };
   } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a href="#" {...rest}>
+    <a
+      href="#"
+      // `active` the way the router adds it to the tab whose address is the one
+      // on screen, which is what the bar's own styling and its focus after a
+      // delete both read.
+      className={`${className ?? ''}${
+        params?.dashboardId && params.dashboardId === held.openDashboardId ? ' active' : ''
+      }`}
+      {...rest}
+    >
       {children}
     </a>
   ),
@@ -55,8 +71,10 @@ vi.mock('@tanstack/react-router', () => ({
   },
 }));
 
-vi.mock('../../../src/api/queries', () => ({
+vi.mock('../../../src/api/queries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/queries')>()),
   useCommand: vi.fn(),
+  useSendCommand: vi.fn(),
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
     queryFn: (): Promise<WorkspaceSnapshot> =>
@@ -84,6 +102,7 @@ vi.mock('../../../src/api/queries', () => ({
 }));
 
 const mockUseCommand = vi.mocked(useCommand);
+const mockUseSendCommand = vi.mocked(useSendCommand);
 
 function aDashboard(name: string): Dashboard {
   return {
@@ -91,6 +110,23 @@ function aDashboard(name: string): Dashboard {
     tenantId: 'tenant',
     workspaceId: 'ws-work',
     name,
+  };
+}
+
+/** What the bar asks the server for, in the shape both senders take it. */
+type AskedFor = { name: string; payload: Record<string, string> };
+
+/** A panel on a dashboard, which is what deleting that dashboard takes with it. */
+function aPanel(name: string, dashboardId: string): Panel {
+  return {
+    id: name.toLowerCase().replace(/\s/g, '-'),
+    tenantId: 'tenant',
+    dashboardId,
+    name,
+    kind: 'items',
+    format: 'plain',
+    body: '',
+    readOnly: false,
   };
 }
 
@@ -110,33 +146,77 @@ function showBar(
     openDashboardId?: string | null;
     panels?: Panel[];
     layouts?: Layout[];
+    /** What a Save comes back with, the form sending its own change. */
+    sendFails?: Error;
   } = {},
 ) {
   held.dashboards = names.map(aDashboard);
   held.panels = answer.panels ?? [];
   held.layouts = answer.layouts ?? [];
+  held.openDashboardId = answer.openDashboardId ?? null;
   wentTo.calls = [];
-  const asked = { error: answer.error ?? null };
-  const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
-    if (!answer.error) options?.onSuccess?.();
+  const asked: { error: Error | null; variables: unknown } = {
+    error: answer.error ?? null,
+    variables: null,
+  };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const mutate = vi.fn((args: AskedFor, options?: { onSuccess?: () => void }) => {
+    asked.variables = args;
+    if (answer.error) return;
+    // A delete really takes the dashboard out of the workspace, and the read
+    // behind the bar is asked again - which the real `useCommand` does through
+    // `afterChanging`. Without it the bar goes on drawing the dashboard that
+    // has just gone, and every rule about what happens once it has gone passes
+    // by never happening.
+    if (args.name === 'delete_dashboard') {
+      held.dashboards = held.dashboards.filter((one) => one.id !== args.payload.dashboardId);
+      void client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'] });
+    }
+    options?.onSuccess?.();
   });
   const reset = vi.fn(() => {
     asked.error = null;
   });
   mockUseCommand.mockImplementation(
-    () => ({ mutate, reset, isPending: false, error: asked.error }) as never,
+    () =>
+      ({
+        mutate,
+        reset,
+        isPending: false,
+        get error() {
+          return asked.error;
+        },
+        get variables() {
+          return asked.variables;
+        },
+      }) as never,
   );
-  const { container } = render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  const sent = vi.fn((_args: AskedFor) =>
+    answer.sendFails ? Promise.reject(answer.sendFails) : Promise.resolve(),
+  );
+  mockUseSendCommand.mockImplementation(() => sent as never);
+  const bar = (openDashboardId: string | null) => (
+    <QueryClientProvider client={client}>
       <DashboardBar
         workspaceId="ws-work"
         tint="#6f62b5"
         ground="#e3e1f2"
-        openDashboardId={answer.openDashboardId ?? null}
+        openDashboardId={openDashboardId}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { mutate, container, user: userEvent.setup() };
+  const { container, rerender } = render(bar(answer.openDashboardId ?? null));
+  return {
+    mutate,
+    sent,
+    container,
+    /** The same bar with another dashboard open, which is what a switch is. */
+    switchTo: (openDashboardId: string | null) => {
+      held.openDashboardId = openDashboardId;
+      rerender(bar(openDashboardId));
+    },
+    user: userEvent.setup(),
+  };
 }
 
 describe('Dashboards', () => {
@@ -174,61 +254,144 @@ describe('Dashboards', () => {
     });
   });
 
-  describe('the bar opens a menu of its own, and managing dashboards is an entry in it', () => {
-    // It used to be three dots that navigated straight to the settings page:
-    // a menu's glyph on a link ("Open every menu from the same control",
-    // issue 115). What the list itself does is
-    // tests/unit/components/ManageDashboards.test.tsx.
-    it('opens on the control and closes again without going anywhere', async () => {
-      const { user } = showBar(['Dashboard 1']);
+  describe('what can be done to a dashboard is on the tab it is', () => {
+    // The list this replaces was behind the bar's own menu at the far right,
+    // which is now gone: it held that one entry and nothing else.
+    it('offers editing and deleting on the tab itself', async () => {
+      const { user } = showBar(['Dashboard 1', 'Research']);
 
-      expect(screen.queryByRole('menu')).toBeNull();
-      await user.click(screen.getByRole('button', { name: 'Dashboard actions' }));
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
 
-      expect(await screen.findByRole('menuitem', { name: 'Manage dashboards' })).toBeVisible();
-
+      expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
+        'Edit…',
+        'Delete',
+      ]);
       await user.keyboard('{Escape}');
       expect(screen.queryByRole('menu')).toBeNull();
     });
-  });
 
-  describe('the dashboards are managed over the workspace, not on a screen of their own', () => {
-    it('opens the list in place, leaving the bar behind it', async () => {
-      const { user } = showBar(['Dashboard 1', 'Research']);
-      await screen.findByRole('link', { name: 'Research' });
+    it('says why a workspace’s last dashboard cannot be deleted, rather than offering it', async () => {
+      // The one place the app refuses to delete something: a workspace with no
+      // dashboard has no view at all. Said in the entry, not hidden.
+      showBar(['Dashboard 1']);
 
-      await user.click(screen.getByRole('button', { name: 'Dashboard actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Manage dashboards' }));
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Dashboard 1' }));
 
-      expect(await screen.findByRole('dialog', { name: 'Manage dashboards' })).toBeVisible();
-      // Nowhere: the whole point of it being a dialog is that what you were
-      // looking at is still there when it closes. The bar is behind it and
-      // hidden from a reader while it is open, which is what a modal is for -
-      // so this asks for it again afterwards rather than through it.
-      expect(wentTo.calls).toEqual([]);
-
-      await user.click(screen.getByRole('button', { name: 'Done' }));
-
-      expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getByRole('link', { name: 'Research' })).toBeVisible();
-      expect(wentTo.calls).toEqual([]);
+      expect(
+        await screen.findByRole('menuitem', {
+          name: 'Delete: A workspace keeps its last dashboard',
+        }),
+      ).toBeVisible();
     });
 
-    it('leaves the focus on the control it was opened from, and puts it back', async () => {
-      // The entry is the only way in, so the dialog has no trigger of its own
-      // to return the focus to and Radix would drop it at the top of the page.
-      // The menu closing must not claim it back either, or it would take it
-      // straight off the dialog that has just opened.
-      const { user } = showBar(['Dashboard 1', 'Research']);
+    it('leaves the Inbox without one, it being no dashboard of this workspace', async () => {
+      showBar(['Dashboard 1']);
 
-      await user.click(screen.getByRole('button', { name: 'Dashboard actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Manage dashboards' }));
-      const list = await screen.findByRole('dialog', { name: 'Manage dashboards' });
-      expect(list.contains(document.activeElement)).toBe(true);
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Inbox' }));
 
-      await user.click(screen.getByRole('button', { name: 'Done' }));
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
 
-      expect(screen.getByRole('button', { name: 'Dashboard actions' })).toHaveFocus();
+    it('opens the menu of the tab you are already on when it is pressed', async () => {
+      // The press has no other job - you are looking at what it would switch
+      // to - and it is the way in a touchscreen has without a long press.
+      const { user } = showBar(['Dashboard 1', 'Research'], {
+        openDashboardId: 'ws-work-research',
+      });
+
+      await user.click(await screen.findByRole('link', { name: 'Research' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Edit…' })).toBeVisible();
+    });
+  });
+
+  describe('changing a dashboard sends only what actually changed', () => {
+    it.each([
+      { situation: 'a new name', typed: 'Reading', sends: ['rename_dashboard'] },
+      { situation: 'the name it already had', typed: 'Research', sends: [] },
+    ])('sends what moved and no more, given $situation', async (row) => {
+      // An untouched box must send nothing, or it would carry the name the
+      // form opened with over an edit made somewhere else in the meantime.
+      const { sent, user } = showBar(['Dashboard 1', 'Research']);
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Edit…' }));
+
+      await user.clear(screen.getByRole('textbox', { name: 'Name of Research' }));
+      await user.type(screen.getByRole('textbox', { name: 'Name of Research' }), row.typed);
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(sent.mock.calls.map(([args]) => args.name)).toEqual(row.sends);
+    });
+
+    it('keeps the form open with what was typed when the server refuses it', async () => {
+      const { user } = showBar(['Dashboard 1', 'Research'], {
+        sendFails: new CommandRefused(409, 'a dashboard called Dashboard 1 already exists'),
+      });
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Edit…' }));
+      await user.clear(screen.getByRole('textbox', { name: 'Name of Research' }));
+      await user.type(screen.getByRole('textbox', { name: 'Name of Research' }), 'Dashboard 1');
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'a dashboard called Dashboard 1 already exists',
+      );
+      expect(screen.getByRole('textbox', { name: 'Name of Research' })).toHaveValue('Dashboard 1');
+    });
+  });
+
+  describe('deleting a dashboard asks first, and says what goes with it', () => {
+    it.each([
+      { situation: 'a dashboard with nothing on it', panels: 0, asks: 'Delete Research? There is nothing on it.' },
+      { situation: 'a dashboard with one panel', panels: 1, asks: 'Delete Research? Its one panel goes with it.' },
+      { situation: 'a dashboard with several', panels: 3, asks: 'Delete Research? Its 3 panels go with it.' },
+    ])('says what goes with it, for $situation', async (row) => {
+      const { user } = showBar(['Dashboard 1', 'Research'], {
+        panels: Array.from({ length: row.panels }, (_, i) => aPanel(`Panel ${i}`, 'ws-work-research')),
+      });
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
+
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+      expect(await screen.findByRole('alertdialog', { name: row.asks })).toBeVisible();
+    });
+
+    it('does not take the focus to the next dashboard opened after a delete made on the Inbox', async () => {
+      // The bar is the shell's and stays mounted, so a focus owed but never
+      // given is a debt carried around: on the Inbox no tab is the current
+      // one, and the next dashboard opened - by hand, by the back button, by a
+      // drag resting on its tab - would have the focus taken to it by a delete
+      // made minutes ago.
+      const { user, switchTo } = showBar(['Dashboard 1', 'Research'], { openDashboardId: null });
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Research' }));
+
+      switchTo('ws-work-dashboard 1');
+
+      // Waited a frame out, which is when the focus would be taken: the bar
+      // puts it back on the next frame so the question's own restore has
+      // finished. Asserting straight away would pass by being early.
+      await act(async () => {
+        await new Promise((frame) => requestAnimationFrame(() => frame(null)));
+      });
+      expect(screen.getByRole('link', { name: 'Dashboard 1' })).not.toHaveFocus();
+    });
+
+    it('sends the delete only once the question has been answered', async () => {
+      const { mutate, user } = showBar(['Dashboard 1', 'Research']);
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+      await screen.findByRole('alertdialog');
+      expect(mutate).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Yes, delete Research' }));
+
+      expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+        name: 'delete_dashboard',
+        payload: { dashboardId: 'ws-work-research' },
+      });
     });
   });
 
