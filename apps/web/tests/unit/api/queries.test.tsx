@@ -474,21 +474,29 @@ describe('Item editing', () => {
      * empty (tests/e2e/item-editing.test.ts, "the formatted description and its
      * source are one text").
      *
-     * The re-read is held open rather than resolved at once, which is what
-     * makes this able to fail: with both reads instant, waiting for the re-read
-     * and not waiting for it look exactly the same.
+     * **The re-read is slow rather than held open by hand**, which is what puts
+     * the failure on the last line rather than only on the guard above it. The
+     * item is opened again the moment the form closes, so the two worlds differ
+     * exactly where the bug is: without the wait the form closes at once
+     * and the reopen lands inside the re-read, and with it the form closes only
+     * after that read is in. Released by hand instead, the reopen could only
+     * ever follow the release, and the last line would pass either way - which
+     * is how the first version of this test read.
+     *
+     * A slow API rather than a fast machine is also how this class is found at
+     * all (the `testing` skill, "Flakiness").
      */
+    const SLOW = 300;
+
     it('is not finished saving until the workspace has been read back', async () => {
       const written = 'Tolerances, and the sign-off date';
-      let letTheRereadFinish!: () => void;
       reads.mockReset();
       reads
         .mockResolvedValueOnce({ ...snapshot, items: [anItem()] })
         .mockImplementation(
           () =>
             new Promise((resolve) => {
-              letTheRereadFinish = () =>
-                resolve({ ...snapshot, items: [anItem({ description: written })] });
+              setTimeout(() => resolve({ ...snapshot, items: [anItem({ description: written })] }), SLOW);
             }),
         );
       sends.mockResolvedValue({ ok: true, applied: true });
@@ -519,15 +527,16 @@ describe('Item editing', () => {
       await waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
       expect(opened.item).toBe('item-1');
 
-      letTheRereadFinish();
+      // Opened again the moment it closes, which is what the row's menu allows
+      // and what the walk does.
       await waitFor(() => expect(opened.item).toBeUndefined());
-
-      // Opened again at once, the way the row's menu allows and the walk does.
-      // Waiting here cannot hide the bug: the read is already in by this line,
-      // so what the box is filled from can no longer change.
       rerender(shell());
       opened.item = 'item-1';
       rerender(shell());
+
+      // Waiting here cannot hide the bug rather than find it: a form is filled
+      // once and never refilled, so a box that opened empty stays empty however
+      // long this waits, and the read landing under it changes nothing.
       await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue(written));
     });
   });
