@@ -72,9 +72,9 @@ export function useServerEvents() {
         // The list too, because creating a workspace is announced on the new
         // workspace and nothing else would ever refetch it - so another tab
         // would keep showing the tabs it had when it loaded. The event says
-        // only "something changed", which is deliberately all it says
-        // (architecture, "How the client talks to the backend"), so the list is
-        // revalidated rather than reasoned about.
+        // nothing *about* the change, only that there was one and when
+        // (architecture, "The read model"), so the list is revalidated rather
+        // than reasoned about.
         void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
         // A type change names the account rather than a workspace, because
         // types belong to the account and the page that manages them is
