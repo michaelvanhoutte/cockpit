@@ -353,10 +353,10 @@ describe('Triage', () => {
  */
 describe('Item editing', () => {
   describe('a row shows the label the item has, and says whether there is more written about it', () => {
-    it('falls through to the captured message when there is no next action and no title', () => {
+    it('says an item nobody has named is untitled, rather than borrowing what was captured', () => {
       aRow({ item: anItem({ title: '', capturedMessage: 'Ask Novy about part 11' }) });
 
-      expect(screen.getByRole('listitem')).toHaveTextContent('Ask Novy about part 11');
+      expect(screen.getByRole('listitem')).toHaveTextContent('Untitled');
     });
 
     it.each([

@@ -14,21 +14,27 @@ export const prioritySchema = z.enum(['low', 'normal', 'high']);
 export type Priority = z.infer<typeof prioritySchema>;
 
 /**
+ * How long a title may be. A product number, not a storage one - long enough
+ * for a mail subject, short enough to stay a row label.
+ */
+export const TITLE_LENGTH = 200;
+
+/**
  * An Item carries three texts, answering three different questions (functional
  * definition, "An Item carries three texts"): `capturedMessage` is what arrived
  * or what you said, `title` names the Item, `description` is what you have to
- * say about it. Only the last two are editable.
+ * say about it. Only the last two are editable, and only the last two are ever
+ * shown - the captured message is the record capture is judged against, kept
+ * for reading back rather than for standing in as a name.
  *
- * A title is one line and short, because it is a row label. The 200 is a product
- * number, not a storage one - long enough for a mail subject, short enough to
- * stay a label. Empty is allowed: a title is not required, and a title of
- * nothing but blanks trims to empty rather than being refused, because there is
- * nothing to refuse it for.
+ * A title is one line, because it is a row label. Empty is allowed: a title is
+ * not required, and a title of nothing but blanks trims to empty rather than
+ * being refused, because there is nothing to refuse it for.
  */
 export const itemTitleSchema = z
   .string()
   .trim()
-  .max(200)
+  .max(TITLE_LENGTH)
   .refine((title) => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(title), {
     message: 'a title is a single line, without tabs or line breaks',
   });
@@ -83,7 +89,10 @@ export const itemSchema = z.object({
   workspaceDecided: z.boolean(),
 
   // -- write-once --
-  /** What arrived, or what you said, as it stood when the Item was made. */
+  /**
+   * What arrived, or what you said, as it stood when the Item was made. It
+   * names nothing - see `textsFromCapture`, which is where the naming is.
+   */
   capturedMessage: z.string().nullable(),
 
   // -- source-owned --
@@ -142,46 +151,73 @@ export const itemSchema = z.object({
 });
 export type Item = z.infer<typeof itemSchema>;
 
-/** How much of the captured message can stand in for a label. */
-export const LABEL_LENGTH = 150;
-
-/** What a row says about an Item with nothing written in any of its three texts. */
+/** What a row says about an Item nobody has named. */
 export const UNTITLED = 'Untitled';
 
 /**
- * What a row shows: the next action, or the title, or the start of the captured
- * message (functional definition, "A row shows the next action, or the title,
- * or the first 150 characters of the captured message").
+ * What a row shows: the next action, or the title (functional definition, "A
+ * row shows the next action, or the title").
  *
- * Worked out where the row is drawn rather than stored as a fourth text, which
- * would be free to go stale behind the three it stands for.
+ * Worked out where the row is drawn rather than stored as a text of its own,
+ * which would be free to go stale behind the two it stands for.
+ *
+ * **The captured message is not one of the answers** - `textsFromCapture`
+ * below says why, and `0018-title-from-captured-message` is what gave a title
+ * to every Item captured before that was true.
  *
  * **Blank counts as absent**, for the next action and the title alike: a title
- * of spaces is stored as the empty string.
+ * of spaces is stored as the empty string. **And when both are blank it says
+ * so**, rather than returning nothing - a row, a drag and an offer to undo
+ * would each render as a gap where a name should be, and there is no length at
+ * which an unlabelled row is better off unlabelled.
  *
- * **And when all three are blank it says so**, rather than returning nothing.
- * An Item made before it had a captured message keeps its only text in its
- * title, so clearing that title empties every one of the three - and a row, a
- * drag and an offer to undo would each render as a gap where a name should be.
- * There is no length at which an unlabelled row is better off unlabelled.
- * **Runs of whitespace collapse**, because a captured message may run to
- * paragraphs and a row is one line - and the cut has to land in the label a
- * person sees, not 150 characters into one full of newlines.
+ * **Runs of whitespace collapse**, because a title written before it was one
+ * line may hold a line break and a row is one line.
  */
-export function itemLabel(
-  item: Pick<Item, 'nextAction' | 'title' | 'capturedMessage'>,
-): string {
+export function itemLabel(item: Pick<Item, 'nextAction' | 'title'>): string {
   const oneLine = (text: string) => text.replace(/\s+/gu, ' ').trim();
 
-  const nextAction = oneLine(item.nextAction ?? '');
-  if (nextAction) return nextAction;
+  return oneLine(item.nextAction ?? '') || oneLine(item.title) || UNTITLED;
+}
 
-  const title = oneLine(item.title);
-  if (title) return title;
+/**
+ * The title and description an Item is made with, from the one text capture
+ * takes ("Capture writes the title", this file's `itemLabel` above).
+ *
+ * **What was captured names the Item.** Capture used to leave the title empty
+ * and let the row fall through to the captured message, which put two names on
+ * one Item: the one the row showed and the empty one its form offered. So the
+ * message becomes the title, and the captured message stays beside it as the
+ * record of exactly what was typed - which is what the title is read back
+ * against once something cleverer than a cut at `TITLE_LENGTH` characters is
+ * proposing one (docs/ideas.md, "Capture and the task creator").
+ *
+ * **A title is one line and at most `TITLE_LENGTH`, and a captured message is
+ * neither.** Where the message does not fit as it stands, the title takes its
+ * first `TITLE_LENGTH` characters and the *whole* message goes into the
+ * description, so nothing a person typed is only in a text they do not edit.
+ * Where it does fit, there is no description: repeating a one-line note under
+ * itself would be the same duplication in a second place.
+ */
+export function textsFromCapture(message: string): { title: string; description: string | null } {
+  // Exactly what `itemTitleSchema` refuses, so the title this makes is one the
+  // form would accept: control characters and the line and paragraph
+  // separators, which a browser breaks a line on just as readily.
+  const oneLine = message.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim();
+  const title = cutTo(oneLine, TITLE_LENGTH);
+  return { title, description: title === message ? null : message };
+}
 
-  const captured = oneLine(item.capturedMessage ?? '');
-  if (captured.length > LABEL_LENGTH) return `${captured.slice(0, LABEL_LENGTH)}…`;
-  return captured || UNTITLED;
+/**
+ * The first `limit` characters, without splitting one in half. A character
+ * outside the BMP is two code units and the cap counts code units, so a cut at
+ * the limit can land between the two and leave a lone surrogate - half an emoji
+ * that renders as a replacement box.
+ */
+function cutTo(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const lead = text.charCodeAt(limit - 1);
+  return text.slice(0, lead >= 0xd800 && lead <= 0xdbff ? limit - 1 : limit);
 }
 /**
  * Whether this Item belongs to a Workspace at all yet, read so that a snapshot
