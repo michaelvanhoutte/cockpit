@@ -44,6 +44,8 @@ import {
   PanelNameTakenError,
   PanelNotFoundError,
   PanelOrderStaleError,
+  ScreenSizeNameTakenError,
+  ScreenSizeNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
@@ -322,7 +324,8 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof WorkspaceNotFoundError ||
         error instanceof DashboardNotFoundError ||
         error instanceof PanelNotFoundError ||
-        error instanceof LayoutNotFoundError
+        error instanceof LayoutNotFoundError ||
+        error instanceof ScreenSizeNotFoundError
       ) {
         return { status: 'missing', what: error.message };
       }
@@ -331,6 +334,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof DashboardNameTakenError ||
         error instanceof PanelNameTakenError ||
         error instanceof LayoutNameTakenError ||
+        error instanceof ScreenSizeNameTakenError ||
         // A refusal to say out loud rather than a shape problem: the request is
         // well formed and names a dashboard that exists, and the answer is that
         // this one may not go.

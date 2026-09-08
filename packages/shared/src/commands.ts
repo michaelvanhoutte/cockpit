@@ -16,6 +16,7 @@ import {
   panelTextSchema,
   rowInputSchema,
 } from './domain/panel.js';
+import { MAX_SCREEN_WIDTH, MIN_SCREEN_WIDTH, screenSizeNameSchema } from './domain/screen-size.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
 /**
@@ -362,6 +363,47 @@ export const deleteLayoutSchema = commandEnvelopeSchema.extend({
 export type DeleteLayoutCommand = z.infer<typeof deleteLayoutSchema>;
 
 /**
+ * create_screen_size — a name and a width, both typed by hand ("Draw a
+ * dashboard against the screen sizes its account has", issue 263). A size is
+ * never made because a window happened to be that wide - `width` is only ever
+ * what somebody enters making one, never a measurement the client took.
+ *
+ * Account-scoped, the way a Type's name is: the envelope's `workspaceId` is
+ * only where the change announces itself, not what the size belongs to. One
+ * list, offered on every Dashboard the account has.
+ */
+export const createScreenSizeSchema = commandEnvelopeSchema.extend({
+  screenSizeId: z.uuid(),
+  name: screenSizeNameSchema,
+  width: z.number().int().min(MIN_SCREEN_WIDTH).max(MAX_SCREEN_WIDTH),
+});
+export type CreateScreenSizeCommand = z.infer<typeof createScreenSizeSchema>;
+
+/**
+ * rename_screen_size — renames it for every Dashboard that offers it, from the
+ * one list the account holds, exactly as renaming a Type does for every Item
+ * wearing it.
+ */
+export const renameScreenSizeSchema = commandEnvelopeSchema.extend({
+  screenSizeId: z.uuid(),
+  name: screenSizeNameSchema,
+});
+export type RenameScreenSizeCommand = z.infer<typeof renameScreenSizeSchema>;
+
+/**
+ * delete_screen_size — which size. Every Layout at it goes with it, on every
+ * Dashboard of every Workspace the account has - not only this one's, which is
+ * the whole difference from `delete_layout`. A Dashboard that loses its only
+ * Layout this way is drawn fitted to the screen, exactly as one that was never
+ * arranged is; deleting the account's last size is allowed, the same as
+ * deleting its last Layout is not.
+ */
+export const deleteScreenSizeSchema = commandEnvelopeSchema.extend({
+  screenSizeId: z.uuid(),
+});
+export type DeleteScreenSizeCommand = z.infer<typeof deleteScreenSizeSchema>;
+
+/**
  * capture_item — the one command with many front doors (architecture,
  * "Multi-channel capture and the task-creator merge").
  */
@@ -702,6 +744,9 @@ export const commandSchemas = {
   save_layout: saveLayoutSchema,
   rename_layout: renameLayoutSchema,
   delete_layout: deleteLayoutSchema,
+  create_screen_size: createScreenSizeSchema,
+  rename_screen_size: renameScreenSizeSchema,
+  delete_screen_size: deleteScreenSizeSchema,
   capture_item: captureItemSchema,
   create_item_type: createItemTypeSchema,
   rename_item_type: renameItemTypeSchema,

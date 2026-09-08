@@ -730,6 +730,15 @@ export function listScreenSizes(db: AccountDb, tenantId: string): ScreenSize[] {
     .all();
 }
 
+/** One live screen size, or null - what a command naming one is checked against. */
+export function getScreenSize(
+  db: AccountDb,
+  tenantId: string,
+  screenSizeId: string,
+): ScreenSize | null {
+  return listScreenSizes(db, tenantId).find((size) => size.id === screenSizeId) ?? null;
+}
+
 /**
  * The highest position any of this account's types holds, or null when it has
  * none - so a new one can go after every type there is.
