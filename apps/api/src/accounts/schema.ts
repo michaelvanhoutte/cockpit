@@ -13,6 +13,8 @@ import {
   GRID_COLUMNS,
   ITEM_TYPE_COLORS,
   MAX_ROW_HEIGHT,
+  MAX_SCREEN_WIDTH,
+  MIN_SCREEN_WIDTH,
   PANEL_KINDS,
   MIN_ROW_HEIGHT,
   prioritySchema,
@@ -90,7 +92,9 @@ export const DEAD_STATUS_VALUE = 'to_process';
  *   will extend - the kinds a panel can be, the statuses an item moves
  *   through, the heights a row may take - is guarded by its Zod enum alone,
  *   because a CHECK is as expensive to change as to add and every extension
- *   would cost a rebuild.
+ *   would cost a rebuild. The enum and range CHECKs still below predate the
+ *   rule and are removed by "Let the database lock what is true by
+ *   definition, and Zod lock what the product tunes" (issue 257).
  * - **Foreign keys**, ON DELETE RESTRICT throughout, so that removing anything
  *   has to decide what happens to what points at it rather than inheriting a
  *   silent cascade: deleting a workspace ("Rename and delete a workspace",
@@ -452,12 +456,14 @@ export const screenSizes = sqliteTable(
      * Not partial on a tombstone, because a size is deleted for real.
      */
     uniqueIndex('screen_sizes_folded_name').on(t.tenantId, t.foldedName),
-    index('screen_sizes_tenant').on(t.tenantId),
     // Bounded, because a window is matched to the size closest to it: one
     // absurd width would win that comparison everywhere or never. True by
     // definition rather than a number the product tunes, so the database holds
     // it (architecture, "The database is the second lock").
-    check('screen_sizes_width_is_a_width', sql.raw('width BETWEEN 1 AND 100000')),
+    check(
+      'screen_sizes_width_is_a_width',
+      sql.raw(`width BETWEEN ${MIN_SCREEN_WIDTH} AND ${MAX_SCREEN_WIDTH}`),
+    ),
     check('screen_sizes_created_at_is_timestamp', isTimestamp('created_at')),
   ],
 );
@@ -526,9 +532,6 @@ export const layouts = sqliteTable(
      */
     uniqueIndex('layouts_dashboard_folded_name').on(t.tenantId, t.dashboardId, t.foldedName),
     index('layouts_tenant_dashboard').on(t.tenantId, t.dashboardId),
-    // Reached whenever a size is asked what it takes with it, which is every
-    // delete of one and the count its confirm names.
-    index('layouts_tenant_screen_size').on(t.tenantId, t.screenSizeId),
     // Bounded, because a screen is matched to "the layout closest to this
     // screen": one absurd width would win that comparison everywhere or never.
     check('layouts_screen_width_is_a_width', sql.raw('screen_width BETWEEN 1 AND 100000')),

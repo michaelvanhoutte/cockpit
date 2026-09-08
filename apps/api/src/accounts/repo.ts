@@ -685,6 +685,22 @@ export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean
  * where nothing has set a position - which is every account until "Manage the
  * types, and put them in the order you want" (issue 156) lands.
  */
+export function listItemTypes(db: AccountDb, tenantId: string): ItemType[] {
+  return db
+    .select({
+      id: itemTypes.id,
+      tenantId: itemTypes.tenantId,
+      name: itemTypes.name,
+      color: itemTypes.color,
+      position: itemTypes.position,
+      createdAt: itemTypes.createdAt,
+    })
+    .from(itemTypes)
+    .where(and(eq(itemTypes.tenantId, tenantId), isNull(itemTypes.deletedAt)))
+    .orderBy(itemTypes.position, itemTypes.createdAt)
+    .all();
+}
+
 /**
  * Every screen size of the account, narrowest first ("Give the account a list
  * of screen sizes, before anything reads it", issue 262).
@@ -710,22 +726,6 @@ export function listScreenSizes(db: AccountDb, tenantId: string): ScreenSize[] {
     .from(screenSizes)
     .where(eq(screenSizes.tenantId, tenantId))
     .orderBy(screenSizes.width, screenSizes.createdAt)
-    .all();
-}
-
-export function listItemTypes(db: AccountDb, tenantId: string): ItemType[] {
-  return db
-    .select({
-      id: itemTypes.id,
-      tenantId: itemTypes.tenantId,
-      name: itemTypes.name,
-      color: itemTypes.color,
-      position: itemTypes.position,
-      createdAt: itemTypes.createdAt,
-    })
-    .from(itemTypes)
-    .where(and(eq(itemTypes.tenantId, tenantId), isNull(itemTypes.deletedAt)))
-    .orderBy(itemTypes.position, itemTypes.createdAt)
     .all();
 }
 

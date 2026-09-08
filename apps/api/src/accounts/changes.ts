@@ -1358,12 +1358,12 @@ const SCREEN_SIZES: Change = {
     {
       sql: 'CREATE UNIQUE INDEX `screen_sizes_folded_name` ON `screen_sizes` (`tenant_id`,`folded_name`)',
     },
-    { sql: 'CREATE INDEX `screen_sizes_tenant` ON `screen_sizes` (`tenant_id`)' },
     {
-      sql: 'ALTER TABLE `layouts` ADD COLUMN `screen_size_id` text REFERENCES `screen_sizes`(`id`)',
-    },
-    {
-      sql: 'CREATE INDEX `layouts_tenant_screen_size` ON `layouts` (`tenant_id`,`screen_size_id`)',
+      // The action spelled out, like every other foreign key here: SQLite's
+      // default is NO ACTION, which is not what `schema.ts` declares, and
+      // nothing in the constraints test compares the two - it reads the target
+      // table and not the action.
+      sql: 'ALTER TABLE `layouts` ADD COLUMN `screen_size_id` text REFERENCES `screen_sizes`(`id`) ON UPDATE no action ON DELETE restrict',
     },
   ],
 };

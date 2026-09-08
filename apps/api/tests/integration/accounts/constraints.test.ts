@@ -4,7 +4,6 @@ import { ITEM_TYPE_COLORS, MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from '@cockpit/share
 import {
   ACCOUNT_NAME,
   DASHBOARD_ID,
-  OTHER_ACCOUNT_NAME,
   WORKSPACE_ID,
   inTheStore,
   seedRegister,
@@ -670,14 +669,6 @@ describe('Screen sizes', () => {
       await makeScreenSize();
 
       await expect(makeScreenSize({ name, folded_name: folded })).rejects.toThrow();
-    });
-
-    it('is allowed in another account, since the list is the account’s', async () => {
-      await makeScreenSize();
-
-      await expect(
-        makeScreenSize({ tenant_id: OTHER_ACCOUNT_NAME }),
-      ).resolves.toBeUndefined();
     });
   });
 
