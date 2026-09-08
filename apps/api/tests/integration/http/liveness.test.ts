@@ -37,11 +37,14 @@ async function capture(message: string) {
   });
 }
 
-async function upToOf(): Promise<string | undefined> {
+async function readBack(): Promise<{ upTo?: string; items: { capturedMessage: string }[] }> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
   expect(res.status).toBe(200);
-  return ((await res.json()) as { upTo?: string }).upTo;
+  return (await res.json()) as { upTo?: string; items: { capturedMessage: string }[] };
 }
+
+const upToOf = async () => (await readBack()).upTo;
+const messagesOf = async () => (await readBack()).items.map((item) => item.capturedMessage);
 
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
@@ -54,18 +57,26 @@ beforeEach(async () => {
 });
 
 describe('Live updates', () => {
-  describe('a snapshot says how current it is', () => {
+  describe('a workspace says how current the copy of it is', () => {
     it('names the newest change the account has taken', async () => {
       await capture('Something to be newer than');
 
       const upTo = await upToOf();
 
-      // A timestamp of the store's own making, not the Worker's - which is the
-      // whole reason the field exists rather than `generatedAt` being reused.
+      // A time of the store's own making, not the Worker's - which is the whole
+      // reason the field exists rather than `generatedAt` being reused.
       expect(upTo).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     });
 
-    it('moves forward when another change is taken', async () => {
+    /**
+     * **Never backwards**, which is what is actually guaranteed. Asserting that
+     * it strictly *advances* would assert the thing this change documents as
+     * not held: two changes taken inside one millisecond wear the same time, so
+     * a strict `>` here is a test that fails for the reason the code is honest
+     * about. What the reading has to keep pace with is proved beside it, by the
+     * copy holding both changes.
+     */
+    it('never goes backwards as changes are taken', async () => {
       await capture('The first one');
       const before = await upToOf();
 
@@ -73,28 +84,27 @@ describe('Live updates', () => {
       const after = await upToOf();
 
       expect(before).toBeDefined();
-      expect(after! > before!).toBe(true);
+      expect(after! >= before!).toBe(true);
+      expect(await messagesOf()).toEqual(
+        expect.arrayContaining(['The first one', 'The second one']),
+      );
     });
 
     /**
-     * **Never ahead of what the snapshot holds**, which is the one direction
-     * that cannot be allowed: a stamp naming a change the copy does not contain
-     * makes a tab skip a refetch it needed, and nothing later corrects it.
-     * Behind is free - it costs a refetch that was not necessary.
+     * **Never ahead of what the copy holds**, which is the one direction that
+     * cannot be allowed: naming a change the copy does not contain makes a tab
+     * skip a read it needed, and nothing later corrects it. Behind is free - it
+     * costs a read that was not necessary.
      */
-    it('never names a change the snapshot does not contain', async () => {
-      await capture('An item the snapshot must hold');
+    it('never names a change the copy does not contain', async () => {
+      await capture('An item that must be there too');
 
-      const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
-      const snapshot = (await res.json()) as {
-        upTo?: string;
-        items: { capturedMessage: string }[];
-      };
+      const read = await readBack();
 
-      expect(snapshot.items.map((item) => item.capturedMessage)).toContain(
-        'An item the snapshot must hold',
+      expect(read.items.map((item) => item.capturedMessage)).toContain(
+        'An item that must be there too',
       );
-      expect(snapshot.upTo).toBeDefined();
+      expect(read.upTo).toBeDefined();
     });
   });
 });

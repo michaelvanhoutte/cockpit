@@ -266,12 +266,13 @@ describe('Live updates', () => {
     });
 
     /**
-     * The list is not what `upTo` describes, and it is 500 bytes. Skipping it
-     * on a current snapshot would leave a workspace renamed elsewhere wearing
-     * its old name in the bar - reachable with nobody making a change in this
-     * tab at all, since a snapshot refetched on window focus satisfies it.
+     * The workspaces you have are not what this reading describes, and they
+     * cost 500 bytes. Skipping them on a current copy would leave a workspace
+     * renamed elsewhere wearing its old name in the tabs - reachable with
+     * nobody making a change in this tab at all, since a copy re-read when the
+     * window is focused is enough.
      */
-    it('re-reads the workspace list even when the snapshot is skipped', async () => {
+    it('re-reads the workspaces you have even when the workspace itself is skipped', async () => {
       open();
       client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:05.000Z'));
       const stream = FakeStream.made.at(-1)!;
@@ -289,13 +290,18 @@ describe('Live updates', () => {
 
     /**
      * Every uncertainty re-reads, which is what the app does today anyway. A
-     * copy with no stamp is one held from before the field existed, or one of
-     * an account that has never taken a change; an event with no stamp comes
-     * from a Worker deployed behind this build.
+     * copy that cannot say how current it is was held from before this was
+     * sent, or belongs to an account that has never taken a change; a change
+     * that cannot say when it happened comes from a server older than this
+     * build.
      */
     it.each([
-      ['the copy carries no stamp', heldAt(undefined), '2026-09-08T10:00:04.000Z'],
-      ['the event carries no stamp', heldAt('2026-09-08T10:00:05.000Z'), undefined],
+      ['the copy cannot say how current it is', heldAt(undefined), '2026-09-08T10:00:04.000Z'],
+      [
+        'the change does not say when it happened',
+        heldAt('2026-09-08T10:00:05.000Z'),
+        undefined,
+      ],
     ])('re-reads when %s', async (_case, held, at) => {
       open();
       client.setQueryData(['snapshot', 'ws-work'], held);
@@ -308,8 +314,16 @@ describe('Live updates', () => {
       expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated ?? false).toBe(true);
     });
 
+    /**
+     * **Asked of the re-read rather than of the cache**, because a workspace
+     * this tab has never opened has no cache entry to inspect: "never
+     * invalidated" and "no such query" read identically off `getQueryState`, so
+     * an assertion there would pass just as well if this workspace were wrongly
+     * treated as covered.
+     */
     it('re-reads a workspace this tab holds no copy of', async () => {
       open();
+      const readAgain = vi.spyOn(client, 'invalidateQueries');
       const stream = FakeStream.made.at(-1)!;
       stream.comesUp();
 
@@ -320,7 +334,7 @@ describe('Live updates', () => {
       });
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(client.getQueryState(['workspaces'])?.isInvalidated ?? false).toBe(true);
+      expect(readAgain).toHaveBeenCalledWith({ queryKey: ['snapshot', 'ws-never-opened'] });
     });
   });
 });

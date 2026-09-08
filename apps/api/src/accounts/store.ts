@@ -98,11 +98,13 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   /** The full read model for one workspace, or `missing` when there is no such workspace. */
   snapshot(accountName: string, workspaceId: string): Answer<AccountSnapshot> {
     return this.#answer(accountName, (db) => {
+      // POC (own-event refetch): before every row this answer carries, the
+      // workspace included - `watermark` says why the order is the whole safety
+      // argument, and the workspace is as much a row it vouches for as the
+      // items are.
+      const upTo = watermark(db, accountName);
       const workspace = getWorkspace(db, accountName, workspaceId);
       if (!workspace) throw new WorkspaceNotFoundError(workspaceId);
-      // POC (own-event refetch): before the rows, not after - `watermark` says
-      // why the order is the whole safety argument.
-      const upTo = watermark(db, accountName);
       return {
         upTo,
         workspace,
