@@ -54,6 +54,7 @@ import {
   getWorkspace,
   listAssociationsForWorkspace,
   listItemTypes,
+  listScreenSizes,
   listDashboards,
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
@@ -115,6 +116,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         filings: listFilingsInWorkspace(db, accountName, workspaceId),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
         itemTypes: listItemTypes(db, accountName),
+        screenSizes: listScreenSizes(db, accountName),
       };
     });
   }

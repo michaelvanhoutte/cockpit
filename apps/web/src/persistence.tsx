@@ -28,6 +28,13 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * `v7` because a snapshot gained the account's screen sizes and a layout gained
+ * the one it is for ("Give the account a list of screen sizes, before anything
+ * reads it", issue 262). Nothing reads either field yet, which is exactly why
+ * this moves now rather than with the release that does: by then the stale copy
+ * is already in browsers, and a restored snapshot would answer `undefined`
+ * where the type says a list.
+ *
  * `v5` because a layout gained a name ("Pick the layout you are on, by name",
  * issue 192) and this was not moved with it: a copy from before it holds
  * layouts with no name at all, and the menu that picks one read that name and
@@ -59,7 +66,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v6';
+export const CACHE_BUSTER = 'v7';
 
 /**
  * What is worth keeping on disk, which is everything the app paints itself from

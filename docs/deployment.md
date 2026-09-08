@@ -632,7 +632,7 @@ environment their real address is a step of its own — see "A Google OAuth
 client" — and until it is taken, nobody there can sign in.
 
 **There is no seed step for an account's own data, and there cannot be.** Its
-workspaces, dashboards, panels, layouts, items and associations live in a Durable
+workspaces, dashboards, panels, screen sizes, layouts, items and associations live in a Durable
 Object created by the first request that opens it, and `wrangler d1 execute` speaks only to D1. So
 the workspace an account starts with — with its dashboard and that dashboard's
 panel — is a change of its own instead (`apps/api/src/accounts/changes.ts`),
