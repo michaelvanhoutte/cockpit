@@ -902,6 +902,27 @@ describe('Layouts', () => {
       expect(await layoutsOf(dashboardId)).toHaveLength(1);
     });
 
+    it('refuses two different sizes landing on one name, rather than a raw constraint error', async () => {
+      // The other direction of the same staleness: the first Layout's name
+      // is frozen as "Wide" from the size it was made at, that size is
+      // renamed away, and a second size is renamed *into* "Wide" - so a
+      // Layout defined for the second, different-id size still collides on
+      // the name the database's own index refuses two Layouts of one
+      // Dashboard to share.
+      const { dashboardId, panelId, screenSizeId } = await arranged('Wide');
+      await send('rename_screen_size', { workspaceId: WORKSPACE_ID, screenSizeId, name: 'Desktop' });
+      const second = await aScreenSize('Temporary', 480);
+      expect(
+        (await send('rename_screen_size', { workspaceId: WORKSPACE_ID, screenSizeId: second, name: 'Wide' }))
+          .status,
+      ).toBe(200);
+
+      const again = await saveLayout(dashboardId, nextId(), 480, [{ panelId, span: 12 }], second);
+
+      expect(again.status).toBe(409);
+      expect(await layoutsOf(dashboardId)).toHaveLength(1);
+    });
+
     it('lets another dashboard have a layout at the same size', async () => {
       // One level further down than a dashboard's own name: the scope is the
       // dashboard, the way a panel's title is.

@@ -874,16 +874,24 @@ export function runCommand<N extends CommandName>(
             name = makingSize.name;
           }
         }
-        // At most one Layout of a Dashboard per screen size. Compared by the
-        // id itself, not by the name it resolved to: a Layout's own name is
-        // frozen at its creation and `rename_screen_size` never touches it,
-        // so two Layouts made at one size before and after a rename would
-        // carry two different frozen names and slip straight past a check
-        // that compared those instead.
-        const alreadyThere = listLayoutsOn(db, tenantId, dashboard.id).find(
-          (layout) => layout.screenSizeId === screenSizeId,
-        );
+        // At most one Layout of a Dashboard per screen size, checked by the
+        // id itself rather than by the name it resolved to: a Layout's own
+        // name is frozen at its creation and `rename_screen_size` never
+        // touches it, so two Layouts made at one size before and after a
+        // rename would carry two different frozen names and slip straight
+        // past a check that compared those instead.
+        const its = listLayoutsOn(db, tenantId, dashboard.id);
+        const alreadyThere = its.find((layout) => layout.screenSizeId === screenSizeId);
         if (alreadyThere) throw new LayoutNameTakenError(name);
+        // The other direction of the same staleness: two *different* sizes
+        // can resolve to the same name - one renamed away from it, another
+        // renamed into it - and `layouts_dashboard_folded_name` (schema.ts)
+        // still refuses two Layouts of one name on one Dashboard regardless
+        // of which size either is at. Caught here, in the words of the name
+        // actually in the way, rather than left to surface as the raw
+        // constraint the index behind it would otherwise raise.
+        const sameNameElsewhere = layoutNamed(its, name);
+        if (sameNameElsewhere) throw new LayoutNameTakenError(sameNameElsewhere.name);
       }
       // Every screen size is the account's, offered in every Workspace it has -
       // see `create_screen_size`. Only where this save makes one; an ordinary
