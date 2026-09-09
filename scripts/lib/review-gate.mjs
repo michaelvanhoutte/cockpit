@@ -1,17 +1,27 @@
 //
 // Whether a Claude review run actually reached a verdict, and whether that
-// verdict is one that should block a merge.
+// verdict is one that should block a merge. Both reviews decide it here - the
+// security review through decideSecurityOutcome, the code review through
+// decideCodeReviewOutcome - over the same execution record, the same denial
+// counting and the same reading of the action's two payload shapes.
 //
-// This lives here rather than in the workflow because the equivalent logic in
-// claude-code-review.yml is a `run:` block, and every incident recorded in that
-// file's comments is a bug in it: a permission_denials_count field missing from
-// the result record and read as "no denials", a three-turn blocked session
+// This lives here rather than in the workflows because the code review's gate
+// was a `run:` block until "Give the code review the tested gate the security
+// review already uses" (issue 277) moved it, and every incident recorded in
+// that file's comments is a bug in it: a permission_denials_count field missing
+// from the result record and read as "no denials", a three-turn blocked session
 // passing as clean, a seven-turn one doing the same, a result payload that is
 // sometimes an array and sometimes an object. All four are decisions over a
 // JSON document, all four shipped green, and none of them was covered by
 // anything, because inline bash cannot be run by a test. The same logic in a
 // module is asserted by node --test in the Scripts CI job, like the rest of
 // scripts/lib.
+//
+// Two functions rather than one with a flag, because the two gates ask
+// different questions of the same record. The security review is required to
+// end with a verdict line, so its gate reads that line and can say what the
+// verdict was; the code review has no such contract, and the only evidence it
+// reached a verdict at all is that it posted something on the pull request.
 //
 // Everything here takes its inputs as arguments and reads nothing - no
 // filesystem, no environment, no clock - for the same reason stopPlan() in
@@ -26,10 +36,14 @@
 export const SEVERITIES = ['NONE', 'LOW', 'MEDIUM', 'HIGH'];
 
 /**
- * Hidden marker identifying this workflow's comment, so each run edits the one
- * it left last time instead of adding another. A review that comments on every
- * push turns a long pull request into a column of near-identical notices, which
- * is its own way of not being read.
+ * Hidden marker identifying the security review's comment, so each run edits
+ * the one it left last time instead of adding another. A review that comments
+ * on every push turns a long pull request into a column of near-identical
+ * notices, which is its own way of not being read.
+ *
+ * The code review's gate leaves no comment of its own: the reviewer's own
+ * comments are what it reads to decide the check, and a note from the gate
+ * beside them would be the thing it is looking for.
  */
 export const COMMENT_MARKER = '<!-- cockpit-security-review -->';
 
@@ -219,6 +233,84 @@ export function denialsOf(execution, result) {
 }
 
 /**
+ * Everything both gates read off the action's execution file, before either of
+ * them decides anything with it.
+ *
+ * `executionText` is the raw contents, parsed here rather than by the caller so
+ * that "the file was empty or unparseable" is a case the gates can be asked
+ * about instead of a crash in the workflow. `result` is null for a run that
+ * produced no result record, which is not the same as a result record saying
+ * something bad: a run that produced no result did not run.
+ */
+function runFacts(executionText) {
+  let execution = null;
+  try {
+    execution = JSON.parse(String(executionText ?? ''));
+  } catch {
+    execution = null;
+  }
+
+  const result = resultRecordOf(execution);
+  if (result === null) return { result: null, turns: 0, denials: { count: 0, tools: [] }, subtype: 'unknown', isError: false, finalText: '' };
+
+  return {
+    result,
+    turns: Number(result.num_turns ?? 0) || 0,
+    denials: denialsOf(execution, result),
+    subtype: String(result.subtype ?? 'unknown'),
+    isError: result.is_error === true,
+    finalText: String(result.result ?? ''),
+  };
+}
+
+/** The failure both gates give for a run that produced no result record. */
+function didNotRun() {
+  return {
+    ok: false,
+    failures: ['The review produced no result record, so it did not run.'],
+    warnings: [],
+    turns: 0,
+    denials: { count: 0, tools: [] },
+  };
+}
+
+/**
+ * Anything out of the execution record, made safe to put in a message the
+ * workflow prints.
+ *
+ * Two hazards, both because those messages become `::warning::` and `::error::`
+ * annotations and the text in them is the model's own output. A newline
+ * truncates an annotation at the first one, which is every multi-line closing
+ * message; and a line beginning `::` is read by the runner as a workflow
+ * command rather than printed, `::stop-commands::` and the silencing of
+ * everything after it included. Neither is a way for the gate that exists to be
+ * legible to end up.
+ */
+export function oneLine(text) {
+  return String(text ?? '')
+    .replace(/\s*[\r\n]+\s*/g, ' ')
+    .replace(/::/g, ': :')
+    .trim();
+}
+
+/**
+ * How the denials read once the gate knows whether a verdict landed.
+ *
+ * Fatal only when nothing landed. Every tool a review needs is allowlisted, so
+ * a denial is one deliberately withheld - run 33202686222 was a validation
+ * agent reaching for `node -e` to execute the pull request's own logic, which
+ * is not something to grant a review of untrusted code on a public repository.
+ * It adapted and posted its findings anyway, and failing that run would teach
+ * everyone to ignore this check.
+ */
+function denialNote(denials, { reachedVerdict }) {
+  const which = oneLine(denials.tools.join(', ')) || 'see log';
+  return reachedVerdict
+    ? `The review reached a verdict but ${denials.count} tool call(s) were denied (${which}). Worth a look if its findings seem thin.`
+    : `It was blocked by ${denials.count} permission denial(s) (${which}), which is the likely reason.`;
+}
+
+/**
  * The verdict the run ended with.
  *
  * Three outcomes, deliberately distinct: a verdict, `null` for a run that never
@@ -238,49 +330,26 @@ export function verdictOf(text) {
 }
 
 /**
- * Whether the check goes green.
- *
- * `executionText` is the raw contents of the action's execution file, parsed
- * here rather than by the caller so that "the file was empty or unparseable"
- * is a case this can be asked about instead of a crash in the workflow.
+ * Whether the security review's check goes green.
  *
  * A failure is always a statement about what is missing, never a bare exit
  * code: this text is what a person reads when the check is red, and "the
  * review produced no verdict" and "the review found something HIGH" are
  * different problems with different fixes.
  */
-export function decideOutcome({ executionText, conclusion, failAt = 'HIGH', minTurns = 10 } = {}) {
+export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIGH', minTurns = 10 } = {}) {
   const failures = [];
   const warnings = [];
 
-  let execution = null;
-  try {
-    const parsed = JSON.parse(String(executionText ?? ''));
-    execution = parsed;
-  } catch {
-    execution = null;
-  }
+  const { result, turns, denials, isError, finalText } = runFacts(executionText);
+  if (result === null) return { ...didNotRun(), verdict: null };
 
-  const result = resultRecordOf(execution);
-  if (result === null) {
-    return {
-      ok: false,
-      failures: ['The review produced no result record, so it did not run.'],
-      warnings,
-      verdict: null,
-      turns: 0,
-      denials: { count: 0, tools: [] },
-    };
-  }
-
-  const denials = denialsOf(execution, result);
-  const turns = Number(result.num_turns ?? 0) || 0;
-  const verdict = verdictOf(result.result);
+  const verdict = verdictOf(finalText);
 
   if (conclusion !== undefined && conclusion !== 'success') {
     failures.push(`The review step reported conclusion='${conclusion}'.`);
   }
-  if (result.is_error === true) {
+  if (isError) {
     failures.push('The review session ended with is_error=true.');
   }
 
@@ -309,11 +378,7 @@ export function decideOutcome({ executionText, conclusion, failAt = 'HIGH', minT
     // below, because a review that reached an answer despite a withheld tool
     // has still reviewed - and failing those runs teaches everyone to ignore
     // this check.
-    if (denials.count > 0) {
-      failures.push(
-        `It was blocked by ${denials.count} permission denial(s) (${denials.tools.join(', ') || 'see log'}), which is the likely reason.`,
-      );
-    }
+    if (denials.count > 0) failures.push(denialNote(denials, { reachedVerdict: false }));
   } else if (verdict.ambiguous) {
     failures.push(
       `The review gave ${verdict.ambiguous.length} verdict lines (${verdict.ambiguous.join(', ')}). One run states one verdict; which of these was meant is not something this can decide.`,
@@ -324,11 +389,7 @@ export function decideOutcome({ executionText, conclusion, failAt = 'HIGH', minT
         `The review found something at ${verdict.severity}, which is at or above ${failAt} and must not merge.`,
       );
     }
-    if (denials.count > 0) {
-      warnings.push(
-        `The review reached a verdict but ${denials.count} tool call(s) were denied (${denials.tools.join(', ') || 'see log'}). Worth a look if its findings seem thin.`,
-      );
-    }
+    if (denials.count > 0) warnings.push(denialNote(denials, { reachedVerdict: true }));
     // Never a failure. A short run is as likely to be a clean small diff as a
     // blocked session, and the verdict already separates those two - which is
     // the instrument the turn count was standing in for while there wasn't one.
@@ -345,4 +406,117 @@ export function decideOutcome({ executionText, conclusion, failAt = 'HIGH', minT
     turns,
     denials,
   };
+}
+
+/**
+ * How many of these logins are the reviewer's own.
+ *
+ * A prefix rather than an equality, and case-insensitive, because the same
+ * account appears under more than one name: `claude[bot]` on the App's own
+ * comments, `claude` on others. The bash this replaces matched `grep -ci
+ * '^claude'` and this keeps that exactly - loosening it is how somebody named
+ * `claude-fan` comes to count as the reviewer having spoken.
+ *
+ * One login per line, which is the shape `gh api --paginate --jq '.[].user.login'`
+ * emits across every page. Lines, not JSON, for the reason markedCommentId
+ * above documents: --paginate applies --jq per page and concatenates, so a
+ * filter that wraps its output in an array stops being JSON at thirty comments.
+ */
+export function reviewerCommentCount(logins, { prefix = 'claude' } = {}) {
+  const wanted = prefix.toLowerCase();
+  return String(logins ?? '')
+    .split('\n')
+    .filter((line) => line.trim().toLowerCase().startsWith(wanted)).length;
+}
+
+/**
+ * Whether this pull request is one the code review was obliged to speak on.
+ *
+ * Exported because the script has to know before the gate does: it decides
+ * whether to spend three paginated `gh api` calls counting what the reviewer
+ * said. Deciding it there as well would put the rule in an untested copy beside
+ * the tested one, which is the split "Give the code review the tested gate the
+ * security review already uses" (issue 277) exists to remove.
+ *
+ * `pullRequest` is `{ state, isDraft }` as `gh pr view` reports them, or null
+ * when GitHub could not be asked. Anything but an open non-draft skips the
+ * posted-comment test rather than failing it: a review is entitled to say
+ * nothing on a pull request that closed while it was running, and a gate that
+ * went red for that would be red about the run rather than about the code.
+ */
+export function postedCommentTestApplies(pullRequest) {
+  return pullRequest?.state === 'OPEN' && pullRequest?.isDraft === false;
+}
+
+/**
+ * Whether the code review's check goes green.
+ *
+ * The same record as decideSecurityOutcome reads, asked a different question.
+ * There is no verdict line here: `/code-review --comment` posts inline comments
+ * when it has findings and a summary comment when it has none, so *having
+ * posted* is what separates a review from a non-review, and `said` is how many
+ * of the pull request's comments and reviews are the reviewer's own.
+ *
+ * The command's four stop conditions are the deliberate exceptions, and each is
+ * accounted for: closed and draft never reach the test, because
+ * `pullRequest` excludes them below; "already reviewed" leaves the earlier
+ * round's comments standing, so `said` is still non-zero; and the
+ * trivial-change stop is instructed away by the workflow's appended system
+ * prompt, which requires that verdict to be posted like any other. Run
+ * 33407302266 is why that instruction exists - it took the trivial stop on pull
+ * request 80 and failed this gate for a review that had reached the right
+ * answer.
+ *
+ * `pullRequest` is what postedCommentTestApplies above reads.
+ */
+export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, pullRequest = null, minTurns = 10 } = {}) {
+  const failures = [];
+  const warnings = [];
+
+  const { result, turns, denials, subtype, isError, finalText } = runFacts(executionText);
+  if (result === null) return { ...didNotRun(), subtype: 'unknown', isError: false, finalText: '', said: 0, verdictSeen: false };
+
+  if (conclusion !== undefined && conclusion !== 'success') {
+    failures.push(`The review step reported conclusion='${conclusion}'.`);
+  }
+  if (isError) {
+    failures.push('The review session ended with is_error=true.');
+  }
+  // Not something decideSecurityOutcome asks, and left that way on purpose:
+  // moving this gate was meant to change where the decision lives, not what
+  // either check decides.
+  if (subtype !== 'success') {
+    failures.push(`The review session ended with subtype='${oneLine(subtype)}'.`);
+  }
+
+  const applies = postedCommentTestApplies(pullRequest);
+  const verdictSeen = applies && said > 0;
+
+  if (applies && said === 0) {
+    failures.push(
+      'The review posted nothing on this pull request. A review that reaches a verdict always says so, ' +
+        'so this one did not reach one.',
+    );
+    if (denials.count > 0) failures.push(denialNote(denials, { reachedVerdict: false }));
+  } else if (verdictSeen && denials.count > 0) {
+    warnings.push(denialNote(denials, { reachedVerdict: true }));
+  }
+
+  // Never a failure. The turn count is too weak to catch a non-review - run
+  // 33201638348 spent 11 turns and stopped with "Waiting on the eligibility
+  // check for PR #56 before proceeding" - and strict enough to fail a correct
+  // one: run 33203441279 stopped after 5 clean turns because the review had
+  // already run on this pull request. That second case is the one worth naming,
+  // because it is the shape of "The review check goes green when the reviewer
+  // declined to look at the new commits" (issue 75), which owns turning it into
+  // something with teeth.
+  if (turns < minTurns) {
+    warnings.push(
+      verdictSeen
+        ? `The session ran only ${turns} turns, and Claude has already posted on this pull request - most likely the review declining because it had reviewed this pull request before, in which case the commits pushed since then have not been looked at. Its closing words: ${oneLine(finalText)}`
+        : `The session ran only ${turns} turns. Its closing words: ${oneLine(finalText)}`,
+    );
+  }
+
+  return { ok: failures.length === 0, failures, warnings, turns, denials, subtype, isError, finalText, said, verdictSeen };
 }

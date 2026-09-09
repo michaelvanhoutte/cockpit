@@ -10,7 +10,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 
-import { COMMENT_MARKER, decideOutcome, summaryComment } from './lib/review-gate.mjs';
+import { COMMENT_MARKER, decideSecurityOutcome, summaryComment } from './lib/review-gate.mjs';
 import { upsertSticky } from './lib/sticky-comment.mjs';
 
 const [executionFile, conclusion] = process.argv.slice(2);
@@ -50,7 +50,7 @@ try {
   executionText = '';
 }
 
-const outcome = decideOutcome({ executionText, conclusion });
+const outcome = decideSecurityOutcome({ executionText, conclusion });
 
 const summary = ['## Claude security review gate', ''];
 summary.push(`| field | value |`, `| --- | --- |`);
@@ -90,4 +90,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
 
 leaveSummary(outcome);
 
-process.exit(outcome.ok ? 0 : 1);
+// Set, not process.exit(), for the reason assert-code-review.mjs gives: stdout
+// to a pipe is asynchronous, and exiting in the same tick can take the
+// annotations with it.
+process.exitCode = outcome.ok ? 0 : 1;
