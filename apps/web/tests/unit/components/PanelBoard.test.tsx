@@ -490,9 +490,13 @@ describe('Panels', () => {
     });
 
     it('names the header for what it opens, since nothing else does now the button is gone', () => {
+      // Found in review: a bare header nested in a section computes to
+      // ARIA's `generic` role, which prohibits a name - `role="button"` is
+      // what makes the label and the popup hint legal as well as present.
       showBoard();
 
       const header = handleOf('Project Falcon');
+      expect(header).toHaveAttribute('role', 'button');
       expect(header).toHaveAttribute('aria-label', 'Actions for Project Falcon');
       expect(header).toHaveAttribute('aria-haspopup', 'menu');
     });
@@ -503,6 +507,7 @@ describe('Panels', () => {
       await choose(user, 'Project Falcon', 'Rename');
 
       const header = handleOf('Project Falcon');
+      expect(header).not.toHaveAttribute('role');
       expect(header).not.toHaveAttribute('aria-label');
       expect(header).not.toHaveAttribute('aria-haspopup');
     });

@@ -254,8 +254,14 @@ export function PanelCard({
           // header has neither on its own, and the kebab button this replaced
           // carried both (`aria-label="Actions for X"` on a real `button`) -
           // said here instead, since nothing else names this stop as the
-          // panel's menu trigger. Both go with the tab order, for the same
-          // reason: a control a rename box is standing in for is not one.
+          // panel's menu trigger. `role="button"` is what makes saying so
+          // legal: a bare header, nested in a section, computes to ARIA's
+          // `generic` - the one role a name is prohibited on (found in
+          // review; WAI-ARIA 1.2 §5.2.8.6 on `generic`), which had been
+          // quietly dropping both. All three go with the tab order, for the
+          // same reason: a control a rename box is standing in for is not
+          // one.
+          role={isRenaming ? undefined : 'button'}
           aria-haspopup={isRenaming ? undefined : 'menu'}
           aria-label={isRenaming ? undefined : `Actions for ${panel.name}`}
           // On the sheet rather than on the list: no fill, no rule under it, and
