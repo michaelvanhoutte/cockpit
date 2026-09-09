@@ -67,6 +67,12 @@ export function ItemForm() {
   );
 }
 
+/** How far into the dialog's own corner a `mousedown` still counts as taking
+ *  hold of the native resize handle, rather than pressing whatever else is
+ *  drawn nearby - generous enough to find with a mouse, narrower than the
+ *  padding around the buttons that sit closest to it. */
+const RESIZE_CORNER = 16;
+
 function TheForm({
   itemId,
   workspaceId,
@@ -128,53 +134,66 @@ function TheForm({
     }
   }, [contentEl, remembered]);
   /**
-   * Keeps `openedAt` current with what the screen itself allows, so a window
-   * resized or a phone rotated while the dialog stays open is not read as a
-   * drag when it closes.
+   * Whether this open has seen a drag on the handle at all - the gate on
+   * remembering anything, below.
    *
-   * `max-w-`/`max-h-` (below) track the viewport for as long as the dialog
-   * is open, not only at the moment it opened - `--item-form-w`/`-h`
-   * (styles.css) are `100vw`/`100vh`-derived, so the box the browser is
-   * actually showing can change size with no drag at all. `resize` fires for
-   * exactly that change and never for a drag on the native handle, which is
-   * what makes it the right signal to re-baseline on: rebaselining here
-   * keeps the close-time comparison asking only about what happened *since*
-   * the last honest measurement of the screen's own doing.
+   * **A `mousedown` inside the handle's own corner, and only that.** There is
+   * no `resizeend` event, and a native resize does not reliably deliver the
+   * `mouseup` it ends on either, so this does not try to measure a finished
+   * drag - it only asks whether one *started*, which a `mousedown` answers
+   * for certain: the grip is drawn inside the box's own padding, over
+   * nothing else, so a press landing there has this element as its target
+   * and nowhere close to the target a press on Cancel or Save would have.
+   * `sm:resize` (below) is the only thing that makes the handle interactive
+   * at all, which is why the width check matches its own breakpoint.
    */
+  const dragged = useRef(false);
   useEffect(() => {
     if (!contentEl) return;
-    const rebaseline = () => {
-      if (!openedAt.current) return;
+    const onDown = (e: MouseEvent) => {
+      if (e.target !== contentEl || window.innerWidth < 640) return;
       const box = contentEl.getBoundingClientRect();
-      if (box.width > 0 && box.height > 0) {
-        openedAt.current = { width: Math.round(box.width), height: Math.round(box.height) };
+      if (
+        e.clientX >= box.right - RESIZE_CORNER &&
+        e.clientX <= box.right &&
+        e.clientY >= box.bottom - RESIZE_CORNER &&
+        e.clientY <= box.bottom
+      ) {
+        dragged.current = true;
       }
     };
-    window.addEventListener('resize', rebaseline);
-    return () => window.removeEventListener('resize', rebaseline);
+    contentEl.addEventListener('mousedown', onDown);
+    return () => contentEl.removeEventListener('mousedown', onDown);
   }, [contentEl]);
   /**
-   * Remembers the size the box is measured at on the way out - if it differs
-   * from the size it was measured at on the way in.
+   * Remembers the size the box is measured at on the way out - one axis at a
+   * time, and only where a drag actually happened this open.
    *
-   * **A cleanup, not a call from Cancel or Save.** There is no `resizeend`
-   * event, and a native resize does not reliably deliver the `mouseup` it
-   * ends on either - so rather than guess which tick of a drag was its last,
-   * this reads the box once, at the one moment its size is definitely
-   * settled: gone. A cleanup runs there regardless of *why* - Cancel, Save,
-   * Escape, a press outside, or a straight swap from one item's form to
-   * another's (`ItemForm`, `key={openItemId}`) skips both of those and
-   * unmounts this component directly, which is the one path a call hung off
-   * Cancel or Save would have missed a drag on.
+   * **Nothing is written unless `dragged` is true.** `max-w-`/`max-h-`
+   * (below) track the screen live for as long as the dialog is open, so the
+   * box the browser is showing can differ from what it opened at - or from
+   * what was remembered - with no drag at all, purely from the window
+   * changing shape under it. Gating on a real `mousedown` in the handle is
+   * what tells that apart from a drag, rather than asking whether the size
+   * merely *differs* from something: a live reclamp interleaved with a real
+   * drag would otherwise either erase the drag (if the reclamp is read as
+   * the new baseline) or invent one out of nothing (if it is not).
    *
-   * **Compared against how it opened, not written unconditionally.** The
-   * `max-w-`/`max-h-` that clamp a remembered size to the screen it is
-   * opening on (below) stay live for as long as the dialog is open, so a
-   * dialog opened on a small screen and closed untouched measures smaller on
-   * the way out than what was actually remembered - writing that back would
-   * be the screen overwriting the preference it is only ever supposed to
-   * clamp. Comparing against the size this same open started at tells a
-   * clamp from an actual drag: nothing else moves the box between the two.
+   * **Compared per axis against how it opened, not written as one pair.** A
+   * viewport that clamps only one axis (`--item-form-h` starts clamping
+   * under about 736px, routine on a laptop) means `openedAt` can already
+   * hold a clamped value on an axis nobody touched. Dragging only the other
+   * axis must not carry that clamp back into storage as if it were chosen -
+   * an axis whose current measurement still matches `openedAt` keeps
+   * whatever was remembered for it before; only the axis that actually moved
+   * is written from what the box measures now.
+   *
+   * **A cleanup, not a call from Cancel or Save.** A cleanup runs regardless
+   * of *why* the dialog goes - Cancel, Save, Escape, a press outside, or a
+   * straight swap from one item's form to another's (`ItemForm`,
+   * `key={openItemId}`) skips both of those and unmounts this component
+   * directly, which is the one path a call hung off Cancel or Save would
+   * have missed a drag on.
    *
    * **A layout effect, not a plain one.** A plain effect's cleanup for a
    * component being unmounted runs after the DOM has already been mutated -
@@ -185,14 +204,17 @@ function TheForm({
    */
   useLayoutEffect(() => {
     return () => {
+      if (!dragged.current) return;
       const box = contentEl?.getBoundingClientRect();
       if (!box || box.width <= 0 || box.height <= 0) return;
       const now: Size = { width: Math.round(box.width), height: Math.round(box.height) };
       const was = openedAt.current;
-      if (was && was.width === now.width && was.height === now.height) return;
-      rememberItemFormSize(browserStore(), now);
+      rememberItemFormSize(browserStore(), {
+        width: was && now.width === was.width ? (remembered?.width ?? now.width) : now.width,
+        height: was && now.height === was.height ? (remembered?.height ?? now.height) : now.height,
+      });
     };
-  }, [contentEl]);
+  }, [contentEl, remembered]);
 
   /** What the boxes hold, and what they were filled from. */
   const [editing, setEditing] = useState<{ was: Draft; now: Draft } | null>(null);

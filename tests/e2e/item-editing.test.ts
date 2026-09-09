@@ -343,9 +343,11 @@ test.describe('Item editing', () => {
       // what is new here is only whether the handle is offered at all.
       const resize = await form(page).evaluate((el) => getComputedStyle(el).resize);
       if (isMobile) {
-        expect(resize, 'a phone has no room to grow into, and no handle').toBe('none');
+        expect(resize, 'a phone has no room to spare, and no handle').toBe('none');
       } else {
-        expect(resize, 'a desk has room, and a corner handle to grow into it').toBe('both');
+        expect(resize, 'a desk has room to spare, and a corner handle to shrink into it').toBe(
+          'both',
+        );
       }
     });
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
@@ -365,11 +365,10 @@ describe('Item editing', () => {
       held.items = [anItem(), anItem({ id: 'item-2', title: 'Part 12', description: 'Its own' })];
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
-      // Stands in for the browser's own layout: `openedAt` reads this once,
-      // early, and the swap's cleanup reads it again on the way out - a
-      // "drag" here is only ever that second reading differing from the
-      // first, the same as it would be from a real one.
-      let rect = { width: 900, height: 700 };
+      // Stands in for the browser's own layout - a full `DOMRect` shape, since
+      // the component reads `right`/`bottom` off it to recognise a press in
+      // the handle's own corner.
+      let rect = { width: 900, height: 700, top: 0, left: 0, right: 900, bottom: 700, x: 0, y: 0 };
       const measuring = vi
         .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
         .mockImplementation(() => rect as DOMRect);
@@ -386,7 +385,11 @@ describe('Item editing', () => {
         await screen.findByLabelText('Title');
         await theEditorHasArrived();
 
-        rect = { width: 500, height: 400 };
+        // A press inside the handle's own corner - what the component takes
+        // as "a drag has started", the gate on remembering anything at all.
+        fireEvent.mouseDown(screen.getByRole('dialog'), { clientX: 895, clientY: 695 });
+
+        rect = { width: 500, height: 400, top: 0, left: 0, right: 500, bottom: 400, x: 0, y: 0 };
         held.openItemId = 'item-2';
         rerender(
           <QueryClientProvider client={client}>
