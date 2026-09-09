@@ -51,7 +51,11 @@ If the request doesn't fit, split it into units in dependency order, each declar
 
 **Exception:** a wide mechanical refactor (rename a shared symbol, retype a column) can't be sliced vertically. Sequence it as expand (add the new form beside the old) → migrate in batches, each its own unit blocked by the expand → contract (delete the old form), blocked by every batch.
 
-**State a recommended model beside each unit, only where the session default is wrong for it.** Recommend `opus` where the unit will trip step 5 below — it changes state it cannot put back, so a wrong call costs more than the stronger model does — or where step 3 leaves genuine design judgment unresolved rather than a fuzzy term to look up. Recommend `haiku` where the unit is mechanical and fully specified, such as one batch of an expand-migrate-contract sequence applying a pattern the batch before it already fixed. Say nothing for everything else: omitting the recommendation is what tells `/issue` to build the unit on the calling session's own model.
+**State a recommended model beside each unit, only where the session default is wrong for it:**
+
+- `opus` — the unit trips step 5 below (it changes state it cannot put back, so a wrong call costs more than the stronger model does), or step 3 leaves genuine design judgment unresolved rather than a fuzzy term to look up.
+- `haiku` — the unit is mechanical and fully specified, such as one batch of an expand-migrate-contract sequence applying a pattern the batch before it already fixed.
+- Nothing, for everything else. Omitting the recommendation is what tells `/issue` to build the unit on the calling session's own model.
 
 **When the work grows mid-session, say what it now costs.** Each addition gets judged against the one before it rather than the original ask, so a run of reasonable expansions quadruples a change without anyone deciding to. Name the new total and what it drags behind it — its own tests, another documentation sweep, another review round — so continuing is chosen rather than defaulted into.
 
