@@ -68,7 +68,7 @@ The two rules that get skipped most, restated here rather than referenced becaus
 
 ## Review findings
 
-**Run `/code-review xhigh` yourself before pushing, not only `/security-review`.** Across five pull requests of one run, all twenty findings were code-review findings and the security review correctly found nothing — silence that read, from the transcript, like a review had happened. A local pass runs now; a remote round costs a push, a CI run and fourteen minutes.
+**Run `/code-review xhigh` yourself before pushing, not only `/security-review`.** The security review is correctly silent on most changes, and its silence reads like a review having happened. A local pass runs now; a remote round costs a push, a CI run and fourteen minutes.
 
 **The level is part of that command, because a bare `/code-review` picks the cheapest one.** It reuses whatever level was typed last and falls back when nothing ever was, so it lands on `low` or `medium` — fewer findings, higher confidence, which is the wrong trade when the coverage a level buys is the alternative to a remote round. `xhigh` rather than `max` because a `max` pass on a large diff is slow enough to get skipped, and a skipped review is the failure the rule above already exists to fix. `ultra` is not a deeper step on the same scale: it is a billed multi-agent review in the cloud, so only the user can start one.
 
