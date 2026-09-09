@@ -221,13 +221,14 @@ describe('Capture', () => {
    * store in apps/api/tests/integration/http/note-cleanup.test.ts.
    */
   describe('a captured note is named by Cockpit until you edit either text, and by you after that', () => {
-    const proposed = (item: Item) =>
+    const proposed = (item: Item, readings: Item['readings'] = []) =>
       applyProposedTexts(item, {
         ...request,
         issuedAt: LATEST,
         itemId: item.id,
         title: 'Ask Novy about the Part 11 audit trail',
         description: 'A question about the Part 11 audit trail for the validation protocol.',
+        readings: readings ?? [],
       });
 
     it.each([
@@ -265,6 +266,31 @@ describe('Capture', () => {
           ? 'A question about the Part 11 audit trail for the validation protocol.'
           : standing.description,
       );
+    });
+
+    /**
+     * "Offer the other readings when a captured note says two things" (issue
+     * 297): whatever readings ride along with a proposal land with it, and
+     * nothing here is a proposal of its own to be refused separately.
+     */
+    it.each([
+      {
+        situation: 'the note supported more than one reading',
+        readings: [{ title: 'Call in January', description: '', meaning: "'jan' is a month" }],
+        offered: true,
+      },
+      { situation: 'the note had only the one reading', readings: [], offered: false },
+    ])('reports readings only where $situation', ({ readings, offered }) => {
+      const after = proposed(anItem(), readings)!;
+
+      expect(after.readings).toEqual(offered ? readings : null);
+    });
+
+    it('offers nothing once the texts are already somebody\'s own', () => {
+      const settled = titled(anItem(), LATER, 'Mine');
+
+      expect(proposed(settled, [{ title: 'Call in January', description: '', meaning: "'jan' is a month" }])).toBeNull();
+      expect(settled.readings).toBeNull();
     });
 
     it.each([
@@ -309,6 +335,7 @@ describe('Offline', () => {
         itemId: '018f0000-0000-7000-8000-000000000002',
         title: 'Ask Novy about the appointment',
         description: 'Make an appointment with Novy.',
+        readings: [],
       })!;
 
       // Typed a second after the capture, on a phone that only reached the

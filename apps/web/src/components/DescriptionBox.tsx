@@ -1,4 +1,4 @@
-import { Component, Suspense, lazy, useState, type ReactNode } from 'react';
+import { Component, Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
 import { takeTheNewVersion } from '../updating';
 
 /**
@@ -58,17 +58,40 @@ export interface DescriptionBoxProps {
   onChange: (markdown: string) => void;
   /** False while a save is in flight, when neither view may take a keystroke. */
   editable: boolean;
+  /**
+   * Changed by the caller to say the editor's value was replaced wholesale
+   * rather than typed - a reading chosen for it, not a keystroke into it
+   * ("Offer the other readings when a captured note says two things", issue
+   * 297) - and folded into the same rebuild `generation` already does for the
+   * Source-toggle case below, so the caller need not remount this component
+   * itself. Remounting `DescriptionBox` from outside would also throw away
+   * `view` and `failed`, which have nothing to do with which text is showing.
+   */
+  resetKey?: string | number;
 }
 
-export function DescriptionBox({ value, onChange, editable }: DescriptionBoxProps) {
+export function DescriptionBox({ value, onChange, editable, resetKey }: DescriptionBoxProps) {
   const [view, setView] = useState<View>('formatted');
   const [failed, setFailed] = useState(false);
   /**
-   * Bumped on the way back from the source view, so the editor is rebuilt from
-   * the Markdown as it now reads. Milkdown owns its document once it is made -
-   * feeding a new value into the same editor would fight whoever is typing.
+   * Bumped on the way back from the source view, and whenever the caller's
+   * own `resetKey` changes - both are "the value underneath was replaced
+   * wholesale", which is what rebuilds the editor. Milkdown owns its document
+   * once it is made - feeding a new value into the same editor would fight
+   * whoever is typing.
    */
   const [generation, setGeneration] = useState(0);
+  /**
+   * Skips the bump `resetKey` would otherwise cause on the very first render,
+   * where there is nothing to reset - `resetKey` starting non-`undefined` is
+   * the caller's own initial value, not a change.
+   */
+  const seenResetKey = useRef(resetKey);
+  useEffect(() => {
+    if (resetKey === seenResetKey.current) return;
+    seenResetKey.current = resetKey;
+    setGeneration((was) => was + 1);
+  }, [resetKey]);
 
   const showing: View = failed ? 'source' : view;
 

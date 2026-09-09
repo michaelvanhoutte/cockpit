@@ -151,6 +151,14 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
       itemId: item.id,
       title: read.proposal.title,
       description: read.proposal.message,
+      // Translated onto the wire shape the Item's own form uses, the same way
+      // the main proposal's `message` becomes `description` above ("Offer the
+      // other readings when a captured note says two things", issue 297).
+      readings: read.proposal.readings.map((candidate) => ({
+        title: candidate.title,
+        description: candidate.message,
+        meaning: candidate.meaning,
+      })),
     });
     // Which language it answered in, said out loud, because that is the rule
     // this prompt is most likely to break quietly and the only place a

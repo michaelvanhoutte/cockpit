@@ -1,9 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { CLEAN_UP_A_NOTE } from './prompts/clean-up-a-note.v1.js';
+import { CLEAN_UP_A_NOTE } from './prompts/clean-up-a-note.v2.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
 
-export type { NoteTexts, ProposalRead } from './note-texts.js';
+export type { NoteTexts, ProposalRead, ReadingCandidate } from './note-texts.js';
 
 /**
  * The AI layer behind a project-owned interface (architecture, "AI layer"):
@@ -13,10 +13,12 @@ export type { NoteTexts, ProposalRead } from './note-texts.js';
  *
  * One method, because one thing asks: a captured note being cleaned up into a
  * title and a message ("Clean up a captured note into a clear title and a
- * fuller message", issue 296). The rest of what this layer is for - alternative
- * readings of an ambiguous note, a routing proposal, plain-English panel rules
- * - are their own issues and land as their own methods, rather than as
- * placeholders here that nothing calls and no test covers.
+ * fuller message", issue 296), which now also answers with the other ways the
+ * note could genuinely be read ("Offer the other readings when a captured note
+ * says two things", issue 297) - the same call, not a second ask, so it stays
+ * one method rather than becoming two. A routing proposal and plain-English
+ * panel rules are still their own issues and land as their own methods, rather
+ * than as placeholders here that nothing calls and no test covers.
  */
 export interface AiService {
   /**

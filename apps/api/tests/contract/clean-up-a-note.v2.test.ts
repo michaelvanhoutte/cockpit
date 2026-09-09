@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeAiService } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { CLEAN_UP_A_NOTE } from '../../src/ai/prompts/clean-up-a-note.v1.js';
+import { CLEAN_UP_A_NOTE } from '../../src/ai/prompts/clean-up-a-note.v2.js';
 
 /**
  * The contract tier: the real Claude API, the real prompt, no fake anywhere
@@ -9,12 +9,15 @@ import { CLEAN_UP_A_NOTE } from '../../src/ai/prompts/clean-up-a-note.v1.js';
  * request** - every case spends money and takes as long as the model does, and
  * the fakes one tier down are what every other test runs against.
  *
- * What only this tier can prove: that the prompt still gets the two behaviours
- * out of the model that it was written to get. Both were measured failing
- * before it existed ("Clean up a captured note into a clear title and a fuller
- * message", issue 296) - a note answered in the wrong language, and a model
- * filling in a fact the note never carried - and neither is provable against a
- * fake, which answers whatever the test told it to.
+ * What only this tier can prove: that the prompt still gets the behaviours out
+ * of the model that it was written to get. Every one of them was measured
+ * failing before the prompt version that fixed it existed - a note answered in
+ * the wrong language, a model filling in a fact the note never carried, and a
+ * model offering a reading for every note rather than the rare few that
+ * genuinely support one ("Clean up a captured note into a clear title and a
+ * fuller message", issue 296; "Offer the other readings when a captured note
+ * says two things", issue 297) - and none of it is provable against a fake,
+ * which answers whatever the test told it to.
  *
  * A failure here is the model or the prompt having drifted apart, and fixing it
  * is priority work. It is never fixed by running it again.
@@ -176,7 +179,54 @@ describe('Capture', () => {
       expect(proposal.title.length).toBeLessThan(note.length);
       // A name and a fuller text, rather than the same words twice.
       expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
-      expect(CLEAN_UP_A_NOTE.version).toBe('v1');
+      expect(CLEAN_UP_A_NOTE.version).toBe('v2');
+    });
+  });
+
+  /**
+   * Ambiguity is meant to be rare ("Offer the other readings when a captured
+   * note says two things", issue 297): a schema field that merely exists
+   * invites filling it in, which is the same failure the language fix above
+   * was written against - the model matching the shape of the prompt rather
+   * than the note in front of it. This is what says the instruction not to
+   * still holds.
+   */
+  describe('a note that is merely terse is not read as ambiguous', () => {
+    it.each([
+      { situation: 'a note with one clear subject', note: 'cal invite for the CAPA review, need the deviation nr first' },
+      { situation: 'a note naming a thing it never identifies', note: 'terugbellen over de klacht, hij was er niet blij mee' },
+      { situation: 'a note that is only short', note: 'sign-off needed on the cleaning validation, who owns it' },
+    ])('offers no other reading for $situation', async ({ note }) => {
+      const proposal = await read(note);
+      expect(proposal.readings).toEqual([]);
+    });
+  });
+
+  /**
+   * The proof this feature rode in on: `call jan` read back as *Call Jan*
+   * (person) and *Call in January* (month), each holding up on its own -
+   * neither the model's main title nor its readings are told which of the two
+   * this test wants, so a run that answers with only one reading, or with a
+   * reading that does not actually turn on `jan`, is exactly the drift this
+   * tier exists to catch.
+   */
+  describe('a note that genuinely reads two ways offers both', () => {
+    it.each([
+      { situation: 'an English note', note: 'call jan' },
+      { situation: 'a Dutch note', note: 'bel jan' },
+    ])('offers a reading for $situation naming a person and one naming the month', async ({ note }) => {
+      const proposal = await read(note);
+
+      // The main answer is one of the two readings, so the note supports at
+      // least two total between the title and what `readings` adds.
+      expect(proposal.readings.length).toBeGreaterThanOrEqual(1);
+      const all = [proposal.title, ...proposal.readings.map((r) => r.title)];
+      expect(all.some((title) => /jan(?!uary)/i.test(title))).toBe(true);
+      expect(all.some((title) => /january/i.test(title))).toBe(true);
+      // Each reading says why it is there, in words rather than left implicit.
+      for (const alternative of proposal.readings) {
+        expect(alternative.meaning.length).toBeGreaterThan(0);
+      }
     });
   });
 });

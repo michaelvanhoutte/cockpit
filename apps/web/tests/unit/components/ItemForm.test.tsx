@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -33,24 +34,40 @@ vi.mock('../../../src/itemForm', () => ({
  * editor keeps is tests/unit/description/syntax.test.ts, and when it appears is
  * tests/unit/components/DescriptionBox.test.tsx. Left real, every test here
  * would mount a 115KB editor to type one word into it.
+ *
+ * **Uncontrolled, like the real one.** Milkdown owns its document once it is
+ * made and ignores a new `initial` fed into the same instance
+ * (`DescriptionBox.tsx`), so this seeds its own state once at mount and never
+ * resyncs - a controlled stand-in would pass every test here whether or not
+ * the form actually remounted the box for a reading it filled the boxes with
+ * ("Offer the other readings when a captured note says two things", issue
+ * 297).
  */
-vi.mock('../../../src/description/RichDescription', () => ({
-  default: ({
-    initial,
-    onChange,
-    editable,
-  }: {
-    initial: string;
-    onChange: (markdown: string) => void;
-    editable: boolean;
-  }) => (
+function FakeRichDescription({
+  initial,
+  onChange,
+  editable,
+}: {
+  initial: string;
+  onChange: (markdown: string) => void;
+  editable: boolean;
+}) {
+  const [value, setValue] = useState(initial);
+  return (
     <textarea
       aria-label="Description"
       disabled={!editable}
-      value={initial}
-      onChange={(event) => onChange(event.target.value)}
+      value={value}
+      onChange={(event) => {
+        setValue(event.target.value);
+        onChange(event.target.value);
+      }}
     />
-  ),
+  );
+}
+
+vi.mock('../../../src/description/RichDescription', () => ({
+  default: FakeRichDescription,
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -75,6 +92,7 @@ function anItem(over: Partial<Item> = {}): Item {
     sourceTimestamp: null,
     capturedMessage: 'Ask Novy about part 11',
     textsSettledAt: null,
+    readings: null,
     sourceResolvedAt: null,
     title: 'Part 11',
     description: null,
@@ -462,6 +480,75 @@ describe('Item editing', () => {
 
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
       expect(sent().map((change) => change.name)).toEqual(['set_description']);
+    });
+  });
+
+  /**
+   * "Offer the other readings when a captured note says two things" (issue
+   * 297): choosing a reading only fills the two boxes, exactly as typing it in
+   * by hand would - it is Save that sends anything.
+   */
+  describe('the other readings offer to fill the two boxes, and nothing else', () => {
+    // Each reading's own description differs from the item's stored one and
+    // from the other reading's - so a test that reads back the empty string
+    // both before and after a pick cannot pass by accident, the way one that
+    // reused '' for everything did.
+    const READINGS = [
+      { title: 'Call Jan', description: 'Ring Jan about the invoice.', meaning: "'jan' is a person's name" },
+      {
+        title: 'Call in January',
+        description: 'Ring in January about the invoice.',
+        meaning: "'jan' is short for January",
+      },
+    ];
+
+    it('shows nothing where the note had only the one reading', async () => {
+      await theForm(anItem({ readings: null }));
+
+      expect(screen.queryByText('Reads more than one way')).toBeNull();
+    });
+
+    it('offers each reading, and filling the boxes from one sends nothing on its own', async () => {
+      const user = await theForm(
+        anItem({ title: 'Call Jan', description: 'Mine already', readings: READINGS }),
+      );
+
+      await user.click(screen.getByRole('button', { name: /Call in January/ }));
+
+      expect(titleBox()).toHaveValue('Call in January');
+      // The box itself, not only the draft it is bound to - the editor is
+      // uncontrolled and ignores a prop change once it has mounted
+      // (`DescriptionBox.tsx`, "Milkdown owns its document"), so replacing
+      // what it shows needs the form to remount it rather than merely
+      // re-render it with a new value.
+      expect(descriptionBox()).toHaveValue('Ring in January about the invoice.');
+      expect(held.send).not.toHaveBeenCalled();
+    });
+
+    it('sends what a chosen reading filled the boxes with, once Save is pressed', async () => {
+      const user = await theForm(
+        anItem({ title: 'Call Jan', description: 'Mine already', readings: READINGS }),
+      );
+
+      await user.click(screen.getByRole('button', { name: /Call in January/ }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent()).toContainEqual(
+        expect.objectContaining({ name: 'set_title', payload: expect.objectContaining({ title: 'Call in January' }) }),
+      );
+      expect(sent()).toContainEqual(
+        expect.objectContaining({
+          name: 'set_description',
+          payload: expect.objectContaining({ description: 'Ring in January about the invoice.' }),
+        }),
+      );
+    });
+
+    it('says nothing about the other readings once the texts are already yours', async () => {
+      await theForm(anItem({ readings: READINGS, textsSettledAt: '2026-08-12T10:00:00.000Z' }));
+
+      expect(screen.queryByText('Reads more than one way')).toBeNull();
     });
   });
 

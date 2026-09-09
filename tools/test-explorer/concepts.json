@@ -90,7 +90,7 @@
         "apps/web/src/components/ManageTypes.tsx",
         "apps/api/src/ai/index.ts",
         "apps/api/src/ai/note-texts.ts",
-        "apps/api/src/ai/prompts/clean-up-a-note.v1.ts",
+        "apps/api/src/ai/prompts/clean-up-a-note.v2.ts",
         "apps/api/src/jobs/index.ts",
         "apps/api/src/jobs/enrichment.ts"
       ]

@@ -3,6 +3,7 @@ import {
   associationKindSchema,
   dashboardNameSchema,
   itemDescriptionSchema,
+  itemReadingSchema,
   itemTitleSchema,
   prioritySchema,
   workspaceNameSchema,
@@ -762,6 +763,14 @@ export const proposeItemTextsSchema = commandEnvelopeSchema.extend({
     message: 'a proposed title has to name the note',
   }),
   description: itemDescriptionSchema.min(1),
+  /**
+   * The other ways this note could genuinely be read, offered beside the
+   * reading above ("Offer the other readings when a captured note says two
+   * things", issue 297). Empty where there is only the one - which is most
+   * notes, ambiguity being meant to be rare - never omitted, so a caller
+   * always says out loud whether it found any.
+   */
+  readings: z.array(itemReadingSchema),
 });
 export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
 

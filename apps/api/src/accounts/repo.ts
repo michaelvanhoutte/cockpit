@@ -522,6 +522,7 @@ const itemColumns = {
   title: items.title,
   description: items.description,
   textsSettledAt: items.textsSettledAt,
+  readings: items.readings,
   sourceResolvedAt: items.sourceResolvedAt,
   typeId: items.typeId,
   nextAction: items.nextAction,

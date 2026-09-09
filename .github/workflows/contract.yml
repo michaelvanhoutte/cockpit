@@ -31,7 +31,7 @@ jobs:
       # A missing secret presents as a workflow that goes green having done
       # nothing, which is the failure docs/deployment.md records for
       # `CLAUDE_CODE_OAUTH_TOKEN`. The suite itself refuses to run without a key
-      # (tests/contract/clean-up-a-note.test.ts), so this only names the
+      # (tests/contract/clean-up-a-note.v2.test.ts), so this only names the
       # secrets; it does not print them.
       - run: pnpm --filter @cockpit/api test:contract
         env:

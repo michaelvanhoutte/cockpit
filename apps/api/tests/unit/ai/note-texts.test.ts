@@ -16,6 +16,7 @@ const usable = JSON.stringify({
   language: 'English',
   title: 'Ask Novy about the Part 11 audit trail',
   message: 'A question about the Part 11 audit trail for the validation protocol.',
+  readings: [],
 });
 
 describe('Capture', () => {
@@ -61,6 +62,7 @@ describe('Capture', () => {
           language: 'English',
           title: 'Ask Novy about the Part 11 audit trail',
           message: 'A question about the Part 11 audit trail for the validation protocol.',
+          readings: [],
         },
       });
     });
@@ -75,11 +77,102 @@ describe('Capture', () => {
       const atTheCap = 'x'.repeat(200);
 
       expect(
-        readProposal(JSON.stringify({ language: 'Dutch', title: atTheCap, message: 'Bellen.' })),
+        readProposal(
+          JSON.stringify({ language: 'Dutch', title: atTheCap, message: 'Bellen.', readings: [] }),
+        ),
       ).toHaveProperty('proposal');
       expect(
-        readProposal(JSON.stringify({ language: 'Dutch', title: `${atTheCap}x`, message: 'Bellen.' })),
+        readProposal(
+          JSON.stringify({ language: 'Dutch', title: `${atTheCap}x`, message: 'Bellen.', readings: [] }),
+        ),
       ).not.toHaveProperty('proposal');
+    });
+  });
+
+  /**
+   * "Offer the other readings when a captured note says two things" (issue
+   * 297): each one stands or falls on its own, and the count offered is
+   * whatever survives - never repaired up or down to a fixed number.
+   */
+  describe('a reading that would not fit the two boxes it would land in is dropped, not the whole answer', () => {
+    const answer = (readings: unknown[]) =>
+      JSON.stringify({
+        language: 'English',
+        title: 'Call Jan',
+        message: 'Ring Jan.',
+        readings,
+      });
+
+    it('keeps a reading whose title and meaning are both usable, message included', () => {
+      const read = readProposal(
+        answer([{ title: 'Call in January', message: '', meaning: "'jan' is short for January" }]),
+      );
+
+      expect(read).toEqual({
+        proposal: {
+          language: 'English',
+          title: 'Call Jan',
+          message: 'Ring Jan.',
+          readings: [
+            { title: 'Call in January', message: '', meaning: "'jan' is short for January" },
+          ],
+        },
+      });
+    });
+
+    it.each([
+      {
+        situation: 'its title is the note handed back unshortened',
+        reading: { title: 'x'.repeat(201), message: '', meaning: 'too long to name the note' },
+      },
+      {
+        situation: 'its title runs over two lines',
+        reading: { title: 'Call\nJan', message: '', meaning: 'broken over two lines' },
+      },
+      {
+        situation: 'it says nothing about what it means',
+        reading: { title: 'Call in January', message: '', meaning: '' },
+      },
+    ])('drops a reading where $situation, keeping the rest', ({ reading }) => {
+      const usable = { title: 'Call Jan (person)', message: '', meaning: "'jan' is a person's name" };
+
+      const read = readProposal(answer([reading, usable]));
+
+      expect('proposal' in read && read.proposal.readings).toEqual([usable]);
+    });
+
+    it('reports none where the model found only the one reading', () => {
+      const read = readProposal(answer([]));
+
+      expect('proposal' in read && read.proposal.readings).toEqual([]);
+    });
+
+    /**
+     * The rarer ask riding on this call must not make the one it is already
+     * relied on fragile. Checked as "no readings field at all" and "readings
+     * is not even an array" - the two shapes a `readings` gone wrong could
+     * actually take - rather than only the well-formed empty list above.
+     */
+    it.each([
+      {
+        situation: 'the field was left out entirely',
+        answer: JSON.stringify({ language: 'English', title: 'Call Jan', message: 'Ring Jan.' }),
+      },
+      {
+        situation: 'the field was not an array',
+        answer: JSON.stringify({
+          language: 'English',
+          title: 'Call Jan',
+          message: 'Ring Jan.',
+          readings: 'none',
+        }),
+      },
+    ])('still cleans up the note when $situation', ({ answer: malformed }) => {
+      const read = readProposal(malformed);
+
+      expect(read).toEqual({
+        proposal: { language: 'English', title: 'Call Jan', message: 'Ring Jan.', readings: [] },
+      });
     });
   });
 });
