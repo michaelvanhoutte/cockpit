@@ -28,6 +28,10 @@ pnpm dev
 - **Start at the point.** Delete "it is worth noting that", "the requirement is therefore twofold", "worth writing down, because".
 - **Cut what the reader can see.** Don't describe the code, the diff or the diagram that follows; say what it means.
 
+## Starting an issue
+
+**`/issue <number>` is the entry point for issue work.** It runs the whole loop — confirm the issue is live, scope it, build, test, prove it runs, review, ship — end to end, sequencing the sections below rather than restating them. Assembling the phases by hand from this file is the fallback for work that never had an issue number.
+
 ## Scoping new work
 
 **Before writing code for any new feature or fix, run the `scoping` skill in `.claude/skills/scoping/`** — deciding whether it has to be seen first as a design canvas or a throwaway POC, sharpening requirements, sizing the vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and generating the statement list. Starting the work triggers it, not the decision to file an issue.
