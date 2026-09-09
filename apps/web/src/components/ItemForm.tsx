@@ -113,45 +113,46 @@ function TheForm({
    */
   const [remembered, setRemembered] = useState<Size | null>(null);
   const appliedRemembered = useRef(false);
-  const openedAt = useRef<Size | null>(null);
   useLayoutEffect(() => {
-    if (!contentEl) return;
-    if (!appliedRemembered.current) {
-      appliedRemembered.current = true;
-      const stored = rememberedItemFormSize(browserStore());
-      // Applying it is a re-render - measuring below has to wait for that
-      // render to land, which happens by this same effect running again
-      // once `remembered` itself has changed.
-      if (stored) {
-        setRemembered(stored);
-        return;
-      }
-    }
-    if (openedAt.current) return;
-    const box = contentEl.getBoundingClientRect();
-    if (box.width > 0 && box.height > 0) {
-      openedAt.current = { width: Math.round(box.width), height: Math.round(box.height) };
-    }
-  }, [contentEl, remembered]);
+    if (!contentEl || appliedRemembered.current) return;
+    appliedRemembered.current = true;
+    const stored = rememberedItemFormSize(browserStore());
+    if (stored) setRemembered(stored);
+  }, [contentEl]);
   /**
-   * Whether this open has seen a drag on the handle at all - the gate on
-   * remembering anything, below.
+   * What the box measured as, right before the drag most recently begun on
+   * it - the baseline the close-time comparison, below, checks each axis
+   * against.
    *
-   * **A `mousedown` inside the handle's own corner, and only that.** There is
-   * no `resizeend` event, and a native resize does not reliably deliver the
-   * `mouseup` it ends on either, so this does not try to measure a finished
-   * drag - it only asks whether one *started*, which a `mousedown` answers
-   * for certain: the grip is drawn inside the box's own padding, over
-   * nothing else, so a press landing there has this element as its target
-   * and nowhere close to the target a press on Cancel or Save would have.
-   * `sm:resize` (below) is the only thing that makes the handle interactive
-   * at all, which is why the width check matches its own breakpoint.
+   * **Measured fresh at every qualifying `mousedown`, not once at mount.** A
+   * viewport that reclamps the box live while it is open (`max-w-`/`max-h-`,
+   * below, track the screen for the whole time the dialog is open, not just
+   * at the moment it opened) can move an axis with no drag at all; measuring
+   * here, at the instant a drag actually begins, means that reclamp is
+   * already baked into the baseline rather than mistaken for what the drag
+   * itself moved. Re-measuring on every subsequent drag this same open keeps
+   * that baseline honest for a second drag too.
+   *
+   * **A `mousedown` inside the handle's own corner, checked for the primary
+   * button, and only that.** There is no `resizeend` event, and a native
+   * resize does not reliably deliver the `mouseup` it ends on either, so
+   * this does not try to catch the gesture's end - it marks where a drag
+   * might have begun, and the close-time comparison below is what confirms
+   * whether the box actually moved since. The grip is drawn inside the
+   * box's own padding, over nothing else, so a press landing there has this
+   * element as its target and nowhere close to the target a press on Cancel
+   * or Save would have; a right-click or similar could still land inside
+   * that corner without ever resizing anything, which the button check
+   * rules out up front and the close-time comparison would in any case find
+   * unchanged. `sm:resize` (below) is the only thing that makes the handle
+   * interactive at all, which is why the width check matches its own
+   * breakpoint.
    */
-  const dragged = useRef(false);
+  const dragStartedAt = useRef<Size | null>(null);
   useEffect(() => {
     if (!contentEl) return;
     const onDown = (e: MouseEvent) => {
-      if (e.target !== contentEl || window.innerWidth < 640) return;
+      if (e.button !== 0 || e.target !== contentEl || window.innerWidth < 640) return;
       const box = contentEl.getBoundingClientRect();
       if (
         e.clientX >= box.right - RESIZE_CORNER &&
@@ -159,7 +160,7 @@ function TheForm({
         e.clientY >= box.bottom - RESIZE_CORNER &&
         e.clientY <= box.bottom
       ) {
-        dragged.current = true;
+        dragStartedAt.current = { width: Math.round(box.width), height: Math.round(box.height) };
       }
     };
     contentEl.addEventListener('mousedown', onDown);
@@ -167,26 +168,27 @@ function TheForm({
   }, [contentEl]);
   /**
    * Remembers the size the box is measured at on the way out - one axis at a
-   * time, and only where a drag actually happened this open.
+   * time, and only where a drag actually moved it this open.
    *
-   * **Nothing is written unless `dragged` is true.** `max-w-`/`max-h-`
-   * (below) track the screen live for as long as the dialog is open, so the
-   * box the browser is showing can differ from what it opened at - or from
-   * what was remembered - with no drag at all, purely from the window
-   * changing shape under it. Gating on a real `mousedown` in the handle is
-   * what tells that apart from a drag, rather than asking whether the size
-   * merely *differs* from something: a live reclamp interleaved with a real
-   * drag would otherwise either erase the drag (if the reclamp is read as
-   * the new baseline) or invent one out of nothing (if it is not).
+   * **Nothing is written unless `dragStartedAt` is set, and the box has
+   * actually moved since.** A press in the handle's corner that never
+   * resized anything - a stray click, a right-click, one that started a
+   * drag but ended exactly where it began - measures the same now as it did
+   * at `dragStartedAt`, on both axes; requiring at least one to differ is
+   * what keeps such a press from planting whatever the box already showed
+   * as if it had been chosen.
    *
-   * **Compared per axis against how it opened, not written as one pair.** A
-   * viewport that clamps only one axis (`--item-form-h` starts clamping
-   * under about 736px, routine on a laptop) means `openedAt` can already
-   * hold a clamped value on an axis nobody touched. Dragging only the other
-   * axis must not carry that clamp back into storage as if it were chosen -
-   * an axis whose current measurement still matches `openedAt` keeps
-   * whatever was remembered for it before; only the axis that actually moved
-   * is written from what the box measures now.
+   * **Compared per axis against how the drag itself started, not written as
+   * one pair.** A viewport that clamps only one axis
+   * (`--item-form-h` starts clamping under about 736px, routine on a
+   * laptop) can hold a clamped value on an axis nobody touched even at
+   * `dragStartedAt`, if the reclamp happened before the drag began - which
+   * is exactly what `dragStartedAt` being measured fresh at drag-start
+   * already accounts for. Dragging only one axis must still not carry the
+   * other's clamped value back into storage as if it were chosen: an axis
+   * whose current measurement still matches `dragStartedAt` keeps whatever
+   * was remembered for it before; only the axis that actually moved since
+   * the drag began is written from what the box measures now.
    *
    * **A cleanup, not a call from Cancel or Save.** A cleanup runs regardless
    * of *why* the dialog goes - Cancel, Save, Escape, a press outside, or a
@@ -204,14 +206,15 @@ function TheForm({
    */
   useLayoutEffect(() => {
     return () => {
-      if (!dragged.current) return;
+      const was = dragStartedAt.current;
+      if (!was) return;
       const box = contentEl?.getBoundingClientRect();
       if (!box || box.width <= 0 || box.height <= 0) return;
       const now: Size = { width: Math.round(box.width), height: Math.round(box.height) };
-      const was = openedAt.current;
+      if (now.width === was.width && now.height === was.height) return;
       rememberItemFormSize(browserStore(), {
-        width: was && now.width === was.width ? (remembered?.width ?? now.width) : now.width,
-        height: was && now.height === was.height ? (remembered?.height ?? now.height) : now.height,
+        width: now.width === was.width ? (remembered?.width ?? now.width) : now.width,
+        height: now.height === was.height ? (remembered?.height ?? now.height) : now.height,
       });
     };
   }, [contentEl, remembered]);

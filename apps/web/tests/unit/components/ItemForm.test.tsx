@@ -119,6 +119,7 @@ const sent = () =>
 
 beforeEach(() => {
   cleanup();
+  localStorage.clear();
   held.send.mockClear();
   held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
   held.close.mockClear();
@@ -361,7 +362,6 @@ describe('Item editing', () => {
     // ever calls Cancel or Save on the first item, which is exactly the path
     // a fix hung off either of those would miss a drag on.
     it('remembers a size dragged on the item it is swapped away from, not only on Cancel or Save', async () => {
-      localStorage.removeItem('cockpit.item-form-size');
       held.items = [anItem(), anItem({ id: 'item-2', title: 'Part 12', description: 'Its own' })];
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
