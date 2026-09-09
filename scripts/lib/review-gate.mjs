@@ -65,11 +65,11 @@ export const GATE_AUTHOR = 'github-actions[bot]';
  * looked identical.
  *
  * Asking harder would have been the obvious fix and the wrong one. The sibling
- * workflow already tried inferring a review from whether Claude spoke, and "The
- * review check goes green when the reviewer declined to look at the new
- * commits" (issue 75) is the open bug saying that inference goes stale. The
- * gate already knows the verdict; having it say so needs no cooperation from
- * anyone.
+ * workflow infers a review from whether Claude spoke, and "The review check
+ * goes green when the reviewer declined to look at the new commits" (issue 75)
+ * is what that inference cost before it was narrowed to the head being
+ * reviewed. The gate already knows the verdict; having it say so needs no
+ * cooperation from anyone.
  */
 export function summaryComment(outcome) {
   // No marker here: upsertSticky prepends it, so that one place decides how a
@@ -409,24 +409,71 @@ export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIG
 }
 
 /**
- * How many of these logins are the reviewer's own.
+ * What the reviewer has said here, in total and about the head being reviewed
+ * now: `{ total, onHead }`.
  *
- * A prefix rather than an equality, and case-insensitive, because the same
- * account appears under more than one name: `claude[bot]` on the App's own
- * comments, `claude` on others. The bash this replaces matched `grep -ci
- * '^claude'` and this keeps that exactly - loosening it is how somebody named
- * `claude-fan` comes to count as the reviewer having spoken.
+ * The total on its own was the whole test until "The review check goes green
+ * when the reviewer declined to look at the new commits" (issue 75). It holds
+ * for the first round and cannot hold after one, because round one's comments
+ * satisfy it permanently - so from round two on it could not tell "reviewed,
+ * found nothing" from "declined without looking", and pull request 193 went
+ * green on its fourth head having read none of it.
  *
- * One login per line, which is the shape `gh api --paginate --jq '.[].user.login'`
- * emits across every page. Lines, not JSON, for the reason markedCommentId
- * above documents: --paginate applies --jq per page and concatenates, so a
- * filter that wraps its output in an array stops being JSON at thirty comments.
+ * A remark counts as being about this head when it names the commit or
+ * post-dates it:
+ *
+ * - The commit is `originalCommitId` on an inline finding and `commitId` on a
+ *   submitted review. Original rather than current, because GitHub rewrites an
+ *   inline comment's `commitId` to the new head whenever the comment still
+ *   applies there - matching that would hand every stale finding a head it
+ *   never saw.
+ * - Otherwise the timestamp, which is all a summary comment has: it is an issue
+ *   comment and carries no commit at all, and it is what a review that found
+ *   nothing leaves behind.
+ *
+ * `head.committedAt` is when the commit was committed, which is no later than
+ * when it was pushed, so the timestamp errs towards accepting. That is the
+ * right direction: a review that did happen and is called a non-review teaches
+ * everyone to ignore this check, which is the failure the whole gate is about.
+ *
+ * The login is matched by prefix, case-insensitively, because the same account
+ * appears under more than one name: `claude[bot]` on the App's own comments,
+ * `claude` on others. Loosening it further is how somebody named `claude-fan`
+ * comes to count as the reviewer having spoken.
+ *
+ * One JSON object per line, which is the shape `gh api --paginate --jq` emits
+ * across every page. Lines, not one JSON document, for the reason
+ * markedCommentId above documents: --paginate applies --jq per page and
+ * concatenates, so a filter that wraps its output in an array stops being JSON
+ * at thirty comments.
  */
-export function reviewerCommentCount(logins, { prefix = 'claude' } = {}) {
+export function reviewerRemarks(ghOutput, { head = null, prefix = 'claude' } = {}) {
   const wanted = prefix.toLowerCase();
-  return String(logins ?? '')
-    .split('\n')
-    .filter((line) => line.trim().toLowerCase().startsWith(wanted)).length;
+  const arrivedAt = Date.parse(head?.committedAt ?? '');
+  let total = 0;
+  let onHead = 0;
+
+  for (const line of String(ghOutput ?? '').split('\n')) {
+    if (line.trim() === '') continue;
+    let remark;
+    try {
+      remark = JSON.parse(line);
+    } catch {
+      // One unreadable line is not a reason to abandon the rest: the remark
+      // being looked for may be on any of them.
+      continue;
+    }
+    if (!String(remark?.login ?? '').trim().toLowerCase().startsWith(wanted)) continue;
+    total += 1;
+
+    const commit = remark.originalCommitId ?? remark.commitId ?? null;
+    const saidAt = Date.parse(remark.createdAt ?? '');
+    const namesHead = Boolean(head?.sha) && commit === head.sha;
+    const postDatesHead = Number.isFinite(arrivedAt) && Number.isFinite(saidAt) && saidAt >= arrivedAt;
+    if (namesHead || postDatesHead) onHead += 1;
+  }
+
+  return { total, onHead };
 }
 
 /**
@@ -454,27 +501,37 @@ export function postedCommentTestApplies(pullRequest) {
  * The same record as decideSecurityOutcome reads, asked a different question.
  * There is no verdict line here: `/code-review --comment` posts inline comments
  * when it has findings and a summary comment when it has none, so *having
- * posted* is what separates a review from a non-review, and `said` is how many
- * of the pull request's comments and reviews are the reviewer's own.
+ * posted* is what separates a review from a non-review.
+ *
+ * Posted **about the head this run was given**, which is `saidOnHead` out of
+ * the `said` remarks the reviewer has left here in total - see reviewerRemarks
+ * for how one is told from the other. Asking about the pull request as a whole
+ * was the bug in "The review check goes green when the reviewer declined to
+ * look at the new commits" (issue 75): round one's comments answer it for good,
+ * so every later round could decline in silence and stay green.
  *
  * The command's four stop conditions are the deliberate exceptions, and each is
- * accounted for: closed and draft never reach the test, because
- * `pullRequest` excludes them below; "already reviewed" leaves the earlier
- * round's comments standing, so `said` is still non-zero; and the
- * trivial-change stop is instructed away by the workflow's appended system
- * prompt, which requires that verdict to be posted like any other. Run
- * 33407302266 is why that instruction exists - it took the trivial stop on pull
- * request 80 and failed this gate for a review that had reached the right
- * answer.
+ * accounted for: closed and draft never reach the test, because `pullRequest`
+ * excludes them below; "already reviewed" is now a condition about the head,
+ * instructed as such by the workflow's appended system prompt, so a genuine
+ * re-run declines against a head it has already spoken on and still passes;
+ * and the trivial-change stop is instructed away by the same prompt, which
+ * requires that verdict to be posted like any other. Run 33407302266 is why
+ * that instruction exists - it took the trivial stop on pull request 80 and
+ * failed this gate for a review that had reached the right answer.
  *
- * `pullRequest` is what postedCommentTestApplies above reads.
+ * `pullRequest` is what postedCommentTestApplies above reads. `head` is
+ * `{ sha, committedAt }`, or null when the run could not establish which commit
+ * it reviewed or when that commit arrived.
  */
-export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, pullRequest = null, minTurns = 10 } = {}) {
+export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, saidOnHead = 0, head = null, pullRequest = null, minTurns = 10 } = {}) {
   const failures = [];
   const warnings = [];
 
   const { result, turns, denials, subtype, isError, finalText } = runFacts(executionText);
-  if (result === null) return { ...didNotRun(), subtype: 'unknown', isError: false, finalText: '', said: 0, verdictSeen: false };
+  if (result === null) {
+    return { ...didNotRun(), subtype: 'unknown', isError: false, finalText: '', said: 0, saidOnHead: 0, headKnown: false, verdictSeen: false };
+  }
 
   if (conclusion !== undefined && conclusion !== 'success') {
     failures.push(`The review step reported conclusion='${conclusion}'.`);
@@ -490,33 +547,46 @@ export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, p
   }
 
   const applies = postedCommentTestApplies(pullRequest);
-  const verdictSeen = applies && said > 0;
+  // `head.sha` comes off the event payload and is always there; `committedAt`
+  // is an API call away and may not be. Without it there is no head test to
+  // make, so the check falls back to the pull request as a whole rather than
+  // going red at GitHub for being unreachable - louder than the bug it is
+  // guarding against, and about the wrong thing.
+  const headKnown = Boolean(head?.sha) && Number.isFinite(Date.parse(head?.committedAt ?? ''));
+  const spoke = headKnown ? saidOnHead : said;
+  const verdictSeen = applies && spoke > 0;
 
-  if (applies && said === 0) {
+  if (applies && !headKnown) {
+    warnings.push(
+      'Could not establish which commit this run reviewed or when it arrived, so this check only asked ' +
+        'whether the reviewer has ever spoken here. An earlier round answers that, so a decline against ' +
+        'the current head would have passed.',
+    );
+  }
+
+  if (applies && spoke === 0) {
     failures.push(
-      'The review posted nothing on this pull request. A review that reaches a verdict always says so, ' +
-        'so this one did not reach one.',
+      headKnown && said > 0
+        ? `The review posted nothing about ${String(head.sha).slice(0, 7)}, the head it was run against, though ${said} of this pull request's comments are its own. Those answer earlier heads; commits nobody has read are not reviewed by them.`
+        : 'The review posted nothing on this pull request. A review that reaches a verdict always says so, ' +
+          'so this one did not reach one.',
     );
     if (denials.count > 0) failures.push(denialNote(denials, { reachedVerdict: false }));
   } else if (verdictSeen && denials.count > 0) {
     warnings.push(denialNote(denials, { reachedVerdict: true }));
   }
 
-  // Never a failure. The turn count is too weak to catch a non-review - run
-  // 33201638348 spent 11 turns and stopped with "Waiting on the eligibility
-  // check for PR #56 before proceeding" - and strict enough to fail a correct
-  // one: run 33203441279 stopped after 5 clean turns because the review had
-  // already run on this pull request. That second case is the one worth naming,
-  // because it is the shape of "The review check goes green when the reviewer
-  // declined to look at the new commits" (issue 75), which owns turning it into
-  // something with teeth.
+  // Never a failure, and now never more than a note either. It was carrying the
+  // decline case - run 33203441279 stopped after 5 clean turns because the
+  // review had run on this pull request before - in a warning nobody's
+  // automation reads; the head test above fails that run outright, which is
+  // what "The review check goes green when the reviewer declined to look at the
+  // new commits" (issue 75) asked for. What is left is too weak to catch a
+  // non-review on its own: run 33201638348 spent 11 turns and stopped with
+  // "Waiting on the eligibility check for PR #56 before proceeding".
   if (turns < minTurns) {
-    warnings.push(
-      verdictSeen
-        ? `The session ran only ${turns} turns, and Claude has already posted on this pull request - most likely the review declining because it had reviewed this pull request before, in which case the commits pushed since then have not been looked at. Its closing words: ${oneLine(finalText)}`
-        : `The session ran only ${turns} turns. Its closing words: ${oneLine(finalText)}`,
-    );
+    warnings.push(`The session ran only ${turns} turns. Its closing words: ${oneLine(finalText)}`);
   }
 
-  return { ok: failures.length === 0, failures, warnings, turns, denials, subtype, isError, finalText, said, verdictSeen };
+  return { ok: failures.length === 0, failures, warnings, turns, denials, subtype, isError, finalText, said, saidOnHead, headKnown, verdictSeen };
 }
