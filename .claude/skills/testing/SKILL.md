@@ -62,6 +62,8 @@ It cuts the other way too: where a constraint *is* reachable, only a test throug
 
 **A model is a third party whose answer differs every time**, so its contract tests hold a *behaviour* rather than a shape: the property the prompt was written to get, and preferably one that has been measured failing. A contract run with no credential is red, never skipped.
 
+**A credential on disk reaches every tier, so every tier below the contract one has to pin it empty.** `apps/api/.dev.vars` is read by the workers pool *and* by the browser tier's own Wrangler, so a real key sitting there for `pnpm dev` silently arms both: the backend suite spends money against the real API, and the browser walks assert on text a model has since rewritten - which is how `filing.test.ts` came to fail on "Chase the invoice…" having become "Chase invoice…". Both are pinned empty where they are started (`apps/api/vitest.config.ts`, `scripts/e2e-stack.mjs`), and the next third party needs the same two lines.
+
 ## Where the test goes
 
 Folders per level, inside the package that owns them — a folder is a boundary that can be policed, a filename is not.

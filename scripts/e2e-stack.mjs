@@ -213,6 +213,23 @@ const api = start(
     // back to the application under test rather than to the Worker behind it.
     '--var',
     `APP_ORIGIN:http://localhost:${WEB_PORT}`,
+    /**
+     * **Empty on purpose, and it is a correctness property rather than a
+     * saving.** Wrangler reads `apps/api/.dev.vars` here as it does for
+     * `pnpm dev`, so a developer's own Anthropic key would otherwise reach this
+     * stack - and every note the walks capture would be rewritten by a real
+     * model, for real money, into text that differs on every run. That is not
+     * hypothetical: it turned `filing.test.ts` red on "Chase the invoice…"
+     * having become "Chase invoice…" between the capture and the assertion.
+     *
+     * Empty means `enqueueCleanUp` puts nothing on the queue, so the walks see
+     * exactly what capture wrote. What Cockpit does with a note it *can* read
+     * is held one tier down, against a model faked at the network boundary
+     * (apps/api/tests/integration/http/note-cleanup.test.ts), and against the
+     * real one nightly (apps/api/tests/contract/).
+     */
+    '--var',
+    'ANTHROPIC_API_KEY:',
   ],
   'test api',
   '36',
