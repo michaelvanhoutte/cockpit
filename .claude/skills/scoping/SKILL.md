@@ -94,4 +94,4 @@ Do not proceed — to code or to `gh issue create` — if any of these holds:
 
 ## Output
 
-A scoped unit of work (or several, in dependency order), its statement list, and — where it changes state it cannot put back — the failure modes its implementation must satisfy. Either hand off to the `github-issue` skill, which covers only the body template and publishing, or build it directly with the statement list going straight into the test files.
+A scoped unit of work (or several, in dependency order), its statement list, a recommended model where the default is wrong for it, and — where it changes state it cannot put back — the failure modes its implementation must satisfy. Either hand off to the `github-issue` skill, which covers only the body template and publishing, or build it directly with the statement list going straight into the test files.
