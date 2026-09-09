@@ -710,6 +710,59 @@ Then, by hand (no API, or deliberately not automated):
      ```bash
      gh api repos/michaelvanhoutte/cockpit/branches/main/protection --jq '.required_status_checks.contexts'
      ```
+
+     **Whether `claude-review` and `Security review` belong in this list was investigated
+     for "Require the two Claude reviews, once it is known what a required review would
+     break" (issue 310), and the two reviews got different answers.** Four mechanisms were
+     measured rather than assumed, since nothing in this repository's history had ever
+     required a context shaped like either review's:
+
+     - **A skipped run satisfies a required context.** Measured on a throwaway public
+       repository (deleted after): a job skipping on `draft == true`, required by name,
+       left a draft pull request `mergeable: MERGEABLE` and `mergeStateStatus: CLEAN` while
+       its only check-run read `skipped`. The exclusion of Test Explorer, Publish and
+       Stability above already assumed this; it is now measured rather than assumed.
+     - **When one name reports twice on a head, the most recent run wins.** The same
+       throwaway pull request went `skipped` (draft) then `success` (marked ready) on one
+       commit and stayed `MERGEABLE` throughout. "Require the checks the payload already
+       lists, so a red browser tier cannot merge" (pull request 291) shows the same shape
+       for real, for both reviews, on the commit that changed this repository's own
+       required contexts.
+     - **A cancelled run reports `cancelled`, not a passing conclusion.** Measured live on
+       "Clean up a captured note into a clear title and a fuller message" (pull request
+       308) while this investigation ran: two `pull_request` events fired seconds apart on
+       one push, and the superseded `claude-review` and `Security review` runs both read
+       `cancelled` on that commit until the surviving run completed. A required context
+       stuck at `cancelled` blocks merge in the meantime, correctly — the commit genuinely
+       had no finished review yet.
+     - **A review that fails to run goes red, not green.** Run 34375132552 (`claude-review`
+       on a Dependabot pull request) is a real instance: the action refused to run for a
+       disallowed bot actor, produced no execution file, and `scripts/assert-code-review.mjs`
+       marked the check red rather than pass an unreviewed diff. No run in this repository's
+       history has failed from a rate limit or a degraded session, so this is the closest
+       available measurement of that path rather than a direct one — the assertion scripts
+       treat every route to "no execution file" alike. A required context failing this way
+       stops every merge in the repository until it clears, with `enforce_admins: false` the
+       only way through, which is the cost the issue asked to have named rather than
+       discovered.
+
+     **What the green already certifies differs between the two reviews, and that is what
+     decides this — the four mechanisms above hold equally for both.**
+     `decideCodeReviewOutcome` in
+     [scripts/lib/review-gate.mjs](../scripts/lib/review-gate.mjs) treats a decline because
+     the pull request "has already been reviewed" as a warning, not a failure, once the
+     earlier round's comments still stand on the pull request — which is exactly "The
+     review check goes green when the reviewer declined to look at the new commits" (issue
+     75): commits pushed since that decline are unreviewed, and the check still reports
+     success. `decideSecurityOutcome` carries no equivalent path — its prompt is instructed
+     to review the current head regardless of history, and its gate fails any run that ends
+     without a fresh `SECURITY-VERDICT` line, a decline included.
+
+     **`Security review` is required as of the pull request that added this paragraph;
+     `claude-review` stays out of `contexts` until issue 75 closes.** Requiring the one
+     whose green cannot yet distinguish "reviewed, found nothing" from "declined without
+     looking" would certify exactly the guarantee that green cannot honour — on precisely
+     the pull requests that already had findings.
    - **`required_linear_history: true`** — makes §1's squash-merge rule mechanical
      rather than remembered.
    - **`enforce_admins: false`** — keeps an admin escape hatch for emergencies,
