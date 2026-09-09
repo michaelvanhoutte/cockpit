@@ -57,6 +57,8 @@ The first screen is the logon page, and the way in is *Continue with Google*. Lo
 
 **It stays one command deliberately.** The testing strategy requires the application to be started and the change actually exercised before anything is claimed to work, and four commands across two terminals is the friction that quietly turns "start the app" into "the tests passed".
 
+**One optional thing, if you want a captured note cleaned up locally.** Copy `apps/api/.dev.vars.example` to `.dev.vars` — gitignored — and put an `ANTHROPIC_API_KEY` in it (and `ANTHROPIC_WORKSPACE_ID` beside it where the key is scoped to an organisation). Without one everything works and each note simply keeps the title you typed; `/health` says which of the two you are in, as `ai`. Wrangler reads that file at startup, so a change to it needs `pnpm dev` restarting.
+
 `pnpm typecheck` and `pnpm test` run across all packages. Both assume the install matches `pnpm-lock.yaml`, which two ordinary things break: a fresh worktree has no `node_modules`, and a pull that adds a workspace package leaves yours incomplete. Run `pnpm install` after either.
 
 Skip it and the first run fails for that reason rather than for anything you changed, which does not look like a missing install: a package whose dependencies were never linked reports its runner missing (`'vitest' is not recognized`), and the giveaway is the line above it — `Scope: 6 of 7 workspace projects` against a repository that now has seven.
@@ -131,6 +133,11 @@ pnpm test:e2e
 # the scripts that start the app and the test stack, the post-deploy
 # health check, and the security review's gate; no install needed
 pnpm test:scripts
+
+# the contract tier: the real Claude API, the real prompt, real money.
+# In neither of the two above, and run nightly by CI rather than per change.
+# Needs a key, from the environment or apps/api/.dev.vars.
+pnpm --filter @cockpit/api test:contract
 ```
 
 One-time, on a machine that has never run the browser tier: `pnpm exec playwright install chromium`. It is the only setup step `pnpm install` does not cover, and without it `pnpm test:e2e` fails immediately telling you to run exactly that.
@@ -172,6 +179,7 @@ Two different things get called "our automation": what is **checked into this re
 | [Claude Code Review](.github/workflows/claude-code-review.yml) | pull request opened, pushed to, reopened, ready for review — but never while it is a draft | Runs the `code-review` plugin command and posts findings as inline comments. A second step asserts the review *actually ran* — see below. A draft's pushes cost CI alone, and marking it ready fires the review once against the finished head; superseded runs are cancelled, so pushing twice in a minute leaves one review, not two. |
 | [Claude Security Review](.github/workflows/claude-security-review.yml) | same | A security pass over the diff, scoped by [.github/security-review-instructions.md](.github/security-review-instructions.md) to this project's own rules. CodeQL is the mechanical half and this is the judgement half, so the instructions say not to re-derive what CodeQL reports. The run must end with a one-line verdict naming the highest severity found; the check goes red when that line is missing or names the top severity. Skipped on pull requests from forks — see below. |
 | [Claude Code](.github/workflows/claude.yml) | `@claude` in an issue, comment or review | Hands that comment to Claude with read access to the repository and CI results. |
+| [Contract](.github/workflows/contract.yml) | nightly at 03:00, and on demand | The one place CI talks to the real Claude API: `apps/api/tests/contract/`, holding the behaviours the note-cleanup prompt was written to get (the language it answers in, and that it invents nothing the note did not carry). Scheduled rather than per change because every run costs money and a model's answer differs every time; a failure is the prompt and the model having drifted apart, and it is fixed rather than re-run. Needs `ANTHROPIC_API_KEY` (and `ANTHROPIC_WORKSPACE_ID`) as repository secrets — the suite goes red rather than skipping without them, a skipped tier reading green from outside. |
 | [Deploy staging](.github/workflows/deploy-staging.yml) | every commit on `main`, plus manual re-runs | The same gate, then migrate and deploy, then assert `/health`. Never re-seeded and never wiped: the accumulated data is real, and old rows are what prove a migration still reads them. |
 | [Promote to production](.github/workflows/deploy-production.yml) | manual only, with an optional commit SHA | Refuses any commit that is not an ancestor of `origin/main`; then re-runs the full gate against that tree, migrates, deploys, and verifies `/health`. |
 
@@ -231,6 +239,8 @@ This lives in repository settings, so a fresh fork gets none of it. The reasonin
 | Secret | `CLOUDFLARE_API_TOKEN` | both deploy workflows |
 | Secret | `CLOUDFLARE_ACCOUNT_ID` | both deploy workflows |
 | Secret | `CLAUDE_CODE_OAUTH_TOKEN` | all three Claude workflows |
+| Secret | `ANTHROPIC_API_KEY` | the nightly contract run |
+| Secret | `ANTHROPIC_WORKSPACE_ID` | the same, where the key is scoped to an organisation rather than a workspace |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | the deploy URLs and the health checks |
 
 - **Branch protection on `main`**, whose payload *is* checked in — [.github/branch-protection.json](.github/branch-protection.json) — but which the owner still has to apply, because configuration nobody can review or restore is not really configuration:

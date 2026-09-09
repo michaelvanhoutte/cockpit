@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type {
+  ClientCommandName,
   CommandName,
   CommandPayload,
   CommandResult,
@@ -137,10 +138,14 @@ export const snapshotQuery = (workspaceId: string) =>
     staleTime: 15_000,
   });
 
-/** A correctly paired { name, payload } for any command, as a discriminated union. */
+/**
+ * A correctly paired { name, payload } for any command a client sends, as a
+ * discriminated union. Not every command in the registry: one is Cockpit's own
+ * and has no endpoint (issue 296).
+ */
 export type CommandArgs = {
-  [N in CommandName]: { name: N; payload: CommandPayload<N> };
-}[CommandName];
+  [N in ClientCommandName]: { name: N; payload: CommandPayload<N> };
+}[ClientCommandName];
 
 /**
  * The changes after which the list of workspaces is not what it was: which

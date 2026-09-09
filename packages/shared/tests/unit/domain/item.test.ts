@@ -201,6 +201,7 @@ describe('Capture', () => {
       capturedMessage: 'Make appointment with Novy',
       title: '',
       description: null,
+      textsSettledAt: null,
       sourceResolvedAt: null,
       typeId: null,
       nextAction: null,

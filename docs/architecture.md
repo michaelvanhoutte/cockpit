@@ -226,12 +226,27 @@ The dependency rule is one-directional: `domain` imports nothing from the other 
 - **Job handlers are plain functions in `jobs/` calling `domain/`; the queue is an adapter**, so nothing in domain logic imports a Cloudflare API.
 - One caveat inherited honestly: pg-boss offered enqueue-in-the-same-transaction, Queues do not. Handlers are idempotent (§4.3), so at-least-once delivery plus retries is sufficient and no exactly-once machinery is built.
 
+**Queues are wired as of "Clean up a captured note into a clear title and a fuller message" (issue 296)**, which is the first job: one queue per environment in `apps/api/wrangler.jsonc` (`queues` is not inheritable, so a shared name would let staging write to production's accounts), consumed by this same Worker's `queue` handler. Cron Triggers are still unwired and land with the first connector sync.
+
+Three decisions that job settled for every job after it:
+
+- **A message names what to work on, never the work itself.** `{kind, accountName, itemId}` and no note text: the store is warm anyway, and reading there is what finds an item that has been dismissed, or one whose texts somebody has since edited, *before* a model call is paid for.
+- **Acknowledged and retried per message, not per batch.** Throwing out of the consumer would put the whole batch back, so one rate-limited call would re-run work that had already been written.
+- **A decision is a return and a failure is a throw.** Everything the job decides — no key, no such item, nothing usable back — ends quietly; only a call that failed is left to the queue's retries. A message the running version cannot parse is dropped rather than redelivered for ever.
+
 ### 6.4 AI layer
 
-- **The Claude API behind a project-owned interface** (`ai/`): summarize item, extract next action, suggest associations, translate plain-English panel rules to structured queries. It takes and returns domain objects, so everything around it stays testable at L1 with the AI faked.
-- **Prompts are versioned files in the repository**, reviewed like code.
-- The provider is a third party like any other: recorded fixtures below L3, scheduled contract tests for drift.
-- Enrichment runs **on ingest, in jobs**, and results are cached on the Item, so reads never wait on a model call.
+- **The Claude API behind a project-owned interface** (`ai/`): cleaning up a captured note today; suggesting associations, offering alternative readings and translating plain-English panel rules to structured queries as each lands. It takes and returns domain values, so everything around it stays testable with the model faked. One method per thing that asks, added when that thing lands — the interface carried two placeholders nothing called for a month, and they were removed rather than implemented.
+- **Prompts are versioned files in the repository**, reviewed like code, and a change to *what is asked for* gets the next version rather than an edit: the contract tests are pinned to a version, and two prompts cannot otherwise be told apart by their measurements.
+- The provider is a third party like any other: faked at the network boundary below the contract tier, scheduled contract tests for drift (`.github/workflows/contract.yml`).
+- Enrichment runs **on ingest, in jobs**, and results are written onto the Item, so reads never wait on a model call.
+- **The credential is the application's own, not anybody's**, so it gets no settings screen: `ANTHROPIC_API_KEY` per environment, with `ANTHROPIC_WORKSPACE_ID` beside it where the key is scoped to an organisation rather than a workspace (docs/deployment.md, "Secrets and access"). `/health` reports whether the key is *present* and never what it is, and deliberately does not fold it into the verdict — an environment with no key works, and what it cannot otherwise do is say that it will never enrich anything.
+
+**Three things issue 296 settled by measurement rather than by preference**, recorded because the next prompt will ask the same questions:
+
+- **The model and the effort.** `claude-opus-5` at `effort: "low"`: default effort took 6.0-11.5s against low's 3.8-5.7s, and low routed *better* rather than worse. `claude-haiku-4-5` was measured too — same warm latency, a fifth of the price — and twice out of four handed the captured note straight back as the title, unshortened, which is the one thing the feature exists to stop.
+- **A structural answer beats a firmer instruction.** "Answer in the language of the note. Do not translate." turned roughly one English note in three into Dutch, because the prompt's examples are in both languages and the model matched the corpus rather than the note. The fix is to have the model *name* the note's language as the first field of a constrained answer, before it writes anything.
+- **What comes back is validated and discarded, never repaired.** An answer is refused against the same schemas the Item's own form enforces, and the Item then keeps the mechanical title capture wrote — text known to contain only what was typed. Trimming a model's answer to fit would make the rule that outranks the rest, *add nothing the note does not contain*, unenforceable.
 
 ### 6.5 Multi-channel capture and the task-creator merge
 
@@ -294,7 +309,7 @@ One thing ships as data with no behaviour, deliberately: **nothing about sharing
 
 ## 9. Hosting, CI/CD, and observability
 
-**Decision: Cloudflare, all of it.** The Worker plus static assets, with D1 (§4.1), Queues and Cron Triggers. The platform is already proven in this household (www.conselit.be and the task-creator worker), the workload shape fits (request-driven API, scheduled sync, cheap SSE streams, no long-CPU work), the tiers price a single-user app at essentially zero, and there is one vendor and zero servers to patch. Stated honestly: local dev and CI run on `wrangler`/miniflare, which executes the real runtime and real SQLite but *emulates* Queues and cron, and platform limits (CPU time, subrequest counts) are a new class of constraint that L3 tests and nightly runs must respect.
+**Decision: Cloudflare, all of it.** The Worker plus static assets, with D1 (§4.1), Queues and Cron Triggers. The platform is already proven in this household (www.conselit.be and the task-creator worker), the workload shape fits (request-driven API, scheduled sync, cheap SSE streams, no long-CPU work), the tiers price a single-user app at essentially zero, and there is one vendor and zero servers to patch. Stated honestly: local dev and CI run on `wrangler`/miniflare, which executes the real runtime and real SQLite and *emulates* Queues and cron — the emulation is good enough that the backend tests drive a real capture through a real queue to a real consumer (`apps/api/tests/integration/http/note-cleanup.test.ts`), which is more than "emulated" suggested — and platform limits (CPU time, subrequest counts) are a new class of constraint that L3 tests and nightly runs must respect.
 
 Note the reach: this re-derived the backend framework (Fastify → Hono, since Fastify assumes a Node server process), the job infrastructure (pg-boss → Queues + Cron, §6.3) and the database itself (Postgres → D1, §4.1). A hosting choice is never just a hosting choice.
 

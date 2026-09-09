@@ -40,6 +40,7 @@ function anItemOf(type: ItemType | null, at: number): Item {
     title: `item ${at}`,
     capturedMessage: null,
     description: null,
+    textsSettledAt: null,
     sourceResolvedAt: null,
     typeId: type?.id ?? null,
     nextAction: null,

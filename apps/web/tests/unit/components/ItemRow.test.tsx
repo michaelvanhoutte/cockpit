@@ -27,6 +27,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     title: 'Make appointment with Novy',
     capturedMessage: null,
     description: null,
+    textsSettledAt: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,

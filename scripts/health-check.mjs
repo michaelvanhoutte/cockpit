@@ -5,11 +5,14 @@
 // is nothing here for a test to hold.
 //
 // It asserts that a deployed environment is up and its data reachable.
-// `/health` returns {"ok":true,"register":true,"store":true}: the register
-// answered, and a store belonging to no account was opened and brought up to
-// date (architecture, "Observability"). Both halves matter - an account's data
-// lives in its own store, so a check on the register alone would pass this
-// assertion while every real request to the deployment failed.
+// `/health` returns {"ok":true,"register":true,"store":true,"ai":true}: the
+// register answered, and a store belonging to no account was opened and brought
+// up to date (architecture, "Observability"). Both halves matter - an account's
+// data lives in its own store, so a check on the register alone would pass this
+// assertion while every real request to the deployment failed. `ai` says whether
+// this environment has a key to read a captured note with and is deliberately
+// not part of `ok`, so it is reported and not asserted (docs/deployment.md,
+// "`/health` answers without a sign-in").
 //
 // /health must answer *without* a sign-in, because two things depend on
 // reaching it unauthenticated: this post-deploy check, and the external uptime

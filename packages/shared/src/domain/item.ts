@@ -117,6 +117,24 @@ export const itemSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   /**
+   * When you took the title and the description over from Cockpit, and null
+   * while they are still Cockpit's to replace ("Clean up a captured note into a
+   * clear title and a fuller message", issue 296).
+   *
+   * **One field for both texts, because editing either settles both.** What
+   * Cockpit proposed is one reading of one note, so replacing half of it after
+   * somebody rewrote the other half would leave the Item describing itself two
+   * ways.
+   *
+   * **The first answer wins**, the way `workspaceDecided` does: this is when a
+   * person took the texts over, not when they last touched them.
+   *
+   * Null on every Item captured before this shipped, and they are never
+   * proposed for either - nothing sweeps existing rows (issue 296, "What does
+   * it run on?"), so nothing can overwrite a title written by hand.
+   */
+  textsSettledAt: z.iso.datetime().nullable(),
+  /**
    * What kind of thing this is ("Capture a thought or an action, and see which
    * it is", issue 155). Nullable: an item captured before types existed, and
    * one whose type was deleted, both have none, and a row with no type is drawn
@@ -188,9 +206,16 @@ export function itemLabel(item: Pick<Item, 'nextAction' | 'title'>): string {
  * and let the row fall through to the captured message, which put two names on
  * one Item: the one the row showed and the empty one its form offered. So the
  * message becomes the title, and the captured message stays beside it as the
- * record of exactly what was typed - which is what the title is read back
- * against once something cleverer than a cut at `TITLE_LENGTH` characters is
- * proposing one (docs/ideas.md, "Capture and the task creator").
+ * record of exactly what was typed - which is what the two texts are read back
+ * against.
+ *
+ * **This is the title an Item is *made* with, and a moment later Cockpit
+ * replaces it**, having read the note ("Clean up a captured note into a clear
+ * title and a fuller message", issue 296). What is written here therefore has
+ * two jobs rather than one: it names the Item while the reading is happening,
+ * and it is what the Item keeps for good wherever the reading cannot happen -
+ * no key, a call that failed, an answer that will not validate - so it stays a
+ * cut of what was typed rather than becoming a guess at what was meant.
  *
  * **A title is one line and at most `TITLE_LENGTH`, and a captured message is
  * neither.** Where the message does not fit as it stands, the title takes its

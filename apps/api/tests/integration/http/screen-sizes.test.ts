@@ -372,6 +372,14 @@ describe('Layouts', () => {
       await postChange('create_screen_size', { ...envelope(), screenSizeId: wide, name: 'Wide', width: 1280 });
       const COUNT = 150;
       const dashboardIds = Array.from({ length: COUNT }, (_, i) => `dash-bulk-${i}`);
+      // **One trip to the store for all three hundred rows.** Each
+      // `inTheStore` opens the account's store and asks it something, so
+      // calling `putLayoutAtSize` per dashboard was three hundred round trips
+      // to arrange one delete - which put this case within a few hundred
+      // milliseconds of the runner's timeout and made it the first thing to go
+      // red whenever anything else in the suite got heavier. What it proves is
+      // unchanged: the same rows, written the same way `putLayoutAtSize`
+      // writes them.
       await inTheStore((sql) => {
         for (const dashboardId of dashboardIds) {
           sql.exec(
@@ -384,11 +392,22 @@ describe('Layouts', () => {
             dashboardId,
             '2026-09-08T10:00:00.000Z',
           );
+          sql.exec(
+            `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+             VALUES (?, ?, ?, ?, ?)`,
+            `lay-${dashboardId}`,
+            ACCOUNT_NAME,
+            dashboardId,
+            wide,
+            '2026-09-08T10:00:00.000Z',
+          );
+          sql.exec(
+            `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height) VALUES (?, ?, 0, NULL)`,
+            ACCOUNT_NAME,
+            `lay-${dashboardId}`,
+          );
         }
       });
-      for (const dashboardId of dashboardIds) {
-        await putLayoutAtSize({ id: `lay-${dashboardId}`, dashboardId, screenSizeId: wide });
-      }
 
       const response = await postChange('delete_screen_size', { ...envelope(), screenSizeId: wide });
 

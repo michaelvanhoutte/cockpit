@@ -11,6 +11,14 @@ import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 export default defineConfig({
   test: {
     globalSetup: ['./tests/integration/global-setup.ts'],
+    /**
+     * The contract tier is deliberately not part of any run this config drives.
+     * `pnpm test` is `vitest run` over everything under `tests/`, and the
+     * contract tests spend real money against the real Claude API - so they get
+     * a config of their own (vitest.contract.config.ts) and are excluded here
+     * rather than being left to a naming convention nobody enforces.
+     */
+    exclude: ['tests/contract/**', '**/node_modules/**', '**/dist/**'],
     // Only collected when run with `--coverage` (tools/test-explorer's
     // "branches nothing takes" column, docs/test-explorer-spec.md §6.3) —
     // `pnpm test` stays fast, coverage is opt-in.
@@ -54,6 +62,18 @@ export default defineConfig({
         compatibilityFlags: ['nodejs_compat'],
         bindings: {
           BACKUP_TOKEN: 'test-operator-secret',
+          /**
+           * **Empty, and that is a safety property rather than a default.**
+           * `.dev.vars` is read into this pool along with the rest of the
+           * Worker's configuration, so a developer's real Anthropic key would
+           * otherwise reach every case that captures anything - and the queue
+           * consumer this repository declares would spend it, from the test
+           * suite, against the real API. Empty means `aiFor` answers with
+           * nothing and the job stops before it opens an account, which is what
+           * keeps every other case deterministic. The cases that need a service
+           * set one on `env` for themselves and fake the network under it.
+           */
+          ANTHROPIC_API_KEY: '',
           OIDC_ISSUER: 'https://issuer.test',
           GOOGLE_CLIENT_ID: 'cockpit-test',
           GOOGLE_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',

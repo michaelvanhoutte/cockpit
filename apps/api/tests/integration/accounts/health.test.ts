@@ -20,10 +20,17 @@ import {
  * practises on is a third decision, taken before either is touched.
  */
 
-async function health(): Promise<{ ok: boolean; register: boolean; store: boolean }> {
+interface Verdict {
+  ok: boolean;
+  register: boolean;
+  store: boolean;
+  ai: boolean;
+}
+
+async function health(): Promise<Verdict> {
   const response = await SELF.fetch('http://cockpit.test/health');
   expect(response.status).toBe(200);
-  return (await response.json()) as { ok: boolean; register: boolean; store: boolean };
+  return (await response.json()) as Verdict;
 }
 
 function tablesIn(name: string): Promise<string[]> {
@@ -38,6 +45,10 @@ function tablesIn(name: string): Promise<string[]> {
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
+  // The suite runs with no key (vitest.config.ts), and the two cases that care
+  // set one for themselves - so it is put back here rather than left wherever
+  // the last case left it.
+  env.ANTHROPIC_API_KEY = '';
 });
 
 describe('Accounts', () => {
@@ -45,7 +56,7 @@ describe('Accounts', () => {
     it('is healthy when the register answers and the updates apply', async () => {
       await seedRegister();
 
-      expect(await health()).toEqual({ ok: true, register: true, store: true });
+      expect(await health()).toEqual({ ok: true, register: true, store: true, ai: false });
     });
 
     it('is not healthy when an update cannot be applied', async () => {
@@ -64,7 +75,7 @@ describe('Accounts', () => {
       // the register breaks every case after it too.
       await env.DB.prepare('ALTER TABLE tenants RENAME TO tenants_out_of_reach').run();
       try {
-        expect(await health()).toEqual({ ok: false, register: false, store: false });
+        expect(await health()).toEqual({ ok: false, register: false, store: false, ai: false });
       } finally {
         await env.DB.prepare('ALTER TABLE tenants_out_of_reach RENAME TO tenants').run();
       }
@@ -82,7 +93,7 @@ describe('Accounts', () => {
       // `register` is asserted here too, not only `ok`: it is documented as
       // "answered, and does not contain the name below", and leaving it out is
       // what let it report true for the one state it is meant to deny.
-      expect(await health()).toEqual({ ok: false, register: false, store: false });
+      expect(await health()).toEqual({ ok: false, register: false, store: false, ai: false });
       expect(await tablesIn(PROBE_NAME)).toEqual([]);
     });
 
@@ -96,6 +107,29 @@ describe('Accounts', () => {
       // all" is exactly "nothing ever opened this".
       expect(await tablesIn(PROBE_NAME)).toContain('workspaces');
       expect(await tablesIn(ACCOUNT_NAME)).toEqual([]);
+    });
+  });
+
+  /**
+   * Integration rather than a unit test of the probe, because what could be
+   * wrong is the wiring: the field has to survive the route's own response
+   * schema, which drops anything it does not name, and it has to be answered
+   * without changing the verdict.
+   */
+  describe('a deployment says whether it can clean up a captured note at all', () => {
+    it.each([
+      { situation: 'nothing was ever set up to read a note', key: '', reads: false },
+      { situation: 'the reading was set up', key: 'a-key-that-proves-nothing-here', reads: true },
+    ])('$situation', async ({ key, reads }) => {
+      await seedRegister();
+      env.ANTHROPIC_API_KEY = key;
+
+      const verdict = await health();
+
+      expect(verdict.ai).toBe(reads);
+      // **And the deployment is healthy either way**, which is the point: a
+      // Cockpit that cannot clean up a note still takes every note it is given.
+      expect(verdict.ok).toBe(true);
     });
   });
 });

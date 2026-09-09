@@ -58,7 +58,9 @@ It cuts the other way too: where a constraint *is* reachable, only a test throug
 - Replace a boundary at the edge (the API client, the repository, the clock), not deep inside the code under test.
 - **Assert on outcomes, not interactions** — what the code produced, not the sequence of calls it made. Choreographing mock calls survives real breakage and is a violation.
 
-**Third parties.** Never at L1/F1. At L2/F2 and per-change L3/F3, use local fakes or fixtures recorded from real responses (not hand-invented shapes), checked in. Live contract tests run on a schedule only, to verify the fixtures still match reality; a failing one makes updating the fixture priority work.
+**Third parties.** Never at L1/F1. At L2/F2 and per-change L3/F3, use local fakes or fixtures recorded from real responses (not hand-invented shapes), checked in — faked at the *network* boundary, by replacing `fetch`, so the application does its own request against its own client (`apps/api/tests/integration/issuer.ts`, and the model in `tests/integration/http/note-cleanup.test.ts`). Live contract tests run on a schedule only, to verify the fixtures still match reality; a failing one makes updating the fixture priority work, and is never fixed by running it again.
+
+**A model is a third party whose answer differs every time**, so its contract tests hold a *behaviour* rather than a shape: the property the prompt was written to get, and preferably one that has been measured failing. A contract run with no credential is red, never skipped.
 
 ## Where the test goes
 
@@ -66,6 +68,7 @@ Folders per level, inside the package that owns them — a folder is a boundary 
 
 ```
 apps/api/tests/{unit,integration}/
+apps/api/tests/contract/                         the live contract tests: scheduled only
 apps/web/tests/{unit,service}/
 packages/shared/tests/unit/
 packages/connectors/*/tests/{unit,contract}/    when connectors land
@@ -174,7 +177,7 @@ Verify against `package.json` before relying on this section — it goes stale.
 
 - **One service**, so L2 and L3 collapse: the API-in-process tests against real local storage — D1 for the account register, a real Durable Object for an account's own data (`@cloudflare/vitest-pool-workers`, `apps/api/vitest.config.ts`) — are the backend tests. L3 becomes a real tier the day a second service exists. "API-in-process" means through `SELF.fetch(...)` (see `apps/api/tests/integration/http/item-changes.test.ts`), never by importing a handler function.
 - **Runner:** Vitest below the browser (`apps/api`, `packages/shared`, `apps/web`); **Playwright for F3**, configured at the repo root in `playwright.config.ts`. `pnpm test:e2e` boots its own copy of the stack (`scripts/e2e-stack.mjs`: its own Wrangler and Vite on this checkout's own pair — :8887 and :5273 in the primary checkout, derived from the path in a worktree so two can run at once (`scripts/lib/ports.mjs`) — and its own state directory rebuilt from a template before every run, so it never touches the storage `pnpm dev` uses) and runs every spec under two projects, `desktop` and `phone` — the same walk with a mouse at 1280px and with touch at 480px, because "it works on that device" is a claim about each device. Both are Chromium: a viewport and input matrix, not a browser matrix. Point it at a deployed environment with `E2E_BASE_URL`.
-- **`pnpm test`** runs `-r test` across packages. Today: `apps/api` has `test:unit` and `test:integration`; `packages/shared` and `apps/web` have `test:unit`/`test:f-unit` only, having no vertical dependency to integration-test against. Every package has `test:fast` and `test:all`, mirrored at the root; `pnpm test:e2e` runs F3, which `test:all` includes and `test:fast` deliberately does not. `test:f-service` and `test:contract` stay unadded until something needs that level.
+- **`pnpm test`** runs `-r test` across packages. Today: `apps/api` has `test:unit`, `test:integration` and `test:contract`; `packages/shared` and `apps/web` have `test:unit`/`test:f-unit` only, having no vertical dependency to integration-test against. Every package has `test:fast` and `test:all`, mirrored at the root; `pnpm test:e2e` runs F3, which `test:all` includes and `test:fast` deliberately does not. **`test:contract` is in neither**, and is excluded from the config the other tiers run under rather than left to a naming convention: it talks to the real Claude API, so every run costs money and takes as long as the model does (`apps/api/vitest.contract.config.ts`, `.github/workflows/contract.yml`). `test:f-service` stays unadded until something needs that level.
 - **The per-level folders are populated**: `apps/api/tests/{unit,integration}`, `packages/shared/tests/unit`, `apps/web/tests/unit`, `tests/e2e/`. No stray tests in any `src/` tree. F3 specs must be named `*.test.ts` (not Playwright's `.spec.ts` default) or `tools/test-explorer` will not count them, and must take `test` from `./support/app` rather than `@playwright/test` — one imported from Playwright directly opts out of the guard that tells "the stack went away" from "this walk is broken", silently and in the same way.
 - **Starting the app** (needed by the definition of done): `pnpm dev`, which does the migrations, the seed and both halves in one command and **prints the two addresses** — :8787 and :5173 in the primary checkout, a derived pair in a worktree. Read them off that line rather than assuming; `pnpm dev:api` and `pnpm dev:web` run one half alone, on the same ports. Full sequence in [readme.md](../../../readme.md).
 
