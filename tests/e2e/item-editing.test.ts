@@ -434,5 +434,49 @@ test.describe('Item editing', () => {
       expect(Math.round(afterReclamp.width)).toBe(Math.round(dragged.width));
       expect(Math.round(afterReclamp.height)).toBe(Math.round(dragged.height));
     });
+
+    test('a drag on one axis, with nothing remembered yet, does not carry a clamped screen into the other', async ({
+      page,
+      isMobile,
+    }) => {
+      // Dragging is a pointer gesture, the same reason sizing a panel's own
+      // row and column is desktop-only in tests/e2e/panels.test.ts.
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      // Short rather than narrow, so the ceiling clamps the height alone -
+      // the axis this walk never touches - and wide enough that the resize
+      // handle is still offered.
+      const full = page.viewportSize()!;
+      await page.setViewportSize({ width: 900, height: 500 });
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('One axis, nothing remembered yet');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+      const thoughtUrl = page.url();
+
+      const before = (await form(page).boundingBox())!;
+      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
+      // Dragged along one axis only - the same height as the grip started
+      // at, so nothing here ever asks the height to move.
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      await page.mouse.move(grip.x - 150, grip.y, { steps: 8 });
+      await page.mouse.up();
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+
+      // Back on a screen tall enough for the full default, the height this
+      // never touched is the default, not the short screen's own clamp of
+      // it - the same claim the other test in this block makes for a screen
+      // reclamping a size that was remembered, made here for one clamping
+      // the *default* before anything was ever remembered at all.
+      await page.setViewportSize(full);
+      await page.goto(thoughtUrl);
+      const reopened = (await form(page).boundingBox())!;
+      expect(
+        reopened.height,
+        'the untouched axis is the full default, not the short screen’s clamp of it',
+      ).toBeGreaterThan(600);
+    });
   });
 });

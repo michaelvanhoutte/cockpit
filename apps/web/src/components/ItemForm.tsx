@@ -73,6 +73,18 @@ export function ItemForm() {
  *  padding around the buttons that sit closest to it. */
 const RESIZE_CORNER = 16;
 
+/** The dialog's own default size, unclamped - `42rem`/`44rem`
+ *  (`--item-form-w`/`-h`, styles.css) at the browser default root size. The
+ *  fallback of last resort for an axis a drag never touched and nothing was
+ *  ever remembered for: the *current* render is not it, because on a screen
+ *  short or narrow enough to be clamping that axis already, that measures
+ *  the clamped-down size, not the size nobody chose - persisting that would
+ *  follow the person to a bigger screen and keep it short there too, rather
+ *  than leaving the live clamp below (`max-w-`/`max-h-`) to answer that
+ *  question fresh on every open the way it already does for the axis that
+ *  did move. */
+const DEFAULT_SIZE: Size = { width: 672, height: 704 };
+
 function TheForm({
   itemId,
   workspaceId,
@@ -146,11 +158,13 @@ function TheForm({
    *
    * **`known` keeps only what a drag actually moved, per axis, across
    * possibly several drags in the same open.** The first time an axis is
-   * seen to move, its fallback is the *original* stored preference - a
-   * viewport that clamped it before any drag began is not a change anyone
-   * made. Every settlement after that folds forward from whatever `known`
-   * already holds, so a second drag that leaves one axis alone keeps what
-   * the *first* drag left it at, not the original value from before either
+   * seen to move, its fallback is the *original* stored preference, or
+   * `DEFAULT_SIZE` where there was none - never the box's own current
+   * render, which on a screen already clamping that axis is the
+   * clamped-down size rather than one anybody chose. Every settlement after
+   * that folds forward from whatever `known` already holds, so a second
+   * drag that leaves one axis alone keeps what the *first* drag left it at,
+   * not the original value from before either
    * of them.
    */
   const checkpoint = useRef<Size | null>(null);
@@ -193,7 +207,7 @@ function TheForm({
       const was = checkpoint.current;
       const now = measure();
       if (!was || !now || (now.width === was.width && now.height === was.height)) return;
-      const base = known.current ?? original.current ?? now;
+      const base = known.current ?? original.current ?? DEFAULT_SIZE;
       known.current = {
         width: now.width === was.width ? base.width : now.width,
         height: now.height === was.height ? base.height : now.height,
