@@ -5,9 +5,10 @@
 // Of 106 review threads sampled across 25 recent pull requests, roughly 40%
 // were about prose rather than logic - a bare issue number, a `rule 2`
 // resolving to no list, a paragraph restating one in the document of record, an
-// unbalanced `**`. Pull request 226 changed thirty lines and drew fifteen
-// threads, thirteen of that kind, and the same stale finding landed on two
-// pull requests in a row. Every one of them breaks a rule CLAUDE.md already
+// unbalanced `**`. "Say where the backup token comes from, and why it is set
+// twice" (pull request 226) changed thirty lines and drew fifteen threads,
+// thirteen of that kind, and the same stale finding landed on two pull
+// requests in a row. Every one of them breaks a rule CLAUDE.md already
 // states, at eleven to sixteen minutes a review round, which is the repository's
 // own argument for a script: `constraints.test.ts` for the schema conventions,
 // `check-concepts` for the feature areas, `e2e-conventions.mjs` for the walks.
@@ -161,29 +162,35 @@ function blocks(lines, skip = () => false) {
  * repeating the title each time is the noise this rule is meant to prevent, not
  * the rule.
  *
- * **The title is looked for across the paragraph, not the line.** Half the
+ * **The title is looked for across the block, not the line.** Half the
  * documents wrap their prose, so the opening quote of `"Add a user on the admin
  * page, so a second person no longer needs SQL" (issue 231)` is one line above
  * the number - which a line-at-a-time read calls a violation eight times in
- * `deployment.md` alone. The paragraph is also the unit that reads right: one
- * names one piece of work, and CLAUDE.md's own account of issue 77 goes on to
- * give the number of the pull request that merged it, which needs no second
- * title. The cost is a paragraph naming a second, different issue bare.
+ * `deployment.md` alone. The block is also the unit that reads right: one names
+ * one piece of work, and CLAUDE.md's own account of issue 77 goes on to give
+ * the number of the pull request that merged it, which needs no second title.
+ * A bullet is its own block, so one item's title does not cover the next -
+ * which is how `(issue 8, §2)` survived a rename of every other citation like
+ * it in the functional definition.
  */
 export function issueNumbersWithoutTitles(source) {
+  const lines = prose(source);
   const named = new Set();
-  const found = [];
-  let paragraph = '';
-  prose(source).forEach((text, index) => {
-    if (!text.trim()) paragraph = '';
-    for (const match of text.matchAll(ISSUE_REFERENCE)) {
-      const number = match[1];
-      if (TITLE.test(paragraph + text.slice(0, match.index))) named.add(number);
-      else if (!named.has(number)) found.push({ line: index + 1, number, text: text.trim() });
-    }
-    paragraph += `${text} `;
+  return blocks(lines).flatMap(({ line, lines: block }) => {
+    let before = '';
+    return block.flatMap((text, offset) => {
+      const found = [...text.matchAll(ISSUE_REFERENCE)].flatMap((match) => {
+        const number = match[1];
+        if (TITLE.test(before + text.slice(0, match.index))) {
+          named.add(number);
+          return [];
+        }
+        return named.has(number) ? [] : [{ line: line + offset, number, text: text.trim() }];
+      });
+      before += `${text} `;
+      return found;
+    });
   });
-  return found;
 }
 
 /**
@@ -225,15 +232,11 @@ export function unresolvedSectionCitations(source) {
  * them correct markdown.
  */
 export function unbalancedEmphasis(source) {
-  return blocks(prose(source))
-    .map(({ line, lines }) => ({
-      line,
-      text: lines[0].trim(),
-      markers: lines.join('\n').match(/\*\*/g)?.length ?? 0,
-      malformed: lines.some((text) => /\*{4,}/.test(text)),
-    }))
-    .filter(({ markers, malformed }) => markers % 2 !== 0 || malformed)
-    .map(({ line, text }) => ({ line, text }));
+  return blocks(prose(source)).flatMap(({ line, lines }) => {
+    const block = lines.join('\n');
+    const markers = block.match(/\*\*/g)?.length ?? 0;
+    return markers % 2 === 0 && !/\*{4,}/.test(block) ? [] : [{ line, text: lines[0].trim() }];
+  });
 }
 
 /** A paragraph reduced to its words, so two phrasings of one sentence collide. */
@@ -334,6 +337,32 @@ function restatementsDeclared(documents) {
       return [file, new Set(declared)];
     }),
   );
+}
+
+/**
+ * The lines a unified diff adds, as `file -> Set<line number>`.
+ *
+ * Here rather than beside the `git` call that feeds it, so the parsing can be
+ * asserted: an empty result is what a clean change looks like too, so a
+ * regression in it would read as "nothing to report" rather than as a break.
+ * `@@ -3 +7 @@` with no count means one line, and `+7,0` means a deletion,
+ * which adds none.
+ */
+export function linesAdded(diff) {
+  const changed = new Map();
+  let file = null;
+  for (const line of diff.split('\n')) {
+    const header = line.match(/^\+\+\+ b\/(.+)$/);
+    if (header) file = header[1];
+    const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+    if (!hunk || !file) continue;
+    const from = Number(hunk[1]);
+    const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    const touched = changed.get(file) ?? new Set();
+    for (let offset = 0; offset < count; offset += 1) touched.add(from + offset);
+    changed.set(file, touched);
+  }
+  return changed;
 }
 
 /**

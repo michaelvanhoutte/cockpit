@@ -3,14 +3,16 @@
 // violation from the shape that merely looks like one, against text written
 // here - which is the half that stops the check being narrowed into silence.
 // The second runs them over the repository's own prose, which is the half that
-// gates: it went red on eleven citations, sixty-four paragraphs and two
-// restatements while it was being written, and every one of those is a case
-// below.
+// gates, and the half that calibrated every rule above: each citation it went
+// red on is fixed in the tree, and each correct paragraph it went red on -
+// wrapped prose, a bold phrase spanning two lines, a skill restating its own
+// version of record - is a case below.
 //
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
@@ -18,6 +20,7 @@ import { describe, it } from 'node:test';
 import {
   duplicateParagraphs,
   issueNumbersWithoutTitles,
+  linesAdded,
   markdownFiles,
   nativePath,
   numberWords,
@@ -35,6 +38,55 @@ const documents = markdownFiles(root).map((file) => ({
 }));
 
 const at = (file, { line }) => `${file}:${line}`;
+
+describe('markdownFiles', () => {
+  it('never enters a linked worktree, which is a whole second checkout inside this one', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'writing-rules-'));
+    try {
+      for (const [path, name] of [
+        ['docs', 'own.md'],
+        ['.claude/worktrees/branch/docs', 'somebody-elses.md'],
+        ['node_modules/a-package', 'readme.md'],
+        ['poc/spike', 'report.md'],
+      ]) {
+        mkdirSync(join(fixture, ...path.split('/')), { recursive: true });
+        writeFileSync(join(fixture, ...path.split('/'), name), 'Prose.\n');
+      }
+      assert.deepEqual(markdownFiles(fixture), ['docs/own.md']);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('linesAdded', () => {
+  it('reads the lines a hunk adds, counted or not', () => {
+    const diff = [
+      'diff --git a/one.md b/one.md',
+      '--- a/one.md',
+      '+++ b/one.md',
+      '@@ -3 +3 @@',
+      '+changed',
+      '@@ -20,0 +21,2 @@',
+      '+added',
+      '+added',
+    ].join('\n');
+    assert.deepEqual([...linesAdded(diff)], [['one.md', new Set([3, 21, 22])]]);
+  });
+
+  it('adds nothing for a hunk that only deletes', () => {
+    const diff = ['--- a/one.md', '+++ b/one.md', '@@ -7,2 +6,0 @@', '-gone', '-gone'].join('\n');
+    assert.deepEqual([...linesAdded(diff)], [['one.md', new Set()]]);
+  });
+
+  it('keeps each file to its own lines', () => {
+    const diff = ['+++ b/one.md', '@@ -1 +1 @@', '+++ b/two.md', '@@ -9 +9 @@'].join('\n');
+    assert.deepEqual([...linesAdded(diff)], [
+      ['one.md', new Set([1])],
+      ['two.md', new Set([9])],
+    ]);
+  });
+});
 
 describe('prose', () => {
   it('blanks fenced code, so an instruction is not read as a citation', () => {
@@ -76,6 +128,11 @@ describe('issueNumbersWithoutTitles', () => {
 
   it('leaves a bare #14 alone, because that is an open decision as often as an issue', () => {
     assert.deepEqual(issueNumbersWithoutTitles('What drives that is undecided - open decision #14 (§12).'), []);
+  });
+
+  it("reads each bullet on its own, so one item's title does not cover the next", () => {
+    const source = ['- "Rename and delete a workspace" (issue 77) landed.', '- A later item cites issue 99 bare.'].join('\n');
+    assert.deepEqual(issueNumbersWithoutTitles(source).map(({ line, number }) => ({ line, number })), [{ line: 2, number: '99' }]);
   });
 });
 
@@ -266,21 +323,7 @@ describe("the repository's prose", () => {
 function changedMarkdownLines() {
   for (const against of ['origin/main', 'main']) {
     const diff = spawnSync('git', ['diff', '--unified=0', '--merge-base', against, '--', '*.md'], { cwd: root, encoding: 'utf8' });
-    if (diff.status !== 0) continue;
-    const changed = new Map();
-    let file = null;
-    for (const line of diff.stdout.split('\n')) {
-      const header = line.match(/^\+\+\+ b\/(.+)$/);
-      if (header) file = header[1];
-      const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-      if (!hunk || !file) continue;
-      const from = Number(hunk[1]);
-      const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
-      const lines = changed.get(file) ?? new Set();
-      for (let line = from; line < from + count; line += 1) lines.add(line);
-      changed.set(file, lines);
-    }
-    return changed;
+    if (diff.status === 0) return linesAdded(diff.stdout);
   }
   return null;
 }
