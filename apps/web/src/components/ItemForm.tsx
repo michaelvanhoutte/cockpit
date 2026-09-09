@@ -126,20 +126,23 @@ function TheForm({
     if (stored) setRemembered(stored);
   }, [contentEl]);
   /**
-   * The box's own size as of the last `mousedown` in the handle's corner, or
-   * `mouseup` anywhere - the two moments a real drag can start or end - and
-   * `known`, the best current understanding of what should be persisted,
-   * evolved from `checkpoint` at each of them.
+   * The box's own size as of the `mousedown` that began the drag currently
+   * in progress, and `known` - the best current understanding of what
+   * should be persisted, evolved from it once that drag's `mouseup` arrives.
    *
-   * **Settled at `mousedown` and `mouseup`, never at close.** There is no
-   * `resizeend` event, so this settles what a drag changed at the two points
-   * that bound one instead: a `mousedown` in the corner settles whatever the
-   * *previous* drag (if any) left the box at before a new one begins, and a
-   * `mouseup` settles the drag that has just ended, while the box still
-   * reads exactly what the user dragged it to. Settling again at close would
-   * measure the box after anything at all could have moved it with no drag
-   * in between - the window resizing, say - and mistake that for a further
-   * change; close only ever reads whatever `known` already holds.
+   * **Settled at `mouseup`, but only while `inProgress` says a drag is
+   * actually the reason for it.** There is no `resizeend` event, so a
+   * `mouseup` is what stands in for one - but a `mouseup` happens after
+   * every ordinary click too (typing into Title, pressing Cancel), and
+   * `checkpoint` alone cannot tell those apart from a real drag's end: once
+   * anything has set it, a later *unrelated* `mouseup` would still find the
+   * box measuring differently if a live viewport reclamp had moved it in
+   * between, with no drag involved at all. `inProgress`, set only by a
+   * qualifying `mousedown` and cleared the moment its own `mouseup` is
+   * handled, is what a `mouseup` checks first - an unrelated one finds it
+   * false and changes nothing. Settling at close instead of `mouseup` would
+   * have the same gap: the box measured then reflects everything since the
+   * drag ended, not only the drag itself.
    *
    * **`known` keeps only what a drag actually moved, per axis, across
    * possibly several drags in the same open.** The first time an axis is
@@ -152,18 +155,9 @@ function TheForm({
    */
   const checkpoint = useRef<Size | null>(null);
   const known = useRef<Size | null>(null);
+  const inProgress = useRef(false);
   useEffect(() => {
     if (!contentEl) return;
-    const settle = (now: Size) => {
-      const was = checkpoint.current;
-      checkpoint.current = now;
-      if (!was || (now.width === was.width && now.height === was.height)) return;
-      const base = known.current ?? original.current ?? now;
-      known.current = {
-        width: now.width === was.width ? base.width : now.width,
-        height: now.height === was.height ? base.height : now.height,
-      };
-    };
     const measure = (): Size | null => {
       const box = contentEl.getBoundingClientRect();
       return box.width > 0 && box.height > 0
@@ -186,14 +180,24 @@ function TheForm({
         e.clientY >= box.bottom - RESIZE_CORNER &&
         e.clientY <= box.bottom;
       const now = measure();
-      if (inCorner && now) settle(now);
+      if (!inCorner || !now) return;
+      checkpoint.current = now;
+      inProgress.current = true;
     };
     // Not corner-gated, unlike `mousedown`: a drag can be dragged past the
-    // box's own edge before the button lifts, and `settle` is a safe no-op
-    // wherever the box has not actually moved since the last checkpoint.
+    // box's own edge before the button lifts. Gated on `inProgress` instead,
+    // so a `mouseup` that is not this drag's own changes nothing.
     const onUp = () => {
+      if (!inProgress.current) return;
+      inProgress.current = false;
+      const was = checkpoint.current;
       const now = measure();
-      if (now) settle(now);
+      if (!was || !now || (now.width === was.width && now.height === was.height)) return;
+      const base = known.current ?? original.current ?? now;
+      known.current = {
+        width: now.width === was.width ? base.width : now.width,
+        height: now.height === was.height ? base.height : now.height,
+      };
     };
     contentEl.addEventListener('mousedown', onDown);
     window.addEventListener('mouseup', onUp);
