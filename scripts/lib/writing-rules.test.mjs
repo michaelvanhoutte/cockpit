@@ -228,6 +228,19 @@ describe('duplicateParagraphs', () => {
     assert.deepEqual(found, []);
   });
 
+  it("leaves a wrapped list item alone, tail included", () => {
+    const item = [
+      '- **Browser is its own column, not part of Frontend.** A component test and a browser',
+      '  test answer different questions, and the browser one is the only test the strategy',
+      '  makes mandatory per capability, so a zero there is the strongest signal on the page.',
+    ].join('\n');
+    const found = duplicateParagraphs([
+      { file: 'one.md', source: item },
+      { file: 'two.md', source: item },
+    ]);
+    assert.deepEqual(found, []);
+  });
+
   it('leaves two short lines saying the same thing alone', () => {
     const found = duplicateParagraphs([
       { file: 'one.md', source: 'Say it once.' },

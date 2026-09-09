@@ -133,11 +133,11 @@ const STRUCTURE = /^\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\|)/;
  * line, and each heading, list item, table row or quotation opening one of its
  * own so a wrapped bullet stays with its bullet and not with its neighbour.
  */
-function blocks(lines, skip = () => false) {
+function blocks(lines) {
   const found = [];
   let block = null;
   lines.forEach((text, index) => {
-    if (!text.trim() || skip(text)) {
+    if (!text.trim()) {
       block = null;
       return;
     }
@@ -270,9 +270,16 @@ function overlap(a, b) {
  * Headings, tables and list items carry the same words by design - a table of
  * parallel cases is what CLAUDE.md asks for - and a blockquote is a quotation,
  * which is the one place a paragraph is *supposed* to appear twice.
+ *
+ * Dropped a block at a time, on what its first line is. Dropping the structural
+ * *lines* instead leaves a wrapped bullet's continuation behind as a paragraph
+ * of its own, stripped of the lead-in that made it a bullet - so two list items
+ * that share their wrapped tails fail a check that says in the sentence above
+ * that it ignores list items.
  */
 function paragraphs(source) {
-  return blocks(prose(source), (text) => STRUCTURE.test(text))
+  return blocks(prose(source))
+    .filter(({ lines }) => !STRUCTURE.test(lines[0]))
     .map(({ line, lines }) => ({ line, words: normalise(lines.join(' ')) }))
     .filter(({ words }) => words.length >= PARAGRAPH_MIN_WORDS);
 }
