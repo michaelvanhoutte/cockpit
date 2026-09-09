@@ -208,6 +208,7 @@
         "apps/web/src/description/syntax.ts",
         "apps/web/src/description/safeHref.ts",
         "apps/web/src/itemForm.tsx",
+        "apps/web/src/itemFormSize.ts",
         "apps/web/src/router.tsx",
         "packages/shared/src/domain/item.ts",
         "packages/shared/src/commands.ts",
