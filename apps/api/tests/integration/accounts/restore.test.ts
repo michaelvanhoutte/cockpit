@@ -487,8 +487,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // 0017-panel-text-format.
-    panels: ['format'],
+    // 0021-item-texts-settled. The other of the two, 0015-first-workspace,
+    // inserts rows and adds no column.
+    items: ['texts_settled_at'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

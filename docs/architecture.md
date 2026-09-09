@@ -227,12 +227,27 @@ The dependency rule is one-directional: `domain` imports nothing from the other 
 - **Job handlers are plain functions in `jobs/` calling `domain/`; the queue is an adapter**, so nothing in domain logic imports a Cloudflare API.
 - One caveat inherited honestly: pg-boss offered enqueue-in-the-same-transaction, Queues do not. Handlers are idempotent (§4.3), so at-least-once delivery plus retries is sufficient and no exactly-once machinery is built.
 
+**Queues are wired as of "Clean up a captured note into a clear title and a fuller message" (issue 296)**, which is the first job: one queue per environment in `apps/api/wrangler.jsonc` (`queues` is not inheritable, so a shared name would let staging write to production's accounts), consumed by this same Worker's `queue` handler. Cron Triggers are still unwired and land with the first connector sync.
+
+Three decisions that job settled for every job after it:
+
+- **A message names what to work on, never the work itself.** `{kind, accountName, itemId}` and no note text: the store is warm anyway, and reading there is what finds an item that has been dismissed, or one whose texts somebody has since edited, *before* a model call is paid for.
+- **Acknowledged and retried per message, not per batch.** Throwing out of the consumer would put the whole batch back, so one rate-limited call would re-run work that had already been written.
+- **A decision is a return and a failure is a throw.** Everything the job decides — no key, no such item, nothing usable back — ends quietly; only a call that failed is left to the queue's retries. A message the running version cannot parse is dropped rather than redelivered for ever.
+
 ### 6.4 AI layer
 
-- **The Claude API behind a project-owned interface** (`ai/`): summarize item, extract next action, suggest associations, translate plain-English panel rules to structured queries. It takes and returns domain objects, so everything around it stays testable at L1 with the AI faked.
-- **Prompts are versioned files in the repository**, reviewed like code.
-- The provider is a third party like any other: recorded fixtures below L3, scheduled contract tests for drift.
-- Enrichment runs **on ingest, in jobs**, and results are cached on the Item, so reads never wait on a model call.
+- **The Claude API behind a project-owned interface** (`ai/`): cleaning up a captured note today; suggesting associations, offering alternative readings and translating plain-English panel rules to structured queries as each lands. It takes and returns domain values, so everything around it stays testable with the model faked. One method per thing that asks, added when that thing lands — the interface carried two placeholders nothing called for a month, and they were removed rather than implemented.
+- **Prompts are versioned files in the repository**, reviewed like code, and a change to *what is asked for* gets the next version rather than an edit: the contract tests are pinned to a version, and two prompts cannot otherwise be told apart by their measurements.
+- The provider is a third party like any other: faked at the network boundary below the contract tier, scheduled contract tests for drift (`.github/workflows/contract.yml`).
+- Enrichment runs **on ingest, in jobs**, and results are written onto the Item, so reads never wait on a model call.
+- **The credential is the application's own, not anybody's**, so it gets no settings screen: `ANTHROPIC_API_KEY` per environment, with `ANTHROPIC_WORKSPACE_ID` beside it where the key is scoped to an organisation rather than a workspace (docs/deployment.md, "Secrets and access"). `/health` reports whether the key is *present* and never what it is, and deliberately does not fold it into the verdict — an environment with no key works, and what it cannot otherwise do is say that it will never enrich anything.
+
+**Three things issue 296 settled by measurement rather than by preference**, recorded because the next prompt will ask the same questions:
+
+- **The model and the effort.** `claude-opus-5` at `effort: "low"`: default effort took 6.0-11.5s against low's 3.8-5.7s, and low routed *better* rather than worse. `claude-haiku-4-5` was measured too — same warm latency, a fifth of the price — and twice out of four handed the captured note straight back as the title, unshortened, which is the one thing the feature exists to stop.
+- **A structural answer beats a firmer instruction.** "Answer in the language of the note. Do not translate." turned roughly one English note in three into Dutch, because the prompt's examples are in both languages and the model matched the corpus rather than the note. The fix is to have the model *name* the note's language as the first field of a constrained answer, before it writes anything.
+- **What comes back is validated and discarded, never repaired.** An answer is refused against the same schemas the Item's own form enforces, and the Item then keeps the mechanical title capture wrote — text known to contain only what was typed. Trimming a model's answer to fit would make the rule that outranks the rest, *add nothing the note does not contain*, unenforceable.
 
 ### 6.5 Multi-channel capture and the task-creator merge
 
@@ -267,7 +282,17 @@ Two standing rules follow: **never block paint on auth** (paint the cached snaps
 - **App login per "App login: hand-rolled Google OIDC + own sessions" (§8.1)**; no passwords stored, ever. Signing in is a Google account, checked against the register, which is the allowlist; the session, cookie and request gate behind it are the application's own.
 - **Source tokens encrypted at rest** (application-level encryption for connected-account OAuth tokens).
 - **Workspace scoping enforced server-side** on every query via `tenant_id` plus workspace filters; the UI's scoping is presentation, not protection. The account those filters carry is resolved from the session on every request, never from anything the client sends.
-- **Message content sent to the AI provider is an explicit, documented flow** (which fields, which provider, retention posture) — the single most sensitive thing this product does.
+- **Message content sent to the AI provider is an explicit, documented flow** (which fields, which provider, retention posture) — the single most sensitive thing this product does. **The flow that exists, as of "Clean up a captured note into a clear title and a fuller message" (issue 296):**
+
+  | | |
+  |---|---|
+  | What leaves | one Item's `captured_message`, on its own, and the versioned prompt in `apps/api/src/ai/prompts/`. Nothing else of the account travels with it: the request carries no other Item, no Workspace, no Panel, no name and no address, and the job reads the note by id rather than assembling context. |
+  | Where to | the Anthropic Messages API, over HTTPS, authenticated by this environment's own key. No other provider, and no gateway in between. |
+  | When | once per note captured, in a queue job, from the release this shipped onwards. Nothing sweeps what already exists. |
+  | Retention | whatever Anthropic's own commercial terms say for API traffic on this account, which is the thing to read before a second field is ever added to that request — it is not something this repository can assert. Zero-retention arrangements are the provider's to grant, so if the answer ever has to be "nothing is kept", that is a conversation with them rather than a change here. |
+  | What comes back | a title and a description, refused unless they fit the same shapes the Item's own form enforces, and written onto that one Item. |
+
+  **What would make this flow bigger is a decision, not an implementation detail.** Sending the surrounding notes for context, or an account's filing history to a router, changes what leaves this system — so it belongs in an issue that says so, and in this table.
 - **Secrets** live in the platform's secret store; the public repository contains `.env.example` files only.
 - **The operator's routes are behind a secret, not behind a role.** `/v1/operator/` hands an operator every account's data for a backup ("Take a backup of an environment, or of one user", issue 208), and it is gated by `BACKUP_TOKEN` rather than by the `admin` role every user already carries — because a role is carried by a session and these have no caller who can hold one: a command-line tool has no browser to send to Google and back. An environment with no secret set refuses them outright rather than opening them. **The role check arrived with the first admin-only page** ("See who can sign in, on a page only an admin can open", issue 230) and is `auth/admin.ts`; the two gates stand in front of different prefixes and neither is a spare for the other. *(The original argument here was that signing in proved nothing, being a list of names to pick from; "Sign in with Google, and retire the list of names" (issue 196) retired that argument and left the conclusion standing on the reason above.)*
 - **The two prefixes say which gate they are behind**, since "Give the operator's routes the operator's name, and free /v1/admin/ for the admin section" (issue 229): `/v1/operator/` is the secret's, `/v1/admin/` is the sign-in's plus the `admin` role. The operator's routes held `/v1/admin/` first, which named neither their caller nor their gate and stood on the address the admin pages need. The old subtrees answer `410` naming the new one rather than being refused, for the reason `apps/api/src/auth/operator.ts` records.
@@ -295,7 +320,7 @@ One thing ships as data with no behaviour, deliberately: **nothing about sharing
 
 ## 9. Hosting, CI/CD, and observability
 
-**Decision: Cloudflare, all of it.** The Worker plus static assets, with D1 (§4.1), Queues and Cron Triggers. The platform is already proven in this household (www.conselit.be and the task-creator worker), the workload shape fits (request-driven API, scheduled sync, cheap SSE streams, no long-CPU work), the tiers price a single-user app at essentially zero, and there is one vendor and zero servers to patch. Stated honestly: local dev and CI run on `wrangler`/miniflare, which executes the real runtime and real SQLite but *emulates* Queues and cron, and platform limits (CPU time, subrequest counts) are a new class of constraint that L3 tests and nightly runs must respect.
+**Decision: Cloudflare, all of it.** The Worker plus static assets, with D1 ("Cloudflare D1 (SQLite), via Drizzle"), Queues and Cron Triggers. The platform is already proven in this household (www.conselit.be and the task-creator worker), the workload shape fits (request-driven API, scheduled sync, cheap SSE streams, no long-CPU work), the tiers price a single-user app at essentially zero, and there is one vendor and zero servers to patch. Stated honestly: local dev and CI run on `wrangler`/miniflare, which executes the real runtime and real SQLite and *emulates* Queues and cron — the emulation is good enough that the backend tests drive a real capture through a real queue to a real consumer (`apps/api/tests/integration/http/note-cleanup.test.ts`), which is more than "emulated" suggested — and platform limits (CPU time, subrequest counts) are a new class of constraint that L3 tests and nightly runs must respect.
 
 Note the reach: this re-derived the backend framework (Fastify → Hono, since Fastify assumes a Node server process), the job infrastructure (pg-boss → Queues + Cron, §6.3) and the database itself (Postgres → D1, §4.1). A hosting choice is never just a hosting choice.
 

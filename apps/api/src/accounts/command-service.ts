@@ -76,6 +76,7 @@ import {
 } from '../domain/item-types.js';
 import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import {
+  applyProposedTexts,
   applySetDescription,
   applySetDismissed,
   applySetDone,
@@ -1484,6 +1485,47 @@ export function runCommand<N extends CommandName>(
         }
         tx.insert(commands).values(commandRow).run();
       });
+      break;
+    }
+    case 'propose_item_texts': {
+      const cmd = payload as CommandPayload<'propose_item_texts'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      // The same 404 every other command that names an item answers with, and
+      // it is the ordinary case here rather than a caller's mistake: the job
+      // that sends this carries an item id from minutes ago, and the item may
+      // have been dismissed and erased, or may belong to another account
+      // entirely - in which case this read simply matches no row, because every
+      // query filters on the account ("Clean up a captured note into a clear
+      // title and a fuller message", issue 296).
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      // An item belonging to no workspace is drawn in every workspace's Inbox,
+      // so the two texts a row shows changing is a change every open tab has to
+      // hear about, not only the one the envelope names.
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+
+      const updated = applyProposedTexts(existing, cmd);
+      if (updated === null) {
+        // The texts are somebody's own now, so there is nothing to write. The
+        // command is still logged, which is what makes a redelivery of this
+        // same job a replay rather than a second decision.
+        //
+        // **The read that refused it cannot go stale before the write.**
+        // `runCommand` is synchronous end to end and a Durable Object runs one
+        // thing at a time (see this function's own note about `db.transaction`),
+        // so the read above and the write below are one indivisible step: an
+        // edit made while the model was thinking is already here, and one made
+        // after this waits until it is done.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        db.transaction((tx) => {
+          tx.update(items)
+            .set(updated)
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
+      }
       break;
     }
     default: {

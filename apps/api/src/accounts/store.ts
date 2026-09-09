@@ -3,6 +3,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
+  Item,
   ItemType,
   ServerEvent,
   Workspace,
@@ -52,6 +53,7 @@ import {
   runCommand,
 } from './command-service.js';
 import {
+  getItem,
   getWorkspace,
   listAssociationsForWorkspace,
   listItemTypes,
@@ -74,8 +76,8 @@ import { bringUpToDate, type Change } from './up-to-date.js';
  * [account-storage-options.md](../../../../docs/account-storage-options.md)).
  *
  * **Nothing outside `src/accounts/` talks to an account's data.** The HTTP
- * layer holds a handle from `openAccount` and calls the four operations below;
- * it never reaches a table. That is what made moving the data here mechanical,
+ * layer holds a handle from `openAccount` and calls the operations below; it
+ * never reaches a table. That is what made moving the data here mechanical,
  * and it is what keeps the next move cheap.
  *
  * Every call brings the account up to date first. It costs nothing after the
@@ -120,6 +122,17 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         screenSizes: listScreenSizes(db, accountName),
       };
     });
+  }
+
+  /**
+   * One item by its id, or null where this account holds no such item.
+   *
+   * The one read that names an item without a workspace beside it, which is
+   * safe for the reason every method here takes the account's name: the query
+   * filters on the account, so an id belonging to somebody else matches no row.
+   */
+  item(accountName: string, itemId: string): Answer<Item | null> {
+    return this.#answer(accountName, (db) => getItem(db, accountName, itemId));
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

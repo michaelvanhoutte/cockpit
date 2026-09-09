@@ -133,12 +133,14 @@ export interface MenuEntry {
 /**
  * The menu a row carries, holding what can be done to that row ("Ask before
  * deleting in a dialog, from the row's own menu", issue 116) - a Type in the
- * window they are managed in, a Panel on a dashboard, an Item in a list.
+ * window they are managed in, an Item in a list.
  *
  * One component rather than the same dozen lines in each: what they offer
- * differs, how a row offers it does not. A workspace and a dashboard are tabs
- * rather than rows and carry `TabMenu` below, which is the same menu opened
- * by the tab itself.
+ * differs, how a row offers it does not. A workspace, a dashboard and a panel
+ * open their own menu instead and carry `SurfaceMenu` below - a workspace and
+ * a dashboard because they are tabs rather than rows, a panel because its
+ * header is the trigger already, under the pointer, and a kebab beside it
+ * would be a second control doing what the header already can.
  *
  * The entries are named for the action alone - "Rename", "Delete" - because the
  * control that opened them is named for the row, so a reader who cannot see the
@@ -212,27 +214,35 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
 }
 
 /**
- * The menu a tab carries, holding what can be done to the workspace or the
- * dashboard it names ("Change a workspace or a dashboard on the tab it is",
- * issue 267).
+ * The menu a tab or a panel carries, holding what can be done to the
+ * workspace, dashboard or panel it names ("Change a workspace or a dashboard
+ * on the tab it is", issue 267).
  *
- * **The tab is the trigger, so there is no control to add.** The strips are the
- * thing you use all day and a three-dot button on every tab would be permanent
- * chrome for something done a few times a month - and it would have to fit
- * beside the name in a strip that already scrolls. So the tab opens its own
- * menu three ways, which is one gesture per input rather than three ways of
- * being thorough:
+ * **The tab or the panel is the trigger, so there is no control to add.** A
+ * strip of tabs is the thing you use all day, and a three-dot button on every
+ * one would be permanent chrome for something done a few times a month - and
+ * it would have to fit beside the name in a strip that already scrolls. A
+ * panel's header is under the pointer for a different reason: it is already
+ * the handle you drag to move the panel, so right-click is a second word for
+ * a target the header already is, rather than a second control competing
+ * with the one that used to sit beside it. Either way, the surface opens its
+ * own menu, the same ways in:
  *
- * - **a right-click**, anywhere on the tab, which is what a pointer has;
- * - **a press on the tab you are already on**, which is what a finger has: that
- *   press has no other job, since you are looking at what it would switch to,
- *   and it is the only way in that needs no gesture at all (`opensOnPress`);
- * - **the keyboard's own menu key**, which the browser turns into the same
- *   event a right-click makes, so the keyboard costs nothing to support.
+ * - **a right-click**, anywhere on the tab or the header, which is what a
+ *   pointer has;
+ * - **a press on the tab you are already on**, which is what a finger has:
+ *   that press has no other job, since you are looking at what it would
+ *   switch to, and it is the only way in that needs no gesture at all
+ *   (`opensOnPress`) - a panel has no "already open" state to repurpose this
+ *   way, so it never passes one;
+ * - **the keyboard's own menu key**, on whichever of the two is focused, which
+ *   the browser turns into the same event a right-click makes, so the
+ *   keyboard costs nothing to support.
  *
  * (A long press may open it as well, which is Radix's own doing on a
- * touchscreen. Nothing here relies on it and no walk drives it, so it is not
- * one of the ways in above.)
+ * touchscreen. A tab relies on it for nothing, since a press already opens
+ * it; a panel has no such fallback, so on a touchscreen this is its only way
+ * in, driven by `choosePanelAction`'s `holdPanelHeader`.)
  *
  * **The menu is the row menu's, in a context menu's clothes.** Same entries,
  * same look, same rules about an entry that cannot be chosen: only the way it
@@ -240,23 +250,31 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
  * rather than a flag on `RowMenu` - Radix keeps context menus and dropdowns in
  * separate primitives because what opens them is different.
  */
-export function TabMenu({
+export function SurfaceMenu({
   label,
   entries,
   children,
+  disabled = false,
 }: {
-  /** What the menu is called to somebody who cannot see the tab it belongs to. */
+  /** What the menu is called to somebody who cannot see the tab or panel it belongs to. */
   label: string;
   entries: MenuEntry[];
-  /** The tab itself, which is the trigger. */
+  /** The tab or the panel itself, which is the trigger. */
   children: React.ReactNode;
+  /**
+   * Shut while something else on the trigger already owns right-click and the
+   * keyboard menu key - a panel being renamed edits its name in place, on the
+   * same header this opens from, so the menu has to step aside rather than
+   * fight the rename box for them.
+   */
+  disabled?: boolean;
 }) {
   const chose = useRef(false);
   const tab = useRef<HTMLElement>(null);
 
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger ref={tab} asChild>
+      <ContextMenu.Trigger ref={tab} asChild disabled={disabled}>
         {children}
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
@@ -305,8 +323,11 @@ export function TabMenu({
 }
 
 /**
- * What a press on the tab you are already on does: open that tab's menu instead
- * of going where you already are.
+ * What a press on the tab you are already on does: open that tab's
+ * `SurfaceMenu` instead of going where you already are.
+ *
+ * Tab-only: a panel has no "already open" state to repurpose this way, so it
+ * never passes one (see `SurfaceMenu`'s own doc comment).
  *
  * It opens the menu by making the event the trigger is listening for, rather
  * than by holding the menu open in state, because Radix's context menu has no
@@ -335,5 +356,65 @@ export function opensOnPress(here: boolean) {
         button: 2,
       }),
     );
+  };
+}
+
+/**
+ * Fakes a context menu centred on `target`, the same trick `opensOnPress`
+ * plays from a pointer's own coordinates - shared because `opensOnKey` and
+ * `opensOnActivate` below both need it and neither has a pointer to read
+ * coordinates off.
+ */
+function opensCentredOn(target: HTMLElement) {
+  const box = target.getBoundingClientRect();
+  target.dispatchEvent(
+    new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: box.x + box.width / 2,
+      clientY: box.y + box.height / 2,
+      button: 2,
+    }),
+  );
+}
+
+/**
+ * What Enter or the space bar does on a panel's header: open its
+ * `SurfaceMenu` the way a right-click would (found in review).
+ *
+ * Panel-only, and the reverse of `opensOnPress`'s carve-out: a tab is a
+ * `Link`, which the browser already opens or activates on Enter, so a
+ * second handler there would fight it for the key rather than fill a gap. A
+ * panel's header activates nothing, and the browser's own menu key - the
+ * fallback everywhere else in `SurfaceMenu` - does not exist on macOS, so
+ * without this a keyboard-only user on that platform has no way to reach a
+ * panel's menu at all, and therefore no way to Rename, Move or Delete one.
+ */
+export function opensOnKey(disabled: boolean) {
+  return (event: React.KeyboardEvent<HTMLElement>) => {
+    if (disabled) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    opensCentredOn(event.currentTarget);
+  };
+}
+
+/**
+ * What a screen reader's own activation gesture does on a panel's header -
+ * VoiceOver's VO+Space, or the double-tap it stands in for on iOS (found in
+ * review, on `opensOnKey` above).
+ *
+ * `role="group"` names the header without hiding what is inside it
+ * (`SurfaceMenu`'s own doc comment), but it is not a widget role, so an
+ * activation gesture is not delivered as the `keydown` `opensOnKey` reads -
+ * it lands as a `click` carrying no pointer of its own, which is the same
+ * `detail` 0 `opensOnPress` already reads to tell a keyboard's Enter on a
+ * tab from a real press. A real mouse click carries at least 1: the
+ * header's own drag owns that one, and opens nothing on its own.
+ */
+export function opensOnActivate(disabled: boolean) {
+  return (event: React.MouseEvent<HTMLElement>) => {
+    if (disabled || event.detail !== 0) return;
+    opensCentredOn(event.currentTarget);
   };
 }

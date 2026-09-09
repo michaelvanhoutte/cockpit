@@ -71,6 +71,7 @@ function anItem(title: string, completedAt: string | null = null): Item {
     title,
     capturedMessage: null,
     description: null,
+    textsSettledAt: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,

@@ -12,7 +12,7 @@ import {
   type ChangeUser,
   type SetAccess,
   type UserChanged,
-  type CommandName,
+  type ClientCommandName,
   type CommandPayload,
   type CommandResult,
   type ItemTypeList,
@@ -273,7 +273,13 @@ export class CommandRefused extends Error {
   }
 }
 
-export async function sendCommand<N extends CommandName>(
+/**
+ * `ClientCommandName` rather than `CommandName`: the registry in
+ * `packages/shared` also holds the commands Cockpit sends itself, which have no
+ * endpoint and so no sender above ("Clean up a captured note into a clear title
+ * and a fuller message", issue 296).
+ */
+export async function sendCommand<N extends ClientCommandName>(
   name: N,
   payload: CommandPayload<N>,
 ): Promise<CommandResult> {

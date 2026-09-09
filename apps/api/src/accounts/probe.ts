@@ -37,12 +37,29 @@ export interface Health {
   register: boolean;
   /** A store opened, applied every outstanding change, and answered a query. */
   store: boolean;
+  /**
+   * Whether this environment has the key it needs to enrich anything - never
+   * what the key is ("Clean up a captured note into a clear title and a fuller
+   * message", issue 296).
+   *
+   * **Not part of the verdict**, unlike the two above: an environment with no
+   * key works, and every capture in it succeeds with the Item keeping the
+   * mechanical title. What it cannot do without this field is say so, which is
+   * the failure this exists to stop. Read nothing into it about the key being
+   * *valid*: proving that means spending a model call on every probe, and
+   * `/health` answers anybody at all.
+   */
+  ai: boolean;
   /** Why not, when something said no. */
   failure?: string;
 }
 
 export async function checkHealth(env: Env): Promise<Health> {
   const register = await checkRegister(env.DB);
+  // Configuration rather than a probe, so it is answered whichever way the two
+  // below go: an environment that cannot reach its data still has to be able
+  // to say whether somebody remembered to put the key in.
+  const ai = Boolean(env.ANTHROPIC_API_KEY);
 
   // Each field says only what was actually established, which is the point of
   // the whole change. `register` is false for both of its failures - the
@@ -51,9 +68,9 @@ export async function checkHealth(env: Env): Promise<Health> {
   // those is a misconfiguration that has to be loud rather than shaded. `store`
   // is false because nothing looked, not because a store said no. Which of the
   // three it was is in `failure`, and so in the logs.
-  if (register.failure) return { register: false, store: false, failure: register.failure };
+  if (register.failure) return { register: false, store: false, ai, failure: register.failure };
 
-  return { register: true, ...(await checkStore(env)) };
+  return { register: true, ai, ...(await checkStore(env)) };
 }
 
 /**

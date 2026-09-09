@@ -2,6 +2,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
+  Item,
   ItemType,
   ServerEvent,
   Workspace,
@@ -75,6 +76,13 @@ export class NotFoundInAccountError extends Error {
 export interface Account {
   workspaces(): Promise<Workspace[]>;
   snapshot(workspaceId: string): Promise<AccountSnapshot>;
+  /**
+   * One Item by its id, or null where this account holds no such Item - which
+   * an id belonging to another account also is, every query filtering on the
+   * account. Read by the enrichment job and by nothing else (issue 296): a
+   * browser holds the whole workspace and has no reason to ask for one row.
+   */
+  item(itemId: string): Promise<Item | null>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
@@ -110,6 +118,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     workspaces: async () => unwrap(await store.workspaces(accountName)),
     itemTypes: async () => unwrap(await store.itemTypes(accountName)),
     snapshot: async (workspaceId) => unwrap(await store.snapshot(accountName, workspaceId)),
+    item: async (itemId) => unwrap(await store.item(accountName, itemId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };
