@@ -414,6 +414,23 @@ test.describe('Item editing', () => {
       const restored = (await form(page).boundingBox())!;
       expect(Math.round(restored.width)).toBe(Math.round(dragged.width));
       expect(Math.round(restored.height)).toBe(Math.round(dragged.height));
+
+      // The window shrinking while the dialog is still open reclamps it live
+      // - the same formula that clamps a size too big for the screen it
+      // opens on - and closing untouched must not mistake that reclamp for a
+      // drag: the size a screen only ever clamps is not one it gets to keep.
+      await page.setViewportSize({ width: 500, height: 500 });
+      const reclamped = (await form(page).boundingBox())!;
+      expect(reclamped.width, 'the still-open dialog reclamped to the smaller window').toBeLessThan(
+        dragged.width,
+      );
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+
+      await page.setViewportSize(full);
+      await page.goto(secondUrl);
+      const afterReclamp = (await form(page).boundingBox())!;
+      expect(Math.round(afterReclamp.width)).toBe(Math.round(dragged.width));
+      expect(Math.round(afterReclamp.height)).toBe(Math.round(dragged.height));
     });
   });
 });

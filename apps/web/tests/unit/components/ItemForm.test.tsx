@@ -374,29 +374,34 @@ describe('Item editing', () => {
         .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
         .mockImplementation(() => rect as DOMRect);
 
-      const { rerender } = render(
-        <QueryClientProvider client={client}>
-          <ItemForm />
-        </QueryClientProvider>,
-      );
-      await screen.findByLabelText('Title');
-      await theEditorHasArrived();
+      // Restored even if an assertion below throws - left in place, the stub
+      // would go on returning a fake rect for every element in every test
+      // that runs after this one in the file.
+      try {
+        const { rerender } = render(
+          <QueryClientProvider client={client}>
+            <ItemForm />
+          </QueryClientProvider>,
+        );
+        await screen.findByLabelText('Title');
+        await theEditorHasArrived();
 
-      rect = { width: 500, height: 400 };
-      held.openItemId = 'item-2';
-      rerender(
-        <QueryClientProvider client={client}>
-          <ItemForm />
-        </QueryClientProvider>,
-      );
+        rect = { width: 500, height: 400 };
+        held.openItemId = 'item-2';
+        rerender(
+          <QueryClientProvider client={client}>
+            <ItemForm />
+          </QueryClientProvider>,
+        );
 
-      await waitFor(() => expect(localStorage.getItem('cockpit.item-form-size')).not.toBeNull());
-      expect(JSON.parse(localStorage.getItem('cockpit.item-form-size')!)).toEqual({
-        width: 500,
-        height: 400,
-      });
-
-      measuring.mockRestore();
+        await waitFor(() => expect(localStorage.getItem('cockpit.item-form-size')).not.toBeNull());
+        expect(JSON.parse(localStorage.getItem('cockpit.item-form-size')!)).toEqual({
+          width: 500,
+          height: 400,
+        });
+      } finally {
+        measuring.mockRestore();
+      }
     });
   });
 

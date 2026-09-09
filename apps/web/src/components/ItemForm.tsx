@@ -80,10 +80,6 @@ function TheForm({
   const send = useSendCommand();
   const item = data?.items.find((candidate) => candidate.id === itemId);
 
-  // Read once, keyed fresh on every item the form opens for
-  // (`ItemForm`, `key={openItemId}`) - so a size dragged to is what the next
-  // open of any item starts from, not what this one happened to open with.
-  const [remembered] = useState(() => rememberedItemFormSize(browserStore()));
   // A callback ref rather than an object one: Radix's `Content` mounts behind
   // its own exit-animation machinery (`Presence`), so the node an object ref
   // would carry is not necessarily there on the tick after this component's
@@ -91,13 +87,71 @@ function TheForm({
   // below. A callback ref has no such gap; React calls it exactly when the
   // node is attached, whenever that turns out to be.
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
+  /**
+   * What the box opens at - `null` until read, then either what was
+   * remembered or, if there was nothing to remember, confirmed as nothing by
+   * staying `null`.
+   *
+   * **Read here, in a layout effect, rather than at render with a lazy
+   * `useState` initializer.** A straight swap from one item's form to
+   * another's (`ItemForm`, `key={openItemId}`) unmounts the outgoing
+   * `TheForm` and mounts this one within a single React update - and
+   * `rememberCurrentSize`'s write (below) runs from that outgoing instance's
+   * own layout-effect cleanup, which fires during the commit React makes for
+   * that same update, strictly after every component's *render* has already
+   * happened. A lazy initializer runs at render, before any of that commit
+   * has taken place, so it would read what was remembered *before* the item
+   * being swapped away from had a chance to write what it was just dragged
+   * to. A layout effect runs during the commit itself, after the outgoing
+   * instance's cleanup - late enough to see it.
+   */
+  const [remembered, setRemembered] = useState<Size | null>(null);
+  const appliedRemembered = useRef(false);
   const openedAt = useRef<Size | null>(null);
   useLayoutEffect(() => {
-    if (!contentEl || openedAt.current) return;
+    if (!contentEl) return;
+    if (!appliedRemembered.current) {
+      appliedRemembered.current = true;
+      const stored = rememberedItemFormSize(browserStore());
+      // Applying it is a re-render - measuring below has to wait for that
+      // render to land, which happens by this same effect running again
+      // once `remembered` itself has changed.
+      if (stored) {
+        setRemembered(stored);
+        return;
+      }
+    }
+    if (openedAt.current) return;
     const box = contentEl.getBoundingClientRect();
     if (box.width > 0 && box.height > 0) {
       openedAt.current = { width: Math.round(box.width), height: Math.round(box.height) };
     }
+  }, [contentEl, remembered]);
+  /**
+   * Keeps `openedAt` current with what the screen itself allows, so a window
+   * resized or a phone rotated while the dialog stays open is not read as a
+   * drag when it closes.
+   *
+   * `max-w-`/`max-h-` (below) track the viewport for as long as the dialog
+   * is open, not only at the moment it opened - `--item-form-w`/`-h`
+   * (styles.css) are `100vw`/`100vh`-derived, so the box the browser is
+   * actually showing can change size with no drag at all. `resize` fires for
+   * exactly that change and never for a drag on the native handle, which is
+   * what makes it the right signal to re-baseline on: rebaselining here
+   * keeps the close-time comparison asking only about what happened *since*
+   * the last honest measurement of the screen's own doing.
+   */
+  useEffect(() => {
+    if (!contentEl) return;
+    const rebaseline = () => {
+      if (!openedAt.current) return;
+      const box = contentEl.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) {
+        openedAt.current = { width: Math.round(box.width), height: Math.round(box.height) };
+      }
+    };
+    window.addEventListener('resize', rebaseline);
+    return () => window.removeEventListener('resize', rebaseline);
   }, [contentEl]);
   /**
    * Remembers the size the box is measured at on the way out - if it differs
