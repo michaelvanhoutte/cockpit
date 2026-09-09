@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -6,6 +6,8 @@ import { TITLE_LENGTH, itemLabel, uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
 import { useItemForm } from '../itemForm';
+import { browserStore } from '../lastVisited';
+import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 
 /** What the two boxes hold, before anything is sent. */
 interface Draft {
@@ -77,6 +79,66 @@ function TheForm({
   const { data, isLoading } = useQuery(snapshotQuery(workspaceId));
   const send = useSendCommand();
   const item = data?.items.find((candidate) => candidate.id === itemId);
+
+  // Read once, keyed fresh on every item the form opens for
+  // (`ItemForm`, `key={openItemId}`) - so a size dragged to is what the next
+  // open of any item starts from, not what this one happened to open with.
+  const [remembered] = useState(() => rememberedItemFormSize(browserStore()));
+  // A callback ref rather than an object one: Radix's `Content` mounts behind
+  // its own exit-animation machinery (`Presence`), so the node an object ref
+  // would carry is not necessarily there on the tick after this component's
+  // own mount - which is exactly when the size it opened at needs measuring,
+  // below. A callback ref has no such gap; React calls it exactly when the
+  // node is attached, whenever that turns out to be.
+  const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
+  const openedAt = useRef<Size | null>(null);
+  useLayoutEffect(() => {
+    if (!contentEl || openedAt.current) return;
+    const box = contentEl.getBoundingClientRect();
+    if (box.width > 0 && box.height > 0) {
+      openedAt.current = { width: Math.round(box.width), height: Math.round(box.height) };
+    }
+  }, [contentEl]);
+  /**
+   * Remembers the size the box is measured at on the way out - if it differs
+   * from the size it was measured at on the way in.
+   *
+   * **A cleanup, not a call from Cancel or Save.** There is no `resizeend`
+   * event, and a native resize does not reliably deliver the `mouseup` it
+   * ends on either - so rather than guess which tick of a drag was its last,
+   * this reads the box once, at the one moment its size is definitely
+   * settled: gone. A cleanup runs there regardless of *why* - Cancel, Save,
+   * Escape, a press outside, or a straight swap from one item's form to
+   * another's (`ItemForm`, `key={openItemId}`) skips both of those and
+   * unmounts this component directly, which is the one path a call hung off
+   * Cancel or Save would have missed a drag on.
+   *
+   * **Compared against how it opened, not written unconditionally.** The
+   * `max-w-`/`max-h-` that clamp a remembered size to the screen it is
+   * opening on (below) stay live for as long as the dialog is open, so a
+   * dialog opened on a small screen and closed untouched measures smaller on
+   * the way out than what was actually remembered - writing that back would
+   * be the screen overwriting the preference it is only ever supposed to
+   * clamp. Comparing against the size this same open started at tells a
+   * clamp from an actual drag: nothing else moves the box between the two.
+   *
+   * **A layout effect, not a plain one.** A plain effect's cleanup for a
+   * component being unmounted runs after the DOM has already been mutated -
+   * the box is detached by then, and a detached element measures as
+   * `0`×`0` - so every close read nothing and remembered nothing. A layout
+   * effect's cleanup runs synchronously, before that removal, while the box
+   * is still exactly what was last on screen.
+   */
+  useLayoutEffect(() => {
+    return () => {
+      const box = contentEl?.getBoundingClientRect();
+      if (!box || box.width <= 0 || box.height <= 0) return;
+      const now: Size = { width: Math.round(box.width), height: Math.round(box.height) };
+      const was = openedAt.current;
+      if (was && was.width === now.width && was.height === now.height) return;
+      rememberItemFormSize(browserStore(), now);
+    };
+  }, [contentEl]);
 
   /** What the boxes hold, and what they were filled from. */
   const [editing, setEditing] = useState<{ was: Draft; now: Draft } | null>(null);
@@ -203,19 +265,44 @@ function TheForm({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
         <Dialog.Content
+          ref={setContentEl}
           aria-describedby={undefined}
-          // Centred, and the tallest dialog in the app, so on a phone it fills
-          // the screen: the height it may grow to is measured inside the
-          // screen's own edges (styles.css, `--edge-top`), or the title runs
-          // under the status bar and Save under the home indicator.
+          // An explicit size rather than one that grows and shrinks with what
+          // is inside it - the editor's async-loading placeholder is a fixed
+          // 12 rows, usually taller than the real editor once it swaps in, so
+          // sizing to content shrank the box the instant it arrived ("Fix the
+          // item form's resize jank, and let it be resized", issue 295). A
+          // remembered size starts the box here as `width`/`height`; with
+          // nothing remembered it opens at `--item-form-w`/`-h` (styles.css),
+          // the same formula that bounds it as `max-w-`/`max-h-` below - still
+          // the tallest dialog in the app, so on a phone it fills the screen.
           //
-          // **Twice the larger inset, not the two added together.** A box
-          // centred in the window keeps half of whatever it gives up at each
-          // end, so subtracting `top + bottom` clears the *average* of the two.
-          // That is enough only while they are within 2rem of each other, and a
-          // cutout with no home indicator under it - 48px and nothing, which is
-          // most Android phones - leaves the title 8px under the status bar.
-          className="fixed left-1/2 top-1/2 flex max-h-[min(44rem,calc(100vh_-_2rem_-_2_*_max(var(--edge-top),var(--edge-bottom))))] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          // **`max-`/`min-` stay live for the life of the dialog, not just its
+          // opening.** A remembered `width`/`height` only sets where the box
+          // starts; the class list goes on tracking the screen the whole time
+          // it is open, so the same formula that clamps an oversized
+          // remembered size down to fit also reclamps it live if the window
+          // or the device's own orientation changes under it - the reason a
+          // size clamped down on a small screen is the full size again on a
+          // big one, without ever rewriting what was remembered. The floor is
+          // wrapped in the same `min(...)` as the ceiling for the reason
+          // `--item-form-h`'s own comment gives: on a screen too short for
+          // even `18rem`, an unclamped floor would win over the safe-area
+          // formula and put the title back under the status bar.
+          //
+          // **Resizable at a desk and not on a phone**, the `sm:` breakpoint
+          // the Capture box's own textarea already gates its resize handle on
+          // (`pages/CapturePage.tsx`): there is no room to grow into and the
+          // handle is one more thing under a thumb. Both axes rather than
+          // that box's vertical-only, since a dialog can be usefully too wide
+          // as well as too tall. `overflow` has to be something other than
+          // `visible` for the handle to appear at all; the title and
+          // description already scroll inside their own box below, so
+          // nothing is lost by it.
+          className="fixed left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-h)] min-h-[min(18rem,var(--item-form-h))] w-[var(--item-form-w)] max-w-[var(--item-form-w)] min-w-[min(20rem,var(--item-form-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize"
+          style={
+            remembered ? { width: `${remembered.width}px`, height: `${remembered.height}px` } : undefined
+          }
         >
           {/* Said rather than shown. A dialog has to name itself, and this one
               is opened by a row whose label is now the title box directly under

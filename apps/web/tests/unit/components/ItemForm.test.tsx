@@ -356,6 +356,48 @@ describe('Item editing', () => {
       await theEditorHasArrived();
       expect(descriptionBox()).toHaveValue('Its own');
     });
+
+    // The same swap, but for the size rather than the boxes: nothing here
+    // ever calls Cancel or Save on the first item, which is exactly the path
+    // a fix hung off either of those would miss a drag on.
+    it('remembers a size dragged on the item it is swapped away from, not only on Cancel or Save', async () => {
+      localStorage.removeItem('cockpit.item-form-size');
+      held.items = [anItem(), anItem({ id: 'item-2', title: 'Part 12', description: 'Its own' })];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+      // Stands in for the browser's own layout: `openedAt` reads this once,
+      // early, and the swap's cleanup reads it again on the way out - a
+      // "drag" here is only ever that second reading differing from the
+      // first, the same as it would be from a real one.
+      let rect = { width: 900, height: 700 };
+      const measuring = vi
+        .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+        .mockImplementation(() => rect as DOMRect);
+
+      const { rerender } = render(
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>,
+      );
+      await screen.findByLabelText('Title');
+      await theEditorHasArrived();
+
+      rect = { width: 500, height: 400 };
+      held.openItemId = 'item-2';
+      rerender(
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => expect(localStorage.getItem('cockpit.item-form-size')).not.toBeNull());
+      expect(JSON.parse(localStorage.getItem('cockpit.item-form-size')!)).toEqual({
+        width: 500,
+        height: 400,
+      });
+
+      measuring.mockRestore();
+    });
   });
 
   describe('closing the form without saving changes nothing', () => {
@@ -438,6 +480,67 @@ describe('Item editing', () => {
 
       expect(await screen.findByText('That item is not here any more.')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    });
+  });
+
+  /**
+   * The dialog used to size itself to what was inside it, which is what made
+   * the editor's arrival visibly shrink the box the instant its fixed
+   * twelve-row placeholder was replaced ("Fix the item form's resize jank, and
+   * let it be resized", issue 295). What is asked here is that nothing about
+   * the frame - its class or its inline size - moves as what is inside it
+   * does; that a person can actually drag it to a size and get it back is a
+   * real pointer and a real layout, so it is proved in
+   * tests/e2e/item-editing.test.ts instead.
+   */
+  describe('the dialog frame does not react to what is typed or loaded inside it', () => {
+    /** The two things that decide how big the dialog is drawn. */
+    const frameSize = (dialog: HTMLElement) => ({
+      className: dialog.className,
+      style: dialog.getAttribute('style'),
+    });
+
+    it('is unmoved by the editor arriving, and by a long description typed after', async () => {
+      held.items = [anItem()];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>,
+      );
+      await screen.findByLabelText('Title');
+      const dialog = screen.getByRole('dialog');
+      const whileArriving = frameSize(dialog);
+
+      await theEditorHasArrived();
+      expect(frameSize(dialog)).toEqual(whileArriving);
+
+      const user = userEvent.setup();
+      await user.type(
+        descriptionBox(),
+        'A description that runs on for a while - well past what the twelve-row placeholder showed before the editor swapped in for it.',
+      );
+      expect(frameSize(dialog)).toEqual(whileArriving);
+    });
+
+    it('opens at the same size for an empty description as for one already written', async () => {
+      const sizeOf = async (item: Item) => {
+        held.items = [item];
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        render(
+          <QueryClientProvider client={client}>
+            <ItemForm />
+          </QueryClientProvider>,
+        );
+        await screen.findByLabelText('Title');
+        const size = frameSize(screen.getByRole('dialog'));
+        cleanup();
+        return size;
+      };
+
+      expect(await sizeOf(anItem({ description: null }))).toEqual(
+        await sizeOf(anItem({ description: 'Tolerances, and the sign-off date' })),
+      );
     });
   });
 });

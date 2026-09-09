@@ -322,4 +322,98 @@ test.describe('Item editing', () => {
       await expect(descriptionBox(page)).toHaveValue('Tolerances');
     });
   });
+
+  /**
+   * F3, because whether a hand can take hold of the frame at all - and get the
+   * size back afterwards - is a claim about a real pointer against a real
+   * layout that nothing below the browser can make. That the frame itself
+   * ignores what loads or is typed inside it is proved without a browser in
+   * apps/web/tests/unit/components/ItemForm.test.tsx; what a drag on the
+   * native handle actually leaves the box at is only provable here.
+   */
+  test.describe('the dialog can be resized, and a size dragged to sticks', () => {
+    test('offers the handle at a desk, and none on a phone', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Resize handle');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      // That a phone's form still fills the screen it always has is
+      // tests/e2e/screen-edges.test.ts's claim, not this one's to re-prove;
+      // what is new here is only whether the handle is offered at all.
+      const resize = await form(page).evaluate((el) => getComputedStyle(el).resize);
+      if (isMobile) {
+        expect(resize, 'a phone has no room to grow into, and no handle').toBe('none');
+      } else {
+        expect(resize, 'a desk has room, and a corner handle to grow into it').toBe('both');
+      }
+    });
+
+    test('remembers a dragged size across items and a reopen, clamped to whatever screen it opens on next', async ({
+      page,
+      isMobile,
+    }) => {
+      // Dragging is a pointer gesture, the same reason sizing a panel's own
+      // row and column is desktop-only in tests/e2e/panels.test.ts.
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      await openInbox(page, isMobile);
+      const first = uniqueTitle('Dragged smaller');
+      const second = uniqueTitle('Same size here too');
+      await capture(page, first, isMobile);
+      await capture(page, second, isMobile);
+
+      await openItem(page, first, isMobile);
+      const firstUrl = page.url();
+      const before = (await form(page).boundingBox())!;
+      // The handle is the box's own bottom-right corner, drawn by the browser
+      // rather than a testid this can look up - so the drag starts a few
+      // pixels inside it instead.
+      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      await page.mouse.move(grip.x - 150, grip.y - 100, { steps: 8 });
+      await page.mouse.up();
+      const dragged = (await form(page).boundingBox())!;
+      expect(dragged.width, 'the drag moved the handle in by 150px').toBeLessThan(before.width - 50);
+      expect(dragged.height, 'the drag moved the handle up by 100px').toBeLessThan(before.height - 50);
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+
+      // The same item, reopened by address rather than through the Inbox -
+      // this walk goes on to change the viewport, which is free to change how
+      // the Inbox itself lays out, and that is not what is under test here.
+      await page.goto(firstUrl);
+      const reopened = (await form(page).boundingBox())!;
+      expect(Math.round(reopened.width)).toBe(Math.round(dragged.width));
+      expect(Math.round(reopened.height)).toBe(Math.round(dragged.height));
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+
+      // A different item, opened for the first time - the size belongs to the
+      // browser, not to whichever item was open when it was dragged.
+      await openItem(page, second, isMobile);
+      const secondUrl = page.url();
+      const otherItem = (await form(page).boundingBox())!;
+      expect(Math.round(otherItem.width)).toBe(Math.round(dragged.width));
+      expect(Math.round(otherItem.height)).toBe(Math.round(dragged.height));
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+
+      // A screen too small for the dragged size clamps it down without
+      // touching what was remembered.
+      const full = page.viewportSize()!;
+      await page.setViewportSize({ width: 500, height: 500 });
+      await page.goto(secondUrl);
+      const clamped = (await form(page).boundingBox())!;
+      expect(clamped.width, 'clamped to the small screen, not overflowing it').toBeLessThanOrEqual(500);
+      expect(clamped.height, 'clamped to the small screen, not overflowing it').toBeLessThanOrEqual(500);
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+
+      // Back on a screen big enough for it, the original drag is what comes
+      // back - not the size the small screen clamped it down to.
+      await page.setViewportSize(full);
+      await page.goto(secondUrl);
+      const restored = (await form(page).boundingBox())!;
+      expect(Math.round(restored.width)).toBe(Math.round(dragged.width));
+      expect(Math.round(restored.height)).toBe(Math.round(dragged.height));
+    });
+  });
 });
