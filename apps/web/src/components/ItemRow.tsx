@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { itemLabel, uuidv7, workspaceIsDecided, type Item, type ItemType } from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
+import { isCutOff } from '../cutOff';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { HOLD_MS, stillHolding } from '../hold';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
@@ -193,6 +194,22 @@ export function ItemRow({
    */
   const from = useRef<{ pointer: number; x: number; y: number } | null>(null);
   const [gone, setGone] = useState(0);
+
+  /**
+   * Whether the label is showing less than it holds (src/cutOff.ts).
+   *
+   * Answered when the pointer arrives and forgotten when it leaves, rather than
+   * worked out when the row is drawn: what fits depends on how wide the panel
+   * is, and a panel is widened by dragging the line beside it ("Drag a row
+   * taller and a panel wider, on the dashboard itself", issue 255) without this
+   * row being drawn again. Measuring at the one moment the answer is wanted is
+   * the whole of the cost - no observer, nothing per render - and dropping it
+   * on the way out leaves no answer to go stale behind a label that changes.
+   */
+  const [labelCutOff, setLabelCutOff] = useState(false);
+
+  /** The best label this Item has, worked out once for the two places the row draws it. */
+  const label = itemLabel(item);
 
   /**
    * The finger resting on this row, waiting to become a selection ("Start a
@@ -422,7 +439,22 @@ export function ItemRow({
         )}
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1 text-sm">
-            <span className="truncate">{itemLabel(item)}</span>
+            {/* A native `title`, as the two marks further along this row
+                already use, spelling out the same label the row draws rather
+                than the Item's stored title - so the hover cannot say something
+                different from the text it is explaining. */}
+            <span
+              className="truncate"
+              onPointerEnter={(event) =>
+                setLabelCutOff(
+                  isCutOff(event.currentTarget.scrollWidth, event.currentTarget.clientWidth),
+                )
+              }
+              onPointerLeave={() => setLabelCutOff(false)}
+              title={labelCutOff ? label : undefined}
+            >
+              {label}
+            </span>
             {/* That there is something written about this Item, not what it says
                 - the description is paragraphs and this is a row. A mark rather
                 than a snippet, so the row keeps the height "Create an item on a
