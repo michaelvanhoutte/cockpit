@@ -74,6 +74,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANEL_TEXT_FORMAT,
     TITLE_FROM_CAPTURED_MESSAGE,
     SCREEN_SIZES,
+    DROP_LAYOUT_NAME_AND_WIDTH,
     firstWorkspace(accountId),
   ];
 }
@@ -1518,6 +1519,112 @@ const SCREEN_SIZES: Change = {
       // table and not the action.
       sql: 'ALTER TABLE `layouts` ADD COLUMN `screen_size_id` text REFERENCES `screen_sizes`(`id`) ON UPDATE no action ON DELETE restrict',
     },
+  ],
+};
+
+/**
+ * A layout's own `name`, `folded_name` and `screen_width` come off, and
+ * `screen_size_id` stops being nullable - the contract half of "Draw a
+ * dashboard against the screen sizes its account has" (issue 263), promised in
+ * `SCREEN_SIZES` above and built once nothing reads them any more ("Take the
+ * width and the name off a layout, now that its size carries them", issue 264).
+ *
+ * **`layouts` is dropped and rebuilt rather than altered**, and that is forced
+ * rather than chosen: SQLite refuses `DROP COLUMN` for a column named in a
+ * CHECK, and `screen_width` is in one, so the only way to remove it is to build
+ * the table again - and a Durable Object's SQLite refuses to drop a table that
+ * rows elsewhere still point at under RESTRICT, `PRAGMA foreign_keys = OFF`
+ * accepted and ignored.
+ *
+ * **`layout_rows` and `panel_placements` are copied out before either is
+ * touched, and refilled once `layouts` exists again** - deployed data is real
+ * (CLAUDE.md), and a plain empty-then-rebuild would take every arrangement
+ * with it rather than only the ones the new rule actually rejects, which is
+ * the shape of the incident behind pull request 69. Neither table's own
+ * columns change, so the copy is a bare snapshot; the refill excludes only the
+ * rows naming a Layout that did not survive the rebuild.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Interrupted partway.** It cannot be, and it matters more here than in any
+ *   change so far: mid-change a table exists under two names, or not at all.
+ *   A change's statements and the record that they ran commit in one
+ *   `transactionSync` (store.ts).
+ * - **Run again.** Only an unfinished change re-runs, and an unfinished one
+ *   left nothing behind - including any scratch table, which is why none needs
+ *   `IF NOT EXISTS`.
+ * - **Rows the new rule rejects.** A Layout with `screen_size_id IS NULL` -
+ *   written by an older Worker during the previous release's deploy window,
+ *   and every row that predates it - is not carried into the rebuilt table,
+ *   and its rows and placements are excluded from the refill with it. Every
+ *   Layout that already names a real screen size, and everything it arranges,
+ *   survives untouched. **Counted over production before promoting rather
+ *   than assumed** - that is the question pull request 69 got wrong.
+ * - **What is actually in each environment.** The same conversion on first
+ *   open. `seed.sql` creates no Layouts.
+ * - **The windows it can be interrupted in.** *Before it runs*: every deployed
+ *   release reads a subset of the columns present. *After it runs, with a
+ *   release older than "Draw a dashboard against the screen sizes its account
+ *   has" promoted back*: that code's `listLayoutsInWorkspace` selects `name`
+ *   and every Workspace read fails. **The rollback floor is that issue** -
+ *   going back past it needs a restore, not a promotion.
+ * - **A backup taken before this.** Restored intact: `restore.ts` replays the
+ *   changes the backup recorded, so the tables come back in their old shape and
+ *   the store applies this one the next time it is opened.
+ */
+const DROP_LAYOUT_NAME_AND_WIDTH: Change = {
+  name: '0020-drop-layout-name-and-width',
+  statements: [
+    // A bare snapshot of each, taken before either is touched - neither
+    // table's own columns change, so what comes back out is exactly what went
+    // in, minus what the WHERE below excludes.
+    { sql: 'CREATE TABLE `panel_placements_scratch` AS SELECT * FROM `panel_placements`' },
+    { sql: 'CREATE TABLE `layout_rows_scratch` AS SELECT * FROM `layout_rows`' },
+    // Emptied, which is what lets `layouts` be dropped under RESTRICT - see
+    // the class comment. Refilled from the scratch copies once it exists
+    // again, below.
+    { sql: 'DELETE FROM `panel_placements`' },
+    { sql: 'DELETE FROM `layout_rows`' },
+    {
+      sql: `CREATE TABLE \`layouts_new\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`dashboard_id\` text NOT NULL,
+	\`screen_size_id\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	FOREIGN KEY (\`dashboard_id\`) REFERENCES \`dashboards\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`screen_size_id\`) REFERENCES \`screen_sizes\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "layouts_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      // Only a Layout the new rule can actually represent - see "Rows the new
+      // rule rejects" above.
+      sql: `INSERT INTO layouts_new (id, tenant_id, dashboard_id, screen_size_id, created_at)
+            SELECT id, tenant_id, dashboard_id, screen_size_id, created_at
+            FROM layouts
+            WHERE screen_size_id IS NOT NULL`,
+    },
+    { sql: 'DROP TABLE `layouts`' },
+    { sql: 'ALTER TABLE `layouts_new` RENAME TO `layouts`' },
+    {
+      sql: 'CREATE INDEX `layouts_tenant_dashboard` ON `layouts` (`tenant_id`,`dashboard_id`)',
+    },
+    {
+      // Excludes only a row naming a Layout that did not survive the rebuild
+      // above - every other row comes back exactly as it went out.
+      sql: `INSERT INTO panel_placements
+            SELECT * FROM panel_placements_scratch
+            WHERE layout_id IN (SELECT id FROM layouts)`,
+    },
+    {
+      sql: `INSERT INTO layout_rows
+            SELECT * FROM layout_rows_scratch
+            WHERE layout_id IN (SELECT id FROM layouts)`,
+    },
+    { sql: 'DROP TABLE `panel_placements_scratch`' },
+    { sql: 'DROP TABLE `layout_rows_scratch`' },
   ],
 };
 

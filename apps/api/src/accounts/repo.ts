@@ -281,15 +281,10 @@ export function getLayout(
   db: AccountDb,
   tenantId: string,
   layoutId: string,
-): { id: string; dashboardId: string; name: string; screenWidth: number } | null {
+): { id: string; dashboardId: string } | null {
   return (
     db
-      .select({
-        id: layouts.id,
-        dashboardId: layouts.dashboardId,
-        name: layouts.name,
-        screenWidth: layouts.screenWidth,
-      })
+      .select({ id: layouts.id, dashboardId: layouts.dashboardId })
       .from(layouts)
       .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, layoutId)))
       .get() ?? null
@@ -297,19 +292,16 @@ export function getLayout(
 }
 
 /**
- * One dashboard's layouts, named, oldest first.
- *
- * Two questions are asked of this list and neither can be asked of the ids
- * alone: whether a name is already taken on this dashboard, and whether the one
- * being deleted is the last ("Pick the layout you are on, by name").
+ * One dashboard's layouts, oldest first - which screen sizes it has already
+ * defined a layout at, for `save_layout`'s "at most one per screen size" check.
  */
 export function listLayoutsOn(
   db: AccountDb,
   tenantId: string,
   dashboardId: string,
-): { id: string; name: string; screenSizeId: string | null }[] {
+): { id: string; screenSizeId: string }[] {
   return db
-    .select({ id: layouts.id, name: layouts.name, screenSizeId: layouts.screenSizeId })
+    .select({ id: layouts.id, screenSizeId: layouts.screenSizeId })
     .from(layouts)
     .where(and(eq(layouts.tenantId, tenantId), eq(layouts.dashboardId, dashboardId)))
     .orderBy(layouts.createdAt)
@@ -382,6 +374,10 @@ export function listPlacements(db: AccountDb, tenantId: string, layoutId: string
  * anyway, and this way a workspace whose dashboards have no layouts at all -
  * which is every workspace until somebody drags something - costs one query and
  * stops.
+ *
+ * Ordered by the screen size's own width, narrowest first - the same order
+ * screen sizes are already offered in (`listScreenSizes`) - rather than by a
+ * width `layouts` no longer carries.
  */
 export function listLayoutsInWorkspace(
   db: AccountDb,
@@ -393,12 +389,11 @@ export function listLayoutsInWorkspace(
       id: layouts.id,
       tenantId: layouts.tenantId,
       dashboardId: layouts.dashboardId,
-      name: layouts.name,
-      screenWidth: layouts.screenWidth,
       screenSizeId: layouts.screenSizeId,
     })
     .from(layouts)
     .innerJoin(dashboards, eq(layouts.dashboardId, dashboards.id))
+    .innerJoin(screenSizes, eq(layouts.screenSizeId, screenSizes.id))
     .where(
       and(
         eq(layouts.tenantId, tenantId),
@@ -406,7 +401,7 @@ export function listLayoutsInWorkspace(
         isNull(dashboards.deletedAt),
       ),
     )
-    .orderBy(layouts.screenWidth)
+    .orderBy(screenSizes.width)
     .all();
   if (found.length === 0) return [];
 

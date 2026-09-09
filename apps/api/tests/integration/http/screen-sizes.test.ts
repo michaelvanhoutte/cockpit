@@ -56,19 +56,15 @@ const named = async (name: string) => (await theSizes()).find((size) => size.nam
 async function putLayoutAtSize(layout: {
   id: string;
   dashboardId: string;
-  screenSizeId: string | null;
-  width: number;
+  screenSizeId: string;
 }): Promise<void> {
   await inTheStore((sql) => {
     sql.exec(
-      `INSERT INTO layouts (id, tenant_id, dashboard_id, name, folded_name, screen_width, screen_size_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
       layout.id,
       ACCOUNT_NAME,
       layout.dashboardId,
-      layout.id,
-      layout.id,
-      layout.width,
       layout.screenSizeId,
       '2026-09-08T10:00:00.000Z',
     );
@@ -299,7 +295,7 @@ describe('Layouts', () => {
 
       // Two dashboards' worth of Layouts at the size being deleted, one of
       // them carrying the arrangement above, plus one at a size that survives.
-      await putLayoutAtSize({ id: 'lay-here-wide', dashboardId: DASHBOARD_ID, screenSizeId: wide, width: 1280 });
+      await putLayoutAtSize({ id: 'lay-here-wide', dashboardId: DASHBOARD_ID, screenSizeId: wide });
       await inTheStore((sql) => {
         sql.exec(
           `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
@@ -312,13 +308,11 @@ describe('Layouts', () => {
         id: 'lay-elsewhere-wide',
         dashboardId: 'ws-atlas-dashboard-1',
         screenSizeId: wide,
-        width: 1300,
       });
       await putLayoutAtSize({
         id: 'lay-here-laptop',
         dashboardId: DASHBOARD_ID,
         screenSizeId: laptop,
-        width: 1600,
       });
 
       const response = await postChange('delete_screen_size', { ...envelope(), screenSizeId: wide });
@@ -393,7 +387,7 @@ describe('Layouts', () => {
         }
       });
       for (const dashboardId of dashboardIds) {
-        await putLayoutAtSize({ id: `lay-${dashboardId}`, dashboardId, screenSizeId: wide, width: 1280 });
+        await putLayoutAtSize({ id: `lay-${dashboardId}`, dashboardId, screenSizeId: wide });
       }
 
       const response = await postChange('delete_screen_size', { ...envelope(), screenSizeId: wide });

@@ -37,8 +37,8 @@ import {
   ItemTypeNotFoundError,
   ItemTypeOrderStaleError,
   LastDashboardError,
-  LayoutNameTakenError,
   LayoutNotFoundError,
+  LayoutSizeTakenError,
   PanelHoldsSomethingElseError,
   PanelNameTakenError,
   PanelNotFoundError,
@@ -332,7 +332,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof WorkspaceNameTakenError ||
         error instanceof DashboardNameTakenError ||
         error instanceof PanelNameTakenError ||
-        error instanceof LayoutNameTakenError ||
+        error instanceof LayoutSizeTakenError ||
         error instanceof ScreenSizeNameTakenError ||
         // A refusal to say out loud rather than a shape problem: the request is
         // well formed and names a dashboard that exists, and the answer is that

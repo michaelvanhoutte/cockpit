@@ -250,10 +250,6 @@ export function PanelBoard({
           workspaceId,
           dashboardId: dashboard.id,
           layoutId,
-          // Never read once a screen size is resolved, which every creation
-          // now does - see `saveLayoutSchema`, `screenSizeId`. Kept only
-          // because the column it fills is still required.
-          name: 'Layout',
           screenWidth: screenWidthOfLayout,
           // Named field by field rather than sent as read, so a row that
           // arrived from a snapshot with something extra on it cannot carry
@@ -347,7 +343,10 @@ export function PanelBoard({
     command.reset();
     setDraft(next);
     if (drawnWith) {
-      saveArrangement(drawnWith.id, drawnWith.screenWidth, next);
+      // The screen's own width, not anything the layout stores: `screenWidth`
+      // is only ever read when a save creates a layout (`saveLayoutSchema`),
+      // and this one already exists.
+      saveArrangement(drawnWith.id, screenWidth, next);
       return;
     }
     // Nothing defined asks nothing: the server keeps this in the nearest

@@ -30,9 +30,10 @@ export const screenSizeNameSchema = panelNameSchema;
  * How wide a window may be said to be.
  *
  * Bounded because a screen is matched to "the size closest to this window", so
- * one absurd width would win that comparison everywhere or never. The same
- * bound `layouts.screen_width` carries today, moved to where the width now
- * lives.
+ * one absurd width would win that comparison everywhere or never. `layouts`
+ * carried the same bound on its own `screen_width` before "Take the width and
+ * the name off a layout, now that its size carries them" (issue 264) moved
+ * every width here.
  */
 export const MIN_SCREEN_WIDTH = 1;
 export const MAX_SCREEN_WIDTH = 100000;

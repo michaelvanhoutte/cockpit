@@ -71,6 +71,13 @@ function aPanelOfText(
 }
 
 /**
+ * The width `aLayout` intended for the matching screen size `screenSizeOf`
+ * derives - kept here rather than on the Layout itself, which no longer
+ * carries a width of its own, keyed by the deterministic id the two share.
+ */
+const widthByScreenSizeId = new Map<string, number>();
+
+/**
  * A layout of one row holding every panel, side by side - which is what the
  * flat arrangement these cases were written against drew at this width, so a
  * panel still has somewhere to move left to.
@@ -81,13 +88,13 @@ function aPanelOfText(
  * case hands it its own.
  */
 function aLayout(id: string, screenWidth: number, panelIds: string[]): Layout {
+  const screenSizeId = `sz-${id}`;
+  widthByScreenSizeId.set(screenSizeId, screenWidth);
   return {
     id,
     tenantId: 'tenant',
     dashboardId: 'today',
-    name: id,
-    screenWidth,
-    screenSizeId: `sz-${id}`,
+    screenSizeId,
     rows: [{ height: null, cells: panelIds.map((panelId) => ({ panelId, span: 12 })) }],
   };
 }
@@ -95,10 +102,10 @@ function aLayout(id: string, screenWidth: number, panelIds: string[]): Layout {
 /** The screen size a layout made by `aLayout` is drawn for. */
 function screenSizeOf(layout: Layout): ScreenSize {
   return {
-    id: layout.screenSizeId!,
+    id: layout.screenSizeId,
     tenantId: 'tenant',
     name: layout.id,
-    width: layout.screenWidth,
+    width: widthByScreenSizeId.get(layout.screenSizeId) ?? 1280,
     createdAt: '2026-09-08T10:00:00.000Z',
   };
 }
@@ -142,9 +149,7 @@ function showBoard({
   // are about drag-and-drop mechanics, not about which screen sizes an
   // account has, and every layout `aLayout` makes needs its own size for the
   // board to draw it automatically at all.
-  screenSizes = layouts
-    .filter((layout) => layout.screenSizeId !== null)
-    .map(screenSizeOf) as ScreenSize[],
+  screenSizes = layouts.map(screenSizeOf) as ScreenSize[],
   items = [] as Item[],
   filings = [] as Filing[],
   error,
@@ -590,9 +595,6 @@ describe('Panels', () => {
       expect(screen.queryByRole('alertdialog')).toBeNull();
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.payload.layoutId).toBe(layouts[0]!.id);
-      // The width it was made at is kept, not moved to this screen: that is
-      // what makes matching a screen to a layout go on meaning something.
-      expect(asked.payload.screenWidth).toBe(layouts[0]!.screenWidth);
       expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
     });
 

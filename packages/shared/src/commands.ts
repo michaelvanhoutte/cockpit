@@ -9,7 +9,6 @@ import {
 } from './domain/item.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
-  layoutNameSchema,
   panelFormatSchema,
   panelKindSchema,
   panelNameSchema,
@@ -289,13 +288,13 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
  * **It is still an upsert**, but the two answers it used to carry are gone: a
  * `layoutId` the dashboard already has changes that layout, a fresh one creates
  * one, and *which* is no longer a question anybody is asked. You pick the
- * layout you are on by name and every change goes into it ("Pick the layout you
- * are on, by name"), so the id sent is simply the id of the layout on screen.
+ * layout you are on and every change goes into it, so the id sent is simply the
+ * id of the layout on screen.
  *
- * **`name` and `screenWidth` are only read when the layout is created**, and so
- * is `screenSizeId` now beside them - a rename is `rename_layout` (or, since a
- * Layout's name is nobody's business now, `rename_screen_size`), and a screen
- * size is fixed at creation the same way a layout's own width always has been.
+ * **`screenWidth` and `screenSizeId` are only read when the layout is
+ * created**, and a screen size is fixed at creation - a Layout has nothing left
+ * to rename; what a person reads is the screen size's own name
+ * (`rename_screen_size`).
  *
  * **`screenSizeId` names which size this save defines a Layout for, and is
  * optional for the one case that cannot name one in advance**: an ordinary
@@ -303,9 +302,7 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
  * change goes into the layout in use, and is kept even where there is none"),
  * so the id is resolved on the way in - the nearest size the account has, or a
  * size called *Default* at `screenWidth` where the account has none at all.
- * Sent explicitly, it is what *Define a layout for X* means, and `name` is
- * ignored either way: what a Layout is called, to the one place left that
- * still asks, is the screen size's own name.
+ * Sent explicitly, it is what *Define a layout for X* means.
  *
  * The order of `placements` is the order the panels are drawn in. Nothing else
  * carries it, which is why this is a list rather than a map.
@@ -313,12 +310,6 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
 export const saveLayoutSchema = commandEnvelopeSchema.extend({
   dashboardId: z.string(),
   layoutId: z.uuid(),
-  /**
-   * What to call it, where this is the save that creates it - ignored once a
-   * screen size is resolved, which is every creation now, and kept only for as
-   * long as the column it fills is (`layoutSchema`, `screenSizeId`).
-   */
-  name: layoutNameSchema,
   /**
    * The width of the screen this arrangement was made on, in CSS pixels.
    * Bounded so a layout can never record a width no screen has - which
@@ -355,20 +346,6 @@ export const saveLayoutSchema = commandEnvelopeSchema.extend({
     ),
 });
 export type SaveLayoutCommand = z.infer<typeof saveLayoutSchema>;
-
-/**
- * rename_layout — what to call one arrangement, and nothing else.
- *
- * **Its own command rather than a field on `save_layout`**, which is where the
- * name is set when a layout is created. A rename that had to resend the
- * arrangement would let a tab holding a stale one put the panels back where
- * they were as the price of changing a word.
- */
-export const renameLayoutSchema = commandEnvelopeSchema.extend({
-  layoutId: z.uuid(),
-  name: layoutNameSchema,
-});
-export type RenameLayoutCommand = z.infer<typeof renameLayoutSchema>;
 
 /**
  * delete_layout — which layout. The panels stay exactly where they are; what
@@ -776,7 +753,6 @@ export const commandSchemas = {
   set_panel_read_only: setPanelReadOnlySchema,
   set_panel_format: setPanelFormatSchema,
   save_layout: saveLayoutSchema,
-  rename_layout: renameLayoutSchema,
   delete_layout: deleteLayoutSchema,
   create_screen_size: createScreenSizeSchema,
   rename_screen_size: renameScreenSizeSchema,

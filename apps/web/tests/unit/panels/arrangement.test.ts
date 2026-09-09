@@ -25,18 +25,11 @@ function aScreenSize(id: string, width: number, name = id): ScreenSize {
   return { id, tenantId: 'tenant', name, width, createdAt: '2026-09-08T10:00:00.000Z' };
 }
 
-function aLayout(
-  id: string,
-  screenWidth: number,
-  rows: LayoutRow[] = [],
-  screenSizeId: string | null = null,
-): Layout {
+function aLayout(id: string, screenSizeId: string, rows: LayoutRow[] = []): Layout {
   return {
     id,
     tenantId: 'tenant',
     dashboardId: 'today',
-    name: id,
-    screenWidth,
     screenSizeId,
     rows,
   };
@@ -65,9 +58,9 @@ describe('Layouts', () => {
     const szLaptop = aScreenSize('sz-laptop', 1280, 'Laptop');
     const szWide = aScreenSize('sz-wide', 2560, 'Wide');
     const sizes = [szPhone, szLaptop, szWide];
-    const phone = aLayout('phone', 480, [], 'sz-phone');
-    const laptop = aLayout('laptop', 1280, [], 'sz-laptop');
-    const wide = aLayout('wide', 2560, [], 'sz-wide');
+    const phone = aLayout('phone', 'sz-phone');
+    const laptop = aLayout('laptop', 'sz-laptop');
+    const wide = aLayout('wide', 'sz-wide');
 
     /** Picking `screenSizeId` on a screen the account's nearest size is `whileNearestIs`. */
     const picked = (screenSizeId: string, whileNearestIs: string) => ({ screenSizeId, whileNearestIs });
@@ -138,7 +131,7 @@ describe('Layouts', () => {
     });
 
     it('draws another dashboard’s layouts with nothing of this one', () => {
-      const elsewhere = { ...aLayout('elsewhere', 1280, [], 'sz-laptop'), dashboardId: 'research' };
+      const elsewhere = { ...aLayout('elsewhere', 'sz-laptop'), dashboardId: 'research' };
 
       expect(layoutToDraw([elsewhere], sizes, 'today', 1280, null)).toBeNull();
     });
@@ -153,15 +146,14 @@ describe('Layouts', () => {
       expect(layoutToDraw([phone], sizes, 'today', 2400, null)?.id).toBe('phone');
     });
 
-    it('draws fitted to the screen rather than a layout that predates screen sizes', () => {
-      // No `screenSizeId` at all - every layout that exists before this
-      // release, per the failure modes "Draw a dashboard against the screen
-      // sizes its account has" (issue 263) accepts: it is never chosen
-      // automatically again, however close its own recorded width is.
-      const undated = aLayout('undated', 480, []);
+    it('draws fitted to the screen rather than a layout whose screen size is not in the account’s list', () => {
+      // Reachable only by something written straight into the store, since the
+      // app cascades a layout's own deletion with its size's - but a total
+      // function still needs an answer for it.
+      const orphaned = aLayout('orphaned', 'gone');
 
-      expect(layoutToDraw([undated], sizes, 'today', 480, null)).toBeNull();
-      expect(nearestLayout([undated], sizes, 'today', 480)).toBeNull();
+      expect(layoutToDraw([orphaned], sizes, 'today', 480, null)).toBeNull();
+      expect(nearestLayout([orphaned], sizes, 'today', 480)).toBeNull();
     });
   });
 
@@ -262,7 +254,7 @@ describe('Layouts', () => {
 
   describe('the dashboard draws every panel it has, and only the panels it has', () => {
     it('draws the layout’s own rows when they hold every panel', () => {
-      const layout = aLayout('laptop', 1280, [
+      const layout = aLayout('laptop', 'sz-laptop', [
         aRow([cell('falcon', 8), cell('anna', 4)], 300),
         aRow([cell('reading', 12)]),
       ]);
@@ -277,7 +269,7 @@ describe('Layouts', () => {
       // A panel added in another tab, against a layout saved before it existed.
       // Dropping it would hide something a person made; putting it beside
       // something would be a decision nobody took.
-      const layout = aLayout('phone', 480, [aRow([cell('a', 12)])]);
+      const layout = aLayout('phone', 'sz-phone', [aRow([cell('a', 12)])]);
 
       expect(drawnRows(layout, [aPanel('a'), aPanel('new')], 480)).toEqual([
         { height: null, cells: [cell('a', 12)] },
@@ -286,7 +278,7 @@ describe('Layouts', () => {
     });
 
     it('leaves out a panel the layout still names but nothing has any more', () => {
-      const layout = aLayout('laptop', 1280, [aRow([cell('a', 6), cell('gone', 6)])]);
+      const layout = aLayout('laptop', 'sz-laptop', [aRow([cell('a', 6), cell('gone', 6)])]);
 
       expect(drawnRows(layout, [aPanel('a')], 1280)).toEqual([
         { height: null, cells: [cell('a', 6)] },
@@ -294,7 +286,7 @@ describe('Layouts', () => {
     });
 
     it('drops a row whose last panel is gone, rather than drawing a blank line', () => {
-      const layout = aLayout('laptop', 1280, [
+      const layout = aLayout('laptop', 'sz-laptop', [
         aRow([cell('a', 12)]),
         aRow([cell('gone', 12)], 300),
         aRow([cell('b', 12)]),
@@ -499,32 +491,27 @@ describe('Layouts', () => {
   });
 
 
-  describe('a layout is known by the screen size it is drawn for, and by the width it was made for where it has none', () => {
-    it('is known by its screen size’s current name, not by anything the layout itself stores', () => {
+  describe('a layout is known by the screen size it is drawn for', () => {
+    it('is known by its screen size’s current name', () => {
       const wide = aScreenSize('sz-wide', 1440, 'Wide');
-      const layout = aLayout('l', 1440, [], 'sz-wide');
+      const layout = aLayout('l', 'sz-wide');
 
       expect(layoutLabel(layout, [wide])).toBe('Wide');
     });
 
-    it('follows a rename of its screen size, since the layout’s own name is never read for this', () => {
-      const layout = aLayout('l', 1440, [], 'sz-wide');
+    it('follows a rename of its screen size', () => {
+      const layout = aLayout('l', 'sz-wide');
 
       expect(layoutLabel(layout, [aScreenSize('sz-wide', 1440, 'The big one')])).toBe('The big one');
     });
 
-    it.each([
-      // A layout from before "Draw a dashboard against the screen sizes its
-      // account has" (issue 263) names no screen size at all.
-      { situation: 'a layout that predates screen sizes', screenSizeId: null, screenWidth: 1440 },
+    it('falls back to the empty string for a layout whose screen size is not in the list', () => {
       // Reachable only by something written straight into the store, since
       // the app cascades a layout's own deletion with its size's - but a
       // total function still needs an answer for it.
-      { situation: 'a layout whose screen size is not in the list', screenSizeId: 'gone', screenWidth: 480 },
-    ])('falls back to the width it was made at for $situation', ({ screenSizeId, screenWidth }) => {
-      const layout = aLayout('l', screenWidth, [], screenSizeId);
+      const layout = aLayout('l', 'gone');
 
-      expect(layoutLabel(layout, [aScreenSize('sz-wide', 1440, 'Wide')])).toBe(`${screenWidth} px`);
+      expect(layoutLabel(layout, [aScreenSize('sz-wide', 1440, 'Wide')])).toBe('');
     });
   });
 });

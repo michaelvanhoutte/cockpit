@@ -59,17 +59,13 @@ export function LayoutPicker({
   /**
    * What the button says, which is not quite `drawnSize?.name`: a Layout
    * whose size is not in this list at all - reachable only by something
-   * written straight into the store, never through the app - still reads as
-   * the width it was made at rather than as a blank "No layout" claiming
-   * nothing is drawn when something plainly is (`layoutLabel`).
+   * written straight into the store, never through the app - falls back to a
+   * generic label rather than the blank `layoutLabel` itself returns there,
+   * so the button never claims nothing is drawn when something plainly is.
    */
-  const drawnLabel = drawnWith ? layoutLabel(drawnWith, screenSizes) : 'No layout';
+  const drawnLabel = drawnWith ? layoutLabel(drawnWith, screenSizes) || 'Layout' : 'No layout';
 
-  const definedIds = new Set(
-    layoutsOf(layouts, dashboardId)
-      .map((layout) => layout.screenSizeId)
-      .filter((id): id is string => id !== null),
-  );
+  const definedIds = new Set(layoutsOf(layouts, dashboardId).map((layout) => layout.screenSizeId));
   /** The sizes this dashboard has a layout at, in the account's own order. */
   const defined = screenSizes.filter((size) => definedIds.has(size.id));
   /** The sizes the account has that this dashboard has not defined - actions, not choices. */
@@ -145,7 +141,6 @@ export function LayoutPicker({
           workspaceId,
           dashboardId,
           layoutId,
-          name: target.name,
           screenWidth,
           screenSizeId: target.id,
           rows: copyOfWhatIsDrawn(),
@@ -196,7 +191,6 @@ export function LayoutPicker({
                 workspaceId,
                 dashboardId,
                 layoutId,
-                name,
                 screenWidth,
                 screenSizeId,
                 rows: copyOfWhatIsDrawn(),
