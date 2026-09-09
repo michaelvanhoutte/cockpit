@@ -519,8 +519,9 @@ export function reviewerRemarks(ghOutput, { head = null, prefix = 'claude' } = {
  * Whether this pull request is one the code review was obliged to speak on.
  *
  * Exported because the script has to know before the gate does: it decides
- * whether to spend three paginated `gh api` calls counting what the reviewer
- * said. Deciding it there as well would put the rule in an untested copy beside
+ * whether to spend four paginated `gh api` calls, one placing the head and
+ * three counting what the reviewer said. Deciding it there as well would put
+ * the rule in an untested copy beside
  * the tested one, which is the split "Give the code review the tested gate the
  * security review already uses" (issue 277) exists to remove.
  *
