@@ -443,6 +443,29 @@ describe('Panels', () => {
       expect(handleOf('Project Falcon')).toHaveAttribute('tabindex', '0');
     });
 
+    it.each([{ key: 'Enter' }, { key: ' ' }])(
+      'opens on $key too, since the browser’s own menu key does not exist on every keyboard',
+      ({ key }) => {
+        // Found in review: macOS has no key that fires the browser's own menu
+        // key, and a panel's header - unlike a tab's `Link` - activates
+        // nothing else on Enter, so without this a keyboard-only Mac user has
+        // no way to reach a panel's menu at all.
+        showBoard();
+
+        fireEvent.keyDown(handleOf('Project Falcon'), { key });
+        expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+      },
+    );
+
+    it('stays shut on Enter while the name is being edited in place, the same as a right-click', async () => {
+      const { user } = showBoard();
+
+      await choose(user, 'Project Falcon', 'Rename');
+      fireEvent.keyDown(handleOf('Project Falcon'), { key: 'Enter' });
+
+      expect(screen.queryByRole('menuitem')).toBeNull();
+    });
+
     it('drops out of the tab order while the name is being edited in place, where the input already is', async () => {
       const { user } = showBoard();
 

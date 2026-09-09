@@ -358,3 +358,37 @@ export function opensOnPress(here: boolean) {
     );
   };
 }
+
+/**
+ * What Enter or the space bar does on a panel's header: open its
+ * `SurfaceMenu` the way a right-click would (found in review).
+ *
+ * Panel-only, and the reverse of `opensOnPress`'s carve-out: a tab is a
+ * `Link`, which the browser already opens or activates on Enter, so a
+ * second handler there would fight it for the key rather than fill a gap. A
+ * panel's header activates nothing, and the browser's own menu key - the
+ * fallback everywhere else in `SurfaceMenu` - does not exist on macOS, so
+ * without this a keyboard-only user on that platform has no way to reach a
+ * panel's menu at all, and therefore no way to Rename, Move or Delete one.
+ *
+ * The coordinates are the header's own centre rather than a press's, since a
+ * key carries none of its own - unlike `opensOnPress`, which reads them off
+ * the pointer event it is faking a context menu from.
+ */
+export function opensOnKey(disabled: boolean) {
+  return (event: React.KeyboardEvent<HTMLElement>) => {
+    if (disabled) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    const box = event.currentTarget.getBoundingClientRect();
+    event.currentTarget.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: box.x + box.width / 2,
+        clientY: box.y + box.height / 2,
+        button: 2,
+      }),
+    );
+  };
+}

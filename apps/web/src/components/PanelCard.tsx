@@ -2,7 +2,7 @@ import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { PanelText } from '../panels/PanelText';
-import { SurfaceMenu } from './Menu';
+import { SurfaceMenu, opensOnKey } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
 
 /**
@@ -249,7 +249,14 @@ export function PanelCard({
           // a tab's own `Link` needs no such thing itself: it is focusable
           // already. Taken back out of the tab order during a rename, when
           // the input inside already is the thing to reach.
+          //
+          // The menu key that gives every other keyboard a way in does not
+          // exist on macOS, and this header activates nothing on Enter the
+          // way a tab's `Link` does - so without `opensOnKey` a keyboard-only
+          // Mac user has no way to reach a panel's menu at all (found in
+          // review).
           tabIndex={isRenaming ? -1 : 0}
+          onKeyDown={opensOnKey(isRenaming)}
           // A tab's own accessible name and role are its `Link`'s, free; a
           // header has neither on its own, and the kebab button this replaced
           // carried both (`aria-label="Actions for X"` on a real `button`) -
