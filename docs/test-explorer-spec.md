@@ -495,9 +495,9 @@ the Worker was the other candidate and is worse on every count: assets are serve
 the Worker runs, so it could not be gated even if it should be, and it would tie the report
 to a deploy.
 
-Only `main` publishes, because CI runs on every push and a branch's report must not replace
-the published one. Pages keeps one deployment live, so history stays in the per-run
-artifacts.
+Only `main` publishes, because CI also runs on every pull request and a branch's report must
+not replace the published one. Pages keeps one deployment live, so history stays in the
+per-run artifacts.
 
 ## 9. Build plan
 

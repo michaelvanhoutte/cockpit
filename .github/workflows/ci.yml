@@ -3,9 +3,9 @@ name: CI
 # Push, but only on `main`. `pull_request` tests the merge result, which is
 # what actually lands, so it is the only event that checks an open branch —
 # scoping push everywhere used to check a branch's tip a second time, and the
-# two disagreed on 13 of 155 commits measured across two days ("Validate a
-# commit once, not twice by CI and again for every clean merge of main",
-# issue 311).
+# two disagreed on 13 of 155 such commits across the pull requests merged
+# 6–9 September ("Validate a commit once, not twice by CI and again for
+# every clean merge of main", issue 311).
 #
 # **A branch with no open pull request is therefore checked by nothing.**
 # That gap is why push used to run everywhere: deploy-preview.yml ran the same
