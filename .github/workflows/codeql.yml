@@ -57,12 +57,11 @@ jobs:
       actions: read
 
     # A pull request from a fork gets a read-only token whatever this block
-    # says. All three CodeQL checks are required on `main` as of 2026-09-09, so
-    # a fork that could not upload its results would be blocked from
-    # contributing at all - but the upload endpoint was relaxed in May 2023 to
-    # accept exactly this call from a fork. That is GitHub's documentation and
-    # not a fork run observed here; see the runbook in deployment.md, which
-    # carries the link and the escape hatch.
+    # says, and all three CodeQL checks have been required on `main` since
+    # 2026-09-09 - so a fork that could not upload its results would be shut out
+    # of contributing entirely. It can upload; deployment.md's "Bootstrap
+    # runbook" carries the evidence, how strong it is, and the escape hatch if
+    # it ever stops being true.
 
     strategy:
       # One leg's failure must not cancel the other's: an infrastructure failure

@@ -680,29 +680,31 @@ Then, by hand (no API, or deliberately not automated):
      with no idea whether anything reports under them, and a name nothing reports
      under does not go red: it sits at *Expected — waiting for status to be
      reported*, indefinitely. So when a check is added or renamed the order is
-     always: merge the workflow, let it run, read the name off that run, then apply
-     this payload.
+     always: merge the workflow, let it run, read the name off that run, apply this
+     payload, then confirm on the next pull request that all of it reports. Only
+     that last pull request can show a context stuck at *Expected*, and by then it
+     is holding the trunk.
 
-     A pull request from a fork gets a read-only token, which would refuse an
-     ordinary write — so requiring CodeQL's three could have closed this
-     repository to outside contribution. It does not: GitHub relaxed the
-     code-scanning upload endpoint in May 2023 to match `upload-sarif`, which a
-     fork pull request may call ([community discussion
+     **Verify a fork's pull request before requiring a context, not after**, for
+     the same reason in a different shape: a fork gets a read-only token, so a
+     check it cannot pass blocks every outside contribution to a public
+     repository that allows forking. For CodeQL's three the answer is that they
+     pass — GitHub relaxed the code-scanning upload endpoint in May 2023 so a
+     fork may call it ([community discussion
      54013](https://github.com/orgs/community/discussions/54013)). **That is
-     GitHub's documentation, not a fork run observed here** — nobody has forked
-     this repository, and proving it needs a second account. If one ever does
-     stall on those three, `enforce_admins: false` is what lets the owner merge
-     it anyway.
+     GitHub's documentation and not a fork run observed here**: nothing has
+     forked this repository and proving it needs a second account, so if one
+     ever does stall on those three, `enforce_admins: false` is what lets the
+     owner merge it anyway.
 
      **The payload is what this file says; it is not what GitHub is enforcing.**
-     Checking one in does not apply it, and the two drift silently. Measured
-     2026-09-01 and again 2026-09-09, the payload listed eight contexts while
-     `main` enforced four: `E2E (F3)` had been added to the file and never
-     applied, so the browser tier had been reporting on every pull request
-     without gating any of them. Applied 2026-09-09 by "Require the checks the
-     payload already lists, so a red browser tier cannot merge" (issue 276), and
-     the two agreed at eight when it merged. So read the live setting whenever
-     the answer matters:
+     Checking one in does not apply it, and the two drift silently. `E2E (F3)`
+     entered the payload on 2026-08-29 and CodeQL's three on 2026-08-31, and
+     `main` went on enforcing four until 2026-09-09 — eleven days in which the
+     browser tier reported on every pull request without gating any of them,
+     measured twice in that window and applied only by "Require the checks the
+     payload already lists, so a red browser tier cannot merge" (issue 276). So
+     read the live setting whenever the answer matters:
 
      ```bash
      gh api repos/michaelvanhoutte/cockpit/branches/main/protection --jq '.required_status_checks.contexts'
