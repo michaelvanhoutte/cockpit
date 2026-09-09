@@ -113,10 +113,10 @@ function TheForm({
    * **Read here, in a layout effect, rather than at render with a lazy
    * `useState` initializer.** A straight swap from one item's form to
    * another's (`ItemForm`, `key={openItemId}`) unmounts the outgoing
-   * `TheForm` and mounts this one within a single React update - and
-   * `rememberCurrentSize`'s write (below) runs from that outgoing instance's
-   * own layout-effect cleanup, which fires during the commit React makes for
-   * that same update, strictly after every component's *render* has already
+   * `TheForm` and mounts this one within a single React update - and the
+   * write below runs from that outgoing instance's own layout-effect
+   * cleanup, which fires during the commit React makes for that same
+   * update, strictly after every component's *render* has already
    * happened. A lazy initializer runs at render, before any of that commit
    * has taken place, so it would read what was remembered *before* the item
    * being swapped away from had a chance to write what it was just dragged
@@ -229,8 +229,18 @@ function TheForm({
    * `key={openItemId}`) skips both of those and unmounts this component
    * directly, which is the one path a call hung off Cancel or Save would
    * have missed a drag on.
+   *
+   * **A layout effect, not a plain one - the same reason the read above
+   * is one.** A layout effect's cleanup for an unmounting fiber runs
+   * synchronously during the same commit, before layout effect *setup* runs
+   * for a newly mounted sibling - which is what makes the read above see
+   * this write on a same-commit swap. A plain effect's cleanup for that
+   * fiber is not guaranteed to run until the passive phase, which normally
+   * follows layout, and by no documented rule precedes a sibling's mount;
+   * relying on that would be trusting an ordering nothing here actually
+   * grants.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => {
       if (known.current) rememberItemFormSize(browserStore(), known.current);
     };

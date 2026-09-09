@@ -403,6 +403,13 @@ describe('Item editing', () => {
           width: 500,
           height: 400,
         });
+        // Read back by the very form it was swapped into, not only written -
+        // the write and this read are on either side of the same swap, so a
+        // read landing before the write on a real commit would open item-2
+        // at the old size and only catch up from its *next* open.
+        await waitFor(() =>
+          expect(screen.getByRole('dialog')).toHaveStyle({ width: '500px', height: '400px' }),
+        );
       } finally {
         measuring.mockRestore();
       }
