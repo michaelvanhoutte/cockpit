@@ -491,14 +491,28 @@ describe('Panels', () => {
 
     it('names the header for what it opens, since nothing else does now the button is gone', () => {
       // Found in review: a bare header nested in a section computes to
-      // ARIA's `generic` role, which prohibits a name - `role="button"` is
-      // what makes the label and the popup hint legal as well as present.
+      // ARIA's `generic` role, which prohibits a name - `role="group"` is
+      // what makes the label and the popup hint legal as well as present,
+      // without pruning what is inside it the way `role="button"` would
+      // have (a second finding on the first fix).
       showBoard();
 
       const header = handleOf('Project Falcon');
-      expect(header).toHaveAttribute('role', 'button');
+      expect(header).toHaveAttribute('role', 'group');
       expect(header).toHaveAttribute('aria-label', 'Actions for Project Falcon');
       expect(header).toHaveAttribute('aria-haspopup', 'menu');
+    });
+
+    it('keeps what is inside the header its own, named role rather than swallowing it', () => {
+      // The header's role names the header; it must not also swallow the
+      // heading, the count and the read-only word into itself the way
+      // `role="button"`'s presentational children would have.
+      showBoard({
+        panels: [aPanelOfText('words', 'What matters', { readOnly: true })],
+      });
+
+      expect(screen.getByRole('heading', { name: 'What matters' })).toBeVisible();
+      expect(screen.getByText('read-only')).toBeVisible();
     });
 
     it('drops the header’s own name for what it opens while the input already carries one', async () => {

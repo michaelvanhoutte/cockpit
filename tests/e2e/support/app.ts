@@ -574,6 +574,10 @@ export async function choosePanelAction(
  * which this holds well past rather than guards against.
  */
 async function holdPanelHeader(page: Page, header: Locator): Promise<void> {
+  // Found in review: `boundingBox` reports a position without scrolling to
+  // it, the same gotcha `dragTabOnto` documents - a header below the fold
+  // would otherwise be held at a coordinate the finger cannot reach.
+  await header.scrollIntoViewIfNeeded();
   const box = await header.boundingBox();
   if (!box) throw new Error('cannot hold the panel header: it is not on screen');
   const at = [
