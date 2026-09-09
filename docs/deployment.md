@@ -826,7 +826,9 @@ Then, by hand (no API, or deliberately not automated):
      finished pull request, instead of a session waiting to click it" (issue 312),
      alongside the repository's own `allow_auto_merge` (not part of this payload;
      it lives on the repository resource, set by `gh api -X PATCH
-     repos/michaelvanhoutte/cockpit -f allow_auto_merge=true`). Together they let a
+     repos/michaelvanhoutte/cockpit -F allow_auto_merge=true` — `-F`, not `-f`:
+     the latter sends the value as a JSON string rather than a boolean). Together
+     they let a
      session mark a pull request ready, arm auto-merge, and stop — GitHub merges it
      once the required checks are green and every review thread is resolved,
      whether or not anyone is watching. `required_conversation_resolution` is
