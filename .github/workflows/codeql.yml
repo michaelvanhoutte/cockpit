@@ -57,12 +57,11 @@ jobs:
       actions: read
 
     # A pull request from a fork gets a read-only token whatever this block
-    # says, so the results upload may be refused and both legs report red. That
-    # is harmless while these checks are advisory and is not harmless once they
-    # are required, which is the step the runbook describes: a required check a
-    # fork cannot pass blocks every outside contribution to a public repository
-    # that allows forking. Verify a fork pull request before applying the
-    # payload, not after.
+    # says, and all three CodeQL checks have been required on `main` since
+    # 2026-09-09 - so a fork that could not upload its results would be shut out
+    # of contributing entirely. It can upload; deployment.md's "Bootstrap
+    # runbook" carries the evidence, how strong it is, and the escape hatch if
+    # it ever stops being true.
 
     strategy:
       # One leg's failure must not cancel the other's: an infrastructure failure
