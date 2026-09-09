@@ -5,6 +5,7 @@ import {
   expect,
   expectNoSidewaysScroll,
   expectNothingSpillsOutOfTheInbox,
+  inbox,
   openFirstWorkspace,
   press,
   test,
@@ -66,8 +67,19 @@ test.describe('Triage', () => {
       // And nothing inside the column spills out of it, with an item in it
       // whose title is far longer than the column is wide. The page-level
       // check above cannot see this: the column scrolls inside itself.
-      await capture(page, uniqueTitle('A title far longer than this column is ever going to be'), isMobile);
+      const tooLong = uniqueTitle('A title far longer than this column is ever going to be');
+      await capture(page, tooLong, isMobile);
       await expectNothingSpillsOutOfTheInbox(page);
+
+      // And, being cut, it spells the whole thing out on hover. This case and
+      // no other: what only a real browser can say is that the text is cut at
+      // this width at all. Which answer a given pair of widths deserves, and
+      // that a label drawn whole is left alone, are decided a level down
+      // (apps/web/tests/unit/cutOff.test.ts and
+      // apps/web/tests/unit/components/ItemRow.test.tsx).
+      const cutLabel = inbox(page).getByText(tooLong);
+      await cutLabel.hover();
+      await expect(cutLabel).toHaveAttribute('title', tooLong);
       // Not one of the views to switch between any more: it is not somewhere
       // you go, it is somewhere you are.
       await expect(dashboardBar(page).getByRole('link', { name: 'Inbox' })).toHaveCount(0);
