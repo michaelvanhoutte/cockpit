@@ -100,17 +100,13 @@ describe('Layouts', () => {
     });
   });
 
-  describe('a layout says which screen size it is for, or that it is for none', () => {
-    it('comes back naming no size, which is every layout while nothing writes one', async () => {
-      // The other half of the shape this release changes, and it needs saying
-      // out loud: `layoutSchema` defaults `screenSizeId` to null, so a read
-      // path that stopped selecting the column would leave every case above
-      // green and only be found once something wrote a value and never got it
-      // back.
+  describe('a layout says which screen size it is for', () => {
+    it('comes back naming the size it was defined at', async () => {
+      await putScreenSize({ id: 'sz-wide', name: 'Wide', width: 1280 });
       await inTheStore((sql) => {
         sql.exec(
-          `INSERT INTO layouts (id, tenant_id, dashboard_id, name, folded_name, screen_width, created_at)
-           VALUES ('lay-1', ?, ?, 'Wide', 'wide', 1280, ?)`,
+          `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+           VALUES ('lay-1', ?, ?, 'sz-wide', ?)`,
           ACCOUNT_NAME,
           DASHBOARD_ID,
           AT,
@@ -120,7 +116,7 @@ describe('Layouts', () => {
       const snapshot = await snapshotOf(WORKSPACE_ID);
 
       expect(snapshot.layouts).toEqual([
-        expect.objectContaining({ id: 'lay-1', screenSizeId: null }),
+        expect.objectContaining({ id: 'lay-1', screenSizeId: 'sz-wide' }),
       ]);
     });
   });

@@ -2,15 +2,7 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { PANEL_TEXT_LIMIT } from '@cockpit/shared';
 import type { Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
-import {
-  ACCOUNT_NAME,
-  WORKSPACE_ID,
-  alsoWorkspaces,
-  asUser,
-  inTheStore,
-  seedRegister,
-  startFromEmpty,
-} from '../seed.js';
+import { WORKSPACE_ID, alsoWorkspaces, asUser, seedRegister, startFromEmpty } from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`asUser`), because every rule
@@ -156,9 +148,6 @@ async function saveRows(
     workspaceId: WORKSPACE_ID,
     dashboardId,
     layoutId,
-    // Ignored once a screen size is resolved, which every create now does -
-    // kept only for as long as the column it fills is (`layoutSchema`).
-    name: `Layout ${(seq += 1)}`,
     screenWidth,
     rows,
     ...(screenSizeId ? { screenSizeId } : {}),
@@ -435,7 +424,6 @@ describe('Panels', () => {
 
       expect(await layoutsOf(dashboardId)).toEqual([
         expect.objectContaining({
-          screenWidth: 1280,
           rows: [
             {
               height: null,
@@ -468,18 +456,19 @@ describe('Panels', () => {
       ]);
     });
 
-    it('keeps the width a layout was made at, even when it is changed from another screen', async () => {
+    it('keeps the screen size a layout was made at, even when it is changed from another screen', async () => {
       // The whole point of asking which layout to change: changing the wide
       // one from a laptop must not quietly turn it into the laptop's.
       const dashboardId = await aDashboard();
       const falcon = nextId();
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
+      const wide = await aScreenSize('Wide', 2560);
       const layoutId = nextId();
-      await saveLayout(dashboardId, layoutId, 2560, [{ panelId: falcon, span: 3 }]);
+      await saveLayout(dashboardId, layoutId, 2560, [{ panelId: falcon, span: 3 }], wide);
 
       await saveLayout(dashboardId, layoutId, 480, [{ panelId: falcon, span: 6 }]);
 
-      expect((await layoutsOf(dashboardId))[0]).toMatchObject({ screenWidth: 2560 });
+      expect((await layoutsOf(dashboardId))[0]).toMatchObject({ screenSizeId: wide });
     });
 
     it('keeps one layout per screen size side by side', async () => {
@@ -492,7 +481,10 @@ describe('Panels', () => {
       await saveLayout(dashboardId, nextId(), 2560, [{ panelId: falcon, span: 3 }], wide);
       await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, span: 12 }], phone);
 
-      expect((await layoutsOf(dashboardId)).map((layout) => layout.screenWidth)).toEqual([480, 2560]);
+      expect((await layoutsOf(dashboardId)).map((layout) => layout.screenSizeId)).toEqual([
+        phone,
+        wide,
+      ]);
     });
 
     // Given longer than the file's other cases, and it is the arrangement that
@@ -643,7 +635,7 @@ describe('Panels', () => {
       expect(gone.status).toBe(200);
       expect(await layoutsOf(dashboardId)).toEqual([
         expect.objectContaining({
-          screenWidth: 480,
+          screenSizeId: phone,
           rows: [{ height: null, cells: [{ panelId: falcon, span: 12 }] }],
         }),
       ]);
@@ -841,8 +833,7 @@ describe('Panels', () => {
 describe('Layouts', () => {
   /**
    * A dashboard with one panel and one layout defined at a screen size of its
-   * own, which is what most rules below need. Named after the size, since a
-   * Layout's own name is now always the size's (`save_layout`).
+   * own, which is what most rules below need.
    */
   async function arranged(name: string, screenWidth = 1280) {
     const dashboardId = await aDashboard();
@@ -862,10 +853,10 @@ describe('Layouts', () => {
   }
 
   describe('a dashboard has at most one layout per screen size, and never one at a size it has not defined', () => {
-    it('names the layout after the size it was defined for', async () => {
-      const { dashboardId } = await arranged('Wide');
+    it('defines the layout at the size asked for', async () => {
+      const { dashboardId, screenSizeId } = await arranged('Wide');
 
-      expect((await layoutsOf(dashboardId))[0]!.name).toBe('Wide');
+      expect((await layoutsOf(dashboardId))[0]!.screenSizeId).toBe(screenSizeId);
     });
 
     it('refuses a second layout at a size this dashboard already has', async () => {
@@ -881,17 +872,15 @@ describe('Layouts', () => {
 
       expect(again.status).toBe(409);
       expect(await again.json()).toMatchObject({
-        error: 'a layout called Wide already arranges this dashboard',
+        error: 'a layout for Wide already arranges this dashboard',
       });
       expect(await layoutsOf(dashboardId)).toHaveLength(1);
     });
 
     it('still refuses a second layout at a size renamed since the first was made', async () => {
-      // A Layout's own name is frozen at its creation and a rename never
-      // touches it, so the first Layout here still carries the size's old
-      // name - and the check has to compare the size itself, not that
-      // frozen name, or a rename landing between two saves would let both
-      // through.
+      // The check compares the size's own id rather than anything it was
+      // ever called, so a rename landing between two saves cannot let a
+      // second layout at the same size through.
       const { dashboardId, panelId, screenSizeId } = await arranged('Wide');
       expect(
         (await send('rename_screen_size', { workspaceId: WORKSPACE_ID, screenSizeId, name: 'Big' }))
@@ -908,75 +897,6 @@ describe('Layouts', () => {
 
       expect(again.status).toBe(409);
       expect(await layoutsOf(dashboardId)).toHaveLength(1);
-    });
-
-    it('refuses two different sizes landing on one name, rather than a raw constraint error', async () => {
-      // The other direction of the same staleness: the first Layout's name
-      // is frozen as "Wide" from the size it was made at, that size is
-      // renamed away, and a second size is renamed *into* "Wide" - so a
-      // Layout defined for the second, different-id size still collides on
-      // the name the database's own index refuses two Layouts of one
-      // Dashboard to share.
-      const { dashboardId, panelId, screenSizeId } = await arranged('Wide');
-      await send('rename_screen_size', { workspaceId: WORKSPACE_ID, screenSizeId, name: 'Desktop' });
-      const second = await aScreenSize('Temporary', 480);
-      expect(
-        (await send('rename_screen_size', { workspaceId: WORKSPACE_ID, screenSizeId: second, name: 'Wide' }))
-          .status,
-      ).toBe(200);
-
-      const again = await saveLayout(dashboardId, nextId(), 480, [{ panelId, span: 12 }], second);
-
-      expect(again.status).toBe(409);
-      expect(await layoutsOf(dashboardId)).toHaveLength(1);
-    });
-
-    it('renames a legacy layout in the way, rather than deleting it or refusing forever', async () => {
-      // A Layout from before this release has `screen_size_id` NULL and is
-      // still named after the removed screen bands ("Wide"/"Phone"/"Tablet"/
-      // "Laptop") - nothing in this release writes one, but nothing removes
-      // one already there either, and every Layout deployed today is one of
-      // these. It must not be able to permanently block every future save on
-      // its dashboard merely by holding a name a screen size is later given -
-      // and what it arranges is real, deployed data, so freeing the name must
-      // not delete it (CLAUDE.md, "Deployed data is real").
-      const dashboardId = await aDashboard();
-      const panelId = nextId();
-      expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
-      const legacyLayoutId = nextId();
-      await inTheStore((sql) => {
-        sql.exec(
-          `INSERT INTO layouts
-             (id, tenant_id, dashboard_id, name, folded_name, screen_width, screen_size_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
-          legacyLayoutId,
-          ACCOUNT_NAME,
-          dashboardId,
-          'Wide',
-          'wide',
-          1280,
-          AT,
-        );
-      });
-
-      const screenSizeId = await aScreenSize('Wide', 1280);
-      const saved = await saveLayout(
-        dashboardId,
-        nextId(),
-        1280,
-        [{ panelId, span: 12 }],
-        screenSizeId,
-      );
-
-      expect(saved.status).toBe(200);
-      const layouts = await layoutsOf(dashboardId);
-      expect(layouts).toHaveLength(2);
-      const legacy = layouts.find((layout) => layout.id === legacyLayoutId);
-      expect(legacy).toBeDefined();
-      expect(legacy!.name).not.toBe('Wide');
-      const live = layouts.find((layout) => layout.screenSizeId === screenSizeId);
-      expect(live).toBeDefined();
-      expect(live!.name).toBe('Wide');
     });
 
     it('lets another dashboard have a layout at the same size', async () => {
@@ -1002,7 +922,7 @@ describe('Layouts', () => {
       );
 
       expect(saved.status).toBe(200);
-      expect((await layoutsOf(second))[0]!.name).toBe('Wide');
+      expect((await layoutsOf(second))[0]!.screenSizeId).toBe(wide);
     });
 
     it('refuses defining a layout for a screen size that is not there', async () => {
@@ -1021,10 +941,7 @@ describe('Layouts', () => {
       expect(saved.status).toBe(404);
     });
 
-    it('leaves the name and the size alone when an arrangement is saved onto a layout that exists', async () => {
-      // A board holding a name from before a rename must not put the old one
-      // back as a side effect of a drag, which is why renaming is its own
-      // command.
+    it('leaves the size alone when an arrangement is saved onto a layout that exists', async () => {
       const { dashboardId, panelId, layoutId, screenSizeId } = await arranged('Wide');
       expect(
         (await send('rename_screen_size', { workspaceId: WORKSPACE_ID, screenSizeId, name: 'The big one' }))
@@ -1035,7 +952,7 @@ describe('Layouts', () => {
 
       expect(saved.status).toBe(200);
       const [layout] = await layoutsOf(dashboardId);
-      expect(layout!.name).toBe('Wide');
+      expect(layout!.screenSizeId).toBe(screenSizeId);
       expect(cellsOf(layout)).toEqual([{ panelId, span: 6 }]);
     });
 
@@ -1048,8 +965,9 @@ describe('Layouts', () => {
       const saved = await saveLayout(dashboardId, nextId(), 1280, [{ panelId, span: 4 }]);
 
       expect(saved.status).toBe(200);
-      expect((await layoutsOf(dashboardId))[0]!.name).toBe('Default');
-      expect((await snapshot()).screenSizes.map((size) => size.name)).toEqual(['Default']);
+      const [defaultSize] = (await snapshot()).screenSizes;
+      expect(defaultSize!.name).toBe('Default');
+      expect((await layoutsOf(dashboardId))[0]!.screenSizeId).toBe(defaultSize!.id);
       // Every screen size is the account's, not the Workspace this happened
       // to be made in - see `create_screen_size`.
       expect((await snapshot('ws-atlas')).screenSizes.map((size) => size.name)).toEqual(['Default']);
@@ -1094,19 +1012,17 @@ describe('Layouts', () => {
 
       expect(saved.status).toBe(200);
       const [layout] = await layoutsOf(dashboardId);
-      expect(layout!.name).toBe('Wide');
       expect(layout!.screenSizeId).toBe(wide);
     });
   });
 
   describe('renaming a screen size changes nothing about the layouts already drawn from it', () => {
-    // What a person reads as "this layout's new name" is `layoutLabel`
-    // resolving the size's current name (apps/web/tests/unit/panels/
-    // arrangement.test.ts, "follows a rename of its screen size") - a
-    // Layout's own stored name is frozen at its creation and a rename never
-    // touches it, which is what this proves from the row outward.
-    it('leaves the arrangement, the width, and the layout’s own stored name alone', async () => {
-      const { dashboardId, panelId, layoutId, screenSizeId } = await arranged('Wide', 2560);
+    // What a person reads as "this layout's name" is `layoutLabel` resolving
+    // the size's current name (apps/web/tests/unit/panels/arrangement.test.ts,
+    // "follows a rename of its screen size") - a Layout carries no name of its
+    // own to go stale, which is what this proves from the row outward.
+    it('leaves the arrangement and the screen size it is defined at alone', async () => {
+      const { dashboardId, panelId, screenSizeId } = await arranged('Wide', 2560);
 
       const renamed = await send('rename_screen_size', {
         workspaceId: WORKSPACE_ID,
@@ -1116,18 +1032,22 @@ describe('Layouts', () => {
 
       expect(renamed.status).toBe(200);
       expect((await layoutsOf(dashboardId))[0]).toMatchObject({
-        name: 'Wide',
-        screenWidth: 2560,
+        screenSizeId,
         rows: [{ height: null, cells: [{ panelId, span: 4 }] }],
       });
     });
 
-    it('refuses to rename a layout of another workspace’s dashboard', async () => {
-      // The id alone says nothing about who may address it.
+    it('has no route left for the retired rename_layout, rather than a 500', async () => {
+      // "Take the width and the name off a layout, now that its size carries
+      // them" (issue 264) retires the command: a Layout has nothing left to
+      // rename, since what a person reads is the screen size's own name. Every
+      // command is its own static route ("one POST endpoint per change",
+      // app.ts) - retiring one takes the route with it, so the app never
+      // reaches command-service.ts for it at all.
       const { layoutId } = await arranged('Wide');
 
       const renamed = await send('rename_layout', {
-        workspaceId: '018f0000-0000-7000-8000-999999999999',
+        workspaceId: WORKSPACE_ID,
         layoutId,
         name: 'Mine now',
       });
@@ -1156,7 +1076,7 @@ describe('Layouts', () => {
       const gone = await send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId });
 
       expect(gone.status).toBe(200);
-      expect((await layoutsOf(dashboardId)).map((l) => l.name)).toEqual(['Phone']);
+      expect((await layoutsOf(dashboardId)).map((l) => l.screenSizeId)).toEqual([phone]);
     });
   });
 });

@@ -647,13 +647,11 @@ describe('Layouts', () => {
     return { id, tenantId: 'tenant', name, width, createdAt: '2026-09-01T09:00:00.000Z' };
   }
 
-  function aLayout(id: string, screenSizeId: string, screenWidth: number): Layout {
+  function aLayout(id: string, screenSizeId: string): Layout {
     return {
       id,
       tenantId: 'tenant',
       dashboardId: OPEN,
-      name: id,
-      screenWidth,
       screenSizeId,
       rows: [{ height: null, cells: [{ panelId: 'falcon', span: 12 }] }],
     };
@@ -702,7 +700,7 @@ describe('Layouts', () => {
     it('offers the layout in use and the way to add a panel while a dashboard is open', async () => {
       showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
-        layouts: [aLayout('l', 'sz-wide', 1280)],
+        layouts: [aLayout('l', 'sz-wide')],
         screenSizes: [aScreenSize('sz-wide', 'Wide', 1280)],
       });
 
@@ -731,7 +729,7 @@ describe('Layouts', () => {
     }
 
     const SIZES = [aScreenSize('sz-laptop', 'Laptop', 1280), aScreenSize('sz-wide', 'Wide', 2560)];
-    const BOTH = [aLayout('laptop', 'sz-laptop', 1280), aLayout('wide', 'sz-wide', 2560)];
+    const BOTH = [aLayout('laptop', 'sz-laptop'), aLayout('wide', 'sz-wide')];
 
     it.each([
       { situation: 'nothing has been picked in this browser', pick: null, names: 'Laptop' },
@@ -819,7 +817,7 @@ describe('Layouts', () => {
       // row you can be on, so the radio list is only the sizes it has.
       const { user } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
-        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        layouts: [aLayout('laptop', 'sz-laptop')],
         screenSizes: SIZES,
       });
 
@@ -865,7 +863,7 @@ describe('Layouts', () => {
     it('takes it with one press, and the dashboard is drawn fitted to the screen', async () => {
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
-        layouts: [aLayout('l', 'sz-wide', 1280)],
+        layouts: [aLayout('l', 'sz-wide')],
         screenSizes: [aScreenSize('sz-wide', 'Wide', 1280)],
       });
 
@@ -884,7 +882,7 @@ describe('Layouts', () => {
       // panels back as the price of changing a word.
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
-        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        layouts: [aLayout('laptop', 'sz-laptop')],
         screenSizes: [aScreenSize('sz-laptop', 'Laptop', 1280)],
       });
 
@@ -905,7 +903,7 @@ describe('Layouts', () => {
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
         panels: [FALCON],
-        layouts: [aLayout('wide', 'sz-wide', 2560)],
+        layouts: [aLayout('wide', 'sz-wide')],
         screenSizes: [aScreenSize('sz-wide', 'Wide', 2560)],
       });
 
@@ -947,7 +945,7 @@ describe('Layouts', () => {
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
         panels: [FALCON],
-        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        layouts: [aLayout('laptop', 'sz-laptop')],
         screenSizes: [aScreenSize('sz-laptop', 'Laptop', 1280)],
       });
 
@@ -968,7 +966,7 @@ describe('Layouts', () => {
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
         panels: [FALCON],
-        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        layouts: [aLayout('laptop', 'sz-laptop')],
         screenSizes: [aScreenSize('sz-laptop', 'Laptop', 1280), aScreenSize('sz-phone', 'Phone', 480)],
       });
 
@@ -990,7 +988,7 @@ describe('Layouts', () => {
     it('asks before deleting a size everywhere, naming what goes', async () => {
       const { user, mutate } = showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
-        layouts: [aLayout('laptop', 'sz-laptop', 1280)],
+        layouts: [aLayout('laptop', 'sz-laptop')],
         screenSizes: [aScreenSize('sz-laptop', 'Laptop', 1280)],
       });
 

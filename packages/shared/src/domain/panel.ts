@@ -211,53 +211,24 @@ export const layoutRowSchema = z.object({
 export type LayoutRow = z.infer<typeof layoutRowSchema>;
 
 /**
- * A Layout's name obeys exactly the rules a Panel's title does, by being the
- * same schema: required, trimmed, single-line, at most 60 characters. What
- * differs is only the scope uniqueness is decided in - the Dashboard, the same
- * scope a Panel's title uses - and that is not a shape, so it is not here.
- */
-export const layoutNameSchema = panelNameSchema;
-
-/**
- * One arrangement of a Dashboard's Panels: what it is called, and the screen
- * width it was made at.
+ * One arrangement of a Dashboard's Panels, at one Screen size.
  *
- * **The name is what a person picks it by** ("Pick the layout you are on, by
- * name"). A Layout used to be identified by the width alone, which is a number
- * nobody recognises: *Made for 1463 px* says nothing about what the arrangement
- * is for, and the width it names is one a window is only accidentally.
+ * **What a person reads as its name is the Screen size's own** ("Draw a
+ * dashboard against the screen sizes its account has", issue 263) - a Layout
+ * used to carry a `name` and a `screenWidth` of its own, from before every
+ * Layout hung off a Screen size, and "Take the width and the name off a
+ * layout, now that its size carries them" (issue 264) is the release that
+ * drops them, once nothing read them any more.
  *
- * `screenWidth` is the width the Layout was created at, not a breakpoint, and
- * it is now only read when a screen is matched to a Layout: there is no fixed set of sizes
- * to belong to, so "which Layout is this screen's" is a question about distance
- * rather than about membership.
- *
- * **`name` is the permissive `z.string()`, and empty is a real value here.**
- * This is the shape read *back*, and a Layout written by the code serving
- * requests during the deploy that introduced the column carries no name at all;
- * the screen draws such a Layout as the width it was made for rather than
- * blanking the Dashboard it arranges. The rule that a name is required lives on
- * the way in, on `saveLayoutSchema` and `renameLayoutSchema`.
+ * **`screenSizeId` is required.** Every Layout from here on is defined at a
+ * size the account has; there is no longer a legacy row with none.
  */
 export const layoutSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
   dashboardId: z.string(),
-  name: z.string().default(''),
-  screenWidth: z.number(),
-  /**
-   * The Screen size this Layout arranges the Dashboard for, or null where it
-   * predates them ("Give the account a list of screen sizes, before anything
-   * reads it", issue 262).
-   *
-   * **Nullable only until the contract half.** Every save now carries one
-   * ("Draw a dashboard against the screen sizes its account has", issue 263),
-   * so null is only ever a Layout from before this release - and the automatic
-   * choice never draws one, exactly as it never draws a size the Dashboard has
-   * not defined. The contract half drops the nullability and the `name` and
-   * `screenWidth` above.
-   */
-  screenSizeId: z.string().nullable().default(null),
+  /** The Screen size this Layout arranges the Dashboard for. */
+  screenSizeId: z.string(),
   /** The rows, top to bottom, each holding its Panels left to right. */
   rows: z.array(layoutRowSchema).default([]),
 });

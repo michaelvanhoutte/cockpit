@@ -74,6 +74,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANEL_TEXT_FORMAT,
     TITLE_FROM_CAPTURED_MESSAGE,
     SCREEN_SIZES,
+    DROP_LAYOUT_NAME_AND_WIDTH,
     firstWorkspace(accountId),
   ];
 }
@@ -1517,6 +1518,83 @@ const SCREEN_SIZES: Change = {
       // nothing in the constraints test compares the two - it reads the target
       // table and not the action.
       sql: 'ALTER TABLE `layouts` ADD COLUMN `screen_size_id` text REFERENCES `screen_sizes`(`id`) ON UPDATE no action ON DELETE restrict',
+    },
+  ],
+};
+
+/**
+ * A layout's own `name`, `folded_name` and `screen_width` come off, and
+ * `screen_size_id` stops being nullable - the contract half of "Draw a
+ * dashboard against the screen sizes its account has" (issue 263), promised in
+ * `SCREEN_SIZES` above and built once nothing reads them any more ("Take the
+ * width and the name off a layout, now that its size carries them", issue 264).
+ *
+ * **`layouts` is dropped and rebuilt rather than altered**, and that is forced
+ * rather than chosen: SQLite refuses `DROP COLUMN` for a column named in a
+ * CHECK, and `screen_width` is in one, so the only way to remove it is to build
+ * the table again - and a Durable Object's SQLite refuses to drop a table that
+ * rows elsewhere still point at under RESTRICT, `PRAGMA foreign_keys = OFF`
+ * accepted and ignored. So `layout_rows` and `panel_placements`, the tables
+ * that point at `layouts`, are emptied first.
+ *
+ * **Every arrangement made since the previous release is lost and has to be
+ * made again**, which is the agreed trade the issue names: re-arranging a
+ * handful of Dashboards is cheaper than a copy-out rebuild against real rows,
+ * which is the shape of the incident behind pull request 69. `layout_rows` and
+ * `panel_placements` keep the shape they already have - nothing about either
+ * table's own columns changes - so emptying them is enough; only `layouts`
+ * itself is rebuilt.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Interrupted partway.** It cannot be, and it matters more here than in any
+ *   change so far: mid-change the table exists under two names. A change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts).
+ * - **Run again.** Only an unfinished change re-runs, and an unfinished one
+ *   left nothing behind - including any Layout, so there is nothing to guard
+ *   with `IF NOT EXISTS` or `WHERE NOT EXISTS`.
+ * - **Rows the new rule rejects.** Every Layout there is, whether or not it
+ *   already carried a `screen_size_id`: the simple rebuild empties
+ *   `layout_rows` and `panel_placements` unconditionally rather than copying
+ *   the ones that would still be legal across, which is what buys the eight
+ *   fewer statements. **Counted over production before promoting rather than
+ *   assumed** - that is the question pull request 69 got wrong.
+ * - **What is actually in each environment.** The same conversion on first
+ *   open. `seed.sql` creates no Layouts.
+ * - **The windows it can be interrupted in.** *Before it runs*: every deployed
+ *   release reads a subset of the columns present. *After it runs, with a
+ *   release older than "Draw a dashboard against the screen sizes its account
+ *   has" promoted back*: that code's `listLayoutsInWorkspace` selects `name`
+ *   and every Workspace read fails. **The rollback floor is that issue** -
+ *   going back past it needs a restore, not a promotion.
+ * - **A backup taken before this.** Restored intact: `restore.ts` replays the
+ *   changes the backup recorded, so the tables come back in their old shape and
+ *   the store applies this one the next time it is opened.
+ */
+const DROP_LAYOUT_NAME_AND_WIDTH: Change = {
+  name: '0020-drop-layout-name-and-width',
+  statements: [
+    // The children first, unconditionally: whatever either held is gone either
+    // way, since every Layout is about to go with it.
+    { sql: 'DELETE FROM `panel_placements`' },
+    { sql: 'DELETE FROM `layout_rows`' },
+    { sql: 'DROP TABLE `layouts`' },
+    {
+      sql: `CREATE TABLE \`layouts\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`dashboard_id\` text NOT NULL,
+	\`screen_size_id\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	FOREIGN KEY (\`dashboard_id\`) REFERENCES \`dashboards\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`screen_size_id\`) REFERENCES \`screen_sizes\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "layouts_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `layouts_tenant_dashboard` ON `layouts` (`tenant_id`,`dashboard_id`)',
     },
   ],
 };

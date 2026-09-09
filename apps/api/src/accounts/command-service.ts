@@ -57,7 +57,6 @@ import {
   appendedPlacement,
   arrangementRows,
   firstPanelFor,
-  layoutNamed,
   panelFromCommand,
   panelNamed,
   panelsNotOn,
@@ -248,14 +247,14 @@ export class LayoutNotFoundError extends Error {
 }
 
 /**
- * Its own kind rather than the panel one, for the reason that one is not the
- * dashboard one: the message is what a person reads, and "a panel called Wide
- * is already on this dashboard" names the wrong thing entirely.
+ * A dashboard may have at most one Layout at a given Screen size ("Draw a
+ * dashboard against the screen sizes its account has", issue 263) - the
+ * message names the size, since that is the thing actually in the way.
  */
-export class LayoutNameTakenError extends Error {
-  constructor(name: string) {
-    super(`a layout called ${name} already arranges this dashboard`);
-    this.name = 'LayoutNameTakenError';
+export class LayoutSizeTakenError extends Error {
+  constructor(screenSizeName: string) {
+    super(`a layout for ${screenSizeName} already arranges this dashboard`);
+    this.name = 'LayoutSizeTakenError';
   }
 }
 
@@ -839,21 +838,13 @@ export function runCommand<N extends CommandName>(
       const held = getLayout(db, tenantId, cmd.layoutId);
       if (held && held.dashboardId !== dashboard.id) throw new LayoutNotFoundError(cmd.layoutId);
       // Resolved only where this save is the one creating the layout - see
-      // `saveLayoutSchema`'s `screenSizeId` for what each branch means.
-      // `name` is never `cmd.name` here: what a Layout is called, to the one
-      // place left that still asks, is the screen size's own name.
-      let screenSizeId: string | null = null;
-      let name = cmd.name;
+      // `saveLayoutSchema`'s `screenSizeId` for what each branch means. Left
+      // as the empty string where `held` is truthy: the insert below still
+      // names it, but `onConflictDoNothing` never lets an existing layout's
+      // row be touched by it.
+      let screenSizeId = '';
+      let screenSizeName = '';
       let makingSize: { id: string; name: string; width: number } | null = null;
-      // A Layout from before this release, named by the removed
-      // `nameForScreen` bands - "Wide", "Phone", "Tablet", "Laptop" - and
-      // never touched again: the new code never draws it, the menu never
-      // lists it (both read by `screenSizeId`, which it has none of), and
-      // nothing can rename or remove it. Every Layout deployed today is one
-      // of these, so it is renamed out of its old name below rather than
-      // deleted - deployed data is real (CLAUDE.md), and what it arranges is
-      // as real as any live Layout's, even though nothing draws it any more.
-      let renamingLegacyLayoutId: string | null = null;
       if (!held) {
         if (cmd.screenSizeId) {
           // Explicit - "Define a layout for X". A tab that raced a delete of
@@ -862,7 +853,7 @@ export function runCommand<N extends CommandName>(
           const named = getScreenSize(db, tenantId, cmd.screenSizeId);
           if (!named) throw new ScreenSizeNotFoundError(cmd.screenSizeId);
           screenSizeId = named.id;
-          name = named.name;
+          screenSizeName = named.name;
         } else {
           // Implicit - an ordinary arrangement gesture on a Dashboard with
           // nothing defined. Kept in the nearest size the account has; where
@@ -872,7 +863,7 @@ export function runCommand<N extends CommandName>(
           const nearest = nearestScreenSize(sizes, cmd.screenWidth);
           if (nearest) {
             screenSizeId = nearest.id;
-            name = nearest.name;
+            screenSizeName = nearest.name;
           } else {
             makingSize = {
               id: defaultScreenSizeId(tenantId),
@@ -880,34 +871,17 @@ export function runCommand<N extends CommandName>(
               width: cmd.screenWidth,
             };
             screenSizeId = makingSize.id;
-            name = makingSize.name;
+            screenSizeName = makingSize.name;
           }
         }
         // At most one Layout of a Dashboard per screen size, checked by the
-        // id itself rather than by the name it resolved to: a Layout's own
-        // name is frozen at its creation and `rename_screen_size` never
-        // touches it, so two Layouts made at one size before and after a
-        // rename would carry two different frozen names and slip straight
-        // past a check that compared those instead.
+        // id itself: a screen size can be renamed at any time
+        // (`rename_screen_size`), and comparing anything it was ever called
+        // would let two Layouts at one size through around a rename landing
+        // between two saves.
         const its = listLayoutsOn(db, tenantId, dashboard.id);
         const alreadyThere = its.find((layout) => layout.screenSizeId === screenSizeId);
-        if (alreadyThere) throw new LayoutNameTakenError(name);
-        // The other direction of the same staleness: two *different* sizes
-        // can resolve to the same name - one renamed away from it, another
-        // renamed into it - and `layouts_dashboard_folded_name` (schema.ts)
-        // still refuses two Layouts of one name on one Dashboard regardless
-        // of which size either is at. Caught here, in the words of the name
-        // actually in the way, rather than left to surface as the raw
-        // constraint the index behind it would otherwise raise.
-        const sameNameElsewhere = layoutNamed(its, name);
-        if (sameNameElsewhere) {
-          if (sameNameElsewhere.screenSizeId !== null) {
-            throw new LayoutNameTakenError(sameNameElsewhere.name);
-          }
-          // A legacy Layout is in the way rather than a live one - see the
-          // comment on `renamingLegacyLayoutId` above.
-          renamingLegacyLayoutId = sameNameElsewhere.id;
-        }
+        if (alreadyThere) throw new LayoutSizeTakenError(screenSizeName);
       }
       // Every screen size is the account's, offered in every Workspace it has -
       // see `create_screen_size`. Only where this save makes one; an ordinary
@@ -915,17 +889,6 @@ export function runCommand<N extends CommandName>(
       if (makingSize) everyWorkspaceSees(commandRow);
       const arrangement = arrangementRows(tenantId, cmd.layoutId, cmd.rows);
       db.transaction((tx) => {
-        if (renamingLegacyLayoutId) {
-          // Freed by its own id, which nothing else is ever named after, so
-          // this never has to check what it is renaming into. Its rows and
-          // placements are untouched - only the name that was blocking the
-          // save moves out of the way.
-          const freed = `Legacy layout ${renamingLegacyLayoutId}`;
-          tx.update(layouts)
-            .set({ name: freed, foldedName: foldName(freed) })
-            .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, renamingLegacyLayoutId)))
-            .run();
-        }
         if (makingSize) {
           tx.insert(screenSizes)
             .values({
@@ -948,19 +911,13 @@ export function runCommand<N extends CommandName>(
             id: cmd.layoutId,
             tenantId,
             dashboardId: dashboard.id,
-            name,
-            foldedName: foldName(name),
-            screenWidth: cmd.screenWidth,
             screenSizeId,
             createdAt: cmd.issuedAt,
           })
-          // `DoNothing` is what records the name, the width and the screen
-          // size once and once only, and it is the whole of that rule rather
-          // than a guard on a branch: a layout records the width - and now the
-          // size - it was *created* at, so changing one from another screen
-          // has to leave that alone. Named at the primary key rather than
-          // bare, so a collision on anything else - the name index, in
-          // particular - would still raise.
+          // `DoNothing` is what records the screen size once and once only,
+          // and it is the whole of that rule rather than a guard on a branch:
+          // a layout records the size it was *created* at, so changing an
+          // existing layout's arrangement leaves that alone.
           .onConflictDoNothing({ target: layouts.id })
           .run();
         // Replaced whole rather than merged: an arrangement is an answer to
@@ -990,39 +947,6 @@ export function runCommand<N extends CommandName>(
         for (const batch of inBatchesOf(arrangement.placements, PLACEMENT_VALUES_PER_ROW)) {
           tx.insert(panelPlacements).values(batch).run();
         }
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'rename_layout': {
-      const cmd = payload as CommandPayload<'rename_layout'>;
-      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
-        throw new WorkspaceNotFoundError(cmd.workspaceId);
-      }
-      const held = getLayout(db, tenantId, cmd.layoutId);
-      if (!held) throw new LayoutNotFoundError(cmd.layoutId);
-      // The layout has to be on a dashboard of *this* workspace, which is the
-      // same two-step every layout command takes: the id alone says nothing
-      // about who may address it.
-      if (!getDashboard(db, tenantId, cmd.workspaceId, held.dashboardId)) {
-        throw new LayoutNotFoundError(cmd.layoutId);
-      }
-      // Minus this layout's own row, so the name it already has, recapitalized,
-      // collides with nothing.
-      const alreadyCalledThat = layoutNamed(
-        listLayoutsOn(db, tenantId, held.dashboardId),
-        cmd.name,
-        cmd.layoutId,
-      );
-      if (alreadyCalledThat) throw new LayoutNameTakenError(alreadyCalledThat.name);
-      db.transaction((tx) => {
-        tx.update(layouts)
-          // `foldedName` alongside `name`, never on its own: it is what the
-          // unique index holds, so a rename writing only the name would leave
-          // the index guarding the old one.
-          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
-          .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, cmd.layoutId)))
-          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

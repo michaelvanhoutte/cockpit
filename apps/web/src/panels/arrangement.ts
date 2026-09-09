@@ -76,26 +76,23 @@ export const SAME_SCREEN_TOLERANCE = 40;
 
 /**
  * What to call a layout on screen: the name of the screen size it is drawn
- * for, not its own stored `name` - which is set once, at creation, and would
- * go stale the moment that size was renamed from the menu's own *Rename*.
+ * for. A layout carries no name of its own to go stale, so this always
+ * resolves through the account's current list.
  *
- * **The width it was made at is the fallback, and it is a real state, not a
- * bug.** A layout from before "Draw a dashboard against the screen sizes its
- * account has" (issue 263) names no screen size at all, and one whose size has
- * since been deleted - which cannot happen through the app, only through
- * something written straight into the store - would find none here either.
- * Drawing either as the width it was made at is what the app called every
- * layout before names existed at all, so such a row reads as it always did
- * rather than as a blank entry in a menu.
+ * **The empty string is the fallback, not a crash.** A layout whose size is
+ * not in this list at all - reachable only by something written straight into
+ * the store, never through the app - draws as a blank rather than throwing;
+ * the caller, not this function, decides what a Layout with nothing drawn
+ * should read as (`LayoutPicker`, `drawnLabel`).
  */
 export function layoutLabel(layout: Layout, screenSizes: readonly ScreenSize[]): string {
   const size = screenSizes.find((one) => one.id === layout.screenSizeId);
-  return size?.name.trim() || `${layout.screenWidth} px`;
+  return size?.name.trim() ?? '';
 }
 
 /**
  * One dashboard's layouts, in the order the snapshot already holds them - which
- * is by the width they were made at, narrowest first (repo.ts,
+ * is by its screen size's own width, narrowest first (repo.ts,
  * `listLayoutsInWorkspace`). This filters and does not sort.
  */
 export function layoutsOf(layouts: readonly Layout[], dashboardId: string): Layout[] {
@@ -132,14 +129,17 @@ export type ScreenSizePick = {
 
 /**
  * The layout of this Dashboard whose screen size is nearest this window, among
- * the sizes it has actually defined - never one it has not, and never one that
- * predates screen sizes at all.
+ * the sizes it has actually defined - never one it has not.
  *
- * **Compared by the size's own width, not the Layout's recorded one.** A
- * Layout still carries the width it was made at (`screenWidth`), but a size can
- * be renamed to a different width from the menu's own *Rename*, and the
- * Layouts drawn from it have to answer to that immediately rather than to the
- * number they happened to be made at.
+ * **Compared by the size's own width, not anything the Layout itself
+ * carries.** A size can be renamed to a different width from the menu's own
+ * *Rename*, and the Layouts drawn from it have to answer to that immediately
+ * rather than to a number frozen at creation.
+ *
+ * **A Layout whose size is not in the list is skipped rather than crashing.**
+ * Every Layout is defined at a size the account has, but a snapshot read
+ * before another tab's delete of that size lands could still name one this
+ * list has already lost.
  *
  * Ties go to the narrower Layout. Any tie-break would do; having one is what
  * stops the same Dashboard being drawn two ways on two devices of the same
@@ -152,13 +152,11 @@ export function nearestLayout(
   screenWidth: number,
 ): Layout | null {
   const widthOf = new Map(screenSizes.map((size) => [size.id, size.width]));
-  const defined = layoutsOf(layouts, dashboardId).filter(
-    (layout) => layout.screenSizeId !== null && widthOf.has(layout.screenSizeId),
-  );
+  const defined = layoutsOf(layouts, dashboardId).filter((layout) => widthOf.has(layout.screenSizeId));
   return defined.reduce<Layout | null>((closest, layout) => {
     if (!closest) return layout;
-    const width = widthOf.get(layout.screenSizeId!)!;
-    const closestWidth = widthOf.get(closest.screenSizeId!)!;
+    const width = widthOf.get(layout.screenSizeId)!;
+    const closestWidth = widthOf.get(closest.screenSizeId)!;
     const near = Math.abs(width - screenWidth);
     const nearest = Math.abs(closestWidth - screenWidth);
     if (near < nearest) return layout;

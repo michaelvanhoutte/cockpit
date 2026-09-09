@@ -358,12 +358,29 @@ describe('Panels', () => {
     });
   }
 
+  /** A screen size written straight into the store, for a layout's FK to point at. */
+  async function aScreenSizeId(): Promise<string> {
+    const id = nextId();
+    await inTheStore((sql) => {
+      sql.exec(
+        `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        id,
+        ACCOUNT_NAME,
+        `Size ${id}`,
+        `size ${id}`,
+        1280,
+        AT,
+      );
+    });
+    return id;
+  }
+
   async function putLayout(overrides: Record<string, unknown> = {}): Promise<void> {
     const row = {
       id: nextId(),
       tenant_id: ACCOUNT_NAME,
       dashboard_id: DASHBOARD_ID,
-      screen_width: 1280,
+      screen_size_id: await aScreenSizeId(),
       created_at: AT,
       ...overrides,
     };
@@ -467,21 +484,14 @@ describe('Panels', () => {
       { situation: 'a share of nothing at all', override: { span: 0 } },
       { situation: 'a place before the first one in its row', override: { position: -1 } },
       { situation: 'a row before the first one', override: { row_index: -1 } },
-      { situation: 'a screen of no width', override: { screenWidth: 0 } },
-      { situation: 'a screen wider than any screen', override: { screenWidth: 100_001 } },
     ])('refuses $situation', async ({ override }) => {
-      const { screenWidth, ...placement } = override as Record<string, number>;
       const layoutId = nextId();
       const panelId = nextId();
-      if (screenWidth !== undefined) {
-        await expect(putLayout({ id: layoutId, screen_width: screenWidth })).rejects.toThrow();
-        return;
-      }
       await putLayout({ id: layoutId });
       await putPanel({ id: panelId });
 
       await expect(
-        putPlacement({ layout_id: layoutId, panel_id: panelId, ...placement }),
+        putPlacement({ layout_id: layoutId, panel_id: panelId, ...override }),
       ).rejects.toThrow();
     });
 
@@ -692,13 +702,12 @@ describe('Layouts', () => {
     });
   });
 
-  /** A layout written the same way, so it can be pointed at a size or at nothing. */
+  /** A layout written without a default screen size, so a case can name one or leave it out. */
   async function putLayoutAt(overrides: Record<string, unknown> = {}): Promise<void> {
     const row = {
       id: nextId(),
       tenant_id: ACCOUNT_NAME,
       dashboard_id: DASHBOARD_ID,
-      screen_width: 1280,
       created_at: AT,
       ...overrides,
     };
@@ -718,8 +727,8 @@ describe('Layouts', () => {
       ).rejects.toThrow();
     });
 
-    it('is stored with no size at all, which is every layout while nothing writes one', async () => {
-      await expect(putLayoutAt()).resolves.toBeUndefined();
+    it('is refused with no size at all, now that every layout is defined at one', async () => {
+      await expect(putLayoutAt()).rejects.toThrow();
     });
 
     it('keeps a size that a layout still names, rather than taking the layout with it', async () => {

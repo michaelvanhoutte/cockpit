@@ -477,17 +477,18 @@ export const screenSizes = sqliteTable(
 );
 
 /**
- * A layout: one arrangement of a dashboard's panels, what it is called, and the
- * screen width it was made at.
+ * A layout: one arrangement of a dashboard's panels, at one screen size.
  *
- * **The name is what a person picks it by** ("Pick the layout you are on, by
- * name"), so it is unique among a dashboard's layouts the way a panel's title
- * is among its panels - two dashboards may each have a *Wide*.
+ * **What it is called is the screen size's own name**, not anything stored
+ * here - a Layout used to carry `name`, `folded_name` and `screen_width` of its
+ * own, from before "Draw a dashboard against the screen sizes its account has"
+ * (issue 263) gave every Layout a `screen_size_id` to hang off instead. "Take
+ * the width and the name off a layout, now that its size carries them" (issue
+ * 264) is the release that drops them, once nothing reads them any more.
  *
- * **`screen_width` is a width, not a breakpoint.** The issue asks for arbitrary
- * widths on purpose, so there is no fixed set of sizes to belong to and the
- * question "which layout is this screen's" is answered by distance rather than
- * by membership. It is now read only when a screen is matched to a layout.
+ * **`screen_size_id` is NOT NULL**, which is what makes this the final shape:
+ * every Layout from here on is defined at a size the account has, and there is
+ * no longer a legacy row with none to fall back for.
  *
  * **Deleted for real, not tombstoned**, which is the one place this store
  * departs from "tombstones, not deletes" and is deliberate. A tombstone exists
@@ -507,43 +508,17 @@ export const layouts = sqliteTable(
       .notNull()
       .references(() => dashboards.id, { onDelete: 'restrict' }),
     /**
-     * Defaulted to the empty string, and that default is load-bearing exactly
-     * as `workspaces.folded_name`'s is: for the length of the deploy that adds
-     * these columns, old code is still creating layouts and knows nothing about
-     * them. What it leaves behind has to be a row the app can draw, and the app
-     * draws a layout with no name as the width it was made for.
-     */
-    name: text('name').notNull().default(''),
-    foldedName: text('folded_name').notNull().default(''),
-    screenWidth: integer('screen_width').notNull(),
-    /**
-     * Which screen size this layout arranges the dashboard for.
-     *
-     * **Nullable, and only for as long as it takes to stop needing to be.**
-     * Nothing writes it in this release, so every existing layout keeps NULL;
-     * "Draw a dashboard against the screen sizes its account has" (issue 263)
-     * makes every save carry one and draws no layout without one, and the
-     * contract half rebuilds the table with it NOT NULL. RESTRICT, like
+     * Which screen size this layout arranges the dashboard for. RESTRICT, like
      * everything else here: deleting a size has to say what happens to the
      * layouts at it rather than taking them silently.
      */
-    screenSizeId: text('screen_size_id').references(() => screenSizes.id, {
-      onDelete: 'restrict',
-    }),
+    screenSizeId: text('screen_size_id')
+      .notNull()
+      .references(() => screenSizes.id, { onDelete: 'restrict' }),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
-    /**
-     * Unique within the *dashboard*, the way a panel's title is: two dashboards
-     * of one workspace may each have a *Wide*. Not partial on a tombstone,
-     * because a layout is deleted for real rather than tombstoned - there is no
-     * dead row to exclude.
-     */
-    uniqueIndex('layouts_dashboard_folded_name').on(t.tenantId, t.dashboardId, t.foldedName),
     index('layouts_tenant_dashboard').on(t.tenantId, t.dashboardId),
-    // Bounded, because a screen is matched to "the layout closest to this
-    // screen": one absurd width would win that comparison everywhere or never.
-    check('layouts_screen_width_is_a_width', sql.raw('screen_width BETWEEN 1 AND 100000')),
     check('layouts_created_at_is_timestamp', isTimestamp('created_at')),
   ],
 );
