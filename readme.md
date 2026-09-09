@@ -29,7 +29,7 @@ Not yet in place, deliberately and in build order: app login ("App login: hand-r
 
 ## Environments
 
-Trunk-based: `main` is the trunk, every other branch is gated on push and deployed nowhere, merging deploys staging, and **production is a deliberate promotion pinned to one commit**. The model and its arguments — including why branches get no environment — are in [docs/deployment.md](docs/deployment.md).
+Trunk-based: `main` is the trunk, every other branch is gated by its pull request and deployed nowhere, merging deploys staging, and **production is a deliberate promotion pinned to one commit**. The model and its arguments — including why branches get no environment — are in [docs/deployment.md](docs/deployment.md).
 
 Nothing stands in front of either; `/health` additionally answers without a sign-in at all, so the deploy checks and the uptime monitor can reach it.
 

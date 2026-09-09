@@ -71,9 +71,9 @@ cron trigger or queue consumer ever runs.
 
 ### Naming and commits
 
-Branch names carry no mechanical meaning — the workflows trigger on every branch
-regardless of prefix — so `claude/<slug>` stays: the slug says what the change is
-and the prefix records that it was agent-generated.
+Branch names carry no mechanical meaning — the workflows trigger off the pull
+request regardless of prefix — so `claude/<slug>` stays: the slug says what the
+change is and the prefix records that it was agent-generated.
 
 The changelog value people want from branch prefixes is taken in commit messages
 instead: **Conventional Commits on the squash-merge message into `main`**. Writing
