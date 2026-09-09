@@ -473,7 +473,7 @@ describe('Panels', () => {
       // trigger now, and picking the panel up moves pointer capture off the
       // header before Radix ever sees a release - so a drag started here on
       // every touch, mouse or not, would silently arm a menu that could never
-      // close, and starve `TabMenu`'s long press of the touch it needs to
+      // close, and starve `SurfaceMenu`'s long press of the touch it needs to
       // open at all. `pointerType` is the whole of what tells the two apart,
       // the same guard `tabDrag.ts` carries for the same reason.
       showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });

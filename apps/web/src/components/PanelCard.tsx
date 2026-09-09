@@ -2,7 +2,7 @@ import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { PanelText } from '../panels/PanelText';
-import { TabMenu } from './Menu';
+import { SurfaceMenu } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
 
 /**
@@ -155,7 +155,7 @@ export function PanelCard({
         lifted ? 'rounded-lg opacity-40 outline-2 outline-dashed outline-accent' : ''
       }`}
     >
-      <TabMenu
+      <SurfaceMenu
         label={`Actions for ${panel.name}`}
         // Shut while the name is being edited in place, on this same header:
         // a right-click or the menu key would otherwise fight the rename box
@@ -216,7 +216,7 @@ export function PanelCard({
           onPointerDown={(event) => {
             // The primary button of a mouse only, the same guard `tabDrag.ts`
             // uses for the same reason: a right-click opens the panel's own
-            // menu (`TabMenu`, above), and a touch is what rests a finger to
+            // menu (`SurfaceMenu`, above), and a touch is what rests a finger to
             // open it too - a drag is absent on a touchscreen, so leaving a
             // touch press here would take the header's own `onPointerDown`
             // ahead of Radix's, in the one child-before-slot order `asChild`
@@ -374,7 +374,7 @@ export function PanelCard({
             </div>
           )}
         </header>
-      </TabMenu>
+      </SurfaceMenu>
 
       {/* No padding of its own: a row carries its own, so a list inside a panel
           reads exactly as it does in the Inbox.

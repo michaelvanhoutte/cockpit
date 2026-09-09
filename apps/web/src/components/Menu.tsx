@@ -137,8 +137,8 @@ export interface MenuEntry {
  *
  * One component rather than the same dozen lines in each: what they offer
  * differs, how a row offers it does not. A workspace, a dashboard and a panel
- * open their own menu instead and carry `TabMenu` below - a workspace and a
- * dashboard because they are tabs rather than rows, a panel because its
+ * open their own menu instead and carry `SurfaceMenu` below - a workspace and
+ * a dashboard because they are tabs rather than rows, a panel because its
  * header is the trigger already, under the pointer, and a kebab beside it
  * would be a second control doing what the header already can.
  *
@@ -250,7 +250,7 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
  * rather than a flag on `RowMenu` - Radix keeps context menus and dropdowns in
  * separate primitives because what opens them is different.
  */
-export function TabMenu({
+export function SurfaceMenu({
   label,
   entries,
   children,
@@ -323,8 +323,11 @@ export function TabMenu({
 }
 
 /**
- * What a press on the tab you are already on does: open that tab's menu instead
- * of going where you already are.
+ * What a press on the tab you are already on does: open that tab's
+ * `SurfaceMenu` instead of going where you already are.
+ *
+ * Tab-only: a panel has no "already open" state to repurpose this way, so it
+ * never passes one (see `SurfaceMenu`'s own doc comment).
  *
  * It opens the menu by making the event the trigger is listening for, rather
  * than by holding the menu open in state, because Radix's context menu has no

@@ -15,7 +15,7 @@ import { litForChrome } from '../chrome';
 import { movedBy } from '../reorder';
 import { useTabDrag } from '../tabDrag';
 import { DeleteQuestion } from './DeleteQuestion';
-import { TabMenu, opensOnPress, type MenuEntry } from './Menu';
+import { SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { RowForm } from './RowForm';
 
 /**
@@ -359,7 +359,7 @@ export function WorkspaceTabs({
         {shown.map((ws, at) => {
           const here = ws.id === params.workspaceId;
           return (
-            <TabMenu key={ws.id} label={`Actions for ${ws.name}`} entries={entriesFor(ws, at)}>
+            <SurfaceMenu key={ws.id} label={`Actions for ${ws.name}`} entries={entriesFor(ws, at)}>
               <Link
                 ref={here ? bringIntoView : undefined}
                 to="/w/$workspaceId"
@@ -391,7 +391,7 @@ export function WorkspaceTabs({
                 />
                 {ws.name}
               </Link>
-            </TabMenu>
+            </SurfaceMenu>
           );
         })}
         {children}
