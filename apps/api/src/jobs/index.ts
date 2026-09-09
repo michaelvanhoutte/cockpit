@@ -72,7 +72,20 @@ async function workThrough(message: Message<unknown>, env: Env): Promise<void> {
         }`,
       }),
     );
-    message.retry();
+    /**
+     * **After a minute, not at once.** Cloudflare's own default delay is zero,
+     * so a bare `retry()` redelivers immediately - and the thing most likely to
+     * bring a job here is a rate limit, which three instant redeliveries burn
+     * inside the same window that caused them. Nothing is enriched and the
+     * message is then dropped, there being no dead-letter queue, which is the
+     * one outcome the SDK's own `maxRetries: 1` was capped for
+     * (`ai/index.ts`): the queue is the retry that is supposed to wait.
+     *
+     * Chosen here rather than as `retry_delay` in wrangler.jsonc, so the delay
+     * sits beside the reason for it and there is one number rather than one per
+     * environment.
+     */
+    message.retry({ delaySeconds: 60 });
   }
 }
 

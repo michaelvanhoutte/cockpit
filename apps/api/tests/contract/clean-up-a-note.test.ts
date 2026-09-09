@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeAiService } from '../../src/ai/index.js';
+import { TITLE_LENGTH } from '@cockpit/shared';
 import { CLEAN_UP_A_NOTE } from '../../src/ai/prompts/clean-up-a-note.v1.js';
 
 /**
@@ -22,12 +23,30 @@ import { CLEAN_UP_A_NOTE } from '../../src/ai/prompts/clean-up-a-note.v1.js';
 const key = process.env.ANTHROPIC_API_KEY ?? '';
 const reading = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined);
 
-/** Words that only appear in one of the two languages, in prose of this length. */
+/**
+ * Words that exist in one of the two languages and not the other, so a text can
+ * be read as one or the other without a detector.
+ *
+ * **Each one has to be absent from the other language, not merely typical of
+ * its own**, because these are asserted both ways. `over` and `van` were in the
+ * Dutch list and are ordinary English words - "a question over the audit trail"
+ * would have failed a correct English answer, on a nightly run that costs money
+ * and whose failures are meant to be priority work rather than re-run.
+ */
 const MARKERS = {
   English: /\b(the|and|about|which|with)\b/i,
-  Dutch: /\b(de|het|een|niet|van|voor|over|naar)\b/i,
+  Dutch: /\b(de|het|een|niet|voor|naar|zegt)\b/i,
 };
 
+/**
+ * Reads one note, and none of the notes below is one the prompt carries.
+ *
+ * **That is the whole difference between testing the model and testing its
+ * recall.** The prompt has three worked examples with their answers written
+ * out, so a case that reuses one of them can be passed by copying the example -
+ * and the drift this tier exists to catch would sail through, since a note it
+ * has been shown the answer to is not a note it had to decide anything about.
+ */
 async function read(note: string) {
   const answer = await reading.cleanUpNote(note);
   // Said out loud, because a discarded answer is the one failure whose reason
@@ -54,30 +73,38 @@ describe('Capture', () => {
     it.each([
       {
         situation: 'an English note',
-        note: 'part 11 audit trail q for validation protocol, who signs off eod',
+        note: 'cal invite for the CAPA review, need the deviation nr first',
         expected: 'English' as const,
+        onlyIts: true,
       },
       {
         situation: 'a Dutch note',
-        note: 'bellen novy ivm afspraak volgende week, niet voor 10u',
+        note: 'factuur leverancier nakijken, btw-nummer klopt volgens mij niet',
         expected: 'Dutch' as const,
+        onlyIts: true,
       },
       {
-        situation: 'a note written mostly in Dutch with an English phrase in it',
-        note: 'check of de deploy erdoor is voor de release van morgen',
+        situation: 'a note that genuinely mixes the two',
+        note: 'even nakijken of de backup gelukt is before the release tonight',
         expected: 'Dutch' as const,
+        // A note that mixes them may keep a phrase of the other, which is right
+        // rather than a translation - so this case asks only that it stayed in
+        // its own language, not that the other is absent.
+        onlyIts: false,
       },
-    ])('answers $situation in its own language', async ({ note, expected }) => {
+    ])('answers $situation in its own language', async ({ note, expected, onlyIts }) => {
       const proposal = await read(note);
 
       expect(proposal.language).toContain(expected);
-      const other = expected === 'English' ? 'Dutch' : 'English';
       // The named language is the model's own claim, so the texts are checked
       // as well: the failure being guarded against wrote fluent Dutch under the
       // heading "English".
       expect(proposal.message).toMatch(MARKERS[expected]);
-      expect(proposal.message).not.toMatch(MARKERS[other]);
-      expect(proposal.title).not.toMatch(MARKERS[other]);
+      if (onlyIts) {
+        const other = expected === 'English' ? 'Dutch' : 'English';
+        expect(proposal.message).not.toMatch(MARKERS[other]);
+        expect(proposal.title).not.toMatch(MARKERS[other]);
+      }
     });
   });
 
@@ -95,13 +122,13 @@ describe('Capture', () => {
     it.each([
       {
         situation: 'a note that never says who or when',
-        note: 'audit trail q for validation protocol, who signs off',
+        note: 'sign-off needed on the cleaning validation, who owns it',
         absent: [/monday|tuesday|wednesday|thursday|friday/i, /\bQA\b/, /manager/i],
       },
       {
         situation: 'a note that names a thing it never identifies',
-        note: 'mail anna re invoice, she asked twice already',
-        absent: [/\b(january|february|march|april|may|june|july)\b/i, /€|\$|EUR/],
+        note: 'terugbellen over de klacht, hij was er niet blij mee',
+        absent: [/\b(januari|februari|maart|april|juni|juli)\b/i, /€|\$|EUR/],
       },
     ])('invents no name, date or number for $situation', async ({ note, absent }) => {
       const proposal = await read(note);
@@ -123,15 +150,31 @@ describe('Capture', () => {
    * captured note straight back as the title, unshortened, on half the notes it
    * was given - which is the one thing this whole feature exists to stop.
    */
-  describe('a note gets a title shorter than the note itself', () => {
-    it('does not hand a long note back as its own title', async () => {
+  describe('a note gets a name of its own rather than being handed back', () => {
+    /**
+     * **The note is deliberately short enough to be a legal title**, so handing
+     * it back would validate and nothing below this tier would notice. That is
+     * exactly the failure measured on a cheaper model: it returned the captured
+     * note as the title, unshortened, on half the notes it was given.
+     *
+     * **Asserted as a property and not as a ratio.** "Under half the length"
+     * was tried and is a tolerance rather than a rule - a perfectly good
+     * 86-character title for a 171-character note failed it - and a threshold
+     * picked to fit today's answer proves nothing about tomorrow's.
+     */
+    it('answers with a title that is not the note, and a message longer than it', async () => {
       const note =
-        'part 11 audit trail q for validation protocol, who signs off eod, and check whether the ' +
-        'change control from last month covers it or whether we need a new one before the audit';
+        'sign-off needed on the cleaning validation, who owns it, and check whether the change ' +
+        'control from last month already covers it or whether we have to raise a new one first';
+      // A title this long is one the form would accept, which is what makes the
+      // failure invisible to every tier below.
+      expect(note.length).toBeLessThan(TITLE_LENGTH);
 
       const proposal = await read(note);
 
-      expect(proposal.title.length).toBeLessThan(note.length / 2);
+      expect(proposal.title).not.toBe(note);
+      expect(proposal.title.length).toBeLessThan(note.length);
+      // A name and a fuller text, rather than the same words twice.
       expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
       expect(CLEAN_UP_A_NOTE.version).toBe('v1');
     });

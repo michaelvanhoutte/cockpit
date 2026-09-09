@@ -176,9 +176,15 @@ function settledBy(item: Item, issuedAt: string): Pick<Item, 'textsSettledAt'> {
  * comparable - this carries the moment the job ran, and an edit carries the
  * device's own - and the rule is not about which happened later anyway: Cockpit
  * may replace what it proposed and never what a person settled, which is the
- * same rule `decideWorkspace` above states for where an Item belongs. It is
- * also what makes a redelivered job a no-op instead of a clobber, which
- * at-least-once delivery guarantees will happen eventually.
+ * same rule `decideWorkspace` above states for where an Item belongs.
+ *
+ * **What it guards against is a redelivery arriving after an edit, and nothing
+ * else.** At-least-once delivery means the same note will be read twice
+ * eventually, and a second reading of texts nobody has touched is *accepted*:
+ * it re-reads the same captured message and writes a fresh proposal over the
+ * previous one, which costs cents and is worth less than the machinery to
+ * prevent it (issue 296, "The second time it runs?"). Only an edit in between
+ * makes the second write a clobber, and only that is refused.
  *
  * **`updatedAt` is deliberately left where it is.** Every other handler here
  * refuses a command older than it, so raising it to the moment the job happened

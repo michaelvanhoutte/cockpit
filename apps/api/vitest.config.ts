@@ -23,6 +23,20 @@ export default defineConfig({
      * Vitest project in the repository leaves out.
      */
     exclude: [...configDefaults.exclude, 'tests/contract/**'],
+    /**
+     * **Not a tolerance on anything a case asserts - a guard against a hang,
+     * set to what the work here legitimately takes.** An integration case makes
+     * several real HTTP requests through a real Durable Object and empties six
+     * stores plus three D1 tables before each one, and `pnpm test` runs this
+     * suite alongside every other package's at once. Measured: cases that take
+     * 200-800ms on an idle machine reach six seconds under that, so Vitest's
+     * 5s default fired on contention rather than on anything under test - three
+     * panel-layout cases and a bulk screen-size delete, none of them related to
+     * each other or to the change that finally tipped them.
+     *
+     * A case that genuinely hangs still fails, twenty seconds later.
+     */
+    testTimeout: 20_000,
     // Only collected when run with `--coverage` (tools/test-explorer's
     // "branches nothing takes" column, docs/test-explorer-spec.md §6.3) —
     // `pnpm test` stays fast, coverage is opt-in.
