@@ -202,6 +202,7 @@ Note the ordering. The reviews are triggered by `ready_for_review`, not by the p
 | What | Where | Effect |
 |---|---|---|
 | Project instructions | [CLAUDE.md](CLAUDE.md) | Loaded into every session: how to run it, how to write, when to scope, the two testing rules that get skipped most, when a pull request is opened as a draft and marked ready, and what answering a review requires. |
+| `/issue` command | [.claude/commands/issue.md](.claude/commands/issue.md) | The entry point for issue work: confirm the issue is live, scope it, build, test, prove it runs, review, ship — sequencing CLAUDE.md and its skills rather than restating them. |
 | `scoping` skill | [.claude/skills/scoping/](.claude/skills/scoping/SKILL.md) | Sharpen requirements, size the vertical slice, enumerate failure modes, produce the statement list — before any code. |
 | `testing` skill | [.claude/skills/testing/](.claude/skills/testing/SKILL.md) | The binding test rules, restated in full so no agent has to open the strategy document. |
 | `github-issue` skill | [.claude/skills/github-issue/](.claude/skills/github-issue/SKILL.md) | The issue body template, its length rules, and the `gh` publishing step. |
