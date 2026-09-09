@@ -57,12 +57,12 @@ jobs:
       actions: read
 
     # A pull request from a fork gets a read-only token whatever this block
-    # says, so the results upload may be refused and both legs report red. That
-    # is harmless while these checks are advisory and is not harmless once they
-    # are required, which is the step the runbook describes: a required check a
-    # fork cannot pass blocks every outside contribution to a public repository
-    # that allows forking. Verify a fork pull request before applying the
-    # payload, not after.
+    # says. All three CodeQL checks are required on `main` as of 2026-09-09, so
+    # a fork that could not upload its results would be blocked from
+    # contributing at all - but the upload endpoint was relaxed in May 2023 to
+    # accept exactly this call from a fork. That is GitHub's documentation and
+    # not a fork run observed here; see the runbook in deployment.md, which
+    # carries the link and the escape hatch.
 
     strategy:
       # One leg's failure must not cancel the other's: an infrastructure failure

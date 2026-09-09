@@ -683,17 +683,26 @@ Then, by hand (no API, or deliberately not automated):
      always: merge the workflow, let it run, read the name off that run, then apply
      this payload.
 
-     One thing to confirm, because it is not yet known: a pull request from a fork
-     gets a read-only token, so its results upload may be refused — in which case
-     all three CodeQL checks are unpassable from a fork and requiring them closes
-     this repository to outside contribution.
+     A pull request from a fork gets a read-only token, which would refuse an
+     ordinary write — so requiring CodeQL's three could have closed this
+     repository to outside contribution. It does not: GitHub relaxed the
+     code-scanning upload endpoint in May 2023 to match `upload-sarif`, which a
+     fork pull request may call ([community discussion
+     54013](https://github.com/orgs/community/discussions/54013)). **That is
+     GitHub's documentation, not a fork run observed here** — nobody has forked
+     this repository, and proving it needs a second account. If one ever does
+     stall on those three, `enforce_admins: false` is what lets the owner merge
+     it anyway.
 
      **The payload is what this file says; it is not what GitHub is enforcing.**
      Checking one in does not apply it, and the two drift silently. Measured
-     2026-09-01, the payload listed eight contexts while `main` enforced four:
-     `E2E (F3)` had been added to the file and never applied, so the browser tier
-     had been reporting on every pull request without gating any of them. So read
-     the live setting whenever the answer matters:
+     2026-09-01 and again 2026-09-09, the payload listed eight contexts while
+     `main` enforced four: `E2E (F3)` had been added to the file and never
+     applied, so the browser tier had been reporting on every pull request
+     without gating any of them. Applied 2026-09-09 by "Require the checks the
+     payload already lists, so a red browser tier cannot merge" (issue 276), and
+     the two agreed at eight when it merged. So read the live setting whenever
+     the answer matters:
 
      ```bash
      gh api repos/michaelvanhoutte/cockpit/branches/main/protection --jq '.required_status_checks.contexts'
