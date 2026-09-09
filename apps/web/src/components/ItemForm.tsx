@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -6,6 +6,8 @@ import { TITLE_LENGTH, itemLabel, uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
 import { useItemForm } from '../itemForm';
+import { browserStore } from '../lastVisited';
+import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 
 /** What the two boxes hold, before anything is sent. */
 interface Draft {
@@ -65,6 +67,24 @@ export function ItemForm() {
   );
 }
 
+/** How far into the dialog's own corner a `mousedown` still counts as taking
+ *  hold of the native resize handle, rather than pressing whatever else is
+ *  drawn nearby - generous enough to find with a mouse, narrower than the
+ *  padding around the buttons that sit closest to it. */
+const RESIZE_CORNER = 16;
+
+/** The dialog's own default size, unclamped - `42rem`/`44rem`
+ *  (`--item-form-w`/`-h`, styles.css) at the browser default root size. The
+ *  fallback of last resort for an axis a drag never touched and nothing was
+ *  ever remembered for: the *current* render is not it, because on a screen
+ *  short or narrow enough to be clamping that axis already, that measures
+ *  the clamped-down size, not the size nobody chose - persisting that would
+ *  follow the person to a bigger screen and keep it short there too, rather
+ *  than leaving the live clamp below (`max-w-`/`max-h-`) to answer that
+ *  question fresh on every open the way it already does for the axis that
+ *  did move. */
+const DEFAULT_SIZE: Size = { width: 672, height: 704 };
+
 function TheForm({
   itemId,
   workspaceId,
@@ -77,6 +97,154 @@ function TheForm({
   const { data, isLoading } = useQuery(snapshotQuery(workspaceId));
   const send = useSendCommand();
   const item = data?.items.find((candidate) => candidate.id === itemId);
+
+  // A callback ref rather than an object one: Radix's `Content` mounts behind
+  // its own exit-animation machinery (`Presence`), so the node an object ref
+  // would carry is not necessarily there on the tick after this component's
+  // own mount - which is exactly when the size it opened at needs measuring,
+  // below. A callback ref has no such gap; React calls it exactly when the
+  // node is attached, whenever that turns out to be.
+  const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
+  /**
+   * What the box opens at - `null` until read, then either what was
+   * remembered or, if there was nothing to remember, confirmed as nothing by
+   * staying `null`.
+   *
+   * **Read here, in a layout effect, rather than at render with a lazy
+   * `useState` initializer.** A straight swap from one item's form to
+   * another's (`ItemForm`, `key={openItemId}`) unmounts the outgoing
+   * `TheForm` and mounts this one within a single React update - and the
+   * write below runs from that outgoing instance's own layout-effect
+   * cleanup, which fires during the commit React makes for that same
+   * update, strictly after every component's *render* has already
+   * happened. A lazy initializer runs at render, before any of that commit
+   * has taken place, so it would read what was remembered *before* the item
+   * being swapped away from had a chance to write what it was just dragged
+   * to. A layout effect runs during the commit itself, after the outgoing
+   * instance's cleanup - late enough to see it.
+   */
+  const [remembered, setRemembered] = useState<Size | null>(null);
+  const appliedRemembered = useRef(false);
+  /** The stored preference as it was found at mount, kept aside from
+   *  `remembered` (React state, used only to size the box) so the fallback
+   *  below always has the true original to hand rather than whatever
+   *  `remembered` has since re-rendered with. */
+  const original = useRef<Size | null>(null);
+  useLayoutEffect(() => {
+    if (!contentEl || appliedRemembered.current) return;
+    appliedRemembered.current = true;
+    const stored = rememberedItemFormSize(browserStore());
+    original.current = stored;
+    if (stored) setRemembered(stored);
+  }, [contentEl]);
+  /**
+   * The box's own size as of the `mousedown` that began the drag currently
+   * in progress, and `known` - the best current understanding of what
+   * should be persisted, evolved from it once that drag's `mouseup` arrives.
+   *
+   * **Settled at `mouseup`, but only while `inProgress` says a drag is
+   * actually the reason for it.** There is no `resizeend` event, so a
+   * `mouseup` is what stands in for one - but a `mouseup` happens after
+   * every ordinary click too (typing into Title, pressing Cancel), and
+   * `checkpoint` alone cannot tell those apart from a real drag's end: once
+   * anything has set it, a later *unrelated* `mouseup` would still find the
+   * box measuring differently if a live viewport reclamp had moved it in
+   * between, with no drag involved at all. `inProgress`, set only by a
+   * qualifying `mousedown` and cleared the moment its own `mouseup` is
+   * handled, is what a `mouseup` checks first - an unrelated one finds it
+   * false and changes nothing. Settling at close instead of `mouseup` would
+   * have the same gap: the box measured then reflects everything since the
+   * drag ended, not only the drag itself.
+   *
+   * **`known` keeps only what a drag actually moved, per axis, across
+   * possibly several drags in the same open.** The first time an axis is
+   * seen to move, its fallback is the *original* stored preference, or
+   * `DEFAULT_SIZE` where there was none - never the box's own current
+   * render, which on a screen already clamping that axis is the
+   * clamped-down size rather than one anybody chose. Every settlement after
+   * that folds forward from whatever `known` already holds, so a second
+   * drag that leaves one axis alone keeps what the *first* drag left it at,
+   * not the original value from before either
+   * of them.
+   */
+  const checkpoint = useRef<Size | null>(null);
+  const known = useRef<Size | null>(null);
+  const inProgress = useRef(false);
+  useEffect(() => {
+    if (!contentEl) return;
+    const measure = (): Size | null => {
+      const box = contentEl.getBoundingClientRect();
+      return box.width > 0 && box.height > 0
+        ? { width: Math.round(box.width), height: Math.round(box.height) }
+        : null;
+    };
+    // A `mousedown` inside the handle's own corner, checked for the primary
+    // button, and only that: the grip is drawn inside the box's own
+    // padding, over nothing else, so a press landing there has this element
+    // as its target and nowhere close to the target a press on Cancel or
+    // Save would have. `sm:resize` (below) is the only thing that makes the
+    // handle interactive at all, which is why the width check matches its
+    // own breakpoint.
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0 || e.target !== contentEl || window.innerWidth < 640) return;
+      const box = contentEl.getBoundingClientRect();
+      const inCorner =
+        e.clientX >= box.right - RESIZE_CORNER &&
+        e.clientX <= box.right &&
+        e.clientY >= box.bottom - RESIZE_CORNER &&
+        e.clientY <= box.bottom;
+      const now = measure();
+      if (!inCorner || !now) return;
+      checkpoint.current = now;
+      inProgress.current = true;
+    };
+    // Not corner-gated, unlike `mousedown`: a drag can be dragged past the
+    // box's own edge before the button lifts. Gated on `inProgress` instead,
+    // so a `mouseup` that is not this drag's own changes nothing.
+    const onUp = () => {
+      if (!inProgress.current) return;
+      inProgress.current = false;
+      const was = checkpoint.current;
+      const now = measure();
+      if (!was || !now || (now.width === was.width && now.height === was.height)) return;
+      const base = known.current ?? original.current ?? DEFAULT_SIZE;
+      known.current = {
+        width: now.width === was.width ? base.width : now.width,
+        height: now.height === was.height ? base.height : now.height,
+      };
+    };
+    contentEl.addEventListener('mousedown', onDown);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      contentEl.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [contentEl]);
+  /**
+   * Remembers whatever a drag left `known` holding, on the way out.
+   *
+   * **A cleanup, not a call from Cancel or Save.** A cleanup runs regardless
+   * of *why* the dialog goes - Cancel, Save, Escape, a press outside, or a
+   * straight swap from one item's form to another's (`ItemForm`,
+   * `key={openItemId}`) skips both of those and unmounts this component
+   * directly, which is the one path a call hung off Cancel or Save would
+   * have missed a drag on.
+   *
+   * **A layout effect, not a plain one - the same reason the read above
+   * is one.** A layout effect's cleanup for an unmounting fiber runs
+   * synchronously during the same commit, before layout effect *setup* runs
+   * for a newly mounted sibling - which is what makes the read above see
+   * this write on a same-commit swap. A plain effect's cleanup for that
+   * fiber is not guaranteed to run until the passive phase, which normally
+   * follows layout, and by no documented rule precedes a sibling's mount;
+   * relying on that would be trusting an ordering nothing here actually
+   * grants.
+   */
+  useLayoutEffect(() => {
+    return () => {
+      if (known.current) rememberItemFormSize(browserStore(), known.current);
+    };
+  }, []);
 
   /** What the boxes hold, and what they were filled from. */
   const [editing, setEditing] = useState<{ was: Draft; now: Draft } | null>(null);
@@ -203,19 +371,44 @@ function TheForm({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
         <Dialog.Content
+          ref={setContentEl}
           aria-describedby={undefined}
-          // Centred, and the tallest dialog in the app, so on a phone it fills
-          // the screen: the height it may grow to is measured inside the
-          // screen's own edges (styles.css, `--edge-top`), or the title runs
-          // under the status bar and Save under the home indicator.
+          // An explicit size rather than one that grows and shrinks with what
+          // is inside it - the editor's async-loading placeholder is a fixed
+          // 12 rows, usually taller than the real editor once it swaps in, so
+          // sizing to content shrank the box the instant it arrived ("Fix the
+          // item form's resize jank, and let it be resized", issue 295). A
+          // remembered size starts the box here as `width`/`height`; with
+          // nothing remembered it opens at `--item-form-w`/`-h` (styles.css),
+          // the same formula that bounds it as `max-w-`/`max-h-` below - still
+          // the tallest dialog in the app, so on a phone it fills the screen.
           //
-          // **Twice the larger inset, not the two added together.** A box
-          // centred in the window keeps half of whatever it gives up at each
-          // end, so subtracting `top + bottom` clears the *average* of the two.
-          // That is enough only while they are within 2rem of each other, and a
-          // cutout with no home indicator under it - 48px and nothing, which is
-          // most Android phones - leaves the title 8px under the status bar.
-          className="fixed left-1/2 top-1/2 flex max-h-[min(44rem,calc(100vh_-_2rem_-_2_*_max(var(--edge-top),var(--edge-bottom))))] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          // **`max-`/`min-` stay live for the life of the dialog, not just its
+          // opening.** A remembered `width`/`height` only sets where the box
+          // starts; the class list goes on tracking the screen the whole time
+          // it is open, so the same formula that clamps an oversized
+          // remembered size down to fit also reclamps it live if the window
+          // or the device's own orientation changes under it - the reason a
+          // size clamped down on a small screen is the full size again on a
+          // big one, without ever rewriting what was remembered. The floor is
+          // wrapped in the same `min(...)` as the ceiling for the reason
+          // `--item-form-h`'s own comment gives: on a screen too short for
+          // even `18rem`, an unclamped floor would win over the safe-area
+          // formula and put the title back under the status bar.
+          //
+          // **Resizable at a desk and not on a phone**, the `sm:` breakpoint
+          // the Capture box's own textarea already gates its resize handle on
+          // (`pages/CapturePage.tsx`): there is no room to grow into and the
+          // handle is one more thing under a thumb. Both axes rather than
+          // that box's vertical-only, since a dialog can be usefully too wide
+          // as well as too tall. `overflow` has to be something other than
+          // `visible` for the handle to appear at all; the title and
+          // description already scroll inside their own box below, so
+          // nothing is lost by it.
+          className="fixed left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-h)] min-h-[min(18rem,var(--item-form-h))] w-[var(--item-form-w)] max-w-[var(--item-form-w)] min-w-[min(20rem,var(--item-form-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize"
+          style={
+            remembered ? { width: `${remembered.width}px`, height: `${remembered.height}px` } : undefined
+          }
         >
           {/* Said rather than shown. A dialog has to name itself, and this one
               is opened by a row whose label is now the title box directly under

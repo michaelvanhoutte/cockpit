@@ -298,9 +298,10 @@ a bare `deploy` once any environment exists, precisely to stop an accidental
 production ship.
 
 `assets` and `observability` *are* inheritable, so environments do not repeat
-them. When Queues land, note that `queues` is **not** inheritable and each
-environment needs its own queue names, or staging will consume production's
-messages.
+them. `queues` is **not**, which is why each environment names its own queue -
+`cockpit-enrichment` and `cockpit-enrichment-staging` - since a shared name
+would have staging consuming production's messages and writing to production's
+accounts.
 
 Verified rather than assumed: a marker row inserted into the preview database
 appeared on the preview URL of the day and on neither staging nor production.
@@ -399,6 +400,8 @@ wrangler secret put <NAME> --env staging
 | Secret | What it is for |
 |---|---|
 | `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/operator/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally, as long as it is the same string the commands send — see below for where they read it from. |
+| `ANTHROPIC_API_KEY` | what Cockpit reads a captured note with ("Clean up a captured note into a clear title and a fuller message", issue 296). Issued in the Anthropic Console; the application's own credential rather than anybody's, so it has no settings screen. **An environment without one works** — every capture succeeds and the Item keeps the title capture wrote — which is exactly why `/health` reports whether it is set: without that, a deployment nobody put a key in enriches nothing for months with every check green, the failure `CLAUDE_CODE_OAUTH_TOKEN` below already records. |
+| `ANTHROPIC_WORKSPACE_ID` | which Anthropic workspace the key belongs to, sent as the `anthropic-workspace-id` header. **Needed when the key is scoped to the organisation rather than to one workspace**, which answers `400 invalid_request_error` without it — a failure that surfaces as a broken integration rather than as a credential's scope, and cost a round trip to diagnose once. Not a secret, and it is put in the secret store anyway rather than in `wrangler.jsonc`: it is half of a credential and means nothing without the other half, so the two are set by one command and read from one place. Leave it unset for a workspace-scoped key; the header is only sent when there is one. Beware the word collision — Anthropic's *workspace* is a billing grouping and has nothing to do with Cockpit's Workspaces. |
 
 **The backup commands need that same value to send, and they read it from `backup-tokens.json` in the checkout** — gitignored, in the shape `backup-tokens.example.json` shows, holding one token per environment and the workers.dev subdomain a deployed address is built from. So `pnpm backup:export --env production` is the whole command: naming the environment picks its token, and staging and production can be backed up one after the other with nothing set in between.
 
@@ -413,6 +416,8 @@ CI needs, in GitHub:
 | Secret | `CLOUDFLARE_API_TOKEN` | scoped token, created in the Cloudflare dashboard |
 | Secret | `CLOUDFLARE_ACCOUNT_ID` | `091e6e85f8268ee838089d6fed968585` |
 | Secret | `CLAUDE_CODE_OAUTH_TOKEN` | stored by `/install-github-app`, run once from an interactive Claude Code session |
+| Secret | `ANTHROPIC_API_KEY` | the same key as above, for the nightly contract run (`.github/workflows/contract.yml`), which is the only place CI talks to the real model |
+| Secret | `ANTHROPIC_WORKSPACE_ID` | beside it, for the same reason it is set on the Worker |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | `vanhoutte-michael` |
 
 `CLAUDE_CODE_OAUTH_TOKEN` deploys nothing — it is what the review and `@claude`
@@ -510,10 +515,20 @@ own code. It is outside Cockpit's own gate (`PATHS_OUTSIDE_THE_GATE` in
 `apps/api/src/auth/gate.ts`), and anything ever put in front of the deployment
 has to be told to leave it alone.
 
-`/health` returns `{"ok":true,"register":true,"store":true}` and nothing else, so
-it discloses only whether each half answered — never *why* one did not, since the
-reason an update will not apply names tables and columns and this endpoint answers
-anyone. That reason goes to the logs.
+`/health` returns `{"ok":true,"register":true,"store":true,"ai":true}` and nothing
+else, so it discloses only whether each half answered — never *why* one did not,
+since the reason an update will not apply names tables and columns and this
+endpoint answers anyone. That reason goes to the logs.
+
+**`ai` is reported and is deliberately not part of `ok`.** It says whether this
+environment has an `ANTHROPIC_API_KEY` — never what it is, and nothing about it
+being valid, which would mean spending a model call on every probe. An
+environment without one works: every capture succeeds and the Item keeps the
+title capture wrote. What it cannot otherwise do is *say* that it will never
+clean a note up, which is the failure recorded for `CLAUDE_CODE_OAUTH_TOKEN` in
+"Secrets and access". Folding it into `ok` would instead make local development
+and the browser suite — which have no key and need none — report an unhealthy
+deployment and stop the e2e stack from ever starting.
 
 `store` is checked against a store belonging to no account, addressed by a name
 the same request confirms is absent from the register. An unauthenticated endpoint
@@ -536,6 +551,12 @@ the attempt count in the deploy log is the evidence.
 |---|---|---|---|
 | production | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
 | staging | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
+
+Those two bodies are what was seen on that date and are one field short of what
+the endpoint answers now: `ai` arrived with "Clean up a captured note into a
+clear title and a fuller message" (issue 296) and is described above. The rows
+are left as observed rather than edited, because a dated observation somebody
+retouches is worth nothing.
 
 `/v1/users` is not among these any more. It went with the list of names ("Sign in
 with Google, and retire the list of names", issue 196) and now answers 410, so a
@@ -576,6 +597,12 @@ one is installed.
 wrangler d1 create cockpit
 wrangler d1 create cockpit-staging
 # put the returned ids into apps/api/wrangler.jsonc (they are not secrets)
+
+# 1b. two queues, one per environment, because `queues` is not inheritable.
+# Named in wrangler.jsonc already, and a deploy naming a queue that does not
+# exist fails - so this comes before step 3.
+wrangler queues create cockpit-enrichment
+wrangler queues create cockpit-enrichment-staging
 
 # 2. schema and bootstrap data, per environment
 pnpm build                                  # assets must exist before deploy
@@ -881,6 +908,7 @@ curl -i https://cockpit-staging.vanhoutte-michael.workers.dev/health
 | Answer | Meaning | Go to |
 |---|---|---|
 | `200 {"ok":true,...}` | Worker up, register answering, an account store openable. The deployment is fine. | *In the browser*, below |
+| `200 {"ok":true,...,"ai":false}` | The deployment is fine and will never clean up a captured note: no `ANTHROPIC_API_KEY` is set on it. Not an outage — every capture works and keeps the title it was typed with. | *Secrets and access* |
 | `200 {"ok":false,"register":true,"store":false}` | A store would not open — most often an update that will not apply. | *At the deployment*, below |
 | `200 {"ok":false,"register":false,...}` | Either D1 did not answer, **or** somebody registered an account under the health check's own name, which makes it refuse to run rather than open their data. Two faults with one shape, so read the logs — the reason is never in the body. | *At the deployment*, below |
 | `200` with any other body | Something answered in front of the Worker rather than the Worker itself | *In the browser* |

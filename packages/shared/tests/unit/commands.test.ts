@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { uuidv7 } from '../../src/ids.js';
-import { captureItemSchema, moveItemToPanelSchema } from '../../src/commands.js';
+import {
+  captureItemSchema,
+  moveItemToPanelSchema,
+  proposeItemTextsSchema,
+} from '../../src/commands.js';
 
 describe('Capture', () => {
   describe('a capture missing what the app needs to track it is refused', () => {
@@ -94,6 +98,37 @@ describe('Capture', () => {
         typeId: 'tenant-default-type-action',
       });
       expect(parsed.success).toBe(true);
+    });
+  });
+
+  /**
+   * The second lock. What Cockpit proposes for a note is already refused
+   * against these same rules where the answer is read
+   * (apps/api/src/ai/note-texts.ts), so nothing can reach this with a bad
+   * value - which is exactly why it is asked here rather than through anything:
+   * a lock the way in cannot reach has to be tested where it stands, the way
+   * the database's own constraints are.
+   */
+  describe('a reading that would not fit the two texts it lands in is refused', () => {
+    const proposal = (over: Record<string, unknown> = {}) => ({
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: 'ws-work',
+      itemId: uuidv7(),
+      title: 'Ask Novy about the Part 11 audit trail',
+      description: 'A question about the Part 11 audit trail for the validation protocol.',
+      ...over,
+    });
+
+    it.each([
+      { situation: 'a title longer than a row label may be', over: { title: 'x'.repeat(201) }, accepted: false },
+      { situation: 'a title running over two lines', over: { title: 'Part\n11' }, accepted: false },
+      { situation: 'a title saying nothing', over: { title: '  ' }, accepted: false },
+      { situation: 'a message saying nothing', over: { description: '' }, accepted: false },
+      { situation: 'no message at all', over: { description: undefined }, accepted: false },
+      { situation: 'both texts as they should be', over: {}, accepted: true },
+    ])('is $situation accepted: $accepted', ({ over, accepted }) => {
+      expect(proposeItemTextsSchema.safeParse(proposal(over)).success).toBe(accepted);
     });
   });
 });

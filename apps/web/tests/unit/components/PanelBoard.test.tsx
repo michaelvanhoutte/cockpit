@@ -129,6 +129,7 @@ function anItem(id: string, title: string): Item {
     title,
     capturedMessage: null,
     description: null,
+    textsSettledAt: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,
@@ -206,9 +207,27 @@ function showBoard({
   return { mutate, unmount, user: userEvent.setup() };
 }
 
-/** What a panel offers is in the panel's own menu, so reaching any of it is two gestures. */
+/**
+ * Opens a panel's menu the way a real right-click does. A browser focuses a
+ * focusable target on the mousedown a right-click carries, before the
+ * `contextmenu` event that follows it - which is what Radix reads back to
+ * know what to return focus to once the menu closes. jsdom takes no such
+ * default action on a mousedown, so it is taken here by hand; a real header
+ * needs no help doing this.
+ */
+function openMenu(panel: string) {
+  const header = handleOf(panel);
+  header.focus();
+  fireEvent.contextMenu(header);
+}
+
+/**
+ * What a panel offers is in the panel's own menu, opened by right-click on
+ * its header rather than a button - the same way a dashboard's or a
+ * workspace's own tab opens its (`WorkspaceTabs.test.tsx`, `menuOf`).
+ */
 async function choose(user: ReturnType<typeof userEvent.setup>, panel: string, entry: string) {
-  await user.click(await screen.findByRole('button', { name: `Actions for ${panel}` }));
+  openMenu(panel);
   await user.click(await screen.findByRole('menuitem', { name: entry }));
 }
 
@@ -271,10 +290,9 @@ function boardEl() {
   return document.querySelector('[data-panel-row]')!.parentElement!;
 }
 
-/** The header a panel is dragged by. */
+/** The header a panel is dragged by, and the trigger its own menu opens from. */
 function handleOf(panelName: string) {
-  const panel = screen.getByRole('region', { name: panelName });
-  return within(panel).getByRole('heading').parentElement!;
+  return screen.getByRole('region', { name: panelName }).querySelector('header')!;
 }
 
 /**
@@ -286,7 +304,7 @@ function handleOf(panelName: string) {
  */
 function dragTo(panelName: string, point: { x: number; y: number }, andDrop = true) {
   const handle = handleOf(panelName);
-  fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+  fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
   layOut();
   fireEvent.pointerMove(handle, { pointerId: 1, clientX: point.x, clientY: point.y });
   if (andDrop) fireEvent.pointerUp(handle, { pointerId: 1 });
@@ -411,6 +429,145 @@ describe('Panels', () => {
     });
   });
 
+  describe('a panel’s menu opens from its own header, the way a tab’s does', () => {
+    it('opens on a right-click anywhere on the header, not only on a control', () => {
+      showBoard();
+
+      openMenu('Project Falcon');
+
+      expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+    });
+
+    it('can be reached by keyboard, so the browser’s own menu key has something to open it from', () => {
+      showBoard();
+
+      expect(handleOf('Project Falcon')).toHaveAttribute('tabindex', '0');
+    });
+
+    it.each([{ key: 'Enter' }, { key: ' ' }])(
+      'opens on $key too, since the browser’s own menu key does not exist on every keyboard',
+      ({ key }) => {
+        // Found in review: macOS has no key that fires the browser's own menu
+        // key, and a panel's header - unlike a tab's `Link` - activates
+        // nothing else on Enter, so without this a keyboard-only Mac user has
+        // no way to reach a panel's menu at all.
+        showBoard();
+
+        fireEvent.keyDown(handleOf('Project Falcon'), { key });
+        expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+      },
+    );
+
+    it('stays shut on Enter while the name is being edited in place, the same as a right-click', async () => {
+      const { user } = showBoard();
+
+      await choose(user, 'Project Falcon', 'Rename');
+      fireEvent.keyDown(handleOf('Project Falcon'), { key: 'Enter' });
+
+      expect(screen.queryByRole('menuitem')).toBeNull();
+    });
+
+    it('drops out of the tab order while the name is being edited in place, where the input already is', async () => {
+      const { user } = showBoard();
+
+      await choose(user, 'Project Falcon', 'Rename');
+
+      expect(handleOf('Project Falcon')).toHaveAttribute('tabindex', '-1');
+    });
+
+    it('stays shut on a right-click while the name is being edited in place', async () => {
+      const { user } = showBoard();
+
+      await choose(user, 'Project Falcon', 'Rename');
+      openMenu('Project Falcon');
+
+      expect(screen.queryByRole('menuitem')).toBeNull();
+    });
+
+    it('leaves a plain click on the header as the drag it is, opening nothing', async () => {
+      // `userEvent`, not bare `fireEvent.click`: a real mouse click carries
+      // `detail` 1 or more, which is the one thing telling it apart from the
+      // screen reader's own activation click `opensOnActivate` reads below -
+      // `fireEvent.click` defaults `detail` to 0, indistinguishable from that.
+      const { user } = showBoard();
+
+      await user.click(handleOf('Project Falcon'));
+
+      expect(screen.queryByRole('menuitem')).toBeNull();
+    });
+
+    it('opens on the click a screen reader’s own activation gesture sends, which a pointer never does', () => {
+      // Found in review: `role="group"` is not a widget role, so VoiceOver's
+      // VO+Space (or the double-tap it stands in for on iOS) is delivered as
+      // a `click` with no pointer behind it rather than as the `keydown`
+      // `opensOnKey` reads - the same `detail` 0 `opensOnPress` already reads
+      // to tell a keyboard's Enter on a tab from a real press.
+      showBoard();
+
+      fireEvent.click(handleOf('Project Falcon'), { detail: 0 });
+
+      expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+    });
+
+    it('leaves a touch on the header for Radix’s own long press, not the drag', () => {
+      // Found in review: the header is both the drag handle and the menu's
+      // trigger now, and picking the panel up moves pointer capture off the
+      // header before Radix ever sees a release - so a drag started here on
+      // every touch, mouse or not, would silently arm a menu that could never
+      // close, and starve `SurfaceMenu`'s long press of the touch it needs to
+      // open at all. `pointerType` is the whole of what tells the two apart,
+      // the same guard `tabDrag.ts` carries for the same reason.
+      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const lifted = () => screen.getByRole('region', { name: 'To read' }).className;
+
+      fireEvent.pointerDown(handleOf('To read'), {
+        button: 0,
+        pointerId: 1,
+        pointerType: 'touch',
+      });
+
+      expect(lifted()).not.toContain('opacity-40');
+      expect(seamsAreOpen()).toBe(false);
+    });
+
+    it('names the header for what it opens, since nothing else does now the button is gone', () => {
+      // Found in review: a bare header nested in a section computes to
+      // ARIA's `generic` role, which prohibits a name - `role="group"` is
+      // what makes the label and the popup hint legal as well as present,
+      // without pruning what is inside it the way `role="button"` would
+      // have (a second finding on the first fix).
+      showBoard();
+
+      const header = handleOf('Project Falcon');
+      expect(header).toHaveAttribute('role', 'group');
+      expect(header).toHaveAttribute('aria-label', 'Actions for Project Falcon');
+      expect(header).toHaveAttribute('aria-haspopup', 'menu');
+    });
+
+    it('keeps what is inside the header its own, named role rather than swallowing it', () => {
+      // The header's role names the header; it must not also swallow the
+      // heading, the count and the read-only word into itself the way
+      // `role="button"`'s presentational children would have.
+      showBoard({
+        panels: [aPanelOfText('words', 'What matters', { readOnly: true })],
+      });
+
+      expect(screen.getByRole('heading', { name: 'What matters' })).toBeVisible();
+      expect(screen.getByText('read-only')).toBeVisible();
+    });
+
+    it('drops the header’s own name for what it opens while the input already carries one', async () => {
+      const { user } = showBoard();
+
+      await choose(user, 'Project Falcon', 'Rename');
+
+      const header = handleOf('Project Falcon');
+      expect(header).not.toHaveAttribute('role');
+      expect(header).not.toHaveAttribute('aria-label');
+      expect(header).not.toHaveAttribute('aria-haspopup');
+    });
+  });
+
   describe('what a panel offers is in the panel’s own menu, and none of it needs a pointer', () => {
     it('renames it from the title, starting from the one it has', async () => {
       const { user, mutate } = showBoard();
@@ -502,13 +659,13 @@ describe('Panels', () => {
       expect(sentRows(mutate)).toEqual([['falcon'], ['reading']]);
     });
 
-    it('says so when a panel alone on the only row has nowhere left to go', async () => {
-      const { user } = showBoard({
+    it('says so when a panel alone on the only row has nowhere left to go', () => {
+      showBoard({
         panels: [aPanel('falcon', 'Project Falcon')],
         layouts: [aLayout('laptop', 1280, ['falcon'])],
       });
 
-      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+      openMenu('Project Falcon');
 
       expect(
         screen.getByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
@@ -524,7 +681,7 @@ describe('Panels', () => {
 
       await choose(user, 'To read', 'Move left');
 
-      expect(screen.getByRole('button', { name: 'Actions for To read' })).toHaveFocus();
+      expect(handleOf('To read')).toHaveFocus();
     });
 
     it('says so rather than doing nothing when a panel has nowhere left to go', async () => {
@@ -537,7 +694,7 @@ describe('Panels', () => {
         layouts: [aLayout('laptop', 1280, ['falcon'])],
       });
 
-      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+      openMenu('Project Falcon');
       await user.click(
         await screen.findByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
       );
@@ -545,13 +702,13 @@ describe('Panels', () => {
       expect(mutate).not.toHaveBeenCalled();
     });
 
-    it('names the move after the direction the screen actually goes in', async () => {
+    it('names the move after the direction the screen actually goes in', () => {
       // On a screen only one panel wide the panels are stacked, so "Move left"
       // would name a direction nothing goes in.
       screenIs(480);
-      const { user } = showBoard();
+      showBoard();
 
-      await user.click(await screen.findByRole('button', { name: 'Actions for To read' }));
+      openMenu('To read');
 
       expect(screen.getByRole('menuitem', { name: 'Move up' })).toBeVisible();
       expect(screen.queryByRole('menuitem', { name: 'Move left' })).toBeNull();
@@ -559,12 +716,12 @@ describe('Panels', () => {
 
     it.each(['Wider', 'Narrower', 'Taller', 'Shorter'])(
       'offers no %s, resizing being the corner grip’s alone',
-      async (gone) => {
+      (gone) => {
         // Four step-at-a-time entries in a menu read on every panel, beside a
         // gesture that does the whole thing at once.
-        const { user } = showBoard();
+        showBoard();
 
-        await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+        openMenu('Project Falcon');
 
         expect(screen.queryByRole('menuitem', { name: new RegExp(`^${gone}`) })).toBeNull();
         // And the count, so they cannot come back under other words: rename,
@@ -703,7 +860,7 @@ describe('Panels', () => {
       showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
       const handle = handleOf('To read');
 
-      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
       expect(seamsAreOpen()).toBe(true);
 
       fireEvent.pointerUp(handle, { pointerId: 1 });
@@ -734,7 +891,7 @@ describe('Panels', () => {
       const lifted = () => screen.getByRole('region', { name: 'To read' }).className;
       const handle = handleOf('To read');
 
-      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
       expect(lifted()).toContain('opacity-40');
 
       fireEvent.pointerUp(handle, { pointerId: 1 });
@@ -751,7 +908,7 @@ describe('Panels', () => {
       });
       const handle = handleOf('To read');
 
-      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
       layOut();
       fireEvent.pointerMove(handle, { pointerId: 1, ...{ clientX: 300, clientY: -11 } });
       expect(drawnLines()).toEqual([['reading'], ['falcon']]);
@@ -776,7 +933,7 @@ describe('Panels', () => {
       });
       const handle = handleOf('To read');
 
-      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
       layOut();
       // Onto its own line above everything, which moves it between rows.
       fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: -11 });
@@ -801,7 +958,7 @@ describe('Panels', () => {
       });
       const handle = handleOf('To read');
 
-      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
       layOut();
       fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: -11 });
       expect(drawnLines()).toEqual([['reading'], ['falcon']]);
@@ -821,7 +978,7 @@ describe('Panels', () => {
       });
       const handle = handleOf('To read');
 
-      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
       layOut();
       fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: -11 });
 
@@ -852,7 +1009,7 @@ describe('Panels', () => {
       });
       const handle = handleOf('To read');
 
-      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
       layOut();
       // Onto the right-hand half of the row above, which joins it.
       fireEvent.pointerMove(handle, { pointerId: 1, clientX: 500, clientY: 50 });
@@ -890,7 +1047,7 @@ describe('Panels', () => {
         });
         const handle = handleOf('To read');
 
-        fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+        fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
         expect(seamsAreOpen()).toBe(true);
 
         layOut();
@@ -1050,7 +1207,7 @@ describe('Panels', () => {
       const handle = handleOf('To read');
       expect(screen.queryAllByTestId('row-line')).not.toHaveLength(0);
 
-      fireEvent.pointerDown(handle, { button: 0, pointerId: 1 });
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
       expect(screen.queryAllByTestId('row-line')).toHaveLength(0);
       expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
 
@@ -1271,12 +1428,12 @@ describe('Panels', () => {
         panels: [aPanel('falcon', 'Project Falcon'), aPanelOfText('words', 'What matters')],
       });
 
-      await user.click(await screen.findByRole('button', { name: 'Actions for Project Falcon' }));
+      openMenu('Project Falcon');
       expect(screen.queryByRole('menuitem', { name: /read-only|Allow editing/ })).toBeNull();
       expect(screen.queryByRole('menuitem', { name: /rich text|plain text/ })).toBeNull();
       await user.keyboard('{Escape}');
 
-      await user.click(await screen.findByRole('button', { name: 'Actions for What matters' }));
+      openMenu('What matters');
       expect(await screen.findByRole('menuitem', { name: 'Make read-only' })).toBeInTheDocument();
       expect(screen.getByRole('menuitem', { name: 'Use rich text' })).toBeInTheDocument();
     });

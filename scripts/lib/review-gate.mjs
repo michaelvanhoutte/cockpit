@@ -65,11 +65,11 @@ export const GATE_AUTHOR = 'github-actions[bot]';
  * looked identical.
  *
  * Asking harder would have been the obvious fix and the wrong one. The sibling
- * workflow already tried inferring a review from whether Claude spoke, and "The
- * review check goes green when the reviewer declined to look at the new
- * commits" (issue 75) is the open bug saying that inference goes stale. The
- * gate already knows the verdict; having it say so needs no cooperation from
- * anyone.
+ * workflow infers a review from whether Claude spoke, and "The review check
+ * goes green when the reviewer declined to look at the new commits" (issue 75)
+ * is what that inference cost before it was narrowed to the head being
+ * reviewed. The gate already knows the verdict; having it say so needs no
+ * cooperation from anyone.
  */
 export function summaryComment(outcome) {
   // No marker here: upsertSticky prepends it, so that one place decides how a
@@ -97,34 +97,43 @@ export function summaryComment(outcome) {
 }
 
 /**
- * The id of the note this workflow left last time, from `gh api --paginate`
- * output, or null if there is none yet.
+ * Every object in `gh api --paginate --jq` output, skipping any line that will
+ * not parse.
  *
- * Line-oriented on purpose, and this is the whole reason it is a function with
- * tests rather than two lines in the script. `--paginate` applies `--jq` to
- * each page separately and concatenates the results, so a filter that wraps its
- * output in an array emits one array per page - `[...]\n[...]` - which is not
- * JSON and throws when parsed. The first version did exactly that. It would
- * have worked on every pull request until one passed thirty comments, and then
- * failed inside the try that makes posting non-fatal: no comment, no update of
- * the stale one already there, and a warning nobody reads. A change whose only
- * purpose is making the verdict visible would have stopped doing that
- * invisibly, which is the joke it deserved to be caught for.
+ * Line-oriented on purpose, and this is the whole reason both readers below are
+ * functions with tests rather than two lines each in a script. `--paginate`
+ * applies `--jq` to each page separately and concatenates the results, so a
+ * filter that wraps its output in an array emits one array per page -
+ * `[...]\n[...]` - which is not JSON and throws when parsed. The first version
+ * of markedCommentId did exactly that. It would have worked on every pull
+ * request until one passed thirty comments, and then failed inside the try that
+ * makes posting non-fatal: no comment, no update of the stale one already
+ * there, and a warning nobody reads. A change whose only purpose was making the
+ * verdict visible would have stopped doing that invisibly, which is the joke it
+ * deserved to be caught for.
  *
- * One JSON object per line concatenates safely, which is the shape
- * claude-code-review.yml's own gate already uses for the same reason.
+ * One JSON object per line concatenates safely, so both gates ask for that
+ * shape and read it here.
  */
-export function markedCommentId(ghOutput, { marker = COMMENT_MARKER, author = GATE_AUTHOR } = {}) {
+function* jsonLines(ghOutput) {
   for (const line of String(ghOutput ?? '').split('\n')) {
     if (line.trim() === '') continue;
-    let comment;
     try {
-      comment = JSON.parse(line);
+      yield JSON.parse(line);
     } catch {
-      // One unreadable line is not a reason to abandon the rest: the id being
+      // One unreadable line is not a reason to abandon the rest: what is being
       // looked for may be on any of them.
       continue;
     }
+  }
+}
+
+/**
+ * The id of the note this workflow left last time, from `gh api --paginate`
+ * output, or null if there is none yet.
+ */
+export function markedCommentId(ghOutput, { marker = COMMENT_MARKER, author = GATE_AUTHOR } = {}) {
+  for (const comment of jsonLines(ghOutput)) {
     // The author check is not belt-and-braces. The marker is a public constant
     // in a public repository, GitHub lists comments oldest first, and this
     // returns the first match - so without it, anyone who can comment on a pull
@@ -409,32 +418,110 @@ export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIG
 }
 
 /**
- * How many of these logins are the reviewer's own.
+ * The head a remark can be held against - `{ sha, arrivedAt }` - or null where
+ * this run cannot place one in time.
  *
- * A prefix rather than an equality, and case-insensitive, because the same
- * account appears under more than one name: `claude[bot]` on the App's own
- * comments, `claude` on others. The bash this replaces matched `grep -ci
- * '^claude'` and this keeps that exactly - loosening it is how somebody named
- * `claude-fan` comes to count as the reviewer having spoken.
+ * `arrivedAt` is the earliest of the dates in `runCreatedDates`, one per line,
+ * which the caller reads off the workflow runs GitHub has created for this
+ * commit as a head. So it is **when GitHub first saw the push**, on GitHub's own
+ * clock, and the reviewer cannot have said anything about this head before it.
  *
- * One login per line, which is the shape `gh api --paginate --jq '.[].user.login'`
- * emits across every page. Lines, not JSON, for the reason markedCommentId
- * above documents: --paginate applies --jq per page and concatenates, so a
- * filter that wraps its output in an array stops being JSON at thirty comments.
+ * The commit's own committer date is the obvious source and the wrong one,
+ * because it is written by whatever clock made the commit and bounds nothing:
+ *
+ * - **Dated early**, which needs no bad actor - commit at 09:45, let a review
+ *   post at 10:00 against the head you had pushed, then push this one at 15:00
+ *   - and every remark from that earlier round post-dates the head and counts
+ *   as being about it. The gate reverts to what issue 75 is about, silently,
+ *   because it believes it placed the head.
+ * - **Dated late**, by a clock running fast, and the head arrives after every
+ *   remark the review could possibly have left - the summary comment included,
+ *   which is the only thing a review that found nothing leaves behind. A
+ *   thorough review then reads as never having looked, and going red at one is
+ *   how everybody learns to ignore this check.
+ *
+ * A run's creation is immune to both, and to a re-run: `created_at` stays at
+ * the original attempt's while `run_started_at` moves, which is why the caller
+ * asks for that field. Taking the earliest rather than this run's own is what
+ * lets a re-run against an already-reviewed head still find its own round's
+ * remarks on the right side of the line.
+ *
+ * Nothing to place against - no SHA, or no run date this can read - falls back
+ * to the pull request as a whole with a warning, rather than going red at
+ * GitHub for being unreachable: louder than the bug it guards against, and
+ * about the wrong thing. Deciding that here, once, is what keeps the count and
+ * the decision that reads it answering for the same head.
  */
-export function reviewerCommentCount(logins, { prefix = 'claude' } = {}) {
+export function placeHead(sha, runCreatedDates) {
+  let arrivedAt = null;
+  for (const line of String(runCreatedDates ?? '').split('\n')) {
+    const created = Date.parse(line.trim());
+    if (Number.isFinite(created) && (arrivedAt === null || created < arrivedAt)) arrivedAt = created;
+  }
+  return sha && arrivedAt !== null ? { sha: String(sha), arrivedAt } : null;
+}
+
+/**
+ * What the reviewer has said here, in total and about the head being reviewed
+ * now: `{ total, onHead }`.
+ *
+ * The total on its own was the whole test until "The review check goes green
+ * when the reviewer declined to look at the new commits" (issue 75). It holds
+ * for the first round and cannot hold after one, because round one's comments
+ * satisfy it permanently - so from round two on it could not tell "reviewed,
+ * found nothing" from "declined without looking", and pull request 193 went
+ * green on its fourth head having read none of it.
+ *
+ * A remark counts as being about this head when it names the commit or
+ * post-dates it:
+ *
+ * - The commit is `originalCommitId` on an inline finding and `commitId` on a
+ *   submitted review. Original rather than current, because GitHub rewrites an
+ *   inline comment's `commitId` to the new head whenever the comment still
+ *   applies there - matching that would hand every stale finding a head it
+ *   never saw.
+ * - Otherwise the timestamp, which is all a summary comment has: it is an issue
+ *   comment and carries no commit at all, and it is what a review that found
+ *   nothing leaves behind.
+ *
+ * `head` is a placed head from placeHead, so `arrivedAt` is when GitHub first
+ * saw the push - which is the moment before which no remark here can be about
+ * this head, and after which one may be.
+ *
+ * The login is matched by prefix, case-insensitively, because the same account
+ * appears under more than one name: `claude[bot]` on the App's own comments,
+ * `claude` on others. Loosening it further is how somebody named `claude-fan`
+ * comes to count as the reviewer having spoken.
+ *
+ * One JSON object per line, read by jsonLines above, which documents why the
+ * output is asked for in that shape.
+ */
+export function reviewerRemarks(ghOutput, { head = null, prefix = 'claude' } = {}) {
   const wanted = prefix.toLowerCase();
-  return String(logins ?? '')
-    .split('\n')
-    .filter((line) => line.trim().toLowerCase().startsWith(wanted)).length;
+  let total = 0;
+  let onHead = 0;
+
+  for (const remark of jsonLines(ghOutput)) {
+    if (!String(remark?.login ?? '').trim().toLowerCase().startsWith(wanted)) continue;
+    total += 1;
+
+    const commit = remark.originalCommitId ?? remark.commitId ?? null;
+    const saidAt = Date.parse(remark.createdAt ?? '');
+    const namesHead = Boolean(head?.sha) && commit === head.sha;
+    const postDatesHead = Number.isFinite(head?.arrivedAt) && Number.isFinite(saidAt) && saidAt >= head.arrivedAt;
+    if (namesHead || postDatesHead) onHead += 1;
+  }
+
+  return { total, onHead };
 }
 
 /**
  * Whether this pull request is one the code review was obliged to speak on.
  *
  * Exported because the script has to know before the gate does: it decides
- * whether to spend three paginated `gh api` calls counting what the reviewer
- * said. Deciding it there as well would put the rule in an untested copy beside
+ * whether to spend four paginated `gh api` calls, one placing the head and
+ * three counting what the reviewer said. Deciding it there as well would put
+ * the rule in an untested copy beside
  * the tested one, which is the split "Give the code review the tested gate the
  * security review already uses" (issue 277) exists to remove.
  *
@@ -454,27 +541,36 @@ export function postedCommentTestApplies(pullRequest) {
  * The same record as decideSecurityOutcome reads, asked a different question.
  * There is no verdict line here: `/code-review --comment` posts inline comments
  * when it has findings and a summary comment when it has none, so *having
- * posted* is what separates a review from a non-review, and `said` is how many
- * of the pull request's comments and reviews are the reviewer's own.
+ * posted* is what separates a review from a non-review.
+ *
+ * Posted **about the head this run was given**, which is `saidOnHead` out of
+ * the `said` remarks the reviewer has left here in total - see reviewerRemarks
+ * for how one is told from the other. Asking about the pull request as a whole
+ * was the bug in "The review check goes green when the reviewer declined to
+ * look at the new commits" (issue 75): round one's comments answer it for good,
+ * so every later round could decline in silence and stay green.
  *
  * The command's four stop conditions are the deliberate exceptions, and each is
- * accounted for: closed and draft never reach the test, because
- * `pullRequest` excludes them below; "already reviewed" leaves the earlier
- * round's comments standing, so `said` is still non-zero; and the
- * trivial-change stop is instructed away by the workflow's appended system
- * prompt, which requires that verdict to be posted like any other. Run
- * 33407302266 is why that instruction exists - it took the trivial stop on pull
- * request 80 and failed this gate for a review that had reached the right
- * answer.
+ * accounted for: closed and draft never reach the test, because `pullRequest`
+ * excludes them below; "already reviewed" is now a condition about the head,
+ * instructed as such by the workflow's appended system prompt, so a genuine
+ * re-run declines against a head it has already spoken on and still passes;
+ * and the trivial-change stop is instructed away by the same prompt, which
+ * requires that verdict to be posted like any other. Run 33407302266 is why
+ * that instruction exists - it took the trivial stop on pull request 80 and
+ * failed this gate for a review that had reached the right answer.
  *
- * `pullRequest` is what postedCommentTestApplies above reads.
+ * `pullRequest` is what postedCommentTestApplies above reads. `head` is a placed
+ * head from placeHead, or null where this run could not place one.
  */
-export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, pullRequest = null, minTurns = 10 } = {}) {
+export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, saidOnHead = 0, head = null, pullRequest = null, minTurns = 10 } = {}) {
   const failures = [];
   const warnings = [];
 
   const { result, turns, denials, subtype, isError, finalText } = runFacts(executionText);
-  if (result === null) return { ...didNotRun(), subtype: 'unknown', isError: false, finalText: '', said: 0, verdictSeen: false };
+  if (result === null) {
+    return { ...didNotRun(), subtype: 'unknown', isError: false, finalText: '', said: 0, saidOnHead: 0, headKnown: false, verdictSeen: false };
+  }
 
   if (conclusion !== undefined && conclusion !== 'success') {
     failures.push(`The review step reported conclusion='${conclusion}'.`);
@@ -490,33 +586,46 @@ export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, p
   }
 
   const applies = postedCommentTestApplies(pullRequest);
-  const verdictSeen = applies && said > 0;
+  // Placed by placeHead, which is where the two ways of failing to place a head
+  // are decided - and decided once, so this and the count it reads answer for
+  // the same commit. Unplaced, there is no head test to make, so the check
+  // falls back to the pull request as a whole rather than going red at a clock
+  // or at an unreachable GitHub: louder than the bug it guards against, and
+  // about the wrong thing.
+  const headKnown = Boolean(head?.sha);
+  const spoke = headKnown ? saidOnHead : said;
+  const verdictSeen = applies && spoke > 0;
 
-  if (applies && said === 0) {
+  if (applies && !headKnown) {
+    warnings.push(
+      'Could not place this run\'s head in time, so the check only asked whether the reviewer has ever ' +
+        'spoken here. An earlier round answers that, so a decline against the current head would have passed.',
+    );
+  }
+
+  if (applies && spoke === 0) {
     failures.push(
-      'The review posted nothing on this pull request. A review that reaches a verdict always says so, ' +
-        'so this one did not reach one.',
+      headKnown && said > 0
+        ? `The review posted nothing about ${String(head.sha).slice(0, 7)}, the head it was run against, though the reviewer has ${said} earlier remark(s) here. Those answer earlier heads; commits nobody has read are not reviewed by them.`
+        : 'The review posted nothing on this pull request. A review that reaches a verdict always says so, ' +
+          'so this one did not reach one.',
     );
     if (denials.count > 0) failures.push(denialNote(denials, { reachedVerdict: false }));
   } else if (verdictSeen && denials.count > 0) {
     warnings.push(denialNote(denials, { reachedVerdict: true }));
   }
 
-  // Never a failure. The turn count is too weak to catch a non-review - run
-  // 33201638348 spent 11 turns and stopped with "Waiting on the eligibility
-  // check for PR #56 before proceeding" - and strict enough to fail a correct
-  // one: run 33203441279 stopped after 5 clean turns because the review had
-  // already run on this pull request. That second case is the one worth naming,
-  // because it is the shape of "The review check goes green when the reviewer
-  // declined to look at the new commits" (issue 75), which owns turning it into
-  // something with teeth.
+  // Never a failure, and now never more than a note either. It was carrying the
+  // decline case - run 33203441279 stopped after 5 clean turns because the
+  // review had run on this pull request before - in a warning nobody's
+  // automation reads; the head test above fails that run outright, which is
+  // what "The review check goes green when the reviewer declined to look at the
+  // new commits" (issue 75) asked for. What is left is too weak to catch a
+  // non-review on its own: run 33201638348 spent 11 turns and stopped with
+  // "Waiting on the eligibility check for PR #56 before proceeding".
   if (turns < minTurns) {
-    warnings.push(
-      verdictSeen
-        ? `The session ran only ${turns} turns, and Claude has already posted on this pull request - most likely the review declining because it had reviewed this pull request before, in which case the commits pushed since then have not been looked at. Its closing words: ${oneLine(finalText)}`
-        : `The session ran only ${turns} turns. Its closing words: ${oneLine(finalText)}`,
-    );
+    warnings.push(`The session ran only ${turns} turns. Its closing words: ${oneLine(finalText)}`);
   }
 
-  return { ok: failures.length === 0, failures, warnings, turns, denials, subtype, isError, finalText, said, verdictSeen };
+  return { ok: failures.length === 0, failures, warnings, turns, denials, subtype, isError, finalText, said, saidOnHead, headKnown, verdictSeen };
 }

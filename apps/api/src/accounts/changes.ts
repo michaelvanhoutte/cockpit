@@ -75,9 +75,55 @@ export function accountChanges(accountId: string): readonly Change[] {
     TITLE_FROM_CAPTURED_MESSAGE,
     SCREEN_SIZES,
     DROP_LAYOUT_NAME_AND_WIDTH,
+    ITEM_TEXTS_SETTLED,
     firstWorkspace(accountId),
   ];
 }
+
+/**
+ * When a person took an Item's title and description over from Cockpit ("Clean
+ * up a captured note into a clear title and a fuller message", issue 296).
+ *
+ * **One added column and nothing else** - no backfill and no rebuild. The
+ * failure-mode questions the `scoping` skill asks of a change that cannot put
+ * state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a column and writes to no row.
+ * - **Interrupted partway.** It cannot be: a change's statement and the record
+ *   that it ran commit together (up-to-date.ts), so a failure leaves no column
+ *   and the change is retried whole. That transaction is load-bearing rather
+ *   than a nicety, exactly as for `0009-item-texts`: SQLite has no
+ *   `ADD COLUMN IF NOT EXISTS`, so a half-applied change could never re-run.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left no column. Nothing is written to any row, so a second run doubles
+ *   nothing.
+ * - **Data the new rules reject.** None. The column starts null on every row,
+ *   and null means "Cockpit may still propose these two". That is the *unsafe*
+ *   direction on the face of it - every Item that exists says its hand-written
+ *   title is replaceable - and it is safe here for a reason outside this
+ *   column: only `capture_item` enqueues an enrichment, so no existing row is
+ *   ever read by the one thing that would act on it (issue 296, "What does it
+ *   run on?"). A default of the current time was the alternative and was
+ *   rejected: it would state, on every row, that somebody edited its texts at
+ *   the moment of a deploy, which is a fact nobody could later trust.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop, in
+ *   staging and in production alike.
+ * - **The windows it can be interrupted in.** Two, and both are safe because
+ *   this is additive. *Before it runs*, the code in front of it is the previous
+ *   release, which does not name the column. *After it runs, with that release
+ *   promoted back*, its reads name a subset of the columns that exist, which
+ *   SQLite is happy with - and its `set_title` writes leave the column null, so
+ *   the worst a rollback costs is a title edited during it being proposed over
+ *   once when the release goes forward again. The reverse - a release naming a
+ *   column that is gone - is what dropping this would cause, which is why that
+ *   would need a release of its own (deployment, "Migrations and rollback").
+ */
+const ITEM_TEXTS_SETTLED: Change = {
+  name: '0021-item-texts-settled',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `texts_settled_at` text' }],
+};
 
 /**
  * The whole schema in one statement list, because an account's store starts

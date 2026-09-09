@@ -10,7 +10,7 @@ import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { layoutsOf } from '../panels/arrangement';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LayoutPicker } from './LayoutPicker';
-import { TabMenu, opensOnPress, type MenuEntry } from './Menu';
+import { SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { NameQuestion } from './NameQuestion';
 import { RowForm } from './RowForm';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_HOLDS, WHAT_A_PANEL_IS } from '../whatThingsAre';
@@ -338,7 +338,7 @@ export function DashboardBar({
         </Link>
       )}
       {dashboards.map((dashboard: Dashboard) => (
-        <TabMenu
+        <SurfaceMenu
           key={dashboard.id}
           label={`Actions for ${dashboard.name}`}
           entries={entriesFor(dashboard)}
@@ -354,7 +354,7 @@ export function DashboardBar({
           >
             {dashboard.name}
           </Link>
-        </TabMenu>
+        </SurfaceMenu>
       ))}
       <AddDashboard workspaceId={workspaceId} />
 

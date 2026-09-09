@@ -737,6 +737,23 @@ export const items = sqliteTable(
     title: text('title').notNull(),
     description: text('description'),
     /**
+     * When a person took the two texts above over from Cockpit, and null while
+     * they are still Cockpit's to replace ("Clean up a captured note into a
+     * clear title and a fuller message", issue 296).
+     *
+     * Nullable, which is what makes the change that added it a single statement
+     * with no backfill: every row that already existed gets NULL, and NULL is
+     * the safe direction only because nothing enqueues those rows for
+     * enrichment - a title written by hand before this shipped is unreachable
+     * by construction rather than by this column's value.
+     *
+     * Carries no CHECK holding it to a timestamp, unlike the columns created
+     * with the table: SQLite attaches CHECKs only when a table is created and
+     * `items` cannot be rebuilt while `panel_items` and `associations` point at
+     * it. Same trade `completed_at` and `workspace_decided` record above.
+     */
+    textsSettledAt: text('texts_settled_at'),
+    /**
      * What kind of thing it is ("Capture a thought or an action, and see which
      * it is", issue 155). Nullable, which is what let it be added at all:
      * SQLite accepts a new column with a REFERENCES clause only when its

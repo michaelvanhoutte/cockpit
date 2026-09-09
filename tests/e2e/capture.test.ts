@@ -17,6 +17,17 @@ import {
  * engine at all. It is not re-proving CaptureForm's logic, which
  * apps/web/tests/unit/components/CaptureForm.test.tsx already owns; it proves
  * the whole thing is tied together and usable on the device in hand.
+ *
+ * **A note being cleaned up after it is captured has no walk here, on purpose**
+ * ("Clean up a captured note into a clear title and a fuller message", issue
+ * 296). It changed no frontend code and adds no gesture: what a person sees is
+ * the row's own text changing a few seconds later, which is the Live updates
+ * path that already has coverage. Reaching it would mean either a real model
+ * call on every CI run - money, and an answer that differs every time - or a
+ * fake, which would prove the walk and nothing about the feature. What holds it
+ * instead: apps/api/tests/integration/http/note-cleanup.test.ts drives a real
+ * capture through the real queue to the real consumer, and
+ * apps/api/tests/contract/clean-up-a-note.test.ts asks the real model nightly.
  */
 test.describe('Capture', () => {
   test.describe('a captured thought appears in the inbox, on a phone screen as on a desktop', () => {

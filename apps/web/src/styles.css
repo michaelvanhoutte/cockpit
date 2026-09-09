@@ -116,6 +116,20 @@
   --edge-left: env(safe-area-inset-left, 0px);
 }
 
+/**
+ * How big the item form gets to be: the size it opens at with nothing
+ * remembered, and the ceiling a remembered or dragged size is clamped to for
+ * as long as it stays open (components/ItemForm.tsx). Named once so the
+ * floor a drag can shrink to - `min(18rem, --item-form-h)` there - can be
+ * written against the same formula as the ceiling without a second copy of
+ * it, which is what kept a screen too short for even 18rem from being able to
+ * push the dialog under the status bar the ceiling already allows for.
+ */
+:root {
+  --item-form-w: min(42rem, calc(100vw - 2rem));
+  --item-form-h: min(44rem, calc(100vh - 2rem - 2 * max(var(--edge-top), var(--edge-bottom))));
+}
+
 body {
   @apply bg-ground text-ink font-sans antialiased;
   font-size: 15px;

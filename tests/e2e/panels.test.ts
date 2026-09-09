@@ -2,7 +2,7 @@ import { type Locator, type Page, type Response } from '@playwright/test';
 import type { CommandName } from '@cockpit/shared';
 import {
   ADA,
-  chooseRowAction,
+  choosePanelAction,
   dashboardBar,
   expect,
   expectNoSidewaysScroll,
@@ -56,7 +56,7 @@ async function ownDashboard(page: Page, isMobile: boolean): Promise<string> {
 
 /** Takes a panel off the dashboard, through the question every delete asks. */
 async function deletePanel(page: Page, name: string, isMobile: boolean): Promise<void> {
-  await chooseRowAction(page, name, 'Delete', isMobile);
+  await choosePanelAction(page, name, 'Delete', isMobile);
   await press(page.getByRole('button', { name: `Yes, delete ${name}` }), isMobile);
   await expect(page.getByRole('region', { name })).toHaveCount(0);
 }
@@ -222,7 +222,7 @@ test.describe('Panels', () => {
       // Renaming happens in the panel's own header, from its own menu, which is
       // the same two gestures every row of a management window takes.
       const renamed = uniqueTitle('Falcon');
-      await chooseRowAction(page, falcon, 'Rename', isMobile);
+      await choosePanelAction(page, falcon, 'Rename', isMobile);
       await page.getByLabel(`New name for ${falcon}`).fill(renamed);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('region', { name: renamed })).toBeVisible();
@@ -238,13 +238,13 @@ test.describe('Panels', () => {
       // it. That is what failed this walk under load in CI while the same
       // commit passed beside it.
       const moved = answerTo(page, 'save_layout');
-      await chooseRowAction(page, reading, isMobile ? 'Move up' : 'Move left', isMobile);
+      await choosePanelAction(page, reading, isMobile ? 'Move up' : 'Move left', isMobile);
       expect((await moved).status()).toBe(200);
       await expect
         .poll(() => panelsOnScreen(page))
         .toEqual([reading, renamed]);
 
-      await chooseRowAction(page, reading, 'Delete', isMobile);
+      await choosePanelAction(page, reading, 'Delete', isMobile);
       await expect(
         page.getByText(`Delete ${reading}? It goes from every layout of this dashboard.`),
       ).toBeVisible();
@@ -275,7 +275,7 @@ test.describe('Panels', () => {
       // panel's own row rather than on the screen: this one shares a row on a
       // desktop, where the board fits two across, so it has somewhere to go
       // left. On a phone every row holds one and every move is up or down.
-      await chooseRowAction(page, second, isMobile ? 'Move up' : 'Move left', isMobile);
+      await choosePanelAction(page, second, isMobile ? 'Move up' : 'Move left', isMobile);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
       // Waited for by name rather than by a pause: the layout is what the next
       // half of this walk changes *from*, and pressing again before it landed
@@ -320,7 +320,7 @@ test.describe('Panels', () => {
       // and this one on the second, the phone put every panel on a line of its
       // own. A screen-width guess is what this used to make, and a wider screen
       // does not turn a row of one into a row of two.
-      await chooseRowAction(page, third, 'Move up', isMobile);
+      await choosePanelAction(page, third, 'Move up', isMobile);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
       await expectLayouts(page, 2, isMobile);
       await expectNoSidewaysScroll(page);
@@ -433,18 +433,18 @@ test.describe('Panels', () => {
       // Recorded as this screen's layout, so narrowing squeezes it rather than
       // arranging the panels afresh for the screen they are now on - which is
       // how a panel ends up narrower than any screen would have made it.
-      await chooseRowAction(page, reading, 'Move left', isMobile);
+      await choosePanelAction(page, reading, 'Move left', isMobile);
       await expectLayouts(page, 1, isMobile);
 
       await page.setViewportSize({ width: 420, height: 800 });
       await expect.poll(async () => (await panel.boundingBox())!.width).toBeLessThan(200);
 
       // The count goes, because the list underneath already shows what is on
-      // the panel; the name and the menu stay, being the panel's own name and
-      // the only way to rename, move or delete it.
+      // the panel; the name keeps the room, being the header's only word now
+      // - the menu opens from the header itself, at any width, and takes none
+      // of its own.
       await expect(count).toBeHidden();
       await expect(panel.getByRole('heading', { name: waiting })).toBeVisible();
-      await expect(page.getByRole('button', { name: `Actions for ${waiting}` })).toBeVisible();
 
       // And the room it gave up goes to the name, which now has more of the
       // header than everything else in it put together.
@@ -493,7 +493,7 @@ test.describe('Panels', () => {
       await expect(page.getByRole('textbox', { name })).toHaveValue('Standing agenda');
 
       const locked = answerTo(page, 'set_panel_read_only');
-      await chooseRowAction(page, name, 'Make read-only', isMobile);
+      await choosePanelAction(page, name, 'Make read-only', isMobile);
       expect((await locked).status()).toBe(200);
 
       // No box left to type in, and the words still there to read.
@@ -533,7 +533,7 @@ test.describe('Panels', () => {
       await expect(panel).toContainText('**Pricing**');
 
       const formatted = answerTo(page, 'set_panel_format');
-      await chooseRowAction(page, name, 'Use rich text', isMobile);
+      await choosePanelAction(page, name, 'Use rich text', isMobile);
       expect((await formatted).status()).toBe(200);
       await expect(panel.getByRole('strong')).toHaveText('Pricing');
 
@@ -549,7 +549,7 @@ test.describe('Panels', () => {
       await expect(panel.getByRole('toolbar', { name: 'Formatting' })).toHaveCount(0);
 
       const plain = answerTo(page, 'set_panel_format');
-      await chooseRowAction(page, name, 'Use plain text', isMobile);
+      await choosePanelAction(page, name, 'Use plain text', isMobile);
       expect((await plain).status()).toBe(200);
       // The plain box specifically, not whatever is playing a textbox: the
       // editor is still mounted for the moment between the change landing and
