@@ -806,6 +806,18 @@ Then, by hand (no API, or deliberately not automated):
      **Both `claude-review` and `Security review` are required as of the pull request that
      added this paragraph.** The four mechanisms measured above hold for both, and neither
      carries an unclosed version of issue 75's gap.
+
+     **A pull request that edits either review workflow file can never pass its own review,
+     permanently, and needs `enforce_admins: false` to merge.** Measured on this issue's own
+     pull request: `anthropics/claude-code-action` refuses to run "a version of itself that is
+     not yet on the repository's default branch," which is every pull request touching
+     `claude-code-review.yml` or `claude-security-review.yml`, by design — the alternative
+     lets a pull request grant its own review elevated behaviour before anyone has seen it.
+     The assert scripts already read this correctly, as "not reviewed" rather than "passed";
+     what changed is that a required context now blocks on it rather than reporting an
+     advisory red. This is the same shape as the CodeQL-fork case above, and the same
+     resolution: an admin merge, confirmed with the user first since it bypasses a check this
+     document just made required.
    - **`required_linear_history: true`** — makes §1's squash-merge rule mechanical
      rather than remembered.
    - **`enforce_admins: false`** — keeps an admin escape hatch for emergencies,
