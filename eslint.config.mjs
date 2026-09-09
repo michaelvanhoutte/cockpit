@@ -96,24 +96,25 @@ export default [
   },
 
   {
-    // Every runner's test files: vitest under the packages, node:test under
-    // `scripts/lib`, Playwright under `tests/e2e`.
-    files: ['**/*.test.{ts,tsx,mts,mjs,js}'],
+    // Every runner's test files: vitest under the packages and `tools`,
+    // node:test under `scripts/lib`, Playwright under `tests/e2e` - and the
+    // browser tier's support files too, since a `.only` on a wrapper of
+    // `test.describe` there narrows the suite exactly as one in a walk does.
+    files: ['**/*.test.{ts,tsx,mts,mjs,js}', 'tests/e2e/**/*.ts'],
     languageOptions,
     rules: { 'no-restricted-syntax': ['error', ...focusedTest] },
   },
 
   {
-    // The testing skill's dependency table for L1/F1, as the one part of it a
-    // rule can hold: "L1/F1 may not touch: filesystem, network, database". A
-    // folder is what gets policed, which is why the levels are folders.
+    // The testing strategy's dependency table for L1/F1, as the one part of it
+    // a rule can hold: "L1/F1 may not touch: filesystem, network, database". A
+    // folder is what gets policed, which is why the levels are folders. Why the
+    // API client is not on the list, and what this misses that a runner-level
+    // block would catch, are in testing-strategy.md under "Enforcement".
     //
-    // The skill also suggests banning API-client imports under a unit folder.
-    // Not done, and not an oversight: what the unit tests here import from
-    // `src/api/client` is the refusal error class and the module they then
-    // mock, neither of which reaches the network. Banning it would fail ten
-    // existing tests that are at the right level.
-    files: ['**/tests/unit/**/*.{ts,tsx}'],
+    // `.js` as well as `.ts`, because `tools/*/tests/unit` is JavaScript and is
+    // a unit folder like any other.
+    files: ['**/tests/unit/**/*.{ts,tsx,js,mjs}'],
     languageOptions,
     rules: {
       'no-restricted-imports': [

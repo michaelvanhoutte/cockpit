@@ -75,6 +75,28 @@ describe('the lint layer', () => {
     assert.match(fired[0], /Unused eslint-disable directive/);
   });
 
+  it('objects to a hook called inside a condition', async () => {
+    const conditional = [
+      "import { useEffect } from 'react';",
+      'export function Panel({ open }: { open: boolean }) {',
+      '  if (open) useEffect(() => {}, []);',
+      '  return null;',
+      '}',
+    ].join('\n');
+    assert.deepEqual(await rulesFiredOn(conditional, 'apps/web/src/Panel.tsx'), [
+      'react-hooks/rules-of-hooks',
+    ]);
+  });
+
+  it('leaves the hooks rules inside apps/web, which is the only React there is', async () => {
+    // Both paths are linted by another block, so an empty result is the hooks
+    // rules staying silent rather than the file not being reached at all - the
+    // way an unmatched path would answer.
+    for (const filePath of ['apps/api/tests/unit/Panel.tsx', 'tests/e2e/panel.test.ts']) {
+      assert.deepEqual(await rulesFiredOn(EFFECT_MISSING_A_DEPENDENCY, filePath), [], filePath);
+    }
+  });
+
   it('objects to a focused test, in whichever shape it is written', async () => {
     const shapes = [
       ["it.only('x', () => {});", 'apps/api/tests/unit/focused.test.ts'],
@@ -82,6 +104,9 @@ describe('the lint layer', () => {
       ["test.describe.only('x', () => {});", 'tests/e2e/focused.test.ts'],
       ["it.only.each([1])('x', () => {});", 'apps/web/tests/unit/focused.test.tsx'],
       ["it.only('x', () => {});", 'scripts/lib/focused.test.mjs'],
+      // Not a `.test.` file: the browser tier's support folder, where a helper
+      // wrapping `test.describe` narrows the suite just as a walk would.
+      ["test.describe.only('x', () => {});", 'tests/e2e/support/app.ts'],
     ];
     for (const [code, filePath] of shapes) {
       assert.deepEqual(await rulesFiredOn(code, filePath), ['no-restricted-syntax'], filePath);
@@ -99,6 +124,9 @@ describe('the lint layer', () => {
       ["import { drizzle } from 'drizzle-orm/d1';", 'apps/api/tests/unit/db.test.ts'],
       ["import { readFileSync } from 'node:fs';", 'apps/api/tests/unit/db.test.ts'],
       ["import { request } from 'node:https';", 'apps/web/tests/unit/db.test.ts'],
+      // A unit folder written in JavaScript is still a unit folder, which is
+      // what `tools/*/tests/unit` is.
+      ["import { readFileSync } from 'node:fs';", 'tools/test-explorer/tests/unit/db.test.js'],
     ];
     for (const [code, filePath] of reachesTheDatabase) {
       assert.deepEqual(await rulesFiredOn(code, filePath), ['no-restricted-imports'], code);

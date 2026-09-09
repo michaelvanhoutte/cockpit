@@ -182,9 +182,9 @@ Verify against `package.json` before relying on this section — it goes stale.
 
 Reject: tests at the wrong level; coverage duplicated upward; L1/F1 tests with real dependencies or interaction-choreography assertions; L2/F2 tests with horizontal dependencies; an L2/L3/F2 test calling an internal function instead of entering through the real interface; a capability with no frontend test; an outer describe that is not a feature area; a rule **or table label** carrying a word the Glossary does not have (run the grep above), or a rule so circular it restates its own label; a surviving todo; a test that still passes once the behaviour it covers is taken back out; a rule stated as what a function returns where the wiring is what could be wrong; a "done" claim not backed by the definition of done.
 
-Prefer making a violation impossible over catching it in review: a CI job per level, the time budget checked in CI, and the dependency table as lint rules.
+Prefer making a violation impossible over catching it in review: no network or filesystem in the unit runner, a CI job per level, the time budget checked in CI, and the dependency table as lint rules.
 
-**Some of it already is.** `eslint.config.mjs`, run by CI's `Lint` job and by `pnpm lint`, fails a filesystem, network or database import under a `tests/unit/` folder, and a focused test (`it.only`, `test.describe.only`) in any test file. So a misplaced dependency is a red check rather than something to spot in a diff — and the fix is to move the test up a level, never to widen the glob.
+**The last of those is built.** `eslint.config.mjs`, run by CI's `Lint` job and by `pnpm lint`, fails a filesystem, network or database import under a `tests/unit/` folder, and a focused test (`it.only`, `test.describe.only`) in any test file. So a misplaced dependency is a red check rather than something to spot in a diff — and the fix is to move the test up a level, never to widen the glob.
 
 ## When generating a statement list
 
