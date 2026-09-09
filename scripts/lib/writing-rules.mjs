@@ -60,8 +60,18 @@ const NEAR_VERBATIM = 0.9;
 const NUMBER_WORDS =
   /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|both|twice|neither|either)\b/gi;
 
-/** A title in the shape the documents use it: quoted, or a link's text. */
-const TITLE = /["“][^"”]{4,}["”]|\[[^\]]{4,}\]\(/;
+/**
+ * A title in the shape the documents use it - quoted, or a link's text - and
+ * sitting immediately before the number it belongs to.
+ *
+ * Anchored, because "somewhere earlier in the block" is not a title: an
+ * unrelated quotation exempts every citation after it, and this branch was bitten
+ * twice by that in one document, where `("read and process everything here")`
+ * and `"worth reading today"` each covered a bare number further down their own
+ * paragraph. The house style closes the title and opens the citation in the
+ * same breath - `" (`, `", ` - so four characters of gap is already generous.
+ */
+const TITLE = /(?:["“][^"”]{4,}["”]|\[[^\]]{4,}\]\([^)]*\))[^A-Za-z0-9]{0,4}$/;
 
 /**
  * `issue 77`, `(pull request 97)`.

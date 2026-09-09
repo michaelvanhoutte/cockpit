@@ -135,6 +135,21 @@ describe('issueNumbersWithoutTitles', () => {
     assert.deepEqual(issueNumbersWithoutTitles('What drives that is undecided - open decision #14 (§12).'), []);
   });
 
+  it('is not satisfied by an unrelated quotation earlier in the block', () => {
+    const source = 'The skill says "your final reply must contain the markdown report and nothing else", which is where issue 277 sat.';
+    assert.deepEqual(issueNumbersWithoutTitles(source).map(({ number }) => number), ['277']);
+  });
+
+  it('is not satisfied by an unrelated link earlier in the block', () => {
+    const source = 'See [the testing strategy](docs/testing-strategy.md) for the reasoning, and issue 244 for the report.';
+    assert.deepEqual(issueNumbersWithoutTitles(source).map(({ number }) => number), ['244']);
+  });
+
+  it('takes a link as the title where it is the citation\'s own', () => {
+    const source = '[Render actions in panels, backed by one shared action list](https://example.test/36) (issue 36) worked it out.';
+    assert.deepEqual(issueNumbersWithoutTitles(source), []);
+  });
+
   it('does not let a named pull request name the issue of the same number', () => {
     const source = ['"Rename and delete a workspace" (pull request 77) merged.', '', 'Separately, issue 77 is open.'].join('\n');
     assert.deepEqual(issueNumbersWithoutTitles(source).map(({ line, number }) => ({ line, number })), [{ line: 3, number: '77' }]);
