@@ -28,6 +28,8 @@ pnpm dev
 - **Start at the point.** Delete "it is worth noting that", "the requirement is therefore twofold", "worth writing down, because".
 - **Cut what the reader can see.** Don't describe the code, the diff or the diagram that follows; say what it means.
 
+**Four of these are checked rather than reviewed**, over every Markdown file outside `poc/`: an issue number with no title named for it, a `§N` or `rule N` citation resolving to nothing the file offers, an unbalanced `**`, and a paragraph appearing near-verbatim in two places. `pnpm test:scripts` runs them, so does the Scripts job, and `scripts/lib/writing-rules.mjs` is where each one's reach is written down. The same run reports the counting words on the lines you touched — "three things", "both", "nine areas" — which is a prompt to check a claim, not a failure.
+
 ## Starting an issue
 
 **`/issue <number>` is the entry point for issue work.** It runs the whole loop — confirm the issue is live, scope it, build, test, prove it runs, review, ship — end to end, sequencing the sections below rather than restating them. Assembling the phases by hand from this file is the fallback for work that never had an issue number.
