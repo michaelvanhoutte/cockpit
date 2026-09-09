@@ -307,9 +307,9 @@ export function listLayoutsOn(
   db: AccountDb,
   tenantId: string,
   dashboardId: string,
-): { id: string; name: string }[] {
+): { id: string; name: string; screenSizeId: string | null }[] {
   return db
-    .select({ id: layouts.id, name: layouts.name })
+    .select({ id: layouts.id, name: layouts.name, screenSizeId: layouts.screenSizeId })
     .from(layouts)
     .where(and(eq(layouts.tenantId, tenantId), eq(layouts.dashboardId, dashboardId)))
     .orderBy(layouts.createdAt)

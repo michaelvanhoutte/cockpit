@@ -1,105 +1,102 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { uuidv7 } from '@cockpit/shared';
-import type { Layout, Panel } from '@cockpit/shared';
+import { nearestScreenSize, uuidv7 } from '@cockpit/shared';
+import type { Layout, Panel, ScreenSize } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
-import {
-  drawnRows,
-  freeName,
-  layoutLabel,
-  layoutToDraw,
-  nameForScreen,
-  nearestLayout,
-} from '../panels/arrangement';
+import { drawnRows, layoutLabel, layoutToDraw, layoutsOf } from '../panels/arrangement';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { DeleteQuestion } from './DeleteQuestion';
 import { MenuContent, menuItemClass } from './Menu';
 import { NameQuestion } from './NameQuestion';
 
 /**
- * Why the only layout cannot go, said once so the entry a person reads and the
- * label a screen reader announces are the same string.
- */
-const KEEPS_ONE = 'A dashboard keeps at least one layout';
-
-/**
- * What the control is called to anything not looking at it: which layout is in
- * use, which is the one thing the button says in type.
- *
- * It used to say how the layout was picked as well, because there was a mode to
- * be in and being in it was invisible. There is no mode now, so there is
- * nothing to announce beyond the name.
- */
-function announced(drawnWith: Layout | null): string {
-  return `Layout for this dashboard: ${drawnWith ? layoutLabel(drawnWith) : 'none yet'}`;
-}
-
-/**
  * Which arrangement of this dashboard you are looking at, said out loud and
- * changed here ("Pick the layout you are on, by name").
+ * changed here ("Pick the layout you are on, by name"; "Draw a dashboard
+ * against the screen sizes its account has", issue 263).
  *
- * **A layout used to be a side effect.** There was none until your first drag
- * made one; it was called *Made for 1463 px*; the app picked one by comparing
- * that number to your screen; and because the guess could be wrong, every drag
- * on a screen the layout was not made for stopped to ask which layout to keep
- * the change in. Nobody could tell which arrangement they were in, and the
- * question, the width-shaped names and the menu at the foot of the board were
- * all compensation for that. Naming a layout and picking it by name removes all
- * three: the control below says what you are on, and changing the arrangement
- * changes it.
+ * **A screen size is the account's; a Dashboard defines a Layout at the ones
+ * it wants.** The menu is two groups and then the verbs: what this Dashboard
+ * *is* - the sizes it has defined, one of them marked as the one drawn - and
+ * what you can *do* - define a Layout at a size it has not, make a new size,
+ * rename or remove the one in use, or delete it for every Dashboard that has
+ * one.
  *
  * **In the dashboard's own bar rather than under the board**, because that is
  * the one place on screen that is about *this dashboard* and nothing else - and
  * it is beside the tab whose arrangement it names. The bar is drawn on the
  * Inbox too, where there is no dashboard to have a layout, so the shell only
  * mounts this where there is one (DashboardBar).
- *
- * **The menu lists layouts and nothing else**, and the button names one without
- * saying how it was picked ("Layouts follow the screen you are on"). Both used
- * to carry the *Automatic* mode, which `layoutToDraw` says why there is no
- * longer.
  */
 export function LayoutPicker({
   workspaceId,
   dashboardId,
   layouts,
+  screenSizes,
   panels,
 }: {
   workspaceId: string;
   dashboardId: string;
-  /** Every layout of this dashboard, which is what the menu lists. */
+  /** Every layout of this dashboard, which is what says which sizes it has defined. */
   layouts: readonly Layout[];
+  /** Every screen size the account has, whether or not this dashboard has defined one at it. */
+  screenSizes: readonly ScreenSize[];
   /** This dashboard's panels, which a layout made from nothing has to arrange. */
   panels: readonly Panel[];
 }) {
   const screenWidth = useScreenWidth();
   const command = useCommand();
-  const [pick, choose] = useChosenLayout(browserStore(), dashboardId);
-  const drawnWith = layoutToDraw(layouts, dashboardId, screenWidth, pick);
+  const [pick, choose] = useChosenLayout(browserStore());
+  const drawnWith = layoutToDraw(layouts, screenSizes, dashboardId, screenWidth, pick);
   /** The app's own answer for this screen, which a pick overrides while it lasts. */
-  const nearest = nearestLayout(layouts, dashboardId, screenWidth);
+  const nearest = nearestScreenSize(screenSizes, screenWidth);
+  /** The screen size the layout on screen is drawn for, or null with nothing drawn. */
+  const drawnSize = drawnWith
+    ? (screenSizes.find((size) => size.id === drawnWith.screenSizeId) ?? null)
+    : null;
+  /**
+   * What the button says, which is not quite `drawnSize?.name`: a Layout
+   * whose size is not in this list at all - reachable only by something
+   * written straight into the store, never through the app - still reads as
+   * the width it was made at rather than as a blank "No layout" claiming
+   * nothing is drawn when something plainly is (`layoutLabel`).
+   */
+  const drawnLabel = drawnWith ? layoutLabel(drawnWith, screenSizes) : 'No layout';
+
+  const definedIds = new Set(
+    layoutsOf(layouts, dashboardId)
+      .map((layout) => layout.screenSizeId)
+      .filter((id): id is string => id !== null),
+  );
+  /** The sizes this dashboard has a layout at, in the account's own order. */
+  const defined = screenSizes.filter((size) => definedIds.has(size.id));
+  /** The sizes the account has that this dashboard has not defined - actions, not choices. */
+  const undefinedSizes = screenSizes.filter((size) => !definedIds.has(size.id));
 
   /**
-   * Picking one from the menu, scoped to the screen you are on.
+   * Picking a defined size from the menu, scoped to the screen you are on.
    *
    * What the pick records is the answer it is overriding rather than a width,
-   * so it expires when that answer changes and not before (`LayoutPick`). The
-   * layout you press is stored even where it is already the nearest: that is
-   * what lets pressing it clear a pick standing on a different layout, which is
-   * how you get back to the screen's own answer without leaving the menu.
+   * so it expires when that answer changes and not before (`ScreenSizePick`).
+   * The size you press is stored even where it is already the one drawn: that
+   * is what lets pressing it clear a pick standing on a different size, which
+   * is how you get back to the screen's own answer without leaving the menu.
    */
-  const pickFromMenu = (layoutId: string) =>
-    choose({ layoutId, whileNearestIs: nearest?.id ?? layoutId });
+  const pickFromMenu = (screenSizeId: string) =>
+    choose({ screenSizeId, whileNearestIs: nearest?.id ?? screenSizeId });
 
   /**
    * The name being typed, and which question is asking for it - or null while
    * nothing is being named. Held here rather than in the dialog so a refused
    * name survives the answer coming back.
    */
-  const [naming, setNaming] = useState<{ what: 'new' | 'rename'; name: string } | null>(null);
+  const [naming, setNaming] = useState<{ what: 'newSize' | 'renameSize'; name: string } | null>(
+    null,
+  );
+  /** The undefined size a "Define a layout for X" question is asking about. */
+  const [defining, setDefining] = useState<ScreenSize | null>(null);
   const [deleting, setDeleting] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   /** That the entry just chosen opens something, so the menu must not take the focus back. */
@@ -113,8 +110,9 @@ export function LayoutPicker({
         : null;
 
   /** The refusal belongs to the control that asked for it. */
-  const refusalFor = (what: 'save_layout' | 'rename_layout' | 'delete_layout') =>
-    refusal && command.variables?.name === what ? refusal : null;
+  const refusalFor = (
+    what: 'save_layout' | 'create_screen_size' | 'rename_screen_size' | 'delete_layout' | 'delete_screen_size',
+  ) => (refusal && command.variables?.name === what ? refusal : null);
 
   const opens = (open: () => void) => () => {
     command.reset();
@@ -123,30 +121,20 @@ export function LayoutPicker({
   };
 
   /**
-   * A layout made from what is on screen.
-   *
-   * **From the drawn layout's own placements where there is one**, which is what
-   * *from this one* means: the new layout starts as a copy and diverges from
-   * the first thing you move.
-   *
-   * With no layout at all it is the panels fitted to the screen, which is what
-   * such a dashboard is already drawn with - close but not exact, because how
-   * many fit across is decided by the width the *panels* have and the Inbox
-   * takes about a fifth of it (PanelBoard). The board redraws it within the
-   * grid either way, and the first drag records the truth; getting it exact
-   * here would mean the bar knowing how wide the sheet beside it is.
+   * The arrangement a new Layout starts as - a copy of what is drawn, whether
+   * that is a Layout or the screen fitted for nothing ("Defining a layout at a
+   * size copies what is drawn").
    */
-  const createLayout = () => {
-    if (!naming) return;
-    const name = naming.name.trim();
-    if (!name) return;
-    // The arrangement as it is *drawn*, not the one stored: `drawnRows`
-    // is what reconciles a layout against the panels beside it, dropping one it
-    // still names that is no longer there and appending one it has never heard
-    // of. Copying the stored list instead would make "from this one" a copy of
-    // something nobody is looking at - and a placement naming a panel that has
-    // gone is refused outright by the server.
-    const rows = drawnRows(drawnWith, panels, screenWidth);
+  const copyOfWhatIsDrawn = () =>
+    drawnRows(drawnWith, panels, screenWidth).map((row) => ({
+      height: row.height,
+      cells: row.cells.map((cell) => ({ panelId: cell.panelId, span: cell.span })),
+    }));
+
+  /** Defining a layout at a size this dashboard does not have one at yet. */
+  const defineLayout = () => {
+    if (!defining) return;
+    const target = defining;
     const layoutId = uuidv7();
     command.mutate(
       {
@@ -157,46 +145,97 @@ export function LayoutPicker({
           workspaceId,
           dashboardId,
           layoutId,
-          name,
+          name: target.name,
           screenWidth,
-          rows: rows.map((row) => ({
-            height: row.height,
-            cells: row.cells.map((cell) => ({ panelId: cell.panelId, span: cell.span })),
-          })),
+          screenSizeId: target.id,
+          rows: copyOfWhatIsDrawn(),
         },
       },
       {
         onSuccess: () => {
-          // You are put on the layout you just made: making one and then having
-          // to pick it is two gestures for what reads as one. On *this* screen
-          // only - a layout made on the laptop is not one the 4K screen should
-          // be left drawing, which is what putting you on it used to mean.
-          //
-          // It is recorded at this exact width, so it is what the width rule
-          // will answer once the snapshot has it, and the pick expires the
-          // moment you move. Unless a layout was already made at the same
-          // width: that one keeps the answer by coming first, and the pick is
-          // what holds you on the new one until you leave this screen.
-          const tie = layouts.find((layout) => layout.screenWidth === screenWidth);
-          choose({ layoutId, whileNearestIs: tie?.id ?? layoutId });
-          setNaming(null);
+          // Put on the size you just defined, on *this* screen only - the
+          // same reason making a layout used to put you on it.
+          choose({ screenSizeId: target.id, whileNearestIs: nearest?.id ?? target.id });
+          setDefining(null);
         },
       },
     );
   };
 
-  const renameLayout = () => {
-    if (!naming || !drawnWith) return;
+  /**
+   * A screen size the account did not have, made and immediately defined here
+   * - two commands sent one after the other, since a size is made before
+   * anything can be defined at it.
+   */
+  const createSizeAndDefine = () => {
+    if (!naming) return;
     const name = naming.name.trim();
     if (!name) return;
+    const screenSizeId = uuidv7();
     command.mutate(
       {
-        name: 'rename_layout',
+        name: 'create_screen_size',
         payload: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId,
-          layoutId: drawnWith.id,
+          screenSizeId,
+          name,
+          width: screenWidth,
+        },
+      },
+      {
+        onSuccess: () => {
+          const layoutId = uuidv7();
+          command.mutate(
+            {
+              name: 'save_layout',
+              payload: {
+                commandId: uuidv7(),
+                issuedAt: new Date().toISOString(),
+                workspaceId,
+                dashboardId,
+                layoutId,
+                name,
+                screenWidth,
+                screenSizeId,
+                rows: copyOfWhatIsDrawn(),
+              },
+            },
+            {
+              onSuccess: () => {
+                // Not `nearest`: that was read against the account's sizes
+                // before this one joined them, so it can go on naming this
+                // size long after some other screen has genuinely taken over
+                // - a pick that never expires. A size already at this exact
+                // width is what the new one ties with, the same rule an
+                // existing size overrides it with; short of a tie, the size
+                // just made is its own nearest answer here, which is what
+                // lets a real move to another screen already in the account's
+                // list expire it correctly.
+                const tie = screenSizes.find((size) => size.width === screenWidth);
+                choose({ screenSizeId, whileNearestIs: tie?.id ?? screenSizeId });
+                setNaming(null);
+              },
+            },
+          );
+        },
+      },
+    );
+  };
+
+  const renameSize = () => {
+    if (!naming || !drawnSize) return;
+    const name = naming.name.trim();
+    if (!name) return;
+    command.mutate(
+      {
+        name: 'rename_screen_size',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          screenSizeId: drawnSize.id,
           name,
         },
       },
@@ -204,172 +243,228 @@ export function LayoutPicker({
     );
   };
 
-  const deleteLayout = () => {
+  /**
+   * Removing this dashboard's layout at the size in use - one press, with no
+   * dialog of its own, and unlike deleting a Layout used to be, always
+   * allowed: having none left is a normal state now.
+   *
+   * The pick is left alone rather than cleared: a pick naming a size this
+   * dashboard no longer has a layout at is simply inert here, exactly as one
+   * naming a size it never had is (`layoutToDraw`).
+   */
+  const removeLayout = () => {
     if (!drawnWith) return;
+    command.mutate({
+      name: 'delete_layout',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        layoutId: drawnWith.id,
+      },
+    });
+  };
+
+  const deleteEverywhere = () => {
+    if (!drawnSize) return;
     command.mutate(
       {
-        name: 'delete_layout',
+        name: 'delete_screen_size',
         payload: {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId,
-          layoutId: drawnWith.id,
+          screenSizeId: drawnSize.id,
         },
       },
-      {
-        onSuccess: () => {
-          // The pick goes with the layout. Leaving it would only fall through
-          // to the nearest remaining one anyway (arrangement.ts), but a stored
-          // id naming nothing is a thing to explain later rather than now.
-          if (pick?.layoutId === drawnWith.id) choose(null);
-          setDeleting(false);
-        },
-      },
+      { onSuccess: () => setDeleting(false) },
     );
   };
 
   return (
     <>
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger
-          ref={trigger}
-          // The name carries the value, not just the control: a label of
-          // "Layout for this dashboard" alone tells a screen reader that there
-          // is one and never which, and which is the whole point of it.
-          aria-label={announced(drawnWith)}
-          // On the chrome, so it takes the chrome's light set rather than the
-          // ink and accent tint every control on the sheet wears - both of
-          // which are invisible on a near-black bar (Menu.tsx says why this is
-          // a set rather than a class).
-          className="mb-1 flex max-w-52 shrink-0 items-center gap-1.5 rounded-md border border-white/15 bg-white/6 px-2 py-1 text-xs text-chrome-ink hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/12"
-        >
-          {/* The name and nothing else. A badge saying how the layout was
-              picked answered a question that only existed while there was a
-              mode to be in. */}
-          <span className="truncate">{drawnWith ? layoutLabel(drawnWith) : 'No layout yet'}</span>
-          <svg viewBox="0 0 10 6" className="size-2 shrink-0" aria-hidden="true">
-            <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          </svg>
-        </DropdownMenu.Trigger>
-
-        <MenuContent
-          onCloseAutoFocus={(event) => {
-            const claimed = opening.current;
-            opening.current = false;
-            if (claimed) event.preventDefault();
-          }}
-        >
-          <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
-            Layout for this dashboard
-          </DropdownMenu.Label>
-          {/* Marked against the layout actually drawn rather than against what
-              is stored, which is not the same thing and is why this reads
-              `drawnWith`: a pick expires by itself when you change screens, and
-              one naming a layout another device deleted falls through
-              (`layoutToDraw`). Either way the stored id would mark nothing at
-              all - an undifferentiated list, which is the fault this control
-              exists to fix. */}
-          <DropdownMenu.RadioGroup
-            value={drawnWith?.id ?? ''}
-            onValueChange={pickFromMenu}
+      <div className="relative">
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger
+            ref={trigger}
+            // The name carries the value, not just the control: a label of
+            // "Layout for this dashboard" alone tells a screen reader that
+            // there is one and never which, and which is the whole point of
+            // it.
+            aria-label={`Layout for this dashboard: ${drawnLabel}`}
+            // On the chrome, so it takes the chrome's light set rather than the
+            // ink and accent tint every control on the sheet wears - both of
+            // which are invisible on a near-black bar (Menu.tsx says why this is
+            // a set rather than a class).
+            className="mb-1 flex max-w-52 shrink-0 items-center gap-1.5 rounded-md border border-white/15 bg-white/6 px-2 py-1 text-xs text-chrome-ink hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/12"
           >
-            {layouts.map((layout) => (
-              <Chosen key={layout.id} value={layout.id} name={layoutLabel(layout)}>
-                {/* The width is worth saying - it is what the screen is matched
-                    against - but as a note under the name rather than as the
-                    name itself. */}
-                {`made at ${layout.screenWidth} px`}
-              </Chosen>
-            ))}
-          </DropdownMenu.RadioGroup>
+            <span className="truncate">{drawnLabel}</span>
+            <svg viewBox="0 0 10 6" className="size-2 shrink-0" aria-hidden="true">
+              <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </DropdownMenu.Trigger>
 
-          <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
-          <DropdownMenu.Item
-            className={menuItemClass}
-            onSelect={opens(() =>
-              setNaming({
-                what: 'new',
-                // Offered rather than imposed, and free on this dashboard so
-                // the commonest press is not met with a name collision.
-                name: freeName(layouts, nameForScreen(screenWidth)),
-              }),
+          <MenuContent
+            onCloseAutoFocus={(event) => {
+              const claimed = opening.current;
+              opening.current = false;
+              if (claimed) event.preventDefault();
+            }}
+          >
+            <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
+              Layout for this dashboard
+            </DropdownMenu.Label>
+            {/* Marked against the size actually drawn rather than against what
+                is stored, which is not the same thing and is why this reads
+                `drawnSize`: a pick expires by itself when you change screens,
+                and one naming a size this dashboard does not have falls
+                through (`layoutToDraw`). Either way the stored id would mark
+                nothing at all here. */}
+            <DropdownMenu.RadioGroup value={drawnSize?.id ?? ''} onValueChange={pickFromMenu}>
+              {defined.map((size) => (
+                <Chosen key={size.id} value={size.id} name={size.name}>
+                  {`${size.width} px`}
+                </Chosen>
+              ))}
+            </DropdownMenu.RadioGroup>
+
+            {undefinedSizes.length > 0 && (
+              <>
+                <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
+                <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
+                  Define a layout for
+                </DropdownMenu.Label>
+                {undefinedSizes.map((size) => (
+                  <DropdownMenu.Item
+                    key={size.id}
+                    className={`${menuItemClass} flex items-start gap-2`}
+                    onSelect={opens(() => setDefining(size))}
+                  >
+                    <span className="w-3 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0">
+                      {size.name}
+                      <span className="block text-xs text-ink-faint">{`${size.width} px`}</span>
+                    </span>
+                  </DropdownMenu.Item>
+                ))}
+              </>
             )}
-          >
-            {drawnWith ? 'New layout from this one…' : 'New layout…'}
-          </DropdownMenu.Item>
-          {drawnWith && (
-            <>
-              <DropdownMenu.Item
-                className={menuItemClass}
-                onSelect={opens(() => setNaming({ what: 'rename', name: layoutLabel(drawnWith) }))}
-              >
-                {`Rename ${layoutLabel(drawnWith)}…`}
-              </DropdownMenu.Item>
-              {/* Unavailable and saying why, rather than offered and then
-                  refused - the same shape the last dashboard's entry takes. */}
-              {layouts.length === 1 ? (
+
+            <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
+            <DropdownMenu.Item
+              className={menuItemClass}
+              onSelect={opens(() => setNaming({ what: 'newSize', name: '' }))}
+            >
+              New screen size…
+            </DropdownMenu.Item>
+            {drawnSize && (
+              <>
                 <DropdownMenu.Item
-                  disabled
-                  className={`${menuItemClass} text-ink-faint data-[highlighted]:bg-black/5 data-[highlighted]:text-ink-faint`}
-                  aria-label={`Delete ${layoutLabel(drawnWith)}: ${KEEPS_ONE}`}
+                  className={menuItemClass}
+                  onSelect={opens(() => setNaming({ what: 'renameSize', name: drawnSize.name }))}
                 >
-                  {`Delete ${layoutLabel(drawnWith)}`}
-                  <span className="block text-xs">{KEEPS_ONE}</span>
+                  {`Rename ${drawnSize.name}…`}
                 </DropdownMenu.Item>
-              ) : (
+                <DropdownMenu.Item
+                  className={menuItemClass}
+                  onSelect={() => {
+                    // Not `opens()`: nothing opens here, so the focus Radix
+                    // would otherwise put back on the trigger must not be
+                    // claimed away from it the way an entry that opens a
+                    // dialog claims it.
+                    command.reset();
+                    removeLayout();
+                  }}
+                >
+                  {`Remove this dashboard's ${drawnSize.name} layout`}
+                </DropdownMenu.Item>
                 <DropdownMenu.Item
                   className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
                   onSelect={opens(() => setDeleting(true))}
                 >
-                  {`Delete ${layoutLabel(drawnWith)}`}
+                  {`Delete ${drawnSize.name} everywhere`}
                 </DropdownMenu.Item>
-              )}
-            </>
-          )}
-        </MenuContent>
-      </DropdownMenu.Root>
+              </>
+            )}
+          </MenuContent>
+        </DropdownMenu.Root>
+
+        {/* A one-press action from the menu has no dialog of its own to
+            report a refusal in, so it lands here instead - the one place on
+            screen that is already about this control. */}
+        {refusalFor('delete_layout') && (
+          <p role="alert" className="absolute left-0 top-full z-10 pt-1 text-xs text-over">
+            {refusalFor('delete_layout')}
+          </p>
+        )}
+      </div>
 
       {/* Mounted whether or not it is open, unlike the delete question below:
           a dialog torn out from above is never told it closed, so it never
           gets to put the focus back on the control it was opened from. */}
       <NameQuestion
         open={naming !== null}
-        question={naming?.what === 'rename' ? 'What is this layout called?' : 'What is the new layout called?'}
-        fieldLabel={naming?.what === 'rename' ? 'New name for this layout' : 'Name of the new layout'}
+        question={naming?.what === 'renameSize' ? 'What is this screen size called?' : 'What is the new screen size called?'}
+        fieldLabel={naming?.what === 'renameSize' ? 'New name for this screen size' : 'Name of the new screen size'}
         placeholder="Wide, Laptop, Phone…"
-        submitLabel={naming?.what === 'rename' ? 'Rename' : 'Create'}
+        submitLabel={naming?.what === 'renameSize' ? 'Rename' : 'Create'}
         name={naming?.name ?? ''}
         onNameChange={(name) => setNaming((was) => (was ? { ...was, name } : was))}
-        onSubmit={naming?.what === 'rename' ? renameLayout : createLayout}
+        onSubmit={naming?.what === 'renameSize' ? renameSize : createSizeAndDefine}
         onCancel={() => {
           setNaming(null);
           command.reset();
         }}
-        refusal={refusalFor(naming?.what === 'rename' ? 'rename_layout' : 'save_layout')}
+        refusal={
+          naming?.what === 'renameSize'
+            ? refusalFor('rename_screen_size')
+            : (refusalFor('create_screen_size') ?? refusalFor('save_layout'))
+        }
         // This question's own, not the picker's: the dialog will not close while
         // it is busy, so a delete still in flight would leave a form nobody can
         // get out of.
         busy={
           command.isPending &&
           (command.variables?.name === 'save_layout' ||
-            command.variables?.name === 'rename_layout')
+            command.variables?.name === 'create_screen_size' ||
+            command.variables?.name === 'rename_screen_size')
         }
         returnFocusTo={trigger.current}
       />
 
-      {deleting && drawnWith && (
+      {defining && (
         <DeleteQuestion
           open
-          question={`Delete ${layoutLabel(drawnWith)}? The panels stay; what goes is this way of arranging them.`}
-          confirmLabel={`Yes, delete ${layoutLabel(drawnWith)}`}
+          question={`Give this dashboard its own layout for ${defining.name}? It starts as a copy of ${
+            drawnSize ? drawnSize.name : 'what is fitted to the screen'
+          }.`}
+          confirmLabel={`Yes, define ${defining.name}`}
+          confirmText={`Yes, define ${defining.name}`}
+          variant="affirmative"
           canConfirm={!command.isPending}
-          refusal={refusalFor('delete_layout')}
+          refusal={refusalFor('save_layout')}
+          returnFocusTo={trigger.current}
+          onCancel={() => {
+            setDefining(null);
+            command.reset();
+          }}
+          onConfirm={defineLayout}
+        />
+      )}
+
+      {deleting && drawnSize && (
+        <DeleteQuestion
+          open
+          question={`Delete ${drawnSize.name} everywhere? Every dashboard's ${drawnSize.name} layout goes with it, in every workspace.`}
+          confirmLabel={`Yes, delete ${drawnSize.name} everywhere`}
+          canConfirm={!command.isPending}
+          refusal={refusalFor('delete_screen_size')}
           returnFocusTo={trigger.current}
           onCancel={() => {
             setDeleting(false);
             command.reset();
           }}
-          onConfirm={deleteLayout}
+          onConfirm={deleteEverywhere}
         />
       )}
     </>
@@ -381,7 +476,7 @@ export function LayoutPicker({
  *
  * **The mark is the whole reason this is a component.** Radix knows which
  * `RadioItem` is checked and renders nothing to say so, so the menu opened
- * without one listed every layout identically - which is the fault this feature
+ * without one listed every size identically - which is the fault this feature
  * exists to fix, one menu deeper. `ItemIndicator` draws only in the checked
  * item; the column it sits in is always there, so the names line up whichever
  * one is marked.
@@ -393,7 +488,7 @@ function Chosen({
 }: {
   value: string;
   name: string;
-  /** The line under the name: the width the layout was made at. */
+  /** The line under the name: the width the size is matched against. */
   children: React.ReactNode;
 }) {
   return (

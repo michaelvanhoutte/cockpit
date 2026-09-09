@@ -78,11 +78,11 @@ export function panelNamed(
  * two dashboards of one workspace may each have a *Wide* ("Pick the layout you
  * are on, by name").
  */
-export function layoutNamed(
-  its: readonly { id: string; name: string }[],
+export function layoutNamed<T extends { id: string; name: string }>(
+  its: readonly T[],
   name: string,
   except?: string,
-): { id: string; name: string } | undefined {
+): T | undefined {
   return namedTheSame(its, name, except);
 }
 

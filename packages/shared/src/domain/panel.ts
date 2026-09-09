@@ -250,11 +250,12 @@ export const layoutSchema = z.object({
    * predates them ("Give the account a list of screen sizes, before anything
    * reads it", issue 262).
    *
-   * **Nullable only for this release and the next.** Nothing writes one yet;
-   * "Draw a dashboard against the screen sizes its account has" (issue 263)
-   * makes every save carry one and stops reading a Layout without one, and the
-   * contract half drops both the nullability and the `name` and `screenWidth`
-   * above.
+   * **Nullable only until the contract half.** Every save now carries one
+   * ("Draw a dashboard against the screen sizes its account has", issue 263),
+   * so null is only ever a Layout from before this release - and the automatic
+   * choice never draws one, exactly as it never draws a size the Dashboard has
+   * not defined. The contract half drops the nullability and the `name` and
+   * `screenWidth` above.
    */
   screenSizeId: z.string().nullable().default(null),
   /** The rows, top to bottom, each holding its Panels left to right. */

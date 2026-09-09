@@ -37,6 +37,15 @@ export const screenSizeNameSchema = panelNameSchema;
 export const MIN_SCREEN_WIDTH = 1;
 export const MAX_SCREEN_WIDTH = 100000;
 
+/**
+ * What the account's first screen size is called, where an arrangement change
+ * needed one and there was none to be nearest to ("Draw a dashboard against the
+ * screen sizes its account has", issue 263). The only name the product still
+ * generates rather than asks for - `nameForScreen`'s four invented bands and
+ * `freeName` are both gone with the rest of them.
+ */
+export const DEFAULT_SCREEN_SIZE_NAME = 'Default';
+
 export const screenSizeSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
@@ -56,3 +65,28 @@ export const screenSizeSchema = z.object({
   createdAt: z.iso.datetime(),
 });
 export type ScreenSize = z.infer<typeof screenSizeSchema>;
+
+/**
+ * The account's screen size nearest this window, ties going to the narrower -
+ * "Draw a dashboard against the screen sizes its account has" (issue 263).
+ *
+ * **Shared rather than written twice**, because both halves of the app ask the
+ * same question from the same list: the server resolves it when a save with
+ * nothing defined has to land somewhere, and the browser resolves it to decide
+ * whether a picked size has expired (`apps/web/src/panels/arrangement.ts`,
+ * `layoutToDraw`). A tie-break kept in one place is a tie-break that cannot
+ * answer differently on the two sides of one save.
+ */
+export function nearestScreenSize(
+  sizes: readonly ScreenSize[],
+  width: number,
+): ScreenSize | null {
+  return sizes.reduce<ScreenSize | null>((closest, size) => {
+    if (!closest) return size;
+    const near = Math.abs(size.width - width);
+    const nearest = Math.abs(closest.width - width);
+    if (near < nearest) return size;
+    if (near === nearest && size.width < closest.width) return size;
+    return closest;
+  }, null);
+}

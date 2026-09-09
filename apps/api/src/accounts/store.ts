@@ -37,7 +37,6 @@ import {
   ItemTypeNotFoundError,
   ItemTypeOrderStaleError,
   LastDashboardError,
-  LastLayoutError,
   LayoutNameTakenError,
   LayoutNotFoundError,
   PanelHoldsSomethingElseError,
@@ -339,9 +338,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         // well formed and names a dashboard that exists, and the answer is that
         // this one may not go.
         error instanceof LastDashboardError ||
-        // The same refusal one level down: a dashboard that has been arranged
-        // keeps that arrangement.
-        error instanceof LastLayoutError ||
         // Not a missing workspace, even though a deleted one is the likeliest
         // way to get here: what has collided is the whole list against a list
         // of workspaces that has moved on.

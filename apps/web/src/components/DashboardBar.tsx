@@ -387,6 +387,7 @@ export function DashboardBar({
             workspaceId={workspaceId}
             dashboardId={openDashboardId}
             layouts={layoutsOf(data?.layouts ?? [], openDashboardId)}
+            screenSizes={data?.screenSizes ?? []}
             panels={(data?.panels ?? []).filter((p) => p.dashboardId === openDashboardId)}
           />
           <AddPanel workspaceId={workspaceId} dashboardId={openDashboardId} />

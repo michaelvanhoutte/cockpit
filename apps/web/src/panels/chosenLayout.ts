@@ -1,10 +1,11 @@
 import { useCallback, useSyncExternalStore } from 'react';
-import type { LayoutPick } from './arrangement';
+import type { ScreenSizePick } from './arrangement';
 
 /**
- * Which layout a dashboard is being drawn with, where somebody has picked one
- * by name rather than taking the screen's own answer ("Layouts follow the
- * screen you are on").
+ * Which screen size is overriding the width rule, where somebody has picked
+ * one from the menu rather than taking the screen's own answer ("Layouts
+ * follow the screen you are on"; "Draw a dashboard against the screen sizes
+ * its account has", issue 263).
  *
  * **Remembered in the browser, not in the database**, for the reason the last
  * view of a workspace is (lastVisited.ts) - and here the reason is the whole
@@ -12,9 +13,15 @@ import type { LayoutPick } from './arrangement';
  * arrangements; storing "I am looking at the wide one" would push that choice
  * onto every other device, which is exactly what following the screen avoids.
  *
- * **What is stored is a pick and the answer it overrides**, never a bare layout
- * id, because a pick that outlives the screen it was made on is the fault this
- * module was rewritten to fix (`LayoutPick` says how it expires).
+ * **One key for the whole app, not one per Dashboard.** Which screen you are
+ * on is a fact about you, not about which Dashboard happens to be open - so a
+ * pick made on one Dashboard is honoured on the next one you switch to, where
+ * it has defined that size, and inert where it has not (`layoutToDraw`).
+ *
+ * **What is stored is a pick and the answer it overrides**, never a bare
+ * screen size id, because a pick that outlives the screen it was made on is
+ * the fault this module was written to fix (`ScreenSizePick` says how it
+ * expires).
  *
  * The storage is handed in rather than reached for, so the deciding is provable
  * without a browser and so a private window, or a browser that refuses storage,
@@ -27,26 +34,26 @@ import type { LayoutPick } from './arrangement';
  * would have to hand the other through the router.
  */
 
-const KEY = 'cockpit.layout.';
+const KEY = 'cockpit.layoutPick';
 
 /**
- * The pick held for this dashboard, or null where there is none to honour.
+ * The pick currently held, or null where there is none to honour.
  *
- * **Anything that is not a pick in the current shape is no pick**, which covers
- * the value browsers are holding from before this: a bare layout id, written
- * when picking one meant picking it for good. Reading those forward would keep
- * every browser pinned to the layout it was stuck on, and being unstuck is the
- * point - so they are dropped, and the dashboard goes back to following the
+ * **Anything that is not a pick in the current shape is no pick**, which
+ * covers a value a browser is holding from before this rewrite: one keyed per
+ * Dashboard and naming a layout id rather than a screen size. Reading those
+ * forward would misapply a pick made for one Dashboard to whichever is open
+ * now, so they are dropped, and every Dashboard goes back to following the
  * screen. The next pick overwrites the dead value.
  */
-export function pickFor(store: Storage | undefined, dashboardId: string): LayoutPick | null {
-  return parsePick(held(store, dashboardId));
+export function pickFor(store: Storage | undefined): ScreenSizePick | null {
+  return parsePick(held(store));
 }
 
-/** What is stored for this dashboard, unparsed, or null where nothing can be read. */
-function held(store: Storage | undefined, dashboardId: string): string | null {
+/** What is stored, unparsed, or null where nothing can be read. */
+function held(store: Storage | undefined): string | null {
   try {
-    return store?.getItem(KEY + dashboardId) ?? null;
+    return store?.getItem(KEY) ?? null;
   } catch {
     // Storage that refuses to be read is a dashboard following the screen.
     return null;
@@ -54,36 +61,32 @@ function held(store: Storage | undefined, dashboardId: string): string | null {
 }
 
 /** That string as a pick, or null where it is not one. */
-function parsePick(raw: string | null): LayoutPick | null {
+function parsePick(raw: string | null): ScreenSizePick | null {
   if (!raw) return null;
   try {
     const read: unknown = JSON.parse(raw);
     if (typeof read !== 'object' || read === null) return null;
-    const { layoutId, whileNearestIs } = read as Record<string, unknown>;
-    if (typeof layoutId !== 'string' || typeof whileNearestIs !== 'string') return null;
-    return { layoutId, whileNearestIs };
+    const { screenSizeId, whileNearestIs } = read as Record<string, unknown>;
+    if (typeof screenSizeId !== 'string' || typeof whileNearestIs !== 'string') return null;
+    return { screenSizeId, whileNearestIs };
   } catch {
     return null;
   }
 }
 
-/** `null` puts the dashboard back on whichever layout is nearest the screen. */
-export function pickLayout(
-  store: Storage | undefined,
-  dashboardId: string,
-  pick: LayoutPick | null,
-): void {
+/** `null` puts every Dashboard back on whichever layout is nearest the screen. */
+export function pickScreenSize(store: Storage | undefined, pick: ScreenSizePick | null): void {
   try {
-    if (pick === null) store?.removeItem(KEY + dashboardId);
-    else store?.setItem(KEY + dashboardId, JSON.stringify(pick));
+    if (pick === null) store?.removeItem(KEY);
+    else store?.setItem(KEY, JSON.stringify(pick));
   } catch {
     // Not remembering is a smaller thing than not drawing the dashboard.
   }
 }
 
 /**
- * Everything currently reading a pick, so that changing one in the bar redraws
- * the board under it.
+ * Everything currently reading the pick, so that changing it in the bar
+ * redraws the board under it.
  *
  * A plain set of callbacks rather than the `storage` event, which browsers only
  * fire at *other* tabs: the two readers here are in the same document, so the
@@ -99,8 +102,8 @@ function subscribe(onChange: () => void): () => void {
 }
 
 /**
- * The pick for one dashboard, and the way to change it - kept current for every
- * reader in this document.
+ * The pick, and the way to change it - kept current for every reader in this
+ * document.
  *
  * `null` means nothing is being overridden, which is both "nothing has been
  * picked" and "the pick has expired": the two are the same state, because a
@@ -117,16 +120,15 @@ function subscribe(onChange: () => void): () => void {
  */
 export function useChosenLayout(
   store: Storage | undefined,
-  dashboardId: string,
-): [LayoutPick | null, (pick: LayoutPick | null) => void] {
-  const stored = useSyncExternalStore(subscribe, () => held(store, dashboardId), () => null);
+): [ScreenSizePick | null, (pick: ScreenSizePick | null) => void] {
+  const stored = useSyncExternalStore(subscribe, () => held(store), () => null);
   const pick = parsePick(stored);
   const choose = useCallback(
-    (next: LayoutPick | null) => {
-      pickLayout(store, dashboardId, next);
+    (next: ScreenSizePick | null) => {
+      pickScreenSize(store, next);
       for (const tell of readers) tell();
     },
-    [store, dashboardId],
+    [store],
   );
   return [pick, choose];
 }
