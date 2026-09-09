@@ -2,7 +2,7 @@ import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { PanelText } from '../panels/PanelText';
-import { RowMenu } from './Menu';
+import { TabMenu } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
 
 /**
@@ -125,6 +125,10 @@ export function PanelCard({
   // What this panel is made of, and so what its well holds, what its header
   // says beside its name and what its menu offers.
   const text = panel.kind === 'text';
+  // Read once, said the many ways it is asked below: whether the menu is
+  // open to being asked at all, whether the header is a tab stop or a name
+  // and a role, whether a plain click starts a drag or does nothing.
+  const isRenaming = renaming !== null;
 
   return (
     <section
@@ -151,105 +155,173 @@ export function PanelCard({
         lifted ? 'rounded-lg opacity-40 outline-2 outline-dashed outline-accent' : ''
       }`}
     >
-      <header
-        // The handle, and a pointer gesture rather than the browser's own
-        // drag-and-drop.
-        //
-        // **The browser's drag gives a frozen picture of the panel**, which is
-        // the one thing this gesture must not do: the panels move as the
-        // pointer does, so what is under the hand has to be the board itself.
-        // It also drew the two gestures on this screen from one mechanism -
-        // an item being filed onto a panel is a drag too - and every target
-        // had to ask which of them was in the air. Items keep the browser's
-        // drag; a panel is moved with the pointer, and the two can no longer
-        // be mistaken for each other.
-        onPointerDown={(event) => {
-          // The primary button only: a right-click opens a menu, and dragging
-          // the panel out from under it would be nobody's intention.
-          if (event.button !== 0) return;
-          // Not while it is being renamed, and not on the menu: an emptied
-          // rename box is still an open one, and selecting what you typed must
-          // not carry the panel off. `closest` rather than a check on the
-          // target, because the menu's glyph is an SVG inside the button.
-          if (renaming !== null) return;
-          if ((event.target as Element).closest?.('button, input, form')) return;
-          // **And only for a press that really landed in this header.** The
-          // menu's entries are drawn in a portal on the body, but a React event
-          // bubbles through the component tree rather than the DOM one - so
-          // pressing Move left arrives here, nowhere near the header, and the
-          // `preventDefault` below took the press away from the menu. The menu
-          // then sat open over a modal overlay with nothing else on the page
-          // reachable. `contains` is what tells the two apart; an Item's row
-          // asks the same question for the same reason (`RowForm.tsx`,
-          // `wasOnTheRow`).
-          if (!event.currentTarget.contains(event.target as Node)) return;
-          // Otherwise the browser starts a text selection across whatever the
-          // drag passes over.
-          event.preventDefault();
-          onPickUp(event.pointerId);
-        }}
-        // On the sheet rather than on the list: no fill, no rule under it, and
-        // the space above it is what separates one panel from the one above.
-        //
-        // Drawn to the panel's own width rather than the screen's, because that
-        // is what it has to fit in: three panels across a laptop's dashboard are
-        // narrower than one panel on a phone, and a layout made for a wide screen
-        // is squeezed rather than cut off - so the app's tightest headers are on
-        // its widest screens.
-        //
-        // The margin closes with the count (below), at the same width and for
-        // the same reason: a panel this narrow is spending forty percent of
-        // itself on padding and a menu, and it is spending it on its own name.
-        // It stops matching the rows underneath there, which carry `px-4` of
-        // their own - a fair trade at a width where those rows are showing two
-        // characters of a title.
-        // `cursor-grab` because the header is the handle and nothing else says
-        // so; `touch-none` is deliberately absent, so a finger still scrolls
-        // the page and the drag stays the pointer gesture the menu is the
-        // alternative to.
-        className={`flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 ${
-          renaming === null ? 'cursor-grab active:cursor-grabbing' : ''
-        }`}
+      <TabMenu
+        label={`Actions for ${panel.name}`}
+        // Shut while the name is being edited in place, on this same header:
+        // a right-click or the menu key would otherwise fight the rename box
+        // for them instead of letting you select or paste into it.
+        disabled={isRenaming}
+        // Nothing to build while the menu is shut for it: the entries below
+        // are closures over this render's props, allocated for a menu that
+        // cannot open until the rename that disabled it ends and this
+        // component renders again anyway.
+        entries={
+          isRenaming
+            ? []
+            : [
+                { label: 'Rename', onSelect: onStartRenaming },
+                // Only on a panel of text. A panel of items has no text to
+                // lock, and an entry that means nothing where it is offered is
+                // worse than one that is not there - the menu's own rule keeps
+                // an *unavailable* entry visible, and this one is not
+                // unavailable, it is about something else entirely.
+                //
+                // Named for what choosing it gives you rather than for the
+                // state it leaves behind, which is how every other entry here
+                // reads.
+                ...(text
+                  ? [
+                      {
+                        label: panel.readOnly ? 'Allow editing' : 'Make read-only',
+                        keepsFocus: true,
+                        onSelect: () => onReadOnlyChange(!panel.readOnly),
+                      },
+                      {
+                        // What the same characters are drawn as. Named for what
+                        // choosing it gives you, like the entry above it.
+                        label: panel.format === 'rich' ? 'Use plain text' : 'Use rich text',
+                        keepsFocus: true,
+                        onSelect: () =>
+                          onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
+                      },
+                    ]
+                  : []),
+                ...movesFor({ first, last, sideBySide }, onMove),
+                { label: 'Delete', destructive: true, onSelect: onDelete },
+              ]
+        }
       >
-        {renaming !== null ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              onRename();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') onStopRenaming();
-            }}
-            className="flex min-w-0 flex-1 items-center gap-2"
-          >
-            <input
-              value={renaming}
-              onChange={(e) => onRenamingChange(e.target.value)}
-              aria-label={`New name for ${panel.name}`}
-              maxLength={60}
-              autoFocus
-              className="min-w-0 flex-1 rounded-md border border-black/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-            />
-            <button
-              type="submit"
-              disabled={busy}
-              className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+        <header
+          // The handle, and a pointer gesture rather than the browser's own
+          // drag-and-drop.
+          //
+          // **The browser's drag gives a frozen picture of the panel**, which is
+          // the one thing this gesture must not do: the panels move as the
+          // pointer does, so what is under the hand has to be the board itself.
+          // It also drew the two gestures on this screen from one mechanism -
+          // an item being filed onto a panel is a drag too - and every target
+          // had to ask which of them was in the air. Items keep the browser's
+          // drag; a panel is moved with the pointer, and the two can no longer
+          // be mistaken for each other.
+          onPointerDown={(event) => {
+            // The primary button of a mouse only, the same guard `tabDrag.ts`
+            // uses for the same reason: a right-click opens the panel's own
+            // menu (`TabMenu`, above), and a touch is what rests a finger to
+            // open it too - a drag is absent on a touchscreen, so leaving a
+            // touch press here would take the header's own `onPointerDown`
+            // ahead of Radix's, in the one child-before-slot order `asChild`
+            // composes them in, and its `preventDefault` would reach Radix's
+            // long-press timer already told the gesture was spoken for.
+            if (event.button !== 0 || event.pointerType !== 'mouse') return;
+            // Not while it is being renamed, and not on the rename form's own
+            // controls: an emptied rename box is still an open one, and
+            // selecting what you typed, or pressing Save or Cancel, must not
+            // carry the panel off.
+            if (isRenaming) return;
+            if ((event.target as Element).closest?.('button, input, form')) return;
+            // **And only for a press that really landed in this header.** A
+            // chosen menu entry is drawn in a portal on the body, but a React
+            // event bubbles through the component tree rather than the DOM
+            // one - so choosing Move left arrives here, nowhere near the
+            // header, and the `preventDefault` below took the press away from
+            // the menu. The menu then sat open over a modal overlay with
+            // nothing else on the page reachable. `contains` is what tells
+            // the two apart; an Item's row asks the same question for the
+            // same reason (`RowForm.tsx`, `wasOnTheRow`).
+            if (!event.currentTarget.contains(event.target as Node)) return;
+            // Otherwise the browser starts a text selection across whatever the
+            // drag passes over.
+            event.preventDefault();
+            onPickUp(event.pointerId);
+          }}
+          // Reachable by keyboard whenever the menu might open from it, so the
+          // browser's own menu key has a target to fire on - the same reason
+          // a tab's own `Link` needs no such thing itself: it is focusable
+          // already. Taken back out of the tab order during a rename, when
+          // the input inside already is the thing to reach.
+          tabIndex={isRenaming ? -1 : 0}
+          // A tab's own accessible name and role are its `Link`'s, free; a
+          // header has neither on its own, and the kebab button this replaced
+          // carried both (`aria-label="Actions for X"` on a real `button`) -
+          // said here instead, since nothing else names this stop as the
+          // panel's menu trigger. Both go with the tab order, for the same
+          // reason: a control a rename box is standing in for is not one.
+          aria-haspopup={isRenaming ? undefined : 'menu'}
+          aria-label={isRenaming ? undefined : `Actions for ${panel.name}`}
+          // On the sheet rather than on the list: no fill, no rule under it, and
+          // the space above it is what separates one panel from the one above.
+          //
+          // Drawn to the panel's own width rather than the screen's, because that
+          // is what it has to fit in: three panels across a laptop's dashboard are
+          // narrower than one panel on a phone, and a layout made for a wide screen
+          // is squeezed rather than cut off - so the app's tightest headers are on
+          // its widest screens.
+          //
+          // The margin closes with the count (below), at the same width and for
+          // the same reason: a panel this narrow is spending real width on
+          // padding alone, and it is spending it on its own name. It stops
+          // matching the rows underneath there, which carry `px-4` of their
+          // own - a fair trade at a width where those rows are showing two
+          // characters of a title.
+          // `cursor-grab` because the header is the handle and nothing else says
+          // so; `touch-none` is deliberately absent, so a finger still scrolls
+          // the page and the drag stays the pointer gesture the menu's own
+          // Move entries are the alternative to.
+          //
+          // The focus ring is drawn inward (a negative offset) rather than
+          // the app's usual outward one: a control the width of its own row,
+          // right at the panel's edge, would otherwise have the ring itself
+          // clipped by the sheet around it.
+          className={`flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+            isRenaming ? '' : 'cursor-grab active:cursor-grabbing'
+          }`}
+        >
+          {isRenaming ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                onRename();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') onStopRenaming();
+              }}
+              className="flex min-w-0 flex-1 items-center gap-2"
             >
-              Save
-            </button>
-            <button
-              type="button"
-              onClick={onStopRenaming}
-              className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-xs hover:bg-accent-tint hover:text-accent-deep"
-            >
-              Cancel
-            </button>
-          </form>
-        ) : (
-          <>
-            {/* The name and the count travel together, so the menu sits at the
-                panel's edge whether or not the count is drawn. */}
-            <div className="mr-auto flex min-w-0 items-center gap-2">
+              <input
+                value={renaming}
+                onChange={(e) => onRenamingChange(e.target.value)}
+                aria-label={`New name for ${panel.name}`}
+                maxLength={60}
+                autoFocus
+                className="min-w-0 flex-1 rounded-md border border-black/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+              />
+              <button
+                type="submit"
+                disabled={busy}
+                className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={onStopRenaming}
+                className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-xs hover:bg-accent-tint hover:text-accent-deep"
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2">
               {/* The same heading the Inbox's carries in the band above it
                   (components/InboxPanel.tsx): small, uppercase and in the accent,
                   because a header on the sheet has no fill or rule to say it is a
@@ -258,16 +330,15 @@ export function PanelCard({
                 {panel.name}
               </h3>
               {/* How much is on it, said the way the Inbox says it - until the
-                  panel is too narrow to say all three things, and then this is
-                  the one that goes. Everything else in the header is either the
-                  panel's name or the only way to rename, move or delete it; the
-                  count is the one thing the list underneath already shows.
+                  panel is too narrow to say both, and then this is the one
+                  that goes: the count is the one thing the list underneath
+                  already shows, where the name is this header's only word.
 
-                  Two hundred pixels because that is where it stops paying for
-                  itself: the padding, the menu and the two gaps already take
-                  seventy-six of them, and the count another seventeen, so below
-                  this the name is being truncated to make room for a number the
-                  list underneath spells out. */}
+                  Two hundred pixels because that is roughly where it stops
+                  paying for itself: the padding still takes some of it, and
+                  the count another seventeen, so below this the name is being
+                  truncated to make room for a number the list underneath
+                  spells out. */}
               {/* How much is on it, which a panel of text has no answer to:
                   it holds no items, and drawing a nought beside its name would
                   be reporting on something it is not. */}
@@ -292,42 +363,9 @@ export function PanelCard({
                 </span>
               )}
             </div>
-            <RowMenu
-              label={`Actions for ${panel.name}`}
-              entries={[
-                { label: 'Rename', onSelect: onStartRenaming },
-                // Only on a panel of text. A panel of items has no text to
-                // lock, and an entry that means nothing where it is offered is
-                // worse than one that is not there - the menu's own rule keeps
-                // an *unavailable* entry visible, and this one is not
-                // unavailable, it is about something else entirely.
-                //
-                // Named for what choosing it gives you rather than for the
-                // state it leaves behind, which is how every other entry here
-                // reads.
-                ...(text
-                  ? [
-                      {
-                        label: panel.readOnly ? 'Allow editing' : 'Make read-only',
-                        keepsFocus: true,
-                        onSelect: () => onReadOnlyChange(!panel.readOnly),
-                      },
-                      {
-                        // What the same characters are drawn as. Named for what
-                        // choosing it gives you, like the entry above it.
-                        label: panel.format === 'rich' ? 'Use plain text' : 'Use rich text',
-                        keepsFocus: true,
-                        onSelect: () => onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
-                      },
-                    ]
-                  : []),
-                ...movesFor({ first, last, sideBySide }, onMove),
-                { label: 'Delete', destructive: true, onSelect: onDelete },
-              ]}
-            />
-          </>
-        )}
-      </header>
+          )}
+        </header>
+      </TabMenu>
 
       {/* No padding of its own: a row carries its own, so a list inside a panel
           reads exactly as it does in the Inbox.

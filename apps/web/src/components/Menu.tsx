@@ -133,12 +133,14 @@ export interface MenuEntry {
 /**
  * The menu a row carries, holding what can be done to that row ("Ask before
  * deleting in a dialog, from the row's own menu", issue 116) - a Type in the
- * window they are managed in, a Panel on a dashboard, an Item in a list.
+ * window they are managed in, an Item in a list.
  *
  * One component rather than the same dozen lines in each: what they offer
- * differs, how a row offers it does not. A workspace and a dashboard are tabs
- * rather than rows and carry `TabMenu` below, which is the same menu opened
- * by the tab itself.
+ * differs, how a row offers it does not. A workspace, a dashboard and a panel
+ * open their own menu instead and carry `TabMenu` below - a workspace and a
+ * dashboard because they are tabs rather than rows, a panel because its
+ * header is the trigger already, under the pointer, and a kebab beside it
+ * would be a second control doing what the header already can.
  *
  * The entries are named for the action alone - "Rename", "Delete" - because the
  * control that opened them is named for the row, so a reader who cannot see the
@@ -212,23 +214,30 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
 }
 
 /**
- * The menu a tab carries, holding what can be done to the workspace or the
- * dashboard it names ("Change a workspace or a dashboard on the tab it is",
- * issue 267).
+ * The menu a tab or a panel carries, holding what can be done to the
+ * workspace, dashboard or panel it names ("Change a workspace or a dashboard
+ * on the tab it is", issue 267).
  *
- * **The tab is the trigger, so there is no control to add.** The strips are the
- * thing you use all day and a three-dot button on every tab would be permanent
- * chrome for something done a few times a month - and it would have to fit
- * beside the name in a strip that already scrolls. So the tab opens its own
- * menu three ways, which is one gesture per input rather than three ways of
- * being thorough:
+ * **The tab or the panel is the trigger, so there is no control to add.** A
+ * strip of tabs is the thing you use all day, and a three-dot button on every
+ * one would be permanent chrome for something done a few times a month - and
+ * it would have to fit beside the name in a strip that already scrolls. A
+ * panel's header is under the pointer for a different reason: it is already
+ * the handle you drag to move the panel, so right-click is a second word for
+ * a target the header already is, rather than a second control competing
+ * with the one that used to sit beside it. Either way, the surface opens its
+ * own menu, the same ways in:
  *
- * - **a right-click**, anywhere on the tab, which is what a pointer has;
- * - **a press on the tab you are already on**, which is what a finger has: that
- *   press has no other job, since you are looking at what it would switch to,
- *   and it is the only way in that needs no gesture at all (`opensOnPress`);
- * - **the keyboard's own menu key**, which the browser turns into the same
- *   event a right-click makes, so the keyboard costs nothing to support.
+ * - **a right-click**, anywhere on the tab or the header, which is what a
+ *   pointer has;
+ * - **a press on the tab you are already on**, which is what a finger has:
+ *   that press has no other job, since you are looking at what it would
+ *   switch to, and it is the only way in that needs no gesture at all
+ *   (`opensOnPress`) - a panel has no "already open" state to repurpose this
+ *   way, so it never passes one;
+ * - **the keyboard's own menu key**, on whichever of the two is focused, which
+ *   the browser turns into the same event a right-click makes, so the
+ *   keyboard costs nothing to support.
  *
  * (A long press may open it as well, which is Radix's own doing on a
  * touchscreen. Nothing here relies on it and no walk drives it, so it is not
@@ -244,19 +253,27 @@ export function TabMenu({
   label,
   entries,
   children,
+  disabled = false,
 }: {
-  /** What the menu is called to somebody who cannot see the tab it belongs to. */
+  /** What the menu is called to somebody who cannot see the tab or panel it belongs to. */
   label: string;
   entries: MenuEntry[];
-  /** The tab itself, which is the trigger. */
+  /** The tab or the panel itself, which is the trigger. */
   children: React.ReactNode;
+  /**
+   * Shut while something else on the trigger already owns right-click and the
+   * keyboard menu key - a panel being renamed edits its name in place, on the
+   * same header this opens from, so the menu has to step aside rather than
+   * fight the rename box for them.
+   */
+  disabled?: boolean;
 }) {
   const chose = useRef(false);
   const tab = useRef<HTMLElement>(null);
 
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger ref={tab} asChild>
+      <ContextMenu.Trigger ref={tab} asChild disabled={disabled}>
         {children}
       </ContextMenu.Trigger>
       <ContextMenu.Portal>

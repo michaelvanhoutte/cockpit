@@ -517,9 +517,9 @@ export async function chooseTabAction(
 /**
  * Chooses what to do to one row of a list: its own menu, then the entry ("Ask
  * before deleting in a dialog, from the row's own menu", issue 116). The types
- * window and the panels offer their rows the same way, so every walk reaches
- * them the same way; a workspace and a dashboard are tabs rather than rows and
- * have `chooseTabAction`.
+ * window offers its rows the same way, so every walk reaches them the same
+ * way; a workspace, a dashboard and a panel open their own menu instead and
+ * have `chooseTabAction` and `choosePanelAction`.
  *
  * This is also how a phone edits a row: the double-click that opens the same
  * form with a mouse is a gesture a touchscreen has already spent on zooming.
@@ -532,6 +532,62 @@ export async function chooseRowAction(
 ): Promise<void> {
   await press(page.getByRole('button', { name: `Actions for ${row}` }), isMobile);
   await press(page.getByRole('menuitem', { name: entry }), isMobile);
+}
+
+/**
+ * Chooses what to do to a panel, from its own menu, opened on its header
+ * rather than a button - the same menu a workspace's or a dashboard's own tab
+ * opens (`chooseTabAction`), but without that tab's second way in: a panel has
+ * no "already open" state a tap could repurpose, its plain tap being spent on
+ * the drag gesture instead. A phone rests a finger on the header and holds it
+ * instead, a real touch through CDP for `holdRow`'s own reason: what has to be
+ * proved is that the gesture reaches Radix's long-press detection as a
+ * `touch` pointer, which a synthetic `contextmenu` event cannot say anything
+ * about - and would have said nothing at all about the header's own drag
+ * handler once swallowing every touch before Radix ever saw one (found in
+ * review; `PanelCard.tsx`'s `onPointerDown` now excludes anything that is not
+ * a mouse for exactly this reason).
+ */
+export async function choosePanelAction(
+  page: Page,
+  panelName: string,
+  entry: string,
+  isMobile: boolean,
+): Promise<void> {
+  const header = page.getByRole('region', { name: panelName }).locator('header');
+  if (isMobile) {
+    await holdPanelHeader(page, header);
+  } else {
+    await header.click({ button: 'right' });
+  }
+  await press(page.getByRole('menuitem', { name: entry }), isMobile);
+}
+
+/**
+ * Rests a finger on a panel's header and holds it, the way a thumb opens its
+ * menu on a phone ("A long press may open it as well, which is Radix's own
+ * doing", `Menu.tsx`).
+ *
+ * `700` is Radix's own long-press timer (`@radix-ui/react-context-menu`'s
+ * `ContextMenuTrigger`), not a number this repo owns or can import the way
+ * `holdRow` imports `HOLD_MS` - a version bump could change it silently,
+ * which this holds well past rather than guards against.
+ */
+async function holdPanelHeader(page: Page, header: Locator): Promise<void> {
+  const box = await header.boundingBox();
+  if (!box) throw new Error('cannot hold the panel header: it is not on screen');
+  const at = [
+    { x: box.x + box.width / 2, y: box.y + box.height / 2, radiusX: 8, radiusY: 8, force: 1 },
+  ];
+
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at });
+    await page.waitForTimeout(950);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await cdp.detach();
+  }
 }
 
 /**
