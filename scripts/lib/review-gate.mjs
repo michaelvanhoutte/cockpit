@@ -97,34 +97,43 @@ export function summaryComment(outcome) {
 }
 
 /**
- * The id of the note this workflow left last time, from `gh api --paginate`
- * output, or null if there is none yet.
+ * Every object in `gh api --paginate --jq` output, skipping any line that will
+ * not parse.
  *
- * Line-oriented on purpose, and this is the whole reason it is a function with
- * tests rather than two lines in the script. `--paginate` applies `--jq` to
- * each page separately and concatenates the results, so a filter that wraps its
- * output in an array emits one array per page - `[...]\n[...]` - which is not
- * JSON and throws when parsed. The first version did exactly that. It would
- * have worked on every pull request until one passed thirty comments, and then
- * failed inside the try that makes posting non-fatal: no comment, no update of
- * the stale one already there, and a warning nobody reads. A change whose only
- * purpose is making the verdict visible would have stopped doing that
- * invisibly, which is the joke it deserved to be caught for.
+ * Line-oriented on purpose, and this is the whole reason both readers below are
+ * functions with tests rather than two lines each in a script. `--paginate`
+ * applies `--jq` to each page separately and concatenates the results, so a
+ * filter that wraps its output in an array emits one array per page -
+ * `[...]\n[...]` - which is not JSON and throws when parsed. The first version
+ * of markedCommentId did exactly that. It would have worked on every pull
+ * request until one passed thirty comments, and then failed inside the try that
+ * makes posting non-fatal: no comment, no update of the stale one already
+ * there, and a warning nobody reads. A change whose only purpose was making the
+ * verdict visible would have stopped doing that invisibly, which is the joke it
+ * deserved to be caught for.
  *
- * One JSON object per line concatenates safely, which is the shape
- * claude-code-review.yml's own gate already uses for the same reason.
+ * One JSON object per line concatenates safely, so both gates ask for that
+ * shape and read it here.
  */
-export function markedCommentId(ghOutput, { marker = COMMENT_MARKER, author = GATE_AUTHOR } = {}) {
+function* jsonLines(ghOutput) {
   for (const line of String(ghOutput ?? '').split('\n')) {
     if (line.trim() === '') continue;
-    let comment;
     try {
-      comment = JSON.parse(line);
+      yield JSON.parse(line);
     } catch {
-      // One unreadable line is not a reason to abandon the rest: the id being
+      // One unreadable line is not a reason to abandon the rest: what is being
       // looked for may be on any of them.
       continue;
     }
+  }
+}
+
+/**
+ * The id of the note this workflow left last time, from `gh api --paginate`
+ * output, or null if there is none yet.
+ */
+export function markedCommentId(ghOutput, { marker = COMMENT_MARKER, author = GATE_AUTHOR } = {}) {
+  for (const comment of jsonLines(ghOutput)) {
     // The author check is not belt-and-braces. The marker is a public constant
     // in a public repository, GitHub lists comments oldest first, and this
     // returns the first match - so without it, anyone who can comment on a pull
@@ -409,6 +418,39 @@ export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIG
 }
 
 /**
+ * The head a remark can be held against - `{ sha, arrivedAt }` - or null where
+ * this run cannot place one in time.
+ *
+ * Two ways to be unplaceable, and both mean the same thing to the gate: fall
+ * back to the pull request as a whole, and say the check proved less than
+ * usual.
+ *
+ * - **Nothing to place against.** `head.sha` comes off the event payload and is
+ *   always there; `committedAt` is an API call away and may not be.
+ * - **An arrival this run has already outlived.** A committer date is written
+ *   by whatever clock made the commit, and one running fast dates the head
+ *   after every remark the review could possibly have left - the summary
+ *   comment included, which is the only thing a review that found nothing
+ *   leaves behind. Placed by that date, a thorough review reads as never having
+ *   looked, and going red at one is how everybody learns to ignore this check.
+ *
+ * Deciding it here, once, is what keeps the count and the decision that reads
+ * it answering for the same head: reviewerRemarks and decideCodeReviewOutcome
+ * are both handed the result rather than each judging the date again.
+ *
+ * `now` is given rather than read, like every other input in this file: a
+ * decision that reads its own clock can only be tested at one time of day. A
+ * caller with no clock to offer gets the placement without the future test,
+ * which is the same trade the fallback makes.
+ */
+export function placeHead(head, { now } = {}) {
+  const arrivedAt = Date.parse(head?.committedAt ?? '');
+  if (!head?.sha || !Number.isFinite(arrivedAt)) return null;
+  if (Number.isFinite(now) && arrivedAt > now) return null;
+  return { sha: head.sha, arrivedAt };
+}
+
+/**
  * What the reviewer has said here, in total and about the head being reviewed
  * now: `{ total, onHead }`.
  *
@@ -431,45 +473,33 @@ export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIG
  *   comment and carries no commit at all, and it is what a review that found
  *   nothing leaves behind.
  *
- * `head.committedAt` is when the commit was committed, which is no later than
- * when it was pushed, so the timestamp errs towards accepting. That is the
- * right direction: a review that did happen and is called a non-review teaches
- * everyone to ignore this check, which is the failure the whole gate is about.
+ * `head` is a placed head from placeHead, so `arrivedAt` is when the commit was
+ * committed and is no later than when it was pushed. The timestamp therefore
+ * errs towards accepting, which is the right direction: a review that did
+ * happen and is called a non-review teaches everyone to ignore this check,
+ * which is the failure the whole gate is about.
  *
  * The login is matched by prefix, case-insensitively, because the same account
  * appears under more than one name: `claude[bot]` on the App's own comments,
  * `claude` on others. Loosening it further is how somebody named `claude-fan`
  * comes to count as the reviewer having spoken.
  *
- * One JSON object per line, which is the shape `gh api --paginate --jq` emits
- * across every page. Lines, not one JSON document, for the reason
- * markedCommentId above documents: --paginate applies --jq per page and
- * concatenates, so a filter that wraps its output in an array stops being JSON
- * at thirty comments.
+ * One JSON object per line, read by jsonLines above, which documents why the
+ * output is asked for in that shape.
  */
 export function reviewerRemarks(ghOutput, { head = null, prefix = 'claude' } = {}) {
   const wanted = prefix.toLowerCase();
-  const arrivedAt = Date.parse(head?.committedAt ?? '');
   let total = 0;
   let onHead = 0;
 
-  for (const line of String(ghOutput ?? '').split('\n')) {
-    if (line.trim() === '') continue;
-    let remark;
-    try {
-      remark = JSON.parse(line);
-    } catch {
-      // One unreadable line is not a reason to abandon the rest: the remark
-      // being looked for may be on any of them.
-      continue;
-    }
+  for (const remark of jsonLines(ghOutput)) {
     if (!String(remark?.login ?? '').trim().toLowerCase().startsWith(wanted)) continue;
     total += 1;
 
     const commit = remark.originalCommitId ?? remark.commitId ?? null;
     const saidAt = Date.parse(remark.createdAt ?? '');
     const namesHead = Boolean(head?.sha) && commit === head.sha;
-    const postDatesHead = Number.isFinite(arrivedAt) && Number.isFinite(saidAt) && saidAt >= arrivedAt;
+    const postDatesHead = Number.isFinite(head?.arrivedAt) && Number.isFinite(saidAt) && saidAt >= head.arrivedAt;
     if (namesHead || postDatesHead) onHead += 1;
   }
 
@@ -520,9 +550,8 @@ export function postedCommentTestApplies(pullRequest) {
  * that instruction exists - it took the trivial stop on pull request 80 and
  * failed this gate for a review that had reached the right answer.
  *
- * `pullRequest` is what postedCommentTestApplies above reads. `head` is
- * `{ sha, committedAt }`, or null when the run could not establish which commit
- * it reviewed or when that commit arrived.
+ * `pullRequest` is what postedCommentTestApplies above reads. `head` is a placed
+ * head from placeHead, or null where this run could not place one.
  */
 export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, saidOnHead = 0, head = null, pullRequest = null, minTurns = 10 } = {}) {
   const failures = [];
@@ -547,27 +576,27 @@ export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, s
   }
 
   const applies = postedCommentTestApplies(pullRequest);
-  // `head.sha` comes off the event payload and is always there; `committedAt`
-  // is an API call away and may not be. Without it there is no head test to
-  // make, so the check falls back to the pull request as a whole rather than
-  // going red at GitHub for being unreachable - louder than the bug it is
-  // guarding against, and about the wrong thing.
-  const headKnown = Boolean(head?.sha) && Number.isFinite(Date.parse(head?.committedAt ?? ''));
+  // Placed by placeHead, which is where the two ways of failing to place a head
+  // are decided - and decided once, so this and the count it reads answer for
+  // the same commit. Unplaced, there is no head test to make, so the check
+  // falls back to the pull request as a whole rather than going red at a clock
+  // or at an unreachable GitHub: louder than the bug it guards against, and
+  // about the wrong thing.
+  const headKnown = Boolean(head?.sha);
   const spoke = headKnown ? saidOnHead : said;
   const verdictSeen = applies && spoke > 0;
 
   if (applies && !headKnown) {
     warnings.push(
-      'Could not establish which commit this run reviewed or when it arrived, so this check only asked ' +
-        'whether the reviewer has ever spoken here. An earlier round answers that, so a decline against ' +
-        'the current head would have passed.',
+      'Could not place this run\'s head in time, so the check only asked whether the reviewer has ever ' +
+        'spoken here. An earlier round answers that, so a decline against the current head would have passed.',
     );
   }
 
   if (applies && spoke === 0) {
     failures.push(
       headKnown && said > 0
-        ? `The review posted nothing about ${String(head.sha).slice(0, 7)}, the head it was run against, though ${said} of this pull request's comments are its own. Those answer earlier heads; commits nobody has read are not reviewed by them.`
+        ? `The review posted nothing about ${String(head.sha).slice(0, 7)}, the head it was run against, though the reviewer has ${said} earlier remark(s) here. Those answer earlier heads; commits nobody has read are not reviewed by them.`
         : 'The review posted nothing on this pull request. A review that reaches a verdict always says so, ' +
           'so this one did not reach one.',
     );

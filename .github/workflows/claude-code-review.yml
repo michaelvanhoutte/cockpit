@@ -98,8 +98,8 @@ jobs:
           # but told what it is about: the head commit, not the pull request.
           # Left to read it as the pull request, the reviewer declines every
           # round after the first, which is "The review check goes green when
-          # the reviewer declined to look at the new commits" (issue 75) - four
-          # rounds deep on pull request 193, and reasoning correctly right up to
+          # the reviewer declined to look at the new commits" (issue 75) - on
+          # the fourth head of pull request 193, reasoning correctly right up to
           # the conclusion. Declining a genuine re-run, against a head it has
           # already spoken on, stays allowed and stays silent.
           claude_args: >-

@@ -12,7 +12,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 
-import { decideCodeReviewOutcome, oneLine, postedCommentTestApplies, reviewerRemarks } from './lib/review-gate.mjs';
+import { decideCodeReviewOutcome, oneLine, placeHead, postedCommentTestApplies, reviewerRemarks } from './lib/review-gate.mjs';
 
 const [executionFile, conclusion] = process.argv.slice(2);
 const repo = process.env.GITHUB_REPOSITORY;
@@ -42,7 +42,8 @@ function pullRequestState() {
 
 /**
  * The commit this run was asked to review and when it came into existence, or
- * null when either could not be established.
+ * null when either could not be established. placeHead is what decides whether
+ * the pair can actually hold a remark.
  *
  * The SHA is off the event payload rather than the pull request's current head,
  * so it names what the review actually ran against even if another push has
@@ -107,7 +108,15 @@ const pullRequest = pullRequestState();
 // The gate decides this too, and has the tests. Asked here only because the
 // answer is what says whether four paginated API calls are worth making.
 const applies = postedCommentTestApplies(pullRequest);
-const head = applies ? headCommit() : null;
+const commit = applies ? headCommit() : null;
+const head = placeHead(commit, { now: Date.now() });
+if (commit && !head) {
+  // The only way past placeHead with a commit in hand, and silent it would look
+  // exactly like GitHub having been unreachable.
+  console.log(
+    `::warning::${commit.sha.slice(0, 7)} is dated ${oneLine(commit.committedAt)}, which is in this run's own future - so the clock that made it runs fast, and remarks about it cannot be told from remarks about the head before it by time.`,
+  );
+}
 const remarks = applies ? reviewerSaid(head) : { total: 0, onHead: 0 };
 const outcome = decideCodeReviewOutcome({
   executionText,
@@ -131,10 +140,10 @@ if (!applies) {
   );
 } else if (head) {
   summary.push(
-    `- Claude has ${outcome.said} comment(s) on this pull request, ${outcome.saidOnHead} of them about ${head.sha.slice(0, 7)}, the head this run reviewed.`,
+    `- Claude has ${outcome.said} remark(s) on this pull request, ${outcome.saidOnHead} of them about ${head.sha.slice(0, 7)}, the head this run reviewed.`,
   );
 } else {
-  summary.push(`- Claude has ${outcome.said} comment(s) on this pull request, and which head they answer could not be established.`);
+  summary.push(`- Claude has ${outcome.said} remark(s) on this pull request, and which head they answer could not be established.`);
 }
 
 // The action sets no outputs at all when it skips itself, and the usual cause

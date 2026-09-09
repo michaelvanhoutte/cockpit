@@ -29,6 +29,7 @@ import {
   decideSecurityOutcome,
   markedCommentId,
   oneLine,
+  placeHead,
   postedCommentTestApplies,
   resultRecordOf,
   reviewerRemarks,
@@ -322,11 +323,44 @@ describe('markedCommentId', () => {
   });
 });
 
-/** The commit under review, and a clock either side of when it arrived. */
-const HEAD = { sha: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', committedAt: '2026-09-09T12:00:00Z' };
+/** The commit under review as placeHead hands it on, and a clock either side. */
+const HEAD = { sha: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', arrivedAt: Date.parse('2026-09-09T12:00:00Z') };
 const BEFORE_HEAD = '2026-09-09T11:00:00Z';
 const AFTER_HEAD = '2026-09-09T12:30:00Z';
 const EARLIER_HEAD = '0f0e0d0c0b0a09080706050403020100f0e0d0c0';
+
+describe('placeHead', () => {
+  const committed = { sha: HEAD.sha, committedAt: '2026-09-09T12:00:00Z' };
+  const now = Date.parse('2026-09-09T12:40:00Z');
+
+  it('places a commit the run has already outlived', () => {
+    assert.deepEqual(placeHead(committed, { now }), HEAD);
+  });
+
+  it('places nothing without both a commit and a date to put it at', () => {
+    // The SHA is off the event payload and always there; the date is an API
+    // call away and may not be. Either missing leaves no head test to make.
+    for (const head of [null, undefined, {}, { sha: HEAD.sha }, { committedAt: committed.committedAt }, { sha: HEAD.sha, committedAt: 'sometime' }]) {
+      assert.equal(placeHead(head, { now }), null, `${JSON.stringify(head)} should not be placeable`);
+    }
+  });
+
+  it('places nothing for a commit dated in the run\'s own future', () => {
+    // A committer date is written by whatever clock made the commit. One
+    // running fast dates the head after every remark the review could have
+    // left - the summary comment of a clean review included - so placing by it
+    // would call a thorough review a non-review, which is how everybody learns
+    // to ignore this check.
+    assert.equal(placeHead({ sha: HEAD.sha, committedAt: '2026-09-09T13:10:00Z' }, { now }), null);
+  });
+
+  it('places a commit at any date when there is no clock to compare it against', () => {
+    assert.deepEqual(placeHead({ sha: HEAD.sha, committedAt: '2027-01-01T00:00:00Z' }, {}), {
+      sha: HEAD.sha,
+      arrivedAt: Date.parse('2027-01-01T00:00:00Z'),
+    });
+  });
+});
 
 describe('reviewerRemarks', () => {
   /** One line of `gh api --paginate --jq` output, as the script emits them. */
@@ -393,9 +427,19 @@ describe('reviewerRemarks', () => {
   });
 
   it('places nothing on a head it was not given', () => {
-    // The caller falls back to the total when the head is unknown, so this must
-    // not guess: an unplaceable remark is not evidence about any head.
+    // The caller falls back to the total when the head is unplaced, so this
+    // must not guess: an unplaceable remark is not evidence about any head.
     assert.deepEqual(reviewerRemarks(remark(), {}), { total: 1, onHead: 0 });
+  });
+
+  it('places nothing by a timestamp it cannot read', () => {
+    // A remark with neither created_at nor submitted_at, which is what an
+    // endpoint growing a third shape would look like. Counted as the
+    // reviewer's, placed nowhere - it cannot vouch for a head it has no time
+    // for, and the commit is the only other thing that can.
+    for (const createdAt of [null, undefined, 'whenever']) {
+      assert.deepEqual(reviewerRemarks(remark({ createdAt }), { head: HEAD }), { total: 1, onHead: 0 });
+    }
   });
 });
 
@@ -485,17 +529,18 @@ describe('decideCodeReviewOutcome', () => {
     assert.equal(out.ok, false);
     assert.equal(out.verdictSeen, false);
     assert.match(out.failures.join(' '), /posted nothing about a1b2c3d/);
-    assert.match(out.failures.join(' '), /9 of this pull request's comments are its own/);
+    assert.match(out.failures.join(' '), /the reviewer has 9 earlier remark\(s\) here/);
   });
 
   it('falls back to the whole pull request, loudly, when the head could not be established', () => {
-    // GitHub being unreachable is not a reason to call every review a
+    // An unreachable GitHub, or a clock that dated the head after the review
+    // that read it (see placeHead), is not a reason to call every review a
     // non-review: that would be redder, and about the wrong thing. It is a
     // reason to say the check proved less than usual.
-    for (const head of [null, { sha: HEAD.sha, committedAt: undefined }, { committedAt: HEAD.committedAt }]) {
+    for (const head of [null, undefined, {}]) {
       const out = codeReview({ executionText: file(run({ turns: 11 })), said: 3, saidOnHead: 0, head });
       assert.equal(out.ok, true, `${JSON.stringify(head)} should not fail the check`);
-      assert.match(out.warnings.join(' '), /only asked whether the reviewer has ever spoken here/);
+      assert.match(out.warnings.join(' '), /Could not place this run's head in time/);
     }
   });
 
