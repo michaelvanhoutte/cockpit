@@ -45,9 +45,9 @@ import { TITLE_LENGTH } from '@cockpit/shared';
  * because a schema field that merely *exists* invites filling it in - the same
  * failure the language fix above was written against, where the model matched
  * the shape of the prompt rather than the note in front of it. The `call jan`
- * example below is worked out in full, with an empty message on both readings,
- * because that is the proof this rode in on (issue 297, "Proven in the POC on
- * a real note").
+ * example below is worked out in full, with the main message filled in and
+ * only the alternative reading's message left empty, because that is the
+ * proof this rode in on (issue 297, "Proven in the POC on a real note").
  */
 export const CLEAN_UP_A_NOTE = {
   version: 'v2',

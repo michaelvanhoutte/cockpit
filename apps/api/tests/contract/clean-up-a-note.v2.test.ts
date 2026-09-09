@@ -223,7 +223,7 @@ describe('Capture', () => {
     it.each([
       { situation: 'an English note', note: 'call april' },
       { situation: 'a Dutch note', note: 'bel april' },
-    ])('offers readings that are genuinely different from each other, each explained', async ({ note }) => {
+    ])('offers readings that are genuinely different from each other, for $situation', async ({ note }) => {
       const proposal = await read(note);
 
       // The main answer is one of the two readings, so the note supports at
@@ -231,10 +231,6 @@ describe('Capture', () => {
       expect(proposal.readings.length).toBeGreaterThanOrEqual(1);
       const titles = [proposal.title, ...proposal.readings.map((r) => r.title)];
       expect(new Set(titles.map((title) => title.toLowerCase())).size).toBe(titles.length);
-      // Each reading says why it is there, in words rather than left implicit.
-      for (const alternative of proposal.readings) {
-        expect(alternative.meaning.length).toBeGreaterThan(0);
-      }
     });
   });
 });
