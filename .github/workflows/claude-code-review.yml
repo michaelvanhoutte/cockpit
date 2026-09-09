@@ -108,142 +108,30 @@ jobs:
 
       - name: Assert the review actually ran
         if: always()
-        # bash without -e: this step decides for itself what is fatal.
-        shell: bash -uo pipefail {0}
         env:
           CONCLUSION: ${{ steps.claude-review.outputs.conclusion }}
           EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
-          # A real multi-agent review is well above this. The 3-turn and 7-turn
-          # runs that used to pass green were both blocked sessions.
-          MIN_TURNS: '10'
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          FAILED=0
-          fail() {
-            echo "::error::$1"
-            echo "- FAIL: $1" >> "$GITHUB_STEP_SUMMARY"
-            FAILED=1
-          }
-
-          echo "## Claude review gate" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$CONCLUSION" != "success" ]; then
-            fail "The review step reported conclusion='$CONCLUSION'."
-          fi
-
-          if [ -z "$EXECUTION_FILE" ] || [ ! -f "$EXECUTION_FILE" ]; then
-            fail "The review produced no execution output, so it did not run."
-            if [ -z "$CONCLUSION" ]; then
-              echo "::notice::The action sets no outputs when it skips itself. The usual cause is its workflow validation: it refuses to run when this workflow file differs from the copy on the default branch, which is the case on any pull request that edits it. That is expected here, but it still means this pull request was not reviewed, so the check is red rather than a green tick that would imply it was."
-            fi
-            exit 1
-          fi
-
-          RESULT=$(jq -c 'if type == "array" then ([.[] | select(.type == "result")] | last) else . end' "$EXECUTION_FILE")
-          if [ -z "$RESULT" ] || [ "$RESULT" = "null" ]; then
-            fail "The execution output contains no result record."
-            exit 1
-          fi
-
-          IS_ERROR=$(printf '%s' "$RESULT" | jq -r '.is_error // false')
-          SUBTYPE=$(printf '%s' "$RESULT" | jq -r '.subtype // "unknown"')
-          TURNS=$(printf '%s' "$RESULT" | jq -r '.num_turns // 0')
-          FINAL=$(printf '%s' "$RESULT" | jq -r '.result // ""')
-
-          # The result record does not always carry permission_denials_count -
-          # run 33201638348 omitted it entirely while the message stream held a
-          # real denial, so the gate read "no denials" off a missing field and
-          # went green. Count the stream and trust whichever number is higher.
-          DENIED_TOOLS=$(jq -r '[.[]? | select(.type == "system" and .subtype == "permission_denied")] | map(.tool_name // "?") | join(", ")' "$EXECUTION_FILE")
-          STREAM_DENIALS=$(jq -r '[.[]? | select(.type == "system" and .subtype == "permission_denied")] | length' "$EXECUTION_FILE")
-          SUMMARY_DENIALS=$(printf '%s' "$RESULT" | jq -r '.permission_denials_count // 0')
-          DENIALS=$SUMMARY_DENIALS
-          [ "$STREAM_DENIALS" -gt "$DENIALS" ] && DENIALS=$STREAM_DENIALS
-
-          {
-            echo ""
-            echo "| field | value |"
-            echo "| --- | --- |"
-            echo "| subtype | $SUBTYPE |"
-            echo "| is_error | $IS_ERROR |"
-            echo "| num_turns | $TURNS |"
-            echo "| permission denials | $DENIALS |"
-            echo ""
-            echo "The session's closing words: $FINAL"
-            echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$IS_ERROR" = "true" ]; then
-            fail "The review session ended with is_error=true."
-          fi
-
-          if [ "$SUBTYPE" != "success" ]; then
-            fail "The review session ended with subtype='$SUBTYPE'."
-          fi
-
-          # The turn count is the wrong instrument. It is too weak to catch a
-          # non-review - run 33201638348 spent 11 turns and stopped with
-          # "Waiting on the eligibility check for PR #56 before proceeding" -
-          # and strict enough to fail a correct one: run 33203441279 stopped
-          # after 5 clean turns because the review had already run on this pull
-          # request and the command says to stop when it has. It is a warning
-          # below, never a failure.
-          #
-          # What actually separates a review from a non-review is whether Claude
-          # said anything on the pull request. With --comment every path that reaches a verdict
-          # posts something - inline comments when there are findings, a summary
-          # comment when there are none. Silence otherwise means no verdict was
-          # reached, which is the failure this test is for. The command's four
-          # stop conditions are the deliberate exceptions, and each is accounted
-          # for: closed and draft never reach this test, because PR_STATE
-          # excludes them below; "already reviewed" leaves the earlier round's
-          # comments standing; and the trivial-change stop is instructed away by
-          # the appended system prompt above, which requires that verdict to be
-          # posted like any other. Run 33407302266 is why that instruction
-          # exists - it took the trivial stop on pull request 80 and failed this
-          # gate for a review that had actually reached the right answer.
-          VERDICT_SEEN=0
-          PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state,isDraft -q '"\(.state) \(.isDraft)"')
-          if [ "$PR_STATE" = "OPEN false" ]; then
-            SAID=$( {
-              gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate --jq '.[].user.login'
-              gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments" --paginate --jq '.[].user.login'
-              gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" --paginate --jq '.[].user.login'
-            } | grep -ci '^claude' || true )
-            if [ "$SAID" -eq 0 ]; then
-              fail "The review posted nothing on this pull request. A review that reaches a verdict always says so, so this one did not reach one."
-              if [ "$DENIALS" -gt 0 ]; then
-                fail "It was blocked by $DENIALS permission denial(s) (${DENIED_TOOLS:-see log}), which is the likely reason."
-              fi
-            else
-              VERDICT_SEEN=1
-              echo "- Claude has $SAID comment(s) on this pull request." >> "$GITHUB_STEP_SUMMARY"
-              # Every tool the review needs is allowlisted, so a denial here is
-              # a tool we deliberately withheld - run 33202686222 was a
-              # validation agent reaching for node -e to execute the pull
-              # request's own logic, which is not something to grant a review of
-              # untrusted code on a public repository. It adapted and posted its
-              # findings anyway. Failing that run would train everyone to ignore
-              # this check, so a denial is only fatal when no verdict landed.
-              if [ "$DENIALS" -gt 0 ]; then
-                echo "::warning::The review reached a verdict but $DENIALS tool call(s) were denied (${DENIED_TOOLS:-see log}). Worth a look if its findings seem thin."
-                echo "- Note: $DENIALS denied tool call(s): ${DENIED_TOOLS:-see log}." >> "$GITHUB_STEP_SUMMARY"
-              fi
-            fi
-          else
-            echo "- Skipping the posted-comment check: the pull request is $PR_STATE (state isDraft), which the review is entitled to skip." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [ "$FAILED" -ne 0 ]; then
-            echo "::error::Marking this check red. A green claude-review must mean the pull request was actually reviewed."
-            exit 1
-          fi
-
-          if [ "$TURNS" -lt "$MIN_TURNS" ] && [ "$VERDICT_SEEN" -eq 1 ]; then
-            echo "::warning::The session ran only $TURNS turns, and Claude has already posted on this pull request - most likely the review declining because it had reviewed this pull request before, in which case the commits pushed since then have not been looked at. Its closing words: $FINAL"
-          elif [ "$TURNS" -lt "$MIN_TURNS" ]; then
-            echo "::warning::The session ran only $TURNS turns. Its closing words: $FINAL"
-          fi
-
-          echo "- OK: $TURNS turns, no unexplained denials, and Claude has posted its verdict on the pull request." >> "$GITHUB_STEP_SUMMARY"
+        # Every decision this makes is in scripts/lib/review-gate.mjs, asserted
+        # by node --test in the Scripts job and shared with the security
+        # review's gate. It was ~140 lines of bash here until issue 277 moved
+        # it, and the four occasions this file's comments record of a blocked or
+        # declining session reporting green were all bugs in a parser that
+        # nothing could run.
+        #
+        # What it decides, unchanged by that move: red unless the action
+        # reported success, the session ended without an error and with
+        # subtype=success, and - on a pull request that is open and not a
+        # draft - the reviewer posted something on it. That last one is the test
+        # with teeth. The turn count is the wrong instrument, being both too
+        # weak to catch a non-review (run 33201638348 spent 11 turns waiting on
+        # an eligibility check) and strict enough to fail a correct one (run
+        # 33203441279 stopped after 5 clean turns, having already reviewed this
+        # pull request), so it is only ever a warning. What separates a review
+        # from a non-review is whether Claude said anything: with --comment
+        # every path to a verdict posts something. A denied tool call is fatal
+        # only when nothing was posted - every tool the review needs is
+        # allowlisted, so a denial is one deliberately withheld, and run
+        # 33202686222 adapted around exactly that and posted its findings anyway.
+        run: node scripts/assert-code-review.mjs "$EXECUTION_FILE" "$CONCLUSION"

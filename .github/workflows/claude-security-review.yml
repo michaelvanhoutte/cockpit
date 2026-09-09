@@ -192,7 +192,8 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         # Every decision this makes is in scripts/lib/review-gate.mjs, asserted
         # by node --test in the Scripts job. The equivalent step in
-        # claude-code-review.yml is ~120 lines of bash whose comments record
-        # four occasions when a blocked or declining session reported green -
+        # claude-code-review.yml decides through the same module, and was ~140
+        # lines of bash until issue 277 moved it - bash whose comments record
+        # four occasions when a blocked or declining session reported green,
         # all four bugs in a parser that nothing could run.
         run: node scripts/assert-security-review.mjs "$EXECUTION_FILE" "$CONCLUSION"

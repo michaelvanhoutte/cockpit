@@ -137,12 +137,12 @@ jobs:
       - uses: actions/checkout@v4
       # scripts/ is Node, and carries the logic that decides whether
       # a test run gets a fresh database, whether it is allowed to start at all,
-      # whether a Claude security review actually reached a verdict, and whether
+      # whether either Claude review actually reached a verdict, and whether
       # a browser walk changes workspace the way that waits — worth
       # asserting rather than trusting. The review gate is the one with teeth: it is what turns a blocked or
-      # declining review red, and the equivalent logic living as inline bash in
-      # claude-code-review.yml has shipped green over a non-review four times.
-      # The last is here because it reads source text rather than running
+      # declining review red, and while the code review's half of it was inline
+      # bash in claude-code-review.yml it shipped green over a non-review four
+      # times. The last is here because it reads source text rather than running
       # anything, so the browser tier cannot check it and this job can.
       # No install step: these tests use only node:test and the standard
       # library, so this job stays checkout-only and finishes in seconds.

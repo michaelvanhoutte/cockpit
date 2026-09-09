@@ -1,5 +1,5 @@
 //
-// Unit tests for the security review's gate, run by `node --test` from the
+// Unit tests for both reviews' gates, run by `node --test` from the
 // Scripts CI job — the same place scripts/lib/processes.test.mjs and
 // the other scripts/lib tests are asserted, and for the same reason: this is tooling
 // logic outside any package, and a silent change in it turns a check that is
@@ -12,11 +12,26 @@
 // correctly, and every incident recorded in claude-code-review.yml's comments
 // was a bug at exactly that level.
 //
+// The code review's half of this arrived with issue 277, which moved that gate
+// out of the workflow. Those cases are here rather than in a file of their own
+// because the two gates read one record through one set of helpers, and a
+// change to the denial counting has to be answerable for both.
+//
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { COMMENT_MARKER, GATE_AUTHOR, decideOutcome, markedCommentId, resultRecordOf, summaryComment, verdictOf } from './review-gate.mjs';
+import {
+  COMMENT_MARKER,
+  GATE_AUTHOR,
+  decideCodeReviewOutcome,
+  decideSecurityOutcome,
+  markedCommentId,
+  resultRecordOf,
+  reviewerCommentCount,
+  summaryComment,
+  verdictOf,
+} from './review-gate.mjs';
 
 /** A result record as the action writes one, with the parts under test. */
 function run({ text = 'SECURITY-VERDICT: NONE', turns = 14, ...rest } = {}) {
@@ -88,16 +103,16 @@ describe('resultRecordOf', () => {
   });
 });
 
-describe('decideOutcome', () => {
+describe('decideSecurityOutcome', () => {
   it('passes a run that found nothing', () => {
-    const out = decideOutcome({ executionText: file(run()), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(run()), conclusion: 'success' });
     assert.equal(out.ok, true);
     assert.equal(out.verdict, 'NONE');
   });
 
   it('passes a run that found something below the failing severity', () => {
     for (const severity of ['LOW', 'MEDIUM']) {
-      const out = decideOutcome({
+      const out = decideSecurityOutcome({
         executionText: file(run({ text: `SECURITY-VERDICT: ${severity}` })),
         conclusion: 'success',
       });
@@ -107,7 +122,7 @@ describe('decideOutcome', () => {
   });
 
   it('fails a run that found something at the failing severity', () => {
-    const out = decideOutcome({ executionText: file(run({ text: 'SECURITY-VERDICT: HIGH' })), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(run({ text: 'SECURITY-VERDICT: HIGH' })), conclusion: 'success' });
     assert.equal(out.ok, false);
     assert.match(out.failures.join(' '), /HIGH/);
   });
@@ -118,21 +133,21 @@ describe('decideOutcome', () => {
     // carries no error, and nothing was reviewed because the prompt never
     // reached the model. Reported as a missing verdict it sends the reader
     // looking at the reviewer's output, of which there is none.
-    const out = decideOutcome({ executionText: file(run({ turns: 0, text: '' })), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(run({ turns: 0, text: '' })), conclusion: 'success' });
     assert.equal(out.ok, false);
     assert.match(out.failures.join(' '), /without taking a single turn/);
     assert.doesNotMatch(out.failures.join(' '), /verdict line/);
   });
 
   it('fails a run that never gave a verdict', () => {
-    const out = decideOutcome({ executionText: file(run({ text: 'Nothing to add.' })), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(run({ text: 'Nothing to add.' })), conclusion: 'success' });
     assert.equal(out.ok, false);
     assert.match(out.failures.join(' '), /never reached a verdict/);
   });
 
   it('fails a run that gave two verdicts rather than choosing one', () => {
     const text = 'SECURITY-VERDICT: HIGH\nand also\nSECURITY-VERDICT: NONE';
-    const out = decideOutcome({ executionText: file(run({ text })), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(run({ text })), conclusion: 'success' });
     assert.equal(out.ok, false);
     assert.match(out.failures.join(' '), /two verdict lines|2 verdict lines/);
   });
@@ -142,14 +157,14 @@ describe('decideOutcome', () => {
       { type: 'system', subtype: 'permission_denied', tool_name: 'Bash(gh pr diff)' },
       run({ text: 'I could not read the diff.' }),
     ];
-    const out = decideOutcome({ executionText: file(execution), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' });
     assert.equal(out.ok, false);
     assert.match(out.failures.join(' '), /Bash\(gh pr diff\)/);
   });
 
   it('passes a run that reached a verdict despite a denied tool, with a warning', () => {
     const execution = [{ type: 'system', subtype: 'permission_denied', tool_name: 'Bash(node)' }, run()];
-    const out = decideOutcome({ executionText: file(execution), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' });
     assert.equal(out.ok, true);
     assert.match(out.warnings.join(' '), /Bash\(node\)/);
   });
@@ -160,7 +175,7 @@ describe('decideOutcome', () => {
       { type: 'system', subtype: 'permission_denied', tool_name: 'Read' },
       run({ text: 'Blocked.' }), // no permission_denials_count at all
     ];
-    const out = decideOutcome({ executionText: file(execution), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' });
     assert.equal(out.denials.count, 2);
   });
 
@@ -175,7 +190,7 @@ describe('decideOutcome', () => {
       { type: 'system', subtype: 'turn_started' },
       run(),
     ];
-    assert.equal(decideOutcome({ executionText: file(execution), conclusion: 'success' }).denials.count, 1);
+    assert.equal(decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' }).denials.count, 1);
   });
 
   it('trusts whichever denial count is higher when the two disagree', () => {
@@ -183,38 +198,38 @@ describe('decideOutcome', () => {
       { type: 'system', subtype: 'permission_denied', tool_name: 'Read' },
       run({ permission_denials_count: 5 }),
     ];
-    assert.equal(decideOutcome({ executionText: file(execution), conclusion: 'success' }).denials.count, 5);
+    assert.equal(decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' }).denials.count, 5);
   });
 
   it('fails a run the action itself reported as unsuccessful', () => {
-    const out = decideOutcome({ executionText: file(run()), conclusion: 'failure' });
+    const out = decideSecurityOutcome({ executionText: file(run()), conclusion: 'failure' });
     assert.equal(out.ok, false);
     assert.match(out.failures.join(' '), /conclusion='failure'/);
   });
 
   it('fails a run flagged as an error whatever its verdict says', () => {
-    const out = decideOutcome({ executionText: file(run({ is_error: true })), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(run({ is_error: true })), conclusion: 'success' });
     assert.equal(out.ok, false);
     assert.match(out.failures.join(' '), /is_error/);
   });
 
   it('fails an empty or unparseable execution file', () => {
     for (const text of ['', 'not json at all', '[]', 'null']) {
-      const out = decideOutcome({ executionText: text, conclusion: 'success' });
+      const out = decideSecurityOutcome({ executionText: text, conclusion: 'success' });
       assert.equal(out.ok, false, `${JSON.stringify(text)} should fail`);
       assert.match(out.failures.join(' '), /did not run/);
     }
   });
 
   it('warns about a short session but never fails on it', () => {
-    const out = decideOutcome({ executionText: file(run({ turns: 3 })), conclusion: 'success' });
+    const out = decideSecurityOutcome({ executionText: file(run({ turns: 3 })), conclusion: 'success' });
     assert.equal(out.ok, true);
     assert.match(out.warnings.join(' '), /only 3 turns/);
   });
 });
 
 describe('summaryComment', () => {
-  const decide = (opts) => decideOutcome({ executionText: file(run(opts)), conclusion: 'success' });
+  const decide = (opts) => decideSecurityOutcome({ executionText: file(run(opts)), conclusion: 'success' });
 
   it('leaves the marker to upsertSticky, so it is not written twice', () => {
     // Identifying a workflow's note is one decision and it lives in one place.
@@ -301,5 +316,149 @@ describe('markedCommentId', () => {
 
   it('finds its own note even when an impostor posted first', () => {
     assert.equal(markedCommentId([impostor(1), gate(2)].join('\n')), 2);
+  });
+});
+
+describe('reviewerCommentCount', () => {
+  it('counts the reviewer under both names it comments as', () => {
+    // The App posts as claude[bot]; the same account appears as claude
+    // elsewhere. Missing either reads a review that spoke as one that did not.
+    assert.equal(reviewerCommentCount('claude[bot]\nsomeone\nClaude'), 2);
+  });
+
+  it('is zero when only other people have spoken', () => {
+    assert.equal(reviewerCommentCount('michaelvanhoutte\ngithub-actions[bot]\n'), 0);
+  });
+
+  it('does not count a login that merely contains the name', () => {
+    // Anyone can pick a username. Counting `notclaude` would let a comment from
+    // a stranger stand in for the review having happened.
+    assert.equal(reviewerCommentCount('notclaude\nun-claude'), 0);
+  });
+
+  it('is zero for no output at all', () => {
+    // What a failed `gh api` leaves behind, and it has to read as silence:
+    // a gate that cannot see whether the review spoke has not established that
+    // it did.
+    assert.equal(reviewerCommentCount(''), 0);
+    assert.equal(reviewerCommentCount(null), 0);
+  });
+});
+
+describe('decideCodeReviewOutcome', () => {
+  /** An open pull request, which is the only state the gate tests. */
+  const open = { state: 'OPEN', isDraft: false };
+  const codeReview = (opts = {}) => decideCodeReviewOutcome({ conclusion: 'success', pullRequest: open, ...opts });
+
+  it('passes a run the reviewer posted on', () => {
+    const out = codeReview({ executionText: file(run({ text: 'Reviewed, two findings posted.' })), said: 2 });
+    assert.equal(out.ok, true);
+    assert.equal(out.verdictSeen, true);
+  });
+
+  it('fails a run that posted nothing at all', () => {
+    // The whole point of the gate: with --comment, every path to a verdict
+    // posts something, so silence means no verdict was reached.
+    const out = codeReview({ executionText: file(run({ text: 'Done.' })), said: 0 });
+    assert.equal(out.ok, false);
+    assert.match(out.failures.join(' '), /posted nothing on this pull request/);
+  });
+
+  it('names the denied tools when a blocked run posted nothing', () => {
+    const execution = [
+      { type: 'system', subtype: 'permission_denied', tool_name: 'Skill' },
+      run({ text: 'I could not start the review.' }),
+    ];
+    const out = codeReview({ executionText: file(execution), said: 0 });
+    assert.equal(out.ok, false);
+    assert.match(out.failures.join(' '), /Skill/);
+  });
+
+  it('passes a run that posted despite a denied tool, with a warning', () => {
+    // Run 33202686222: a validation agent reached for `node -e` to execute the
+    // pull request's own logic, was refused, adapted, and posted its findings.
+    // Failing that run would teach everyone to ignore this check.
+    const execution = [{ type: 'system', subtype: 'permission_denied', tool_name: 'Bash(node)' }, run()];
+    const out = codeReview({ executionText: file(execution), said: 1 });
+    assert.equal(out.ok, true);
+    assert.match(out.warnings.join(' '), /Bash\(node\)/);
+  });
+
+  it('counts denials from the message stream when the summary omits the field', () => {
+    // Run 33201638348 in this workflow: permission_denials_count absent while
+    // the stream held a real denial, so the gate read "no denials" and the
+    // blocked session went green.
+    const execution = [
+      { type: 'system', subtype: 'permission_denied', tool_name: 'Skill' },
+      { type: 'system', subtype: 'permission_denied', tool_name: 'Bash(gh pr diff)' },
+      run({ text: 'Blocked.' }),
+    ];
+    assert.equal(codeReview({ executionText: file(execution), said: 0 }).denials.count, 2);
+  });
+
+  it('fails a session that ended on a subtype other than success', () => {
+    // The one check the security gate does not make, kept because moving this
+    // gate was meant to change where the decision lives, not what it decides.
+    const out = codeReview({ executionText: file(run({ subtype: 'error_max_turns' })), said: 3 });
+    assert.equal(out.ok, false);
+    assert.match(out.failures.join(' '), /subtype='error_max_turns'/);
+  });
+
+  it('fails a run the action itself reported as unsuccessful', () => {
+    const out = codeReview({ executionText: file(run()), conclusion: 'failure', said: 1 });
+    assert.equal(out.ok, false);
+    assert.match(out.failures.join(' '), /conclusion='failure'/);
+  });
+
+  it('fails a run flagged as an error however much it posted', () => {
+    const out = codeReview({ executionText: file(run({ is_error: true })), said: 4 });
+    assert.equal(out.ok, false);
+    assert.match(out.failures.join(' '), /is_error/);
+  });
+
+  it('fails an empty or unparseable execution file', () => {
+    // Including the case that produced it: the action sets no outputs at all
+    // when its own workflow validation refuses to run, which is every pull
+    // request editing claude-code-review.yml.
+    for (const text of ['', 'not json at all', '[]', 'null']) {
+      const out = codeReview({ executionText: text, said: 1 });
+      assert.equal(out.ok, false, `${JSON.stringify(text)} should fail`);
+      assert.match(out.failures.join(' '), /did not run/);
+    }
+  });
+
+  it('warns rather than fails when a short session declined a head it had already reviewed', () => {
+    // Run 33203441279: 5 clean turns, stopping because the review had run on
+    // this pull request before - which leaves the commits pushed since
+    // unreviewed. Green today, and issue 75 owns changing that; this holds the
+    // behaviour still while it is somebody else's to change.
+    const out = codeReview({ executionText: file(run({ turns: 5, text: 'Already reviewed.' })), said: 6 });
+    assert.equal(out.ok, true);
+    assert.match(out.warnings.join(' '), /only 5 turns, and Claude has already posted/);
+  });
+
+  it('warns about a short session plainly when nothing was posted', () => {
+    const out = codeReview({ executionText: file(run({ turns: 2, text: 'Stopped.' })), said: 0 });
+    assert.match(out.warnings.join(' '), /ran only 2 turns\. Its closing words: Stopped\./);
+    assert.doesNotMatch(out.warnings.join(' '), /already posted/);
+  });
+
+  it('skips the posted-comment test on a pull request the review may stay silent on', () => {
+    // Closed, merged or turned back into a draft while the review was running.
+    // A review is entitled to say nothing on any of them, and a gate that went
+    // red for it would be red about the run rather than about the code.
+    for (const pullRequest of [{ state: 'CLOSED', isDraft: false }, { state: 'MERGED', isDraft: false }, { state: 'OPEN', isDraft: true }, null]) {
+      const out = codeReview({ executionText: file(run({ text: 'Nothing to say.' })), said: 0, pullRequest });
+      assert.equal(out.ok, true, `${JSON.stringify(pullRequest)} should not fail the check`);
+      assert.equal(out.verdictSeen, false);
+    }
+  });
+
+  it('reports what the run said, so the step summary need not re-read the record', () => {
+    const out = codeReview({ executionText: file(run({ turns: 11, text: 'Four findings posted.' })), said: 4 });
+    assert.deepEqual(
+      { subtype: out.subtype, isError: out.isError, turns: out.turns, finalText: out.finalText },
+      { subtype: 'success', isError: false, turns: 11, finalText: 'Four findings posted.' },
+    );
   });
 });
