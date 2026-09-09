@@ -108,11 +108,11 @@ Run it from inside the repository, in the background, and carry on with somethin
 
 **Merge `main` into the branch only when GitHub reports the pull request conflicted.** A pull request lands squashed and `pull_request` already tests the branch merged with `main`, so merging a clean `main` into an open branch buys nothing that lands — it only restarts both reviews ("Validate a commit once, not twice by CI and again for every clean merge of main", issue 311).
 
-**Read what `main` has gained before finishing, not only what it has changed.** This file is read into a session once, at the start, and never again, so a merge to `main` that rewrites it changes nothing about what the session believes until it looks. The review-thread rule two above landed twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it. A draft of this same rule, written *because* of "Edit an item's title and description on a form of its own" (pull request 163), went on buying that branch four more review rounds across six further merges of `main` that each read the conflicts and nothing else. Ask against the remote, not the reflog — nothing here presumes a merge just happened, so this reads correctly whether or not one did, and cannot miss a rule that arrived between two checks:
+**Read what `main` has gained before finishing, not only what it has changed.** This file is read into a session once, at the start, and never again, so a merge to `main` that rewrites it changes nothing about what the session believes until it looks. The review-thread rule two above landed twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it. A draft of this same rule, written *because* of "Edit an item's title and description on a form of its own" (pull request 163), went on buying that branch four more review rounds across six further merges of `main` that each read the conflicts and nothing else. Diff against the commit you started from, not the reflog and not the merge-base with `origin/main` — merging `main` in on a conflict, which the rule above permits, makes that merge-base `origin/main` itself, so the diff falls silent on exactly the change the merge just brought in:
 
 ```bash
 git fetch origin main
-git diff HEAD...origin/main --stat -- CLAUDE.md .claude/
+git diff <the SHA HEAD was when you started>..origin/main --stat -- CLAUDE.md .claude/
 ```
 
 Anything it prints is a rule you are already working under and have not read.

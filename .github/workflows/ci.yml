@@ -12,8 +12,9 @@ name: CI
 # checks on branch pushes on its way to building a preview, and without it an
 # unreviewed branch would be gated by nothing at all. That workflow is gone
 # (docs/deployment.md, "No branch environments"); the gap it leaves is
-# accepted rather than closed, because the process opens a draft pull request
-# at the start of a unit of work, so the window with no pull request is short.
+# accepted rather than closed, because /issue's own process already runs
+# typecheck, lint, the tests and a browser pass by hand throughout a unit of
+# work, and opens the pull request only once that is already done.
 #
 # The push-to-main trigger overlaps slightly with deploy-staging.yml, which
 # gates itself before deploying. That is deliberate: the merge commit on main
