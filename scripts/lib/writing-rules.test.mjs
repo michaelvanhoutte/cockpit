@@ -94,6 +94,11 @@ describe('prose', () => {
     assert.deepEqual(prose(source).filter(Boolean), ['Text.', 'More **text**.']);
   });
 
+  it('blanks a fence indented into a list item, which is where samples sit', () => {
+    const source = ['- A step:', '', '     ```bash', '     gh issue view 276', '     ```', '', 'After.'].join('\n');
+    assert.deepEqual(prose(source).filter(Boolean), ['- A step:', 'After.']);
+  });
+
   it('blanks inline code but keeps the line, so a violation can still name it', () => {
     const line = 'a `**glob**` b';
     assert.deepEqual(prose(line), [`a ${' '.repeat('`**glob**`'.length)} b`]);
@@ -130,6 +135,11 @@ describe('issueNumbersWithoutTitles', () => {
     assert.deepEqual(issueNumbersWithoutTitles('What drives that is undecided - open decision #14 (§12).'), []);
   });
 
+  it('does not let a named pull request name the issue of the same number', () => {
+    const source = ['"Rename and delete a workspace" (pull request 77) merged.', '', 'Separately, issue 77 is open.'].join('\n');
+    assert.deepEqual(issueNumbersWithoutTitles(source).map(({ line, number }) => ({ line, number })), [{ line: 3, number: '77' }]);
+  });
+
   it("reads each bullet on its own, so one item's title does not cover the next", () => {
     const source = ['- "Rename and delete a workspace" (issue 77) landed.', '- A later item cites issue 99 bare.'].join('\n');
     assert.deepEqual(issueNumbersWithoutTitles(source).map(({ line, number }) => ({ line, number })), [{ line: 2, number: '99' }]);
@@ -153,6 +163,11 @@ describe('unresolvedSectionCitations', () => {
 
   it('counts a numbered heading as one of those numbers', () => {
     assert.deepEqual(unresolvedSectionCitations(['## 4.2 Data layer', '', 'Per §4.2.'].join('\n')), []);
+  });
+
+  it('does not let an ordinary numbered list resolve a section sign', () => {
+    const source = ['1. First.', '2. Second.', '', 'As §2 says.'].join('\n');
+    assert.deepEqual(unresolvedSectionCitations(source).map(({ citation }) => citation), ['§2']);
   });
 
   it('catches a number past the end of the list it points into', () => {
@@ -183,6 +198,16 @@ describe('unbalancedEmphasis', () => {
 
   it('reads each bullet on its own, so one cannot cancel the next', () => {
     const source = ['- **First** one.', '- **Second one.', '- **Third** one.'].join('\n');
+    assert.deepEqual(unbalancedEmphasis(source).map(({ line }) => line), [2]);
+  });
+
+  it('leaves a bold phrase wrapped across two quoted lines alone', () => {
+    const source = ['> **Merging deploys to staging; production is a', '> separate, deliberate promotion.**'].join('\n');
+    assert.deepEqual(unbalancedEmphasis(source), []);
+  });
+
+  it('still reads each table row on its own, which does not wrap', () => {
+    const source = ['| **First** | one |', '| **Second | two |', '| **Third** | three |'].join('\n');
     assert.deepEqual(unbalancedEmphasis(source).map(({ line }) => line), [2]);
   });
 
@@ -241,6 +266,24 @@ describe('duplicateParagraphs', () => {
     assert.deepEqual(found, []);
   });
 
+  it('does not let a declaration by a shared filename exempt a file in another directory', () => {
+    const found = duplicateParagraphs([
+      { file: 'one/SKILL.md', source: `This file restates it; SKILL.md is the version of record.\n\n${paragraph}` },
+      { file: 'two/SKILL.md', source: paragraph },
+      { file: 'three/SKILL.md', source: 'Unrelated.' },
+    ]);
+    assert.equal(found.length, 1);
+  });
+
+  it('honours a declaration that names the path, where the filename is shared', () => {
+    const found = duplicateParagraphs([
+      { file: 'one/SKILL.md', source: `two/SKILL.md is the version of record.\n\n${paragraph}` },
+      { file: 'two/SKILL.md', source: paragraph },
+      { file: 'three/SKILL.md', source: 'Unrelated.' },
+    ]);
+    assert.deepEqual(found, []);
+  });
+
   it('leaves two short lines saying the same thing alone', () => {
     const found = duplicateParagraphs([
       { file: 'one.md', source: 'Say it once.' },
@@ -276,7 +319,11 @@ describe("the repository's prose", () => {
     const offences = documents.flatMap(({ file, source }) =>
       unresolvedSectionCitations(source).map((found) => `${at(file, found)}  ${found.citation}`),
     );
-    assert.deepEqual(offences, [], `this file has no numbered list, so cite the section by name:\n  ${offences.join('\n  ')}`);
+    assert.deepEqual(
+      offences,
+      [],
+      `nothing in this file carries that number - cite the section by its name instead:\n  ${offences.join('\n  ')}`,
+    );
   });
 
   it('closes every emphasis marker it opens', () => {

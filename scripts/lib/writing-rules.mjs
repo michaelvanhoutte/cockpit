@@ -71,10 +71,11 @@ const TITLE = /["“][^"”]{4,}["”]|\[[^\]]{4,}\]\(/;
  * explorer spec, so matching it reports six citations that resolve perfectly
  * well for every one it catches - and a check that cries wolf gets skipped.
  */
-const ISSUE_REFERENCE = /\b(?:issues?|pull requests?)\s+#?(\d{1,5})\b/gi;
+const ISSUE_REFERENCE = /\b(issues?|pull requests?)\s+#?(\d{1,5})\b/gi;
 
-/** `§9.1`, `rule 2`, `rules 3`. */
-const SECTION_CITATION = /§\s*\d+(?:\.\d+)*|\brules?\s+\d+\b/gi;
+/** `§9.1` points at a section; `rule 2` at an item of a numbered list. */
+const SECTION_SIGN = /§\s*\d+(?:\.\d+)*/gi;
+const RULE_CITATION = /\brules?\s+\d+\b/gi;
 
 /** A heading that opens with its own number, or an ordered list item. */
 const NUMBERED_HEADING = /^\s{0,3}#{1,6}\s*(\d+(?:\.\d+)*)[ .]/;
@@ -108,11 +109,16 @@ export function nativePath(root, file) {
  * a violation can name one. `gh issue view <number>` in a fenced block is an
  * instruction, not a citation, and a glob written in backticks is a path, not a
  * bold marker.
+ *
+ * A fence is recognised at any indentation, not the three spaces CommonMark
+ * allows at the top level: inside a list item it is indented to the item's own
+ * content column, which `deployment.md` already does at five, and a sample
+ * holding `issue 276` there is an instruction like any other.
  */
 export function prose(source) {
   let fence = null;
   return source.split('\n').map((line) => {
-    const opener = line.match(/^\s{0,3}(```+|~~~+)/);
+    const opener = line.match(/^\s*(```+|~~~+)/);
     if (fence !== null) {
       if (opener && opener[1].startsWith(fence)) fence = null;
       return '';
@@ -128,24 +134,36 @@ export function prose(source) {
 /** A heading, a list item, a table row or a quotation: not running prose. */
 const STRUCTURE = /^\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\|)/;
 
+/** A quotation, which marks every line it wraps onto rather than only its first. */
+const QUOTATION = /^\s{0,3}>/;
+
 /**
  * Runs of lines that belong together, as `{ line, lines }`: broken by a blank
  * line, and each heading, list item, table row or quotation opening one of its
  * own so a wrapped bullet stays with its bullet and not with its neighbour.
+ *
+ * A quotation is the exception, because `>` prefixes every line of one rather
+ * than only the line that starts it - so a run of them is one block, and a bold
+ * phrase wrapped across two quoted lines is not two halves each missing the
+ * other's marker.
  */
 function blocks(lines) {
   const found = [];
   let block = null;
+  let quoted = false;
   lines.forEach((text, index) => {
     if (!text.trim()) {
       block = null;
+      quoted = false;
       return;
     }
-    if (!block || STRUCTURE.test(text)) {
+    const quotation = QUOTATION.test(text);
+    if (!block || (STRUCTURE.test(text) && !(quotation && quoted))) {
       block = { line: index + 1, lines: [] };
       found.push(block);
     }
     block.lines.push(text);
+    quoted = quotation;
   });
   return found;
 }
@@ -172,6 +190,11 @@ function blocks(lines) {
  * A bullet is its own block, so one item's title does not cover the next -
  * which is how `(issue 8, §2)` survived a rename of every other citation like
  * it in the functional definition.
+ *
+ * **Named separately per kind.** Issues and pull requests share one number
+ * sequence, and this repository's house style pairs an issue with the pull
+ * request that merged it, so a titled `pull request 77` must not quietly name a
+ * bare `issue 77`, which is a different object.
  */
 export function issueNumbersWithoutTitles(source) {
   const lines = prose(source);
@@ -180,12 +203,13 @@ export function issueNumbersWithoutTitles(source) {
     let before = '';
     return block.flatMap((text, offset) => {
       const found = [...text.matchAll(ISSUE_REFERENCE)].flatMap((match) => {
-        const number = match[1];
+        const number = match[2];
+        const kind = /^issue/i.test(match[1]) ? 'issue' : 'pull request';
         if (TITLE.test(before + text.slice(0, match.index))) {
-          named.add(number);
+          named.add(`${kind} ${number}`);
           return [];
         }
-        return named.has(number) ? [] : [{ line: line + offset, number, text: text.trim() }];
+        return named.has(`${kind} ${number}`) ? [] : [{ line: line + offset, number, text: text.trim() }];
       });
       before += `${text} `;
       return found;
@@ -206,20 +230,26 @@ export function issueNumbersWithoutTitles(source) {
  * Resolved against the numbers the file actually offers rather than against the
  * mere presence of a list, because "this file has a numbered list somewhere"
  * exempts twenty-two of the twenty-eight documents here and would let `§9.1`
- * stand in one whose sections stop at 8.
+ * stand in one whose sections stop at 8. **`§N` against the headings alone**,
+ * for the same reason: a section is a heading, and pooling the ordinary
+ * numbered lists in with them resolves `§2` against any file that happens to
+ * have a second bullet somewhere.
  */
 export function unresolvedSectionCitations(source) {
   const lines = prose(source);
-  const offered = new Set();
+  const sections = new Set();
+  const items = new Set();
   for (const text of lines) {
-    const numbered = text.match(NUMBERED_HEADING) ?? text.match(NUMBERED_ITEM);
-    if (numbered) offered.add(numbered[1]);
+    const heading = text.match(NUMBERED_HEADING);
+    if (heading) sections.add(heading[1]);
+    const item = text.match(NUMBERED_ITEM);
+    if (item) items.add(item[1]);
   }
-  return lines.flatMap((text, index) =>
-    [...text.matchAll(SECTION_CITATION)]
-      .filter((match) => !offered.has(match[0].replace(/[^\d.]/g, '')))
-      .map((match) => ({ line: index + 1, citation: match[0], text: text.trim() })),
-  );
+  const unresolved = (citation, offered) => !offered.has(citation.replace(/[^\d.]/g, ''));
+  return lines.flatMap((text, index) => [
+    ...[...text.matchAll(SECTION_SIGN)].filter((match) => unresolved(match[0], sections)),
+    ...[...text.matchAll(RULE_CITATION)].filter((match) => unresolved(match[0], new Set([...sections, ...items]))),
+  ].map((match) => ({ line: index + 1, citation: match[0], text: text.trim() })));
 }
 
 /**
@@ -333,14 +363,28 @@ export function duplicateParagraphs(documents) {
  * The declaration has to stand on one line, not merely somewhere in the file:
  * CLAUDE.md carries the phrase in one section and every document's filename in
  * another, and read loosely that exempts it from repeating anything at all.
+ *
+ * **A bare filename counts only where it belongs to one document.** Three files
+ * here are called `SKILL.md` and two `README.md`, so a declaration naming one
+ * of those by basename would exempt every file sharing it, in directories it
+ * has never heard of. Naming the path always works.
  */
 function restatementsDeclared(documents) {
+  const ambiguous = new Set(
+    documents
+      .map(({ file }) => file.split('/').pop())
+      .filter((name, index, names) => names.indexOf(name) !== index),
+  );
+  const names = (file) => {
+    const name = file.split('/').pop();
+    return ambiguous.has(name) ? [file] : [file, name];
+  };
   return new Map(
     documents.map(({ file, source }) => {
       const declaring = source.split('\n').filter((line) => /\b(?:version|document) of record\b/i.test(line));
       const declared = documents
         .map(({ file: other }) => other)
-        .filter((other) => other !== file && declaring.some((line) => line.includes(other.split('/').pop())));
+        .filter((other) => other !== file && declaring.some((line) => names(other).some((name) => line.includes(name))));
       return [file, new Set(declared)];
     }),
   );
