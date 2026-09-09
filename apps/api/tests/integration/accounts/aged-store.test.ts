@@ -827,9 +827,10 @@ describe('Layouts', () => {
       await fillWithWhatIsAlreadyThere(name);
 
       // Applied on its own rather than through a full open, which would carry
-      // the store all the way to `0020-drop-layout-name-and-width` and take
-      // these very rows with it - what is under test is this one change's own
-      // conversion, not what survives past a later one that discards it.
+      // the store all the way to `0020-drop-layout-name-and-width` - these
+      // rows carry no `screen_size_id`, so that change drops them along with
+      // their rows and placements. What is under test is this one change's
+      // own conversion, not what survives past a later one that discards it.
       await applyChange(name, '0011-layout-names');
 
       expect(
@@ -860,10 +861,10 @@ describe('Layouts', () => {
       await fillWithWhatIsAlreadyThere(name);
 
       // Applied on its own rather than through a full open, which would carry
-      // the store all the way to `0020-drop-layout-name-and-width` and empty
-      // `panel_placements` behind it - what is under test is this one
-      // change's own conversion, not what survives past a later one that
-      // discards it.
+      // the store all the way to `0020-drop-layout-name-and-width` - this
+      // Layout carries no `screen_size_id`, so that change takes it and its
+      // placements with it. What is under test is this one change's own
+      // conversion, not what survives past a later one that discards it.
       await applyChange(name, '0013-panel-rows');
 
       expect(
@@ -915,18 +916,45 @@ describe('Layouts', () => {
       expect(names).toEqual(
         expect.arrayContaining(['id', 'tenant_id', 'dashboard_id', 'screen_size_id', 'created_at']),
       );
-      expect(names).not.toEqual(expect.arrayContaining(['name', 'folded_name', 'screen_width']));
+      expect(names).not.toContain('name');
+      expect(names).not.toContain('folded_name');
+      expect(names).not.toContain('screen_width');
       expect(columns.find((c) => c.name === 'screen_size_id')?.notnull).toBe(1);
     });
 
-    it('takes every arrangement made before it with it, and leaves panels, filings and items alone', async () => {
+    it('keeps a Layout that already names a real screen size, with its rows and placements, and drops only the ones that predate them', async () => {
       const name = 'aged-store-drop-layout-name-and-width-survivors';
       await agedTo(name, justBefore('0020-drop-layout-name-and-width'));
       await fillWithWhatIsAlreadyThere(name);
-      // A filing, so there is one to prove survives - nothing in `rowsFor`
-      // makes one, since no update before this file existed needed to meet a
-      // full `panel_items` table.
+      // A Layout that already names a real screen size - what every Layout
+      // "Draw a dashboard against the screen sizes its account has" (issue
+      // 263) writes - with a row and a placement of its own, so there is
+      // something this change has to carry across rather than only rows to
+      // drop. `ly-before` and `ly-twin`, from `rowsFor`, are the rows the new
+      // rule rejects: they carry no `screen_size_id` at this point.
       await inStoreAsItIs(name, (sql) => {
+        // Named apart from `ly-before`'s own empty `folded_name`, since the
+        // unique index guarding it is still live at this point.
+        sql.exec(
+          `INSERT INTO layouts
+             (id, tenant_id, dashboard_id, name, folded_name, screen_width, screen_size_id, created_at)
+           VALUES ('ly-sized', ?, 'db-before', 'Sized', 'sized', 1280, 'sz-before', ?)`,
+          name,
+          AT,
+        );
+        sql.exec(
+          `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
+           VALUES (?, 'ly-sized', 0, 200)`,
+          name,
+        );
+        sql.exec(
+          `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
+           VALUES (?, 'ly-sized', 'pn-before', 0, 0, 12)`,
+          name,
+        );
+        // A filing, so there is one to prove survives - nothing in `rowsFor`
+        // makes one, since no update before this file existed needed to meet
+        // a full `panel_items` table.
         sql.exec(
           `INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at)
            VALUES (?, 'pn-before', 'it-before', 0, ?)`,
@@ -937,18 +965,21 @@ describe('Layouts', () => {
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
 
-      // The agreed trade: every Layout, its rows and its placements are gone -
-      // the children were emptied unconditionally to let the table be
-      // rebuilt.
-      expect(await inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM layouts').toArray())).toEqual(
-        [],
-      );
       expect(
-        await inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM layout_rows').toArray()),
-      ).toEqual([]);
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec<{ id: string }>('SELECT id FROM layouts ORDER BY id').toArray(),
+        ),
+      ).toEqual([{ id: 'ly-sized' }]);
       expect(
-        await inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM panel_placements').toArray()),
-      ).toEqual([]);
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec('SELECT layout_id, row_index, height FROM layout_rows').toArray(),
+        ),
+      ).toEqual([{ layout_id: 'ly-sized', row_index: 0, height: 200 }]);
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec('SELECT layout_id, panel_id, span FROM panel_placements').toArray(),
+        ),
+      ).toEqual([{ layout_id: 'ly-sized', panel_id: 'pn-before', span: 12 }]);
       // Everything else this fixture wrote is untouched.
       expect(
         await inStoreAsItIs(name, (sql) => sql.exec('SELECT id FROM panels ORDER BY id').toArray()),

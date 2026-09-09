@@ -1534,33 +1534,33 @@ const SCREEN_SIZES: Change = {
  * CHECK, and `screen_width` is in one, so the only way to remove it is to build
  * the table again - and a Durable Object's SQLite refuses to drop a table that
  * rows elsewhere still point at under RESTRICT, `PRAGMA foreign_keys = OFF`
- * accepted and ignored. So `layout_rows` and `panel_placements`, the tables
- * that point at `layouts`, are emptied first.
+ * accepted and ignored.
  *
- * **Every arrangement made since the previous release is lost and has to be
- * made again**, which is the agreed trade the issue names: re-arranging a
- * handful of Dashboards is cheaper than a copy-out rebuild against real rows,
- * which is the shape of the incident behind pull request 69. `layout_rows` and
- * `panel_placements` keep the shape they already have - nothing about either
- * table's own columns changes - so emptying them is enough; only `layouts`
- * itself is rebuilt.
+ * **`layout_rows` and `panel_placements` are copied out before either is
+ * touched, and refilled once `layouts` exists again** - deployed data is real
+ * (CLAUDE.md), and a plain empty-then-rebuild would take every arrangement
+ * with it rather than only the ones the new rule actually rejects, which is
+ * the shape of the incident behind pull request 69. Neither table's own
+ * columns change, so the copy is a bare snapshot; the refill excludes only the
+ * rows naming a Layout that did not survive the rebuild.
  *
  * The failure-mode questions the `scoping` skill asks of a change that cannot
  * put state back:
  *
  * - **Interrupted partway.** It cannot be, and it matters more here than in any
- *   change so far: mid-change the table exists under two names. A change's
- *   statements and the record that they ran commit in one `transactionSync`
- *   (store.ts).
+ *   change so far: mid-change a table exists under two names, or not at all.
+ *   A change's statements and the record that they ran commit in one
+ *   `transactionSync` (store.ts).
  * - **Run again.** Only an unfinished change re-runs, and an unfinished one
- *   left nothing behind - including any Layout, so there is nothing to guard
- *   with `IF NOT EXISTS` or `WHERE NOT EXISTS`.
- * - **Rows the new rule rejects.** Every Layout there is, whether or not it
- *   already carried a `screen_size_id`: the simple rebuild empties
- *   `layout_rows` and `panel_placements` unconditionally rather than copying
- *   the ones that would still be legal across, which is what buys the eight
- *   fewer statements. **Counted over production before promoting rather than
- *   assumed** - that is the question pull request 69 got wrong.
+ *   left nothing behind - including any scratch table, which is why none needs
+ *   `IF NOT EXISTS`.
+ * - **Rows the new rule rejects.** A Layout with `screen_size_id IS NULL` -
+ *   written by an older Worker during the previous release's deploy window,
+ *   and every row that predates it - is not carried into the rebuilt table,
+ *   and its rows and placements are excluded from the refill with it. Every
+ *   Layout that already names a real screen size, and everything it arranges,
+ *   survives untouched. **Counted over production before promoting rather
+ *   than assumed** - that is the question pull request 69 got wrong.
  * - **What is actually in each environment.** The same conversion on first
  *   open. `seed.sql` creates no Layouts.
  * - **The windows it can be interrupted in.** *Before it runs*: every deployed
@@ -1576,13 +1576,18 @@ const SCREEN_SIZES: Change = {
 const DROP_LAYOUT_NAME_AND_WIDTH: Change = {
   name: '0020-drop-layout-name-and-width',
   statements: [
-    // The children first, unconditionally: whatever either held is gone either
-    // way, since every Layout is about to go with it.
+    // A bare snapshot of each, taken before either is touched - neither
+    // table's own columns change, so what comes back out is exactly what went
+    // in, minus what the WHERE below excludes.
+    { sql: 'CREATE TABLE `panel_placements_scratch` AS SELECT * FROM `panel_placements`' },
+    { sql: 'CREATE TABLE `layout_rows_scratch` AS SELECT * FROM `layout_rows`' },
+    // Emptied, which is what lets `layouts` be dropped under RESTRICT - see
+    // the class comment. Refilled from the scratch copies once it exists
+    // again, below.
     { sql: 'DELETE FROM `panel_placements`' },
     { sql: 'DELETE FROM `layout_rows`' },
-    { sql: 'DROP TABLE `layouts`' },
     {
-      sql: `CREATE TABLE \`layouts\` (
+      sql: `CREATE TABLE \`layouts_new\` (
 	\`id\` text PRIMARY KEY NOT NULL,
 	\`tenant_id\` text NOT NULL,
 	\`dashboard_id\` text NOT NULL,
@@ -1594,8 +1599,32 @@ const DROP_LAYOUT_NAME_AND_WIDTH: Change = {
 ) STRICT`,
     },
     {
+      // Only a Layout the new rule can actually represent - see "Rows the new
+      // rule rejects" above.
+      sql: `INSERT INTO layouts_new (id, tenant_id, dashboard_id, screen_size_id, created_at)
+            SELECT id, tenant_id, dashboard_id, screen_size_id, created_at
+            FROM layouts
+            WHERE screen_size_id IS NOT NULL`,
+    },
+    { sql: 'DROP TABLE `layouts`' },
+    { sql: 'ALTER TABLE `layouts_new` RENAME TO `layouts`' },
+    {
       sql: 'CREATE INDEX `layouts_tenant_dashboard` ON `layouts` (`tenant_id`,`dashboard_id`)',
     },
+    {
+      // Excludes only a row naming a Layout that did not survive the rebuild
+      // above - every other row comes back exactly as it went out.
+      sql: `INSERT INTO panel_placements
+            SELECT * FROM panel_placements_scratch
+            WHERE layout_id IN (SELECT id FROM layouts)`,
+    },
+    {
+      sql: `INSERT INTO layout_rows
+            SELECT * FROM layout_rows_scratch
+            WHERE layout_id IN (SELECT id FROM layouts)`,
+    },
+    { sql: 'DROP TABLE `panel_placements_scratch`' },
+    { sql: 'DROP TABLE `layout_rows_scratch`' },
   ],
 };
 
