@@ -117,6 +117,7 @@ describe('Capture', () => {
       itemId: uuidv7(),
       title: 'Ask Novy about the Part 11 audit trail',
       description: 'A question about the Part 11 audit trail for the validation protocol.',
+      readings: [],
       ...over,
     });
 
@@ -127,6 +128,21 @@ describe('Capture', () => {
       { situation: 'a message saying nothing', over: { description: '' }, accepted: false },
       { situation: 'no message at all', over: { description: undefined }, accepted: false },
       { situation: 'both texts as they should be', over: {}, accepted: true },
+      { situation: 'no readings at all', over: { readings: undefined }, accepted: false },
+      {
+        situation: 'a reading offering another title, the note supporting more than one',
+        over: {
+          readings: [
+            { title: 'Call Jan', description: '', meaning: "'jan' is a person's name" },
+          ],
+        },
+        accepted: true,
+      },
+      {
+        situation: 'a reading whose own title would not fit a row label',
+        over: { readings: [{ title: 'x'.repeat(201), description: '', meaning: 'too long to offer' }] },
+        accepted: false,
+      },
     ])('is $situation accepted: $accepted', ({ over, accepted }) => {
       expect(proposeItemTextsSchema.safeParse(proposal(over)).success).toBe(accepted);
     });

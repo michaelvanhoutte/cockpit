@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { TITLE_LENGTH, itemLabel, uuidv7, type Item } from '@cockpit/shared';
+import { TITLE_LENGTH, itemHasOpenReadings, itemLabel, uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
 import { useItemForm } from '../itemForm';
@@ -252,6 +252,15 @@ function TheForm({
   const setDraft = (now: Draft) => setEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  /**
+   * Bumped every time a reading is chosen, and handed to `DescriptionBox` as
+   * its `resetKey` below - the editor owns its document once it is made and
+   * ignores a new `value` fed into the same instance, so replacing the
+   * description wholesale (a reading, not a keystroke) needs the editor
+   * rebuilt rather than a prop change ("Offer the other readings when a
+   * captured note says two things", issue 297).
+   */
+  const [readingPicked, setReadingPicked] = useState(0);
 
   /**
    * The boxes start from the Item and are then the person's own, and what they
@@ -447,10 +456,45 @@ function TheForm({
                     cold-open path, which is why this is a component and not a
                     box: the states around that fetch are the bulk of it. */}
                 <DescriptionBox
+                  resetKey={readingPicked}
                   value={draft.description}
                   onChange={(description) => setDraft({ ...draft, description })}
                   editable={!saving}
                 />
+
+                {/* The other ways this note could genuinely be read, offered
+                    beside the one already sitting in the two boxes above
+                    ("Offer the other readings when a captured note says two
+                    things", issue 297). `itemHasOpenReadings` is what pairs
+                    this with `textsSettledAt`, matching the row's own mark:
+                    once the texts are somebody's own there is nothing left
+                    for an alternate reading to be an alternative to. Taking
+                    one only fills the boxes - it still has to be saved, the
+                    same as typing it in by hand would. */}
+                {itemHasOpenReadings(item) && item.readings && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                      Reads more than one way
+                    </p>
+                    <div className="mt-1 flex flex-col gap-1.5">
+                      {item.readings.map((reading) => (
+                        <button
+                          key={reading.title}
+                          type="button"
+                          disabled={saving}
+                          onClick={() => {
+                            setDraft({ title: reading.title, description: reading.description });
+                            setReadingPicked((was) => was + 1);
+                          }}
+                          className="rounded-md border border-black/10 px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                        >
+                          <span className="block font-medium text-ink">{reading.title}</span>
+                          <span className="block text-xs text-ink-faint">{reading.meaning}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* What was captured, out of the way until it is looked for. It
                     can never be edited, so it is a record rather than a

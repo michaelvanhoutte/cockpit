@@ -72,6 +72,7 @@ function anItem(title: string, completedAt: string | null = null): Item {
     capturedMessage: null,
     description: null,
     textsSettledAt: null,
+    readings: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,

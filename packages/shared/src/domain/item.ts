@@ -54,6 +54,36 @@ export const itemTitleSchema = z
 export const itemDescriptionSchema = z.string().trim().max(60_000);
 
 /**
+ * One other way a captured note could be read, offered beside the reading
+ * Cockpit already proposed ("Offer the other readings when a captured note
+ * says two things", issue 297).
+ *
+ * **The same two boxes a chosen reading fills, plus a third that never gets
+ * stored.** `title` and `description` obey exactly the rules the Item's own
+ * do, because taking a reading is the same act as typing it into the form by
+ * hand - a reading the form would refuse is not a reading Cockpit may offer.
+ * `meaning` is the few words saying what this reading takes the note to mean,
+ * which is what a person picks between; it is shown beside the reading and
+ * never lands on the Item.
+ *
+ * **`description` may be empty where `title` may not.** A reading exists to
+ * offer a different *title* - "Call Jan" against "Call in January" - and where
+ * the note has nothing more to add beyond that, repeating the same message
+ * under both readings would say nothing a person could use to tell them apart.
+ * The main proposal has no such case: it is the one reading Cockpit is
+ * confident enough to write onto the Item unasked, so it has to justify itself
+ * with more than a title.
+ */
+export const itemReadingSchema = z.object({
+  title: itemTitleSchema.refine((title) => title.length > 0, {
+    message: 'a reading has to name the note',
+  }),
+  description: itemDescriptionSchema,
+  meaning: z.string().trim().min(1),
+});
+export type ItemReading = z.infer<typeof itemReadingSchema>;
+
+/**
  * Fields are kept in three groups (architecture, "Schema conventions"): a
  * connector re-sync overwrites the source-owned group unconditionally, never
  * touches the app-owned group, and cannot reach `capturedMessage` at all, which
@@ -134,6 +164,21 @@ export const itemSchema = z.object({
    * it run on?"), so nothing can overwrite a title written by hand.
    */
   textsSettledAt: z.iso.datetime().nullable(),
+  /**
+   * The other ways this note could genuinely be read, where Cockpit found any
+   * ("Offer the other readings when a captured note says two things", issue
+   * 297). Null on every Item captured before this shipped, and on most Items
+   * after it - ambiguity is meant to be rare, so reporting none is the common
+   * case and the right one.
+   *
+   * **Read as offered only while `textsSettledAt` is still null.** The two are
+   * written together (`applyProposedTexts`), and once a person has taken the
+   * texts over there is nothing left for an alternate reading to be an
+   * alternative *to* - the row's mark and the form's picker both gate on the
+   * pair rather than on this field alone, so a stale set of readings from
+   * before an edit never resurfaces as though it were still live.
+   */
+  readings: itemReadingSchema.array().nullable(),
   /**
    * What kind of thing this is ("Capture a thought or an action, and see which
    * it is", issue 155). Nullable: an item captured before types existed, and
@@ -251,6 +296,17 @@ function cutTo(text: string, limit: number): string {
  */
 export function workspaceIsDecided(item: Pick<Item, 'workspaceDecided'>): boolean {
   return item.workspaceDecided !== false;
+}
+
+/**
+ * Whether this Item has another reading genuinely worth offering right now -
+ * the row's mark and the form's picker both ask this and nothing narrower, so
+ * the pairing `readings`' own doc comment describes cannot drift between the
+ * two ("Offer the other readings when a captured note says two things", issue
+ * 297).
+ */
+export function itemHasOpenReadings(item: Pick<Item, 'readings' | 'textsSettledAt'>): boolean {
+  return item.textsSettledAt === null && !!item.readings && item.readings.length > 0;
 }
 
 /** What an Association can point at (functional definition §4.2). */

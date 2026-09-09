@@ -237,7 +237,7 @@ Three decisions that job settled for every job after it:
 
 ### 6.4 AI layer
 
-- **The Claude API behind a project-owned interface** (`ai/`): cleaning up a captured note today; suggesting associations, offering alternative readings and translating plain-English panel rules to structured queries as each lands. It takes and returns domain values, so everything around it stays testable with the model faked. One method per thing that asks, added when that thing lands — the interface carried two placeholders nothing called for a month, and they were removed rather than implemented.
+- **The Claude API behind a project-owned interface** (`ai/`): cleaning up a captured note today, which now also answers with the other ways the note could genuinely be read where it finds any ("Offer the other readings when a captured note says two things", issue 297) — the same call, not a second ask; suggesting associations and translating plain-English panel rules to structured queries land as their own methods when each does. It takes and returns domain values, so everything around it stays testable with the model faked. One method per thing that asks, added when that thing lands — the interface carried two placeholders nothing called for a month, and they were removed rather than implemented.
 - **Prompts are versioned files in the repository**, reviewed like code, and a change to *what is asked for* gets the next version rather than an edit: the contract tests are pinned to a version, and two prompts cannot otherwise be told apart by their measurements.
 - The provider is a third party like any other: faked at the network boundary below the contract tier, scheduled contract tests for drift (`.github/workflows/contract.yml`).
 - Enrichment runs **on ingest, in jobs**, and results are written onto the Item, so reads never wait on a model call.
@@ -282,7 +282,7 @@ Two standing rules follow: **never block paint on auth** (paint the cached snaps
 - **App login per "App login: hand-rolled Google OIDC + own sessions" (§8.1)**; no passwords stored, ever. Signing in is a Google account, checked against the register, which is the allowlist; the session, cookie and request gate behind it are the application's own.
 - **Source tokens encrypted at rest** (application-level encryption for connected-account OAuth tokens).
 - **Workspace scoping enforced server-side** on every query via `tenant_id` plus workspace filters; the UI's scoping is presentation, not protection. The account those filters carry is resolved from the session on every request, never from anything the client sends.
-- **Message content sent to the AI provider is an explicit, documented flow** (which fields, which provider, retention posture) — the single most sensitive thing this product does. **The flow that exists, as of "Clean up a captured note into a clear title and a fuller message" (issue 296):**
+- **Message content sent to the AI provider is an explicit, documented flow** (which fields, which provider, retention posture) — the single most sensitive thing this product does. **The flow that exists, as of "Clean up a captured note into a clear title and a fuller message" (issue 296) and "Offer the other readings when a captured note says two things" (issue 297):**
 
   | | |
   |---|---|
@@ -290,7 +290,7 @@ Two standing rules follow: **never block paint on auth** (paint the cached snaps
   | Where to | the Anthropic Messages API, over HTTPS, authenticated by this environment's own key. No other provider, and no gateway in between. |
   | When | once per note captured, in a queue job, from the release this shipped onwards. Nothing sweeps what already exists. |
   | Retention | whatever Anthropic's own commercial terms say for API traffic on this account, which is the thing to read before a second field is ever added to that request — it is not something this repository can assert. Zero-retention arrangements are the provider's to grant, so if the answer ever has to be "nothing is kept", that is a conversation with them rather than a change here. |
-  | What comes back | a title and a description, refused unless they fit the same shapes the Item's own form enforces, and written onto that one Item. |
+  | What comes back | a title and a description, and the other readings of the same note where it finds any (issue 297) - every one of them refused unless it fits the same shapes the Item's own form enforces, and written onto that one Item. |
 
   **What would make this flow bigger is a decision, not an implementation detail.** Sending the surrounding notes for context, or an account's filing history to a router, changes what leaves this system — so it belongs in an issue that says so, and in this table.
 - **Secrets** live in the platform's secret store; the public repository contains `.env.example` files only.

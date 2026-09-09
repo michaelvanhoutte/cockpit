@@ -28,6 +28,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     capturedMessage: null,
     description: null,
     textsSettledAt: null,
+    readings: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,
@@ -465,6 +466,31 @@ describe('Item editing', () => {
       aRow({ item: anItem({ description }) });
 
       expect(screen.queryByLabelText('Has a description') !== null).toBe(marked);
+    });
+
+    /**
+     * "Offer the other readings when a captured note says two things" (issue
+     * 297): the row carries one quiet mark and nothing else, so the common
+     * case - no readings, which is most notes - draws exactly the row it
+     * always did.
+     */
+    const AN_ALTERNATE_READING = [
+      { title: 'Call in January', description: '', meaning: "'jan' is short for January" },
+    ];
+
+    it.each([
+      { situation: 'an item with another reading', readings: AN_ALTERNATE_READING, settled: null, marked: true },
+      { situation: 'an item with none', readings: null, settled: null, marked: false },
+      {
+        situation: 'an item whose texts are already settled',
+        readings: AN_ALTERNATE_READING,
+        settled: '2026-08-12T10:00:00.000Z',
+        marked: false,
+      },
+    ])('$situation', ({ readings, settled, marked }) => {
+      aRow({ item: anItem({ readings, textsSettledAt: settled }) });
+
+      expect(screen.queryByLabelText('Reads more than one way') !== null).toBe(marked);
     });
   });
 

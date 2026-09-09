@@ -76,6 +76,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     SCREEN_SIZES,
     DROP_LAYOUT_NAME_AND_WIDTH,
     ITEM_TEXTS_SETTLED,
+    ITEM_READINGS,
     firstWorkspace(accountId),
   ];
 }
@@ -123,6 +124,45 @@ export function accountChanges(accountId: string): readonly Change[] {
 const ITEM_TEXTS_SETTLED: Change = {
   name: '0021-item-texts-settled',
   statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `texts_settled_at` text' }],
+};
+
+/**
+ * The other ways Cockpit read a captured note, where it genuinely found any
+ * ("Offer the other readings when a captured note says two things", issue
+ * 297) - JSON, in the same nullable text column `schema.ts` describes.
+ *
+ * **One added column and nothing else** - no backfill and no rebuild, the
+ * same shape `0021-item-texts-settled` is. The failure-mode questions the
+ * `scoping` skill asks of a change that cannot put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a column and writes to no row.
+ * - **Interrupted partway.** It cannot be: a change's statement and the record
+ *   that it ran commit together (up-to-date.ts), so a failure leaves no column
+ *   and the change is retried whole. SQLite has no `ADD COLUMN IF NOT EXISTS`,
+ *   so a half-applied change could never re-run.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left no column. Nothing is written to any row, so a second run doubles
+ *   nothing.
+ * - **Data the new rules reject.** None. The column starts null on every row,
+ *   which is exactly what "Cockpit found no other reading" means for a row
+ *   nothing has proposed readings for yet - the same row every Item has until
+ *   its own note is next read.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop,
+ *   in staging and in production alike.
+ * - **The windows it can be interrupted in.** Two, and both are safe because
+ *   this is additive. *Before it runs*, the code in front of it is the
+ *   previous release, which does not name the column. *After it runs, with
+ *   that release promoted back*, its reads name a subset of the columns that
+ *   exist, which SQLite is happy with - and its `propose_item_texts` writes
+ *   leave the column untouched, so the worst a rollback costs is a set of
+ *   readings from before it that nobody sees until the release goes forward
+ *   again.
+ */
+const ITEM_READINGS: Change = {
+  name: '0022-item-readings',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `readings` text' }],
 };
 
 /**

@@ -21,7 +21,14 @@ import {
   prioritySchema,
   sourceSchema,
 } from '@cockpit/shared';
-import type { AssociationKind, PanelFormat, PanelKind, Priority, Source } from '@cockpit/shared';
+import type {
+  AssociationKind,
+  ItemReading,
+  PanelFormat,
+  PanelKind,
+  Priority,
+  Source,
+} from '@cockpit/shared';
 
 /**
  * The values the three dead columns on `items` are allowed to hold.
@@ -753,6 +760,28 @@ export const items = sqliteTable(
      * it. Same trade `completed_at` and `workspace_decided` record above.
      */
     textsSettledAt: text('texts_settled_at'),
+    /**
+     * The other ways this note could genuinely be read, where Cockpit found
+     * any ("Offer the other readings when a captured note says two things",
+     * issue 297). Written together with `title` and `description`
+     * (`applyProposedTexts`), so it obeys the same rule `texts_settled_at`
+     * does: once a person has taken the texts over there is nothing left for
+     * an alternate reading to be an alternative to.
+     *
+     * **JSON in a text column, the first of its kind in this schema.** A
+     * reading is small, bounded to two or three, and read back whole with the
+     * Item that holds it - nothing ever queries into one, which is the case a
+     * table earns itself and this does not have. `mode: 'json'` is what makes
+     * the column round-trip as `ItemReading[] | null` rather than as a string
+     * this file would have to (de)serialize by hand.
+     *
+     * Nullable for the reason `texts_settled_at` is: SQLite accepts a new
+     * column on a live table only with a default of NULL or a constant, and
+     * `items` cannot be rebuilt while `panel_items` and `associations` point
+     * at it. Carries no CHECK for the same reason that column carries none -
+     * SQLite attaches CHECKs only when a table is created.
+     */
+    readings: text('readings', { mode: 'json' }).$type<ItemReading[]>(),
     /**
      * What kind of thing it is ("Capture a thought or an action, and see which
      * it is", issue 155). Nullable, which is what let it be added at all:

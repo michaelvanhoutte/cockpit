@@ -128,6 +128,7 @@ function anItem(id: string, title: string): Item {
     capturedMessage: null,
     description: null,
     textsSettledAt: null,
+    readings: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,

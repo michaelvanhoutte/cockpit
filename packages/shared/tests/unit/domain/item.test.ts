@@ -3,7 +3,9 @@ import {
   TITLE_LENGTH,
   UNTITLED,
   itemDescriptionSchema,
+  itemHasOpenReadings,
   itemLabel,
+  itemReadingSchema,
   itemSchema,
   itemTitleSchema,
   textsFromCapture,
@@ -129,6 +131,69 @@ describe('Item editing', () => {
       expect(of.safeParse(typed).success).toBe(accepted);
     });
   });
+
+  /**
+   * L1: the shape a reading has to have is a pure decision over an object, so
+   * this is where it is decided. That an unusable reading is dropped rather
+   * than sinking the whole proposal is
+   * apps/api/tests/unit/ai/note-texts.test.ts.
+   */
+  describe('a reading offers a title the form would accept, and may say nothing more', () => {
+    const reading = (over: Record<string, unknown> = {}) => ({
+      title: 'Call in January',
+      description: '',
+      meaning: "'jan' is short for the month January",
+      ...over,
+    });
+
+    it.each([
+      { situation: 'a title and a meaning, and nothing more to say', over: {}, accepted: true },
+      {
+        situation: 'a description as well, where there is more to say',
+        over: { description: 'Ring in January about the renewal.' },
+        accepted: true,
+      },
+      { situation: 'a title over the limit', over: { title: 'x'.repeat(201) }, accepted: false },
+      { situation: 'a title of nothing at all', over: { title: '' }, accepted: false },
+      { situation: 'a title broken over two lines', over: { title: 'Call\nJan' }, accepted: false },
+      // A description may be empty, unlike a title - the whole difference
+      // between this and the main proposal's own two texts.
+      { situation: 'a description over the limit', over: { description: 'x'.repeat(60_001) }, accepted: false },
+      { situation: 'no meaning at all', over: { meaning: '' }, accepted: false },
+    ])('$situation', ({ over, accepted }) => {
+      expect(itemReadingSchema.safeParse(reading(over)).success).toBe(accepted);
+    });
+  });
+
+  /**
+   * L1: the one question a row's mark and a form's picker both ask, in one
+   * place, so they cannot drift into asking it differently. That the row and
+   * the form actually ask it is apps/web/tests/unit/components/ItemRow.test.tsx
+   * and apps/web/tests/unit/components/ItemForm.test.tsx.
+   */
+  describe('a note reads more than one way only while there is still a choice to make', () => {
+    const AN_ALTERNATE_READING = [
+      { title: 'Call in January', description: '', meaning: "'jan' is short for January" },
+    ];
+
+    it.each([
+      {
+        situation: 'the note supported more than one reading, unsettled',
+        readings: AN_ALTERNATE_READING,
+        textsSettledAt: null,
+        open: true,
+      },
+      { situation: 'the note had only the one reading', readings: null, textsSettledAt: null, open: false },
+      {
+        situation: 'the texts are already somebody\'s own',
+        readings: AN_ALTERNATE_READING,
+        textsSettledAt: '2026-08-12T10:00:00.000Z',
+        open: false,
+      },
+    ])('$situation', ({ readings, textsSettledAt, open }) => {
+      expect(itemHasOpenReadings({ readings, textsSettledAt })).toBe(open);
+    });
+  });
 });
 
 /**
@@ -202,6 +267,7 @@ describe('Capture', () => {
       title: '',
       description: null,
       textsSettledAt: null,
+      readings: null,
       sourceResolvedAt: null,
       typeId: null,
       nextAction: null,

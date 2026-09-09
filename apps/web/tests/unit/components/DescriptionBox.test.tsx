@@ -42,6 +42,31 @@ const taken = vi.fn<() => Promise<'taken' | 'nothing-new' | 'could-not-ask'>>(()
   Promise.resolve('taken'),
 );
 
+/**
+ * Uncontrolled, like the real editor: seeded once from `initial` and never
+ * resynced on its own - Milkdown owns its document once it is made
+ * (`DescriptionBox.tsx`, "Bumped on the way back from the source view"), so a
+ * mock that just re-showed a changing `initial` prop would pass every test
+ * here whether or not `DescriptionBox` actually rebuilt it on a `resetKey`
+ * change.
+ */
+function FakeRichDescription({ initial, editable }: { initial: string; editable: boolean }) {
+  const [shown] = useState(initial);
+  return (
+    <div>
+      <div role="toolbar" aria-label="Formatting" />
+      <div
+        aria-label="Description"
+        role="textbox"
+        contentEditable={editable}
+        suppressContentEditableWarning
+      >
+        {shown}
+      </div>
+    </div>
+  );
+}
+
 async function theBox(arrival: Arrival, value = 'A **bold** word') {
   vi.resetModules();
   vi.doMock('../../../src/updating', () => ({ takeTheNewVersion: taken }));
@@ -55,21 +80,7 @@ async function theBox(arrival: Arrival, value = 'A **bold** word') {
         },
       };
     }
-    return {
-      default: ({ initial, editable }: { initial: string; editable: boolean }) => (
-        <div>
-          <div role="toolbar" aria-label="Formatting" />
-          <div
-            aria-label="Description"
-            role="textbox"
-            contentEditable={editable}
-            suppressContentEditableWarning
-          >
-            {initial}
-          </div>
-        </div>
-      ),
-    };
+    return { default: FakeRichDescription };
   });
   const { DescriptionBox } = await import('../../../src/components/DescriptionBox');
   const changes: string[] = [];
@@ -92,6 +103,43 @@ async function theBox(arrival: Arrival, value = 'A **bold** word') {
   }
   render(<Form />);
   return { changes, user: userEvent.setup() };
+}
+
+/**
+ * The box with a control that hands it a value replaced wholesale, plus a
+ * bumped `resetKey` - a reading chosen for it, not typed into it ("Offer the
+ * other readings when a captured note says two things", issue 297). Separate
+ * from `theBox` above because none of its own cases need a second writer of
+ * the value.
+ */
+async function theBoxWithAReplacement(replacement: string) {
+  vi.resetModules();
+  vi.doMock('../../../src/updating', () => ({ takeTheNewVersion: taken }));
+  vi.doMock('../../../src/description/RichDescription', async () => ({
+    default: FakeRichDescription,
+  }));
+  const { DescriptionBox } = await import('../../../src/components/DescriptionBox');
+  function Form() {
+    const [markdown, setMarkdown] = useState('Mine already');
+    const [resetKey, setResetKey] = useState(0);
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            setMarkdown(replacement);
+            setResetKey((was) => was + 1);
+          }}
+        >
+          Pick a reading
+        </button>
+        <DescriptionBox value={markdown} onChange={setMarkdown} editable resetKey={resetKey} />
+      </>
+    );
+  }
+  render(<Form />);
+  await screen.findByRole('toolbar', { name: 'Formatting' });
+  return { user: userEvent.setup() };
 }
 
 afterEach(() => {
@@ -234,6 +282,38 @@ describe('Item editing', () => {
 
       expect(screen.queryByRole('button', { name: 'Source' })).toBeNull();
       expect(screen.queryByRole('button', { name: 'Formatted' })).toBeNull();
+    });
+  });
+
+  /**
+   * "Offer the other readings when a captured note says two things" (issue
+   * 297): a caller handing the box a value replaced wholesale rebuilds the
+   * editor, and nothing else about the box - it is not the same thing as
+   * opening a different item's form.
+   */
+  describe('a value replaced wholesale rebuilds the editor, and nothing else about the box', () => {
+    it('shows the new value once the editor rebuilds', async () => {
+      const { user } = await theBoxWithAReplacement('Ring in January about the invoice.');
+
+      await user.click(screen.getByRole('button', { name: 'Pick a reading' }));
+
+      expect(screen.getByLabelText('Description')).toHaveTextContent(
+        'Ring in January about the invoice.',
+      );
+    });
+
+    it('leaves the source view open rather than snapping back to formatted', async () => {
+      const { user } = await theBoxWithAReplacement('Ring in January about the invoice.');
+      await user.click(screen.getByRole('button', { name: 'Source' }));
+
+      await user.click(screen.getByRole('button', { name: 'Pick a reading' }));
+
+      // Still showing the Markdown box, with the replaced value in it - a
+      // remount of the whole component would have gone back to Formatted.
+      expect(screen.getByLabelText('Description')).toHaveValue(
+        'Ring in January about the invoice.',
+      );
+      expect(screen.queryByRole('button', { name: 'Formatted' })).toBeInTheDocument();
     });
   });
 });

@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { itemLabel, uuidv7, workspaceIsDecided, type Item, type ItemType } from '@cockpit/shared';
+import {
+  itemHasOpenReadings,
+  itemLabel,
+  uuidv7,
+  workspaceIsDecided,
+  type Item,
+  type ItemType,
+} from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
 import { isCutOff } from '../cutOff';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -469,6 +476,24 @@ export function ItemRow({
                 role="img"
               >
                 ¶
+              </span>
+            )}
+            {/* That this note reads more than one way, and nothing about which
+                - the readings themselves wait until the form is opened on
+                purpose ("Offer the other readings when a captured note says
+                two things", issue 297). `itemHasOpenReadings` is what pairs
+                this with `textsSettledAt`: once you have taken the texts
+                over there is nothing left for an alternate reading to be an
+                alternative to, so the mark stops rather than pointing at a
+                choice already made. */}
+            {itemHasOpenReadings(item) && (
+              <span
+                className="shrink-0 text-ink-faint"
+                title="Reads more than one way"
+                aria-label="Reads more than one way"
+                role="img"
+              >
+                ⁇
               </span>
             )}
           </span>

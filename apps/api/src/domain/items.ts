@@ -56,6 +56,10 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     // it has read the note ("Clean up a captured note into a clear title and a
     // fuller message", issue 296). Editing either is what settles both.
     textsSettledAt: null,
+    // Nothing has been read yet, so there is nothing to offer an alternative
+    // to ("Offer the other readings when a captured note says two things",
+    // issue 297).
+    readings: null,
     sourceResolvedAt: null,
     // Every capture names one, so nothing is defaulted here. The column stays
     // nullable for the Items that have no Type - captured before Types
@@ -169,7 +173,9 @@ function settledBy(item: Item, issuedAt: string): Pick<Item, 'textsSettledAt'> {
 /**
  * The title and the message Cockpit read out of the captured note, written
  * together ("Clean up a captured note into a clear title and a fuller message",
- * issue 296).
+ * issue 296) - and the other readings offered beside them, where the note
+ * genuinely supported more than one ("Offer the other readings when a
+ * captured note says two things", issue 297).
  *
  * **Refused outright once a person has taken the texts over**, rather than
  * resolved last-write-wins like everything else here. The clocks are not
@@ -196,7 +202,16 @@ function settledBy(item: Item, issuedAt: string): Pick<Item, 'textsSettledAt'> {
  */
 export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): Item | null {
   if (item.textsSettledAt !== null) return null;
-  return { ...item, title: cmd.title, description: cmd.description };
+  // Empty rather than carried as `[]`, matching every other "nothing here"
+  // on an Item: most notes have one reading, and null is what says so
+  // ("Offer the other readings when a captured note says two things", issue
+  // 297).
+  return {
+    ...item,
+    title: cmd.title,
+    description: cmd.description,
+    readings: cmd.readings.length > 0 ? cmd.readings : null,
+  };
 }
 
 /**

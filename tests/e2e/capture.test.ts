@@ -27,7 +27,26 @@ import {
  * fake, which would prove the walk and nothing about the feature. What holds it
  * instead: apps/api/tests/integration/http/note-cleanup.test.ts drives a real
  * capture through the real queue to the real consumer, and
- * apps/api/tests/contract/clean-up-a-note.test.ts asks the real model nightly.
+ * apps/api/tests/contract/clean-up-a-note.v2.test.ts asks the real model
+ * nightly.
+ *
+ * **The row's mark and the form's picker for the other readings have no walk
+ * here either, and for a sharper reason** ("Offer the other readings when a
+ * captured note says two things", issue 297): unlike a plain cleanup, there is
+ * no door open to this suite at all for putting an item into the one state
+ * that draws them. `propose_item_texts` is the only writer of a reading and
+ * is deliberately not a route a browser can reach
+ * (apps/api/tests/integration/http/note-cleanup.test.ts, "the reading is
+ * Cockpit's to do"), so arranging the precondition means either a real,
+ * non-deterministic model call - the cost already rejected above - or a
+ * network fake, which this stack has no seam for: a Playwright walk drives a
+ * deployed-shaped Worker, not one with `fetch` replaced under it the way
+ * `note-cleanup.test.ts` runs in-process. What holds this instead:
+ * apps/web/tests/unit/components/ItemRow.test.tsx and
+ * apps/web/tests/unit/components/ItemForm.test.tsx prove the mark and the
+ * picker against a stored item shaped either way, and the shape itself -
+ * whether a note is genuinely read as ambiguous - is the contract tier's
+ * question, above.
  */
 test.describe('Capture', () => {
   test.describe('a captured thought appears in the inbox, on a phone screen as on a desktop', () => {

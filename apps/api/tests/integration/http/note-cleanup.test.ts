@@ -24,7 +24,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.test.ts).
+ * (tests/contract/clean-up-a-note.v2.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -43,6 +43,7 @@ const A_READING = {
   title: 'Part 11 audit trail question for the validation protocol',
   message:
     'A question about the Part 11 audit trail, for the validation protocol. Needs to be clear by end of day who signs off on it; the note does not say who that is.',
+  readings: [] as unknown[],
 };
 
 /** A second, different reading, so a case can tell "not rewritten" from "rewritten the same way". */
@@ -50,6 +51,20 @@ const SOMETHING_ELSE = {
   language: 'English',
   title: 'Something else entirely',
   message: 'A completely different reading of the same note.',
+  readings: [] as unknown[],
+};
+
+/**
+ * A note that genuinely reads two ways ("Offer the other readings when a
+ * captured note says two things", issue 297) - the POC's own proof, `call
+ * jan`, though what is actually read here is `NOTE` above; the model's
+ * answer, not the note it was asked about, is what a fake stands in for.
+ */
+const AMBIGUOUS_NOTE = {
+  language: 'English',
+  title: 'Call Jan',
+  message: 'Call Jan.',
+  readings: [{ title: 'Call in January', message: '', meaning: "'jan' is short for January" }],
 };
 
 /** What the model does when it is asked. */
@@ -149,14 +164,20 @@ async function captureANote(
 async function textsOf(itemId: string, accountName = ACCOUNT_NAME) {
   const rows = await inStoreAsItIs(accountName, (sql) =>
     sql
-      .exec<{ title: string; description: string | null; captured_message: string | null }>(
-        'SELECT title, description, captured_message FROM items WHERE id = ? AND tenant_id = ?',
+      .exec<{
+        title: string;
+        description: string | null;
+        captured_message: string | null;
+        readings: string | null;
+      }>(
+        'SELECT title, description, captured_message, readings FROM items WHERE id = ? AND tenant_id = ?',
         itemId,
         accountName,
       )
       .toArray(),
   );
-  return rows[0];
+  const row = rows[0];
+  return row && { ...row, readings: row.readings ? JSON.parse(row.readings) : null };
 }
 
 /**
@@ -226,6 +247,52 @@ describe('Capture', () => {
       await untilTheNoteHasBeenRead(itemId);
 
       expect((await textsOf(itemId))?.description).toBe(A_READING.message);
+    });
+  });
+
+  /**
+   * "Offer the other readings when a captured note says two things" (issue
+   * 297): reporting none is the common case, proved by every fixture above
+   * that reads `A_READING` and finds no readings on the row it wrote. What is
+   * proved here is the rare case, and that it stops as soon as the texts are
+   * somebody's own.
+   */
+  describe('a note that genuinely reads two ways offers the others beside the one written', () => {
+    it('writes the other readings alongside the title and message it settled on', async () => {
+      theModelIs({ says: AMBIGUOUS_NOTE });
+      const itemId = await captureANote();
+
+      await vi.waitFor(
+        async () => {
+          expect((await textsOf(itemId))?.title).toBe(AMBIGUOUS_NOTE.title);
+        },
+        { timeout: 15_000, interval: 50 },
+      );
+
+      const texts = await textsOf(itemId);
+      expect(texts?.readings).toEqual([
+        { title: 'Call in January', description: '', meaning: "'jan' is short for January" },
+      ]);
+    });
+
+    it('offers nothing once you have already made the texts your own', async () => {
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+      await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:01.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Mine',
+      });
+      theModelIs({ says: AMBIGUOUS_NOTE });
+
+      await handleQueue(
+        batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId }),
+        env,
+      );
+
+      expect((await textsOf(itemId))?.readings).toBeNull();
     });
   });
 
@@ -352,6 +419,7 @@ describe('Capture', () => {
         itemId: await captureANote(),
         title: 'Sent by hand',
         description: 'Written by hand, and marked as Cockpit’s to overwrite.',
+        readings: [],
       });
 
       expect(response.status).toBe(404);

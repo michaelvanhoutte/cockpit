@@ -451,6 +451,7 @@ function anItem(over: Partial<Item> = {}): Item {
     sourceTimestamp: null,
     capturedMessage: 'Ask Novy about part 11',
     textsSettledAt: null,
+    readings: null,
     sourceResolvedAt: null,
     title: 'Part 11',
     description: null,
