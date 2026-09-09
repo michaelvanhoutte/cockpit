@@ -1,6 +1,6 @@
 ---
 name: scoping
-description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped, sharpening fuzzy requirements, sizing it as a vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
+description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped, sharpening fuzzy requirements, sizing it as a vertical slice with a recommended model per unit where the default is wrong for it, enumerating the failure modes of anything that changes state it cannot put back, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
 ---
 
 # Scoping a piece of work
@@ -51,6 +51,12 @@ If the request doesn't fit, split it into units in dependency order, each declar
 
 **Exception:** a wide mechanical refactor (rename a shared symbol, retype a column) can't be sliced vertically. Sequence it as expand (add the new form beside the old) → migrate in batches, each its own unit blocked by the expand → contract (delete the old form), blocked by every batch.
 
+**State a recommended model beside each unit, only where the session default is wrong for it:**
+
+- `opus` — the unit trips step 5 below (it changes state it cannot put back, so a wrong call costs more than the stronger model does), or step 3 leaves genuine design judgment unresolved rather than a fuzzy term to look up. A migrate batch that itself trips step 5 — a data backfill, a row rewrite — stays `opus` however mechanical its pattern looks.
+- `haiku` — the unit is mechanical, fully specified, and touches nothing step 5 would flag: a shared-symbol rename swept across files, or a migrate batch that only touches code, never stored data.
+- Nothing, for everything else. Omitting the recommendation is what tells `/issue` to build the unit on the calling session's own model.
+
 **When the work grows mid-session, say what it now costs.** Each addition gets judged against the one before it rather than the original ask, so a run of reasonable expansions quadruples a change without anyone deciding to. Name the new total and what it drags behind it — its own tests, another documentation sweep, another review round — so continuing is chosen rather than defaulted into.
 
 ### 5. Enumerate the failure modes when state cannot be put back
@@ -88,4 +94,4 @@ Do not proceed — to code or to `gh issue create` — if any of these holds:
 
 ## Output
 
-A scoped unit of work (or several, in dependency order), its statement list, and — where it changes state it cannot put back — the failure modes its implementation must satisfy. Either hand off to the `github-issue` skill, which covers only the body template and publishing, or build it directly with the statement list going straight into the test files.
+A scoped unit of work (or several, in dependency order), its statement list, a recommended model where the default is wrong for it, and — where it changes state it cannot put back — the failure modes its implementation must satisfy. Either hand off to the `github-issue` skill, which covers only the body template and publishing, or build it directly with the statement list going straight into the test files.
