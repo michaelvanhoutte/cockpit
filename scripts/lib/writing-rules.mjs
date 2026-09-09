@@ -20,9 +20,9 @@
 //
 // **Markdown only, and not `poc/`.** The sample these rules come from is review
 // threads about documents, issues and pull request bodies; `**` and paragraph
-// duplication mean nothing in a TypeScript comment, and the eighty-two section
-// citations in source comments name their document (`architecture §6.2`)
-// rather than citing a number into thin air. `poc/` is outside the workspace and its
+// duplication mean nothing in a TypeScript comment, and the section citations
+// in source comments name their document (`architecture §6.2`) rather than
+// citing a number into thin air. `poc/` is outside the workspace and its
 // reports are throwaway. A rule that fires where nobody is writing prose is a
 // rule that gets the whole check disabled.
 //
@@ -231,11 +231,14 @@ export function issueNumbersWithoutTitles(source) {
  * Every `§N` or `rule N` citation with nothing in its own file to resolve
  * against, as `{ line, citation, text }`.
  *
- * A document that numbers its own sections cites them and is left alone. What
- * fails is the citation with nothing behind it: a number into another
- * document's numbering, which a reader cannot follow and CLAUDE.md bans
- * outright ("cite a section by its name, never by its number alone"), and a
- * number into this one's that has since moved or gone.
+ * **Against this file's own numbering, and only this file's.** A citation is
+ * judged by whether the file it stands in carries that number, which is the
+ * scope the issue asked for and is all one source can decide. So a citation
+ * into another document is caught when this file happens not to carry its
+ * number and missed when it happens to - `deployment.md` says "Architecture §9"
+ * and passes on its own `## 9`, not on the architecture's. Resolving those
+ * properly needs the corpus the duplicate rule already takes, and is its own
+ * piece of work.
  *
  * Resolved against the numbers the file actually offers rather than against the
  * mere presence of a list, because "this file has a numbered list somewhere"
