@@ -1,13 +1,13 @@
 ---
 name: github-issue
-description: Cockpit's process for turning an already-scoped piece of work into a filed GitHub issue - drafting the body and publishing with gh. Use once the `scoping` skill (deciding whether the work has to be seen first, sharpening requirements, sizing as a vertical slice, enumerating failure modes where state cannot be put back, generating the statement list) has already run for this work; run `scoping` first if it hasn't.
+description: Cockpit's process for turning an already-scoped piece of work into a filed GitHub issue - drafting the body and publishing with gh. Use once the `scoping` skill (deciding whether the work has to be seen first, sharpening requirements, sizing as a vertical slice, recommending a model per unit, enumerating failure modes where state cannot be put back, generating the statement list) has already run for this work; run `scoping` first if it hasn't.
 ---
 
 # Filing a GitHub issue
 
 Issues size work for one sitting. They are not the long-term record: once an issue is built, the source — code, tests, the feature's own docs — is what stays true, per [docs/testing-strategy.md](../../../docs/testing-strategy.md).
 
-Sharpening, sizing, failure modes and the statement list belong to the [scoping](../scoping/SKILL.md) skill and are not repeated here. This skill covers only the body template and publishing.
+Sharpening, sizing, a per-unit model recommendation, failure modes and the statement list belong to the [scoping](../scoping/SKILL.md) skill and are not repeated here. This skill covers only the body template and publishing.
 
 ## Length
 
@@ -46,6 +46,12 @@ scoping.]
 ## Blocked by
 
 Issue numbers this depends on, or "None."
+
+## Model
+
+[Only where scoping's sizing step recommends overriding the default: `Recommended: opus` or
+`Recommended: haiku`, with the one-line reason. Omit the section entirely to build the unit
+on the session's own model.]
 
 ## Test cases
 
