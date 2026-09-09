@@ -53,6 +53,26 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm typecheck
 
+  # The lint layer ("Add the lint layer the code is already written against",
+  # issue 282): the React Hooks rules, no focused test reaching `main`, and the
+  # testing strategy's L1/F1 dependency table as restricted imports. Its own job
+  # for the reason every other one here is — a failure that names itself — and
+  # because it is the only check that fails on a `.only` somebody left in, which
+  # otherwise turns the `Test` job green over a suite that ran one test.
+  #
+  # Two steps: the rules against the repository, then the config against text.
+  # The second is what holds the `files` globs, which is where a lint config
+  # actually goes wrong: a rule scoped one folder too wide passes the first step
+  # for as long as nothing happens to break.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm lint
+      - run: pnpm test:lint
+
   test:
     name: Test
     runs-on: ubuntu-latest
