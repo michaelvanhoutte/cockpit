@@ -10,7 +10,9 @@
       "Scripts",
       "CodeQL (javascript-typescript)",
       "CodeQL (actions)",
-      "CodeQL"
+      "CodeQL",
+      "claude-review",
+      "Security review"
     ]
   },
   "enforce_admins": false,

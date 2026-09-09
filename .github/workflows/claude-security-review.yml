@@ -33,7 +33,7 @@ concurrency:
 jobs:
   security-review:
     name: Security review
-    # Two skips, for different reasons.
+    # Three skips, for different reasons.
     #
     # A fork's pull request gets a read-only token and no secrets, so this job
     # cannot run - and left to fail it would report red for a reason that has
@@ -44,9 +44,20 @@ jobs:
     # costs a full run each time to tell someone something they already know
     # they have not finished. Marking it ready for review is in the trigger
     # types above, so a draft is reviewed the moment it stops being one.
+    #
+    # A bot-authored pull request - Dependabot, the only one this repository
+    # gets - is skipped for the same shape of reason as a fork: the sibling
+    # workflow's action refuses to run for any actor not in `allowed_bots`,
+    # which does not include `dependabot[bot]`, and left unguarded that is a
+    # hard failure rather than a skip. Found live, not predicted: requiring
+    # this context ("Require the two Claude reviews, once it is known what a
+    # required review would break", issue 310) left pull requests 292 and 293
+    # - both open Dependabot pull requests at the time - unmergeable without
+    # an admin bypass, the moment the payload applied.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.draft == false
+      && github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
     permissions:
       contents: read
