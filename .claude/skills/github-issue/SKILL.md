@@ -17,7 +17,6 @@ Sharpening, sizing, failure modes and the statement list belong to the [scoping]
 - **Give a rejected explanation one line.** "Not the `writeSSE` calls: Hono's `StreamingApi.write()` discards write errors." The reader needs the conclusion and the fact behind it, not the investigation.
 - **Cut anything the builder will discover in the first ten minutes.** Speculation about where a bug lives belongs in the issue only where it saves real time, and then as a list of candidates, not prose.
 - **Open questions are bullets, one or two sentences each.**
-- **Model, when present, is one line.** `Recommended: <model>` plus the reason scoping gave for it.
 
 A 400-word issue is normal, and past 800 words something is being explained twice. That budget counts the prose; the **Test cases** section is a statement list whose length is governed by the pruning criterion in `statement-lists.md`, not by a word count, and it is never trimmed to meet this rule.
 

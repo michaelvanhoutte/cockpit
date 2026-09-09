@@ -53,8 +53,8 @@ If the request doesn't fit, split it into units in dependency order, each declar
 
 **State a recommended model beside each unit, only where the session default is wrong for it:**
 
-- `opus` — the unit trips step 5 below (it changes state it cannot put back, so a wrong call costs more than the stronger model does), or step 3 leaves genuine design judgment unresolved rather than a fuzzy term to look up. This wins over `haiku` on a unit that qualifies for both: a migrate batch stays `opus` however mechanical its pattern is.
-- `haiku` — the unit is mechanical, fully specified, and touches nothing step 5 would flag — a shared-symbol rename swept across files, for instance.
+- `opus` — the unit trips step 5 below (it changes state it cannot put back, so a wrong call costs more than the stronger model does), or step 3 leaves genuine design judgment unresolved rather than a fuzzy term to look up. A migrate batch that itself trips step 5 — a data backfill, a row rewrite — stays `opus` however mechanical its pattern looks.
+- `haiku` — the unit is mechanical, fully specified, and touches nothing step 5 would flag: a shared-symbol rename swept across files, or a migrate batch that only touches code, never stored data.
 - Nothing, for everything else. Omitting the recommendation is what tells `/issue` to build the unit on the calling session's own model.
 
 **When the work grows mid-session, say what it now costs.** Each addition gets judged against the one before it rather than the original ask, so a run of reasonable expansions quadruples a change without anyone deciding to. Name the new total and what it drags behind it — its own tests, another documentation sweep, another review round — so continuing is chosen rather than defaulted into.
