@@ -818,8 +818,17 @@ const routes = app
     // the same note; and a capture that was refused never reaches here at all
     // ("Clean up a captured note into a clear title and a fuller message",
     // issue 296).
+    //
+    // **`waitUntil`, not `await`.** Putting a message on a queue is a round
+    // trip to Cloudflare's own queue service, and capture is the one path in
+    // this product that may never be held up for something the person
+    // capturing cannot act on - it is what somebody does in a car. The Item is
+    // already written and already carries its mechanical title, so the send
+    // outlives the response rather than delaying it.
     if (result.applied) {
-      await enqueueCleanUp(c.env, c.get('visitor').accountName, captured.itemId);
+      c.executionCtx.waitUntil(
+        enqueueCleanUp(c.env, c.get('visitor').accountName, captured.itemId),
+      );
     }
     return c.json(result, 200);
   })

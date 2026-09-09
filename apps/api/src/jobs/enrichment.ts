@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import type { Env } from '../env.js';
-import { openAccount, NotFoundInAccountError } from '../accounts/index.js';
+import {
+  openAccount,
+  AccountNotInRegisterError,
+  NotFoundInAccountError,
+} from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
 
 /**
@@ -107,7 +111,19 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
   const ai = aiFor(env);
   if (!ai) return say(job, 'nothing was enriched: this environment has no ANTHROPIC_API_KEY');
 
-  const account = await openAccount(env, job.accountName);
+  let account;
+  try {
+    account = await openAccount(env, job.accountName);
+  } catch (error) {
+    // The account has left the register - somebody's access was taken away
+    // while a note of theirs was queued. Nothing will make this job work, so it
+    // declines rather than being redelivered until its retries run out.
+    if (error instanceof AccountNotInRegisterError) {
+      return say(job, 'nothing was enriched: the account is no longer in the register');
+    }
+    throw error;
+  }
+
   const item = await account.item(job.itemId);
   // Not an error and not worth retrying: an item can be dismissed and erased
   // between capture and here, and an id that belongs to another account matches

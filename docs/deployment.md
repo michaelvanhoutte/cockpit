@@ -551,6 +551,12 @@ the attempt count in the deploy log is the evidence.
 | production | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
 | staging | 200, Cockpit's logon page | 401 `{"error":"sign in to continue"}` | 200 `{"ok":true,"register":true,"store":true}` |
 
+Those two bodies are what was seen on that date and are one field short of what
+the endpoint answers now: `ai` arrived with "Clean up a captured note into a
+clear title and a fuller message" (issue 296) and is described above. The rows
+are left as observed rather than edited, because a dated observation somebody
+retouches is worth nothing.
+
 `/v1/users` is not among these any more. It went with the list of names ("Sign in
 with Google, and retire the list of names", issue 196) and now answers 410, so a
 browser still holding a build that asks for it learns it is behind and fetches the

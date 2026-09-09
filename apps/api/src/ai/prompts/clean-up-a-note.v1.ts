@@ -1,3 +1,5 @@
+import { TITLE_LENGTH } from '@cockpit/shared';
+
 /**
  * What Cockpit asks Claude for when a note has been captured, version 1
  * ("Clean up a captured note into a clear title and a fuller message", issue
@@ -25,6 +27,13 @@
  * The person using this writes in English and in Dutch, often in one note, so a
  * prompt with English examples only would be measured on a corpus this one does
  * not have.
+ *
+ * **The title's length comes from `TITLE_LENGTH`**, so asking for one and
+ * refusing one cannot drift apart. Writing 200 in here twice looked harmless
+ * and is the quiet failure: change the constant and every long note's proposal
+ * is refused by `readProposal` while the model is still being asked for the old
+ * number, which reads as the feature having stopped working rather than as an
+ * error.
  */
 export const CLEAN_UP_A_NOTE = {
   version: 'v1',
@@ -52,7 +61,7 @@ You may:
 
 You may not add anything the note does not contain. Not a fact, not a name, not a date, not a number, not a reason, and not a next step. Where the note refers to something it never states - a document, a person, a decision, a deadline - say that the note does not say which, rather than choosing one. If you are unsure whether something is in the note, it is not.
 
-The title is the shortest text that names this note and no other. One line, no line breaks, at most 200 characters, no trailing full stop, and never the whole note handed back unshortened.
+The title is the shortest text that names this note and no other. One line, no line breaks, at most ${TITLE_LENGTH} characters, no trailing full stop, and never the whole note handed back unshortened.
 
 The message is the note written out as prose. It is not a summary, not a report about the note, and not a list of fields. Do not open it with "The note says" or "This note is about". Write no headings and no bullet points unless the note itself was a list.
 
@@ -92,7 +101,7 @@ message: Nakijken of de deploy erdoor is. Daarna Anna mailen over de factuur; de
       title: {
         type: 'string',
         description:
-          'The shortest single line that names this note and no other, at most 200 characters, in the language named above.',
+          `The shortest single line that names this note and no other, at most ${TITLE_LENGTH} characters, in the language named above.`,
       },
       message: {
         type: 'string',

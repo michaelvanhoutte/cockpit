@@ -3,7 +3,6 @@ import type { Env } from '../env.js';
 import { CLEAN_UP_A_NOTE } from './prompts/clean-up-a-note.v1.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
 
-export { readProposal } from './note-texts.js';
 export type { NoteTexts, ProposalRead } from './note-texts.js';
 
 /**

@@ -1,4 +1,4 @@
-import type { MessageBatch, ScheduledController } from '@cloudflare/workers-types';
+import type { Message, MessageBatch, ScheduledController } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
 import { cleanUpACapturedNote, enrichmentJobSchema, type EnrichmentJob } from './enrichment.js';
 
@@ -30,40 +30,49 @@ export async function handleScheduled(controller: ScheduledController, env: Env)
  * **A message that is not a job it recognises is dropped, not retried.** It can
  * only have been written by a version of this Worker that is no longer
  * deployed, and no number of redeliveries will make this one understand it.
+ *
+ * **The batch is worked through at once, not one after another.** Every job in
+ * it waits seconds on a model, and the jobs are independent - different items,
+ * and the account's own store serialises the writes itself - so a batch of five
+ * taken in turn is half a minute of a consumer doing nothing but waiting. Each
+ * message still decides its own outcome inside its own callback, which is what
+ * keeps the acknowledgement per message rather than per batch.
  */
 export async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
-  for (const message of batch.messages) {
-    const job = enrichmentJobSchema.safeParse(message.body);
-    if (!job.success) {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: `a queued job was not one this version knows: ${job.error.issues
-            .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-            .join('; ')}`,
-        }),
-      );
-      message.ack();
-      continue;
-    }
+  await Promise.all(batch.messages.map((message) => workThrough(message, env)));
+}
 
-    try {
-      await run(env, job.data);
-      message.ack();
-    } catch (error) {
-      // Worth trying again: everything the job itself decides ends in a return,
-      // so what reaches here is a call that failed - a model that was
-      // rate-limited, a store that could not be brought up to date.
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: `job ${job.data.kind} for item ${job.data.itemId} will be tried again: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        }),
-      );
-      message.retry();
-    }
+async function workThrough(message: Message<unknown>, env: Env): Promise<void> {
+  const job = enrichmentJobSchema.safeParse(message.body);
+  if (!job.success) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `a queued job was not one this version knows: ${job.error.issues
+          .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+          .join('; ')}`,
+      }),
+    );
+    message.ack();
+    return;
+  }
+
+  try {
+    await run(env, job.data);
+    message.ack();
+  } catch (error) {
+    // Worth trying again: everything the job itself decides ends in a return,
+    // so what reaches here is a call that failed - a model that was
+    // rate-limited, a store that could not be brought up to date.
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `job ${job.data.kind} for item ${job.data.itemId} will be tried again: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+    message.retry();
   }
 }
 

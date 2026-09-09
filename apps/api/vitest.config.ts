@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 
 /**
@@ -17,8 +17,12 @@ export default defineConfig({
      * contract tests spend real money against the real Claude API - so they get
      * a config of their own (vitest.contract.config.ts) and are excluded here
      * rather than being left to a naming convention nobody enforces.
+     *
+     * Added to the defaults rather than replacing them: `exclude` is not merged
+     * for you, so writing a list of one's own quietly drops what every other
+     * Vitest project in the repository leaves out.
      */
-    exclude: ['tests/contract/**', '**/node_modules/**', '**/dist/**'],
+    exclude: [...configDefaults.exclude, 'tests/contract/**'],
     // Only collected when run with `--coverage` (tools/test-explorer's
     // "branches nothing takes" column, docs/test-explorer-spec.md §6.3) —
     // `pnpm test` stays fast, coverage is opt-in.

@@ -126,7 +126,7 @@ apps/api/tests/
   integration/     # L2: own vertical deps only
   system/          # L3: backend, full deps, no browser
 packages/shared/tests/unit/                      # L1
-apps/api/tests/contract/                         # the live contract tests (§3): scheduled runs only
+apps/api/tests/contract/                         # the live contract tests ("Third-party dependencies"): scheduled only
 packages/connectors/*/tests/contract/            # the same, per connector, when connectors land
 apps/web/tests/
   unit/            # F1: no real dependencies

@@ -336,6 +336,28 @@ describe('Capture', () => {
     });
   });
 
+  /**
+   * The reading is Cockpit's own, so there is no way to ask for it from
+   * outside. Held here rather than left to the comment on the command that says
+   * so: the registry's own note says adding a command means adding it there and
+   * writing its handler, "no other wiring", and somebody following that
+   * mechanically would publish this one.
+   */
+  describe('the reading is Cockpit’s to do, and cannot be asked for from outside', () => {
+    it('offers no address a signed-in browser could send a reading to', async () => {
+      const response = await postChange('propose_item_texts', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId: await captureANote(),
+        title: 'Sent by hand',
+        description: 'Written by hand, and marked as Cockpit’s to overwrite.',
+      });
+
+      expect(response.status).toBe(404);
+    });
+  });
+
   describe('a note is only ever read for the account it was captured in', () => {
     it('does nothing for an item of another account, and never reads it', async () => {
       const theirs = await captureANote(

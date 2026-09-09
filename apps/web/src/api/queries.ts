@@ -3,7 +3,6 @@ import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query
 import type { QueryClient } from '@tanstack/react-query';
 import type {
   ClientCommandName,
-  CommandName,
   CommandPayload,
   CommandResult,
   WorkspaceSnapshot,
@@ -152,7 +151,7 @@ export type CommandArgs = {
  * workspaces there are, what they are called, what colour they wear, and what
  * order they are in.
  */
-const CHANGES_THE_WORKSPACE_LIST = new Set<CommandName>([
+const CHANGES_THE_WORKSPACE_LIST = new Set<ClientCommandName>([
   'create_workspace',
   'rename_workspace',
   'delete_workspace',
@@ -172,7 +171,7 @@ const CHANGES_THE_WORKSPACE_LIST = new Set<CommandName>([
  * `['snapshot']` rather than the one workspace the envelope names, which for a
  * type change is not a workspace at all.
  */
-const CHANGES_THE_TYPES = new Set<CommandName>([
+const CHANGES_THE_TYPES = new Set<ClientCommandName>([
   'create_item_type',
   'rename_item_type',
   'set_item_type_color',
@@ -206,7 +205,7 @@ const CHANGES_THE_TYPES = new Set<CommandName>([
  * carries only its own fields, and that nothing is read back after, has nothing
  * to wait for.
  */
-const NOT_DONE_UNTIL_READ_BACK = new Set<CommandName>([
+const NOT_DONE_UNTIL_READ_BACK = new Set<ClientCommandName>([
   'move_item_to_panel',
   'add_item_to_panel',
   'remove_item_from_panel',
