@@ -762,16 +762,23 @@ Then, by hand (no API, or deliberately not automated):
        `cancelled` on that commit until the surviving run completed. A required context
        stuck at `cancelled` blocks merge in the meantime, correctly — the commit genuinely
        had no finished review yet.
-     - **A review that fails to run goes red, not green.** Run 34375132552 (`claude-review`
-       on a Dependabot pull request) is a real instance: the action refused to run for a
-       disallowed bot actor, produced no execution file, and `scripts/assert-code-review.mjs`
-       marked the check red rather than pass an unreviewed diff. No run in this repository's
-       history has failed from a rate limit or a degraded session, so this is the closest
-       available measurement of that path rather than a direct one — the assertion scripts
-       treat every route to "no execution file" alike. A required context failing this way
-       stops every merge in the repository until it clears, with `enforce_admins: false` the
-       only way through, which is the cost the issue asked to have named rather than
-       discovered.
+     - **A review that fails to run goes red, not green — and this repository's bot actor hit
+       it live.** Run 34375132552 (`claude-review` on a Dependabot pull request) was a real
+       instance before this issue's own pull request applied the payload: the action refused
+       to run for a disallowed bot actor, produced no execution file, and
+       `scripts/assert-code-review.mjs` marked the check red rather than pass an unreviewed
+       diff. Neither review workflow's `if:` skips a bot the way it skips a fork or a draft, so
+       requiring these contexts left two open Dependabot pull requests at the time —
+       "chore(deps-dev): bump vitest from 4.1.10 to 4.1.11" (pull request 292) and "chore(deps):
+       bump hono from 4.13.1 to 4.13.5" (pull request 293) — unmergeable without an admin
+       bypass the moment the payload applied, found by checking rather than by the issue's own
+       reasoning. Both workflows now skip a bot-authored pull request for the same reason they
+       already skip a fork's, rather than asking `enforce_admins: false` to carry a cost this
+       repository gets on every dependency bump. No run in this repository's history has
+       failed from a rate limit or a
+       degraded session — the closest available measurement of *that* path is still this one,
+       since the assertion scripts treat every route to "no execution file" alike, and a
+       required context failing that way still stops every merge until it clears.
 
      **What the green certifies was the fifth question, and it moved while this
      investigation was running.** `decideCodeReviewOutcome` used to treat a decline because
