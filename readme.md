@@ -129,7 +129,8 @@ pnpm test
 pnpm test:e2e
 
 # the scripts that start the app and the test stack, the post-deploy
-# health check, and the security review's gate; no install needed
+# health check, the security review's gate, and the writing rules over
+# every Markdown file; no install needed
 pnpm test:scripts
 
 # the lint layer: the rules over the repository, then the config over text
@@ -188,7 +189,7 @@ The three workflows that need a toolchain — CI and the two deploys — share [
 
 **Why the two Claude review workflows skip pull requests from forks.** A fork's pull request runs with a read-only token and no secrets, so neither job can run; left to fail they would report red for a reason having nothing to do with the change. The convenient fix — `pull_request_target` — is the one thing neither will ever do: it runs the base branch's workflow with the secrets in scope against code the pull request author controls, which hands `CLAUDE_CODE_OAUTH_TOKEN` to anyone who opens one.
 
-**Why the review has a gate step.** `claude-code-action` reports success when the *session* ended cleanly, which is not the same as a review having happened: earlier runs here were blocked by a denied tool, or ended waiting for a completion notification a one-shot run never sends, and every one was a green tick. The `Assert the review actually ran` step turns the check red unless Claude reached a verdict, the signal being that it *posted* something. That is not free: the plugin command may stop without a word on a change it judges too simple to review, so the workflow's system prompt tells it to post that verdict like any other — otherwise a review that reached the right answer is indistinguishable from one that never ran, which is how a correct review of pull request 80 came to fail this gate. Denied tool calls are fatal only when no verdict landed; the turn count is never more than a warning, because a legitimately short run and a blocked one look alike.
+**Why the review has a gate step.** `claude-code-action` reports success when the *session* ended cleanly, which is not the same as a review having happened: earlier runs here were blocked by a denied tool, or ended waiting for a completion notification a one-shot run never sends, and every one was a green tick. The `Assert the review actually ran` step turns the check red unless Claude reached a verdict, the signal being that it *posted* something. That is not free: the plugin command may stop without a word on a change it judges too simple to review, so the workflow's system prompt tells it to post that verdict like any other — otherwise a review that reached the right answer is indistinguishable from one that never ran, which is how a correct review of "Delete the stray file a shell redirect left at the repository root" (pull request 80) came to fail this gate. Denied tool calls are fatal only when no verdict landed; the turn count is never more than a warning, because a legitimately short run and a blocked one look alike.
 
 One consequence, which is the action's behaviour rather than either workflow's: it refuses to run when the workflow file differs from the copy on `main`, so **a pull request editing `claude-code-review.yml` is not reviewed by it, and one editing `claude-security-review.yml` is not security-reviewed by it**. Both gates make that red on purpose, and the cost is that a fix to either cannot be watched working until it merges.
 

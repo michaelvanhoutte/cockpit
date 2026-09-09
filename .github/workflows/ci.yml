@@ -162,11 +162,13 @@ jobs:
       # asserting rather than trusting. The review gate is the one with teeth: it is what turns a blocked or
       # declining review red, and while the code review's half of it was inline
       # bash in claude-code-review.yml it shipped green over a non-review four
-      # times. The last is here because it reads source text rather than running
-      # anything, so the browser tier cannot check it and this job can.
+      # times. The last two are here because they read source text rather than
+      # running anything, so no other tier can check them and this job can: the
+      # walks' conventions, and the writing rules of CLAUDE.md that a script can
+      # decide, which were costing a review round each.
       # No install step: these tests use only node:test and the standard
       # library, so this job stays checkout-only and finishes in seconds.
-      - name: Verify the dev, test-stack, health-check and review-gate scripts, and the walks' conventions
+      - name: Verify the dev, test-stack, health-check and review-gate scripts, the walks' conventions and the writing rules
         run: node --test scripts/lib/*.test.mjs
 
   # Publishes which product concepts own which tests: as a downloadable

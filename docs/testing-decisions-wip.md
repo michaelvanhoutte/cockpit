@@ -74,17 +74,19 @@ reconciliation, AI enrichment, triage, panel rules, notification routing, auth,
 multi-tenancy — so the plumbing grows faster than any feature folder would.
 
 **What would reopen it:** panels, focus or triage ceasing to be views over items and
-starting to own their own tables and logic. The plain-English panel rules (issue 35)
-are the likeliest candidate.
+starting to own their own tables and logic. "Panel configuration: connections and
+free-text description" (issue 35) is the likeliest candidate.
 
 ## What must be true is written per issue and kept in the source
 
 Plain-English statements of what must be true, drafted while an issue is written
 because that is where the scope is small enough to reason about. They do not stay in
 the issue: they end up in the source as test names, because a statement written
-against a change goes stale silently — deadlines (issue 37) and goals (issue 38) both
-change action behaviour, and nothing would mark the statements written for issue 36 as
-outdated.
+against a change goes stale silently — "Deadlines on actions, panels and dashboards,
+with colour escalation" (issue 37) and "Goals: mark actions, panels and dashboards as
+goals per horizon" (issue 38) both change action behaviour, and nothing would mark the
+statements written for "Panels hold the items filed into them, and the Inbox holds the
+rest" (issue 36) as outdated.
 
 ## Michael says what matters, a checklist covers the ways things break
 
@@ -315,7 +317,8 @@ result is [statements-issue-36-experiment.md](statements-issue-36-experiment.md)
 
 The floor is reading the changed statements on each pull request, around ten lines;
 below that the system is only as good as a judging agent that has never used the
-product. The issue 36 experiment partly answered it: Michael reviewed the *shape* of
+product. The "Panels hold the items filed into them, and the Inbox holds the rest"
+(issue 36) experiment partly answered it: Michael reviewed the *shape* of
 the list twice, not the items, and both changes were ones the agent would not have
 found. Whether that repeats is the thing to watch, because the value may be
 front-loaded. Options still open: an agent flagging statements that restate the

@@ -28,6 +28,8 @@ pnpm dev
 - **Start at the point.** Delete "it is worth noting that", "the requirement is therefore twofold", "worth writing down, because".
 - **Cut what the reader can see.** Don't describe the code, the diff or the diagram that follows; say what it means.
 
+**Four of these are checked rather than reviewed**, over every Markdown file outside `poc/`: an issue number with no title named for it, a `§N` or `rule N` citation resolving to nothing the file offers, an unbalanced `**`, and a paragraph appearing near-verbatim in two places. `pnpm test:scripts` runs them, so does the Scripts job, and `scripts/lib/writing-rules.mjs` is where each one's reach is written down. The same run reports the counting words on the lines you touched — "three things", "both", "nine areas" — which is a prompt to check a claim, not a failure.
+
 ## Starting an issue
 
 **`/issue <number>` is the entry point for issue work.** It runs the whole loop — confirm the issue is live, scope it, build, test, prove it runs, review, ship — end to end, sequencing the sections below rather than restating them. Assembling the phases by hand from this file is the fallback for work that never had an issue number.
@@ -36,7 +38,7 @@ pnpm dev
 
 **Before writing code for any new feature or fix, run the `scoping` skill in `.claude/skills/scoping/`** — deciding whether it has to be seen first as a design canvas or a throwaway POC, sharpening requirements, sizing the vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and generating the statement list. Starting the work triggers it, not the decision to file an issue.
 
-**Check the issue is still open, and unclaimed, at the moment you start it.** Several sessions work this repository at once: "Rename and delete a workspace" (issue 77) was built whole — nine hundred lines, tests and a browser pass — and only then found to have merged hours earlier as pull request 97, with none of it salvageable. Fetching `main` is not this check, and neither is having read the issue an hour ago: it can be closed by work that merged before your branch point, or while you read it.
+**Check the issue is still open, and unclaimed, at the moment you start it.** Several sessions work this repository at once: "Rename and delete a workspace" (issue 77) was built whole — nine hundred lines, tests and a browser pass — and only then found to have already merged, hours earlier, with none of it salvageable. Fetching `main` is not this check, and neither is having read the issue an hour ago: it can be closed by work that merged before your branch point, or while you read it.
 
 ```bash
 gh issue view <number> --json state,title,assignees
