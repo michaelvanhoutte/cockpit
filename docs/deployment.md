@@ -822,6 +822,16 @@ Then, by hand (no API, or deliberately not automated):
      rather than remembered.
    - **`enforce_admins: false`** — keeps an admin escape hatch for emergencies,
      safe for the same reason `strict: false` is.
+   - **`required_conversation_resolution: true`** — added for "Let GitHub merge a
+     finished pull request, instead of a session waiting to click it" (issue 312),
+     alongside the repository's own `allow_auto_merge` (not part of this payload;
+     it lives on the repository resource, set by `gh api -X PATCH
+     repos/michaelvanhoutte/cockpit -f allow_auto_merge=true`). Together they let a
+     session mark a pull request ready, arm auto-merge, and stop — GitHub merges it
+     once the required checks are green and every review thread is resolved,
+     whether or not anyone is watching. `required_conversation_resolution` is
+     applied first: `allow_auto_merge` alone is the unsafe half, since it would let
+     GitHub merge on green checks with an open, unresolved review thread.
 
    *Requires the repository **owner** account.* A collaborator with `push` cannot
    do this, and the branch-protection API answers `404` rather than `403` when the
