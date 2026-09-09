@@ -19,4 +19,4 @@ CLAUDE.md is already loaded into this session and governs how this repository is
 8. **Ship**, per **Review findings**: draft, ready, wait for checks, answer every thread. Then, per the answer from step 2: merge it yourself, or say plainly that it's ready and waiting for a human to merge. **A unit isn't finished until its pull request is actually merged** — checks green and threads resolved is not the finish line. Where scoping split the work into several units, the next one's build does not start until this one is merged into `main`; build it against the merged result, not a stacked branch. That next unit repeats steps 4–8 — not 1–3, since the issue is already confirmed live and scoped, and step 2's answer already carries forward.
 9. **Report honestly.** Test results as they actually came out; anything skipped or narrowed, and why.
 
-Mark a chapter at each phase boundary (scoping settled, build done, review findings in, browser pass done), per **Working in parallel**.
+Mark a chapter at each phase boundary, per **Working in parallel**.
