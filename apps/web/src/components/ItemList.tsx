@@ -159,9 +159,6 @@ export function ItemList({
     setSelection(NOTHING_PICKED);
     setFilingSeveral(false);
     setFilingRefusal(null);
-    // `stopSelecting` is remade every render and this must run on a change of
-    // list, not on every one of them.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, panelId]);
 
   /**
