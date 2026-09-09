@@ -11,7 +11,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 
-import { decideCodeReviewOutcome, reviewerCommentCount } from './lib/review-gate.mjs';
+import { decideCodeReviewOutcome, oneLine, postedCommentTestApplies, reviewerCommentCount } from './lib/review-gate.mjs';
 
 const [executionFile, conclusion] = process.argv.slice(2);
 const repo = process.env.GITHUB_REPOSITORY;
@@ -77,7 +77,9 @@ try {
 }
 
 const pullRequest = pullRequestState();
-const applies = pullRequest?.state === 'OPEN' && pullRequest?.isDraft === false;
+// The gate decides this too, and has the tests. Asked here only because the
+// answer is what says whether three paginated API calls are worth making.
+const applies = postedCommentTestApplies(pullRequest);
 const outcome = decideCodeReviewOutcome({
   executionText,
   conclusion,
@@ -91,11 +93,11 @@ summary.push(`| subtype | ${outcome.subtype} |`);
 summary.push(`| is_error | ${outcome.isError} |`);
 summary.push(`| num_turns | ${outcome.turns} |`);
 summary.push(`| permission denials | ${outcome.denials.count} |`);
-summary.push('', `The session's closing words: ${outcome.finalText}`, '');
+summary.push('', `The session's closing words: ${oneLine(outcome.finalText)}`, '');
 summary.push(
   applies
-    ? `- Claude has ${outcome.verdictSeen ? 'posted on' : 'posted nothing on'} this pull request.`
-    : `- Skipping the posted-comment check: this pull request is not open for review${pullRequest ? ` (${pullRequest.state}, draft ${pullRequest.isDraft})` : ''}, which the review is entitled to skip.`,
+    ? `- Claude has ${outcome.said} comment(s) on this pull request.`
+    : `- Skipping the posted-comment check: this pull request is not open for review${pullRequest ? ` (${pullRequest.state}, draft ${pullRequest.isDraft})` : ', and GitHub could not be asked which it is'}, which the review is entitled to skip.`,
 );
 
 // The action sets no outputs at all when it skips itself, and the usual cause
@@ -129,4 +131,8 @@ if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary.join('\n')}\n`);
 }
 
-process.exit(outcome.ok ? 0 : 1);
+// Set, not process.exit(). On a runner stdout is a pipe, which Node writes to
+// asynchronously, and exiting in the same tick can kill the process before the
+// annotations above have drained - a red check with nothing saying why, which
+// is the one failure a gate whose whole purpose is legibility cannot afford.
+process.exitCode = outcome.ok ? 0 : 1;

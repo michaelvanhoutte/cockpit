@@ -6,7 +6,8 @@
 // counting and the same reading of the action's two payload shapes.
 //
 // This lives here rather than in the workflows because the code review's gate
-// was a `run:` block until issue 277 moved it, and every incident recorded in
+// was a `run:` block until "Give the code review the tested gate the security
+// review already uses" (issue 277) moved it, and every incident recorded in
 // that file's comments is a bug in it: a permission_denials_count field missing
 // from the result record and read as "no denials", a three-turn blocked session
 // passing as clean, a seven-turn one doing the same, a result payload that is
@@ -274,6 +275,25 @@ function didNotRun() {
 }
 
 /**
+ * Anything out of the execution record, made safe to put in a message the
+ * workflow prints.
+ *
+ * Two hazards, both because those messages become `::warning::` and `::error::`
+ * annotations and the text in them is the model's own output. A newline
+ * truncates an annotation at the first one, which is every multi-line closing
+ * message; and a line beginning `::` is read by the runner as a workflow
+ * command rather than printed, `::stop-commands::` and the silencing of
+ * everything after it included. Neither is a way for the gate that exists to be
+ * legible to end up.
+ */
+export function oneLine(text) {
+  return String(text ?? '')
+    .replace(/\s*[\r\n]+\s*/g, ' ')
+    .replace(/::/g, ': :')
+    .trim();
+}
+
+/**
  * How the denials read once the gate knows whether a verdict landed.
  *
  * Fatal only when nothing landed. Every tool a review needs is allowlisted, so
@@ -284,7 +304,7 @@ function didNotRun() {
  * everyone to ignore this check.
  */
 function denialNote(denials, { reachedVerdict }) {
-  const which = denials.tools.join(', ') || 'see log';
+  const which = oneLine(denials.tools.join(', ')) || 'see log';
   return reachedVerdict
     ? `The review reached a verdict but ${denials.count} tool call(s) were denied (${which}). Worth a look if its findings seem thin.`
     : `It was blocked by ${denials.count} permission denial(s) (${which}), which is the likely reason.`;
@@ -410,6 +430,25 @@ export function reviewerCommentCount(logins, { prefix = 'claude' } = {}) {
 }
 
 /**
+ * Whether this pull request is one the code review was obliged to speak on.
+ *
+ * Exported because the script has to know before the gate does: it decides
+ * whether to spend three paginated `gh api` calls counting what the reviewer
+ * said. Deciding it there as well would put the rule in an untested copy beside
+ * the tested one, which is the split "Give the code review the tested gate the
+ * security review already uses" (issue 277) exists to remove.
+ *
+ * `pullRequest` is `{ state, isDraft }` as `gh pr view` reports them, or null
+ * when GitHub could not be asked. Anything but an open non-draft skips the
+ * posted-comment test rather than failing it: a review is entitled to say
+ * nothing on a pull request that closed while it was running, and a gate that
+ * went red for that would be red about the run rather than about the code.
+ */
+export function postedCommentTestApplies(pullRequest) {
+  return pullRequest?.state === 'OPEN' && pullRequest?.isDraft === false;
+}
+
+/**
  * Whether the code review's check goes green.
  *
  * The same record as decideSecurityOutcome reads, asked a different question.
@@ -428,18 +467,14 @@ export function reviewerCommentCount(logins, { prefix = 'claude' } = {}) {
  * request 80 and failed this gate for a review that had reached the right
  * answer.
  *
- * `pullRequest` is `{ state, isDraft }` as `gh pr view` reports them, or null
- * when it could not be asked. Anything other than an open non-draft skips the
- * posted-comment test rather than failing it: a review is entitled to say
- * nothing on a pull request that closed while it was running, and a gate that
- * went red for that would be red about the run rather than about the code.
+ * `pullRequest` is what postedCommentTestApplies above reads.
  */
 export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, pullRequest = null, minTurns = 10 } = {}) {
   const failures = [];
   const warnings = [];
 
   const { result, turns, denials, subtype, isError, finalText } = runFacts(executionText);
-  if (result === null) return { ...didNotRun(), subtype: 'unknown', isError: false, finalText: '', verdictSeen: false };
+  if (result === null) return { ...didNotRun(), subtype: 'unknown', isError: false, finalText: '', said: 0, verdictSeen: false };
 
   if (conclusion !== undefined && conclusion !== 'success') {
     failures.push(`The review step reported conclusion='${conclusion}'.`);
@@ -451,10 +486,10 @@ export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, p
   // moving this gate was meant to change where the decision lives, not what
   // either check decides.
   if (subtype !== 'success') {
-    failures.push(`The review session ended with subtype='${subtype}'.`);
+    failures.push(`The review session ended with subtype='${oneLine(subtype)}'.`);
   }
 
-  const applies = pullRequest?.state === 'OPEN' && pullRequest?.isDraft === false;
+  const applies = postedCommentTestApplies(pullRequest);
   const verdictSeen = applies && said > 0;
 
   if (applies && said === 0) {
@@ -478,10 +513,10 @@ export function decideCodeReviewOutcome({ executionText, conclusion, said = 0, p
   if (turns < minTurns) {
     warnings.push(
       verdictSeen
-        ? `The session ran only ${turns} turns, and Claude has already posted on this pull request - most likely the review declining because it had reviewed this pull request before, in which case the commits pushed since then have not been looked at. Its closing words: ${finalText}`
-        : `The session ran only ${turns} turns. Its closing words: ${finalText}`,
+        ? `The session ran only ${turns} turns, and Claude has already posted on this pull request - most likely the review declining because it had reviewed this pull request before, in which case the commits pushed since then have not been looked at. Its closing words: ${oneLine(finalText)}`
+        : `The session ran only ${turns} turns. Its closing words: ${oneLine(finalText)}`,
     );
   }
 
-  return { ok: failures.length === 0, failures, warnings, turns, denials, subtype, isError, finalText, verdictSeen };
+  return { ok: failures.length === 0, failures, warnings, turns, denials, subtype, isError, finalText, said, verdictSeen };
 }

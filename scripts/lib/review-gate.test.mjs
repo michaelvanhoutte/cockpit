@@ -12,8 +12,9 @@
 // correctly, and every incident recorded in claude-code-review.yml's comments
 // was a bug at exactly that level.
 //
-// The code review's half of this arrived with issue 277, which moved that gate
-// out of the workflow. Those cases are here rather than in a file of their own
+// The code review's half of this arrived with "Give the code review the tested
+// gate the security review already uses" (issue 277), which moved that gate out
+// of the workflow. Those cases are here rather than in a file of their own
 // because the two gates read one record through one set of helpers, and a
 // change to the denial counting has to be answerable for both.
 //
@@ -27,6 +28,8 @@ import {
   decideCodeReviewOutcome,
   decideSecurityOutcome,
   markedCommentId,
+  oneLine,
+  postedCommentTestApplies,
   resultRecordOf,
   reviewerCommentCount,
   summaryComment,
@@ -345,6 +348,41 @@ describe('reviewerCommentCount', () => {
   });
 });
 
+describe('oneLine', () => {
+  it('folds a multi-line closing message into one line', () => {
+    // An annotation stops at the first newline, so without this the closing
+    // words the warning exists to show are cut off — and every real closing
+    // message is multi-line.
+    assert.equal(oneLine('Reviewed the diff.\n\nTwo findings.\r\nBoth posted.'), 'Reviewed the diff. Two findings. Both posted.');
+  });
+
+  it('defuses a line the runner would read as a workflow command', () => {
+    // The text is the model's own output. `::stop-commands::` silences every
+    // annotation after it, which would take the gate's own reasons with it.
+    assert.doesNotMatch(oneLine('Done.\n::stop-commands::abc'), /::/);
+  });
+
+  it('is an empty string for nothing at all', () => {
+    assert.equal(oneLine(undefined), '');
+    assert.equal(oneLine(null), '');
+  });
+});
+
+describe('postedCommentTestApplies', () => {
+  it('applies to an open pull request that is not a draft', () => {
+    assert.equal(postedCommentTestApplies({ state: 'OPEN', isDraft: false }), true);
+  });
+
+  it('does not apply where the review is entitled to stay silent', () => {
+    // Closed, merged, turned back into a draft while the review ran, or a
+    // GitHub the script could not ask. A gate that went red for any of them
+    // would be red about the run rather than about the code.
+    for (const pullRequest of [{ state: 'CLOSED', isDraft: false }, { state: 'MERGED', isDraft: false }, { state: 'OPEN', isDraft: true }, null, undefined, {}]) {
+      assert.equal(postedCommentTestApplies(pullRequest), false, `${JSON.stringify(pullRequest)} should not be tested`);
+    }
+  });
+});
+
 describe('decideCodeReviewOutcome', () => {
   /** An open pull request, which is the only state the gate tests. */
   const open = { state: 'OPEN', isDraft: false };
@@ -454,11 +492,20 @@ describe('decideCodeReviewOutcome', () => {
     }
   });
 
+  it('keeps the closing words to one line in the warning that quotes them', () => {
+    // The warning becomes a ::warning:: annotation, which stops at the first
+    // newline and executes a line beginning `::` rather than printing it.
+    const out = codeReview({ executionText: file(run({ turns: 4, text: 'Stopped.\n::stop-commands::x' })), said: 0 });
+    const warning = out.warnings.join(' ');
+    assert.doesNotMatch(warning, /\n|::/);
+    assert.match(warning, /Stopped\./);
+  });
+
   it('reports what the run said, so the step summary need not re-read the record', () => {
     const out = codeReview({ executionText: file(run({ turns: 11, text: 'Four findings posted.' })), said: 4 });
     assert.deepEqual(
-      { subtype: out.subtype, isError: out.isError, turns: out.turns, finalText: out.finalText },
-      { subtype: 'success', isError: false, turns: 11, finalText: 'Four findings posted.' },
+      { subtype: out.subtype, isError: out.isError, turns: out.turns, finalText: out.finalText, said: out.said },
+      { subtype: 'success', isError: false, turns: 11, finalText: 'Four findings posted.', said: 4 },
     );
   });
 });

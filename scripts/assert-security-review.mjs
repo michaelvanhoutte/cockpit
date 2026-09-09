@@ -90,4 +90,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
 
 leaveSummary(outcome);
 
-process.exit(outcome.ok ? 0 : 1);
+// Set, not process.exit(), for the reason assert-code-review.mjs gives: stdout
+// to a pipe is asynchronous, and exiting in the same tick can take the
+// annotations with it.
+process.exitCode = outcome.ok ? 0 : 1;
