@@ -106,12 +106,13 @@ Run it from inside the repository, in the background, and carry on with somethin
 
 **A finding is not handled until its own review thread says so**, because GitHub never resolves one by itself — a push only adds an *Outdated* badge. Reply naming the commit that fixed it and what changed, then resolve; where the fix did not land or was declined on purpose, reply saying which and leave the thread open. Never resolve without a reply, and never on the strength of a commit message rather than the committed code. All ten findings on "Make the database enforce the schema conventions, not just the callers" (pull request 69) were fixed, pushed, and still read as unanswered: the pull request is the audit trail, not the session. `gh pr view` does not show thread state — query `reviewThreads` for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
 
-**Read what `main` has gained before finishing, not only what it has changed.** The rule above landed twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it.
+**Merge `main` into the branch only when GitHub reports the pull request conflicted.** A pull request lands squashed and `pull_request` already tests the branch merged with `main`, so merging a clean `main` into an open branch buys nothing that lands — it only restarts both reviews ("Validate a commit once, not twice by CI and again for every clean merge of main", issue 311).
 
-**A rule that changes while you are working is invisible unless you look for it.** This file is read into a session once, at the start, and never again, so a merge that rewrites it changes nothing about what the session believes. The draft rule above landed two and a half hours into "Edit an item's title and description on a form of its own" (pull request 163), written *because* of that branch, and it went on buying reviews for four more rounds across six merges of `main` that each read the conflicts and nothing else. After every merge, ask rather than remember:
+**Read what `main` has gained before finishing, not only what it has changed.** This file is read into a session once, at the start, and never again, so a merge to `main` that rewrites it changes nothing about what the session believes until it looks. The rule above landed twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it; a draft version of it went on buying reviews for four more rounds across six merges of `main` in "Edit an item's title and description on a form of its own" (pull request 163), each of which read the conflicts and nothing else. Ask against the remote, not the reflog — nothing here presumes a merge just happened, so this reads correctly whether or not one did, and cannot miss a rule that arrived between two checks:
 
 ```bash
-git diff HEAD@{1} --stat -- CLAUDE.md .claude/
+git fetch origin main
+git diff HEAD...origin/main --stat -- CLAUDE.md .claude/
 ```
 
 Anything it prints is a rule you are already working under and have not read.

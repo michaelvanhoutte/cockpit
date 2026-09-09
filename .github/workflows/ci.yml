@@ -1,27 +1,27 @@
 name: CI
 
-# Every push, on every branch. This used to be scoped to the trunk, because
-# deploy-preview.yml ran the same checks on branch pushes on its way to building
-# a preview; that workflow is gone (docs/deployment.md, "No branch
-# environments"), and without this a branch with no open pull request would be
-# gated by nothing at all.
+# Push, but only on `main`. `pull_request` tests the merge result, which is
+# what actually lands, so it is the only event that checks an open branch —
+# scoping push everywhere used to check a branch's tip a second time, and the
+# two disagreed on 13 of 155 commits measured across two days ("Validate a
+# commit once, not twice by CI and again for every clean merge of main",
+# issue 311).
 #
-# **A branch with an open pull request is therefore checked twice**, once per
-# event, which the old comment here called out as the thing to avoid. That
-# reasoning is reversed rather than forgotten: the duplicate was avoidable while
-# something else gated branch pushes, and the choice now is between running twice
-# and not running at all. Both runs earn their place anyway - `push` tests the
-# branch tip, which is what a branch with no pull request has, and
-# `pull_request` tests the merge result, which is what actually lands. Branch
-# protection does not require a branch to be up to date (`strict: false`), so
-# those are genuinely different trees.
+# **A branch with no open pull request is therefore checked by nothing.**
+# That gap is why push used to run everywhere: deploy-preview.yml ran the same
+# checks on branch pushes on its way to building a preview, and without it an
+# unreviewed branch would be gated by nothing at all. That workflow is gone
+# (docs/deployment.md, "No branch environments"); the gap it leaves is
+# accepted rather than closed, because the process opens a draft pull request
+# at the start of a unit of work, so the window with no pull request is short.
 #
-# The push trigger overlaps slightly with deploy-staging.yml, which gates itself
-# before deploying. That is deliberate: the merge commit on main is a tree that
-# has never been tested as such, and these four split jobs attribute a failure
-# faster than the same checks inlined into a deploy job.
+# The push-to-main trigger overlaps slightly with deploy-staging.yml, which
+# gates itself before deploying. That is deliberate: the merge commit on main
+# is a tree that has never been tested as such, and these four split jobs
+# attribute a failure faster than the same checks inlined into a deploy job.
 on:
   push:
+    branches: [main]
   pull_request:
     branches: [main]
 
