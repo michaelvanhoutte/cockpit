@@ -7,13 +7,13 @@ Cloudflare and why; this document records *how*, and it is the runbook.
 ## 1. The branch model
 
 **Decision: trunk-based, one long-lived branch.** `main` is the trunk;
-everything else is a short-lived branch, gated on every push and deployed
-nowhere (§4). **Merging deploys to staging; production is a separate,
+everything else is a short-lived branch, gated by its pull request and
+deployed nowhere (§4). **Merging deploys to staging; production is a separate,
 deliberate promotion.**
 
 ```
   claude/swipe    ●───● ┐
-  claude/panel  ●───●   │  gates run per push; nothing is deployed
+  claude/panel  ●───●   │  gates run per pull request; nothing is deployed
                     ┌───┴───┐
   main ──●──────────●───────●───────●────────►  staging      (automatic; cron + queues run here)
                             │       │
@@ -71,9 +71,9 @@ cron trigger or queue consumer ever runs.
 
 ### Naming and commits
 
-Branch names carry no mechanical meaning — the workflows trigger on every branch
-regardless of prefix — so `claude/<slug>` stays: the slug says what the change is
-and the prefix records that it was agent-generated.
+Branch names carry no mechanical meaning — the workflows trigger off the pull
+request regardless of prefix — so `claude/<slug>` stays: the slug says what the
+change is and the prefix records that it was agent-generated.
 
 The changelog value people want from branch prefixes is taken in commit messages
 instead: **Conventional Commits on the squash-merge message into `main`**. Writing
@@ -159,7 +159,7 @@ neglect a year later.
 
 Gone: `deploy-preview.yml`, the `cockpit-preview` Wrangler environment,
 `scripts/branch-alias.sh` and the CI step that asserted it. What replaces it is
-nothing — a push runs the gates in `ci.yml` and deploys nowhere.
+nothing — a pull request runs the gates in `ci.yml` and deploys nowhere.
 
 ### Why it could not stay
 
@@ -201,9 +201,9 @@ before merge by exactly the step this section removes. The trade is accepted wit
 that example in view: one deploy-time surprise per platform limitation, against a
 workflow, a Worker and a database maintained permanently.
 
-**What still gates a branch:** `ci.yml` on every push — typecheck, the lint
-layer, the fast test tiers, the browser tier against its own local stack, the
-build, the script tests and the concept registry. Nothing about *code*
+**What still gates a branch:** `ci.yml` on every pull request — typecheck, the
+lint layer, the fast test tiers, the browser tier against its own local stack,
+the build, the script tests and the concept registry. Nothing about *code*
 correctness moved.
 
 ### Removing the infrastructure
