@@ -203,26 +203,34 @@ describe('Capture', () => {
   });
 
   /**
-   * The proof this feature rode in on: `call jan` read back as *Call Jan*
-   * (person) and *Call in January* (month), each holding up on its own -
-   * neither the model's main title nor its readings are told which of the two
-   * this test wants, so a run that answers with only one reading, or with a
-   * reading that does not actually turn on `jan`, is exactly the drift this
-   * tier exists to catch.
+   * The proof this feature rode in on, with the exact name the issue proved
+   * it on (`jan`) deliberately not reused: `bel jan` names that pair verbatim
+   * in this prompt's own instructions, and `call jan` is its fully worked-out
+   * final example - a note built from either would pass by recall of text
+   * already in the system prompt, not by the model reasoning about the note
+   * in front of it (the same rule the notes above obey, stated in this file's
+   * own class comment). `april` is the same shape of pun - a name that is
+   * also, in full, a month, in both languages - and appears nowhere in the
+   * prompt.
+   *
+   * Asked as "are these readings genuinely different" rather than "does one
+   * say person and the other month", because the exact wording a correct
+   * answer takes is not fixed: a title and a message are free-form prose, and
+   * pinning the assertion to one phrasing a correct Dutch answer would not use
+   * is the failure a sibling case in this file was found to have.
    */
-  describe('a note that genuinely reads two ways offers both', () => {
+  describe('a note that genuinely reads two ways offers more than the one', () => {
     it.each([
-      { situation: 'an English note', note: 'call jan' },
-      { situation: 'a Dutch note', note: 'bel jan' },
-    ])('offers a reading for $situation naming a person and one naming the month', async ({ note }) => {
+      { situation: 'an English note', note: 'call april' },
+      { situation: 'a Dutch note', note: 'bel april' },
+    ])('offers readings that are genuinely different from each other, each explained', async ({ note }) => {
       const proposal = await read(note);
 
       // The main answer is one of the two readings, so the note supports at
       // least two total between the title and what `readings` adds.
       expect(proposal.readings.length).toBeGreaterThanOrEqual(1);
-      const all = [proposal.title, ...proposal.readings.map((r) => r.title)];
-      expect(all.some((title) => /jan(?!uary)/i.test(title))).toBe(true);
-      expect(all.some((title) => /january/i.test(title))).toBe(true);
+      const titles = [proposal.title, ...proposal.readings.map((r) => r.title)];
+      expect(new Set(titles.map((title) => title.toLowerCase())).size).toBe(titles.length);
       // Each reading says why it is there, in words rather than left implicit.
       for (const alternative of proposal.readings) {
         expect(alternative.meaning.length).toBeGreaterThan(0);

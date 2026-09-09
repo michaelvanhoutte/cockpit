@@ -112,7 +112,7 @@ readings: []
 Note: call jan
 language: English
 title: Call Jan
-message:
+message: Call Jan.
 readings:
 - title: Call in January
   message:
