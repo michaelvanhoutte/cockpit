@@ -385,11 +385,12 @@ describe('Item editing', () => {
         await screen.findByLabelText('Title');
         await theEditorHasArrived();
 
-        // A press inside the handle's own corner - what the component takes
-        // as "a drag has started", the gate on remembering anything at all.
+        // A press inside the handle's own corner, and the release that ends
+        // it - the two checkpoints the component settles a drag between.
         fireEvent.mouseDown(screen.getByRole('dialog'), { clientX: 895, clientY: 695 });
-
         rect = { width: 500, height: 400, top: 0, left: 0, right: 500, bottom: 400, x: 0, y: 0 };
+        fireEvent.mouseUp(window);
+
         held.openItemId = 'item-2';
         rerender(
           <QueryClientProvider client={client}>

@@ -24,7 +24,7 @@ import { persister } from '../persistence';
  * - which view each workspace was last on, which panels were last filed into,
  *   the size a drag last left the item form at, and whether the question a
  *   new account opens on has been answered, all four in localStorage - the
- *   first three because leaving them behind gives the first person's answer
+ *   last of them because leaving it behind gives the first person's answer
  *   to the second;
  * - what the undo bar is still offering, which is a title of theirs drawn over
  *   whatever screen comes next.
