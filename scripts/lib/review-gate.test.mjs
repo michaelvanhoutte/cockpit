@@ -330,35 +330,32 @@ const AFTER_HEAD = '2026-09-09T12:30:00Z';
 const EARLIER_HEAD = '0f0e0d0c0b0a09080706050403020100f0e0d0c0';
 
 describe('placeHead', () => {
-  const committed = { sha: HEAD.sha, committedAt: '2026-09-09T12:00:00Z' };
-  const now = Date.parse('2026-09-09T12:40:00Z');
-
-  it('places a commit the run has already outlived', () => {
-    assert.deepEqual(placeHead(committed, { now }), HEAD);
+  it('places the head at the earliest run GitHub created for it', () => {
+    // The listing comes back newest first, so the earliest is last - and it is
+    // the push. A later run is a re-run, or another workflow starting behind
+    // the first.
+    const created = ['2026-09-09T12:36:47Z', '2026-09-09T12:00:00Z', '2026-09-09T12:00:04Z'].join('\n');
+    assert.deepEqual(placeHead(HEAD.sha, created), HEAD);
   });
 
-  it('places nothing without both a commit and a date to put it at', () => {
-    // The SHA is off the event payload and always there; the date is an API
-    // call away and may not be. Either missing leaves no head test to make.
-    for (const head of [null, undefined, {}, { sha: HEAD.sha }, { committedAt: committed.committedAt }, { sha: HEAD.sha, committedAt: 'sometime' }]) {
-      assert.equal(placeHead(head, { now }), null, `${JSON.stringify(head)} should not be placeable`);
+  it('places nothing without a head, and nothing without a run to date it by', () => {
+    // Both mean the same thing to the gate - fall back to the pull request as a
+    // whole - and neither is a reason to call a review a non-review.
+    assert.equal(placeHead('', '2026-09-09T12:00:00Z'), null);
+    assert.equal(placeHead(undefined, '2026-09-09T12:00:00Z'), null);
+    for (const dates of ['', null, undefined, '\n  \n']) {
+      assert.equal(placeHead(HEAD.sha, dates), null, `${JSON.stringify(dates)} should place nothing`);
     }
   });
 
-  it('places nothing for a commit dated in the run\'s own future', () => {
-    // A committer date is written by whatever clock made the commit. One
-    // running fast dates the head after every remark the review could have
-    // left - the summary comment of a clean review included - so placing by it
-    // would call a thorough review a non-review, which is how everybody learns
-    // to ignore this check.
-    assert.equal(placeHead({ sha: HEAD.sha, committedAt: '2026-09-09T13:10:00Z' }, { now }), null);
+  it('reads past a line that is not a date', () => {
+    // What a `gh api` failure or a changed field name leaves in the output. One
+    // unreadable line is not a reason to abandon the dates either side of it.
+    assert.deepEqual(placeHead(HEAD.sha, ['null', '2026-09-09T12:00:00Z', 'not a date'].join('\n')), HEAD);
   });
 
-  it('places a commit at any date when there is no clock to compare it against', () => {
-    assert.deepEqual(placeHead({ sha: HEAD.sha, committedAt: '2027-01-01T00:00:00Z' }, {}), {
-      sha: HEAD.sha,
-      arrivedAt: Date.parse('2027-01-01T00:00:00Z'),
-    });
+  it('places nothing when no line is a date at all', () => {
+    assert.equal(placeHead(HEAD.sha, ['null', 'not a date'].join('\n')), null);
   });
 });
 

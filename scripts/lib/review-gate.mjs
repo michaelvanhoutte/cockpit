@@ -421,33 +421,44 @@ export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIG
  * The head a remark can be held against - `{ sha, arrivedAt }` - or null where
  * this run cannot place one in time.
  *
- * Two ways to be unplaceable, and both mean the same thing to the gate: fall
- * back to the pull request as a whole, and say the check proved less than
- * usual.
+ * `arrivedAt` is the earliest of the dates in `runCreatedDates`, one per line,
+ * which the caller reads off the workflow runs GitHub has created for this
+ * commit as a head. So it is **when GitHub first saw the push**, on GitHub's own
+ * clock, and the reviewer cannot have said anything about this head before it.
  *
- * - **Nothing to place against.** `head.sha` comes off the event payload and is
- *   always there; `committedAt` is an API call away and may not be.
- * - **An arrival this run has already outlived.** A committer date is written
- *   by whatever clock made the commit, and one running fast dates the head
- *   after every remark the review could possibly have left - the summary
- *   comment included, which is the only thing a review that found nothing
- *   leaves behind. Placed by that date, a thorough review reads as never having
- *   looked, and going red at one is how everybody learns to ignore this check.
+ * The commit's own committer date is the obvious source and the wrong one,
+ * because it is written by whatever clock made the commit and bounds nothing:
  *
- * Deciding it here, once, is what keeps the count and the decision that reads
- * it answering for the same head: reviewerRemarks and decideCodeReviewOutcome
- * are both handed the result rather than each judging the date again.
+ * - **Dated early**, which needs no bad actor - commit at 09:45, let a review
+ *   post at 10:00 against the head you had pushed, then push this one at 15:00
+ *   - and every remark from that earlier round post-dates the head and counts
+ *   as being about it. The gate reverts to what issue 75 is about, silently,
+ *   because it believes it placed the head.
+ * - **Dated late**, by a clock running fast, and the head arrives after every
+ *   remark the review could possibly have left - the summary comment included,
+ *   which is the only thing a review that found nothing leaves behind. A
+ *   thorough review then reads as never having looked, and going red at one is
+ *   how everybody learns to ignore this check.
  *
- * `now` is given rather than read, like every other input in this file: a
- * decision that reads its own clock can only be tested at one time of day. A
- * caller with no clock to offer gets the placement without the future test,
- * which is the same trade the fallback makes.
+ * A run's creation is immune to both, and to a re-run: `created_at` stays at
+ * the original attempt's while `run_started_at` moves, which is why the caller
+ * asks for that field. Taking the earliest rather than this run's own is what
+ * lets a re-run against an already-reviewed head still find its own round's
+ * remarks on the right side of the line.
+ *
+ * Nothing to place against - no SHA, or no run date this can read - falls back
+ * to the pull request as a whole with a warning, rather than going red at
+ * GitHub for being unreachable: louder than the bug it guards against, and
+ * about the wrong thing. Deciding that here, once, is what keeps the count and
+ * the decision that reads it answering for the same head.
  */
-export function placeHead(head, { now } = {}) {
-  const arrivedAt = Date.parse(head?.committedAt ?? '');
-  if (!head?.sha || !Number.isFinite(arrivedAt)) return null;
-  if (Number.isFinite(now) && arrivedAt > now) return null;
-  return { sha: head.sha, arrivedAt };
+export function placeHead(sha, runCreatedDates) {
+  let arrivedAt = null;
+  for (const line of String(runCreatedDates ?? '').split('\n')) {
+    const created = Date.parse(line.trim());
+    if (Number.isFinite(created) && (arrivedAt === null || created < arrivedAt)) arrivedAt = created;
+  }
+  return sha && arrivedAt !== null ? { sha: String(sha), arrivedAt } : null;
 }
 
 /**
@@ -473,11 +484,9 @@ export function placeHead(head, { now } = {}) {
  *   comment and carries no commit at all, and it is what a review that found
  *   nothing leaves behind.
  *
- * `head` is a placed head from placeHead, so `arrivedAt` is when the commit was
- * committed and is no later than when it was pushed. The timestamp therefore
- * errs towards accepting, which is the right direction: a review that did
- * happen and is called a non-review teaches everyone to ignore this check,
- * which is the failure the whole gate is about.
+ * `head` is a placed head from placeHead, so `arrivedAt` is when GitHub first
+ * saw the push - which is the moment before which no remark here can be about
+ * this head, and after which one may be.
  *
  * The login is matched by prefix, case-insensitively, because the same account
  * appears under more than one name: `claude[bot]` on the App's own comments,

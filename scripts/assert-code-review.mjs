@@ -3,8 +3,9 @@
 // step - the sibling of assert-security-review.mjs, over the same module.
 // Everything that decides anything is in the module, which node --test covers
 // in the Scripts CI job; this reads a file, asks GitHub what state the pull
-// request is in, when the head arrived and what the reviewer has said, prints,
-// and sets an exit code, so there is nothing here for a test to hold.
+// request is in, when the head it reviewed arrived and what the reviewer has
+// said, prints, and sets an exit code, so there is nothing here for a test to
+// hold.
 //
 // Usage: node scripts/assert-code-review.mjs <execution-file> <conclusion>
 //
@@ -41,23 +42,27 @@ function pullRequestState() {
 }
 
 /**
- * The commit this run was asked to review and when it came into existence, or
- * null when either could not be established. placeHead is what decides whether
- * the pair can actually hold a remark.
+ * When GitHub created each workflow run it has for this head, one date per
+ * line, or '' when it could not be asked. placeHead takes the earliest, which
+ * is when the push became visible - see there for why the commit's own
+ * committer date is the wrong clock to trust.
+ *
+ * `--paginate`, because the listing comes back newest first and the earliest
+ * run is therefore on the last page. `created_at` rather than `run_started_at`,
+ * because a re-run moves the second and leaves the first alone.
  *
  * The SHA is off the event payload rather than the pull request's current head,
  * so it names what the review actually ran against even if another push has
- * landed since. The date costs one API call and is what tells a remark about
- * this head from one about the head before it - see reviewerRemarks.
+ * landed since.
  */
-function headCommit() {
-  if (!repo || !headSha) return null;
+function headRunDates() {
+  if (!repo || !headSha) return '';
   try {
-    const committedAt = gh(['api', `repos/${repo}/commits/${headSha}`, '--jq', '.commit.committer.date']).trim();
-    return committedAt ? { sha: headSha, committedAt } : null;
+    const runs = `repos/${repo}/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100`;
+    return gh(['api', runs, '--paginate', '--jq', '.workflow_runs[].created_at']);
   } catch (error) {
-    console.log(`::warning::Could not ask GitHub when ${headSha.slice(0, 7)} was committed: ${oneLine(error.message)}`);
-    return null;
+    console.log(`::warning::Could not ask GitHub when ${headSha.slice(0, 7)} arrived: ${oneLine(error.message)}`);
+    return '';
   }
 }
 
@@ -108,15 +113,7 @@ const pullRequest = pullRequestState();
 // The gate decides this too, and has the tests. Asked here only because the
 // answer is what says whether four paginated API calls are worth making.
 const applies = postedCommentTestApplies(pullRequest);
-const commit = applies ? headCommit() : null;
-const head = placeHead(commit, { now: Date.now() });
-if (commit && !head) {
-  // The only way past placeHead with a commit in hand, and silent it would look
-  // exactly like GitHub having been unreachable.
-  console.log(
-    `::warning::${commit.sha.slice(0, 7)} is dated ${oneLine(commit.committedAt)}, which is in this run's own future - so the clock that made it runs fast, and remarks about it cannot be told from remarks about the head before it by time.`,
-  );
-}
+const head = applies ? placeHead(headSha, headRunDates()) : null;
 const remarks = applies ? reviewerSaid(head) : { total: 0, onHead: 0 };
 const outcome = decideCodeReviewOutcome({
   executionText,
