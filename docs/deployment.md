@@ -828,12 +828,11 @@ Then, by hand (no API, or deliberately not automated):
      it lives on the repository resource, set by `gh api -X PATCH
      repos/michaelvanhoutte/cockpit -F allow_auto_merge=true` — `-F`, not `-f`:
      the latter sends the value as a JSON string rather than a boolean). Together
-     they let a
-     session mark a pull request ready, arm auto-merge, and stop — GitHub merges it
-     once the required checks are green and every review thread is resolved,
-     whether or not anyone is watching. `required_conversation_resolution` is
-     applied first: `allow_auto_merge` alone is the unsafe half, since it would let
-     GitHub merge on green checks with an open, unresolved review thread.
+     they let a session mark a pull request ready, arm auto-merge, and stop —
+     GitHub merges it once the required checks are green and every review thread
+     is resolved, whether or not anyone is watching. `required_conversation_resolution`
+     is applied first: `allow_auto_merge` alone is the unsafe half, since it would
+     let GitHub merge on green checks with an open, unresolved review thread.
 
    *Requires the repository **owner** account.* A collaborator with `push` cannot
    do this, and the branch-protection API answers `404` rather than `403` when the
