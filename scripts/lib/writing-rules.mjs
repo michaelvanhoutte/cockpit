@@ -20,9 +20,9 @@
 //
 // **Markdown only, and not `poc/`.** The sample these rules come from is review
 // threads about documents, issues and pull request bodies; `**` and paragraph
-// duplication mean nothing in a TypeScript comment, and the section citations
-// in source comments name their document (`architecture §6.2`) rather than
-// citing a number into thin air. `poc/` is outside the workspace and its
+// duplication mean nothing in a TypeScript comment, and the eighty-two section
+// citations in source comments name their document (`architecture §6.2`)
+// rather than citing a number into thin air. `poc/` is outside the workspace and its
 // reports are throwaway. A rule that fires where nobody is writing prose is a
 // rule that gets the whole check disabled.
 //
@@ -165,7 +165,7 @@ function blocks(lines, skip = () => false) {
  * **The title is looked for across the block, not the line.** Half the
  * documents wrap their prose, so the opening quote of `"Add a user on the admin
  * page, so a second person no longer needs SQL" (issue 231)` is one line above
- * the number - which a line-at-a-time read calls a violation eight times in
+ * the number - which a line-at-a-time read calls a violation eleven times in
  * `deployment.md` alone. The block is also the unit that reads right: one names
  * one piece of work, and CLAUDE.md's own account of issue 77 goes on to give
  * the number of the pull request that merged it, which needs no second title.
