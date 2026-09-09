@@ -240,8 +240,9 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
  *   keyboard costs nothing to support.
  *
  * (A long press may open it as well, which is Radix's own doing on a
- * touchscreen. Nothing here relies on it and no walk drives it, so it is not
- * one of the ways in above.)
+ * touchscreen. A tab relies on it for nothing, since a press already opens
+ * it; a panel has no such fallback, so on a touchscreen this is its only way
+ * in, driven by `choosePanelAction`'s `holdPanelHeader`.)
  *
  * **The menu is the row menu's, in a context menu's clothes.** Same entries,
  * same look, same rules about an entry that cannot be chosen: only the way it
