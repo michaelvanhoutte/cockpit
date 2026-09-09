@@ -29,9 +29,10 @@ import {
   decideSecurityOutcome,
   markedCommentId,
   oneLine,
+  placeHead,
   postedCommentTestApplies,
   resultRecordOf,
-  reviewerCommentCount,
+  reviewerRemarks,
   summaryComment,
   verdictOf,
 } from './review-gate.mjs';
@@ -322,29 +323,120 @@ describe('markedCommentId', () => {
   });
 });
 
-describe('reviewerCommentCount', () => {
+/** The commit under review as placeHead hands it on, and a clock either side. */
+const HEAD = { sha: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', arrivedAt: Date.parse('2026-09-09T12:00:00Z') };
+const BEFORE_HEAD = '2026-09-09T11:00:00Z';
+const AFTER_HEAD = '2026-09-09T12:30:00Z';
+const EARLIER_HEAD = '0f0e0d0c0b0a09080706050403020100f0e0d0c0';
+
+describe('placeHead', () => {
+  it('places the head at the earliest run GitHub created for it', () => {
+    // The listing comes back newest first, so the earliest is last - and it is
+    // the push. A later run is a re-run, or another workflow starting behind
+    // the first.
+    const created = ['2026-09-09T12:36:47Z', '2026-09-09T12:00:00Z', '2026-09-09T12:00:04Z'].join('\n');
+    assert.deepEqual(placeHead(HEAD.sha, created), HEAD);
+  });
+
+  it('places nothing without a head, and nothing without a run to date it by', () => {
+    // Both mean the same thing to the gate - fall back to the pull request as a
+    // whole - and neither is a reason to call a review a non-review.
+    assert.equal(placeHead('', '2026-09-09T12:00:00Z'), null);
+    assert.equal(placeHead(undefined, '2026-09-09T12:00:00Z'), null);
+    for (const dates of ['', null, undefined, '\n  \n']) {
+      assert.equal(placeHead(HEAD.sha, dates), null, `${JSON.stringify(dates)} should place nothing`);
+    }
+  });
+
+  it('reads past a line that is not a date', () => {
+    // What a `gh api` failure or a changed field name leaves in the output. One
+    // unreadable line is not a reason to abandon the dates either side of it.
+    assert.deepEqual(placeHead(HEAD.sha, ['null', '2026-09-09T12:00:00Z', 'not a date'].join('\n')), HEAD);
+  });
+
+  it('places nothing when no line is a date at all', () => {
+    assert.equal(placeHead(HEAD.sha, ['null', 'not a date'].join('\n')), null);
+  });
+});
+
+describe('reviewerRemarks', () => {
+  /** One line of `gh api --paginate --jq` output, as the script emits them. */
+  const remark = (fields = {}) => JSON.stringify({ login: 'claude[bot]', createdAt: AFTER_HEAD, ...fields });
+  const lines = (...remarks) => remarks.join('\n');
+
   it('counts the reviewer under both names it comments as', () => {
     // The App posts as claude[bot]; the same account appears as claude
     // elsewhere. Missing either reads a review that spoke as one that did not.
-    assert.equal(reviewerCommentCount('claude[bot]\nsomeone\nClaude'), 2);
-  });
-
-  it('is zero when only other people have spoken', () => {
-    assert.equal(reviewerCommentCount('michaelvanhoutte\ngithub-actions[bot]\n'), 0);
+    const output = lines(remark(), remark({ login: 'someone' }), remark({ login: 'Claude' }));
+    assert.deepEqual(reviewerRemarks(output, { head: HEAD }), { total: 2, onHead: 2 });
   });
 
   it('does not count a login that merely contains the name', () => {
     // Anyone can pick a username. Counting `notclaude` would let a comment from
     // a stranger stand in for the review having happened.
-    assert.equal(reviewerCommentCount('notclaude\nun-claude'), 0);
+    const output = lines(remark({ login: 'notclaude' }), remark({ login: 'un-claude' }), remark({ login: 'michaelvanhoutte' }));
+    assert.deepEqual(reviewerRemarks(output, { head: HEAD }), { total: 0, onHead: 0 });
   });
 
-  it('is zero for no output at all', () => {
-    // What a failed `gh api` leaves behind, and it has to read as silence:
-    // a gate that cannot see whether the review spoke has not established that
+  it('does not read an earlier round as a remark about this head', () => {
+    // The bug itself: three rounds of findings on pull request 193 satisfied
+    // "has Claude spoken here" permanently, so the fourth head went green
+    // having been read by nobody.
+    const output = lines(remark({ createdAt: BEFORE_HEAD }), remark({ createdAt: BEFORE_HEAD, commitId: EARLIER_HEAD }));
+    assert.deepEqual(reviewerRemarks(output, { head: HEAD }), { total: 2, onHead: 0 });
+  });
+
+  it('reads a summary comment as being about the head when it post-dates it', () => {
+    // What a review that found nothing leaves behind: an issue comment, with no
+    // commit on it at all. The timestamp is the only thing that can place it.
+    assert.deepEqual(reviewerRemarks(remark({ createdAt: AFTER_HEAD }), { head: HEAD }), { total: 1, onHead: 1 });
+  });
+
+  it('takes an inline finding by the commit it was made on, not the one it was moved to', () => {
+    // GitHub rewrites a review comment's commit_id to the new head whenever the
+    // comment still applies there, so matching that would hand every stale
+    // finding a head it never saw. original_commit_id is the one that holds.
+    const moved = remark({ createdAt: BEFORE_HEAD, commitId: HEAD.sha, originalCommitId: EARLIER_HEAD });
+    assert.deepEqual(reviewerRemarks(moved, { head: HEAD }), { total: 1, onHead: 0 });
+  });
+
+  it('counts a submitted review against the commit it names', () => {
+    // A review carries commit_id and no original, and it is the commit
+    // reviewed. Its timestamp arrives as submitted_at, which the script maps
+    // onto createdAt - a review read without that reads as never made.
+    const early = remark({ createdAt: BEFORE_HEAD, commitId: HEAD.sha });
+    assert.deepEqual(reviewerRemarks(early, { head: HEAD }), { total: 1, onHead: 1 });
+  });
+
+  it('reads across pages and past a line it cannot parse', () => {
+    // `gh api --paginate` applies --jq per page and concatenates, so this
+    // arrives as one object per line rather than as one document.
+    assert.deepEqual(reviewerRemarks(lines(remark(), 'not json at all', remark()), { head: HEAD }), { total: 2, onHead: 2 });
+  });
+
+  it('is silence for no output at all', () => {
+    // What a failed `gh api` leaves behind, and it has to read as silence: a
+    // gate that cannot see whether the review spoke has not established that
     // it did.
-    assert.equal(reviewerCommentCount(''), 0);
-    assert.equal(reviewerCommentCount(null), 0);
+    for (const output of ['', null, undefined]) {
+      assert.deepEqual(reviewerRemarks(output, { head: HEAD }), { total: 0, onHead: 0 });
+    }
+  });
+
+  it('places nothing on a head it was not given', () => {
+    // The caller falls back to the total when the head is unplaced, so this
+    // must not guess: an unplaceable remark is not evidence about any head.
+    assert.deepEqual(reviewerRemarks(remark(), {}), { total: 1, onHead: 0 });
+  });
+
+  it('places nothing by a timestamp it cannot read', () => {
+    // A remark with neither created_at nor submitted_at, which is what an
+    // endpoint growing a third shape would look like. Counted as the
+    // reviewer's, placed nowhere - it cannot vouch for a head it has no time
+    // for, and the commit is the only other thing that can.
+    for (const createdAt of [null, undefined, 'whenever']) {
+      assert.deepEqual(reviewerRemarks(remark({ createdAt }), { head: HEAD }), { total: 1, onHead: 0 });
+    }
   });
 });
 
@@ -386,12 +478,67 @@ describe('postedCommentTestApplies', () => {
 describe('decideCodeReviewOutcome', () => {
   /** An open pull request, which is the only state the gate tests. */
   const open = { state: 'OPEN', isDraft: false };
-  const codeReview = (opts = {}) => decideCodeReviewOutcome({ conclusion: 'success', pullRequest: open, ...opts });
+  // `said` is everything the reviewer has ever said here and `saidOnHead` the
+  // part of it about the commit under review, so a case that gives one value
+  // means "it spoke, and about this head" - which is what every case predating
+  // the head test meant.
+  const codeReview = ({ said = 0, saidOnHead = said, ...opts } = {}) =>
+    decideCodeReviewOutcome({ conclusion: 'success', pullRequest: open, head: HEAD, said, saidOnHead, ...opts });
 
-  it('passes a run the reviewer posted on', () => {
+  it('passes a first review on a pull request the reviewer has never spoken on', () => {
     const out = codeReview({ executionText: file(run({ text: 'Reviewed, two findings posted.' })), said: 2 });
     assert.equal(out.ok, true);
     assert.equal(out.verdictSeen, true);
+  });
+
+  it('passes a review of the commits that arrived after a round of findings', () => {
+    // The round that used to be skipped: six of the reviewer's comments here
+    // are round one's, and the two new ones are what make this head reviewed.
+    const out = codeReview({ executionText: file(run({ text: 'Two findings on the new commits.' })), said: 8, saidOnHead: 2 });
+    assert.equal(out.ok, true);
+  });
+
+  it('passes a new head the reviewer looked at and found nothing wrong with', () => {
+    // One remark, and it is the summary comment saying so. Nothing about a
+    // clean verdict may read as a non-review.
+    const out = codeReview({ executionText: file(run({ turns: 12, text: 'No issues found.' })), said: 7, saidOnHead: 1 });
+    assert.equal(out.ok, true);
+    assert.equal(out.warnings.length, 0);
+  });
+
+  it('passes a re-run declining a head it has already spoken on', () => {
+    // Run 33203441279's shape, and the one decline that is correct: the head
+    // has not moved since the reviewer posted about it, so there is nothing
+    // here it has not read.
+    const out = codeReview({ executionText: file(run({ turns: 4, text: 'Already reviewed this head.' })), said: 6, saidOnHead: 6 });
+    assert.equal(out.ok, true);
+    assert.match(out.warnings.join(' '), /ran only 4 turns/);
+  });
+
+  it('fails a decline against a head the reviewer has not spoken on, and names it', () => {
+    // The bug: pull request 193's fourth head, 7 turns, green, read by nobody,
+    // with three rounds of standing comments answering the heads before it.
+    const out = codeReview({
+      executionText: file(run({ turns: 7, text: 'Already reviewed across three rounds, so stopping here.' })),
+      said: 9,
+      saidOnHead: 0,
+    });
+    assert.equal(out.ok, false);
+    assert.equal(out.verdictSeen, false);
+    assert.match(out.failures.join(' '), /posted nothing about a1b2c3d/);
+    assert.match(out.failures.join(' '), /the reviewer has 9 earlier remark\(s\) here/);
+  });
+
+  it('falls back to the whole pull request, loudly, when the head could not be established', () => {
+    // An unreachable GitHub, or a clock that dated the head after the review
+    // that read it (see placeHead), is not a reason to call every review a
+    // non-review: that would be redder, and about the wrong thing. It is a
+    // reason to say the check proved less than usual.
+    for (const head of [null, undefined, {}]) {
+      const out = codeReview({ executionText: file(run({ turns: 11 })), said: 3, saidOnHead: 0, head });
+      assert.equal(out.ok, true, `${JSON.stringify(head)} should not fail the check`);
+      assert.match(out.warnings.join(' '), /Could not place this run's head in time/);
+    }
   });
 
   it('fails a run that posted nothing at all', () => {
@@ -465,20 +612,13 @@ describe('decideCodeReviewOutcome', () => {
     }
   });
 
-  it('warns rather than fails when a short session declined a head it had already reviewed', () => {
-    // Run 33203441279: 5 clean turns, stopping because the review had run on
-    // this pull request before - which leaves the commits pushed since
-    // unreviewed. Green today, and issue 75 owns changing that; this holds the
-    // behaviour still while it is somebody else's to change.
-    const out = codeReview({ executionText: file(run({ turns: 5, text: 'Already reviewed.' })), said: 6 });
-    assert.equal(out.ok, true);
-    assert.match(out.warnings.join(' '), /only 5 turns, and Claude has already posted/);
-  });
-
-  it('warns about a short session plainly when nothing was posted', () => {
-    const out = codeReview({ executionText: file(run({ turns: 2, text: 'Stopped.' })), said: 0 });
-    assert.match(out.warnings.join(' '), /ran only 2 turns\. Its closing words: Stopped\./);
-    assert.doesNotMatch(out.warnings.join(' '), /already posted/);
+  it('says no more about a short session than that it was short', () => {
+    // The warning used to guess at a decline whenever the reviewer had spoken
+    // here before, which is the case the head test now fails outright. What is
+    // left is too weak to catch a non-review on its own - run 33201638348 spent
+    // 11 turns stopping on "Waiting on the eligibility check for PR #56".
+    const out = codeReview({ executionText: file(run({ turns: 2, text: 'Stopped.' })), said: 6, saidOnHead: 6 });
+    assert.deepEqual(out.warnings, ['The session ran only 2 turns. Its closing words: Stopped.']);
   });
 
   it('skips the posted-comment test on a pull request the review may stay silent on', () => {
@@ -502,10 +642,10 @@ describe('decideCodeReviewOutcome', () => {
   });
 
   it('reports what the run said, so the step summary need not re-read the record', () => {
-    const out = codeReview({ executionText: file(run({ turns: 11, text: 'Four findings posted.' })), said: 4 });
+    const out = codeReview({ executionText: file(run({ turns: 11, text: 'Four findings posted.' })), said: 9, saidOnHead: 4 });
     assert.deepEqual(
-      { subtype: out.subtype, isError: out.isError, turns: out.turns, finalText: out.finalText, said: out.said },
-      { subtype: 'success', isError: false, turns: 11, finalText: 'Four findings posted.', said: 4 },
+      { subtype: out.subtype, isError: out.isError, turns: out.turns, finalText: out.finalText, said: out.said, saidOnHead: out.saidOnHead, headKnown: out.headKnown },
+      { subtype: 'success', isError: false, turns: 11, finalText: 'Four findings posted.', said: 9, saidOnHead: 4, headKnown: true },
     );
   });
 });

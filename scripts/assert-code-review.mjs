@@ -2,8 +2,10 @@
 // The I/O around scripts/lib/review-gate.mjs, for the code review's assert
 // step - the sibling of assert-security-review.mjs, over the same module.
 // Everything that decides anything is in the module, which node --test covers
-// in the Scripts CI job; this reads a file, asks GitHub two questions, prints,
-// and sets an exit code, so there is nothing here for a test to hold.
+// in the Scripts CI job; this reads a file, asks GitHub what state the pull
+// request is in, when the head it reviewed arrived and what the reviewer has
+// said, prints, and sets an exit code, so there is nothing here for a test to
+// hold.
 //
 // Usage: node scripts/assert-code-review.mjs <execution-file> <conclusion>
 //
@@ -11,11 +13,12 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 
-import { decideCodeReviewOutcome, oneLine, postedCommentTestApplies, reviewerCommentCount } from './lib/review-gate.mjs';
+import { decideCodeReviewOutcome, oneLine, placeHead, postedCommentTestApplies, reviewerRemarks } from './lib/review-gate.mjs';
 
 const [executionFile, conclusion] = process.argv.slice(2);
 const repo = process.env.GITHUB_REPOSITORY;
 const pr = process.env.PR_NUMBER;
+const headSha = process.env.HEAD_SHA;
 
 const gh = (args) => execFileSync('gh', args, { encoding: 'utf8', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -33,37 +36,67 @@ function pullRequestState() {
     const { state, isDraft } = JSON.parse(gh(['pr', 'view', pr, '--repo', repo, '--json', 'state,isDraft']));
     return { state, isDraft };
   } catch (error) {
-    console.log(`::warning::Could not ask GitHub whether this pull request is open, so the posted-comment check is skipped: ${error.message}`);
+    console.log(`::warning::Could not ask GitHub whether this pull request is open, so the posted-comment check is skipped: ${oneLine(error.message)}`);
     return null;
   }
 }
 
 /**
- * How many of the pull request's comments and reviews are the reviewer's own.
+ * When GitHub created each workflow run it has for this head, one date per
+ * line, or '' when it could not be asked. placeHead takes the earliest, which
+ * is when the push became visible - see there for why the commit's own
+ * committer date is the wrong clock to trust.
+ *
+ * `--paginate`, because the listing comes back newest first and the earliest
+ * run is therefore on the last page. `created_at` rather than `run_started_at`,
+ * because a re-run moves the second and leaves the first alone.
+ *
+ * The SHA is off the event payload rather than the pull request's current head,
+ * so it names what the review actually ran against even if another push has
+ * landed since.
+ */
+function headRunDates() {
+  if (!repo || !headSha) return '';
+  try {
+    const runs = `repos/${repo}/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100`;
+    return gh(['api', runs, '--paginate', '--jq', '.workflow_runs[].created_at']);
+  } catch (error) {
+    console.log(`::warning::Could not ask GitHub when ${headSha.slice(0, 7)} arrived: ${oneLine(error.message)}`);
+    return '';
+  }
+}
+
+/**
+ * What the reviewer has said here, in total and about this head.
  *
  * Three endpoints because a review posts through three: a summary comment is an
  * issue comment, a finding on a line is a pull request comment, and a submitted
- * review is neither.
+ * review is neither. One JSON object per line rather than a bare login, because
+ * the head test needs each remark's commit and timestamp as well as its author.
+ * A review carries `submitted_at` where the two comment kinds carry
+ * `created_at`, and reads as never having been made if only one is asked for.
  *
- * A failure here counts as zero, which is red. That is the same answer the
+ * A failure here counts as silence, which is red. That is the same answer the
  * bash this replaces gave, and it is the right way round: a gate that cannot
  * see whether the review spoke has not established that it did.
  */
-function reviewerSaid() {
+function reviewerSaid(head) {
   const endpoints = [
     `repos/${repo}/issues/${pr}/comments`,
     `repos/${repo}/pulls/${pr}/comments`,
     `repos/${repo}/pulls/${pr}/reviews`,
   ];
-  let logins = '';
+  const fields =
+    '.[] | {login: .user.login, createdAt: (.created_at // .submitted_at), commitId: .commit_id, originalCommitId: .original_commit_id}';
+  let remarks = '';
   for (const endpoint of endpoints) {
     try {
-      logins += `${gh(['api', endpoint, '--paginate', '--jq', '.[].user.login'])}\n`;
+      remarks += `${gh(['api', endpoint, '--paginate', '--jq', fields])}\n`;
     } catch (error) {
-      console.log(`::warning::Could not read ${endpoint}: ${error.message}`);
+      console.log(`::warning::Could not read ${endpoint}: ${oneLine(error.message)}`);
     }
   }
-  return reviewerCommentCount(logins);
+  return reviewerRemarks(remarks, { head });
 }
 
 let executionText = '';
@@ -78,13 +111,17 @@ try {
 
 const pullRequest = pullRequestState();
 // The gate decides this too, and has the tests. Asked here only because the
-// answer is what says whether three paginated API calls are worth making.
+// answer is what says whether four paginated API calls are worth making.
 const applies = postedCommentTestApplies(pullRequest);
+const head = applies ? placeHead(headSha, headRunDates()) : null;
+const remarks = applies ? reviewerSaid(head) : { total: 0, onHead: 0 };
 const outcome = decideCodeReviewOutcome({
   executionText,
   conclusion,
   pullRequest,
-  said: applies ? reviewerSaid() : 0,
+  head,
+  said: remarks.total,
+  saidOnHead: remarks.onHead,
 });
 
 const summary = ['## Claude review gate', ''];
@@ -94,11 +131,17 @@ summary.push(`| is_error | ${outcome.isError} |`);
 summary.push(`| num_turns | ${outcome.turns} |`);
 summary.push(`| permission denials | ${outcome.denials.count} |`);
 summary.push('', `The session's closing words: ${oneLine(outcome.finalText)}`, '');
-summary.push(
-  applies
-    ? `- Claude has ${outcome.said} comment(s) on this pull request.`
-    : `- Skipping the posted-comment check: this pull request is not open for review${pullRequest ? ` (${pullRequest.state}, draft ${pullRequest.isDraft})` : ', and GitHub could not be asked which it is'}, which the review is entitled to skip.`,
-);
+if (!applies) {
+  summary.push(
+    `- Skipping the posted-comment check: this pull request is not open for review${pullRequest ? ` (${pullRequest.state}, draft ${pullRequest.isDraft})` : ', and GitHub could not be asked which it is'}, which the review is entitled to skip.`,
+  );
+} else if (head) {
+  summary.push(
+    `- Claude has ${outcome.said} remark(s) on this pull request, ${outcome.saidOnHead} of them about ${head.sha.slice(0, 7)}, the head this run reviewed.`,
+  );
+} else {
+  summary.push(`- Claude has ${outcome.said} remark(s) on this pull request, and which head they answer could not be established.`);
+}
 
 // The action sets no outputs at all when it skips itself, and the usual cause
 // is its own workflow validation: it refuses to run when this workflow file
