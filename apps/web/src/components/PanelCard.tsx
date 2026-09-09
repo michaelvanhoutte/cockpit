@@ -2,7 +2,7 @@ import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { PanelText } from '../panels/PanelText';
-import { SurfaceMenu, opensOnKey } from './Menu';
+import { SurfaceMenu, opensOnKey, opensOnActivate } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
 
 /**
@@ -254,9 +254,14 @@ export function PanelCard({
           // exist on macOS, and this header activates nothing on Enter the
           // way a tab's `Link` does - so without `opensOnKey` a keyboard-only
           // Mac user has no way to reach a panel's menu at all (found in
-          // review).
+          // review). `role="group"` (below) is not a widget role, so a
+          // screen reader's own activation gesture - VoiceOver's VO+Space,
+          // which sends no `keydown` `opensOnKey` could read - needs
+          // `opensOnActivate` to reach the same menu (found in review, on
+          // the first fix).
           tabIndex={isRenaming ? -1 : 0}
           onKeyDown={opensOnKey(isRenaming)}
+          onClick={opensOnActivate(isRenaming)}
           // A tab's own accessible name and role are its `Link`'s, free; a
           // header has neither on its own, and the kebab button this replaced
           // carried both (`aria-label="Actions for X"` on a real `button`) -

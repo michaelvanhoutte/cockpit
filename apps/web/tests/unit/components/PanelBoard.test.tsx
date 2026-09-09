@@ -483,12 +483,29 @@ describe('Panels', () => {
       expect(screen.queryByRole('menuitem')).toBeNull();
     });
 
-    it('leaves a plain click on the header as the drag it is, opening nothing', () => {
-      showBoard();
+    it('leaves a plain click on the header as the drag it is, opening nothing', async () => {
+      // `userEvent`, not bare `fireEvent.click`: a real mouse click carries
+      // `detail` 1 or more, which is the one thing telling it apart from the
+      // screen reader's own activation click `opensOnActivate` reads below -
+      // `fireEvent.click` defaults `detail` to 0, indistinguishable from that.
+      const { user } = showBoard();
 
-      fireEvent.click(handleOf('Project Falcon'));
+      await user.click(handleOf('Project Falcon'));
 
       expect(screen.queryByRole('menuitem')).toBeNull();
+    });
+
+    it('opens on the click a screen reader’s own activation gesture sends, which a pointer never does', () => {
+      // Found in review: `role="group"` is not a widget role, so VoiceOver's
+      // VO+Space (or the double-tap it stands in for on iOS) is delivered as
+      // a `click` with no pointer behind it rather than as the `keydown`
+      // `opensOnKey` reads - the same `detail` 0 `opensOnPress` already reads
+      // to tell a keyboard's Enter on a tab from a real press.
+      showBoard();
+
+      fireEvent.click(handleOf('Project Falcon'), { detail: 0 });
+
+      expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
     });
 
     it('leaves a touch on the header for Radix’s own long press, not the drag', () => {

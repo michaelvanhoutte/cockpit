@@ -360,6 +360,25 @@ export function opensOnPress(here: boolean) {
 }
 
 /**
+ * Fakes a context menu centred on `target`, the same trick `opensOnPress`
+ * plays from a pointer's own coordinates - shared because `opensOnKey` and
+ * `opensOnActivate` below both need it and neither has a pointer to read
+ * coordinates off.
+ */
+function opensCentredOn(target: HTMLElement) {
+  const box = target.getBoundingClientRect();
+  target.dispatchEvent(
+    new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: box.x + box.width / 2,
+      clientY: box.y + box.height / 2,
+      button: 2,
+    }),
+  );
+}
+
+/**
  * What Enter or the space bar does on a panel's header: open its
  * `SurfaceMenu` the way a right-click would (found in review).
  *
@@ -370,25 +389,32 @@ export function opensOnPress(here: boolean) {
  * fallback everywhere else in `SurfaceMenu` - does not exist on macOS, so
  * without this a keyboard-only user on that platform has no way to reach a
  * panel's menu at all, and therefore no way to Rename, Move or Delete one.
- *
- * The coordinates are the header's own centre rather than a press's, since a
- * key carries none of its own - unlike `opensOnPress`, which reads them off
- * the pointer event it is faking a context menu from.
  */
 export function opensOnKey(disabled: boolean) {
   return (event: React.KeyboardEvent<HTMLElement>) => {
     if (disabled) return;
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
-    const box = event.currentTarget.getBoundingClientRect();
-    event.currentTarget.dispatchEvent(
-      new MouseEvent('contextmenu', {
-        bubbles: true,
-        cancelable: true,
-        clientX: box.x + box.width / 2,
-        clientY: box.y + box.height / 2,
-        button: 2,
-      }),
-    );
+    opensCentredOn(event.currentTarget);
+  };
+}
+
+/**
+ * What a screen reader's own activation gesture does on a panel's header -
+ * VoiceOver's VO+Space, or the double-tap it stands in for on iOS (found in
+ * review, on `opensOnKey` above).
+ *
+ * `role="group"` names the header without hiding what is inside it
+ * (`SurfaceMenu`'s own doc comment), but it is not a widget role, so an
+ * activation gesture is not delivered as the `keydown` `opensOnKey` reads -
+ * it lands as a `click` carrying no pointer of its own, which is the same
+ * `detail` 0 `opensOnPress` already reads to tell a keyboard's Enter on a
+ * tab from a real press. A real mouse click carries at least 1: the
+ * header's own drag owns that one, and opens nothing on its own.
+ */
+export function opensOnActivate(disabled: boolean) {
+  return (event: React.MouseEvent<HTMLElement>) => {
+    if (disabled || event.detail !== 0) return;
+    opensCentredOn(event.currentTarget);
   };
 }
