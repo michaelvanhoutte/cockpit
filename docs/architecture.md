@@ -32,10 +32,11 @@ cockpit/
 │   │   ├── gmail/     # each connector is its own package, depending ONLY on connector-sdk
 │   │   ├── slack/
 │   │   └── notion/
-│   └── config/        # shared tsconfig, eslint, prettier
+│   └── config/        # shared tsconfig, prettier
 ├── docs/             # this document and its siblings
 ├── poc/              # proofs of concept (kept; they are part of the showcase)
-└── .github/          # CI/CD workflows (§9)
+├── .github/          # CI/CD workflows (§9)
+└── eslint.config.mjs # the lint layer, at the root because its rules span every package
 ```
 
 - **Monorepo, pnpm workspaces**, so a contract change and both sides of its implementation land in one reviewable PR. A second service only exists when a real boundary demands one.

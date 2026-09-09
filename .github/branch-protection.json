@@ -3,6 +3,7 @@
     "strict": false,
     "contexts": [
       "Typecheck",
+      "Lint",
       "Test",
       "E2E (F3)",
       "Build",

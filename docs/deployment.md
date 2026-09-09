@@ -201,9 +201,10 @@ before merge by exactly the step this section removes. The trade is accepted wit
 that example in view: one deploy-time surprise per platform limitation, against a
 workflow, a Worker and a database maintained permanently.
 
-**What still gates a branch:** `ci.yml` on every push — typecheck, the fast test
-tiers, the browser tier against its own local stack, the build, the script tests
-and the concept registry. Nothing about *code* correctness moved.
+**What still gates a branch:** `ci.yml` on every push — typecheck, the lint
+layer, the fast test tiers, the browser tier against its own local stack, the
+build, the script tests and the concept registry. Nothing about *code*
+correctness moved.
 
 ### Removing the infrastructure
 
@@ -688,7 +689,7 @@ Then, by hand (no API, or deliberately not automated):
      merging. It would force an "Update branch" click every time `main` moves, and
      the semantic conflict it guards against is exactly what staging catches; a
      bad merge reaches staging, never production.
-   - **`contexts`** — eight names: five of the eight jobs in `ci.yml`, and three
+   - **`contexts`** — nine names: six of the nine jobs in `ci.yml`, and three
      from CodeQL, matched exactly. The three left out are the reports', and for
      two reasons: Test Explorer deliberately does not gate, while Publish and
      Stability *could not* gate anything if they were listed — the `if:` on each

@@ -468,6 +468,101 @@ describe('Item editing', () => {
     });
   });
 
+  describe('a row spells out a label it had to cut, and stays quiet about one it drew whole', () => {
+    /**
+     * Hovers a label that is drawn in the width given.
+     *
+     * The widths are put on the element because jsdom has no layout engine and
+     * reports every element as zero-sized, so what this proves is the wiring -
+     * that the hover measures the label itself and hands the two widths to the
+     * rule. The rule is tests/unit/cutOff.test.ts, and that a real browser
+     * really does cut a long title in a narrow column is
+     * tests/e2e/inbox.test.ts.
+     */
+    async function hoverLabel(
+      user: ReturnType<typeof userEvent.setup>,
+      label: HTMLElement,
+      drawn: { scrollWidth: number; clientWidth: number },
+    ) {
+      Object.defineProperty(label, 'scrollWidth', {
+        value: drawn.scrollWidth,
+        configurable: true,
+      });
+      Object.defineProperty(label, 'clientWidth', {
+        value: drawn.clientWidth,
+        configurable: true,
+      });
+      await user.hover(label);
+    }
+
+    it.each([
+      { situation: 'a title wider than the row', scrollWidth: 340, clientWidth: 120, spelled: true },
+      { situation: 'a title the row drew whole', scrollWidth: 96, clientWidth: 120, spelled: false },
+    ])('$situation', async ({ scrollWidth, clientWidth, spelled }) => {
+      const user = userEvent.setup();
+      aRow();
+      const label = screen.getByText('Make appointment with Novy');
+
+      await hoverLabel(user, label, { scrollWidth, clientWidth });
+
+      if (spelled) expect(label).toHaveAttribute('title', 'Make appointment with Novy');
+      else expect(label).not.toHaveAttribute('title');
+    });
+
+    it('measures again on every arrival, because the panel it is in can be narrowed under it', async () => {
+      const user = userEvent.setup();
+      aRow();
+      const label = screen.getByText('Make appointment with Novy');
+
+      await hoverLabel(user, label, { scrollWidth: 340, clientWidth: 400 });
+      expect(label).not.toHaveAttribute('title');
+
+      // The same label, in a panel that has since been dragged narrow enough to
+      // cut it. This way round rather than the other, because a row that had
+      // simply forgotten its answer on the way out would also stop offering the
+      // tooltip - only a second measurement can start offering one.
+      await user.unhover(label);
+      await hoverLabel(user, label, { scrollWidth: 340, clientWidth: 120 });
+      expect(label).toHaveAttribute('title', 'Make appointment with Novy');
+    });
+
+    it('forgets what it measured when the pointer leaves, so no answer outlives the hover', async () => {
+      const user = userEvent.setup();
+      aRow();
+      const label = screen.getByText('Make appointment with Novy');
+
+      await hoverLabel(user, label, { scrollWidth: 340, clientWidth: 120 });
+      expect(label).toHaveAttribute('title');
+
+      await user.unhover(label);
+
+      expect(label).not.toHaveAttribute('title');
+    });
+
+    it('spells out the label the row drew, not the title underneath it', async () => {
+      const user = userEvent.setup();
+      aRow({ item: anItem({ title: 'Novy', nextAction: 'Ask Novy about part 11' }) });
+      const label = screen.getByText('Ask Novy about part 11');
+
+      await hoverLabel(user, label, { scrollWidth: 340, clientWidth: 120 });
+
+      expect(label).toHaveAttribute('title', 'Ask Novy about part 11');
+    });
+
+    it('leaves the description mark out of what it spells out', async () => {
+      const user = userEvent.setup();
+      aRow({ item: anItem({ description: 'Tolerances' }) });
+      const label = screen.getByText('Make appointment with Novy');
+
+      await hoverLabel(user, label, { scrollWidth: 340, clientWidth: 120 });
+
+      // The mark is a sibling of the label rather than part of it, so hovering
+      // the label cannot pick it up - the tooltip is the title, not the title
+      // and a pilcrow.
+      expect(label).toHaveAttribute('title', 'Make appointment with Novy');
+    });
+  });
+
   describe('a row opens its own form, from a double-click and from its menu', () => {
     it('opens it on a double-click', async () => {
       const onOpen = vi.fn();

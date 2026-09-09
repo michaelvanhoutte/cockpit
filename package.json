@@ -11,11 +11,13 @@
     "dev:web": "node scripts/dev.mjs --only web",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
+    "lint": "eslint . --max-warnings=0",
     "test": "pnpm -r test",
-    "test:fast": "pnpm -r test:fast && pnpm test:scripts",
-    "test:all": "pnpm -r test:all && pnpm test:scripts && pnpm test:e2e",
+    "test:fast": "pnpm -r test:fast && pnpm test:scripts && pnpm test:lint",
+    "test:all": "pnpm -r test:all && pnpm test:scripts && pnpm test:lint && pnpm test:e2e",
     "test:e2e": "playwright test",
     "test:scripts": "node --test scripts/lib/*.test.mjs",
+    "test:lint": "node --test tests/lint/*.test.mjs",
     "test:coverage": "pnpm -r test:coverage",
     "test:explorer": "pnpm --filter @cockpit/test-explorer generate",
     "test:explorer:check": "pnpm --filter @cockpit/test-explorer check-concepts",
@@ -26,10 +28,13 @@
     "branches:tidy": "node scripts/tidy-branches.mjs"
   },
   "devDependencies": {
-    "@cockpit/shared": "workspace:*",
     "@cockpit/config": "workspace:*",
+    "@cockpit/shared": "workspace:*",
     "@playwright/test": "^1.62.1",
     "@types/node": "^26.4.0",
+    "@typescript-eslint/parser": "^8.70.0",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^5.9.3"
   }
 }
