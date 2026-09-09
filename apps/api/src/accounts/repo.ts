@@ -521,6 +521,7 @@ const itemColumns = {
   capturedMessage: items.capturedMessage,
   title: items.title,
   description: items.description,
+  textsSettledAt: items.textsSettledAt,
   sourceResolvedAt: items.sourceResolvedAt,
   typeId: items.typeId,
   nextAction: items.nextAction,

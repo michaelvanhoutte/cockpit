@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
+    "test:contract": "vitest run --config vitest.contract.config.ts",
     "test:fast": "pnpm test:unit",
     "test:all": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -22,6 +23,7 @@
     "db:seed:local": "wrangler d1 execute cockpit --local --file=./seed.sql"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.72.1",
     "@cockpit/connector-sdk": "workspace:*",
     "@cockpit/shared": "workspace:*",
     "@hono/zod-openapi": "^1.5.2",

@@ -41,6 +41,7 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
+import { enqueueCleanUp } from '../jobs/index.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -243,16 +244,35 @@ for (const prefix of MOVED_OPERATOR_PREFIXES) {
  * its own store it silently narrowed to the register while still reading like
  * the whole claim - which is what let a deployment where every request failed
  * keep answering `{"ok":true,"db":true}`.
+ *
+ * **`ai` is reported and deliberately not part of `ok`**, which is the whole of
+ * why it is here ("Clean up a captured note into a clear title and a fuller
+ * message", issue 296). An environment with no key works: every capture
+ * succeeds and the Item keeps the mechanical title. What it cannot do is say so
+ * - a deployment nobody put a key in would enrich nothing for months with
+ * everything green, which is the failure docs/deployment.md already records for
+ * `CLAUDE_CODE_OAUTH_TOKEN`. Folding it into `ok` would instead make local
+ * development and the browser suite - which have no key and need none - report
+ * an unhealthy deployment and stop the e2e stack from ever starting.
+ *
+ * **Whether there is a key, never what it is.** This endpoint answers anybody
+ * at all (docs/deployment.md, "`/health` answers without a sign-in").
  */
 const healthRoute = createRoute({
   method: 'get',
   path: '/health',
   responses: {
     200: {
-      description: 'Whether the register and an account store can both be reached',
+      description:
+        'Whether the register and an account store can both be reached, and whether this environment can enrich anything',
       content: {
         'application/json': {
-          schema: z.object({ ok: z.boolean(), register: z.boolean(), store: z.boolean() }),
+          schema: z.object({
+            ok: z.boolean(),
+            register: z.boolean(),
+            store: z.boolean(),
+            ai: z.boolean(),
+          }),
         },
       },
     },
@@ -712,13 +732,13 @@ const routes = app
     return c.json({ user: changed.user }, 200);
   })
   .openapi(healthRoute, async (c) => {
-    const { register, store, failure } = await checkHealth(c.env);
+    const { register, store, ai, failure } = await checkHealth(c.env);
     // The reason goes to the logs and not into the body: this endpoint answers
     // anyone at all, and why a change would not apply names tables and columns.
     if (failure) {
       console.error(JSON.stringify({ level: 'error', message: `unhealthy: ${failure}` }));
     }
-    return c.json({ ok: register && store, register, store }, 200);
+    return c.json({ ok: register && store, register, store, ai }, 200);
   })
   .openapi(workspacesRoute, async (c) => {
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -789,7 +809,29 @@ const routes = app
   )
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
-  .openapi(commandRoute('capture_item'), async (c) => c.json(await change(c, 'capture_item', c.req.valid('json')), 200))
+  .openapi(commandRoute('capture_item'), async (c) => {
+    const captured = c.req.valid('json');
+    const result = await change(c, 'capture_item', captured);
+    // **After the Item is written, and only where it was actually written.** A
+    // replayed capture answers `applied: false` and enqueues nothing, so a
+    // client retrying an offline capture does not buy a second model call for
+    // the same note; and a capture that was refused never reaches here at all
+    // ("Clean up a captured note into a clear title and a fuller message",
+    // issue 296).
+    //
+    // **`waitUntil`, not `await`.** Putting a message on a queue is a round
+    // trip to Cloudflare's own queue service, and capture is the one path in
+    // this product that may never be held up for something the person
+    // capturing cannot act on - it is what somebody does in a car. The Item is
+    // already written and already carries its mechanical title, so the send
+    // outlives the response rather than delaying it.
+    if (result.applied) {
+      c.executionCtx.waitUntil(
+        enqueueCleanUp(c.env, c.get('visitor').accountName, captured.itemId),
+      );
+    }
+    return c.json(result, 200);
+  })
   .openapi(
     commandRoute('move_item_to_panel', {
       conflict: 'The order sent is not the order of that panel any more',

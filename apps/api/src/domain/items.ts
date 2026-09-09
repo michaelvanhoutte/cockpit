@@ -4,6 +4,7 @@ import {
   type Association,
   type CaptureItemCommand,
   type Item,
+  type ProposeItemTextsCommand,
   type SetDescriptionCommand,
   type SetDismissedCommand,
   type SetDoneCommand,
@@ -51,6 +52,10 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     capturedMessage: cmd.message,
     title: texts.title,
     description: texts.description,
+    // Nobody has taken these two over, so Cockpit may still replace them once
+    // it has read the note ("Clean up a captured note into a clear title and a
+    // fuller message", issue 296). Editing either is what settles both.
+    textsSettledAt: null,
     sourceResolvedAt: null,
     // Every capture names one, so nothing is defaulted here. The column stays
     // nullable for the Items that have no Type - captured before Types
@@ -143,7 +148,55 @@ export function applySetPriority(item: Item, cmd: SetPriorityCommand): Item | nu
 
 export function applySetTitle(item: Item, cmd: SetTitleCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
-  return { ...item, title: cmd.title, updatedAt: cmd.issuedAt };
+  return { ...item, title: cmd.title, ...settledBy(item, cmd.issuedAt), updatedAt: cmd.issuedAt };
+}
+
+/**
+ * Editing either of an Item's two texts takes both of them over from Cockpit,
+ * for good ("Clean up a captured note into a clear title and a fuller message",
+ * issue 296).
+ *
+ * **The first answer wins**, exactly as it does for the Workspace an Item
+ * belongs to: this records when a person took the texts over, not when they
+ * last touched them, so a second edit is not a second answer to the same
+ * question. That also makes it safe to write on every edit rather than only the
+ * first, which is what keeps this one expression instead of a branch.
+ */
+function settledBy(item: Item, issuedAt: string): Pick<Item, 'textsSettledAt'> {
+  return { textsSettledAt: item.textsSettledAt ?? issuedAt };
+}
+
+/**
+ * The title and the message Cockpit read out of the captured note, written
+ * together ("Clean up a captured note into a clear title and a fuller message",
+ * issue 296).
+ *
+ * **Refused outright once a person has taken the texts over**, rather than
+ * resolved last-write-wins like everything else here. The clocks are not
+ * comparable - this carries the moment the job ran, and an edit carries the
+ * device's own - and the rule is not about which happened later anyway: Cockpit
+ * may replace what it proposed and never what a person settled, which is the
+ * same rule `decideWorkspace` above states for where an Item belongs.
+ *
+ * **What it guards against is a redelivery arriving after an edit, and nothing
+ * else.** At-least-once delivery means the same note will be read twice
+ * eventually, and a second reading of texts nobody has touched is *accepted*:
+ * it re-reads the same captured message and writes a fresh proposal over the
+ * previous one, which costs cents and is worth less than the machinery to
+ * prevent it (issue 296, "The second time it runs?"). Only an edit in between
+ * makes the second write a clobber, and only that is refused.
+ *
+ * **`updatedAt` is deliberately left where it is.** Every other handler here
+ * refuses a command older than it, so raising it to the moment the job happened
+ * to run would let a proposal arriving three seconds after capture refuse an
+ * edit made two seconds after capture on a device with a slow connection. A
+ * proposal is not a change somebody made, so it does not move the clock other
+ * people's changes are measured against; what a browser reads it back through
+ * is the account's own change log, not this field.
+ */
+export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): Item | null {
+  if (item.textsSettledAt !== null) return null;
+  return { ...item, title: cmd.title, description: cmd.description };
 }
 
 /**
@@ -156,7 +209,12 @@ export function applySetDescription(item: Item, cmd: SetDescriptionCommand): Ite
   if (isStale(item, cmd.issuedAt)) return null;
   // An emptied description is a cleared one, so it is stored as absent rather
   // than as an empty string nothing else in the product would distinguish.
-  return { ...item, description: cmd.description || null, updatedAt: cmd.issuedAt };
+  return {
+    ...item,
+    description: cmd.description || null,
+    ...settledBy(item, cmd.issuedAt),
+    updatedAt: cmd.issuedAt,
+  };
 }
 
 export function associationFromCommand(cmd: AssociateCommand, tenantId: string): Association {

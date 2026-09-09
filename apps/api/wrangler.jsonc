@@ -107,6 +107,37 @@
     "APP_ORIGIN": "https://cockpit.vanhoutte-michael.workers.dev"
   },
 
+  // Deferred work, consumed by this same Worker (architecture, "Background
+  // jobs"). Today that is one job: reading a captured note and proposing what
+  // to call it, so that capture never waits on a model call ("Clean up a
+  // captured note into a clear title and a fuller message", issue 296).
+  //
+  // `queues` is NOT inheritable, and that is the point rather than a nuisance:
+  // each environment names its own queue below, so staging cannot consume
+  // production's messages. Create them before the first deploy that names them
+  // (`wrangler queues create`, docs/deployment.md, "Bootstrap runbook").
+  //
+  // **No dead-letter queue.** A message that has failed its retries is dropped,
+  // and what it was carrying is not lost with it: the note itself is on the
+  // Item as its captured message and its mechanical title, so the cost of a
+  // dropped job is one Item reading less well than it might. A DLQ would be two
+  // more queues nobody reads.
+  //
+  // A small batch with a short timeout, because the wait is a product decision:
+  // one captured note should not sit for the default five seconds waiting for
+  // four more to arrive, and a batch is worked through one model call at a time.
+  "queues": {
+    "producers": [{ "queue": "cockpit-enrichment", "binding": "ENRICHMENT" }],
+    "consumers": [
+      {
+        "queue": "cockpit-enrichment",
+        "max_batch_size": 5,
+        "max_batch_timeout": 1,
+        "max_retries": 3
+      }
+    ]
+  },
+
   "env": {
     // Staging: the only environment besides production where cron triggers and
     // queue consumers actually run, against a database that accumulates state.
@@ -135,16 +166,27 @@
       "vars": {
         "GOOGLE_CLIENT_ID": "1049607304950-ebumoteu4kfk4emedo744gka6mnh74rg.apps.googleusercontent.com",
         "APP_ORIGIN": "https://cockpit-staging.vanhoutte-michael.workers.dev"
+      },
+      // Its own queue, for the reason it has its own database: `queues` is not
+      // inheritable, and a shared name would let staging consume production's
+      // messages and write to production's accounts.
+      "queues": {
+        "producers": [{ "queue": "cockpit-enrichment-staging", "binding": "ENRICHMENT" }],
+        "consumers": [
+          {
+            "queue": "cockpit-enrichment-staging",
+            "max_batch_size": 5,
+            "max_batch_timeout": 1,
+            "max_retries": 3
+          }
+        ]
       }
     }
   }
 
-  // Queues and Cron Triggers (architecture, "Background jobs") are wired when
-  // the first connector and
-  // enrichment job land. Note when they are: `triggers` is inheritable (so a
-  // cron schedule set at the top level would silently also apply to staging,
-  // which is what we want) but `queues` is NOT, so each environment needs its
-  // own queue names to avoid staging consuming production messages:
-  //   "triggers": { "crons": ["*/5 * * * *"] },
-  //   "queues": { "producers": [...], "consumers": [...] }
+  // Cron Triggers (architecture, "Background jobs") are wired when the first
+  // connector sync lands. `triggers` is inheritable, so a cron schedule set at
+  // the top level also applies to staging, which is what we want:
+  //   "triggers": { "crons": ["*/5 * * * *"] }
+  // Queues are above, and are not inheritable - see the note there.
 }

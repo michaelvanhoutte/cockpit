@@ -1,0 +1,39 @@
+name: Contract
+
+# The tier that talks to the real Claude API (docs/testing-strategy.md, "Third
+# parties"): everything below it runs against a fake, and this is what says the
+# fake still resembles the thing. Scheduled rather than per pull request,
+# because every run spends real money and the model is not deterministic - a
+# tier that ran on every push would be a bill and a flake in front of every
+# merge.
+#
+# Nightly, and by hand from the Actions tab when the prompt changes - which is
+# the run that matters, a prompt being the only half of this contract we own.
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: contract
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Contract tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # A missing secret presents as a workflow that goes green having done
+      # nothing, which is the failure docs/deployment.md records for
+      # `CLAUDE_CODE_OAUTH_TOKEN`. The suite itself refuses to run without a key
+      # (tests/contract/clean-up-a-note.test.ts), so this only names the
+      # secrets; it does not print them.
+      - run: pnpm --filter @cockpit/api test:contract
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}

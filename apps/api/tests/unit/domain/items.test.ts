@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Item } from '@cockpit/shared';
 import {
+  applyProposedTexts,
+  applySetDescription,
   applySetDismissed,
   applySetDone,
+  applySetTitle,
   captureItem,
   decideWorkspace,
 } from '../../../src/domain/items.js';
@@ -38,6 +41,12 @@ const done = (item: Item, at: string, isDone: boolean) =>
 
 const dismissed = (item: Item, at: string, isDismissed: boolean) =>
   applySetDismissed(item, { ...request, issuedAt: at, itemId: 'x', dismissed: isDismissed });
+
+const titled = (item: Item, at: string, title: string) =>
+  applySetTitle(item, { ...request, issuedAt: at, itemId: item.id, title })!;
+
+const described = (item: Item, at: string, description: string) =>
+  applySetDescription(item, { ...request, issuedAt: at, itemId: item.id, description })!;
 
 describe('Capture', () => {
   describe('a thought captured in the app arrives yours to deal with', () => {
@@ -200,6 +209,111 @@ describe('Offline', () => {
       { situation: 'dismissing it', act: (i: Item) => dismissed(i, LATER, true) },
     ])('leaves the item alone rather than undoing the newer change when $situation', ({ act }) => {
       expect(act(anItem({ updatedAt: LATEST }))).toBeNull();
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * L1: whether a proposal may be written is a decision over the item and the
+   * proposal, and nothing else. That the reading happens at all, and that the
+   * store refuses the same write for the same reason, is proved against a real
+   * store in apps/api/tests/integration/http/note-cleanup.test.ts.
+   */
+  describe('a captured note is named by Cockpit until you edit either text, and by you after that', () => {
+    const proposed = (item: Item) =>
+      applyProposedTexts(item, {
+        ...request,
+        issuedAt: LATEST,
+        itemId: item.id,
+        title: 'Ask Novy about the Part 11 audit trail',
+        description: 'A question about the Part 11 audit trail for the validation protocol.',
+      });
+
+    it.each([
+      {
+        situation: 'nothing has been edited since it was captured',
+        before: (item: Item) => item,
+        rewritten: true,
+      },
+      {
+        situation: 'the title has been edited',
+        before: (item: Item) => titled(item, LATER, 'Novy'),
+        rewritten: false,
+      },
+      {
+        situation: 'the description has been edited',
+        before: (item: Item) => described(item, LATER, 'Mine to write'),
+        rewritten: false,
+      },
+      {
+        situation: 'Cockpit has already read the note once',
+        before: (item: Item) => proposed(item)!,
+        rewritten: true,
+      },
+    ])('is rewritten only where $situation', ({ before, rewritten }) => {
+      const standing = before(anItem());
+
+      const after = proposed(standing);
+
+      expect(after === null).toBe(!rewritten);
+      expect((after ?? standing).title).toBe(
+        rewritten ? 'Ask Novy about the Part 11 audit trail' : standing.title,
+      );
+      expect((after ?? standing).description).toBe(
+        rewritten
+          ? 'A question about the Part 11 audit trail for the validation protocol.'
+          : standing.description,
+      );
+    });
+
+    it.each([
+      { situation: 'the title', edit: (item: Item) => titled(item, LATER, 'Mine') },
+      { situation: 'the description', edit: (item: Item) => described(item, LATER, 'Mine') },
+    ])('takes both texts over the first time you edit $situation', ({ edit }) => {
+      expect(edit(anItem()).textsSettledAt).toBe(LATER);
+    });
+
+    it('stays taken over at the moment you first took it, not the last time you typed', () => {
+      const mine = titled(anItem(), LATER, 'Mine');
+      expect(described(mine, LATEST, 'Also mine').textsSettledAt).toBe(LATER);
+    });
+
+    /**
+     * The rule the whole feature is judged against: what somebody actually said
+     * is a record, and nothing here may rewrite it - not the reading, and not
+     * the edits that follow it.
+     */
+    it.each([
+      { situation: 'Cockpit has read it', after: (item: Item) => proposed(item)! },
+      { situation: 'Cockpit has read it twice', after: (item: Item) => proposed(proposed(item)!)! },
+      { situation: 'both texts have been edited', after: (item: Item) => described(titled(item, LATER, 'Mine'), LATEST, 'Also mine') },
+    ])('keeps what was captured exactly as it was said once $situation', ({ after }) => {
+      expect(after(anItem()).capturedMessage).toBe('Make appointment with Novy');
+    });
+  });
+});
+
+describe('Offline', () => {
+  /**
+   * Cockpit reading a note is not a change somebody made, so it must not make
+   * their own change look old. Distinct from the rule above: that one is about
+   * Cockpit refusing to write, this one is about what it leaves behind when it
+   * does write.
+   */
+  describe('an edit made on another device still lands after Cockpit has read the note', () => {
+    it('is applied rather than refused for being older than the reading', () => {
+      const read = applyProposedTexts(anItem(), {
+        ...request,
+        issuedAt: '2026-08-12T10:00:05.000Z',
+        itemId: '018f0000-0000-7000-8000-000000000002',
+        title: 'Ask Novy about the appointment',
+        description: 'Make an appointment with Novy.',
+      })!;
+
+      // Typed a second after the capture, on a phone that only reached the
+      // server after the reading had landed.
+      expect(titled(read, LATER, 'Novy, appointment').title).toBe('Novy, appointment');
     });
   });
 });

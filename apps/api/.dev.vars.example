@@ -12,3 +12,19 @@
 # and that file's "local" have to match. Why there are two is in
 # docs/deployment.md, "Secrets and access".
 BACKUP_TOKEN=local-operator-secret
+
+# What Cockpit reads a captured note with, so that `pnpm dev` can clean one up
+# ("Clean up a captured note into a clear title and a fuller message", issue
+# 296). Issued in the Anthropic Console; a deployed environment gets one via
+# `wrangler secret put ANTHROPIC_API_KEY`, per environment.
+#
+# **Leaving it out is a supported state**, not a broken setup: capture works and
+# each Item keeps the title it was typed with. `/health` reports which of the
+# two you are in, as `ai`.
+ANTHROPIC_API_KEY=
+
+# Only where the key is scoped to the organisation rather than to one workspace,
+# which is refused with a 400 without it. Shaped `wrkspc_...`, not a secret, and
+# found in the Console URL of the workspace. Anthropic's "workspace" is a
+# billing grouping and has nothing to do with Cockpit's Workspaces.
+ANTHROPIC_WORKSPACE_ID=

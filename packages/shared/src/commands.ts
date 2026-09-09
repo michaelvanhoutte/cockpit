@@ -423,9 +423,10 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
   /**
    * What was said, which is the one text capture takes: it is kept as the
    * Item's captured message and it names the Item, by the rule in
-   * `textsFromCapture`. Something cleverer than a cut at 200 characters
-   * proposing that name - a cleaned title, several suggestions to pick from -
-   * is its own piece of work (docs/ideas.md, "Capture and the task creator").
+   * `textsFromCapture`. A moment after the Item is written, Cockpit reads this
+   * and proposes both texts properly (`proposeItemTextsSchema` below); several
+   * readings to pick from is still its own piece of work (docs/ideas.md,
+   * "Capture and the task creator").
    *
    * Capped where a description is capped, and for the same reason: it lands in
    * the same snapshot, which every device holds a copy of. Only on the way in -
@@ -733,6 +734,38 @@ export const setDescriptionSchema = commandEnvelopeSchema.extend({
 export type SetDescriptionCommand = z.infer<typeof setDescriptionSchema>;
 
 /**
+ * propose_item_texts — the title and the description Cockpit read out of a
+ * captured note, written together ("Clean up a captured note into a clear title
+ * and a fuller message", issue 296).
+ *
+ * **One command for both texts, unlike the two the form sends.** Those are two
+ * because a person edits one field at a time and the other must not be carried
+ * over an edit made elsewhere; this is one because it is one reading of one
+ * note, and half of it landing would leave the Item describing itself two ways.
+ *
+ * **It is the only command with no client behind it**, so it is deliberately
+ * *not* mounted as an endpoint in `http/app.ts`: it is sent by the enrichment
+ * job, over the account's own store, and a browser has `set_title` and
+ * `set_description` for the same two fields. It is in this registry because
+ * that is what types the store's one write path, not because it is a route.
+ *
+ * Both texts obey the shapes the form's own commands obey, so a proposal that
+ * would not fit the fields it lands in is refused here rather than stored -
+ * and both are required to say something, which is where this is *stricter*
+ * than the form. A person may clear a title (`itemTitleSchema` allows the empty
+ * string, and there is nothing to refuse them for); Cockpit proposing that they
+ * should is not a proposal.
+ */
+export const proposeItemTextsSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  title: itemTitleSchema.refine((title) => title.length > 0, {
+    message: 'a proposed title has to name the note',
+  }),
+  description: itemDescriptionSchema.min(1),
+});
+export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
+
+/**
  * The command registry: name → payload schema. The API mounts one POST route
  * per entry; the client gets a typed sender per entry. Adding a command means
  * adding it here and writing its domain handler; no other wiring.
@@ -773,10 +806,26 @@ export const commandSchemas = {
   set_priority: setPrioritySchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
+  propose_item_texts: proposeItemTextsSchema,
 } as const;
 
 export type CommandName = keyof typeof commandSchemas;
 export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchemas)[N]>;
+
+/**
+ * The commands Cockpit sends itself rather than taking from a client, and so
+ * the ones with no endpoint and no sender.
+ *
+ * Named as a type rather than left implicit because the store's write path is
+ * typed by the whole registry while the browser's sender map is typed by this
+ * subtraction: without the distinction, adding a command the browser cannot
+ * send breaks the client's typecheck, and the fix that suggests itself is to
+ * publish an endpoint nothing should call.
+ */
+export type SelfSentCommandName = 'propose_item_texts';
+
+/** The commands a client sends, which is every command with an endpoint. */
+export type ClientCommandName = Exclude<CommandName, SelfSentCommandName>;
 
 /** What every command endpoint returns. `applied: false` = idempotent replay. */
 export const commandResultSchema = z.object({

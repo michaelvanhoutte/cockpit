@@ -3,6 +3,7 @@ import type {
   CommandName,
   CommandPayload,
   CommandResult,
+  Item,
   ItemType,
   ServerEvent,
   Workspace,
@@ -34,6 +35,16 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   workspaces(accountName: string): Awaitable<Answer<Workspace[]>>;
   itemTypes(accountName: string): Awaitable<Answer<ItemType[]>>;
   snapshot(accountName: string, workspaceId: string): Awaitable<Answer<AccountSnapshot>>;
+  /**
+   * One Item by its id, or null where the account holds no such Item.
+   *
+   * Null rather than `missing`, unlike every read above that names something:
+   * the only caller is a background job holding an id from minutes ago (issue
+   * 296), for which an Item that has since been dismissed and erased - or one
+   * that was never in this account, which matches no row because every query
+   * filters on the account - is the ordinary case and not a failure to report.
+   */
+  item(accountName: string, itemId: string): Awaitable<Answer<Item | null>>;
   changesSince(
     accountName: string,
     since: string,

@@ -127,6 +127,7 @@ function anItem(id: string, title: string): Item {
     title,
     capturedMessage: null,
     description: null,
+    textsSettledAt: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,
