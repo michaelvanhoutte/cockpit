@@ -689,11 +689,12 @@ Then, by hand (no API, or deliberately not automated):
      merging. It would force an "Update branch" click every time `main` moves, and
      the semantic conflict it guards against is exactly what staging catches; a
      bad merge reaches staging, never production.
-   - **`contexts`** — nine names: six of the nine jobs in `ci.yml`, and three
-     from CodeQL, matched exactly. The three left out are the reports', and for
-     two reasons: Test Explorer deliberately does not gate, while Publish and
-     Stability *could not* gate anything if they were listed — the `if:` on each
-     skips it on every pull request, and a skipped job reports as passing.
+   - **`contexts`** — eleven names: six of the nine jobs in `ci.yml`, three from
+     CodeQL, and the two Claude reviews, matched exactly. The three CI jobs left
+     out are the reports', and for two reasons: Test Explorer deliberately does
+     not gate, while Publish and Stability *could not* gate anything if they were
+     listed — the `if:` on each skips it on every pull request, and a skipped job
+     reports as passing.
 
      The three are not interchangeable. `CodeQL (javascript-typescript)` and
      `CodeQL (actions)` are the matrix legs and say only that the analysis *ran*.
@@ -740,9 +741,8 @@ Then, by hand (no API, or deliberately not automated):
 
      **Whether `claude-review` and `Security review` belong in this list was investigated
      for "Require the two Claude reviews, once it is known what a required review would
-     break" (issue 310), and the two reviews got different answers.** Four mechanisms were
-     measured rather than assumed, since nothing in this repository's history had ever
-     required a context shaped like either review's:
+     break" (issue 310).** Four mechanisms were measured rather than assumed, since nothing
+     in this repository's history had ever required a context shaped like either review's:
 
      - **A skipped run satisfies a required context.** Measured on a throwaway public
        repository (deleted after): a job skipping on `draft == true`, required by name,
@@ -773,23 +773,32 @@ Then, by hand (no API, or deliberately not automated):
        only way through, which is the cost the issue asked to have named rather than
        discovered.
 
-     **What the green already certifies differs between the two reviews, and that is what
-     decides this — the four mechanisms above hold equally for both.**
-     `decideCodeReviewOutcome` in
-     [scripts/lib/review-gate.mjs](../scripts/lib/review-gate.mjs) treats a decline because
-     the pull request "has already been reviewed" as a warning, not a failure, once the
-     earlier round's comments still stand on the pull request — which is exactly "The
-     review check goes green when the reviewer declined to look at the new commits" (issue
-     75): commits pushed since that decline are unreviewed, and the check still reports
-     success. `decideSecurityOutcome` carries no equivalent path — its prompt is instructed
-     to review the current head regardless of history, and its gate fails any run that ends
-     without a fresh `SECURITY-VERDICT` line, a decline included.
+     **What the green certifies was the fifth question, and it moved while this
+     investigation was running.** `decideCodeReviewOutcome` used to treat a decline because
+     the pull request "has already been reviewed" as a warning rather than a failure, so a
+     head with new commits nobody had looked at could still report success — "The review
+     check goes green when the reviewer declined to look at the new commits" (issue 75).
+     "Fail the review check when the reviewer never looked at the head" (pull request 313)
+     closed it while this issue was open, by making the gate ask whether the reviewer spoke
+     about *this run's own head* rather than the pull request as a whole: a genuine decline
+     against an already-reviewed head still passes, and a decline against a head nobody has
+     seen now fails. `decideSecurityOutcome` never had the equivalent gap — its prompt is
+     instructed to review the current head regardless of history, and its gate fails any run
+     that ends without a fresh `SECURITY-VERDICT` line.
 
-     **`Security review` is required as of the pull request that added this paragraph;
-     `claude-review` stays out of `contexts` until issue 75 closes.** Requiring the one
-     whose green cannot yet distinguish "reviewed, found nothing" from "declined without
-     looking" would certify exactly the guarantee that green cannot honour — on precisely
-     the pull requests that already had findings.
+     One narrower gap remains in `decideCodeReviewOutcome`, named in its own comments rather
+     than hidden: when the run cannot place its head in time — no SHA, or GitHub unreachable
+     for the dates a placement needs — the check falls back to "has the reviewer ever spoken
+     here", a warning rather than a failure, sooner than going red at GitHub for being
+     unreachable. That is a narrower version of the same shape issue 75 named, accepted
+     because the alternative is louder than the bug it guards against and about the wrong
+     thing; it is not a reason to hold `claude-review` out of `contexts`, since forcing every
+     placement failure red would trade a rare, already-warned gap for stopping the trunk on
+     an unrelated GitHub outage.
+
+     **Both `claude-review` and `Security review` are required as of the pull request that
+     added this paragraph.** The four mechanisms measured above hold for both, and neither
+     carries an unclosed version of issue 75's gap.
    - **`required_linear_history: true`** — makes §1's squash-merge rule mechanical
      rather than remembered.
    - **`enforce_admins: false`** — keeps an admin escape hatch for emergencies,
