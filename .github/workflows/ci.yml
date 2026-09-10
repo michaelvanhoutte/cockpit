@@ -204,11 +204,11 @@ jobs:
       - run: pnpm bundle:budget
 
   # **The one mechanical job with no `if:`**, though the issue behind the gate
-  # above listed it with the rest. Its last test reads the repository's Markdown — the writing rules
-  # of CLAUDE.md — so it is the only check that has anything to say about the
-  # very paths the others skip on, and skipping it would take the prose gate off
-  # exactly the pull requests it exists for. It is also checkout-only and takes
-  # seconds, so gating it would save nothing worth the hole.
+  # above listed it with the rest. Its last test reads the repository's Markdown
+  # — the writing rules of CLAUDE.md — so it is the only check with anything to
+  # say about the very paths the others skip on, and skipping it would take the
+  # prose gate off exactly the pull requests it exists for. It is checkout-only
+  # and takes seconds, so gating it would save nothing worth that hole.
   scripts:
     name: Scripts
     runs-on: ubuntu-latest
