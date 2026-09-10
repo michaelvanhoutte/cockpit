@@ -83,6 +83,13 @@ gh pr create --draft --title "..." --body "..."
 gh pr ready <number>
 ```
 
+**A round of review fixes gets the same draft-then-ready treatment**, for the reason above: pushing fixes while ready used to leave a cancelled run's findings answering a head the replacement declined to look at, reported as a pass rather than a failure ("The review check goes green when the reviewer declined to look at the new commits", issue 75).
+
+```bash
+gh pr ready <number> --undo
+gh pr ready <number>
+```
+
 **Start the waiter after marking it ready, never before.** The two reviews are the only checks that fire on `ready_for_review` — `ci.yml` and `codeql.yml` name no `types`, so they run on the draft's pushes and not on the transition. A waiter started while the pull request is still a draft therefore sees a complete set of completed runs, with neither review among them, and reports a pass nobody reviewed.
 
 **Opening the pull request is not the end of the task — the review runs after the push.** "CI was still pending when I looked" is not a status; it is a note saying nobody looked again. "Create a workspace from a settings page" (pull request 81) was opened while `claude-review` was still pending and reported done in the same breath, and the one finding it went on to raise sat unanswered until somebody noticed by hand. Wait for the checks to settle, then work the findings to the end of the rule below.
