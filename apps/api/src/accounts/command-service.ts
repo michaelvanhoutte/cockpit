@@ -1704,11 +1704,15 @@ export function runCommand<N extends CommandName>(
             workspaceId: cmd.workspaceId,
             tenantId,
             correction,
-            correctionSetAt: cmd.issuedAt,
+            // Null exactly when the correction is, never a timestamp beside
+            // a cleared value - the "set to nothing" state is null on both
+            // columns, or a stale `correction_set_at` would survive its own
+            // clear (`domain/routing-summary.ts`).
+            correctionSetAt: correction === null ? null : cmd.issuedAt,
           })
           .onConflictDoUpdate({
             target: workspaceRoutingSummary.workspaceId,
-            set: { correction, correctionSetAt: cmd.issuedAt },
+            set: { correction, correctionSetAt: correction === null ? null : cmd.issuedAt },
           })
           .run();
         tx.insert(commands).values(commandRow).run();

@@ -127,13 +127,17 @@ describe('What Cockpit has learned', () => {
       expect((await rowFor(ACCOUNT_NAME, WORKSPACE_ID))?.correction).toBe('Second, replacing the first.');
     });
 
-    it('clears the correction back to null when sent the empty string', async () => {
+    it('clears the correction back to null when sent the empty string, timestamp included', async () => {
       await setCorrection('Sign-off questions go to Laurens.');
 
       expect((await setCorrection('')).status).toBe(200);
 
       const row = await rowFor(ACCOUNT_NAME, WORKSPACE_ID);
       expect(row?.correction).toBeNull();
+      // Null on both, or "set to nothing" would carry a timestamp for a
+      // correction that no longer exists - a third state
+      // `domain/routing-summary.ts` says there is none of.
+      expect(row?.correction_set_at).toBeNull();
     });
 
     it('is refused for a workspace that does not exist', async () => {
