@@ -27,6 +27,7 @@ import {
   GATE_AUTHOR,
   decideCodeReviewOutcome,
   decideSecurityOutcome,
+  denialsOf,
   markedCommentId,
   oneLine,
   placeHead,
@@ -45,6 +46,11 @@ function run({ text = 'SECURITY-VERDICT: NONE', turns = 14, ...rest } = {}) {
 /** What the workflow hands the gate: the file's raw text. */
 function file(value) {
   return JSON.stringify(value);
+}
+
+/** A denial as the message stream carries one, tool name plus an optional reason. */
+function denied({ tool = 'Bash', message } = {}) {
+  return { type: 'system', subtype: 'permission_denied', tool_name: tool, ...(message !== undefined && { message }) };
 }
 
 describe('verdictOf', () => {
@@ -104,6 +110,41 @@ describe('resultRecordOf', () => {
 
   it('is null when a stream carries no result at all', () => {
     assert.equal(resultRecordOf([{ type: 'system' }, { type: 'assistant' }]), null);
+  });
+});
+
+describe('denialsOf', () => {
+  it('collects each denial\'s own message, not just its tool name', () => {
+    // The two shapes sampled across issue 284's pull requests (see
+    // denialsOf's own comment for the run numbers): a compound command
+    // naming the sub-command that needed approval, and an output
+    // redirection refused outright regardless of the allowlist.
+    const execution = [
+      denied({ message: 'The following part requires approval: grep -n "sql" a.ts b.ts' }),
+      denied({ message: "Output redirection to '/tmp/pr.diff' was blocked." }),
+    ];
+    assert.deepEqual(denialsOf(execution, {}).reasons, [
+      'The following part requires approval: grep -n "sql" a.ts b.ts',
+      "Output redirection to '/tmp/pr.diff' was blocked.",
+    ]);
+  });
+
+  it('deduplicates identical messages', () => {
+    const execution = [denied({ message: 'Output redirection was blocked.' }), denied({ message: 'Output redirection was blocked.' })];
+    assert.deepEqual(denialsOf(execution, {}).reasons, ['Output redirection was blocked.']);
+  });
+
+  it('falls back to the tool name for a denial with no message, rather than dropping it', () => {
+    // The bug a wholesale messages-or-tools choice had: mix a denial that
+    // carries a message with one that does not, and the message-less one
+    // used to vanish from the reader-facing text entirely while `count`
+    // still counted it.
+    const execution = [denied({ tool: 'Bash', message: 'Output redirection was blocked.' }), denied({ tool: 'WebFetch' })];
+    assert.deepEqual(denialsOf(execution, {}).reasons, ['Output redirection was blocked.', 'WebFetch']);
+  });
+
+  it('is an empty list of reasons for no denials at all, rather than a hole in the array', () => {
+    assert.deepEqual(denialsOf([], {}).reasons, []);
   });
 });
 
@@ -225,10 +266,39 @@ describe('decideSecurityOutcome', () => {
     }
   });
 
-  it('warns about a short session but never fails on it', () => {
+  it('gives no warning for a short, clean session with no denials', () => {
+    // See decideSecurityOutcome's own doc-comment for why: the turn count
+    // used to warn here and no longer does (issue 284).
     const out = decideSecurityOutcome({ executionText: file(run({ turns: 3 })), conclusion: 'success' });
     assert.equal(out.ok, true);
-    assert.match(out.warnings.join(' '), /only 3 turns/);
+    assert.deepEqual(out.warnings, []);
+    assert.equal(out.turns, 3);
+  });
+
+  it('warns with the denial\'s own message, not just the tool name it repeats', () => {
+    // "Bash, Bash, Bash" was the actual warning on pull request 266: every
+    // denial there named the same tool and nothing else. The message on each
+    // one said what a reader could act on - here, that a command was refused
+    // for redirecting its output to a file. This is also the exact message
+    // shape run 34236381017 carried - it ends in a period, like nearly every
+    // real one - which is what the next case guards.
+    const execution = [
+      denied({ message: "Output redirection to '/tmp/pr266.diff' was blocked. For security, Claude Code may only write to files in the allowed working directories for this session." }),
+      run(),
+    ];
+    const out = decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' });
+    assert.equal(out.ok, true);
+    assert.match(out.warnings.join(' '), /Output redirection/);
+    assert.doesNotMatch(out.warnings.join(' '), /\(Bash\)/);
+  });
+
+  it('does not double up punctuation when the denial message already ends in some', () => {
+    // The first version of this note appended more prose after the message -
+    // "...this session.. Worth a look" - because it assumed the message
+    // would not end in its own full stop. Every real message sampled does.
+    const execution = [denied({ message: 'Output redirection was blocked.' }), run()];
+    const out = decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' });
+    assert.doesNotMatch(out.warnings.join(' '), /\.\./);
   });
 });
 
@@ -273,9 +343,10 @@ describe('summaryComment', () => {
   });
 
   it('keeps warnings out of the headline', () => {
-    const body = summaryComment(decide({ turns: 2 }));
+    const execution = [{ type: 'system', subtype: 'permission_denied', tool_name: 'Bash(node)' }, run()];
+    const body = summaryComment(decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' }));
     assert.match(body, /Verdict: NONE/);
-    assert.match(body, /only 2 turns/);
+    assert.match(body, /tool call\(s\) were denied/);
     assert.match(body, /<details>/);
   });
 });
@@ -579,6 +650,13 @@ describe('decideCodeReviewOutcome', () => {
       run({ text: 'Blocked.' }),
     ];
     assert.equal(codeReview({ executionText: file(execution), said: 0 }).denials.count, 2);
+  });
+
+  it('warns with the denial\'s own message here too, since denialNote is shared with the security gate', () => {
+    const execution = [denied({ message: 'Output redirection was blocked.' }), run()];
+    const out = codeReview({ executionText: file(execution), said: 1 });
+    assert.equal(out.ok, true);
+    assert.match(out.warnings.join(' '), /Output redirection/);
   });
 
   it('fails a session that ended on a subtype other than success', () => {

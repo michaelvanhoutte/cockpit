@@ -223,13 +223,32 @@ export function resultRecordOf(execution) {
 }
 
 /**
- * How many tool calls were denied, and which.
+ * How many tool calls were denied, and why.
  *
  * Counted from both places and the higher one wins. The result record's
  * permission_denials_count is absent on some runs while the message stream
  * holds real denials, so trusting the summary alone reads "no denials" off a
  * missing field - which is exactly what happened on run 33201638348 in the
  * sibling workflow.
+ *
+ * `reasons` is what makes the warning worth reading, and it is one reason per
+ * denial, never a wholesale choice between messages and tool names. `tool_name`
+ * alone is "Bash" on every denial sampled for issue 284, which said nothing -
+ * three of them read as "Bash, Bash, Bash" on pull request 266, run
+ * 34236381017, and all three were the same attempt - save the diff to a file
+ * to check its size - denied three different ways as Claude Code retried it: a
+ * compound command whose sub-command still needed approval, then twice over an
+ * output redirection refused outright. The redirection is not a missing
+ * allowlist entry - Claude Code refuses writing command output to a file
+ * regardless of what is allowlisted - so no tool name could have said that.
+ * The denial's own `message` does. Pull request 272, run 34283557786, is the
+ * other shape: a subagent shelling out to `grep | head` instead of using the
+ * Grep tool it already had, denied as a compound command for the same reason.
+ *
+ * Falling back to the tool name only per-denial, not for the whole list,
+ * matters where some denials in a run carry a message and others do not: a
+ * wholesale choice would drop the message-less ones from the reader-facing
+ * text entirely, while `count` kept counting them.
  */
 export function denialsOf(execution, result) {
   const stream = Array.isArray(execution)
@@ -237,8 +256,8 @@ export function denialsOf(execution, result) {
     : [];
   const fromSummary = Number(result?.permission_denials_count ?? 0) || 0;
   const count = Math.max(stream.length, fromSummary);
-  const tools = stream.map((m) => m.tool_name ?? '?');
-  return { count, tools };
+  const reasons = [...new Set(stream.map((m) => oneLine(m.message) || m.tool_name || '?'))];
+  return { count, reasons };
 }
 
 /**
@@ -260,7 +279,7 @@ function runFacts(executionText) {
   }
 
   const result = resultRecordOf(execution);
-  if (result === null) return { result: null, turns: 0, denials: { count: 0, tools: [] }, subtype: 'unknown', isError: false, finalText: '' };
+  if (result === null) return { result: null, turns: 0, denials: { count: 0, reasons: [] }, subtype: 'unknown', isError: false, finalText: '' };
 
   return {
     result,
@@ -279,7 +298,7 @@ function didNotRun() {
     failures: ['The review produced no result record, so it did not run.'],
     warnings: [],
     turns: 0,
-    denials: { count: 0, tools: [] },
+    denials: { count: 0, reasons: [] },
   };
 }
 
@@ -311,12 +330,23 @@ export function oneLine(text) {
  * is not something to grant a review of untrusted code on a public repository.
  * It adapted and posted its findings anyway, and failing that run would teach
  * everyone to ignore this check.
+ *
+ * Names what `denialsOf` found, not just that something was denied - see its
+ * own comment for why a reason beats a tool name. Joined with ` | ` rather
+ * than `; `, since a denial's reason routinely quotes a shell command and `;`
+ * is the one character certain to appear inside one; `|` is not guaranteed
+ * absent either, but a run's own commands are more likely to pipe than to
+ * embed a literal bar in prose. The reason comes last in the sentence,
+ * deliberately: it is arbitrary text this module does not control and cannot
+ * assume ends cleanly, and appending anything after it (as the first version
+ * of this note did) produced a stray "..blocked.. Worth a look" the one time a
+ * sampled message happened to end in a period, which was most of them.
  */
 function denialNote(denials, { reachedVerdict }) {
-  const which = oneLine(denials.tools.join(', ')) || 'see log';
+  const which = denials.reasons.join(' | ') || 'see log';
   return reachedVerdict
-    ? `The review reached a verdict but ${denials.count} tool call(s) were denied (${which}). Worth a look if its findings seem thin.`
-    : `It was blocked by ${denials.count} permission denial(s) (${which}), which is the likely reason.`;
+    ? `Worth a look if its findings seem thin - the review reached a verdict but ${denials.count} tool call(s) were denied: ${which}`
+    : `Likely blocked by ${denials.count} permission denial(s): ${which}`;
 }
 
 /**
@@ -345,8 +375,22 @@ export function verdictOf(text) {
  * code: this text is what a person reads when the check is red, and "the
  * review produced no verdict" and "the review found something HIGH" are
  * different problems with different fixes.
+ *
+ * No turn-count warning here, deliberately - the opposite of the sibling
+ * gate below. Seven of eight security reviews sampled on pull requests 249,
+ * 261, 265, 266, 269, 272 and 273 carried one under a NONE verdict, and their
+ * turn counts (4 to 9) tracked nothing about the diff: a 448-line, 5-file
+ * pull request took 4 turns and a 556-line, 25-file one took 9, denials
+ * included. A warning that fires on almost every review carries no
+ * information ("Make the security review warning mean something, or drop
+ * it", issue 284) - the reader learns to scroll past it, which is the
+ * failure this whole gate exists to prevent, one level up. The verdict
+ * already separates a thin review from a quick one on a small diff, which is
+ * the instrument the turn count was standing in for while there wasn't one;
+ * nothing sampled here gave a better one to replace it with, so it is gone
+ * rather than kept at a threshold that would rarely fire.
  */
-export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIGH', minTurns = 10 } = {}) {
+export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIGH' } = {}) {
   const failures = [];
   const warnings = [];
 
@@ -399,12 +443,6 @@ export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIG
       );
     }
     if (denials.count > 0) warnings.push(denialNote(denials, { reachedVerdict: true }));
-    // Never a failure. A short run is as likely to be a clean small diff as a
-    // blocked session, and the verdict already separates those two - which is
-    // the instrument the turn count was standing in for while there wasn't one.
-    if (turns < minTurns) {
-      warnings.push(`The session ran only ${turns} turns. Its verdict was ${verdict.severity}.`);
-    }
   }
 
   return {
