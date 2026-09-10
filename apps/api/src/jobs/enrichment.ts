@@ -362,13 +362,17 @@ export async function enqueueRepropose(env: Env, accountName: string, workspaceI
  * than the whole job being retried and Items 1 and 2 classified a second
  * time for nothing new.
  *
- * **Sequential, not parallel.** Nobody is waiting on the job as a whole, and
- * one candidate's write landing before the next is asked about is what keeps
- * this from updating a whole screenful of chips in the same frame. It does
- * not, on its own, guarantee a chip only ever changes below wherever triage
- * has reached - that positional guarantee is `docs/routing-learning.md`,
- * "Moment 3 in slow motion"'s own proposal for the inbox-open trigger this
- * job fires instead of, and nothing client-side implements it yet.
+ * **Sequential, not parallel.** Nobody is waiting on the job as a whole. What
+ * this actually buys is an ordering guarantee, not a rendering one: each
+ * candidate is classified against whatever the previous one just wrote,
+ * never against a state two writes are still in flight to produce. Rendering
+ * is a separate matter the client's own 3-second poll already coarsens on
+ * its own (`collectInvalidations`, `apps/api/src/accounts/events.ts`
+ * collapses several changes to one Workspace into the latest), and a chip
+ * only ever changing below wherever triage has reached is
+ * `docs/routing-learning.md`, "Moment 3 in slow motion"'s own proposal for
+ * the inbox-open trigger this job fires instead of - unimplemented
+ * client-side, not a property this job's own ordering provides.
  */
 export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promise<void> {
   const ai = aiFor(env);
