@@ -86,15 +86,20 @@ jobs:
       # measure", issue 289). Uploaded because Actions jobs share no filesystem —
       # this artifact is the explicit hop `test-explorer` downloads instead of
       # re-running the suite.
+      #
+      # The globs mirror pnpm-workspace.yaml's own package roots rather than
+      # naming today's three packages that happen to have a `test:coverage`
+      # script, so a package gaining one later is picked up here too instead of
+      # silently missing from the artifact.
       - run: pnpm test:coverage
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-reports
           path: |
-            apps/api/coverage/coverage-final.json
-            apps/web/coverage/coverage-final.json
-            packages/shared/coverage/coverage-final.json
-          retention-days: 1
+            apps/*/coverage/coverage-final.json
+            packages/*/coverage/coverage-final.json
+            packages/connectors/*/coverage/coverage-final.json
+            tools/*/coverage/coverage-final.json
 
   # F3, the browser tier. Its own job rather than part of `Test`, because it is
   # the one tier that boots the whole application (wrangler + local D1 + Vite)
@@ -215,11 +220,23 @@ jobs:
     name: Test Explorer
     needs: [test, test-explorer-check]
     runs-on: ubuntu-latest
+    # download-artifact reads this run's own artifacts through the Actions API,
+    # which the workflow-level block withholds by default — the same reason
+    # `pages` below declares it.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Download the coverage `test` already collected
         uses: actions/download-artifact@v4
+        # Missing rather than failed: if `test:coverage` ran but somehow wrote
+        # no `coverage-final.json` anywhere, `test` still succeeded and no
+        # artifact exists to download. Continuing without it degrades the
+        # report to "unknown" coverage columns — tools/test-explorer's own
+        # designed fallback — rather than failing this advisory job outright.
+        continue-on-error: true
         with:
           name: coverage-reports
           path: .
