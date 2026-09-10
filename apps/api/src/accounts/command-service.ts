@@ -1320,6 +1320,19 @@ export function runCommand<N extends CommandName>(
       // that was moved off a moment ago - and would surface either as a 500.
       if (panel) refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
 
+      // Read before anything below moves the item, because a routing settles
+      // exactly once - the first time an Item leaves the Inbox - and this is
+      // what tells that filing apart from every reorganizing move after it
+      // ("Learn where notes belong from where you actually file them", issue
+      // 299). Without this check, a later drag from one Panel to another would
+      // still carry whatever `proposedPanelId` was frozen at the *first*
+      // filing (nothing clears it - `applyProposedPanel`'s own comment: "never
+      // read again") and misrecord it as a proposal for a decision it was
+      // never shown for; undoing that later move would then write a further,
+      // equally spurious entry, breaking `decision_history`'s own append-only,
+      // undo-writes-nothing rule (schema.ts).
+      const alreadyFiled = isItemFiled(db, tenantId, cmd.itemId);
+
       // Where it goes is where it belongs, from now on. Null for an item that
       // already belonged somewhere, which is every move the app made before
       // this: the workspace is settled and nothing about it changes.
@@ -1348,16 +1361,19 @@ export function runCommand<N extends CommandName>(
           for (const batch of inBatchesOf(rows, FILING_VALUES_PER_ROW)) {
             tx.insert(panelItems).values(batch).run();
           }
-          // A routing settles by landing on a real Panel - never on a move to
-          // the Inbox, which is the branch this `if` is already gating on
-          // ("Learn where notes belong from where you actually file them",
-          // issue 299). `item` is read fresh above, before this write, so its
-          // `proposedPanelId`/`proposedPanelReason` are exactly what the Inbox
-          // chip showed for this filing.
-          tx.insert(decisionHistory)
-            .values(decisionHistoryEntryFor(item, cmd, panel.id))
-            .onConflictDoNothing()
-            .run();
+          // A routing settles by landing on a real Panel for the first time -
+          // never on a move to the Inbox, and never on a reorganizing move of
+          // an Item already filed somewhere (`alreadyFiled` above), which is
+          // not a fresh routing decision and would only ever misattribute a
+          // stale proposal to it. `item` is read fresh above, before this
+          // write, so its `proposedPanelId`/`proposedPanelReason` are exactly
+          // what the Inbox chip showed for this, its one settling filing.
+          if (!alreadyFiled) {
+            tx.insert(decisionHistory)
+              .values(decisionHistoryEntryFor(item, cmd, panel.id))
+              .onConflictDoNothing()
+              .run();
+          }
         }
         tx.insert(commands).values(commandRow).run();
       });
@@ -1381,6 +1397,14 @@ export function runCommand<N extends CommandName>(
 
       refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
 
+      // Read before the write, for the reason `move_item_to_panel` reads it:
+      // the ordinary path onto this command is already-filed ("Add to…" on a
+      // Panel, offered only there), but nothing here refuses one aimed at an
+      // Item still in the Inbox - and landing on a Panel for the first time
+      // is a routing settling whichever of the two commands does it (see the
+      // comment above on why this command settles the Workspace too).
+      const alreadyFiled = isItemFiled(db, tenantId, cmd.itemId);
+
       const decided = decideWorkspace(item, cmd.workspaceId, cmd.issuedAt);
       if (decided) everyWorkspaceSees(commandRow);
 
@@ -1395,6 +1419,12 @@ export function runCommand<N extends CommandName>(
           .run();
         for (const batch of inBatchesOf(rows, FILING_VALUES_PER_ROW)) {
           tx.insert(panelItems).values(batch).run();
+        }
+        if (!alreadyFiled) {
+          tx.insert(decisionHistory)
+            .values(decisionHistoryEntryFor(item, cmd, panel.id))
+            .onConflictDoNothing()
+            .run();
         }
         tx.insert(commands).values(commandRow).run();
       });

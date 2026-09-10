@@ -161,23 +161,20 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   }
 
   /**
-   * The account's whole decision history for one workspace, oldest first -
-   * what a routing proposal reads whole ("Learn where notes belong from
-   * where you actually file them", issue 299).
+   * What a routing proposal reads beside the note itself, in one round trip
+   * ("Learn where notes belong from where you actually file them", issue
+   * 299): the account's whole decision history for one workspace, and what
+   * else it has captured lately and not yet filed.
    */
-  decisionHistory(accountName: string, workspaceId: string): Answer<DecisionHistoryEntry[]> {
-    return this.#answer(accountName, (db) => decisionHistoryForWorkspace(db, accountName, workspaceId));
-  }
-
-  /**
-   * The most recently captured notes in one workspace that are filed nowhere
-   * yet, most recent first - a signal separate from settled history ("What
-   * has been captured lately and not yet filed is an input too", issue 299).
-   */
-  recentlyCapturedUnfiled(accountName: string, workspaceId: string, excludeItemId: string): Answer<string[]> {
-    return this.#answer(accountName, (db) =>
-      recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
-    );
+  routingContext(
+    accountName: string,
+    workspaceId: string,
+    excludeItemId: string,
+  ): Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }> {
+    return this.#answer(accountName, (db) => ({
+      history: decisionHistoryForWorkspace(db, accountName, workspaceId),
+      recentlyCaptured: recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
+    }));
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

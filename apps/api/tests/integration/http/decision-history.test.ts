@@ -205,6 +205,41 @@ describe('Triage', () => {
       expect(await historyFor(itemId)).toHaveLength(1);
     });
 
+    it('appends nothing when an already-filed item is moved to a different panel, and never misattributes the first filing’s proposal to it', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const anna = await aPanel(today, 'Anna');
+      const itemId = await anItem('Reply to Bart');
+      await propose(itemId, falcon, 'sounds like Falcon');
+      await move(itemId, falcon);
+
+      // A later reorganization - not a fresh routing decision, and the
+      // proposal on the item is still whatever the first filing read, so
+      // recording it here would misattribute it to a decision it was never
+      // shown for.
+      expect((await move(itemId, anna)).status).toBe(200);
+
+      const rows = await historyFor(itemId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ chosen_panel_id: falcon });
+    });
+
+    it('appends nothing when a reorganizing move is undone, matching the rule that undo never writes here', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const anna = await aPanel(today, 'Anna');
+      const itemId = await anItem('Reply to Bart');
+      await move(itemId, falcon);
+      await move(itemId, anna);
+
+      // Undo of the reorganization, restoring the earlier panel - not the
+      // Inbox, so this is the case the plain "moved to the Inbox" rule above
+      // does not itself cover.
+      expect((await move(itemId, falcon)).status).toBe(200);
+
+      expect(await historyFor(itemId)).toHaveLength(1);
+    });
+
     it('appends nothing for add_item_to_panel, which puts an item on a second panel without saying it primarily belongs there', async () => {
       const today = await aDashboard();
       const falcon = await aPanel(today, 'Falcon');
@@ -224,6 +259,34 @@ describe('Triage', () => {
       ).toBe(200);
 
       expect(await historyFor(itemId)).toHaveLength(1);
+    });
+
+    /**
+     * The ordinary path onto `add_item_to_panel` is already-filed, but
+     * nothing refuses one aimed straight at an Inbox item - and landing on a
+     * Panel for the first time is a routing settling whichever of the two
+     * commands does it (schema.ts, "written by whichever... gets there
+     * first").
+     */
+    it('appends an entry for add_item_to_panel too, when it is the item’s first-ever filing', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const itemId = await anItem('Reply to Bart');
+
+      expect(
+        (
+          await send('add_item_to_panel', {
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            panelId: falcon,
+            order: [itemId],
+          })
+        ).status,
+      ).toBe(200);
+
+      const rows = await historyFor(itemId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ chosen_panel_id: falcon });
     });
 
     it('writes one entry, not two, when the same filing command is replayed', async () => {

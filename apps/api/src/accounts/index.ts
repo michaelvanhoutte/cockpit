@@ -93,19 +93,17 @@ export interface Account {
    */
   panelsThatTakeItems(workspaceId: string): Promise<Panel[]>;
   /**
-   * The account's whole decision history for one workspace, oldest first -
-   * what a routing proposal reads whole ("Learn where notes belong from
-   * where you actually file them", issue 299). Read by the enrichment job
-   * and by nothing else.
+   * What a routing proposal reads beside the note itself, in one round trip
+   * ("Learn where notes belong from where you actually file them", issue
+   * 299): the account's whole decision history for one workspace, oldest
+   * first, and what else it has captured lately and not yet filed, most
+   * recent first, `excludeItemId` left out. Read by the enrichment job and
+   * by nothing else.
    */
-  decisionHistory(workspaceId: string): Promise<DecisionHistoryEntry[]>;
-  /**
-   * The most recently captured notes in one workspace that are filed nowhere
-   * yet, most recent first, `excludeItemId` left out - a signal separate from
-   * settled history ("What has been captured lately and not yet filed is an
-   * input too", issue 299). Read by the enrichment job and by nothing else.
-   */
-  recentlyCapturedUnfiled(workspaceId: string, excludeItemId: string): Promise<string[]>;
+  routingContext(
+    workspaceId: string,
+    excludeItemId: string,
+  ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
@@ -144,10 +142,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),
     panelsThatTakeItems: async (workspaceId) =>
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
-    decisionHistory: async (workspaceId) =>
-      unwrap(await store.decisionHistory(accountName, workspaceId)),
-    recentlyCapturedUnfiled: async (workspaceId, excludeItemId) =>
-      unwrap(await store.recentlyCapturedUnfiled(accountName, workspaceId, excludeItemId)),
+    routingContext: async (workspaceId, excludeItemId) =>
+      unwrap(await store.routingContext(accountName, workspaceId, excludeItemId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

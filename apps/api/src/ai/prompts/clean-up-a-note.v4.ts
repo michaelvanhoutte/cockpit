@@ -235,10 +235,13 @@ panel: Compliance questions, because it's a compliance question - Part 11 and th
  * account's first note ever proposed for reads this, and there is nothing to
  * read back at it.
  *
- * One line per entry, oldest first (routing-learning.md, "Recency is made
- * legible rather than enforced by a window"): the date, the note, and either
- * that it was accepted, that nothing was proposed, or - the stronger signal -
- * both what was proposed and what was chosen where the two differ.
+ * One line per entry, oldest first, each dated ("Learn where notes belong
+ * from where you actually file them", issue 299: recency is made legible
+ * rather than enforced by a window, since a fixed cutoff cannot tell a
+ * project that has gone quiet from one that never existed): the date, the
+ * note, and either that it was accepted, that nothing was proposed, or - the
+ * stronger signal - both what was proposed and what was chosen where the two
+ * differ.
  */
 function renderHistory(history: readonly DecisionHistoryEntry[]): string {
   if (history.length === 0) return 'Decision history: (nothing filed yet)';
@@ -246,10 +249,13 @@ function renderHistory(history: readonly DecisionHistoryEntry[]): string {
   const lines = history.map((entry) => {
     const date = entry.decidedAt.slice(0, 10);
     const note = entry.capturedMessage ?? entry.itemTitle;
+    // Compared by id, never by name: two Panels of one Workspace can share a
+    // display name, and comparing names would misread an override as an
+    // accept the moment they do.
     const outcome =
-      entry.proposedPanelName === null
+      entry.proposedPanelId === null
         ? `filed on ${entry.chosenPanelName} (nothing was proposed)`
-        : entry.proposedPanelName === entry.chosenPanelName
+        : entry.proposedPanelId === entry.chosenPanelId
           ? `filed on ${entry.chosenPanelName} (accepted the proposal)`
           : `you proposed ${entry.proposedPanelName}, but it was filed on ${entry.chosenPanelName} instead`;
     return `${date}: "${note}" — ${outcome}`;

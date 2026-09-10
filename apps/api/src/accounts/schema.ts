@@ -929,15 +929,21 @@ export const associations = sqliteTable(
 );
 
 /**
- * One entry per settled filing - the append-only decision history a routing
- * proposal reads whole ("Learn where notes belong from where you actually
- * file them", issue 299; `docs/routing-learning.md`, "What the model reads").
+ * One entry per Item, written the first time it ever lands on a real Panel -
+ * the append-only decision history a routing proposal reads whole ("Learn
+ * where notes belong from where you actually file them", issue 299;
+ * `docs/routing-learning.md`, "What the model reads").
  *
- * **Written once, by `move_item_to_panel` alone, and never onto the Inbox.**
- * Filing onto a real Panel is the moment a routing settles; `add_item_to_panel`
- * puts the same Item on a second Panel without saying where it primarily
- * belongs, and a move to the Inbox (`panel_id: null`) is not a filing at all -
- * neither writes a row here.
+ * **Written by whichever of `move_item_to_panel` or `add_item_to_panel` gets
+ * there first, and never again for that Item.** Both settle a routing
+ * equally ("putting an item on a panel is putting it on a panel whichever of
+ * the two commands says so", `command-service.ts`'s own comment on the
+ * second); what decides whether either writes a row is `isItemFiled` read
+ * *before* the write, not which command was sent. A move to the Inbox
+ * (`panel_id: null`) is not a filing at all, and a reorganizing move or add
+ * of an Item already filed somewhere is not a *first* filing - neither
+ * writes a row, which is what keeps a stale, long-since-acted-on proposal
+ * from being misattributed to a decision it was never shown for.
  *
  * **`id` is the settling command's own `command_id`.** The command that writes
  * it is already idempotent on that id (`command-service.ts`), so reusing it
@@ -952,11 +958,24 @@ export const associations = sqliteTable(
  * conventions") - so an entry naming a since-deleted Panel still resolves.
  *
  * **Nothing here is ever updated or deleted, by this table's own rule.** An
- * undone filing writes no second row and removes no first one: only a real
- * filing is ever logged, so an undo - which returns an item to the Inbox -
- * logs nothing either way, and the original entry stands. Weighting a
- * reversed entry differently is `docs/routing-learning.md` §13 decision 4,
- * deliberately not decided here.
+ * undone filing writes no second row and removes no first one - undoing a
+ * first-ever filing returns an Item to the Inbox, logging nothing either
+ * way, and undoing a later reorganizing move is itself just another
+ * reorganizing move of an already-filed Item, which the "first filing only"
+ * rule above already keeps out - so the original entry always stands.
+ * Weighting a reorganizing filing's own, separately-recorded rows
+ * differently from a first settling is `docs/routing-learning.md` §13
+ * decision 4, deliberately not decided here - this table simply never
+ * creates those separate rows in the first place while every reorganizing
+ * move keeps the Item filed throughout. **Known gap, accepted for now:**
+ * removing an Item from its only Panel (`remove_item_from_panel`) returns it
+ * to the Inbox exactly as an undo does, and a *later* filing after that is
+ * indistinguishable here from a first-ever one - `isItemFiled` reads current
+ * state, not history. That later filing writes a second entry, carrying
+ * whatever proposal was frozen from the Item's original capture rather than
+ * one live for this decision. Rare in practice (most reorganizing happens by
+ * moving directly, never by removing first) and no worse than the
+ * reorganization-vs-correction ambiguity decision 4 already defers.
  */
 export const decisionHistory = sqliteTable(
   'decision_history',

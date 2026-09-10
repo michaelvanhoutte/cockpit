@@ -255,7 +255,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v3.ts`'s fifth example pairs "Compliance
+   * example (`clean-up-a-note.v4.ts`'s fifth example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -329,8 +329,10 @@ describe('Capture', () => {
         {
           capturedMessage: 'part 11 audit trail q for validation protocol, who signs off eod',
           itemTitle: 'Part 11 audit trail question',
+          proposedPanelId: panels[0]!.id,
           proposedPanelName: 'Compliance questions',
           proposedPanelReason: 'a compliance question, about the validation protocol',
+          chosenPanelId: panels[1]!.id,
           chosenPanelName: 'Laurens',
           decidedAt: '2026-08-01T09:00:00.000Z',
         },

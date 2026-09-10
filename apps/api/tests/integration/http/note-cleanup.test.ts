@@ -26,7 +26,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v3.test.ts).
+ * (tests/contract/clean-up-a-note.v4.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -231,6 +231,37 @@ async function aPanel(name: string, kind: 'items' | 'text' = 'items'): Promise<s
     panelId,
     name,
     kind,
+  });
+  expect(response.status).toBe(200);
+  return panelId;
+}
+
+/** A second Dashboard of the Workspace, so a Panel can be made on it too. */
+async function aDashboard(): Promise<string> {
+  const dashboardId = nextId();
+  const response = await postChange('add_dashboard', {
+    commandId: nextId(),
+    issuedAt: '2026-09-09T10:00:00.000Z',
+    workspaceId: WORKSPACE_ID,
+    dashboardId,
+    panelId: nextId(),
+    name: `Dashboard ${dashboardId}`,
+  });
+  expect(response.status).toBe(200);
+  return dashboardId;
+}
+
+/** A Panel on a named Dashboard - unlike `aPanel`, not pinned to `DASHBOARD_ID`. */
+async function aPanelOn(dashboardId: string, name: string): Promise<string> {
+  const panelId = nextId();
+  const response = await postChange('add_panel', {
+    commandId: nextId(),
+    issuedAt: '2026-09-09T10:00:00.000Z',
+    workspaceId: WORKSPACE_ID,
+    dashboardId,
+    panelId,
+    name,
+    kind: 'items',
   });
   expect(response.status).toBe(200);
   return panelId;
@@ -580,6 +611,31 @@ describe('Capture', () => {
       expect(asked[0]!.system).toContain('but it was filed on Laurens instead');
     });
 
+    /**
+     * A Panel's name is unique only within its own Dashboard, never across a
+     * whole Workspace, so two Panels can genuinely share a name. Comparing
+     * by name rather than by id would read this override as an accept the
+     * moment that happens - checked here rather than assumed.
+     */
+    it('still reads an override as an override when the proposed and chosen panels share a name', async () => {
+      const firstDashboard = await aDashboard();
+      const secondDashboard = await aDashboard();
+      const proposed = await aPanelOn(firstDashboard, 'Notes');
+      const chosen = await aPanelOn(secondDashboard, 'Notes');
+      theModelIs({ says: { ...A_READING, panel: { panelId: proposed, reason: 'looked like notes' } } });
+      const first = await captureANote({ message: 'sign-off needed, who owns it' });
+      await untilTheNoteHasBeenRead(first);
+      await moveOnto(first, chosen);
+      asked = [];
+      theModelIs({ says: A_READING });
+
+      const second = await captureANote({ message: 'a second, unrelated note' });
+      await untilTheNoteHasBeenRead(second);
+
+      expect(asked[0]!.system).toContain('you proposed Notes, but it was filed on Notes instead');
+      expect(asked[0]!.system).not.toContain('accepted the proposal');
+    });
+
     it('never carries a decision made in another workspace', async () => {
       await alsoWorkspaces();
       const compliance = await aPanel('Compliance questions');
@@ -613,6 +669,23 @@ describe('Capture', () => {
       // is sent as the message being asked about, never as part of the system
       // prompt's own reading material.
       expect(asked[0]!.system).not.toContain('a second, unrelated note');
+    });
+
+    /**
+     * An Item nobody has said the Workspace of yet shows in every Workspace's
+     * Inbox at once ("Capture something before you know which workspace it
+     * belongs to", issue 165) - so it is still "captured lately and not yet
+     * filed" for a note being proposed in any of them, this one included.
+     */
+    it('names an undecided note as well, which waits in every workspace’s inbox', async () => {
+      const waiting = await captureANote({ message: 'where does this go', workspaceDecided: false });
+      await untilTheNoteHasBeenRead(waiting);
+      asked = [];
+
+      const itemId = await captureANote({ message: 'a second, unrelated note' });
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('where does this go');
     });
 
     it('leaves out a note once it has been filed', async () => {

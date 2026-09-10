@@ -699,8 +699,14 @@ export function decisionHistoryForWorkspace(
     .select({
       capturedMessage: items.capturedMessage,
       itemTitle: items.title,
+      // Ids as well as names: two Panels of one Workspace can share a
+      // display name (`panels_dashboard_live_folded_name` is unique only
+      // within one *dashboard*, schema.ts), so accept-vs-override has to be
+      // decided by id - names are for rendering, never for comparing.
+      proposedPanelId: decisionHistory.proposedPanelId,
       proposedPanelName: proposedPanels.name,
       proposedPanelReason: decisionHistory.proposedPanelReason,
+      chosenPanelId: decisionHistory.chosenPanelId,
       chosenPanelName: chosenPanels.name,
       decidedAt: decisionHistory.decidedAt,
     })
@@ -740,7 +746,14 @@ export function recentlyCapturedUnfiled(
     .where(
       and(
         eq(items.tenantId, tenantId),
-        eq(items.workspaceId, workspaceId),
+        // The same Items this Workspace's Inbox itself draws (`listOpenItems`
+        // above): its own, plus every Item still undecided between
+        // Workspaces, which is shown in every Inbox at once ("Capture
+        // something before you know which workspace it belongs to", issue
+        // 165). The `or` stays inside the `and` for the same reason
+        // `listOpenItems`'s own comment gives - hoisted out, it would surface
+        // every tenant's undecided Items regardless of this Workspace.
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
         ne(items.id, excludeItemId),
         isNull(items.completedAt),
         isNull(items.deletedAt),

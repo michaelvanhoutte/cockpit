@@ -163,11 +163,11 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
   // The account's decision history for this Workspace, and what else it has
   // captured lately and not yet filed - the two inputs that let a proposal
   // learn from where notes actually get filed ("Learn where notes belong from
-  // where you actually file them", issue 299). Neither read checks the
+  // where you actually file them", issue 299), read together in one round
+  // trip since nothing ever needs one without the other. Neither checks the
   // Workspace still exists: an empty answer is already the right one for a
   // Workspace this far gone, exactly as an empty `panels` list is above.
-  const history = await account.decisionHistory(item.workspaceId);
-  const recentlyCaptured = await account.recentlyCapturedUnfiled(item.workspaceId, item.id);
+  const { history, recentlyCaptured } = await account.routingContext(item.workspaceId, item.id);
 
   const read = await ai.cleanUpNote(item.capturedMessage, panels, history, recentlyCaptured);
   if (!('proposal' in read)) return say(job, `nothing was proposed: ${read.discarded}`);
