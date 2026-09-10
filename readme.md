@@ -151,7 +151,7 @@ One package at a time:
 ```bash
 pnpm --filter @cockpit/shared test:unit       # domain types, schemas, ids — no real dependencies
 pnpm --filter @cockpit/api test:unit          # domain logic — no real dependencies
-pnpm --filter @cockpit/api test:integration   # command handling against real local storage (~25s, not in test:fast)
+pnpm --filter @cockpit/api test:integration   # command handling against real local storage, not in test:fast (.claude/skills/testing/SKILL.md, "This repo, today")
 pnpm --filter @cockpit/web test:f-unit        # component logic, API client mocked at the boundary
 pnpm test:e2e --project=phone                 # the browser walks on one device instead of both
 pnpm test:e2e tests/e2e/capture.test.ts       # one browser walk
