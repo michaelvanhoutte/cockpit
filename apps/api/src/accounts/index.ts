@@ -105,13 +105,6 @@ export interface Account {
     excludeItemId: string,
   ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>;
   /**
-   * Whether an Item is filed on any Panel at all - read by the HTTP layer
-   * before a filing command, so it can tell a genuine first filing from a
-   * reorganizing move ("Re-propose the rest of the inbox the moment you file
-   * one", issue 300). Read there and by nothing else.
-   */
-  isItemFiled(itemId: string): Promise<boolean>;
-  /**
    * Every item in one Workspace's Inbox with a captured note - the rest of
    * the inbox a settled filing re-proposes ("Re-propose the rest of the
    * inbox the moment you file one", issue 300). Read by the enrichment job
@@ -160,7 +153,6 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
     routingContext: async (workspaceId, excludeItemId) =>
       unwrap(await store.routingContext(accountName, workspaceId, excludeItemId)),
-    isItemFiled: async (itemId) => unwrap(await store.isItemFiled(accountName, itemId)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),

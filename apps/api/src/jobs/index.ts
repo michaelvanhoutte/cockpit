@@ -62,7 +62,7 @@ export async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promi
  * `workThrough`: a body this cannot make sense of is simply not deduplicated,
  * and reaches the real parse exactly as it would have otherwise.
  */
-function dedupeReproposals(messages: readonly Message<unknown>[]): Message<unknown>[] {
+export function dedupeReproposals(messages: readonly Message<unknown>[]): Message<unknown>[] {
   const seen = new Set<string>();
   return messages.filter((message) => {
     const body = message.body;

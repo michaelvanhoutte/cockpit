@@ -499,6 +499,14 @@ export function runCommand<N extends CommandName>(
   };
 
   let applied = true;
+  // Set only by `move_item_to_panel`/`add_item_to_panel`, and only on the
+  // same `!alreadyFiled` branch that writes `decisionHistory` - the one
+  // signal the HTTP layer needs to know a routing genuinely settled just
+  // now, read off this atomic call rather than by asking `isItemFiled`
+  // again itself, before and separately from it, and racing whatever moves
+  // the same Item in between ("Re-propose the rest of the inbox the moment
+  // you file one", issue 300).
+  let settledRouting = false;
 
   switch (name) {
     case 'create_workspace': {
@@ -1369,6 +1377,7 @@ export function runCommand<N extends CommandName>(
           // write, so its `proposedPanelId`/`proposedPanelReason` are exactly
           // what the Inbox chip showed for this, its one settling filing.
           if (!alreadyFiled) {
+            settledRouting = true;
             tx.insert(decisionHistory)
               .values(decisionHistoryEntryFor(item, cmd, panel.id))
               .onConflictDoNothing()
@@ -1435,6 +1444,7 @@ export function runCommand<N extends CommandName>(
           tx.insert(panelItems).values(batch).run();
         }
         if (!alreadyFiled) {
+          settledRouting = true;
           tx.insert(decisionHistory)
             .values(decisionHistoryEntryFor(item, cmd, panel.id))
             .onConflictDoNothing()
@@ -1716,5 +1726,5 @@ export function runCommand<N extends CommandName>(
 
   // No explicit broadcast: SSE connections derive invalidations from the
   // command log itself (see events.ts for why in-memory fan-out can't work).
-  return { ok: true, applied };
+  return settledRouting ? { ok: true, applied, settledRouting } : { ok: true, applied };
 }

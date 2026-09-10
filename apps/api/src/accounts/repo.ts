@@ -746,6 +746,33 @@ export function decisionHistoryForWorkspace(
  */
 const RECENTLY_CAPTURED_LIMIT = 20;
 
+/**
+ * The `notExists` clause `recentlyCapturedUnfiled` and `unfiledItemsInWorkspace`
+ * below both filter on: excludes an Item genuinely filed on a live Panel, the
+ * same test `isItemFiled` below makes of one Item at a time and for the same
+ * reason its own comment gives - a Panel or Dashboard tombstoned since the
+ * filing leaves its `panel_items` row untouched, which is what puts the Item
+ * back in the Inbox, so a plain `notExists(panelItems)` alone would read it
+ * as still filed forever.
+ */
+function notFiledOnALivePanel(db: AccountDb, tenantId: string) {
+  return notExists(
+    db
+      .select({ one: sql`1` })
+      .from(panelItems)
+      .innerJoin(panels, eq(panelItems.panelId, panels.id))
+      .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+      .where(
+        and(
+          eq(panelItems.tenantId, tenantId),
+          eq(panelItems.itemId, items.id),
+          isNull(panels.deletedAt),
+          isNull(dashboards.deletedAt),
+        ),
+      ),
+  );
+}
+
 export function recentlyCapturedUnfiled(
   db: AccountDb,
   tenantId: string,
@@ -770,12 +797,7 @@ export function recentlyCapturedUnfiled(
         isNull(items.completedAt),
         isNull(items.deletedAt),
         isNotNull(items.capturedMessage),
-        notExists(
-          db
-            .select({ one: sql`1` })
-            .from(panelItems)
-            .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, items.id))),
-        ),
+        notFiledOnALivePanel(db, tenantId),
       ),
     )
     .orderBy(desc(items.createdAt))
@@ -815,12 +837,7 @@ export function unfiledItemsInWorkspace(
         isNull(items.completedAt),
         isNull(items.deletedAt),
         isNotNull(items.capturedMessage),
-        notExists(
-          db
-            .select({ one: sql`1` })
-            .from(panelItems)
-            .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, items.id))),
-        ),
+        notFiledOnALivePanel(db, tenantId),
       ),
     )
     .orderBy(desc(items.createdAt))

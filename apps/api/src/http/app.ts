@@ -586,11 +586,13 @@ async function change<N extends CommandName>(
  * the moment a refresh of the rest of its Workspace's Inbox is worth firing
  * ("Re-propose the rest of the inbox the moment you file one", issue 300).
  *
- * **Read before the write, for the same reason `command-service.ts` reads
- * `isItemFiled` before its own**: after the command applies, every Item it
- * touched is filed, so "was it already" only answers anything asked first.
- * A move to the Inbox (`panelId: null`) never settles, so it is never worth
- * the read.
+ * **Reads `result.settledRouting` rather than asking first, separately,
+ * whether the Item was already filed.** A pre-read would be a second,
+ * independent call answering the same question `command-service.ts` already
+ * decides atomically inside `applyChange` - two calls a concurrent move of
+ * the same Item could land between, so one settle is missed or one
+ * reorganizing move is wrongly read as one. Reading the fact off the one
+ * call that decided it has no such window.
  *
  * **`waitUntil`, not `await`**, for the same reason `capture_item` below
  * enqueues its own job that way: nobody filing an item is waiting on the
@@ -602,12 +604,8 @@ async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'a
   payload: CommandPayload<N>,
 ): Promise<CommandResult> {
   const accountName = c.get('visitor').accountName;
-  const account = await openAccount(c.env, accountName);
-  const targetsAPanel = name === 'add_item_to_panel' || payload.panelId !== null;
-  const wasFiled = targetsAPanel ? await account.isItemFiled(payload.itemId) : true;
-
-  const result = await account.applyChange(name, payload);
-  if (result.applied && targetsAPanel && !wasFiled) {
+  const result = await change(c, name, payload);
+  if (result.settledRouting) {
     c.executionCtx.waitUntil(enqueueRepropose(c.env, accountName, payload.workspaceId));
   }
   return result;

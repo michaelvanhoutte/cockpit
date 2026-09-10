@@ -450,9 +450,22 @@ export type SelfSentCommandName = 'propose_item_texts' | 'propose_item_panel';
 /** The commands a client sends, which is every command with an endpoint. */
 export type ClientCommandName = Exclude<CommandName, SelfSentCommandName>;
 
-/** What every command endpoint returns. `applied: false` = idempotent replay. */
+/**
+ * What every command endpoint returns. `applied: false` = idempotent replay.
+ *
+ * `settledRouting` is `true` only for `move_item_to_panel`/`add_item_to_panel`,
+ * and only where the write landed an Item on a real Panel for the first time
+ * - the same fact `command-service.ts` computes once, atomically, to decide
+ * whether to write `decisionHistory` ("Learn where notes belong from where
+ * you actually file them", issue 299), surfaced here so a caller that needs
+ * to know can read it off this one call rather than asking again, separately
+ * and racily, before it ("Re-propose the rest of the inbox the moment you
+ * file one", issue 300). Absent, not `false`, everywhere else - every other
+ * command answers `applied` alone, exactly as before this existed.
+ */
 export const commandResultSchema = z.object({
   ok: z.literal(true),
   applied: z.boolean(),
+  settledRouting: z.boolean().optional(),
 });
 export type CommandResult = z.infer<typeof commandResultSchema>;

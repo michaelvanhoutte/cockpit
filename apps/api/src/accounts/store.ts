@@ -58,7 +58,6 @@ import {
   decisionHistoryForWorkspace,
   getItem,
   getWorkspace,
-  isItemFiled,
   listAssociationsForWorkspace,
   listItemTypes,
   listScreenSizes,
@@ -177,17 +176,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       history: decisionHistoryForWorkspace(db, accountName, workspaceId),
       recentlyCaptured: recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
     }));
-  }
-
-  /**
-   * Whether an Item is filed on any Panel at all - read by the HTTP layer
-   * before a filing command, so it can tell a genuine first filing from a
-   * reorganizing move without duplicating `command-service.ts`'s own
-   * decision ("Re-propose the rest of the inbox the moment you file one",
-   * issue 300).
-   */
-  isItemFiled(accountName: string, itemId: string): Answer<boolean> {
-    return this.#answer(accountName, (db) => isItemFiled(db, accountName, itemId));
   }
 
   /**

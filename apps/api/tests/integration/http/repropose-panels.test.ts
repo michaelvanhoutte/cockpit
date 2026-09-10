@@ -228,7 +228,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('Re-propose the rest of the inbox the moment you file one', () => {
+describe('Triage', () => {
   describe('a settled filing re-proposes the panel for every other unsettled item in its workspace', () => {
     it('moving an item onto a panel for the first time refreshes the rest of the Inbox', async () => {
       const compliance = await aPanel('Compliance questions');

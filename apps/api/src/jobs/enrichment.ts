@@ -178,23 +178,11 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // `cleanUpNote` takes them rather than closing over a fixed list ("Propose
   // where a captured note belongs, without filing it there", issue 298).
   //
-  // **Falls back to none rather than declining the whole job.** The Item's
-  // own Workspace can go between the read above and this one - a tombstone
-  // leaves its Dashboards and Panels untouched, so this is the one place that
-  // race is visible at all - but the text cleanup below has no such
-  // dependency and must not be held hostage to a read the routing half alone
-  // needs. An empty list is a safe answer to hand the model: its schema's
-  // `panelId` enum then holds only the empty string, so it can propose
-  // nothing but "no panel fits" - which is also what `liveDestinationPanel`
-  // would answer for any Panel of a Workspace this far gone, were one
-  // proposed anyway.
-  let panels: Awaited<ReturnType<typeof account.panelsThatTakeItems>>;
-  try {
-    panels = await account.panelsThatTakeItems(item.workspaceId);
-  } catch (error) {
-    if (!(error instanceof NotFoundInAccountError)) throw error;
-    panels = [];
-  }
+  // Falls back to none rather than declining the whole job - see
+  // `panelsOrEmpty`'s own comment for why - and the text cleanup below has no
+  // such dependency and must not be held hostage to a read the routing half
+  // alone needs.
+  const panels = await panelsOrEmpty(account, item.workspaceId);
 
   // The account's decision history for this Workspace, and what else it has
   // captured lately and not yet filed - the two inputs that let a proposal
@@ -249,6 +237,33 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   const routed = await applyProposedPanelIfAny(account, item, read.proposal.panel);
   if (routed === 'the item went while it was being read') {
     say(job.itemId, `nothing was routed: ${routed}`);
+  }
+}
+
+/**
+ * Every live Panel that takes items, in one Workspace - or none, rather than
+ * declining the whole job, where the Workspace itself has gone between
+ * whatever read found this Workspace id and this one: a tombstone leaves its
+ * Dashboards and Panels untouched, so this is the one place that race is
+ * visible at all. An empty list is a safe answer to hand the model: its
+ * schema's `panelId` enum then holds only the empty string, so it can
+ * propose nothing but "no panel fits" - which is also what
+ * `liveDestinationPanel` would answer for any Panel of a Workspace this far
+ * gone, were one proposed anyway.
+ *
+ * Shared by `cleanUpACapturedNote` (moment 2) and `reproposePanels` below,
+ * for the same reason `applyProposedPanelIfAny` beside it is: the read and
+ * its one race are the same regardless of which call needs the Panels.
+ */
+async function panelsOrEmpty(
+  account: Account,
+  workspaceId: string,
+): Promise<Awaited<ReturnType<Account['panelsThatTakeItems']>>> {
+  try {
+    return await account.panelsThatTakeItems(workspaceId);
+  } catch (error) {
+    if (error instanceof NotFoundInAccountError) return [];
+    throw error;
   }
 }
 
@@ -364,13 +379,7 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       // triggered from - an Item still undecided between Workspaces is read
       // exactly as `cleanUpACapturedNote` reads it, not as if it already
       // belonged where the settle that triggered this happened to be.
-      let panels: Awaited<ReturnType<typeof account.panelsThatTakeItems>>;
-      try {
-        panels = await account.panelsThatTakeItems(candidate.workspaceId);
-      } catch (error) {
-        if (!(error instanceof NotFoundInAccountError)) throw error;
-        panels = [];
-      }
+      const panels = await panelsOrEmpty(account, candidate.workspaceId);
       const { history, recentlyCaptured } = await account.routingContext(candidate.workspaceId, candidate.id);
       const read = await ai.cleanUpNote(candidate.capturedMessage, panels, history, recentlyCaptured);
       if (!('proposal' in read)) {
