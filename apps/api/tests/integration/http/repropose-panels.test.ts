@@ -534,19 +534,25 @@ describe('Triage', () => {
     it('withdraws a stale proposal once a refresh concludes nothing fits any more', async () => {
       const compliance = await aPanel('Compliance questions');
       const elsewhere = await aPanel('Somewhere else');
-      // Every note answers "nothing fits" (the `beforeEach` default) - this
-      // case is about what a refresh does with that answer when the Item
-      // already had a proposal standing, not about what changes the answer.
-      const waiting = await captureANote('a note about validation');
-      // A proposal from an earlier round, standing on the chip already -
-      // written directly, since only a refresh with different history could
-      // ever produce it here, and this case is about what happens once one
-      // concludes the opposite.
+      // Written directly, with a proposal from an earlier round already
+      // standing on it and no `capture_item` behind it at all - only the
+      // refresh under test ever reads this item, so there is no capture-time
+      // moment-2 job racing to withdraw the same proposal itself and leaving
+      // the assertion below unable to tell which of the two did it.
+      const waiting = nextId();
       await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
         sql.exec(
-          `UPDATE items SET proposed_panel_id = ?, proposed_panel_reason = 'a compliance question' WHERE id = ?`,
-          compliance,
+          `INSERT INTO items
+             (id, tenant_id, workspace_id, source, captured_message, title, status, unseen,
+              proposed_panel_id, proposed_panel_reason, created_at, updated_at)
+           VALUES (?, ?, ?, 'internal', ?, 'Typed by hand', 'to_process', 0, ?, 'a compliance question', ?, ?)`,
           waiting,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          'a note that will not fit any more',
+          compliance,
+          nextIssuedAt(),
+          nextIssuedAt(),
         ),
       );
       const settling = await captureANote('call jan about the invoice');
