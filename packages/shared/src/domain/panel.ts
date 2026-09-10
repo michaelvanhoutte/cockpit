@@ -35,14 +35,7 @@ export const PANEL_KINDS = ['items', 'text'] as const;
 export const panelKindSchema = z.enum(PANEL_KINDS);
 export type PanelKind = z.infer<typeof panelKindSchema>;
 
-/**
- * Whether a Panel takes items filed onto it — every kind except one made of
- * text (issue 250). One function rather than the check written at each call
- * site — the server refusing a filing, the server offering panels to a
- * routing proposal, and the client's own picker — so they cannot come to
- * disagree about what a Panel will take, the same shape of rule
- * `refuseAPanelOfText` in `apps/api/src/accounts/command-service.ts` enforces.
- */
+/** Whether a Panel takes items filed onto it — every kind except one made of text (issue 250; architecture.md §4.4). */
 export function panelTakesItems(panel: { kind: PanelKind }): boolean {
   return panel.kind !== 'text';
 }
