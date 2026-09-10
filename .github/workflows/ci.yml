@@ -88,9 +88,9 @@ jobs:
       # re-running the suite.
       #
       # The globs mirror pnpm-workspace.yaml's own package roots rather than
-      # naming today's three packages that happen to have a `test:coverage`
-      # script, so a package gaining one later is picked up here too instead of
-      # silently missing from the artifact.
+      # naming the specific packages that happen to have a `test:coverage`
+      # script today, so a package gaining one later is picked up here too
+      # instead of silently missing from the artifact.
       - run: pnpm test:coverage
       - uses: actions/upload-artifact@v4
         with:
