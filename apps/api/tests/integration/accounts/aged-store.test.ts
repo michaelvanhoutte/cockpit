@@ -286,11 +286,12 @@ const rowsFor: {
 /**
  * The rows a change means to drop, named the way its own issue names them -
  * table and count. `0020-drop-layout-name-and-width` is the only one: a
- * Layout written before "Draw a dashboard against the screen sizes it has
- * defined" (issue 264) ever ran carries no `screen_size_id`, and the new
- * NOT NULL rule rejects it. `ly-before` and `ly-twin`, from `rowsFor`, are
- * exactly the two such Layouts this file ever seeds, and everything they
- * carry - a row and a placement each - goes with them.
+ * Layout written before "Take the width and the name off a layout, now
+ * that its size carries them" (issue 264) ever ran carries no
+ * `screen_size_id`, and the new NOT NULL rule rejects it. `ly-before` and
+ * `ly-twin`, from `rowsFor`, are exactly the two such Layouts this file
+ * ever seeds, and everything they carry - a row and a placement each -
+ * goes with them.
  */
 const DECLARED_LOSSES: Record<string, Record<string, number>> = {
   '0020-drop-layout-name-and-width': {
