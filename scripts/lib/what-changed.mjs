@@ -32,12 +32,15 @@
 const NON_PRODUCT_DIRS = ['docs/', '.claude/'];
 
 /**
- * A root-level Markdown file - `CLAUDE.md`, `readme.md`. No slash, so a
- * `.md` anywhere else is matched by its directory or not at all: `apps/web/`
- * holds no prose worth an exception, and one nested under `tools/` is a
- * package's own readme sitting beside code the checks do read.
+ * A root-level Markdown file - `CLAUDE.md`, `readme.md`. No slash and no
+ * control character, so a `.md` anywhere else is matched by its directory or
+ * not at all: `apps/web/` holds no prose worth an exception, one nested under
+ * `tools/` is a package's own readme sitting beside code the checks do read,
+ * and `\nCLAUDE.md` - a legal filename without trimming ever entering it - is
+ * neither, whatever the anchors either side of it decide it starts and ends
+ * with.
  */
-const ROOT_MARKDOWN = /^[^/]+\.md$/;
+const ROOT_MARKDOWN = /^[^/\x00-\x1f\x7f]+\.md$/;
 
 /**
  * Whether one changed path is one the mechanical checks have no opinion about.
@@ -47,15 +50,20 @@ const ROOT_MARKDOWN = /^[^/]+\.md$/;
  * "product" - the direction that costs a CI run rather than a merge.
  */
 export function isNonProduct(path) {
-  const file = String(path ?? '').trim();
-  if (file === '') return false;
+  const file = String(path ?? '');
+  // Blank, not trimmed: a real path is classified by its own untouched bytes,
+  // never by a version whitespace was stripped from first. `git diff -z` hands
+  // a filename over exactly as it is, and a path beginning with a control
+  // character it is legal to carry could otherwise be trimmed into looking
+  // like it starts with `docs/` when it does not.
+  if (file.trim() === '') return false;
   if (NON_PRODUCT_DIRS.some((dir) => file.startsWith(dir))) return true;
   return ROOT_MARKDOWN.test(file);
 }
 
-/** A path list with the blanks dropped, which is the only shape below reads. */
+/** A path list with the blanks dropped, and nothing else touched - see isNonProduct. */
 function normalize(paths) {
-  return (paths ?? []).map((path) => String(path ?? '').trim()).filter((path) => path !== '');
+  return (paths ?? []).map((path) => String(path ?? '')).filter((path) => path.trim() !== '');
 }
 
 /**
@@ -94,8 +102,12 @@ const DELETE = 0x7f;
  * Everything logged below is a path out of `git diff` or a message out of git,
  * so a branch may choose it: `apps/x.ts` followed by a newline and
  * `::stop-commands::` is a legal filename, and printed raw it turns the rest of
- * the job's log into whatever its author wanted. Actions' commands are
- * line-based, so flattening the control characters stops all of them.
+ * the job's log into whatever its author wanted. Flattening the control
+ * characters closes that route; it does not close `::stop-commands::4f1a` as a
+ * *path itself*, since every printed line already carries a two-space indent
+ * ahead of it and a runner that strips leading whitespace before matching a
+ * command would still read it there — the same hazard review-gate.mjs's
+ * `oneLine` neutralises by breaking every `::` up, which this does too.
  */
 export function printable(text) {
   return [...String(text ?? '')]
@@ -103,14 +115,20 @@ export function printable(text) {
       const code = character.codePointAt(0);
       return code < FIRST_PRINTABLE || code === DELETE ? '?' : character;
     })
-    .join('');
+    .join('')
+    .replace(/::/g, ': :');
 }
 
-/** `git diff --name-only -z` output, which is NUL-separated and never quoted. */
+/**
+ * `git diff --name-only -z` output, which is NUL-separated and never quoted -
+ * so a path is split out exactly as it is, not trimmed: `-z` exists precisely
+ * so a path is handed over intact rather than in git's quoted form, and
+ * trimming it back here would partly defeat that. The one thing dropped is the
+ * empty string the final NUL leaves behind.
+ */
 export function pathsFromDiff(stdout) {
   return String(stdout ?? '')
     .split('\0')
-    .map((path) => path.trim())
     .filter((path) => path !== '');
 }
 
@@ -190,6 +208,14 @@ export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
   } catch (error) {
     const why = printable(String(error?.message ?? error).replace(/\s+/g, ' ').trim());
     return { changed: true, lines: [`::warning::Could not diff ${range}, so every check runs: ${why}`] };
+  }
+
+  if (paths.length === 0) {
+    // Not the same as "0 of them product": that line would say the classifier
+    // found nothing product-affecting, when what it actually found is nothing
+    // to classify - a range git resolved to no files, which is answered
+    // "product changed" for the reason productChanged's own comment gives.
+    return { changed: true, lines: [`${range}: no paths in this diff, so every check runs rather than reading that as documentation.`] };
   }
 
   const forcing = productPaths(paths);

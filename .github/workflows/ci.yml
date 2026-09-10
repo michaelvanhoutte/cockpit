@@ -52,6 +52,23 @@ jobs:
   # `Scripts` job: `docs/`, `.claude/` and root-level `*.md` are the only paths
   # that skip, and anything else runs everything.
   #
+  # `Concepts` and `Stability` carry no gate of their own either, and issue
+  # 345 left them that way rather than deciding it: whether the reporting
+  # pipeline should skip too was out of scope there. One consequence follows
+  # from `Test Explorer` needing `Test` regardless: on a documentation-only
+  # push to `main`, `Test Explorer` (and `Publish` behind it) skips for free,
+  # while `Stability` — ungated, unrelated to `Test` — still runs and spends
+  # part of its rate-limited Actions-API budget on a report `Publish` will not
+  # deploy. Narrow and self-correcting on the next code merge, not fixed here.
+  #
+  # This closes one gap in what a pull request's own head can influence — the
+  # classifier's decision — and not the wider one: `pull_request` still builds
+  # this very workflow file from the merge ref, so a branch with write access
+  # could edit `changes` itself, or drop `needs: changes` from a job below, and
+  # get the same five skips this guards against. Pinning the classifier closes
+  # the quiet route; it was never going to close the loud one, which every
+  # workflow file in this repository already trusts required checks over.
+  #
   # Checkout-only and no install, for the reason `scripts` gives, so it costs
   # the jobs that wait on it seconds rather than a minute. `fetch-depth: 0`
   # because the range it diffs reaches back to the base commit, and the whole
@@ -91,21 +108,27 @@ jobs:
           # judgement passing on it is `main`'s.
           #
           # A push to `main` has no base sha and needs none: what is in the tree
-          # there arrived by a reviewed squash merge.
-          classifier=scripts/what-changed.mjs
-          if [ -n "$BASE_SHA" ]; then
-            base="$RUNNER_TEMP/base-classifier"
-            mkdir -p "$base/lib"
-            if git show "$BASE_SHA:scripts/what-changed.mjs" > "$base/what-changed.mjs" &&
-               git show "$BASE_SHA:scripts/lib/what-changed.mjs" > "$base/lib/what-changed.mjs"; then
-              classifier="$base/what-changed.mjs"
-            else
-              # True of the pull request that introduced the classifier, and of
-              # nothing after it.
-              echo "::warning::The base commit carries no classifier, so this branch's own is deciding."
-            fi
+          # there arrived by a reviewed squash merge, so running the checkout's
+          # own copy here is running `main`'s own, not a pull request's.
+          if [ -z "$BASE_SHA" ]; then
+            node scripts/what-changed.mjs
+            exit 0
           fi
-          node "$classifier"
+          base="$RUNNER_TEMP/base-classifier"
+          mkdir -p "$base/lib"
+          if git show "$BASE_SHA:scripts/what-changed.mjs" > "$base/what-changed.mjs" &&
+             git show "$BASE_SHA:scripts/lib/what-changed.mjs" > "$base/lib/what-changed.mjs"; then
+            node "$base/what-changed.mjs"
+          else
+            # True of the pull request that introduced the classifier, and of
+            # nothing after it - or of `scripts/what-changed.mjs`'s own shape
+            # having moved since. Either way, falling back to *this branch's
+            # own copy* would be exactly the hole the base-commit extraction
+            # above exists to close, so this fails open instead: no classifier
+            # runs, and the mechanical jobs do.
+            echo "::warning::The base commit carries no classifier, so every check runs rather than trusting this branch's own."
+            echo "product_changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
   # Architecture §9.1 asks for the fast test tiers split one job per tier, so a
   # misplaced test is visible. Today Cockpit is one service with one test file,

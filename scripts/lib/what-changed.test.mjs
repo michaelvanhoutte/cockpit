@@ -65,6 +65,16 @@ describe('productChanged', () => {
     assert.equal(productChanged(undefined), true);
   });
 
+  it('does not let trimming turn a path into one it does not start with', () => {
+    // A legal filename may open with a control character `git diff -z` hands
+    // over intact; classifying a trimmed copy of it would read
+    // `\ndocs/evil.ts` as starting with `docs/`, when the real path does not.
+    for (const path of [`${NEWLINE}docs/evil.ts`, '  docs/evil.ts', `${NEWLINE}CLAUDE.md`]) {
+      assert.equal(isNonProduct(path), false, `${JSON.stringify(path)} should not be read as documentation`);
+      assert.equal(productChanged([path]), true, `${JSON.stringify(path)} should force the full suite`);
+    }
+  });
+
   it('runs them on a path that only looks like documentation', () => {
     // Prefixes are exact and case-sensitive, and Markdown is only prose when it
     // sits at the root: everything else falls through to the product, which is
@@ -119,11 +129,20 @@ describe('pathsFromDiff', () => {
 
 describe('printable', () => {
   it('flattens the control characters a path may legally carry', () => {
-    assert.equal(printable(`apps/x.ts${NEWLINE}::stop-commands::4f1a`), 'apps/x.ts?::stop-commands::4f1a');
     assert.equal(printable(`a${NUL}b`), 'a?b');
     // Carriage return, tab, escape and delete, which is every other shape a
     // command injected into the log could take.
     assert.equal(printable(String.fromCharCode(13, 9, 27, 127)), '????');
+  });
+
+  it('breaks up a workflow command even where it sits at the start of a printed path', () => {
+    // Flattening the newline stops a path from opening a new log line, but
+    // every printed line already starts with a two-space indent, so a runner
+    // that trims leading whitespace before matching a command would still read
+    // one sitting right after it - the same hazard review-gate.mjs's `oneLine`
+    // breaks up, which this mirrors.
+    assert.equal(printable(`apps/x.ts${NEWLINE}::stop-commands::4f1a`), 'apps/x.ts?: :stop-commands: :4f1a');
+    assert.equal(printable('::error::forged'), ': :error: :forged');
   });
 
   it('leaves an ordinary path, and anything not a string, alone', () => {
@@ -166,6 +185,17 @@ describe('classify', () => {
     assert.equal(changed, true);
     assert.equal(lines.filter((line) => line.startsWith('  apps/')).length, 20);
     assert.equal(lines.at(-1), '  ... and 5 more');
+  });
+
+  it('says why it ran everything on a range with nothing in it, rather than "0 of them product"', () => {
+    // productChanged([]) is true, not false - a range git resolved to no
+    // files is not the same claim as "found only documentation", and the log
+    // line has to say which one happened.
+    const { changed, lines } = classify(readers({ event: pullRequest, diff: '' }));
+    assert.equal(changed, true);
+    assert.equal(lines.length, 1);
+    assert.doesNotMatch(lines[0], /0 of them product/);
+    assert.match(lines[0], /no paths in this diff/);
   });
 
   it('runs everything when git could not answer, and says so as a warning', () => {
@@ -270,7 +300,8 @@ describe('the mechanical jobs', () => {
     const yaml = workflow('ci.yml');
     const changes = job(yaml, 'changes');
     assert.match(changes, /product_changed: \$\{\{ steps\.classify\.outputs\.product_changed \}\}/, "ci.yml's changes job publishes no answer");
-    assert.match(changes, /node "\$classifier"/, "ci.yml's changes job decides it somewhere else");
+    assert.match(changes, /node scripts\/what-changed\.mjs/, "ci.yml's changes job does not run the classifier on a push");
+    assert.match(changes, /node "\$base\/what-changed\.mjs"/, "ci.yml's changes job does not run the base commit's own copy");
     for (const id of ['typecheck', 'lint', 'test', 'e2e', 'build']) {
       const block = job(yaml, id);
       assert.ok(needsOf(block).includes('changes'), `ci.yml's ${id} job does not wait for what changed`);
@@ -286,6 +317,20 @@ describe('the mechanical jobs', () => {
     assert.match(changes, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/, 'the base commit is never named');
     assert.match(changes, /git show "\$BASE_SHA:scripts\/what-changed\.mjs"/, "the base commit's own wrapper is not taken");
     assert.match(changes, /git show "\$BASE_SHA:scripts\/lib\/what-changed\.mjs"/, "the base commit's own module is not taken");
+  });
+
+  it('never falls back to the pull request\'s own classifier when the base commit has none', () => {
+    // A pull request whose base predates this classifier - every branch open
+    // when it merges, until each is rebased - would otherwise hit exactly the
+    // fallback the base-commit extraction exists to prevent: running the
+    // branch's own copy, which a tampered one could answer "documentation
+    // only" about its own payload. Failing open (`product_changed=true`
+    // written directly, no `node` call) is the only safe answer once the base
+    // commit's copy could not be read.
+    const changes = job(workflow('ci.yml'), 'changes');
+    const elseBranch = changes.slice(changes.indexOf('else', changes.indexOf('git show')));
+    assert.doesNotMatch(elseBranch.split('fi')[0], /node /, "the else branch still runs a classifier - which one, on whose copy?");
+    assert.match(elseBranch, /product_changed=true/, 'the else branch does not fail open directly');
   });
 
   it('cannot skip on a classifier that failed rather than answered', () => {
@@ -318,7 +363,10 @@ describe('the mechanical jobs', () => {
     // saving and the artifact hop `test-explorer-spec.md` documents, silently:
     // every job here still exists and still passes.
     const yaml = workflow('ci.yml');
-    assert.deepEqual(needsOf(job(yaml, 'test-explorer')), ['test', 'test-explorer-check'], "Test Explorer's dependency on Test and Concepts went missing");
+    // Sorted before comparing: YAML gives `needs:` no order of its own, so
+    // asserting the list as written would fail on a harmless reordering for
+    // the same reason it should fail on a real one going missing.
+    assert.deepEqual(needsOf(job(yaml, 'test-explorer')).sort(), ['test', 'test-explorer-check'].sort(), "Test Explorer's dependency on Test and Concepts went missing");
   });
 
   it('leave CodeQL to run on every diff, its third context being nobody here to post', () => {
