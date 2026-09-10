@@ -55,6 +55,7 @@ import {
   runCommand,
 } from './command-service.js';
 import {
+  decisionHistoryForWorkspace,
   getItem,
   getWorkspace,
   listAssociationsForWorkspace,
@@ -66,7 +67,9 @@ import {
   listOpenItems,
   listPanelsInWorkspace,
   listWorkspaces,
+  recentlyCapturedUnfiled,
 } from './repo.js';
+import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
 
 /**
@@ -155,6 +158,26 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
       return listPanelsInWorkspace(db, accountName, workspaceId).filter(panelTakesItems);
     });
+  }
+
+  /**
+   * The account's whole decision history for one workspace, oldest first -
+   * what a routing proposal reads whole ("Learn where notes belong from
+   * where you actually file them", issue 299).
+   */
+  decisionHistory(accountName: string, workspaceId: string): Answer<DecisionHistoryEntry[]> {
+    return this.#answer(accountName, (db) => decisionHistoryForWorkspace(db, accountName, workspaceId));
+  }
+
+  /**
+   * The most recently captured notes in one workspace that are filed nowhere
+   * yet, most recent first - a signal separate from settled history ("What
+   * has been captured lately and not yet filed is an input too", issue 299).
+   */
+  recentlyCapturedUnfiled(accountName: string, workspaceId: string, excludeItemId: string): Answer<string[]> {
+    return this.#answer(accountName, (db) =>
+      recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
+    );
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

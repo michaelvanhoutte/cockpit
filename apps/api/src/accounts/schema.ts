@@ -929,6 +929,62 @@ export const associations = sqliteTable(
 );
 
 /**
+ * One entry per settled filing - the append-only decision history a routing
+ * proposal reads whole ("Learn where notes belong from where you actually
+ * file them", issue 299; `docs/routing-learning.md`, "What the model reads").
+ *
+ * **Written once, by `move_item_to_panel` alone, and never onto the Inbox.**
+ * Filing onto a real Panel is the moment a routing settles; `add_item_to_panel`
+ * puts the same Item on a second Panel without saying where it primarily
+ * belongs, and a move to the Inbox (`panel_id: null`) is not a filing at all -
+ * neither writes a row here.
+ *
+ * **`id` is the settling command's own `command_id`.** The command that writes
+ * it is already idempotent on that id (`command-service.ts`), so reusing it
+ * costs nothing and keeps every entry traceable to the exact command that made
+ * it.
+ *
+ * **`proposed_panel_id` is nullable and `chosen_panel_id` is not**: naming no
+ * Panel is a real proposal outcome (issue 298, "Proposing nothing is a real
+ * answer"), while a row only exists because something was actually filed.
+ * Both reference `panels`, exactly as `items.proposed_panel_id` already does,
+ * because a Panel is tombstoned rather than deleted (architecture, "Schema
+ * conventions") - so an entry naming a since-deleted Panel still resolves.
+ *
+ * **Nothing here is ever updated or deleted, by this table's own rule.** An
+ * undone filing writes no second row and removes no first one: only a real
+ * filing is ever logged, so an undo - which returns an item to the Inbox -
+ * logs nothing either way, and the original entry stands. Weighting a
+ * reversed entry differently is `docs/routing-learning.md` §13 decision 4,
+ * deliberately not decided here.
+ */
+export const decisionHistory = sqliteTable(
+  'decision_history',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    proposedPanelId: text('proposed_panel_id').references(() => panels.id, { onDelete: 'restrict' }),
+    proposedPanelReason: text('proposed_panel_reason'),
+    chosenPanelId: text('chosen_panel_id')
+      .notNull()
+      .references(() => panels.id, { onDelete: 'restrict' }),
+    decidedAt: text('decided_at').notNull(),
+  },
+  (t) => [
+    // Read per workspace, oldest first, whole (routing-learning.md, "no
+    // retrieval step") - the one access pattern this table has.
+    index('decision_history_tenant_workspace_decided').on(t.tenantId, t.workspaceId, t.decidedAt),
+    check('decision_history_decided_at_is_timestamp', isTimestamp('decided_at')),
+  ],
+);
+
+/**
  * The command log (architecture, "Mutations are commands, not object PUTs"):
  * idempotency check for retries and the audit trail. command_id is the
  * client-generated ID; a replayed command is a no-op.

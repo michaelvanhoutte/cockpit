@@ -11,6 +11,7 @@ import type {
 } from '@cockpit/shared';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
+import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 
 /**
  * What one account's store answers to, as the Worker sees it across the
@@ -53,6 +54,24 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * else: a browser already has the full snapshot, panels of text included.
    */
   panelsThatTakeItems(accountName: string, workspaceId: string): Awaitable<Answer<Panel[]>>;
+  /**
+   * The account's whole decision history for one workspace, oldest first -
+   * what a routing proposal reads whole ("Learn where notes belong from
+   * where you actually file them", issue 299). Read by the enrichment job and
+   * by nothing else, the same as `panelsThatTakeItems` beside it.
+   */
+  decisionHistory(accountName: string, workspaceId: string): Awaitable<Answer<DecisionHistoryEntry[]>>;
+  /**
+   * The most recently captured notes in one workspace that are filed nowhere
+   * yet, most recent first, `excludeItemId` left out - a signal separate from
+   * settled history ("What has been captured lately and not yet filed is an
+   * input too", issue 299). Read by the enrichment job and by nothing else.
+   */
+  recentlyCapturedUnfiled(
+    accountName: string,
+    workspaceId: string,
+    excludeItemId: string,
+  ): Awaitable<Answer<string[]>>;
   changesSince(
     accountName: string,
     since: string,

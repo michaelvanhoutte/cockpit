@@ -6,6 +6,7 @@ import {
   commands,
   dashboards,
   DEAD_STATUS_VALUE,
+  decisionHistory,
   items,
   itemTypes,
   layoutRows,
@@ -82,6 +83,7 @@ import {
   ordersTypesExactly,
 } from '../domain/item-types.js';
 import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
+import { decisionHistoryEntryFor } from '../domain/decision-history.js';
 import {
   applyProposedPanel,
   applyProposedTexts,
@@ -1346,6 +1348,16 @@ export function runCommand<N extends CommandName>(
           for (const batch of inBatchesOf(rows, FILING_VALUES_PER_ROW)) {
             tx.insert(panelItems).values(batch).run();
           }
+          // A routing settles by landing on a real Panel - never on a move to
+          // the Inbox, which is the branch this `if` is already gating on
+          // ("Learn where notes belong from where you actually file them",
+          // issue 299). `item` is read fresh above, before this write, so its
+          // `proposedPanelId`/`proposedPanelReason` are exactly what the Inbox
+          // chip showed for this filing.
+          tx.insert(decisionHistory)
+            .values(decisionHistoryEntryFor(item, cmd, panel.id))
+            .onConflictDoNothing()
+            .run();
         }
         tx.insert(commands).values(commandRow).run();
       });

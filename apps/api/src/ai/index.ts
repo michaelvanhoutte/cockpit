@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v3.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v4.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
+import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 
 export type { NoteTexts, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
 
@@ -31,6 +32,12 @@ export interface AiService {
    * `panel.panelId` is allowed to be, structurally, is that list and nothing
    * else (`buildCleanUpANote`'s schema `enum`).
    *
+   * `history` is the account's whole decision history for this note's
+   * workspace, oldest first, and `recentlyCaptured` is what else has been
+   * captured there lately and not yet filed - the two inputs that let a
+   * proposal learn from where notes actually get filed ("Learn where notes
+   * belong from where you actually file them", issue 299).
+   *
    * Answers a refusal rather than throwing for anything the model itself said:
    * an answer that will not parse or will not validate is a discarded proposal,
    * which the Item survives by keeping the text capture wrote. A call that
@@ -40,6 +47,8 @@ export interface AiService {
   cleanUpNote(
     capturedMessage: string,
     panels: readonly { id: string; name: string }[],
+    history: readonly DecisionHistoryEntry[],
+    recentlyCaptured: readonly string[],
   ): Promise<ProposalRead>;
 }
 
@@ -83,8 +92,10 @@ export class ClaudeAiService implements AiService {
   async cleanUpNote(
     capturedMessage: string,
     panels: readonly { id: string; name: string }[],
+    history: readonly DecisionHistoryEntry[],
+    recentlyCaptured: readonly string[],
   ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote(panels);
+    const prompt = buildCleanUpANote(panels, history, recentlyCaptured);
     const answer = await this.#client.messages.create({
       model: prompt.model,
       /**

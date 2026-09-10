@@ -8,6 +8,7 @@ import {
   OTHER_USER_ID,
   TASK_TYPE_ID,
   WORKSPACE_ID,
+  alsoWorkspaces,
   asUser,
   inStoreAsItIs,
   seedRegister,
@@ -240,6 +241,23 @@ async function fileOnto(itemId: string, panelId: string): Promise<void> {
     commandId: nextId(),
     issuedAt: '2026-09-09T10:00:01.000Z',
     workspaceId: WORKSPACE_ID,
+    itemId,
+    panelId,
+    order: [itemId],
+  });
+  expect(response.status).toBe(200);
+}
+
+/**
+ * Settles a routing, which is what writes a decision-history entry
+ * ("Learn where notes belong from where you actually file them", issue 299) -
+ * unlike `fileOnto` above, which is `add_item_to_panel` and writes none.
+ */
+async function moveOnto(itemId: string, panelId: string, workspaceId = WORKSPACE_ID): Promise<void> {
+  const response = await postChange('move_item_to_panel', {
+    commandId: nextId(),
+    issuedAt: '2026-09-09T10:00:01.000Z',
+    workspaceId,
     itemId,
     panelId,
     order: [itemId],
@@ -505,6 +523,112 @@ describe('Capture', () => {
 
       expect(asked[0]!.system).toContain('Compliance questions');
       expect(asked[0]!.system).not.toContain('Reading list');
+    });
+  });
+
+  /**
+   * "Learn where notes belong from where you actually file them" (issue 299):
+   * the same model call reads the account's decision history and what else
+   * has been captured lately - both rendered into the system prompt, which is
+   * as far as an integration test can reach into a call whose actual routing
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v4.test.ts
+   * proves the judgment itself).
+   */
+  describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {
+    it('says nothing was filed yet, and nothing else is waiting, for the first note of an account', async () => {
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('(nothing filed yet)');
+      expect(asked[0]!.system).toContain('(nothing else waiting right now)');
+    });
+
+    it('names an earlier note and where it was filed, once one has been', async () => {
+      const compliance = await aPanel('Compliance questions');
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      const first = await captureANote({ message: 'part 11 audit trail question' });
+      await untilTheNoteHasBeenRead(first);
+      await moveOnto(first, compliance);
+      asked = [];
+      theModelIs({ says: A_READING });
+
+      const second = await captureANote({ message: 'a second, unrelated note' });
+      await untilTheNoteHasBeenRead(second);
+
+      expect(asked[0]!.system).toContain('part 11 audit trail question');
+      expect(asked[0]!.system).toContain('Compliance questions');
+      expect(asked[0]!.system).toContain('accepted the proposal');
+    });
+
+    it('names both the wrong and the right panel, once a proposal has been overridden', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const laurens = await aPanel('Laurens');
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      const first = await captureANote({ message: 'sign-off needed, who owns it' });
+      await untilTheNoteHasBeenRead(first);
+      await moveOnto(first, laurens);
+      asked = [];
+      theModelIs({ says: A_READING });
+
+      const second = await captureANote({ message: 'a second, unrelated note' });
+      await untilTheNoteHasBeenRead(second);
+
+      expect(asked[0]!.system).toContain('Compliance questions');
+      expect(asked[0]!.system).toContain('Laurens');
+      expect(asked[0]!.system).toContain('but it was filed on Laurens instead');
+    });
+
+    it('never carries a decision made in another workspace', async () => {
+      await alsoWorkspaces();
+      const compliance = await aPanel('Compliance questions');
+      const first = await captureANote({ message: 'part 11 audit trail question' });
+      await untilTheNoteHasBeenRead(first);
+      await moveOnto(first, compliance);
+      asked = [];
+
+      const elsewhere = await captureANote({ workspaceId: 'ws-personal', message: 'buy milk' });
+      await vi.waitFor(
+        async () => {
+          expect((await textsOf(elsewhere, ACCOUNT_NAME))?.title).toBe(A_READING.title);
+        },
+        { timeout: 15_000, interval: 50 },
+      );
+
+      expect(asked[0]!.system).toContain('(nothing filed yet)');
+      expect(asked[0]!.system).not.toContain('part 11 audit trail question');
+    });
+
+    it('names another note captured lately and not yet filed', async () => {
+      const waiting = await captureANote({ message: 'still sitting in the inbox' });
+      await untilTheNoteHasBeenRead(waiting);
+      asked = [];
+
+      const itemId = await captureANote({ message: 'a second, unrelated note' });
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('still sitting in the inbox');
+      // Not the note itself - it is not "another" note to its own call, and it
+      // is sent as the message being asked about, never as part of the system
+      // prompt's own reading material.
+      expect(asked[0]!.system).not.toContain('a second, unrelated note');
+    });
+
+    it('leaves out a note once it has been filed', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const filed = await captureANote({ message: 'part 11 audit trail question' });
+      await untilTheNoteHasBeenRead(filed);
+      await moveOnto(filed, compliance);
+      asked = [];
+
+      const itemId = await captureANote({ message: 'a second, unrelated note' });
+      await untilTheNoteHasBeenRead(itemId);
+
+      // Named once, in the decision history - and not a second time in the
+      // recently-captured section, since filing is what takes it out of that
+      // set.
+      expect(asked[0]!.system.match(/part 11 audit trail question/g)).toHaveLength(1);
     });
   });
 

@@ -78,6 +78,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_TEXTS_SETTLED,
     ITEM_READINGS,
     ITEM_PROPOSED_PANEL,
+    DECISION_HISTORY,
     firstWorkspace(accountId),
   ];
 }
@@ -208,6 +209,58 @@ const ITEM_PROPOSED_PANEL: Change = {
       sql: 'ALTER TABLE `items` ADD COLUMN `proposed_panel_id` text REFERENCES `panels`(`id`) ON UPDATE no action ON DELETE restrict',
     },
     { sql: 'ALTER TABLE `items` ADD COLUMN `proposed_panel_reason` text' },
+  ],
+};
+
+/**
+ * The append-only decision history a routing proposal reads whole ("Learn
+ * where notes belong from where you actually file them", issue 299) - see
+ * `schema.ts` for what each column carries and why.
+ *
+ * **A brand new table, so it is created whole with its CHECK rather than
+ * added to and altered later** - the same shape `SCREEN_SIZES` and
+ * `ITEM_READINGS` use, and the reason is the same one this file gives for
+ * both: a table created here can carry a CHECK from the start, unlike a
+ * column added to `items` or `panels`, which cannot be rebuilt while other
+ * tables point at them under RESTRICT.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a table and writes to no existing row.
+ * - **Interrupted partway.** It cannot be: the two statements and the record
+ *   that they ran commit together (`up-to-date.ts`), so a failure leaves
+ *   neither the table nor the index and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left nothing behind.
+ * - **Data the new rules reject.** None: the table starts empty, and nothing
+ *   sweeps past filings into it. History accumulates from this shipping
+ *   forward, the same precedent issue 296 set for title cleanup.
+ */
+const DECISION_HISTORY: Change = {
+  name: '0024-decision-history',
+  statements: [
+    {
+      sql: `CREATE TABLE \`decision_history\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`proposed_panel_id\` text,
+	\`proposed_panel_reason\` text,
+	\`chosen_panel_id\` text NOT NULL,
+	\`decided_at\` text NOT NULL,
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`proposed_panel_id\`) REFERENCES \`panels\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`chosen_panel_id\`) REFERENCES \`panels\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "decision_history_decided_at_is_timestamp" CHECK(decided_at IS NULL OR (datetime(decided_at) IS NOT NULL AND substr(decided_at, 11, 1) = 'T' AND substr(decided_at, -1) = 'Z' AND length(decided_at) >= 20 AND date(decided_at) = substr(decided_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `decision_history_tenant_workspace_decided` ON `decision_history` (`tenant_id`,`workspace_id`,`decided_at`)',
+    },
   ],
 };
 

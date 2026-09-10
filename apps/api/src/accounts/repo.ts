@@ -1,4 +1,5 @@
-import { and, asc, eq, isNull, max, ne, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
+import { and, asc, desc, eq, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type {
   Association,
   Dashboard,
@@ -13,10 +14,12 @@ import type {
 } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
+import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import {
   associations,
   commands,
   dashboards,
+  decisionHistory,
   items,
   itemTypes,
   layoutRows,
@@ -671,6 +674,89 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
     .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panelId)))
     .orderBy(asc(panelItems.position))
     .all();
+}
+
+/**
+ * The account's whole decision history for one workspace, oldest first
+ * ("Learn where notes belong from where you actually file them", issue 299) -
+ * what a routing proposal reads whole, with no retrieval step
+ * (`docs/routing-learning.md`, "What the model reads").
+ *
+ * Two joins to `panels`, aliased apart: the proposed Panel and the chosen one
+ * are two different rows of the same table, sometimes the same row (an
+ * accept) and sometimes not (an override). Both resolve even for a Panel
+ * since tombstoned - the whole reason `decision_history` references `panels`
+ * rather than copying its name at write time (schema.ts).
+ */
+export function decisionHistoryForWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): DecisionHistoryEntry[] {
+  const proposedPanels = alias(panels, 'proposed_panels');
+  const chosenPanels = alias(panels, 'chosen_panels');
+  return db
+    .select({
+      capturedMessage: items.capturedMessage,
+      itemTitle: items.title,
+      proposedPanelName: proposedPanels.name,
+      proposedPanelReason: decisionHistory.proposedPanelReason,
+      chosenPanelName: chosenPanels.name,
+      decidedAt: decisionHistory.decidedAt,
+    })
+    .from(decisionHistory)
+    .innerJoin(items, eq(decisionHistory.itemId, items.id))
+    .innerJoin(chosenPanels, eq(decisionHistory.chosenPanelId, chosenPanels.id))
+    .leftJoin(proposedPanels, eq(decisionHistory.proposedPanelId, proposedPanels.id))
+    .where(and(eq(decisionHistory.tenantId, tenantId), eq(decisionHistory.workspaceId, workspaceId)))
+    .orderBy(asc(decisionHistory.decidedAt))
+    .all();
+}
+
+/**
+ * The most `RECENTLY_CAPTURED_LIMIT` recently captured notes in one
+ * workspace that are filed nowhere yet, most recent first - a signal
+ * separate from settled history, read for the same call ("What has been
+ * captured lately and not yet filed is an input too", issue 299): what
+ * somebody is writing about, before any of it is filed.
+ *
+ * `excludeItemId` leaves out the note this call is itself proposing for - it
+ * is not "another" note yet. Bounded rather than open-ended, so the call this
+ * feeds stays the same size whatever the Inbox holds (architecture, "No
+ * statement's parameter count grows with the data" - the same principle,
+ * even though this is a plain SELECT and not an IN list).
+ */
+const RECENTLY_CAPTURED_LIMIT = 20;
+
+export function recentlyCapturedUnfiled(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  excludeItemId: string,
+): string[] {
+  return db
+    .select({ capturedMessage: items.capturedMessage })
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        eq(items.workspaceId, workspaceId),
+        ne(items.id, excludeItemId),
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
+        isNotNull(items.capturedMessage),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(panelItems)
+            .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, items.id))),
+        ),
+      ),
+    )
+    .orderBy(desc(items.createdAt))
+    .limit(RECENTLY_CAPTURED_LIMIT)
+    .all()
+    .map((row) => row.capturedMessage!);
 }
 
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {

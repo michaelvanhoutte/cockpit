@@ -122,7 +122,7 @@ One non-obvious rule: when the filing was an *override*, the features behind the
 
 ## 13. Open decisions
 
-1. **Scope of the history: per workspace or global?** *Recommendation: per workspace* — it is the privacy boundary and the routing vocabulary genuinely differs between Work and Personal. Cost: cross-workspace patterns are not learned.
+1. ~~Scope of the history: per workspace or global?~~ **Decided: per workspace** ("Learn where notes belong from where you actually file them", issue 299), on this recommendation — it is the privacy boundary and the routing vocabulary genuinely differs between Work and Personal. Cost, accepted: cross-workspace patterns are not learned.
 2. **Does the capture UI show proposals at all?** Fire-and-forget versus chips fading in a second after save. *Recommendation: fire-and-forget in v1*, being simpler and identical offline and online; revisit once proposals are demonstrably good.
 3. **When does suggest-and-confirm flip to auto-apply?** The design makes the flip a default filter change. *Proposed trigger: a sustained acceptance rate above a chosen threshold*, visible in the instrumentation, rather than a gut call.
 4. **Weighting of history entries.** Overrides should outweigh passive accepts, and old decisions should decay — a note re-filed weeks later is reorganisation, not correction. Exact weights are an implementation detail; without the principle, the system's own accepted proposals self-reinforce.
