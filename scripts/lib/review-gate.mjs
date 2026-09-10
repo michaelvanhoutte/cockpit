@@ -235,14 +235,15 @@ export function resultRecordOf(execution) {
  * denial, never a wholesale choice between messages and tool names. `tool_name`
  * alone is "Bash" on every denial sampled for issue 284, which said nothing -
  * three of them read as "Bash, Bash, Bash" on pull request 266, run
- * 34236381017. The denial's own `message` names the actual reason instead:
- * that run's held a compound command naming the sub-command still needing
- * approval, and twice over an output redirection refused outright - not a
- * missing allowlist entry, since Claude Code refuses writing command output to
- * a file regardless of what is allowlisted, so no tool name could have said
- * that. Pull request 272, run 34283557786, is the other shape: a subagent
- * shelling out to `grep | head` instead of using the Grep tool it already had,
- * denied as a compound command for the same reason.
+ * 34236381017, and all three were the same attempt - save the diff to a file
+ * to check its size - denied three different ways as Claude Code retried it: a
+ * compound command whose sub-command still needed approval, then twice over an
+ * output redirection refused outright. The redirection is not a missing
+ * allowlist entry - Claude Code refuses writing command output to a file
+ * regardless of what is allowlisted - so no tool name could have said that.
+ * The denial's own `message` does. Pull request 272, run 34283557786, is the
+ * other shape: a subagent shelling out to `grep | head` instead of using the
+ * Grep tool it already had, denied as a compound command for the same reason.
  *
  * Falling back to the tool name only per-denial, not for the whole list,
  * matters where some denials in a run carry a message and others do not: a
