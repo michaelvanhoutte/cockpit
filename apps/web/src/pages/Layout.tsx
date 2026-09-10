@@ -134,18 +134,28 @@ function TheShell() {
    */
   const [dragPreview, setDragPreview] = useState<number | null>(null);
   /**
-   * `startWidth` never changes once a drag is picked up - it is what a
-   * release with no movement compares `latest` against. `latest` and
-   * `lastClientX` do, on every move: `latest` is clamped as it goes, and
-   * `lastClientX` is what the next move's delta is measured from regardless,
-   * so a pointer that has travelled well past the ceiling starts moving the
-   * column again the instant it reverses, rather than having to travel all
-   * the way back past wherever it crossed the line (found in review) - the
-   * same reason a value dragged past a limit and let go snaps to the limit
-   * rather than to nothing in every other drag in this app.
+   * `startWidth` and `startX` never change once a drag is picked up: `latest`
+   * is always `startWidth` clamped by however far `clientX` has moved from
+   * `startX`, recomputed from those two fixed points on every move rather
+   * than carried forward from the previous one.
+   *
+   * **Tried carrying it forward first, and that was the bug** (found in
+   * review): clamping an accumulating total is not invertible - overshoot the
+   * ceiling and bring the pointer back to exactly where the drag began, and
+   * the clamped total does not come back to exactly `startWidth` with it, so
+   * a round trip that visibly changed nothing still committed a different
+   * number. Recomputing from the two fixed points instead is what a plain
+   * `Math.min`/`Math.max` already is everywhere else in this file: `clamp(x)`
+   * for the same `x` is always the same answer, so retracing a drag exactly
+   * retraces what it showed - at the cost of the handle staying wherever it
+   * clamped to until the pointer has retraced the *whole* overshoot, not
+   * just enough of it to be back in range. That half is not a bug being
+   * accepted here so much as it is every other drag-to-resize in this app,
+   * native `resize: both` included (`itemFormSize.ts`): a size a drag pushed
+   * past its limit stays at the limit until the pointer earns its way back.
    */
   const resizingFrom = useRef<
-    { startWidth: number; lastClientX: number; latest: number; pointerId: number } | null
+    { startWidth: number; startX: number; latest: number; pointerId: number } | null
   >(null);
   const inboxColumnRef = useRef<HTMLElement>(null);
   /**
@@ -189,7 +199,7 @@ function TheShell() {
     const startWidth = column.getBoundingClientRect().width;
     resizingFrom.current = {
       startWidth,
-      lastClientX: event.clientX,
+      startX: event.clientX,
       latest: startWidth,
       pointerId: event.pointerId,
     };
@@ -262,13 +272,12 @@ function TheShell() {
       if (!ownsPointer(event)) return;
       const held = resizingFrom.current;
       if (!held) return;
-      // The delta since the *last* move, not since the drag started: `latest`
-      // already carries every earlier move's effect, clamp included, so this
-      // is what keeps a reversed drag responsive the instant it turns around
-      // rather than only once the pointer has retraced the whole overshoot.
-      const delta = event.clientX - held.lastClientX;
-      held.lastClientX = event.clientX;
-      held.latest = clampInboxWidth(held.latest + delta, availableRowWidthRef.current);
+      // From the two fixed points, not the previous move - see `resizingFrom`
+      // above for why carrying `latest` forward instead was the bug.
+      held.latest = clampInboxWidth(
+        held.startWidth + (event.clientX - held.startX),
+        availableRowWidthRef.current,
+      );
       setDragPreview(held.latest);
     };
     const onUp = (event: PointerEvent) => {

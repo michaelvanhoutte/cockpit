@@ -471,24 +471,25 @@ describe('Triage', () => {
       expect(window.localStorage.getItem('cockpit.inbox-width')).not.toBeNull();
     });
 
-    it('stays responsive the instant a drag past the ceiling reverses, rather than needing to retrace the overshoot', async () => {
+    it('returns to exactly where it started when the pointer does, even after overshooting the ceiling', async () => {
       withRoomForTheInbox();
       await open('/w/ws-work/d/ws-work-research', [work, personal]);
       await screen.findByRole('navigation', { name: 'Dashboards' });
       const handle = resizeHandle();
 
       fireEvent.pointerDown(handle, { button: 0, clientX: 300, pointerId: 1 });
+      const atThePickup = inboxColumn()!.style.width;
+
       fireEvent.pointerMove(window, { clientX: 10300, pointerId: 1 });
-      const atTheCeiling = inboxColumn()!.style.width;
+      expect(inboxColumn()!.style.width).not.toBe(atThePickup);
 
-      fireEvent.pointerMove(window, { clientX: 10250, pointerId: 1 });
-      const afterASmallMoveBack = inboxColumn()!.style.width;
-
-      // Moved immediately on the first move back, rather than only once the
-      // pointer has retraced the whole overshoot past the ceiling.
-      expect(afterASmallMoveBack).not.toBe(atTheCeiling);
+      // Back to the exact pointer position the drag began at - a round trip
+      // that visibly changed nothing along the way it did not take.
+      fireEvent.pointerMove(window, { clientX: 300, pointerId: 1 });
+      expect(inboxColumn()!.style.width).toBe(atThePickup);
 
       fireEvent.pointerUp(window, { pointerId: 1 });
+      expect(inboxColumn()).toHaveStyle({ width: atThePickup });
     });
 
     it('abandons a drag the browser takes back, without remembering anything from it', async () => {
