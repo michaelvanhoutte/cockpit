@@ -83,7 +83,7 @@ gh pr create --draft --title "..." --body "..."
 gh pr ready <number>
 ```
 
-**Convert the pull request back to draft before pushing a round of fixes, and mark it ready once when the round is done.** Both review workflows skip a draft, so the intermediate pushes cost CI alone and exactly one review runs against the finished head — pushing fixes while ready used to leave a cancelled run's findings answering a head the replacement declined to look at, reported as a pass rather than a failure ("The review check goes green when the reviewer declined to look at the new commits", issue 75).
+**A round of review fixes gets the same draft-then-ready treatment**, for the reason above: pushing fixes while ready used to leave a cancelled run's findings answering a head the replacement declined to look at, reported as a pass rather than a failure ("The review check goes green when the reviewer declined to look at the new commits", issue 75).
 
 ```bash
 gh pr ready <number> --undo
