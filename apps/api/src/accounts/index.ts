@@ -13,6 +13,7 @@ import { accountIsRegistered } from './register.js';
 import { describeForeignRows, type AccountBackup } from './backup.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
+import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -91,6 +92,18 @@ export interface Account {
    * else.
    */
   panelsThatTakeItems(workspaceId: string): Promise<Panel[]>;
+  /**
+   * What a routing proposal reads beside the note itself, in one round trip
+   * ("Learn where notes belong from where you actually file them", issue
+   * 299): the account's whole decision history for one workspace, oldest
+   * first, and what else it has captured lately and not yet filed, most
+   * recent first, `excludeItemId` left out. Read by the enrichment job and
+   * by nothing else.
+   */
+  routingContext(
+    workspaceId: string,
+    excludeItemId: string,
+  ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
@@ -129,6 +142,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),
     panelsThatTakeItems: async (workspaceId) =>
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
+    routingContext: async (workspaceId, excludeItemId) =>
+      unwrap(await store.routingContext(accountName, workspaceId, excludeItemId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

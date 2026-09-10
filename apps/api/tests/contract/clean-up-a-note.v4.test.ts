@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeAiService } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote } from '../../src/ai/prompts/clean-up-a-note.v3.js';
+import { buildCleanUpANote } from '../../src/ai/prompts/clean-up-a-note.v4.js';
+import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 
 /**
  * The contract tier: the real Claude API, the real prompt, no fake anywhere
@@ -16,10 +17,12 @@ import { buildCleanUpANote } from '../../src/ai/prompts/clean-up-a-note.v3.js';
  * model offering a reading for every note rather than the rare few that
  * genuinely support one ("Clean up a captured note into a clear title and a
  * fuller message", issue 296; "Offer the other readings when a captured note
- * says two things", issue 297), and a model naming a panel for a note that
- * fits none of them ("Propose where a captured note belongs, without filing
- * it there", issue 298) - and none of it is provable against a fake, which
- * answers whatever the test told it to.
+ * says two things", issue 297), a model naming a panel for a note that fits
+ * none of them ("Propose where a captured note belongs, without filing it
+ * there", issue 298), and a model that goes on repeating a proposal a person
+ * has already corrected once ("Learn where notes belong from where you
+ * actually file them", issue 299) - and none of it is provable against a
+ * fake, which answers whatever the test told it to.
  *
  * A failure here is the model or the prompt having drifted apart, and fixing it
  * is priority work. It is never fixed by running it again.
@@ -54,10 +57,17 @@ const MARKERS = {
  *
  * `panels` defaults to none, for every case that is not itself about routing:
  * a note being read for its title and message is not made more or less
- * ambiguous by what panels happen to exist.
+ * ambiguous by what panels happen to exist. `history` and `recentlyCaptured`
+ * default to none for the same reason - nothing below is about them unless a
+ * case names them.
  */
-async function read(note: string, panels: readonly { id: string; name: string }[] = []) {
-  const answer = await reading.cleanUpNote(note, panels);
+async function read(
+  note: string,
+  panels: readonly { id: string; name: string }[] = [],
+  history: readonly DecisionHistoryEntry[] = [],
+  recentlyCaptured: readonly string[] = [],
+) {
+  const answer = await reading.cleanUpNote(note, panels, history, recentlyCaptured);
   // Said out loud, because a discarded answer is the one failure whose reason
   // is otherwise only in the logs of a scheduled run nobody was watching.
   if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
@@ -185,7 +195,7 @@ describe('Capture', () => {
       expect(proposal.title.length).toBeLessThan(note.length);
       // A name and a fuller text, rather than the same words twice.
       expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
-      expect(buildCleanUpANote([]).version).toBe('v3');
+      expect(buildCleanUpANote([], [], []).version).toBe('v4');
     });
   });
 
@@ -245,7 +255,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v3.ts`'s fifth example pairs "Compliance
+   * example (`clean-up-a-note.v4.ts`'s fifth example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -288,6 +298,49 @@ describe('Capture', () => {
       if (proposal.panel) {
         expect(panels.map((panel) => panel.id)).toContain(proposal.panel.panelId);
       }
+    });
+  });
+
+  /**
+   * The property the POC measured ("Learn where notes belong from where you
+   * actually file them", issue 299): a correction changes the *next* proposal
+   * for a note like the one that was corrected, without anybody telling the
+   * model a rule. This is the whole reason the decision history exists rather
+   * than a rule engine - the same shape of note offered nothing to name a
+   * panel by itself, and would keep offering nothing without the correction
+   * below to read.
+   *
+   * `COMPLIANCE_NOTE` from the describe above is deliberately not reused: a
+   * note the panel-naming case already passed on its own would prove nothing
+   * about the history mattering, since a plainly-compliance note might name
+   * the panel unaided. `LAURENS_SHAPED_NOTE` is worded to fit either panel
+   * equally - a genuine sign-off question that never says which team owns it -
+   * so naming one over the other is a call the history alone can be driving.
+   */
+  describe('a proposal follows a correction recorded in the decision history', () => {
+    const panels = [
+      { id: '018f0000-0000-7000-8000-000000000003', name: 'Compliance questions' },
+      { id: '018f0000-0000-7000-8000-000000000004', name: 'Laurens' },
+    ];
+    const LAURENS_SHAPED_NOTE = 'sign-off needed before we can close this out, who owns it';
+
+    it('proposes the corrected panel for a similar note, after an override names it', async () => {
+      const history: DecisionHistoryEntry[] = [
+        {
+          capturedMessage: 'part 11 audit trail q for validation protocol, who signs off eod',
+          itemTitle: 'Part 11 audit trail question',
+          proposedPanelId: panels[0]!.id,
+          proposedPanelName: 'Compliance questions',
+          proposedPanelReason: 'a compliance question, about the validation protocol',
+          chosenPanelId: panels[1]!.id,
+          chosenPanelName: 'Laurens',
+          decidedAt: '2026-08-01T09:00:00.000Z',
+        },
+      ];
+
+      const proposal = await read(LAURENS_SHAPED_NOTE, panels, history);
+
+      expect(proposal.panel?.panelId).toBe(panels[1]!.id);
     });
   });
 });

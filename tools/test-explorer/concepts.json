@@ -90,9 +90,10 @@
         "apps/web/src/components/ManageTypes.tsx",
         "apps/api/src/ai/index.ts",
         "apps/api/src/ai/note-texts.ts",
-        "apps/api/src/ai/prompts/clean-up-a-note.v3.ts",
+        "apps/api/src/ai/prompts/clean-up-a-note.v4.ts",
         "apps/api/src/jobs/index.ts",
-        "apps/api/src/jobs/enrichment.ts"
+        "apps/api/src/jobs/enrichment.ts",
+        "apps/api/src/domain/decision-history.ts"
       ]
     },
     {
@@ -101,6 +102,7 @@
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
+        "apps/api/src/domain/decision-history.ts",
         "apps/api/src/accounts/command-service.ts",
         "apps/api/src/accounts/repo.ts",
         "packages/shared/src/commands.ts",

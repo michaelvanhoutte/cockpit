@@ -1,14 +1,17 @@
 import { TITLE_LENGTH } from '@cockpit/shared';
+import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 3. `v2`
- * ("Offer the other readings when a captured note says two things", issue
- * 297) asked for a title, a message and the other readings; this version asks
- * the same call for one more thing - which Panel, if any, the note belongs on
+ * What Cockpit asks Claude for when a note has been captured, version 4. `v3`
  * ("Propose where a captured note belongs, without filing it there", issue
- * 298). A prompt is a versioned file reviewed like code (architecture, "AI
- * layer"), so a change to *what is asked for* gets the next version rather
- * than an edit - the contract tests below it are pinned to a version.
+ * 298) asked the same call to also name a Panel; this version does not change
+ * what is asked for - `schema` is untouched - but changes what the call reads
+ * before answering: the account's own decision history, and what else has
+ * been captured lately and not yet filed ("Learn where notes belong from
+ * where you actually file them", issue 299). A prompt is a versioned file
+ * reviewed like code (architecture, "AI layer"), and this much of the system
+ * prompt changing, plus a third and fourth parameter this call is not shaped
+ * like before, earns the next version rather than an edit.
  *
  * **A function now, not a plain object.** Every version before this one was
  * the same call for every account, so it could be a constant; a routing
@@ -39,9 +42,20 @@ import { TITLE_LENGTH } from '@cockpit/shared';
  * naming a Panel looks like - the first note once more, with one Panel now on
  * offer, worked out for `panel` alone: its language, title and message would
  * say nothing a second time that the first example didn't already.
+ *
+ * **`history` and `recentlyCaptured` are rendered as prose sections, not as
+ * more worked examples.** A worked example is answered whole, so it teaches
+ * the shape of a correct *answer*; history and recent captures are read
+ * material the model reasons over before answering, the same as the Panel
+ * list above them - not something a fixed example could stand in for without
+ * being wrong for every account that is not the one it was written about.
  */
-export function buildCleanUpANote(panels: readonly { id: string; name: string }[]): {
-  version: 'v3';
+export function buildCleanUpANote(
+  panels: readonly { id: string; name: string }[],
+  history: readonly DecisionHistoryEntry[],
+  recentlyCaptured: readonly string[],
+): {
+  version: 'v4';
   model: string;
   effort: 'low';
   system: string;
@@ -53,12 +67,12 @@ export function buildCleanUpANote(panels: readonly { id: string; name: string }[
       : '(this account has no panels yet)';
 
   return {
-    version: 'v3',
+    version: 'v4',
 
     /**
-     * Unchanged from `v2`: nothing about also naming a Panel changes what the
-     * model has to be to answer the rest of this well, and the contract tests
-     * are what would notice if that stopped being true.
+     * Unchanged from `v3`: nothing about reading more before answering
+     * changes what the model has to be to answer the rest of this well, and
+     * the contract tests are what would notice if that stopped being true.
      */
     model: 'claude-opus-5',
     effort: 'low',
@@ -91,6 +105,14 @@ You are also given the panels this account has already set up - buckets it files
 
 Panels:
 ${panelList}
+
+You are also given this account's own decision history: every note filed so far, oldest first, with what you proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for weeks and a habit from a year ago can still hold. Where an entry shows you proposed one panel and they filed it on another, that correction outweighs an entry where they simply accepted what you proposed - it names a wrong answer as well as a right one, so read it as the stronger signal.
+
+${renderHistory(history)}
+
+You are also given what else has been captured in this workspace recently and not yet filed - separate from the history above, because none of it has been decided yet. It is still evidence: what somebody is writing notes about right now, before any of it has a destination. Weigh it alongside the history, never above it - an actual past decision is a stronger signal than a guess at a pattern in still-unfiled notes.
+
+${renderRecentlyCaptured(recentlyCaptured)}
 
 Examples.
 
@@ -134,6 +156,9 @@ panel: Compliance questions, because it's a compliance question - Part 11 and th
      * texts and the readings, because nothing about naming a destination needs
      * to be committed to before either text is - unlike `language`, which has
      * to come first for the reason `v1`'s own note gives.
+     *
+     * Unchanged from `v3`: history and recent captures are read material, not
+     * something the answer reports back, so nothing here names either.
      */
     schema: {
       type: 'object',
@@ -203,4 +228,52 @@ panel: Compliance questions, because it's a compliance question - Part 11 and th
       additionalProperties: false,
     },
   };
+}
+
+/**
+ * The decision-history section, or a line saying there is none yet - every
+ * account's first note ever proposed for reads this, and there is nothing to
+ * read back at it.
+ *
+ * One line per entry, oldest first, each dated ("Learn where notes belong
+ * from where you actually file them", issue 299: recency is made legible
+ * rather than enforced by a window, since a fixed cutoff cannot tell a
+ * project that has gone quiet from one that never existed): the date, the
+ * note, and either that it was accepted, that nothing was proposed, or - the
+ * stronger signal - both what was proposed and what was chosen where the two
+ * differ.
+ */
+function renderHistory(history: readonly DecisionHistoryEntry[]): string {
+  if (history.length === 0) return 'Decision history: (nothing filed yet)';
+
+  const lines = history.map((entry) => {
+    const date = entry.decidedAt.slice(0, 10);
+    const note = entry.capturedMessage ?? entry.itemTitle;
+    // Compared by id, never by name: two Panels of one Workspace can share a
+    // display name, and comparing names would misread an override as an
+    // accept the moment they do.
+    const outcome =
+      entry.proposedPanelId === null
+        ? `filed on ${entry.chosenPanelName} (nothing was proposed)`
+        : entry.proposedPanelId === entry.chosenPanelId
+          ? `filed on ${entry.chosenPanelName} (accepted the proposal)`
+          : `you proposed ${entry.proposedPanelName}, but it was filed on ${entry.chosenPanelName} instead`;
+    return `${date}: "${note}" — ${outcome}`;
+  });
+
+  return `Decision history, oldest first:\n${lines.join('\n')}`;
+}
+
+/**
+ * The recently-captured section, or a line saying there is none - most Inbox
+ * refreshes have nothing else waiting, and that is the common, unremarkable
+ * case rather than a gap in the read.
+ */
+function renderRecentlyCaptured(recentlyCaptured: readonly string[]): string {
+  if (recentlyCaptured.length === 0) {
+    return 'Recently captured, not yet filed: (nothing else waiting right now)';
+  }
+
+  const lines = recentlyCaptured.map((note) => `- "${note}"`);
+  return `Recently captured, not yet filed, most recent first:\n${lines.join('\n')}`;
 }

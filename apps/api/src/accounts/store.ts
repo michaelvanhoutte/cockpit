@@ -55,6 +55,7 @@ import {
   runCommand,
 } from './command-service.js';
 import {
+  decisionHistoryForWorkspace,
   getItem,
   getWorkspace,
   listAssociationsForWorkspace,
@@ -66,7 +67,9 @@ import {
   listOpenItems,
   listPanelsInWorkspace,
   listWorkspaces,
+  recentlyCapturedUnfiled,
 } from './repo.js';
+import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
 
 /**
@@ -155,6 +158,23 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
       return listPanelsInWorkspace(db, accountName, workspaceId).filter(panelTakesItems);
     });
+  }
+
+  /**
+   * What a routing proposal reads beside the note itself, in one round trip
+   * ("Learn where notes belong from where you actually file them", issue
+   * 299): the account's whole decision history for one workspace, and what
+   * else it has captured lately and not yet filed.
+   */
+  routingContext(
+    accountName: string,
+    workspaceId: string,
+    excludeItemId: string,
+  ): Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }> {
+    return this.#answer(accountName, (db) => ({
+      history: decisionHistoryForWorkspace(db, accountName, workspaceId),
+      recentlyCaptured: recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
+    }));
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

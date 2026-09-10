@@ -281,6 +281,15 @@ const rowsFor: {
           VALUES ('cmd-before', ?, 'ws-before', 'capture_item', '{}', ?, ?)`,
     params: (name) => [name, AT, AT],
   },
+  {
+    // The table `0024-decision-history` creates, filled so that whatever
+    // comes next meets a full one rather than an empty one - the same
+    // discipline `screen_sizes` above follows.
+    table: 'decision_history',
+    sql: `INSERT INTO decision_history (id, tenant_id, workspace_id, item_id, chosen_panel_id, decided_at)
+          VALUES ('dh-before', ?, 'ws-before', 'it-before', 'pn-before', ?)`,
+    params: (name) => [name, AT],
+  },
 ];
 
 /**
