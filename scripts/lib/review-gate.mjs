@@ -223,7 +223,7 @@ export function resultRecordOf(execution) {
 }
 
 /**
- * How many tool calls were denied, which tools, and why.
+ * How many tool calls were denied, and why.
  *
  * Counted from both places and the higher one wins. The result record's
  * permission_denials_count is absent on some runs while the message stream
@@ -231,17 +231,23 @@ export function resultRecordOf(execution) {
  * missing field - which is exactly what happened on run 33201638348 in the
  * sibling workflow.
  *
- * `messages` is what makes the warning worth reading. `tool_name` alone is
- * "Bash" on every denial this project has seen, which said nothing - three of
- * them read as "Bash, Bash, Bash" on pull request 266. The denial's own
- * `message` names the actual command and the actual reason, straight from the
- * two shapes sampled across issue 284's seven pull requests: a compound
- * command naming the sub-command that needed approval ("git diff <sha>
- * <sha>, wc -l /tmp/x.diff"), and an output redirection refused outright
- * ("Output redirection to '<path>' was blocked"). The second is not a missing
- * allowlist entry - Claude Code refuses writing command output to a file
- * regardless of what is allowlisted - so no tool name could have said that;
- * only the message can.
+ * `reasons` is what makes the warning worth reading, and it is one reason per
+ * denial, never a wholesale choice between messages and tool names. `tool_name`
+ * alone is "Bash" on every denial sampled for issue 284, which said nothing -
+ * three of them read as "Bash, Bash, Bash" on pull request 266, run
+ * 34236381017. The denial's own `message` names the actual reason instead:
+ * that run's held a compound command naming the sub-command still needing
+ * approval, and twice over an output redirection refused outright - not a
+ * missing allowlist entry, since Claude Code refuses writing command output to
+ * a file regardless of what is allowlisted, so no tool name could have said
+ * that. Pull request 272, run 34283557786, is the other shape: a subagent
+ * shelling out to `grep | head` instead of using the Grep tool it already had,
+ * denied as a compound command for the same reason.
+ *
+ * Falling back to the tool name only per-denial, not for the whole list,
+ * matters where some denials in a run carry a message and others do not: a
+ * wholesale choice would drop the message-less ones from the reader-facing
+ * text entirely, while `count` kept counting them.
  */
 export function denialsOf(execution, result) {
   const stream = Array.isArray(execution)
@@ -249,9 +255,8 @@ export function denialsOf(execution, result) {
     : [];
   const fromSummary = Number(result?.permission_denials_count ?? 0) || 0;
   const count = Math.max(stream.length, fromSummary);
-  const tools = stream.map((m) => m.tool_name ?? '?');
-  const messages = [...new Set(stream.map((m) => oneLine(m.message)).filter(Boolean))];
-  return { count, tools, messages };
+  const reasons = [...new Set(stream.map((m) => oneLine(m.message) || m.tool_name || '?'))];
+  return { count, reasons };
 }
 
 /**
@@ -273,7 +278,7 @@ function runFacts(executionText) {
   }
 
   const result = resultRecordOf(execution);
-  if (result === null) return { result: null, turns: 0, denials: { count: 0, tools: [], messages: [] }, subtype: 'unknown', isError: false, finalText: '' };
+  if (result === null) return { result: null, turns: 0, denials: { count: 0, reasons: [] }, subtype: 'unknown', isError: false, finalText: '' };
 
   return {
     result,
@@ -292,7 +297,7 @@ function didNotRun() {
     failures: ['The review produced no result record, so it did not run.'],
     warnings: [],
     turns: 0,
-    denials: { count: 0, tools: [], messages: [] },
+    denials: { count: 0, reasons: [] },
   };
 }
 
@@ -325,20 +330,22 @@ export function oneLine(text) {
  * It adapted and posted its findings anyway, and failing that run would teach
  * everyone to ignore this check.
  *
- * Prefers the denial's own message over its tool name, because the name is
- * "Bash" for every denial sampled across issue 284's pull requests and said
- * nothing three times over on pull request 266 - "Bash, Bash, Bash" names
- * nothing a reader could act on. The message does: what command needed
- * approval, or that output redirection was refused outright. Falls back to
- * naming tools where there is no message, which is every fixture that
- * predates this and every future denial some other reader of the stream
- * still emits without one.
+ * Names what `denialsOf` found, not just that something was denied - see its
+ * own comment for why a reason beats a tool name. Joined with ` | ` rather
+ * than `; `, since a denial's reason routinely quotes a shell command and `;`
+ * is the one character certain to appear inside one; `|` is not guaranteed
+ * absent either, but a run's own commands are more likely to pipe than to
+ * embed a literal bar in prose. The reason comes last in the sentence,
+ * deliberately: it is arbitrary text this module does not control and cannot
+ * assume ends cleanly, and appending anything after it (as the first version
+ * of this note did) produced a stray "..blocked.. Worth a look" the one time a
+ * sampled message happened to end in a period, which was most of them.
  */
 function denialNote(denials, { reachedVerdict }) {
-  const which = denials.messages.length > 0 ? denials.messages.join('; ') : oneLine(denials.tools.join(', ')) || 'see log';
+  const which = denials.reasons.join(' | ') || 'see log';
   return reachedVerdict
-    ? `The review reached a verdict but ${denials.count} tool call(s) were denied: ${which}. Worth a look if its findings seem thin.`
-    : `It was blocked by ${denials.count} permission denial(s): ${which}, which is the likely reason.`;
+    ? `Worth a look if its findings seem thin - the review reached a verdict but ${denials.count} tool call(s) were denied: ${which}`
+    : `Likely blocked by ${denials.count} permission denial(s): ${which}`;
 }
 
 /**

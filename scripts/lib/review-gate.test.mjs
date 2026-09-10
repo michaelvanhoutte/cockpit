@@ -48,6 +48,11 @@ function file(value) {
   return JSON.stringify(value);
 }
 
+/** A denial as the message stream carries one, tool name plus an optional reason. */
+function denied({ tool = 'Bash', message } = {}) {
+  return { type: 'system', subtype: 'permission_denied', tool_name: tool, ...(message !== undefined && { message }) };
+}
+
 describe('verdictOf', () => {
   it('reads the severity off the verdict line', () => {
     assert.deepEqual(verdictOf('Reviewed the diff.\nSECURITY-VERDICT: MEDIUM'), { severity: 'MEDIUM' });
@@ -110,31 +115,36 @@ describe('resultRecordOf', () => {
 
 describe('denialsOf', () => {
   it('collects each denial\'s own message, not just its tool name', () => {
-    // The two shapes sampled across issue 284's pull requests: a compound
-    // command naming the sub-command that needed approval, and an output
+    // The two shapes sampled across issue 284's pull requests (see
+    // denialsOf's own comment for the run numbers): a compound command
+    // naming the sub-command that needed approval, and an output
     // redirection refused outright regardless of the allowlist.
     const execution = [
-      { type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: 'The following part requires approval: grep -n "sql" a.ts b.ts' },
-      { type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: "Output redirection to '/tmp/pr.diff' was blocked." },
+      denied({ message: 'The following part requires approval: grep -n "sql" a.ts b.ts' }),
+      denied({ message: "Output redirection to '/tmp/pr.diff' was blocked." }),
     ];
-    const denials = denialsOf(execution, {});
-    assert.deepEqual(denials.messages, [
+    assert.deepEqual(denialsOf(execution, {}).reasons, [
       'The following part requires approval: grep -n "sql" a.ts b.ts',
       "Output redirection to '/tmp/pr.diff' was blocked.",
     ]);
   });
 
   it('deduplicates identical messages', () => {
-    const execution = [
-      { type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: 'Output redirection was blocked.' },
-      { type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: 'Output redirection was blocked.' },
-    ];
-    assert.deepEqual(denialsOf(execution, {}).messages, ['Output redirection was blocked.']);
+    const execution = [denied({ message: 'Output redirection was blocked.' }), denied({ message: 'Output redirection was blocked.' })];
+    assert.deepEqual(denialsOf(execution, {}).reasons, ['Output redirection was blocked.']);
   });
 
-  it('is an empty list of messages for a denial with none, rather than a hole in the array', () => {
-    const execution = [{ type: 'system', subtype: 'permission_denied', tool_name: 'Bash(node)' }];
-    assert.deepEqual(denialsOf(execution, {}).messages, []);
+  it('falls back to the tool name for a denial with no message, rather than dropping it', () => {
+    // The bug a wholesale messages-or-tools choice had: mix a denial that
+    // carries a message with one that does not, and the message-less one
+    // used to vanish from the reader-facing text entirely while `count`
+    // still counted it.
+    const execution = [denied({ tool: 'Bash', message: 'Output redirection was blocked.' }), denied({ tool: 'WebFetch' })];
+    assert.deepEqual(denialsOf(execution, {}).reasons, ['Output redirection was blocked.', 'WebFetch']);
+  });
+
+  it('is an empty list of reasons for no denials at all, rather than a hole in the array', () => {
+    assert.deepEqual(denialsOf([], {}).reasons, []);
   });
 });
 
@@ -257,12 +267,8 @@ describe('decideSecurityOutcome', () => {
   });
 
   it('gives no warning for a short, clean session with no denials', () => {
-    // "Make the security review warning mean something, or drop it" (issue
-    // 284): seven of eight pull requests sampled carried a turn-count warning
-    // under a NONE verdict, most 4 to 9 turns, and the count tracked nothing
-    // about the diff. The verdict already separates a thin review from a
-    // quick one, so a clean verdict with no denials warns about nothing at
-    // all - however few turns it took.
+    // See decideSecurityOutcome's own doc-comment for why: the turn count
+    // used to warn here and no longer does (issue 284).
     const out = decideSecurityOutcome({ executionText: file(run({ turns: 3 })), conclusion: 'success' });
     assert.equal(out.ok, true);
     assert.deepEqual(out.warnings, []);
@@ -273,20 +279,26 @@ describe('decideSecurityOutcome', () => {
     // "Bash, Bash, Bash" was the actual warning on pull request 266: every
     // denial there named the same tool and nothing else. The message on each
     // one said what a reader could act on - here, that a command was refused
-    // for redirecting its output to a file.
+    // for redirecting its output to a file. This is also the exact message
+    // shape run 34236381017 carried - it ends in a period, like nearly every
+    // real one - which is what the next case guards.
     const execution = [
-      {
-        type: 'system',
-        subtype: 'permission_denied',
-        tool_name: 'Bash',
-        message: "Output redirection to '/tmp/pr266.diff' was blocked. For security, Claude Code may only write to files in the allowed working directories for this session.",
-      },
+      denied({ message: "Output redirection to '/tmp/pr266.diff' was blocked. For security, Claude Code may only write to files in the allowed working directories for this session." }),
       run(),
     ];
     const out = decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' });
     assert.equal(out.ok, true);
     assert.match(out.warnings.join(' '), /Output redirection/);
     assert.doesNotMatch(out.warnings.join(' '), /\(Bash\)/);
+  });
+
+  it('does not double up punctuation when the denial message already ends in some', () => {
+    // The first version of this note appended more prose after the message -
+    // "...this session.. Worth a look" - because it assumed the message
+    // would not end in its own full stop. Every real message sampled does.
+    const execution = [denied({ message: 'Output redirection was blocked.' }), run()];
+    const out = decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' });
+    assert.doesNotMatch(out.warnings.join(' '), /\.\./);
   });
 });
 
@@ -638,6 +650,13 @@ describe('decideCodeReviewOutcome', () => {
       run({ text: 'Blocked.' }),
     ];
     assert.equal(codeReview({ executionText: file(execution), said: 0 }).denials.count, 2);
+  });
+
+  it('warns with the denial\'s own message here too, since denialNote is shared with the security gate', () => {
+    const execution = [denied({ message: 'Output redirection was blocked.' }), run()];
+    const out = codeReview({ executionText: file(execution), said: 1 });
+    assert.equal(out.ok, true);
+    assert.match(out.warnings.join(' '), /Output redirection/);
   });
 
   it('fails a session that ended on a subtype other than success', () => {
