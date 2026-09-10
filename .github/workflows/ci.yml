@@ -53,8 +53,8 @@ jobs:
   # that skip, and anything else runs everything.
   #
   # `Concepts` and `Stability` carry no gate of their own either, left that way
-  # rather than decided: whether the reporting
-  # pipeline should skip too was out of scope there. One consequence follows
+  # rather than decided: whether the reporting pipeline should skip too was
+  # out of scope there. One consequence follows
   # from `Test Explorer` needing `Test` regardless: on a documentation-only
   # push to `main`, `Test Explorer` (and `Publish` behind it) skips for free,
   # while `Stability` — ungated, unrelated to `Test` — still runs and spends
