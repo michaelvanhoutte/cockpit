@@ -107,7 +107,13 @@ for (const pkg of plan.packages) console.log(paint('2', `  ${pkg.name}: ${pkg.mo
 const COLORS = ['36', '35', '33', '32', '31', '34'];
 const children = plan.packages.map((pkg, i) => {
   const args = ['--filter', pkg.name, 'test'];
-  if (pkg.mode === 'changed') args.push('--changed', mergeBase);
+  // --passWithNoTests: a package the PR never touches routinely has zero
+  // files left once --changed narrows it. Vitest 4's own default already
+  // exits 0 for that (confirmed by hand against this repo's pinned version -
+  // "No test files found, exiting with code 0"), but nothing pins that
+  // default, and the one time it changes upstream is not a moment to
+  // discover a package the PR never touched failing the job on its behalf.
+  if (pkg.mode === 'changed') args.push('--changed', mergeBase, '--passWithNoTests');
   return { pkg, child: start(args, `${pkg.name} (${pkg.mode})`, COLORS[i % COLORS.length], root) };
 });
 

@@ -97,6 +97,16 @@ describe('planTestRun', () => {
     assert.deepEqual(allModes(plan), { 'packages/shared': 'changed', 'apps/api': 'changed', 'apps/web': 'full' });
   });
 
+  it('forces only apps/api into full for its own wrangler.jsonc, the binding config its vitest.config.ts runs the suite against', () => {
+    const plan = forPR(['apps/api/wrangler.jsonc']);
+    assert.deepEqual(allModes(plan), { 'packages/shared': 'changed', 'apps/api': 'full', 'apps/web': 'changed' });
+  });
+
+  it('forces only apps/api into full for a global-setup.ts anywhere under it, wherever its own vitest.config.ts names one', () => {
+    const plan = forPR(['apps/api/tests/integration/global-setup.ts']);
+    assert.deepEqual(allModes(plan), { 'packages/shared': 'changed', 'apps/api': 'full', 'apps/web': 'changed' });
+  });
+
   it('forces every package into full for a workflow file, or any other file under .github/', () => {
     for (const path of ['.github/workflows/ci.yml', '.github/actions/setup/action.yml', '.github/dependabot.yml']) {
       const plan = forPR([path]);

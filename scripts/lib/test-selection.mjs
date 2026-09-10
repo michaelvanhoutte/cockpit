@@ -26,8 +26,13 @@
 //   as its own check rather than folded into the rule above, because a
 //   tsconfig can `extends` another package's and so isn't safely attributable
 //   to only the package it lives under.
-// - A package's own `vitest.config.ts`, its own `package.json`, or a
-//   migration under its `migrations/` forces only that package.
+// - A package's own `vitest.config.ts`, its own `package.json`, a migration
+//   under its `migrations/`, its own `wrangler.jsonc` (the binding and
+//   Durable Object config `@cloudflare/vitest-pool-workers` runs its suite
+//   against, per `apps/api/vitest.config.ts`'s `configPath`), or a
+//   `global-setup.ts` anywhere under it (run once per Vitest process via
+//   `globalSetup`, so it sits outside any test file's own import graph)
+//   forces only that package.
 //
 // Vitest's own `--changed` is what walks the import graph from there; this
 // only decides which packages get to use it (already exercised by Vitest's
@@ -55,7 +60,9 @@ function isTsconfig(path) {
 function forcesThisPackageFull(path, dir) {
   if (path === `${dir}/vitest.config.ts`) return true;
   if (path === `${dir}/package.json`) return true;
+  if (path === `${dir}/wrangler.jsonc`) return true;
   if (path.startsWith(`${dir}/migrations/`)) return true;
+  if (path.startsWith(`${dir}/`) && basename(path) === 'global-setup.ts') return true;
   return false;
 }
 
