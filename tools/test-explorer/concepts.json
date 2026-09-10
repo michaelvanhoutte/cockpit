@@ -110,6 +110,7 @@
         "apps/web/src/components/Menu.tsx",
         "apps/web/src/components/InboxPanel.tsx",
         "apps/web/src/roomForTheInbox.ts",
+        "apps/web/src/inboxWidth.ts",
         "apps/web/src/filing.ts",
         "apps/web/src/components/ItemList.tsx",
         "apps/web/src/components/MoveToPicker.tsx",
@@ -137,7 +138,8 @@
         "apps/web/src/router.tsx",
         "apps/web/src/components/Menu.tsx",
         "apps/web/src/components/DeleteQuestion.tsx",
-        "apps/web/src/roomForTheInbox.ts"
+        "apps/web/src/roomForTheInbox.ts",
+        "apps/web/src/inboxWidth.ts"
       ]
     },
     {
