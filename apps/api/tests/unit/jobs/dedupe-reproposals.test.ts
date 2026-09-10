@@ -35,7 +35,7 @@ const rePropose = (accountName: string, workspaceId: string) => ({
   workspaceId,
 });
 
-describe('Capture', () => {
+describe('Triage', () => {
   describe('several settles queued for the same account and Workspace start one refresh, not one per settle', () => {
     it('keeps the first re-propose-panels message and acknowledges a later duplicate unread', () => {
       const first = messageOf(rePropose('tenant-default', 'ws-1'));

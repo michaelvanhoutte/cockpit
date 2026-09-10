@@ -102,6 +102,20 @@ function nextId(): string {
   return `018f0000-0000-7000-9000-${String(seq).padStart(12, '0')}`;
 }
 
+/**
+ * A strictly increasing timestamp, one per call - `createdAt` is the client's
+ * own `issuedAt` (`captureItem`, apps/api/src/domain/items.ts), so two
+ * captures sharing one literal share one `created_at` too, and
+ * `unfiledItemsInWorkspace`'s `ORDER BY created_at DESC` has nothing left to
+ * break the tie by. Every case here that reasons about which candidate a
+ * refresh reaches first needs that order to actually follow capture order.
+ */
+let issuedAtSeq = 0;
+function nextIssuedAt(): string {
+  issuedAtSeq += 1;
+  return new Date(Date.parse('2026-09-10T10:00:00.000Z') + issuedAtSeq * 1000).toISOString();
+}
+
 async function captureANote(
   note: string,
   { workspaceId = WORKSPACE_ID, decided = true }: { workspaceId?: string; decided?: boolean } = {},
@@ -109,7 +123,7 @@ async function captureANote(
   const itemId = nextId();
   const response = await postChange('capture_item', {
     commandId: nextId(),
-    issuedAt: '2026-09-10T10:00:00.000Z',
+    issuedAt: nextIssuedAt(),
     workspaceId,
     itemId,
     message: note,
@@ -387,8 +401,14 @@ describe('Triage', () => {
     it("one item's failure during a refresh does not stop the rest from being reclassified", async () => {
       const compliance = await aPanel('Compliance questions');
       const elsewhere = await aPanel('Somewhere else');
+      // Fails only once the history mentions the settle below, so its own
+      // capture-time classification (moment 2, asked before that exists)
+      // succeeds cleanly - never entering the queue's own 60-second retry,
+      // which would otherwise leave this case's background work still
+      // running well after it returns and free to pollute the next case's
+      // `asked`/`answerFor` (both closed over by the one stubbed `fetch`).
       answerFor = (note, system) => {
-        if (note === 'a note that fails') return 'fails';
+        if (note === 'a note that fails') return system.includes('Somewhere else') ? 'fails' : { says: PROPOSES_NOTHING };
         return note === 'a note about validation' && system.includes('Somewhere else')
           ? { says: proposing(compliance, 'a compliance question') }
           : { says: PROPOSES_NOTHING };
@@ -412,12 +432,25 @@ describe('Triage', () => {
 
     it('filing several items in quick succession fires one refresh for the workspace, not one per item', async () => {
       const compliance = await aPanel('Compliance questions');
-      answerFor = (note) => (note === 'a note about validation' ? { says: proposing(compliance, 'because') } : { says: PROPOSES_NOTHING });
-      const waiting = await captureANote('a note about validation');
-      await captureANote('call jan about the invoice');
-      await captureANote('review pricing with sales monday');
-      await captureANote('bel novy over de afspraak');
-      asked = [];
+      answerFor = (note) => (note === 'a note only this refresh ever asks about' ? { says: proposing(compliance, 'because') } : { says: PROPOSES_NOTHING });
+      // Written directly, with no `capture_item` behind it, so the only thing
+      // that ever asks the model about this note is the refresh under test -
+      // a capture's own moment-2 classification, fired on the real queue and
+      // not awaited by any helper here, would otherwise be a second, racy
+      // source of the same note text the assertions below count.
+      const waiting = nextId();
+      await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+        sql.exec(
+          `INSERT INTO items (id, tenant_id, workspace_id, source, captured_message, title, status, unseen, created_at, updated_at)
+           VALUES (?, ?, ?, 'internal', ?, 'Typed by hand', 'to_process', 0, ?, ?)`,
+          waiting,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          'a note only this refresh ever asks about',
+          nextIssuedAt(),
+          nextIssuedAt(),
+        ),
+      );
 
       // Three duplicate settle-triggered jobs for the same account and
       // workspace, as several near-simultaneous filings would each enqueue -
@@ -436,7 +469,7 @@ describe('Triage', () => {
       // the survivor by `workThrough` once it has actually run - but only
       // the survivor ever reaches the model.
       expect(acked.sort()).toEqual(['message-1', 'message-2', 'message-3']);
-      expect(asked.filter((note) => note === 'a note about validation')).toHaveLength(1);
+      expect(asked.filter((note) => note === 'a note only this refresh ever asks about')).toHaveLength(1);
       expect(await routingOf(waiting)).toBe(compliance);
     });
 
@@ -469,6 +502,33 @@ describe('Triage', () => {
 
       await untilRouted(waiting, compliance);
       expect(await routingOf(bare)).toBeNull();
+    });
+
+    it('refreshes an item filed only on a since-deleted panel, rather than skipping it forever', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const elsewhere = await aPanel('Somewhere else');
+      const temporary = await aPanel('Temporary');
+      answerFor = (note, system) =>
+        note === 'a note about validation' && system.includes('Somewhere else')
+          ? { says: proposing(compliance, 'a compliance question') }
+          : { says: PROPOSES_NOTHING };
+      const waiting = await captureANote('a note about validation');
+      // Settled once already, onto a Panel that is about to go - the same
+      // "back in the Inbox" case `isItemFiled` itself carries a comment for:
+      // a tombstoned Panel leaves its `panel_items` row untouched.
+      await moveOnto(waiting, temporary);
+      const deleteResponse = await postChange('delete_panel', {
+        commandId: nextId(),
+        issuedAt: '2026-09-10T10:00:02.000Z',
+        workspaceId: WORKSPACE_ID,
+        panelId: temporary,
+      });
+      expect(deleteResponse.status).toBe(200);
+      const settling = await captureANote('call jan about the invoice');
+
+      await moveOnto(settling, elsewhere);
+
+      await untilRouted(waiting, compliance);
     });
   });
 });
