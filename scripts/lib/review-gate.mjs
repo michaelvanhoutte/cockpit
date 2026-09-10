@@ -223,13 +223,25 @@ export function resultRecordOf(execution) {
 }
 
 /**
- * How many tool calls were denied, and which.
+ * How many tool calls were denied, which tools, and why.
  *
  * Counted from both places and the higher one wins. The result record's
  * permission_denials_count is absent on some runs while the message stream
  * holds real denials, so trusting the summary alone reads "no denials" off a
  * missing field - which is exactly what happened on run 33201638348 in the
  * sibling workflow.
+ *
+ * `messages` is what makes the warning worth reading. `tool_name` alone is
+ * "Bash" on every denial this project has seen, which said nothing - three of
+ * them read as "Bash, Bash, Bash" on pull request 266. The denial's own
+ * `message` names the actual command and the actual reason, straight from the
+ * two shapes sampled across issue 284's seven pull requests: a compound
+ * command naming the sub-command that needed approval ("git diff <sha>
+ * <sha>, wc -l /tmp/x.diff"), and an output redirection refused outright
+ * ("Output redirection to '<path>' was blocked"). The second is not a missing
+ * allowlist entry - Claude Code refuses writing command output to a file
+ * regardless of what is allowlisted - so no tool name could have said that;
+ * only the message can.
  */
 export function denialsOf(execution, result) {
   const stream = Array.isArray(execution)
@@ -238,7 +250,8 @@ export function denialsOf(execution, result) {
   const fromSummary = Number(result?.permission_denials_count ?? 0) || 0;
   const count = Math.max(stream.length, fromSummary);
   const tools = stream.map((m) => m.tool_name ?? '?');
-  return { count, tools };
+  const messages = [...new Set(stream.map((m) => oneLine(m.message)).filter(Boolean))];
+  return { count, tools, messages };
 }
 
 /**
@@ -260,7 +273,7 @@ function runFacts(executionText) {
   }
 
   const result = resultRecordOf(execution);
-  if (result === null) return { result: null, turns: 0, denials: { count: 0, tools: [] }, subtype: 'unknown', isError: false, finalText: '' };
+  if (result === null) return { result: null, turns: 0, denials: { count: 0, tools: [], messages: [] }, subtype: 'unknown', isError: false, finalText: '' };
 
   return {
     result,
@@ -279,7 +292,7 @@ function didNotRun() {
     failures: ['The review produced no result record, so it did not run.'],
     warnings: [],
     turns: 0,
-    denials: { count: 0, tools: [] },
+    denials: { count: 0, tools: [], messages: [] },
   };
 }
 
@@ -311,12 +324,21 @@ export function oneLine(text) {
  * is not something to grant a review of untrusted code on a public repository.
  * It adapted and posted its findings anyway, and failing that run would teach
  * everyone to ignore this check.
+ *
+ * Prefers the denial's own message over its tool name, because the name is
+ * "Bash" for every denial sampled across issue 284's pull requests and said
+ * nothing three times over on pull request 266 - "Bash, Bash, Bash" names
+ * nothing a reader could act on. The message does: what command needed
+ * approval, or that output redirection was refused outright. Falls back to
+ * naming tools where there is no message, which is every fixture that
+ * predates this and every future denial some other reader of the stream
+ * still emits without one.
  */
 function denialNote(denials, { reachedVerdict }) {
-  const which = oneLine(denials.tools.join(', ')) || 'see log';
+  const which = denials.messages.length > 0 ? denials.messages.join('; ') : oneLine(denials.tools.join(', ')) || 'see log';
   return reachedVerdict
-    ? `The review reached a verdict but ${denials.count} tool call(s) were denied (${which}). Worth a look if its findings seem thin.`
-    : `It was blocked by ${denials.count} permission denial(s) (${which}), which is the likely reason.`;
+    ? `The review reached a verdict but ${denials.count} tool call(s) were denied: ${which}. Worth a look if its findings seem thin.`
+    : `It was blocked by ${denials.count} permission denial(s): ${which}, which is the likely reason.`;
 }
 
 /**
@@ -345,8 +367,22 @@ export function verdictOf(text) {
  * code: this text is what a person reads when the check is red, and "the
  * review produced no verdict" and "the review found something HIGH" are
  * different problems with different fixes.
+ *
+ * No turn-count warning here, deliberately - the opposite of the sibling
+ * gate below. Seven of eight security reviews sampled on pull requests 249,
+ * 261, 265, 266, 269, 272 and 273 carried one under a NONE verdict, and their
+ * turn counts (4 to 9) tracked nothing about the diff: a 448-line, 5-file
+ * pull request took 4 turns and a 556-line, 25-file one took 9, denials
+ * included. A warning that fires on almost every review carries no
+ * information ("Make the security review warning mean something, or drop
+ * it", issue 284) - the reader learns to scroll past it, which is the
+ * failure this whole gate exists to prevent, one level up. The verdict
+ * already separates a thin review from a quick one on a small diff, which is
+ * the instrument the turn count was standing in for while there wasn't one;
+ * nothing sampled here gave a better one to replace it with, so it is gone
+ * rather than kept at a threshold that would rarely fire.
  */
-export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIGH', minTurns = 10 } = {}) {
+export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIGH' } = {}) {
   const failures = [];
   const warnings = [];
 
@@ -399,12 +435,6 @@ export function decideSecurityOutcome({ executionText, conclusion, failAt = 'HIG
       );
     }
     if (denials.count > 0) warnings.push(denialNote(denials, { reachedVerdict: true }));
-    // Never a failure. A short run is as likely to be a clean small diff as a
-    // blocked session, and the verdict already separates those two - which is
-    // the instrument the turn count was standing in for while there wasn't one.
-    if (turns < minTurns) {
-      warnings.push(`The session ran only ${turns} turns. Its verdict was ${verdict.severity}.`);
-    }
   }
 
   return {

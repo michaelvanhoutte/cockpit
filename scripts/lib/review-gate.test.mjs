@@ -27,6 +27,7 @@ import {
   GATE_AUTHOR,
   decideCodeReviewOutcome,
   decideSecurityOutcome,
+  denialsOf,
   markedCommentId,
   oneLine,
   placeHead,
@@ -104,6 +105,36 @@ describe('resultRecordOf', () => {
 
   it('is null when a stream carries no result at all', () => {
     assert.equal(resultRecordOf([{ type: 'system' }, { type: 'assistant' }]), null);
+  });
+});
+
+describe('denialsOf', () => {
+  it('collects each denial\'s own message, not just its tool name', () => {
+    // The two shapes sampled across issue 284's pull requests: a compound
+    // command naming the sub-command that needed approval, and an output
+    // redirection refused outright regardless of the allowlist.
+    const execution = [
+      { type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: 'The following part requires approval: grep -n "sql" a.ts b.ts' },
+      { type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: "Output redirection to '/tmp/pr.diff' was blocked." },
+    ];
+    const denials = denialsOf(execution, {});
+    assert.deepEqual(denials.messages, [
+      'The following part requires approval: grep -n "sql" a.ts b.ts',
+      "Output redirection to '/tmp/pr.diff' was blocked.",
+    ]);
+  });
+
+  it('deduplicates identical messages', () => {
+    const execution = [
+      { type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: 'Output redirection was blocked.' },
+      { type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: 'Output redirection was blocked.' },
+    ];
+    assert.deepEqual(denialsOf(execution, {}).messages, ['Output redirection was blocked.']);
+  });
+
+  it('is an empty list of messages for a denial with none, rather than a hole in the array', () => {
+    const execution = [{ type: 'system', subtype: 'permission_denied', tool_name: 'Bash(node)' }];
+    assert.deepEqual(denialsOf(execution, {}).messages, []);
   });
 });
 
@@ -225,10 +256,37 @@ describe('decideSecurityOutcome', () => {
     }
   });
 
-  it('warns about a short session but never fails on it', () => {
+  it('gives no warning for a short, clean session with no denials', () => {
+    // "Make the security review warning mean something, or drop it" (issue
+    // 284): seven of eight pull requests sampled carried a turn-count warning
+    // under a NONE verdict, most 4 to 9 turns, and the count tracked nothing
+    // about the diff. The verdict already separates a thin review from a
+    // quick one, so a clean verdict with no denials warns about nothing at
+    // all - however few turns it took.
     const out = decideSecurityOutcome({ executionText: file(run({ turns: 3 })), conclusion: 'success' });
     assert.equal(out.ok, true);
-    assert.match(out.warnings.join(' '), /only 3 turns/);
+    assert.deepEqual(out.warnings, []);
+    assert.equal(out.turns, 3);
+  });
+
+  it('warns with the denial\'s own message, not just the tool name it repeats', () => {
+    // "Bash, Bash, Bash" was the actual warning on pull request 266: every
+    // denial there named the same tool and nothing else. The message on each
+    // one said what a reader could act on - here, that a command was refused
+    // for redirecting its output to a file.
+    const execution = [
+      {
+        type: 'system',
+        subtype: 'permission_denied',
+        tool_name: 'Bash',
+        message: "Output redirection to '/tmp/pr266.diff' was blocked. For security, Claude Code may only write to files in the allowed working directories for this session.",
+      },
+      run(),
+    ];
+    const out = decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' });
+    assert.equal(out.ok, true);
+    assert.match(out.warnings.join(' '), /Output redirection/);
+    assert.doesNotMatch(out.warnings.join(' '), /\(Bash\)/);
   });
 });
 
@@ -273,9 +331,10 @@ describe('summaryComment', () => {
   });
 
   it('keeps warnings out of the headline', () => {
-    const body = summaryComment(decide({ turns: 2 }));
+    const execution = [{ type: 'system', subtype: 'permission_denied', tool_name: 'Bash(node)' }, run()];
+    const body = summaryComment(decideSecurityOutcome({ executionText: file(execution), conclusion: 'success' }));
     assert.match(body, /Verdict: NONE/);
-    assert.match(body, /only 2 turns/);
+    assert.match(body, /tool call\(s\) were denied/);
     assert.match(body, /<details>/);
   });
 });
