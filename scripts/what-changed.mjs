@@ -55,12 +55,12 @@ const changed = paths === null ? true : productChanged(paths);
 
 if (range === null) {
   console.log(`No diff range for a ${process.env.GITHUB_EVENT_NAME ?? 'nameless'} event, so every check runs.`);
-} else {
-  const forcing = paths === null ? [] : productPaths(paths);
-  console.log(`${range}: ${paths?.length ?? 0} path(s) changed, ${forcing.length} of them product.`);
+} else if (paths !== null) {
+  const forcing = productPaths(paths);
+  console.log(`${range}: ${paths.length} path(s) changed, ${forcing.length} of them product.`);
   // Named, because "why did this run" is the only question anybody asks of this
-  // job, and the answer is one path. Capped: a large diff would otherwise print
-  // itself into the log twice over, once here and once in the summary below.
+  // job, and the answer is usually one path. Capped, so a large diff does not
+  // print itself into the log for an answer nobody is in doubt about.
   for (const path of forcing.slice(0, 20)) console.log(`  ${path}`);
   if (forcing.length > 20) console.log(`  ... and ${forcing.length - 20} more`);
 }

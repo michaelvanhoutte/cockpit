@@ -689,12 +689,15 @@ Then, by hand (no API, or deliberately not automated):
      merging. It would force an "Update branch" click every time `main` moves, and
      the semantic conflict it guards against is exactly what staging catches; a
      bad merge reaches staging, never production.
-   - **`contexts`** — eleven names: six of the nine jobs in `ci.yml`, three from
-     CodeQL, and the two Claude reviews, matched exactly. The three CI jobs left
-     out are the reports', and for two reasons: Test Explorer deliberately does
-     not gate, while Publish and Stability *could not* gate anything if they were
-     listed — the `if:` on each skips it on every pull request, and a skipped job
-     reports as passing.
+   - **`contexts`** — eleven names: six of the ten jobs in `ci.yml`, three from
+     CodeQL, and the two Claude reviews, matched exactly. The four CI jobs left
+     out are the reports' and the classifier: Test Explorer deliberately does not
+     gate; Publish and Stability *could not* gate anything if they were listed —
+     the `if:` on each skips it on every pull request, and a skipped job reports
+     as passing; and What changed only decides whether the mechanical jobs do their work
+     ("Skip the mechanical checks on a pull request that touches nothing they
+     cover", issue 345), so requiring it would gate on the decision rather than on
+     the checking.
 
      The three are not interchangeable. `CodeQL (javascript-typescript)` and
      `CodeQL (actions)` are the matrix legs and say only that the analysis *ran*.
@@ -702,6 +705,13 @@ Then, by hand (no API, or deliberately not automated):
      posted by GitHub Advanced Security — the check that goes red on an alert at or
      above the failure threshold. Requiring the legs without it would gate on the
      analysis having happened while letting a high-severity finding merge.
+
+     **That split is the one thing to watch about the documentation-only skip.**
+     The legs are jobs, so they report `skipped` and satisfy their contexts by the
+     mechanism measured below; the third is posted by a service rather than by a
+     job, and whether it reports at all on a pull request whose analysis never ran
+     is unmeasured here. If `CodeQL` is ever left *Expected* on a documentation-only
+     pull request, the answer is to stop gating `codeql.yml`.
 
      **All three names were read off a real run** ("Analyse every pull request with
      CodeQL, and let Dependabot report vulnerable dependencies", pull request 92),
@@ -748,7 +758,8 @@ Then, by hand (no API, or deliberately not automated):
        repository (deleted after): a job skipping on `draft == true`, required by name,
        left a draft pull request `mergeable: MERGEABLE` and `mergeStateStatus: CLEAN` while
        its only check-run read `skipped`. The exclusion of Test Explorer, Publish and
-       Stability above already assumed this; it is now measured rather than assumed.
+       Stability above already assumed this; it is now measured rather than assumed,
+       and the mechanical jobs' documentation-only skip is built on it.
      - **When one name reports twice on a head, the most recent run wins.** The same
        throwaway pull request went `skipped` (draft) then `success` (marked ready) on one
        commit and stayed `MERGEABLE` throughout. "Require the checks the payload already
