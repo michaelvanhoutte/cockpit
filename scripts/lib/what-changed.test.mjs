@@ -75,6 +75,16 @@ describe('productChanged', () => {
     }
   });
 
+  it('does not let a blank entry vanish from a mixed diff instead of forcing the suite', () => {
+    // A whitespace-only path is a real path exactly as much as any other, and
+    // isNonProduct answers "product" for one - dropping it before that answer
+    // ever runs used to erase it from the diff instead, so a docs-only-looking
+    // change carrying one silently skipped everything rather than running it.
+    assert.equal(isNonProduct('  '), false, 'a blank entry should read as product on its own');
+    assert.equal(productChanged(['docs/a.md', '  ']), true, 'a blank entry should still force the suite alongside a real docs change');
+    assert.deepEqual(productPaths(['docs/a.md', '  ']), ['  ']);
+  });
+
   it('runs them on a path that only looks like documentation', () => {
     // Prefixes are exact and case-sensitive, and Markdown is only prose when it
     // sits at the root: everything else falls through to the product, which is
@@ -242,7 +252,7 @@ describe('classify', () => {
 });
 
 describe('the mechanical jobs', () => {
-  const gate = "if: ${{ needs.changes.outputs.product_changed != 'false' }}";
+  const gate = "if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}";
 
   /** One job's own lines, from its key down to whatever comes next at that indent. */
   function job(yaml, id) {
@@ -324,13 +334,16 @@ describe('the mechanical jobs', () => {
     // whatever the wrapper imports - so a third local file added to either
     // module later would leave the extraction reading a wrapper that cannot
     // resolve its own import, `continue-on-error` turning that crash into a
-    // silent "every check runs" rather than a loud one. This is the tripwire:
-    // it names the one local import the wrapper has today, and fails the
-    // moment a second one is added, which is when ci.yml needs a third
-    // `git show` too.
-    const wrapper = readFileSync(join(repo, 'scripts/what-changed.mjs'), 'utf8');
-    const localImports = [...wrapper.matchAll(/from '(\.[^']+)'/g)].map((match) => match[1]);
-    assert.deepEqual(localImports, ['./lib/what-changed.mjs']);
+    // silent "every check runs" rather than a loud one. This is the tripwire,
+    // for both files the extraction copies: the wrapper's one local import
+    // fails the moment a second is added, and the module's own zero fails the
+    // moment it gains any - either is when ci.yml needs a third `git show`.
+    const localImportsOf = (path) => {
+      const source = readFileSync(join(repo, path), 'utf8');
+      return [...source.matchAll(/from '(\.[^']+)'/g)].map((match) => match[1]);
+    };
+    assert.deepEqual(localImportsOf('scripts/what-changed.mjs'), ['./lib/what-changed.mjs']);
+    assert.deepEqual(localImportsOf('scripts/lib/what-changed.mjs'), []);
   });
 
   it('never falls back to the pull request\'s own classifier when the base commit has none', () => {
@@ -359,24 +372,26 @@ describe('the mechanical jobs', () => {
     // `needs` on a failed job skips the lot, and a skip is what a required check
     // accepts - so both steps here carry `continue-on-error`, covering every way
     // either one can fail. "Set up job", the platform phase ahead of both, is
-    // not covered and is left that way on purpose: `!failure()` cannot help
-    // (it is true on exactly the condition the default `success()` already
-    // tests, so it changes nothing), and `!cancelled()` trades this rare gap
-    // for the common one - it opts the job out of the ordinary cancellation
-    // cascade, turning the cancellation this workflow's own
-    // `cancel-in-progress: true` produces on every second push in a minute
-    // into a passing `skipped` instead of the `cancelled` a required context
-    // is supposed to read (docs/deployment.md, "Bootstrap runbook").
+    // not covered by that, which is what the gate's `!cancelled()` is for:
+    // GitHub's own expressions reference names it the way to run a job
+    // regardless of an upstream failure, and unlike `!failure()` - true on
+    // exactly the condition the default `success()` already tests for a
+    // `needs`-only job, so it would have changed nothing - it does not also
+    // turn a genuinely cancelled run into a passing `skipped` the way
+    // `!cancelled()` mistakenly not being used once did (docs/deployment.md,
+    // "Bootstrap runbook": "A cancelled run reports `cancelled`, not a passing
+    // conclusion").
     const yaml = workflow('ci.yml');
     const changes = job(yaml, 'changes');
-    // Every step in the block, not a count that a new step could drift past:
-    // `- uses:`/`- name:` at the step indent should equal how many
+    // Every step in the block, not a count that a new step could drift past
+    // (`- run:` included, not only `- uses:`/`- name:` - a step needs no other
+    // key to be one): `- \w+:` at the step indent should equal how many
     // `continue-on-error: true` lines follow it.
-    const steps = (changes.match(/^ {6}- (?:uses|name):/gm) ?? []).length;
+    const steps = (changes.match(/^ {6}- \w+:/gm) ?? []).length;
     const continues = (changes.match(/^ {8}continue-on-error: true$/gm) ?? []).length;
     assert.ok(steps >= 2, `expected at least two steps in the changes job, found ${steps}`);
     assert.equal(continues, steps, `every step of the changes job should continue on error (${continues} of ${steps} do)`);
-    assert.doesNotMatch(job(yaml, 'typecheck'), /!cancelled\(\)/, 'the gate should leave a cancelled run cancelled, not turn it into a passing skip');
+    assert.match(job(yaml, 'typecheck'), /!cancelled\(\)/, 'the gate should run despite changes failing outright, not only despite its output being unset');
   });
 
   it('leave the reports and the writing rules alone', () => {
@@ -391,7 +406,8 @@ describe('the mechanical jobs', () => {
 
   it('keep Test Explorer downstream of Test, not of this job', () => {
     // Sharing `test`'s instrumented run instead of paying for a second one is
-    // issue 289's finding, not this issue's - `Test Explorer` skips a
+    // "Run the suite once in CI, not once to gate and once to measure" (issue
+    // 289), not this file's own finding - `Test Explorer` skips a
     // documentation-only diff for free, because `test` does and a skipped
     // dependency is not a successful one, rather than needing a gate of its
     // own. A rewrite that drops `Concepts` or this chain loses both that

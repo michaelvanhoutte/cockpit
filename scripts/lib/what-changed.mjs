@@ -61,9 +61,18 @@ export function isNonProduct(path) {
   return ROOT_MARKDOWN.test(file);
 }
 
-/** A path list with the blanks dropped, and nothing else touched - see isNonProduct. */
+/**
+ * A path list coerced to strings, and nothing dropped - a blank or
+ * whitespace-only entry is a real path exactly as much as any other, and
+ * `isNonProduct` already answers "product" for one (see there). Filtering it
+ * out here, ahead of that answer, used to make it vanish from classification
+ * instead: `productChanged(['docs/a.md', '  '])` read as documentation-only,
+ * because the second path was gone before `productPaths` ever looked at it -
+ * a denylist-shaped failure in a module whose whole design is the allowlist
+ * that was supposed to rule it out.
+ */
 function normalize(paths) {
-  return (paths ?? []).map((path) => String(path ?? '')).filter((path) => path.trim() !== '');
+  return (paths ?? []).map((path) => String(path ?? ''));
 }
 
 /**

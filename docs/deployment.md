@@ -717,7 +717,7 @@ Then, by hand (no API, or deliberately not automated):
      the risk: across three ordinary pull requests sampled on 10 September 2026
      the legs took 0.6–3.3 minutes each, against `claude-review` on the same head
      at 9.0–14.9 and `Test Explorer` at 5.1–6.8. `claude-review` is ungated and
-     unaffected by this file's own documentation-only skip, so it alone carries
+     unaffected by ci.yml's own documentation-only skip, so it alone carries
      the argument for the pull requests that skip actually decides — the legs
      already finish inside its shadow there, shortening nothing anybody waits
      for. `Test Explorer`'s figure describes an ordinary pull request only: on
