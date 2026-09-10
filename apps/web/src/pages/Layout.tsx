@@ -19,7 +19,7 @@ import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
 import { browserStore } from '../lastVisited';
-import { INBOX_WIDTH_FLOOR, clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
+import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
@@ -133,9 +133,20 @@ function TheShell() {
    * never touched.
    */
   const [dragPreview, setDragPreview] = useState<number | null>(null);
-  const resizingFrom = useRef<{ startWidth: number; startX: number; latest: number } | null>(
-    null,
-  );
+  /**
+   * `startWidth` never changes once a drag is picked up - it is what a
+   * release with no movement compares `latest` against. `latest` and
+   * `lastClientX` do, on every move: `latest` is clamped as it goes, and
+   * `lastClientX` is what the next move's delta is measured from regardless,
+   * so a pointer that has travelled well past the ceiling starts moving the
+   * column again the instant it reverses, rather than having to travel all
+   * the way back past wherever it crossed the line (found in review) - the
+   * same reason a value dragged past a limit and let go snaps to the limit
+   * rather than to nothing in every other drag in this app.
+   */
+  const resizingFrom = useRef<
+    { startWidth: number; lastClientX: number; latest: number; pointerId: number } | null
+  >(null);
   const inboxColumnRef = useRef<HTMLElement>(null);
   /**
    * How wide the row the column shares with the dashboard actually is - what
@@ -148,6 +159,16 @@ function TheShell() {
   const [measureRow, rowWidth] = useMeasuredWidth();
   const screenWidth = useScreenWidth();
   const availableRowWidth = rowWidth ?? screenWidth;
+  /**
+   * The same number, in a ref that is always this render's - read by the
+   * drag's own `pointermove` handler below, which is declared once per drag
+   * rather than once per render and would otherwise go stale exactly the way
+   * a plain `useCallback` closing over `availableRowWidth` did (found in
+   * review): a window resized while the pointer was still down left the
+   * clamp comparing against the row's width from the moment the drag began.
+   */
+  const availableRowWidthRef = useRef(availableRowWidth);
+  availableRowWidthRef.current = availableRowWidth;
 
   /** What picking the drag back up to nothing means, shared by every way out of one. */
   const clearInboxDrag = useCallback(() => {
@@ -166,7 +187,12 @@ function TheShell() {
     if (!column) return;
     event.preventDefault();
     const startWidth = column.getBoundingClientRect().width;
-    resizingFrom.current = { startWidth, startX: event.clientX, latest: startWidth };
+    resizingFrom.current = {
+      startWidth,
+      lastClientX: event.clientX,
+      latest: startWidth,
+      pointerId: event.pointerId,
+    };
     setDragPreview(startWidth);
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -178,29 +204,24 @@ function TheShell() {
   }, []);
 
   /**
-   * Let go: what is drawn is what is kept, floored but not capped.
+   * Let go: what is drawn is what is kept, verbatim.
    *
-   * **Not clamped to the row's current ceiling.** `clampInboxWidth` already
-   * runs on every render (`inboxColumnStyle` below), so a second clamp here
-   * would only ever throw away width a wider row could have shown - the same
-   * "stored verbatim, clamped only on the way to the screen" rule
-   * `itemFormSize.ts` already keeps for a dragged item-form size, and why this
-   * has no dependency on the row's measured width at all: nothing here needs
-   * to know how wide the row is right now, which is what a `useCallback`
-   * closing over it would otherwise go stale for - reading `availableRowWidth`
-   * at the moment a much earlier `pointerdown` subscribed the listener below,
-   * not at the moment this actually runs.
+   * **Nothing is clamped here.** `onMove` below already brings every update
+   * inside the floor and the row's current ceiling as it happens - clamping
+   * again on release would be the same arithmetic a second time, and reading
+   * the row's width to do it is exactly what went stale before (see
+   * `availableRowWidthRef` above). A release with no `pointermove` in between
+   * - a click, or a drag let go where it started - is the one case `onMove`
+   * never touched `latest` at all, still equal to `startWidth`; that is not a
+   * choice to pin a number, and must leave the automatic sizing exactly as
+   * untouched as never having pressed the handle would have.
    */
   const commitInboxHandle = useCallback(() => {
     const held = resizingFrom.current;
     clearInboxDrag();
-    // No net movement - a click, or a drag that let go where it started - is
-    // not a choice to pin a number at all: it must leave the automatic sizing
-    // exactly as untouched as never having pressed the handle would have.
     if (!held || held.latest === held.startWidth) return;
-    const floored = Math.max(held.latest, INBOX_WIDTH_FLOOR);
-    setInboxWidth(floored);
-    writeInboxWidth(browserStore(), floored);
+    setInboxWidth(held.latest);
+    writeInboxWidth(browserStore(), held.latest);
   }, [clearInboxDrag]);
 
   const resetInboxWidth = useCallback(() => {
@@ -216,33 +237,57 @@ function TheShell() {
    * or off the window - and Escape abandons it the way it abandons the
    * innermost open thing everywhere else in the app.
    *
-   * Safe to gate on the boolean alone, unlike a first version of this that
-   * gated the same way while `commitInboxHandle` still closed over the row's
-   * measured width (found in review): every handler wired below is now stable
-   * across a drag's whole lifetime, so which one is listening never goes
-   * stale between the `pointerdown` that subscribes it and the `pointerup`
-   * that fires it.
+   * **Every handler here checks the event's own `pointerId` against the one
+   * the drag was picked up with**, except Escape, which is a keyboard event
+   * and has no pointer of its own (found in review): `resizingFrom`'s own
+   * re-entrancy guard above only refuses a *second* `pointerdown` on the
+   * handle, but nothing stopped a second pointer's `pointermove` or
+   * `pointerup` firing here too - a second touch landing anywhere else on the
+   * page while this drag was live would have been read as this drag's own
+   * motion or release.
+   *
+   * Safe to gate the subscription on the boolean alone, unlike a first
+   * version of this that gated the same way while `commitInboxHandle` still
+   * closed over the row's measured width: every handler wired below is now
+   * stable across a drag's whole lifetime, so which one is listening never
+   * goes stale between the `pointerdown` that subscribes it and the
+   * `pointerup` that fires it.
    */
   const draggingInbox = dragPreview !== null;
   useEffect(() => {
     if (!draggingInbox) return;
+    const pointerId = resizingFrom.current?.pointerId;
+    const ownsPointer = (event: PointerEvent) => event.pointerId === pointerId;
     const onMove = (event: PointerEvent) => {
+      if (!ownsPointer(event)) return;
       const held = resizingFrom.current;
       if (!held) return;
-      held.latest = held.startWidth + (event.clientX - held.startX);
+      // The delta since the *last* move, not since the drag started: `latest`
+      // already carries every earlier move's effect, clamp included, so this
+      // is what keeps a reversed drag responsive the instant it turns around
+      // rather than only once the pointer has retraced the whole overshoot.
+      const delta = event.clientX - held.lastClientX;
+      held.lastClientX = event.clientX;
+      held.latest = clampInboxWidth(held.latest + delta, availableRowWidthRef.current);
       setDragPreview(held.latest);
+    };
+    const onUp = (event: PointerEvent) => {
+      if (ownsPointer(event)) commitInboxHandle();
+    };
+    const onCancel = (event: PointerEvent) => {
+      if (ownsPointer(event)) clearInboxDrag();
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') clearInboxDrag();
     };
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', commitInboxHandle);
-    window.addEventListener('pointercancel', clearInboxDrag);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', commitInboxHandle);
-      window.removeEventListener('pointercancel', clearInboxDrag);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
       window.removeEventListener('keydown', onKey);
     };
   }, [draggingInbox, commitInboxHandle, clearInboxDrag]);

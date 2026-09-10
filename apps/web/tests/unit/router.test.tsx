@@ -445,6 +445,52 @@ describe('Triage', () => {
       ).toBeNull();
     });
 
+    it('ignores a second pointer while one is already dragging', async () => {
+      withRoomForTheInbox();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      const handle = resizeHandle();
+
+      fireEvent.pointerDown(handle, { button: 0, clientX: 300, pointerId: 1 });
+      const afterPickup = inboxColumn()!.style.width;
+
+      fireEvent.pointerMove(window, { clientX: 900, pointerId: 2 });
+      // A second, distinct pointer's move must not move this drag at all.
+      expect(inboxColumn()!.style.width).toBe(afterPickup);
+
+      fireEvent.pointerUp(window, { pointerId: 2 });
+      // Nor commit anything - it was never this drag's own pointer releasing.
+      expect(window.localStorage.getItem('cockpit.inbox-width')).toBeNull();
+      expect(inboxColumn()!.style.width).toBe(afterPickup);
+
+      fireEvent.pointerMove(window, { clientX: 900, pointerId: 1 });
+      // This drag's own pointer still works.
+      expect(inboxColumn()!.style.width).not.toBe(afterPickup);
+
+      fireEvent.pointerUp(window, { pointerId: 1 });
+      expect(window.localStorage.getItem('cockpit.inbox-width')).not.toBeNull();
+    });
+
+    it('stays responsive the instant a drag past the ceiling reverses, rather than needing to retrace the overshoot', async () => {
+      withRoomForTheInbox();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      const handle = resizeHandle();
+
+      fireEvent.pointerDown(handle, { button: 0, clientX: 300, pointerId: 1 });
+      fireEvent.pointerMove(window, { clientX: 10300, pointerId: 1 });
+      const atTheCeiling = inboxColumn()!.style.width;
+
+      fireEvent.pointerMove(window, { clientX: 10250, pointerId: 1 });
+      const afterASmallMoveBack = inboxColumn()!.style.width;
+
+      // Moved immediately on the first move back, rather than only once the
+      // pointer has retraced the whole overshoot past the ceiling.
+      expect(afterASmallMoveBack).not.toBe(atTheCeiling);
+
+      fireEvent.pointerUp(window, { pointerId: 1 });
+    });
+
     it('abandons a drag the browser takes back, without remembering anything from it', async () => {
       withRoomForTheInbox();
       await open('/w/ws-work/d/ws-work-research', [work, personal]);
