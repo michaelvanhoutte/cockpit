@@ -29,10 +29,11 @@ Split what's left into two kinds, because they need different evidence:
 Both tracks below read off the same sample, so pull it once:
 
 ```bash
-gh pr list --state merged --search "sort:created-desc" --json number,title,url,mergedAt,additions,deletions,changedFiles,commits -L 25
+gh pr list --state merged --search "sort:created-desc" --json number,title,url,mergedAt,additions,deletions,changedFiles,commits -L 100 \
+  | jq 'sort_by(.mergedAt) | reverse | .[:25]'
 ```
 
-25 is the sample size "Fail on the writing rules a script can decide, instead of finding them in review" (issue 278) itself drew from, and clears the 20-sample floor step 5 sets below even once drafts or forks — which the judgement checks skip outright — are dropped. Sort by `mergedAt`, the same reason [periodic-review](../periodic-review/SKILL.md) step 2 does: a pull request opened early and merged late is the kind with the most pushed commits and the most review to read.
+`--search` sorts by creation, not merge, and GitHub's PR search has no qualifier that sorts by merge date — the same reason [periodic-review](../periodic-review/SKILL.md) step 2 fetches a larger creation-sorted slice and re-sorts it before sampling, which this pipes through `jq` to do in one step. 25 is the sample size "Fail on the writing rules a script can decide, instead of finding them in review" (issue 278) itself drew from; each pull request in it usually carries several commits, so step 3's check-run tally comfortably clears step 6's 20-attempt floor even once a few are dropped for being drafts or forks, which the judgement checks skip outright. The re-sort is by `mergedAt`, not creation: a pull request opened early and merged late is the kind with the most pushed commits and the most review to read.
 
 **A merged pull request's final head commit already passed every required check** — branch protection would not have allowed the merge otherwise — so reading only that commit's check-runs measures nothing but successes, the same tautology a bare `main`-branch pass rate has: `main`'s own history is exactly the population of code that already cleared these checks, so a rate read off it says how green `main` stays, not how often a check actually stopped anything. Every *earlier* commit pushed to the pull request carries its own check-run history, and a push that failed and was then fixed is exactly the evidence "did this check ever block" needs:
 
@@ -106,7 +107,7 @@ Hand it to [github-issue](../github-issue/SKILL.md) for the body. **Problem** an
 
 ## Output
 
-Filed issues, one per required check that cleared a bar in step 6 and wasn't already tracked, each carrying the numbers that produced it. Nothing about branch protection, a workflow file, or a review prompt is edited by this skill itself.
+Filed issues, one per required check that cleared a bar in step 6 and wasn't already tracked, each carrying the numbers that produced it.
 
 ## Cadence
 
