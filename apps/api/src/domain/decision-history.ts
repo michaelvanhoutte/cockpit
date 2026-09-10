@@ -54,11 +54,12 @@ export interface DecisionHistoryEntry {
  * costs nothing and keeps every entry traceable to the command that made it.
  *
  * **Reads `item.proposedPanelId`/`proposedPanelReason` as they stand right
- * now, not as they were when first written.** Nothing clears either once an
- * Item leaves the Inbox (`applyProposedPanel`'s own comment: "never read
- * again"), so what is here is frozen at whatever the last live proposal was -
- * exactly the value the accept chip on this filing would have shown, or null
- * where nothing was ever proposed.
+ * now, not as they were when first written** - exactly the value the accept
+ * chip on this filing would have shown, or null where nothing was ever
+ * proposed. `command-service.ts` clears both in the same transaction that
+ * calls this, once this filing has read them into the entry below, so a
+ * proposal is readable here at most once: by whichever filing settles the
+ * Item first, never by one that finds it back in the Inbox later.
  */
 export function decisionHistoryEntryFor(
   item: Pick<Item, 'id' | 'tenantId' | 'proposedPanelId' | 'proposedPanelReason'>,
