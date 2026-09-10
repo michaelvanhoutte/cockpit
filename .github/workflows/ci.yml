@@ -180,6 +180,34 @@ jobs:
       - run: pnpm lint
       - run: pnpm test:lint
 
+  # On a pull request this runs only the tests that depend on what changed
+  # since the merge-base with `main` (scripts/ci-test.mjs, scripts/lib/test-selection.mjs,
+  # scripts/lib/workspace.mjs) - the point being proved is that affected-selection scales as the suite
+  # grows, not that any one run is faster today ("Run only the affected tests
+  # in CI's Test job on a pull request", issue 346).
+  #
+  # testing-strategy.md's "Definition of done for agents" section (§6) requires
+  # the fast tiers in full, with no selection - unaffected by this, since that
+  # rule is about what an agent runs *locally* before claiming a change works
+  # (`pnpm test`, untouched here) and is backstopped by CI regardless of what
+  # was run by hand. That backstop is this job, and it still has to actually
+  # run everything at some point rather than trust a diff - which is why a push
+  # to `main` runs every package in full unconditionally: it is the actual gate
+  # before staging, and a diff computed there against its own squash-merge
+  # parent would just reproduce the same small set the pull request already ran.
+  #
+  # fetch-depth: 0 is what makes the merge-base computable at all - see
+  # ci-test.mjs's own comment for why no other ref is needed.
+  #
+  # Instrumented (`test:coverage`, not plain `test`) even when selective, so the
+  # suite still runs once for both the gate and `test-explorer`'s coverage
+  # columns rather than once here and again there ("Run the suite once in CI,
+  # not once to gate and once to measure", issue 289) - a selective pull
+  # request run therefore uploads real coverage for what it actually ran and
+  # "unknown" for what it didn't, same as `test-explorer` already renders any
+  # file no test reaches at all. Uploaded because Actions jobs share no
+  # filesystem - this artifact is the explicit hop `test-explorer` downloads
+  # instead of re-running the suite.
   test:
     name: Test
     # Documentation-only diffs skip this; see the `changes` job.
@@ -188,19 +216,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
-      # Instrumented (`test:coverage`, not plain `test`) so the suite runs once for
-      # both the gate and `test-explorer`'s coverage columns, rather than once here
-      # and again there ("Run the suite once in CI, not once to gate and once to
-      # measure", issue 289). Uploaded because Actions jobs share no filesystem —
-      # this artifact is the explicit hop `test-explorer` downloads instead of
-      # re-running the suite.
-      #
-      # The globs mirror pnpm-workspace.yaml's own package roots rather than
-      # naming the specific packages that happen to have a `test:coverage`
-      # script today, so a package gaining one later is picked up here too
-      # instead of silently missing from the artifact.
-      - run: pnpm test:coverage
+      - run: node scripts/ci-test.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-reports

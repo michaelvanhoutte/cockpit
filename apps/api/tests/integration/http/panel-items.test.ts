@@ -530,7 +530,7 @@ describe('Panels', () => {
           body: JSON.stringify(body),
         });
 
-      expect(await (await once()).json()).toEqual({ ok: true, applied: true });
+      expect(await (await once()).json()).toEqual({ ok: true, applied: true, settledRouting: true });
       expect(await (await once()).json()).toEqual({ ok: true, applied: false });
 
       expect((await snapshot()).filings.filter((filing) => filing.itemId === itemId)).toHaveLength(1);

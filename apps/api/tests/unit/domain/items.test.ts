@@ -359,6 +359,28 @@ describe('Capture', () => {
       expect(second.proposedPanelId).toBe('panel-2');
       expect(second.proposedPanelReason).toBe('a different reason');
     });
+
+    /**
+     * `panelId: null` withdraws rather than proposing ("Re-propose the rest
+     * of the inbox the moment you file one", issue 300): a settled filing's
+     * refresh of the rest of its Workspace's Inbox can conclude that a Panel
+     * it once proposed no longer fits, which this function answers the same
+     * way it answers any other replacement - by writing what it was asked.
+     */
+    it('withdraws an earlier proposal when asked to, clearing the reason as well', () => {
+      const first = proposed(anItem(), 'panel-1', 'a first reason');
+
+      const withdrawn = applyProposedPanel(first, {
+        ...request,
+        issuedAt: LATEST,
+        itemId: first.id,
+        panelId: null,
+        reason: '',
+      });
+
+      expect(withdrawn.proposedPanelId).toBeNull();
+      expect(withdrawn.proposedPanelReason).toBeNull();
+    });
   });
 });
 
