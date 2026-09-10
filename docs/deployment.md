@@ -689,12 +689,12 @@ Then, by hand (no API, or deliberately not automated):
      merging. It would force an "Update branch" click every time `main` moves, and
      the semantic conflict it guards against is exactly what staging catches; a
      bad merge reaches staging, never production.
-   - **`contexts`** — eleven names: six of the nine jobs in `ci.yml`, three from
-     CodeQL, and the two Claude reviews, matched exactly. The three CI jobs left
-     out are the reports', and for two reasons: Test Explorer deliberately does
-     not gate, while Publish and Stability *could not* gate anything if they were
-     listed — the `if:` on each skips it on every pull request, and a skipped job
-     reports as passing.
+   - **`contexts`** — eleven names: six of the ten jobs in `ci.yml`, three from
+     CodeQL, and the two Claude reviews, matched exactly. The four CI jobs left
+     out are the reports', and for two reasons: Concepts and Test Explorer
+     deliberately do not gate, while Publish and Stability *could not* gate
+     anything if they were listed — the `if:` on each skips it on every pull
+     request, and a skipped job reports as passing.
 
      The three are not interchangeable. `CodeQL (javascript-typescript)` and
      `CodeQL (actions)` are the matrix legs and say only that the analysis *ran*.

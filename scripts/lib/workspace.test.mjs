@@ -24,20 +24,20 @@ function manifests(byPath) {
 }
 
 describe('testablePackages', () => {
-  it('includes a package that declares its own test script', () => {
+  it('includes a package that declares its own test:coverage script', () => {
     const list = [pkg('@cockpit/shared', 'packages/shared')];
-    const read = manifests({ [at('packages', 'shared')]: { scripts: { test: 'vitest run' } } });
+    const read = manifests({ [at('packages', 'shared')]: { scripts: { 'test:coverage': 'vitest run --coverage' } } });
     assert.deepEqual(testablePackages(list, read, ROOT), [{ name: '@cockpit/shared', dir: 'packages/shared' }]);
   });
 
-  it('excludes a package with no test script, rather than erroring on it', () => {
+  it('excludes a package with no test:coverage script, rather than erroring on it', () => {
     const list = [pkg('@cockpit/config', 'packages/config')];
     const read = manifests({ [at('packages', 'config')]: { scripts: { typecheck: 'tsc' } } });
     assert.deepEqual(testablePackages(list, read, ROOT), []);
   });
 
   it('skips the workspace root, identified by its path rather than by a missing version field, even when the root itself would otherwise qualify', () => {
-    // The root's manifest here declares its own "test" script and a version -
+    // The root's manifest here declares its own "test:coverage" script and a version -
     // both true of a real package - so the only thing that can be excluding
     // it is the path check. A fixture where the root's manifest is absent or
     // script-less would pass with no root-skip logic at all, proving nothing.
@@ -46,8 +46,8 @@ describe('testablePackages', () => {
       { name: '@cockpit/shared', path: at('packages', 'shared'), version: '0.0.0' },
     ];
     const read = manifests({
-      [ROOT]: { scripts: { test: 'vitest run' } },
-      [at('packages', 'shared')]: { scripts: { test: 'vitest run' } },
+      [ROOT]: { scripts: { 'test:coverage': 'vitest run --coverage' } },
+      [at('packages', 'shared')]: { scripts: { 'test:coverage': 'vitest run --coverage' } },
     });
     assert.deepEqual(
       testablePackages(list, read, ROOT).map((p) => p.name),
@@ -61,14 +61,14 @@ describe('testablePackages', () => {
     // thing that actually means "root", not from a field the root merely
     // happens to lack today.
     const list = [{ name: '@cockpit/shared', path: at('packages', 'shared') }];
-    const read = manifests({ [at('packages', 'shared')]: { scripts: { test: 'vitest run' } } });
+    const read = manifests({ [at('packages', 'shared')]: { scripts: { 'test:coverage': 'vitest run --coverage' } } });
     assert.deepEqual(
       testablePackages(list, read, ROOT).map((p) => p.name),
       ['@cockpit/shared'],
     );
   });
 
-  it('finds every real package with a test script, not only the ones a hand-written list would have named', () => {
+  it('finds every real package with a test:coverage script, not only the ones a hand-written list would have named', () => {
     // The bug this module exists to fix: a literal array of shared/api/web
     // silently dropped tools/ci-stability and tools/test-explorer, which
     // carry real suites. This fixture is that exact shape.
@@ -80,14 +80,14 @@ describe('testablePackages', () => {
       pkg('@cockpit/ci-stability', 'tools/ci-stability'),
       pkg('@cockpit/test-explorer', 'tools/test-explorer'),
     ];
-    const withTest = { scripts: { test: 'vitest run' } };
+    const withTestCoverage = { scripts: { 'test:coverage': 'vitest run --coverage' } };
     const read = manifests({
-      [at('packages', 'shared')]: withTest,
+      [at('packages', 'shared')]: withTestCoverage,
       [at('packages', 'config')]: { scripts: { typecheck: 'tsc' } },
-      [at('apps', 'api')]: withTest,
-      [at('apps', 'web')]: withTest,
-      [at('tools', 'ci-stability')]: withTest,
-      [at('tools', 'test-explorer')]: withTest,
+      [at('apps', 'api')]: withTestCoverage,
+      [at('apps', 'web')]: withTestCoverage,
+      [at('tools', 'ci-stability')]: withTestCoverage,
+      [at('tools', 'test-explorer')]: withTestCoverage,
     });
     assert.deepEqual(
       testablePackages(list, read, ROOT).map((p) => p.name).sort(),
@@ -97,7 +97,7 @@ describe('testablePackages', () => {
 
   it('gives dir in POSIX form relative to root, matching what git diff --name-only reports', () => {
     const list = [pkg('@cockpit/api', 'apps/api')];
-    const read = manifests({ [at('apps', 'api')]: { scripts: { test: 'vitest run' } } });
+    const read = manifests({ [at('apps', 'api')]: { scripts: { 'test:coverage': 'vitest run --coverage' } } });
     assert.equal(testablePackages(list, read, ROOT)[0].dir, 'apps/api');
   });
 
@@ -105,7 +105,7 @@ describe('testablePackages', () => {
     assert.deepEqual(testablePackages([], manifests({}), ROOT), []);
   });
 
-  it('treats a missing manifest the same as one with no test script', () => {
+  it('treats a missing manifest the same as one with no test:coverage script', () => {
     const list = [pkg('@cockpit/orphan', 'packages/orphan')];
     assert.deepEqual(testablePackages(list, manifests({}), ROOT), []);
   });

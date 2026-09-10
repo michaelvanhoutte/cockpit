@@ -115,7 +115,10 @@ const COLORS = ['36', '35', '33', '32', '31', '34'];
 
 /** Runs one package's suite; resolves with its exit code, never rejects. */
 function runOne(pkg, index) {
-  const args = ['--filter', pkg.name, 'test'];
+  // test:coverage, not test: the suite runs once for both this gate and
+  // test-explorer's coverage columns rather than once here and again there
+  // (issue 289, ci.yml's own comment on this job).
+  const args = ['--filter', pkg.name, 'test:coverage'];
   // --passWithNoTests: a package the PR never touches routinely has zero
   // files left once --changed narrows it. Vitest 4's own default already
   // exits 0 for that (confirmed by hand against this repo's pinned version -

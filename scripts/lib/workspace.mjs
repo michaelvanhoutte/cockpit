@@ -1,17 +1,20 @@
 //
 // Which workspace packages the Test job (.github/workflows/ci.yml) has to
 // know about at all: every package pnpm's own workspace listing reports,
-// narrowed to the ones that declare a "test" script - the same set `pnpm -r
-// test` ran before scripts/ci-test.mjs took over that job's step (issue 346,
-// "Run only the affected tests in CI's Test job on a pull request").
+// narrowed to the ones that declare a "test:coverage" script - what
+// scripts/ci-test.mjs actually runs per package (instrumented, so the suite
+// runs once for both this gate and test-explorer's coverage columns - issue
+// 289), and the same set `pnpm test:coverage` ran before scripts/ci-test.mjs
+// took over the Test job's step (issue 346, "Run only the affected tests in
+// CI's Test job on a pull request").
 //
 // A hand-maintained list was tried first and was wrong the moment it was
 // written: `tools/ci-stability` and `tools/test-explorer` already carry their
-// own `"test": "vitest run"` and real suites, and a literal array naming only
-// `packages/shared`, `apps/api` and `apps/web` drops both from CI silently -
-// on every push to `main` as well as every pull request, since nothing else
-// in ci.yml runs either package's `test` script. Discovering the set from
-// pnpm itself is what keeps a future package from going the same way.
+// own real suites, and a literal array naming only `packages/shared`,
+// `apps/api` and `apps/web` drops both from CI silently - on every push to
+// `main` as well as every pull request, since nothing else in ci.yml runs
+// either package's own script. Discovering the set from pnpm itself is what
+// keeps a future package from going the same way.
 //
 // `pnpmList` and `readManifest` are arguments rather than a `pnpm` call and a
 // filesystem read made here, so this is asserted by `node --test` against
@@ -23,7 +26,7 @@ import { relative, sep, posix } from 'node:path';
 
 /**
  * `{ name, dir }` for every package in `pnpmList` (parsed `pnpm -r list
- * --depth -1 --json` output) that declares its own "test" script.
+ * --depth -1 --json` output) that declares its own "test:coverage" script.
  * `readManifest(pkg.path)` returns that package's parsed package.json.
  * `dir` is given relative to `root`, in POSIX form regardless of the host
  * OS - the same shape `git diff --name-only` itself always emits, which is
@@ -41,7 +44,7 @@ export function testablePackages(pnpmList, readManifest, root) {
   for (const pkg of pnpmList) {
     if (relative(root, pkg.path) === '') continue;
     const manifest = readManifest(pkg.path);
-    if (!manifest?.scripts?.test) continue;
+    if (!manifest?.scripts?.['test:coverage']) continue;
     found.push({ name: pkg.name, dir: relative(root, pkg.path).split(sep).join(posix.sep) });
   }
   return found;
