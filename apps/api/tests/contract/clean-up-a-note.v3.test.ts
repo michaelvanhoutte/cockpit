@@ -47,7 +47,7 @@ const MARKERS = {
  * Reads one note, and none of the notes below is one the prompt carries.
  *
  * **That is the whole difference between testing the model and testing its
- * recall.** The prompt has four worked examples with their answers written
+ * recall.** The prompt has five worked examples with their answers written
  * out, so a case that reuses one of them can be passed by copying the example -
  * and the drift this tier exists to catch would sail through, since a note it
  * has been shown the answer to is not a note it had to decide anything about.
@@ -241,23 +241,27 @@ describe('Capture', () => {
   });
 
   /**
-   * The worked case this feature's own issue uses: a compliance question
-   * offered a panel plainly made for compliance questions ("Propose where a
-   * captured note belongs, without filing it there", issue 298). Panel ids
-   * are ordinary UUIDs here, exactly the shape a real account's are, so a
-   * pass here is not proving something a shorter id would not.
+   * A compliance-flavoured note offered a panel plainly made for compliance
+   * questions ("Propose where a captured note belongs, without filing it
+   * there", issue 298) - the same shape the prompt's own worked example is,
+   * deliberately neither the same note nor the same panel name as that
+   * example (`clean-up-a-note.v3.ts`'s fifth example pairs "Compliance
+   * questions" with the Part 11 audit trail note). A pass on the exact note
+   * and panel name the prompt was shown the answer to would prove recall
+   * rather than generalisation - the failure this tier exists to catch, per
+   * this file's own class comment. Panel ids are ordinary UUIDs here, exactly
+   * the shape a real account's are, so a pass here is not proving something a
+   * shorter id would not.
    */
   describe('a note is offered the panel it clearly belongs on, where one does', () => {
     const panels = [
-      { id: '018f0000-0000-7000-8000-000000000001', name: 'Compliance questions' },
+      { id: '018f0000-0000-7000-8000-000000000001', name: 'Regulatory questions' },
       { id: '018f0000-0000-7000-8000-000000000002', name: 'Weekend ideas' },
     ];
+    const COMPLIANCE_NOTE = 'gdpr data retention policy needs sign-off before next month’s audit';
 
     it('names the panel and says why, in terms of the note rather than of itself', async () => {
-      const proposal = await read(
-        'part 11 audit trail q for validation protocol, who signs off eod',
-        panels,
-      );
+      const proposal = await read(COMPLIANCE_NOTE, panels);
 
       expect(proposal.panel?.panelId).toBe(panels[0]!.id);
       expect(proposal.panel?.reason.length).toBeGreaterThan(0);
@@ -280,10 +284,7 @@ describe('Capture', () => {
     });
 
     it('never names a panel it was not offered', async () => {
-      const proposal = await read(
-        'part 11 audit trail q for validation protocol, who signs off eod',
-        panels,
-      );
+      const proposal = await read(COMPLIANCE_NOTE, panels);
       if (proposal.panel) {
         expect(panels.map((panel) => panel.id)).toContain(proposal.panel.panelId);
       }
