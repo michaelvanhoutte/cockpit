@@ -247,12 +247,21 @@ describe('Triage', () => {
      * therefore a genuine first-ever, visible filing, not a reorganizing
      * move of one still filed somewhere - and has to be told apart from
      * that case correctly, or the entry is lost for good.
+     *
+     * **The proposal on the first filing must not leak into the second.**
+     * `isItemFiled` correctly reporting the Item as unfiled again is what
+     * makes the second filing settle at all - and would, on its own,
+     * misattribute the *first* filing's now long-consumed proposal to a
+     * decision it was never shown for. `command-service.ts` clears
+     * `proposed_panel_id`/`proposed_panel_reason` the moment a filing reads
+     * them, which is what this case's second assertion is actually checking.
      */
-    it('appends an entry when an item is re-filed after its only panel was deleted', async () => {
+    it('appends an entry when an item is re-filed after its only panel was deleted, without reusing the first filing’s proposal', async () => {
       const today = await aDashboard();
       const falcon = await aPanel(today, 'Falcon');
       const anna = await aPanel(today, 'Anna');
       const itemId = await anItem('Reply to Bart');
+      await propose(itemId, falcon, 'sounds like Falcon');
       await move(itemId, falcon);
       expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: falcon })).status).toBe(200);
 
@@ -265,7 +274,12 @@ describe('Triage', () => {
       // first.
       const rows = await historyFor(itemId);
       expect(rows).toHaveLength(2);
-      expect(rows.map((row) => row.chosen_panel_id).sort()).toEqual([anna, falcon].sort());
+      const onFalcon = rows.find((row) => row.chosen_panel_id === falcon);
+      const onAnna = rows.find((row) => row.chosen_panel_id === anna);
+      expect(onFalcon).toMatchObject({ proposed_panel_id: falcon });
+      // Not Falcon: that proposal was spent by the first filing, so the
+      // second reads nothing live - never the stale value from before.
+      expect(onAnna).toMatchObject({ proposed_panel_id: null });
     });
 
     it('appends nothing for add_item_to_panel, which puts an item on a second panel without saying it primarily belongs there', async () => {

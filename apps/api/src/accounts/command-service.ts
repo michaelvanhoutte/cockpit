@@ -1373,6 +1373,20 @@ export function runCommand<N extends CommandName>(
               .values(decisionHistoryEntryFor(item, cmd, panel.id))
               .onConflictDoNothing()
               .run();
+            // The proposal is spent the moment it is read into that entry -
+            // cleared here rather than left for `applyProposedPanel`'s "never
+            // read again" to keep true only by convention. Without this, an
+            // Item that returns to the Inbox later (its only Panel deleted,
+            // or removed via `remove_item_from_panel`) and is filed again
+            // would still carry the *original* proposal, and the write above
+            // would misattribute it to a decision it was never shown for -
+            // exactly the failure `alreadyFiled` exists to prevent, reopened
+            // through `isItemFiled` correctly reporting the Item as unfiled
+            // again.
+            tx.update(items)
+              .set({ proposedPanelId: null, proposedPanelReason: null })
+              .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+              .run();
           }
         }
         tx.insert(commands).values(commandRow).run();
@@ -1424,6 +1438,12 @@ export function runCommand<N extends CommandName>(
           tx.insert(decisionHistory)
             .values(decisionHistoryEntryFor(item, cmd, panel.id))
             .onConflictDoNothing()
+            .run();
+          // Spent the moment it is read - see the identical write in
+          // `move_item_to_panel` above for why.
+          tx.update(items)
+            .set({ proposedPanelId: null, proposedPanelReason: null })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
         }
         tx.insert(commands).values(commandRow).run();

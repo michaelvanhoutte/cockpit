@@ -967,15 +967,20 @@ export const associations = sqliteTable(
  * differently from a first settling is `docs/routing-learning.md` §13
  * decision 4, deliberately not decided here - this table simply never
  * creates those separate rows in the first place while every reorganizing
- * move keeps the Item filed throughout. **Known gap, accepted for now:**
- * removing an Item from its only Panel (`remove_item_from_panel`) returns it
- * to the Inbox exactly as an undo does, and a *later* filing after that is
- * indistinguishable here from a first-ever one - `isItemFiled` reads current
- * state, not history. That later filing writes a second entry, carrying
- * whatever proposal was frozen from the Item's original capture rather than
- * one live for this decision. Rare in practice (most reorganizing happens by
- * moving directly, never by removing first) and no worse than the
- * reorganization-vs-correction ambiguity decision 4 already defers.
+ * move keeps the Item filed throughout.
+ *
+ * **`isItemFiled` (repo.ts) reads current state, not history, so an Item can
+ * genuinely return to the Inbox and later write a *second* entry** - its only
+ * Panel deleted (`delete_panel` tombstones the Panel, not the filing row) or
+ * removed outright (`remove_item_from_panel`), then filed again. That second
+ * entry is a real, distinct filing decision and is meant to be recorded - the
+ * failure mode this guarded against was never the second row, it was the
+ * first row's proposal being reattached to it. `command-service.ts` clears
+ * `items.proposed_panel_id`/`proposed_panel_reason` in the same transaction
+ * that reads either into an entry, so a proposal is readable here at most
+ * once, by whichever filing consumes it first - a later entry for the same
+ * Item always reads `proposed_panel_id` as null, honestly reporting that
+ * nothing was live to propose by then.
  */
 export const decisionHistory = sqliteTable(
   'decision_history',
