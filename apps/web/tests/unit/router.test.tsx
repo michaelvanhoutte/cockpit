@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
@@ -343,6 +343,177 @@ describe('Triage', () => {
       // bouncing off each other.
       expect(await screen.findByRole('region', { name: 'Inbox' })).toBeVisible();
       expect(inboxColumn()).toBeVisible();
+    });
+  });
+
+  /**
+   * F1 for what renders from a stored preference; that dragging the handle
+   * actually produces one, and that it survives a real reload, is the browser
+   * walk in tests/e2e/inbox.test.ts. The clamp itself is pure and tested on
+   * its own in tests/unit/inboxWidth.test.ts.
+   */
+  describe('the Inbox column can be resized past its automatic width', () => {
+    /** The band above the column, which mirrors whatever width it settles on. */
+    function inboxBand(): HTMLElement {
+      const heading = screen.getByRole('heading', { name: 'Inbox', level: 2 });
+      return heading.parentElement!.parentElement as HTMLElement;
+    }
+
+    const resizeHandle = () =>
+      screen.getByRole('separator', { name: /drag to resize the inbox/i });
+
+    beforeEach(() => {
+      // A known row width, so a stored preference inside it clamps to nothing
+      // and the assertions below are about the width itself rather than the
+      // ceiling. jsdom lays nothing out, so `useMeasuredWidth` never measures
+      // the row and this is what it falls back to.
+      Object.defineProperty(globalThis, 'innerWidth', {
+        value: 1024,
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    it('has no chosen width to draw by default: the automatic sizing, on both', async () => {
+      withRoomForTheInbox();
+
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+
+      expect(inboxColumn()).toHaveClass('w-1/5');
+      expect(inboxColumn()).toHaveClass('max-w-105');
+      expect(inboxColumn()).not.toHaveStyle({ width: expect.anything() });
+      expect(inboxBand()).toHaveClass('w-1/5');
+      expect(inboxBand()).toHaveClass('max-w-105');
+      expect(inboxBand()).not.toHaveStyle({ width: expect.anything() });
+    });
+
+    it('does not pin a width for a press that never moved: a click, or a drag let go where it started', async () => {
+      withRoomForTheInbox();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      const handle = resizeHandle();
+
+      fireEvent.pointerDown(handle, { button: 0, clientX: 300 });
+      fireEvent.pointerUp(window);
+
+      // Still the automatic sizing, as untouched as never having pressed the
+      // handle at all - not a pixel width pinned at whatever it happened to
+      // be drawn at the moment of the click.
+      expect(inboxColumn()).toHaveClass('w-1/5');
+      expect(inboxColumn()).not.toHaveStyle({ width: expect.anything() });
+      expect(window.localStorage.getItem('cockpit.inbox-width')).toBeNull();
+    });
+
+    it('draws the band and the column at exactly the same chosen width', async () => {
+      window.localStorage.setItem('cockpit.inbox-width', '350');
+      withRoomForTheInbox();
+
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+
+      expect(inboxColumn()).toHaveStyle({ width: '350px' });
+      expect(inboxBand()).toHaveStyle({ width: '350px' });
+      // The fixed 420px automatic ceiling must not fight a manual choice past
+      // it - only `min-w-70`, the floor, still applies as a class.
+      expect(inboxColumn()).not.toHaveClass('max-w-105');
+    });
+
+    it('resets both to the automatic sizing on a double-click, and forgets the choice', async () => {
+      window.localStorage.setItem('cockpit.inbox-width', '350');
+      withRoomForTheInbox();
+      const user = userEvent.setup();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      expect(inboxColumn()).toHaveStyle({ width: '350px' });
+
+      await user.dblClick(resizeHandle());
+
+      expect(inboxColumn()).toHaveClass('w-1/5');
+      expect(inboxColumn()).not.toHaveStyle({ width: expect.anything() });
+      expect(inboxBand()).not.toHaveStyle({ width: expect.anything() });
+      expect(window.localStorage.getItem('cockpit.inbox-width')).toBeNull();
+    });
+
+    it('cannot be dragged where there is no column to resize', async () => {
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+
+      expect(inboxColumn()).toBeNull();
+      expect(
+        screen.queryByRole('separator', { name: /drag to resize the inbox/i }),
+      ).toBeNull();
+    });
+
+    it('ignores a second pointer while one is already dragging', async () => {
+      withRoomForTheInbox();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      const handle = resizeHandle();
+
+      fireEvent.pointerDown(handle, { button: 0, clientX: 300, pointerId: 1 });
+      const afterPickup = inboxColumn()!.style.width;
+
+      fireEvent.pointerMove(window, { clientX: 900, pointerId: 2 });
+      // A second, distinct pointer's move must not move this drag at all.
+      expect(inboxColumn()!.style.width).toBe(afterPickup);
+
+      fireEvent.pointerUp(window, { pointerId: 2 });
+      // Nor commit anything - it was never this drag's own pointer releasing.
+      expect(window.localStorage.getItem('cockpit.inbox-width')).toBeNull();
+      expect(inboxColumn()!.style.width).toBe(afterPickup);
+
+      fireEvent.pointerMove(window, { clientX: 900, pointerId: 1 });
+      // This drag's own pointer still works.
+      expect(inboxColumn()!.style.width).not.toBe(afterPickup);
+
+      fireEvent.pointerUp(window, { pointerId: 1 });
+      expect(window.localStorage.getItem('cockpit.inbox-width')).not.toBeNull();
+    });
+
+    it('returns to exactly where it started when the pointer does, even after overshooting the ceiling', async () => {
+      withRoomForTheInbox();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      const handle = resizeHandle();
+      // A realistic in-range width, not jsdom's default all-zero rect: a
+      // start width already at the floor makes an overshoot-then-retrace
+      // land back on the floor either way, which proves nothing about which
+      // of the two clamp formulas actually ran (found in review).
+      inboxColumn()!.getBoundingClientRect = () => ({ width: 350 }) as DOMRect;
+
+      fireEvent.pointerDown(handle, { button: 0, clientX: 300, pointerId: 1 });
+      expect(inboxColumn()).toHaveStyle({ width: '350px' });
+
+      fireEvent.pointerMove(window, { clientX: 10300, pointerId: 1 });
+      // The ceiling for a 1024px row (`beforeEach` above).
+      expect(inboxColumn()).toHaveStyle({ width: '504px' });
+
+      // Back to the exact pointer position the drag began at - a round trip
+      // that visibly changed nothing along the way it did not take, and must
+      // not commit a number the handle was never actually shown at.
+      fireEvent.pointerMove(window, { clientX: 300, pointerId: 1 });
+      expect(inboxColumn()).toHaveStyle({ width: '350px' });
+
+      fireEvent.pointerUp(window, { pointerId: 1 });
+      expect(window.localStorage.getItem('cockpit.inbox-width')).toBeNull();
+    });
+
+    it('abandons a drag the browser takes back, without remembering anything from it', async () => {
+      withRoomForTheInbox();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      const handle = resizeHandle();
+
+      fireEvent.pointerDown(handle, { button: 0, clientX: 300 });
+      fireEvent.pointerMove(window, { clientX: 500 });
+      fireEvent.pointerCancel(window);
+
+      // Nothing committed: still the automatic sizing, exactly as before the
+      // gesture started.
+      expect(inboxColumn()).toHaveClass('w-1/5');
+      expect(inboxColumn()).not.toHaveStyle({ width: expect.anything() });
+      expect(window.localStorage.getItem('cockpit.inbox-width')).toBeNull();
     });
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,6 +18,9 @@ import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
+import { browserStore } from '../lastVisited';
+import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
+import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /** The default theme in the shape a workspace carries it. */
@@ -108,6 +112,217 @@ function TheShell() {
     },
   });
   const roomForTheInbox = useRoomForTheInbox();
+
+  /**
+   * How wide the Inbox column is drawn - the chosen preference, and the drag
+   * in progress where there is one ("Let the Inbox column be resized
+   * horizontally", issue 331).
+   *
+   * **Read once, from a lazy initializer, rather than an effect.** An effect
+   * would paint the automatic width first and jump to the stored one a frame
+   * later, which is exactly the flash `roomForTheInbox` itself exists to
+   * avoid for the column's presence.
+   */
+  const [inboxWidth, setInboxWidth] = useState<number | null>(() =>
+    readInboxWidth(browserStore()),
+  );
+  /**
+   * The drag's own live number, kept apart from `inboxWidth` so an
+   * interrupted drag - the browser taking the gesture back, or Escape - has
+   * nothing committed to undo: it just stops updating and `inboxWidth` was
+   * never touched.
+   */
+  const [dragPreview, setDragPreview] = useState<number | null>(null);
+  /**
+   * `startWidth` and `startX` never change once a drag is picked up: `latest`
+   * is always `startWidth` clamped by however far `clientX` has moved from
+   * `startX`, recomputed from those two fixed points on every move rather
+   * than carried forward from the previous one.
+   *
+   * **Tried carrying it forward first, and that was the bug** (found in
+   * review): clamping an accumulating total is not invertible - overshoot the
+   * ceiling and bring the pointer back to exactly where the drag began, and
+   * the clamped total does not come back to exactly `startWidth` with it, so
+   * a round trip that visibly changed nothing still committed a different
+   * number. Recomputing from the two fixed points instead is what a plain
+   * `Math.min`/`Math.max` already is everywhere else in this file: `clamp(x)`
+   * for the same `x` is always the same answer, so retracing a drag exactly
+   * retraces what it showed - at the cost of the handle staying wherever it
+   * clamped to until the pointer has retraced the *whole* overshoot, not
+   * just enough of it to be back in range. That half is not a bug being
+   * accepted here so much as it is every other drag-to-resize in this app,
+   * native `resize: both` included (`itemFormSize.ts`): a size a drag pushed
+   * past its limit stays at the limit until the pointer earns its way back.
+   */
+  const resizingFrom = useRef<
+    { startWidth: number; startX: number; latest: number; pointerId: number } | null
+  >(null);
+  const inboxColumnRef = useRef<HTMLElement>(null);
+  /**
+   * How wide the row the column shares with the dashboard actually is - what
+   * the cap in `inboxWidth.ts` is half of. Measured rather than derived, for
+   * the reason `useMeasuredWidth`'s own doc comment gives: showing or hiding
+   * the Inbox resizes the row without the window moving at all, and writing
+   * the shell's own layout a second time in JavaScript is what this avoids.
+   * The screen's width stands in until the row has been measured once.
+   */
+  const [measureRow, rowWidth] = useMeasuredWidth();
+  const screenWidth = useScreenWidth();
+  const availableRowWidth = rowWidth ?? screenWidth;
+  /**
+   * The same number, in a ref that is always this render's - read by the
+   * drag's own `pointermove` handler below, which is declared once per drag
+   * rather than once per render and would otherwise go stale exactly the way
+   * a plain `useCallback` closing over `availableRowWidth` did (found in
+   * review): a window resized while the pointer was still down left the
+   * clamp comparing against the row's width from the moment the drag began.
+   */
+  const availableRowWidthRef = useRef(availableRowWidth);
+  availableRowWidthRef.current = availableRowWidth;
+
+  /** What picking the drag back up to nothing means, shared by every way out of one. */
+  const clearInboxDrag = useCallback(() => {
+    resizingFrom.current = null;
+    setDragPreview(null);
+  }, []);
+
+  const takeInboxHandle = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    // A second, distinct pointer landing on the handle while the first is
+    // still down is not a second drag - `resizingFrom` has one owner, and
+    // overwriting it here would leave the first pointer's moves and release
+    // computed against this one's baseline instead of its own.
+    if (resizingFrom.current) return;
+    const column = inboxColumnRef.current;
+    if (!column) return;
+    event.preventDefault();
+    const startWidth = column.getBoundingClientRect().width;
+    resizingFrom.current = {
+      startWidth,
+      startX: event.clientX,
+      latest: startWidth,
+      pointerId: event.pointerId,
+    };
+    setDragPreview(startWidth);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Allowed to fail, as the panel resize's own capture is (PanelBoard.tsx):
+      // the moves still arrive while the pointer is over the handle, which is
+      // nearly all of the gesture.
+    }
+  }, []);
+
+  /**
+   * Let go: what is drawn is what is kept, verbatim.
+   *
+   * **Nothing is clamped here.** `onMove` below already brings every update
+   * inside the floor and the row's current ceiling as it happens - clamping
+   * again on release would be the same arithmetic a second time, and reading
+   * the row's width to do it is exactly what went stale before (see
+   * `availableRowWidthRef` above). A release with no `pointermove` in between
+   * - a click, or a drag let go where it started - is the one case `onMove`
+   * never touched `latest` at all, still equal to `startWidth`; that is not a
+   * choice to pin a number, and must leave the automatic sizing exactly as
+   * untouched as never having pressed the handle would have.
+   */
+  const commitInboxHandle = useCallback(() => {
+    const held = resizingFrom.current;
+    clearInboxDrag();
+    if (!held || held.latest === held.startWidth) return;
+    setInboxWidth(held.latest);
+    writeInboxWidth(browserStore(), held.latest);
+  }, [clearInboxDrag]);
+
+  const resetInboxWidth = useCallback(() => {
+    clearInboxDrag();
+    setInboxWidth(null);
+    writeInboxWidth(browserStore(), null);
+  }, [clearInboxDrag]);
+
+  /**
+   * The gesture's other two ends, for the reason the panel resize's own are
+   * (PanelBoard.tsx): once picked up, the moves and the release have to keep
+   * arriving even where the pointer has left the handle - over the dashboard,
+   * or off the window - and Escape abandons it the way it abandons the
+   * innermost open thing everywhere else in the app.
+   *
+   * **Every handler here checks the event's own `pointerId` against the one
+   * the drag was picked up with**, except Escape, which is a keyboard event
+   * and has no pointer of its own (found in review): `resizingFrom`'s own
+   * re-entrancy guard above only refuses a *second* `pointerdown` on the
+   * handle, but nothing stopped a second pointer's `pointermove` or
+   * `pointerup` firing here too - a second touch landing anywhere else on the
+   * page while this drag was live would have been read as this drag's own
+   * motion or release.
+   *
+   * Safe to gate the subscription on the boolean alone, unlike a first
+   * version of this that gated the same way while `commitInboxHandle` still
+   * closed over the row's measured width: every handler wired below is now
+   * stable across a drag's whole lifetime, so which one is listening never
+   * goes stale between the `pointerdown` that subscribes it and the
+   * `pointerup` that fires it.
+   */
+  const draggingInbox = dragPreview !== null;
+  useEffect(() => {
+    if (!draggingInbox) return;
+    const pointerId = resizingFrom.current?.pointerId;
+    const ownsPointer = (event: PointerEvent) => event.pointerId === pointerId;
+    const onMove = (event: PointerEvent) => {
+      if (!ownsPointer(event)) return;
+      const held = resizingFrom.current;
+      if (!held) return;
+      // From the two fixed points, not the previous move - see `resizingFrom`
+      // above for why carrying `latest` forward instead was the bug.
+      held.latest = clampInboxWidth(
+        held.startWidth + (event.clientX - held.startX),
+        availableRowWidthRef.current,
+      );
+      setDragPreview(held.latest);
+    };
+    const onUp = (event: PointerEvent) => {
+      if (ownsPointer(event)) commitInboxHandle();
+    };
+    const onCancel = (event: PointerEvent) => {
+      if (ownsPointer(event)) clearInboxDrag();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clearInboxDrag();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [draggingInbox, commitInboxHandle, clearInboxDrag]);
+
+  /**
+   * What the column is drawn at: the drag's own number while one is running,
+   * the stored preference otherwise - both brought inside the row's current
+   * bounds, and neither is `null` (the automatic sizing) while the other
+   * holds a number.
+   */
+  const resolvedInboxWidth = dragPreview ?? inboxWidth;
+  const inboxColumnStyle: React.CSSProperties | undefined =
+    resolvedInboxWidth === null
+      ? undefined
+      : { width: clampInboxWidth(resolvedInboxWidth, availableRowWidth) };
+  /**
+   * `min-w-70` (280px, the same floor `INBOX_WIDTH_FLOOR` names in
+   * inboxWidth.ts) stays in both cases - `clampInboxWidth` already guarantees
+   * it once a width is chosen, but it is the only thing enforcing it for the
+   * automatic sizing, which never goes near that function at all. `max-w-105`
+   * (420px, the automatic sizing's own fixed ceiling) drops once there is a
+   * chosen width: `inboxColumnStyle` already carries a ceiling of its own by
+   * then, and a manual choice past 420px must not be fought by a class still
+   * capping it there.
+   */
+  const inboxColumnClassName = `min-w-70 shrink-0${resolvedInboxWidth === null ? ' w-1/5 max-w-105' : ''}`;
 
   /**
    * Whether the account's list of types is open over the workspace, and the
@@ -507,7 +722,10 @@ function TheShell() {
         {params.workspaceId && (
           <>
             {roomForTheInbox && (
-              <div className="ml-1 w-1/5 min-w-70 max-w-105 shrink-0 bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5">
+              <div
+                className={`ml-1 ${inboxColumnClassName} bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5`}
+                style={inboxColumnStyle}
+              >
                 <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
               </div>
             )}
@@ -557,6 +775,7 @@ function TheShell() {
           one against the edge - which changes with the width, since below 768px
           there is only one. The sheet itself still runs to the screen's edge. */}
       <main
+        ref={measureRow}
         className="flex w-full min-h-0 flex-1 gap-1 p-1"
         style={{
           paddingInline:
@@ -564,23 +783,63 @@ function TheShell() {
         }}
       >
         {params.workspaceId && roomForTheInbox && (
-          <aside
-            // Named by the heading up in the band rather than by a label of its
-            // own, so the name a person reads and the name a screen reader
-            // announces are the same string in one place.
-            aria-labelledby={INBOX_HEADING}
-            // A fifth of the width, with a floor and a ceiling: 20% of a
-            // 1280px screen is 256px, which an item row cannot hold, and 20%
-            // of a very wide one is more Inbox than anybody asked for.
-            // The bottom inset is padding on the scroller rather than on the
-            // sheet: padding on the sheet would end the well above the home
-            // indicator and leave a dead strip there, where this lets the well
-            // run to the screen's edge, the list scroll through it, and the
-            // last row still stop clear of it.
-            className="well-inbox w-1/5 min-w-70 max-w-105 shrink-0 overflow-y-auto pb-[var(--edge-bottom)]"
-          >
-            <InboxPanel workspaceId={params.workspaceId} />
-          </aside>
+          <>
+            <aside
+              ref={inboxColumnRef}
+              // Named by the heading up in the band rather than by a label of
+              // its own, so the name a person reads and the name a screen
+              // reader announces are the same string in one place.
+              aria-labelledby={INBOX_HEADING}
+              // A fifth of the width by default, with a floor and a ceiling:
+              // 20% of a 1280px screen is 256px, which an item row cannot
+              // hold, and 20% of a very wide one is more Inbox than anybody
+              // asked for. `inboxColumnStyle` carries the same floor and a
+              // dragged ceiling once there is a chosen width (inboxWidth.ts).
+              // The bottom inset is padding on the scroller rather than on the
+              // sheet: padding on the sheet would end the well above the home
+              // indicator and leave a dead strip there, where this lets the well
+              // run to the screen's edge, the list scroll through it, and the
+              // last row still stop clear of it.
+              className={`well-inbox ${inboxColumnClassName} overflow-y-auto pb-[var(--edge-bottom)]`}
+              style={inboxColumnStyle}
+            >
+              <InboxPanel workspaceId={params.workspaceId} />
+            </aside>
+            {/* The line between the Inbox and the dashboard, and the one place
+                the column is actually resized from - the band above only
+                mirrors whatever width this settles on ("Let the Inbox column
+                be resized horizontally", issue 331).
+
+                Reaches four pixels either side the way the panel row's own
+                divider does (`ColumnLine`, PanelBoard.tsx), so a hand has more
+                than its own couple of pixels to aim at without widening the
+                row itself. `touch-none` keeps a finger's drag from scrolling
+                the page instead of moving the handle - the Inbox column
+                itself is deliberately left free to scroll under a finger, so
+                only this line gives that up.
+
+                Keyboard operation of the resize itself is out of scope here -
+                Escape still abandons a drag already picked up, for the reason
+                given above where that is wired in. */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Drag to resize the Inbox, double-click to reset its width"
+              onPointerDown={takeInboxHandle}
+              onDoubleClick={resetInboxWidth}
+              // `w-2` rather than the bare zero-width box the panel row's own
+              // divider gets away with (`ColumnLine`, PanelBoard.tsx): that one
+              // sits in a CSS grid track that supplies its width for it, where
+              // this sits in a flex row with nothing to borrow from - and a
+              // genuinely zero-width element is one Playwright's own click
+              // actionability (found in testing) as well as a real pointer
+              // refuses to call visible at all.
+              className="group relative z-10 w-2 shrink-0 cursor-col-resize touch-none"
+            >
+              <div className="absolute inset-y-0 -left-1 -right-1" />
+              <div className="absolute inset-y-2 left-1/2 w-[2px] -translate-x-1/2 rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-60 group-active:opacity-100" />
+            </div>
+          </>
         )}
         {/* Same bottom inset as the Inbox column, for the same reason.
 
