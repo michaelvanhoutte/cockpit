@@ -476,20 +476,27 @@ describe('Triage', () => {
       await open('/w/ws-work/d/ws-work-research', [work, personal]);
       await screen.findByRole('navigation', { name: 'Dashboards' });
       const handle = resizeHandle();
+      // A realistic in-range width, not jsdom's default all-zero rect: a
+      // start width already at the floor makes an overshoot-then-retrace
+      // land back on the floor either way, which proves nothing about which
+      // of the two clamp formulas actually ran (found in review).
+      inboxColumn()!.getBoundingClientRect = () => ({ width: 350 }) as DOMRect;
 
       fireEvent.pointerDown(handle, { button: 0, clientX: 300, pointerId: 1 });
-      const atThePickup = inboxColumn()!.style.width;
+      expect(inboxColumn()).toHaveStyle({ width: '350px' });
 
       fireEvent.pointerMove(window, { clientX: 10300, pointerId: 1 });
-      expect(inboxColumn()!.style.width).not.toBe(atThePickup);
+      // The ceiling for a 1024px row (`beforeEach` above).
+      expect(inboxColumn()).toHaveStyle({ width: '504px' });
 
       // Back to the exact pointer position the drag began at - a round trip
-      // that visibly changed nothing along the way it did not take.
+      // that visibly changed nothing along the way it did not take, and must
+      // not commit a number the handle was never actually shown at.
       fireEvent.pointerMove(window, { clientX: 300, pointerId: 1 });
-      expect(inboxColumn()!.style.width).toBe(atThePickup);
+      expect(inboxColumn()).toHaveStyle({ width: '350px' });
 
       fireEvent.pointerUp(window, { pointerId: 1 });
-      expect(inboxColumn()).toHaveStyle({ width: atThePickup });
+      expect(window.localStorage.getItem('cockpit.inbox-width')).toBeNull();
     });
 
     it('abandons a drag the browser takes back, without remembering anything from it', async () => {
