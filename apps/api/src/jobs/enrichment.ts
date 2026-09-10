@@ -1,21 +1,26 @@
 import { z } from 'zod';
 import type { Env } from '../env.js';
+import type { Account } from '../accounts/index.js';
 import {
   openAccount,
   AccountNotInRegisterError,
   NotFoundInAccountError,
 } from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
+import type { RoutingCandidate } from '../ai/index.js';
 
 /**
- * Reading a captured note and proposing what to call it and what it said
+ * Two jobs on the account's own classification: reading a captured note and
+ * proposing what to call it, what it said, and which Panel it belongs on
  * ("Clean up a captured note into a clear title and a fuller message", issue
- * 296).
+ * 296), and re-reading only that last part for everything still unsettled
+ * once a filing elsewhere changes what a proposal should be ("Re-propose the
+ * rest of the inbox the moment you file one", issue 300).
  *
- * A plain function calling `accounts/` and `ai/`; the queue is the adapter that
- * hands it a message (architecture, "Background jobs"), which is why nothing
- * here names a Cloudflare type and why every branch below is reachable in a
- * test that never opens a queue.
+ * Plain functions calling `accounts/` and `ai/`; the queue is the adapter
+ * that hands each one a message (architecture, "Background jobs"), which is
+ * why nothing here names a Cloudflare type and why every branch below is
+ * reachable in a test that never opens a queue.
  */
 
 /**
@@ -33,10 +38,29 @@ import { aiFor } from '../ai/index.js';
  * is what a message from before a deploy is refused by rather than
  * misinterpreted.
  */
-export interface EnrichmentJob {
+export type EnrichmentJob = CleanUpJob | ReproposePanelsJob;
+
+export interface CleanUpJob {
   kind: 'clean-up-a-note';
   accountName: string;
   itemId: string;
+}
+
+/**
+ * Asks for every unfiled item of one Workspace to have its panel destination
+ * re-proposed, the way `CleanUpJob` first proposes one - fired once a filing
+ * settles a routing for the first time, against a decision history that now
+ * includes it ("Re-propose the rest of the inbox the moment you file one",
+ * issue 300).
+ *
+ * **A Workspace, not an Item.** The one item that just settled is what
+ * caused this, but it is not what this job is about - it is already filed,
+ * so it answers `unfiledItemsInWorkspace` itself and needs nothing further.
+ */
+export interface ReproposePanelsJob {
+  kind: 're-propose-panels';
+  accountName: string;
+  workspaceId: string;
 }
 
 /**
@@ -44,11 +68,21 @@ export interface EnrichmentJob {
  * previous version of this Worker and has been sitting on a queue, so it is
  * parsed like a request body rather than cast.
  */
-export const enrichmentJobSchema = z.object({
-  kind: z.literal('clean-up-a-note'),
-  accountName: z.string().min(1),
-  itemId: z.uuid(),
-});
+export const enrichmentJobSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('clean-up-a-note'),
+    accountName: z.string().min(1),
+    itemId: z.uuid(),
+  }),
+  z.object({
+    kind: z.literal('re-propose-panels'),
+    accountName: z.string().min(1),
+    // A plain string, not `z.uuid()`: a Workspace's id is whatever the
+    // client that created it generated (`commandEnvelopeSchema.workspaceId`,
+    // packages/shared), and this is carried straight from there.
+    workspaceId: z.string().min(1),
+  }),
+]);
 
 /**
  * Asks for a captured note to be cleaned up, without making the capture wait
@@ -107,9 +141,9 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
  * proposal that will not validate all end here quietly with the Item keeping the
  * mechanical title capture wrote; only a call that failed is left to throw.
  */
-export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promise<void> {
+export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<void> {
   const ai = aiFor(env);
-  if (!ai) return say(job, 'nothing was enriched: this environment has no ANTHROPIC_API_KEY');
+  if (!ai) return say(job.itemId, 'nothing was enriched: this environment has no ANTHROPIC_API_KEY');
 
   let account;
   try {
@@ -119,7 +153,7 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
     // while a note of theirs was queued. Nothing will make this job work, so it
     // declines rather than being redelivered until its retries run out.
     if (error instanceof AccountNotInRegisterError) {
-      return say(job, 'nothing was enriched: the account is no longer in the register');
+      return say(job.itemId, 'nothing was enriched: the account is no longer in the register');
     }
     throw error;
   }
@@ -128,14 +162,16 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
   // Not an error and not worth retrying: an item can be dismissed and erased
   // between capture and here, and an id that belongs to another account matches
   // no row because every query in the store filters on the account.
-  if (!item) return say(job, 'nothing was enriched: no such item in this account');
+  if (!item) return say(job.itemId, 'nothing was enriched: no such item in this account');
   // Nothing to read. Only capture writes this column, and it writes what was
   // typed, so this is an Item that arrived by some other door.
-  if (!item.capturedMessage) return say(job, 'nothing was enriched: the item has no captured note');
+  if (!item.capturedMessage) return say(job.itemId, 'nothing was enriched: the item has no captured note');
   // Somebody edited the title or the description while this was queued, so the
   // two texts are theirs. The store refuses the write for the same reason - this
   // is what stops a model call being paid for to be refused.
-  if (item.textsSettledAt !== null) return say(job, 'nothing was proposed: the texts are already edited');
+  if (item.textsSettledAt !== null) {
+    return say(job.itemId, 'nothing was proposed: the texts are already edited');
+  }
 
   // Read fresh, for this call: the Panels this call may propose among are
   // this account's own and change from one note to the next, which is why
@@ -170,7 +206,7 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
   const { history, recentlyCaptured } = await account.routingContext(item.workspaceId, item.id);
 
   const read = await ai.cleanUpNote(item.capturedMessage, panels, history, recentlyCaptured);
-  if (!('proposal' in read)) return say(job, `nothing was proposed: ${read.discarded}`);
+  if (!('proposal' in read)) return say(job.itemId, `nothing was proposed: ${read.discarded}`);
 
   try {
     await account.applyChange('propose_item_texts', {
@@ -196,42 +232,176 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
     // this prompt is most likely to break quietly and the only place a
     // deployment can be watched for it (issue 296, "The language rule needs a
     // structural answer").
-    say(job, `proposed in ${read.proposal.language}`);
+    say(job.itemId, `proposed in ${read.proposal.language}`);
   } catch (error) {
     // The item went between the read above and this write. The same
     // not-worth-retrying case as above, arriving by the other door.
     if (error instanceof NotFoundInAccountError) {
-      return say(job, 'nothing was written: the item went while the note was being read');
+      return say(job.itemId, 'nothing was written: the item went while the note was being read');
     }
     throw error;
   }
 
-  // A second, independent write: naming no Panel is the common, welcome
-  // answer ("Proposing nothing is a real answer and often the right one",
-  // issue 298), so there is simply nothing to send in that case rather than a
-  // value saying so. `command-service.ts` is where this is checked once more,
-  // freshly, against the Panel and the Item as they actually stand by the time
-  // this write lands.
-  if (read.proposal.panel) {
+  // A second, independent write, factored out because a settled filing's own
+  // re-proposal ("Re-propose the rest of the inbox the moment you file one",
+  // issue 300) writes the same thing from a call of its own that never
+  // touches the two texts above.
+  const routed = await applyProposedPanelIfAny(account, item, read.proposal.panel);
+  if (routed === 'the item went while it was being read') {
+    say(job.itemId, `nothing was routed: ${routed}`);
+  }
+}
+
+/**
+ * Writes a proposed Panel onto an Item, or does nothing where none was
+ * proposed - naming no Panel is the common, welcome answer ("Proposing
+ * nothing is a real answer and often the right one", issue 298), so there is
+ * simply nothing to send in that case rather than a value saying so.
+ * `command-service.ts` is where this is checked once more, freshly, against
+ * the Panel and the Item as they actually stand by the time this write lands
+ * - which is what makes this safe to call from a refresh running well after
+ * the read that produced `panel`, and not only from the same call that read
+ * it.
+ *
+ * Shared by `cleanUpACapturedNote` (moment 2) and `reproposePanels` below
+ * (the settle-triggered refresh), because the write and its one race are the
+ * same regardless of which call proposed the Panel.
+ */
+async function applyProposedPanelIfAny(
+  account: Account,
+  item: { id: string; workspaceId: string },
+  panel: RoutingCandidate | null,
+): Promise<'routed' | 'no panel fit' | 'the item went while it was being read'> {
+  if (!panel) return 'no panel fit';
+  try {
+    await account.applyChange('propose_item_panel', {
+      commandId: crypto.randomUUID(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: item.workspaceId,
+      itemId: item.id,
+      panelId: panel.panelId,
+      reason: panel.reason,
+    });
+    return 'routed';
+  } catch (error) {
+    if (error instanceof NotFoundInAccountError) return 'the item went while it was being read';
+    throw error;
+  }
+}
+
+/**
+ * Asks for a settled filing to re-propose the panel for the rest of its
+ * Workspace's Inbox, without making the filing wait for it ("Re-propose the
+ * rest of the inbox the moment you file one", issue 300) - the same shape as
+ * `enqueueCleanUp` above, and the same guard: an environment with no key
+ * queues nothing its consumer would only discard.
+ */
+export async function enqueueRepropose(env: Env, accountName: string, workspaceId: string): Promise<void> {
+  if (!env.ANTHROPIC_API_KEY) return;
+
+  const job: EnrichmentJob = { kind: 're-propose-panels', accountName, workspaceId };
+  try {
+    await env.ENRICHMENT.send(job);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `a filing settled but the rest of workspace ${workspaceId} was not queued for a refresh: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
+}
+
+/**
+ * Runs one refresh: every unfiled Item of one Workspace with a captured note
+ * gets its panel destination read again, against the history and recent
+ * captures as they stand right now - which is what makes this worth firing
+ * on every settle rather than only when the Inbox is opened, unbuilt as that
+ * still is (`docs/routing-learning.md`, "The decision moments").
+ *
+ * **Only the destination is re-read.** The two texts were settled on the way
+ * in and nothing here calls `propose_item_texts` - the model's own answer
+ * still names them, `cleanUpNote` asking for nothing narrower, but only its
+ * `panel` is ever written; a second opinion on wording nobody asked for
+ * would be the app editing notes at random.
+ *
+ * **One Item's failure does not cost the rest.** A refresh that fails costs
+ * nothing - the Item keeps the proposal it had - so a rate limit or a
+ * refusal on Item 3 of 10 is logged and the loop moves on to Item 4, rather
+ * than the whole job being retried and Items 1 and 2 classified a second
+ * time for nothing new.
+ *
+ * **Sequential, not parallel.** Nobody is waiting on the job as a whole, but
+ * somebody may already be triaging the first card by the time it starts, and
+ * a card refreshed while it is still on screen has to land below wherever
+ * triage has reached, never above it and never all at once
+ * (`docs/routing-learning.md` §7's proposal, for the moment this job fires
+ * instead of).
+ */
+export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promise<void> {
+  const ai = aiFor(env);
+  if (!ai) return sayForWorkspace(job.workspaceId, 'nothing was refreshed: this environment has no ANTHROPIC_API_KEY');
+
+  let account;
+  try {
+    account = await openAccount(env, job.accountName);
+  } catch (error) {
+    if (error instanceof AccountNotInRegisterError) {
+      return sayForWorkspace(job.workspaceId, 'nothing was refreshed: the account is no longer in the register');
+    }
+    throw error;
+  }
+
+  const candidates = await account.unfiledItemsInWorkspace(job.workspaceId);
+  if (candidates.length === 0) return sayForWorkspace(job.workspaceId, 'nothing was waiting to be refreshed');
+
+  for (const candidate of candidates) {
     try {
-      await account.applyChange('propose_item_panel', {
-        commandId: crypto.randomUUID(),
-        issuedAt: new Date().toISOString(),
-        workspaceId: item.workspaceId,
-        itemId: item.id,
-        panelId: read.proposal.panel.panelId,
-        reason: read.proposal.panel.reason,
-      });
-    } catch (error) {
-      if (error instanceof NotFoundInAccountError) {
-        return say(job, 'nothing was routed: the item went while the note was being read');
+      // Panels, history and recent captures are each read fresh, and against
+      // the candidate's own Workspace rather than the one this refresh was
+      // triggered from - an Item still undecided between Workspaces is read
+      // exactly as `cleanUpACapturedNote` reads it, not as if it already
+      // belonged where the settle that triggered this happened to be.
+      let panels: Awaited<ReturnType<typeof account.panelsThatTakeItems>>;
+      try {
+        panels = await account.panelsThatTakeItems(candidate.workspaceId);
+      } catch (error) {
+        if (!(error instanceof NotFoundInAccountError)) throw error;
+        panels = [];
       }
-      throw error;
+      const { history, recentlyCaptured } = await account.routingContext(candidate.workspaceId, candidate.id);
+      const read = await ai.cleanUpNote(candidate.capturedMessage, panels, history, recentlyCaptured);
+      if (!('proposal' in read)) {
+        say(candidate.id, `nothing was refreshed: ${read.discarded}`);
+        continue;
+      }
+      const routed = await applyProposedPanelIfAny(account, candidate, read.proposal.panel);
+      say(candidate.id, routed === 'routed' ? 'refreshed' : `nothing was refreshed: ${routed}`);
+    } catch (error) {
+      // Worth trying again another time, but not worth losing the rest of
+      // this refresh over: the queue's own retry is for the whole job, and a
+      // model that was rate-limited on Item 3 will be rate-limited on Items
+      // 4 through N too, redelivered or not.
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `item ${candidate.id} was not refreshed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        }),
+      );
     }
   }
 }
 
 /** One line in the logs, saying which item and what happened to it. */
-function say(job: EnrichmentJob, what: string): void {
-  console.info(JSON.stringify({ level: 'info', message: `${what} (item ${job.itemId})` }));
+function say(itemId: string, what: string): void {
+  console.info(JSON.stringify({ level: 'info', message: `${what} (item ${itemId})` }));
+}
+
+/** One line in the logs, saying which workspace's refresh and what happened to it. */
+function sayForWorkspace(workspaceId: string, what: string): void {
+  console.info(JSON.stringify({ level: 'info', message: `${what} (workspace ${workspaceId})` }));
 }

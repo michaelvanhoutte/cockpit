@@ -104,6 +104,22 @@ export interface Account {
     workspaceId: string,
     excludeItemId: string,
   ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>;
+  /**
+   * Whether an Item is filed on any Panel at all - read by the HTTP layer
+   * before a filing command, so it can tell a genuine first filing from a
+   * reorganizing move ("Re-propose the rest of the inbox the moment you file
+   * one", issue 300). Read there and by nothing else.
+   */
+  isItemFiled(itemId: string): Promise<boolean>;
+  /**
+   * Every item in one Workspace's Inbox with a captured note - the rest of
+   * the inbox a settled filing re-proposes ("Re-propose the rest of the
+   * inbox the moment you file one", issue 300). Read by the enrichment job
+   * and by nothing else, the same as `panelsThatTakeItems` above.
+   */
+  unfiledItemsInWorkspace(
+    workspaceId: string,
+  ): Promise<{ id: string; workspaceId: string; capturedMessage: string }[]>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
@@ -144,6 +160,9 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
     routingContext: async (workspaceId, excludeItemId) =>
       unwrap(await store.routingContext(accountName, workspaceId, excludeItemId)),
+    isItemFiled: async (itemId) => unwrap(await store.isItemFiled(accountName, itemId)),
+    unfiledItemsInWorkspace: async (workspaceId) =>
+      unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

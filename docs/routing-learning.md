@@ -63,7 +63,7 @@ Consequences:
 
 **Moment 2** is the first classification: the model reads the note, the panel definitions (already plain-English sentences), the nightly summary and the decision history, through the existing queue-based enrichment path.
 
-**Moment 3** is what makes learning land. Between triage sessions lie hours or days, so proposals from moment 2 may predate corrections made since; on inbox open, everything unsettled is re-proposed against the current history.
+**Moment 3** is what makes learning land. Between triage sessions lie hours or days, so proposals from moment 2 may predate corrections made since; on inbox open, everything unsettled is re-proposed against the current history. **Shipped instead: the same re-proposal fired by moment 4 itself** ("Re-propose the rest of the inbox the moment you file one", issue 300) — a settle already carries the history moment 3 would open the inbox to re-read, so it fires the refresh directly rather than waiting for the next open. The inbox-open trigger this row describes is not built.
 
 **Moment 4** is the only binding moment and the only source of learning. Accepting and overriding both settle the routing and both append to the history, and an override is the stronger signal because it records the rejected answer alongside the correct one.
 

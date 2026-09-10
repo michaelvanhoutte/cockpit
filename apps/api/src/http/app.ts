@@ -41,7 +41,7 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
-import { enqueueCleanUp } from '../jobs/index.js';
+import { enqueueCleanUp, enqueueRepropose } from '../jobs/index.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -581,6 +581,39 @@ async function change<N extends CommandName>(
 }
 
 /**
+ * `move_item_to_panel` and `add_item_to_panel`, either of which may settle a
+ * routing - landing an Item on a real Panel for the first time - which is
+ * the moment a refresh of the rest of its Workspace's Inbox is worth firing
+ * ("Re-propose the rest of the inbox the moment you file one", issue 300).
+ *
+ * **Read before the write, for the same reason `command-service.ts` reads
+ * `isItemFiled` before its own**: after the command applies, every Item it
+ * touched is filed, so "was it already" only answers anything asked first.
+ * A move to the Inbox (`panelId: null`) never settles, so it is never worth
+ * the read.
+ *
+ * **`waitUntil`, not `await`**, for the same reason `capture_item` below
+ * enqueues its own job that way: nobody filing an item is waiting on the
+ * rest of the Inbox to be refreshed.
+ */
+async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'add_item_to_panel'>(
+  c: Context<AppEnv>,
+  name: N,
+  payload: CommandPayload<N>,
+): Promise<CommandResult> {
+  const accountName = c.get('visitor').accountName;
+  const account = await openAccount(c.env, accountName);
+  const targetsAPanel = name === 'add_item_to_panel' || payload.panelId !== null;
+  const wasFiled = targetsAPanel ? await account.isItemFiled(payload.itemId) : true;
+
+  const result = await account.applyChange(name, payload);
+  if (result.applied && targetsAPanel && !wasFiled) {
+    c.executionCtx.waitUntil(enqueueRepropose(c.env, accountName, payload.workspaceId));
+  }
+  return result;
+}
+
+/**
  * Whether an error raised while streaming changes is worth reporting.
  *
  * A browser closing its tab is how a stream ends, not a failure: the loop is
@@ -836,13 +869,15 @@ const routes = app
     commandRoute('move_item_to_panel', {
       conflict: 'The order sent is not the order of that panel any more',
     }),
-    async (c) => c.json(await change(c, 'move_item_to_panel', c.req.valid('json')), 200),
+    async (c) =>
+      c.json(await changeThatMightSettleARouting(c, 'move_item_to_panel', c.req.valid('json')), 200),
   )
   .openapi(
     commandRoute('add_item_to_panel', {
       conflict: 'The order sent is not the order of that panel any more',
     }),
-    async (c) => c.json(await change(c, 'add_item_to_panel', c.req.valid('json')), 200),
+    async (c) =>
+      c.json(await changeThatMightSettleARouting(c, 'add_item_to_panel', c.req.valid('json')), 200),
   )
   .openapi(commandRoute('remove_item_from_panel'), async (c) =>
     c.json(await change(c, 'remove_item_from_panel', c.req.valid('json')), 200),

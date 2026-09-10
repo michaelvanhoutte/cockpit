@@ -58,6 +58,7 @@ import {
   decisionHistoryForWorkspace,
   getItem,
   getWorkspace,
+  isItemFiled,
   listAssociationsForWorkspace,
   listItemTypes,
   listScreenSizes,
@@ -68,6 +69,7 @@ import {
   listPanelsInWorkspace,
   listWorkspaces,
   recentlyCapturedUnfiled,
+  unfiledItemsInWorkspace,
 } from './repo.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
@@ -175,6 +177,29 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       history: decisionHistoryForWorkspace(db, accountName, workspaceId),
       recentlyCaptured: recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
     }));
+  }
+
+  /**
+   * Whether an Item is filed on any Panel at all - read by the HTTP layer
+   * before a filing command, so it can tell a genuine first filing from a
+   * reorganizing move without duplicating `command-service.ts`'s own
+   * decision ("Re-propose the rest of the inbox the moment you file one",
+   * issue 300).
+   */
+  isItemFiled(accountName: string, itemId: string): Answer<boolean> {
+    return this.#answer(accountName, (db) => isItemFiled(db, accountName, itemId));
+  }
+
+  /**
+   * Every item in one Workspace's Inbox with a captured note - the rest of
+   * the inbox a settled filing re-proposes ("Re-propose the rest of the
+   * inbox the moment you file one", issue 300).
+   */
+  unfiledItemsInWorkspace(
+    accountName: string,
+    workspaceId: string,
+  ): Answer<{ id: string; workspaceId: string; capturedMessage: string }[]> {
+    return this.#answer(accountName, (db) => unfiledItemsInWorkspace(db, accountName, workspaceId));
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

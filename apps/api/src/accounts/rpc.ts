@@ -69,6 +69,27 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     workspaceId: string,
     excludeItemId: string,
   ): Awaitable<Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>>;
+  /**
+   * Whether an Item is filed on any Panel at all - what tells the HTTP layer
+   * a filing is about to settle a routing for the first time, before the
+   * filing itself makes that true ("Re-propose the rest of the inbox the
+   * moment you file one", issue 300: only a genuinely first filing is worth
+   * re-proposing the rest of the inbox over). Read there and by nothing else;
+   * `command-service.ts` asks the same question of its own database handle
+   * for the decision this mirrors.
+   */
+  isItemFiled(accountName: string, itemId: string): Awaitable<Answer<boolean>>;
+  /**
+   * Every item in one workspace's Inbox with a captured note - what a
+   * settled filing re-proposes the panel for ("Re-propose the rest of the
+   * inbox the moment you file one", issue 300). Read by that job and by
+   * nothing else, the same as `panelsThatTakeItems` and `routingContext`
+   * above.
+   */
+  unfiledItemsInWorkspace(
+    accountName: string,
+    workspaceId: string,
+  ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string }[]>>;
   changesSince(
     accountName: string,
     since: string,

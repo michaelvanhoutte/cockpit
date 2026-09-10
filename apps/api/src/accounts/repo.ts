@@ -784,6 +784,50 @@ export function recentlyCapturedUnfiled(
     .map((row) => row.capturedMessage!);
 }
 
+/**
+ * Every item in one workspace's Inbox that has a captured note - the rest of
+ * the inbox a settled filing re-proposes ("Re-propose the rest of the inbox
+ * the moment you file one", issue 300). The same predicate
+ * `recentlyCapturedUnfiled` above filters on, without its exclusion or its
+ * limit: this call *is* the list to reclassify, not context for classifying
+ * one more note.
+ *
+ * `workspaceId` carried per row, not assumed to be the workspace this refresh
+ * was triggered from: an item still undecided between workspaces keeps
+ * whatever workspace it was captured into ("Capture something before you know
+ * which workspace it belongs to", issue 165) until it is filed, and that is
+ * the workspace its own classification reads panels and history from -
+ * exactly what `cleanUpACapturedNote` already does per note, which this
+ * mirrors rather than substituting the triggering workspace for.
+ */
+export function unfiledItemsInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): { id: string; workspaceId: string; capturedMessage: string }[] {
+  return db
+    .select({ id: items.id, workspaceId: items.workspaceId, capturedMessage: items.capturedMessage })
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
+        isNotNull(items.capturedMessage),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(panelItems)
+            .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, items.id))),
+        ),
+      ),
+    )
+    .orderBy(desc(items.createdAt))
+    .all()
+    .map((row) => ({ id: row.id, workspaceId: row.workspaceId, capturedMessage: row.capturedMessage! }));
+}
+
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {
   return db.select().from(commands).where(eq(commands.commandId, commandId)).all().length > 0;
 }
