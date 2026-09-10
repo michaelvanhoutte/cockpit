@@ -84,6 +84,7 @@ vi.mock('../../../src/api/queries', async () => {
       itemTypes: [],
     screenSizes: [],
       filings: held.filings,
+      routingSummary: null,
       generatedAt: '2026-08-31T09:00:00.000Z',
     }),
     snapshotQuery: (workspaceId: string) => ({
@@ -107,6 +108,7 @@ vi.mock('../../../src/api/queries', async () => {
         itemTypes: [],
     screenSizes: [],
         filings: held.filings,
+        routingSummary: null,
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
     }),

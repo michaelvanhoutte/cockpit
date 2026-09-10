@@ -6,6 +6,7 @@ import type {
   ItemType,
   Layout,
   Panel,
+  RoutingSummary,
   ScreenSize,
   Workspace,
 } from '@cockpit/shared';
@@ -38,6 +39,12 @@ export interface AccountSnapshot {
    * its account has" (issue 263), since nothing writes one yet.
    */
   screenSizes: ScreenSize[];
+  /**
+   * This Workspace's own filing-pattern summary and correction ("Show what
+   * the system learned, in a sentence you can correct", issue 301). Null
+   * where no row exists yet.
+   */
+  routingSummary: RoutingSummary | null;
   /** POC (own-event refetch): the newest change this snapshot is built on. */
   upTo: string | undefined;
 }

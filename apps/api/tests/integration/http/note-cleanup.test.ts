@@ -26,7 +26,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v4.test.ts).
+ * (tests/contract/clean-up-a-note.v5.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -562,7 +562,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v4.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v5.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {
@@ -730,6 +730,63 @@ describe('Capture', () => {
       // recently-captured section, since filing is what takes it out of that
       // set.
       expect(asked[0]!.system.match(/part 11 audit trail question/g)).toHaveLength(1);
+    });
+  });
+
+  /**
+   * "Show what the system learned, in a sentence you can correct" (issue
+   * 301): the correction a person writes over the nightly summary is read
+   * into the same classification call as the decision history and recent
+   * captures, as far as an integration test can reach into a call whose
+   * actual routing is a live model's judgment call
+   * (tests/contract/clean-up-a-note.v5.test.ts proves the judgment itself).
+   */
+  describe('a proposal is asked with the workspace’s own correction, where one has been written', () => {
+    async function setCorrection(correction: string): Promise<void> {
+      const response = await postChange('set_routing_summary_correction', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T09:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        correction,
+      });
+      expect(response.status).toBe(200);
+    }
+
+    it('says no correction has been written, for a workspace that has never had one', async () => {
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('has not written a correction');
+    });
+
+    it('carries a correction once one has been written', async () => {
+      await setCorrection('Sign-off and audit-trail questions go to Laurens, not Compliance questions.');
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain(
+        'Sign-off and audit-trail questions go to Laurens, not Compliance questions.',
+      );
+    });
+
+    it('never carries a correction written in another workspace', async () => {
+      await alsoWorkspaces();
+      await setCorrection('Sign-off and audit-trail questions go to Laurens, not Compliance questions.');
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote({ workspaceId: 'ws-personal', message: 'buy milk' });
+      await vi.waitFor(
+        async () => {
+          expect((await textsOf(itemId))?.title).toBe(A_READING.title);
+        },
+        { timeout: 15_000, interval: 50 },
+      );
+
+      expect(asked[0]!.system).toContain('has not written a correction');
     });
   });
 

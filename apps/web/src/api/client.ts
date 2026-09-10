@@ -255,6 +255,8 @@ const commandSenders = {
   set_title: (p: CommandPayload<'set_title'>) => api.v1.commands.set_title.$post({ json: p }),
   set_description: (p: CommandPayload<'set_description'>) =>
     api.v1.commands.set_description.$post({ json: p }),
+  set_routing_summary_correction: (p: CommandPayload<'set_routing_summary_correction'>) =>
+    api.v1.commands.set_routing_summary_correction.$post({ json: p }),
 } as const;
 
 /**

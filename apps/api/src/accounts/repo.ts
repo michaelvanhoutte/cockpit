@@ -9,6 +9,7 @@ import type {
   Layout,
   LayoutRow,
   Panel,
+  RoutingSummary,
   ScreenSize,
   Workspace,
 } from '@cockpit/shared';
@@ -28,6 +29,7 @@ import {
   panelPlacements,
   panels,
   screenSizes,
+  workspaceRoutingSummary,
   workspaces,
 } from './schema.js';
 
@@ -777,6 +779,39 @@ export function recentlyCapturedUnfiled(
     .limit(RECENTLY_CAPTURED_LIMIT)
     .all()
     .map((row) => row.capturedMessage!);
+}
+
+const routingSummaryColumns = {
+  summary: workspaceRoutingSummary.summary,
+  summaryGeneratedAt: workspaceRoutingSummary.summaryGeneratedAt,
+  correction: workspaceRoutingSummary.correction,
+  correctionSetAt: workspaceRoutingSummary.correctionSetAt,
+};
+
+/**
+ * One Workspace's filing-pattern summary and correction ("Show what the
+ * system learned, in a sentence you can correct", issue 301), or null where
+ * no row exists yet - a Workspace with no decision history summarized and no
+ * correction ever written, which is every Workspace's starting condition
+ * (`schema.ts`'s own comment on `workspaceRoutingSummary`).
+ */
+export function getRoutingSummary(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): RoutingSummary | null {
+  return (
+    db
+      .select(routingSummaryColumns)
+      .from(workspaceRoutingSummary)
+      .where(
+        and(
+          eq(workspaceRoutingSummary.tenantId, tenantId),
+          eq(workspaceRoutingSummary.workspaceId, workspaceId),
+        ),
+      )
+      .get() ?? null
+  );
 }
 
 /**

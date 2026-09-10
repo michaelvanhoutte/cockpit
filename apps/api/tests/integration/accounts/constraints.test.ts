@@ -155,7 +155,8 @@ describe('Capture', () => {
                 AND name IN ('workspaces', 'dashboards', 'panels', 'layouts',
                              'layout_rows', 'panel_placements', 'panel_items',
                              'items', 'item_types', 'screen_sizes',
-                             'associations', 'commands', 'decision_history')
+                             'associations', 'commands', 'decision_history',
+                             'workspace_routing_summary')
               ORDER BY name`,
           )
           .toArray(),
@@ -174,6 +175,7 @@ describe('Capture', () => {
         'panel_placements',
         'panels',
         'screen_sizes',
+        'workspace_routing_summary',
         'workspaces',
       ]);
       expect(tables.filter((t) => t.strict !== 1)).toEqual([]);
@@ -199,6 +201,7 @@ describe('Capture', () => {
           'panel_placements',
           'panel_items',
           'decision_history',
+          'workspace_routing_summary',
         ]) {
           for (const row of sql
             .exec<{ target: string }>(`SELECT "table" AS target FROM pragma_foreign_key_list(?)`, table)

@@ -7,6 +7,7 @@ import {
 } from '../domain/item.js';
 import { itemTypeSchema } from '../domain/item-type.js';
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
+import { routingSummarySchema } from '../domain/routing-summary.js';
 import { screenSizeSchema } from '../domain/screen-size.js';
 
 /**
@@ -32,6 +33,13 @@ export const workspaceSnapshotSchema = z.object({
   itemTypes: z.array(itemTypeSchema),
   /** Every Screen size of the account, narrowest first ("Give the account a list of screen sizes, before anything reads it", issue 262; architecture.md §4.4). Empty until "Draw a dashboard against the screen sizes its account has" (issue 263). */
   screenSizes: z.array(screenSizeSchema).default([]),
+  /**
+   * This Workspace's own filing-pattern summary and correction ("Show what
+   * the system learned, in a sentence you can correct", issue 301). Null
+   * where no row exists yet — a Workspace with no decision history and no
+   * correction ever written, which is every Workspace's starting condition.
+   */
+  routingSummary: routingSummarySchema.nullable().default(null),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as

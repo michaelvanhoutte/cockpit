@@ -79,6 +79,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_READINGS,
     ITEM_PROPOSED_PANEL,
     DECISION_HISTORY,
+    WORKSPACE_ROUTING_SUMMARY,
     firstWorkspace(accountId),
   ];
 }
@@ -260,6 +261,46 @@ const DECISION_HISTORY: Change = {
     },
     {
       sql: 'CREATE INDEX `decision_history_tenant_workspace_decided` ON `decision_history` (`tenant_id`,`workspace_id`,`decided_at`)',
+    },
+  ],
+};
+
+/**
+ * One new, additive table (`schema.ts`'s own comment on `workspaceRoutingSummary`
+ * carries the design; this is its failure-mode account, per the scoping skill,
+ * for "Show what the system learned, in a sentence you can correct", issue
+ * 301):
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It creates a table and writes to no row.
+ * - **Interrupted partway.** It cannot be, for the same reason every change
+ *   here cannot: the statement and the record that it ran commit together
+ *   (up-to-date.ts).
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left no table.
+ * - **Rows that already break the new rule.** None - the table is new and
+ *   holds nothing to have broken any rule yet.
+ * - **What each environment does.** The same thing everywhere: an account
+ *   applies its outstanding changes inside the first request that opens it.
+ */
+const WORKSPACE_ROUTING_SUMMARY: Change = {
+  name: '0025-workspace-routing-summary',
+  statements: [
+    {
+      sql: `CREATE TABLE \`workspace_routing_summary\` (
+	\`workspace_id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`summary\` text,
+	\`summary_generated_at\` text,
+	\`correction\` text,
+	\`correction_set_at\` text,
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "workspace_routing_summary_generated_at_is_timestamp" CHECK(summary_generated_at IS NULL OR (datetime(summary_generated_at) IS NOT NULL AND substr(summary_generated_at, 11, 1) = 'T' AND substr(summary_generated_at, -1) = 'Z' AND length(summary_generated_at) >= 20 AND date(summary_generated_at) = substr(summary_generated_at, 1, 10))),
+	CONSTRAINT "workspace_routing_summary_correction_set_at_is_timestamp" CHECK(correction_set_at IS NULL OR (datetime(correction_set_at) IS NOT NULL AND substr(correction_set_at, 11, 1) = 'T' AND substr(correction_set_at, -1) = 'Z' AND length(correction_set_at) >= 20 AND date(correction_set_at) = substr(correction_set_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `workspace_routing_summary_tenant_workspace` ON `workspace_routing_summary` (`tenant_id`,`workspace_id`)',
     },
   ],
 };

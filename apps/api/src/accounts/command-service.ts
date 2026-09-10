@@ -15,6 +15,7 @@ import {
   panelPlacements,
   panels,
   screenSizes,
+  workspaceRoutingSummary,
   workspaces,
 } from './schema.js';
 import {
@@ -1681,6 +1682,67 @@ export function runCommand<N extends CommandName>(
           tx.insert(commands).values(commandRow).run();
         });
       }
+      break;
+    }
+    case 'set_routing_summary_correction': {
+      const cmd = payload as CommandPayload<'set_routing_summary_correction'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      // The empty string is what clears it - there is no third state between
+      // "never set" and "set to nothing" (`domain/routing-summary.ts`).
+      const correction = cmd.correction === '' ? null : cmd.correction;
+      db.transaction((tx) => {
+        // Upserted, because the row may not exist yet - a Workspace with no
+        // decision history summarized and no correction ever written, which
+        // is every Workspace's starting condition (`schema.ts`'s own comment
+        // on `workspaceRoutingSummary`). Only the correction's own two
+        // columns are ever written here; `summary`/`summary_generated_at`
+        // stay whatever the nightly job last wrote, or null.
+        tx.insert(workspaceRoutingSummary)
+          .values({
+            workspaceId: cmd.workspaceId,
+            tenantId,
+            correction,
+            correctionSetAt: cmd.issuedAt,
+          })
+          .onConflictDoUpdate({
+            target: workspaceRoutingSummary.workspaceId,
+            set: { correction, correctionSetAt: cmd.issuedAt },
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'write_routing_summary': {
+      const cmd = payload as CommandPayload<'write_routing_summary'>;
+      // Sent by the nightly job (`jobs/enrichment.ts`'s `summarizeWorkspace`)
+      // with an id it just read `workspaces()` for, but a Workspace can be
+      // deleted between that read and this write landing - the same race
+      // `propose_item_panel` above guards against for an Item.
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      db.transaction((tx) => {
+        // Upserted, same as the correction above. Only `summary`/
+        // `summary_generated_at` are ever written here; `correction`/
+        // `correction_set_at` stay exactly what they were - this command
+        // never touches them.
+        tx.insert(workspaceRoutingSummary)
+          .values({
+            workspaceId: cmd.workspaceId,
+            tenantId,
+            summary: cmd.summary,
+            summaryGeneratedAt: cmd.issuedAt,
+          })
+          .onConflictDoUpdate({
+            target: workspaceRoutingSummary.workspaceId,
+            set: { summary: cmd.summary, summaryGeneratedAt: cmd.issuedAt },
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     default: {

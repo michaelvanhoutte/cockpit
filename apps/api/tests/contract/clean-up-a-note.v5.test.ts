@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeAiService } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote } from '../../src/ai/prompts/clean-up-a-note.v4.js';
+import { buildCleanUpANote } from '../../src/ai/prompts/clean-up-a-note.v5.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 
 /**
@@ -57,17 +57,18 @@ const MARKERS = {
  *
  * `panels` defaults to none, for every case that is not itself about routing:
  * a note being read for its title and message is not made more or less
- * ambiguous by what panels happen to exist. `history` and `recentlyCaptured`
- * default to none for the same reason - nothing below is about them unless a
- * case names them.
+ * ambiguous by what panels happen to exist. `history`, `recentlyCaptured` and
+ * `correction` default to none for the same reason - nothing below is about
+ * them unless a case names them.
  */
 async function read(
   note: string,
   panels: readonly { id: string; name: string }[] = [],
   history: readonly DecisionHistoryEntry[] = [],
   recentlyCaptured: readonly string[] = [],
+  correction: string | null = null,
 ) {
-  const answer = await reading.cleanUpNote(note, panels, history, recentlyCaptured);
+  const answer = await reading.cleanUpNote(note, panels, history, recentlyCaptured, correction);
   // Said out loud, because a discarded answer is the one failure whose reason
   // is otherwise only in the logs of a scheduled run nobody was watching.
   if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
@@ -195,7 +196,7 @@ describe('Capture', () => {
       expect(proposal.title.length).toBeLessThan(note.length);
       // A name and a fuller text, rather than the same words twice.
       expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
-      expect(buildCleanUpANote([], [], []).version).toBe('v4');
+      expect(buildCleanUpANote([], [], [], null).version).toBe('v5');
     });
   });
 
@@ -255,7 +256,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v4.ts`'s fifth example pairs "Compliance
+   * example (`clean-up-a-note.v5.ts`'s fifth example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -339,6 +340,31 @@ describe('Capture', () => {
       ];
 
       const proposal = await read(LAURENS_SHAPED_NOTE, panels, history);
+
+      expect(proposal.panel?.panelId).toBe(panels[1]!.id);
+    });
+  });
+
+  /**
+   * The property `write_routing_summary`/`set_routing_summary_correction`
+   * exist for ("Show what the system learned, in a sentence you can
+   * correct", issue 301): a person's own written correction steers a
+   * proposal, on its own, with no matching entry in the decision history at
+   * all - the history in this case is empty, so a pass here cannot be the
+   * history-following case above under another name.
+   */
+  describe('a proposal follows a Workspace-level correction, with no matching history entry', () => {
+    const panels = [
+      { id: '018f0000-0000-7000-8000-000000000005', name: 'Compliance questions' },
+      { id: '018f0000-0000-7000-8000-000000000006', name: 'Laurens' },
+    ];
+    const LAURENS_SHAPED_NOTE = 'sign-off needed before we can close this out, who owns it';
+
+    it('proposes the panel the correction names, with an empty history', async () => {
+      const correction =
+        'Sign-off and audit-trail questions that do not name a specific person go to Laurens, not Compliance questions.';
+
+      const proposal = await read(LAURENS_SHAPED_NOTE, panels, [], [], correction);
 
       expect(proposal.panel?.panelId).toBe(panels[1]!.id);
     });

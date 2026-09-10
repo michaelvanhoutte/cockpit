@@ -904,6 +904,9 @@ const routes = app
   .openapi(commandRoute('set_description'), async (c) =>
     c.json(await change(c, 'set_description', c.req.valid('json')), 200),
   )
+  .openapi(commandRoute('set_routing_summary_correction'), async (c) =>
+    c.json(await change(c, 'set_routing_summary_correction', c.req.valid('json')), 200),
+  )
   // --- signing in: two navigations, not two requests -------------------------
   /**
    * Sends the browser to Google to be asked who it is, keeping what it has to

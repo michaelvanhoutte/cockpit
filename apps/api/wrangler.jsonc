@@ -138,6 +138,21 @@
     ]
   },
 
+  // Cron Triggers (architecture, "Background jobs"). Wired for the first time
+  // by "Show what the system learned, in a sentence you can correct" (issue
+  // 301): once a night, `handleScheduled` (jobs/index.ts) enumerates every
+  // account and Workspace and queues one summary job per Workspace onto the
+  // enrichment queue above - the actual model calls happen there rather than
+  // in the scheduled handler itself, which has a tight execution budget.
+  // `triggers` is inheritable, so this one schedule also applies to staging,
+  // which is what we want - both are where cron triggers and queue consumers
+  // actually run (see the comment on `env.staging` below). 03:00 UTC: outside
+  // any timezone's working hours, and there is exactly one schedule to place,
+  // so nothing yet needs choosing a time relative to anything else.
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  },
+
   "env": {
     // Staging: the only environment besides production where cron triggers and
     // queue consumers actually run, against a database that accumulates state.
@@ -183,10 +198,4 @@
       }
     }
   }
-
-  // Cron Triggers (architecture, "Background jobs") are wired when the first
-  // connector sync lands. `triggers` is inheritable, so a cron schedule set at
-  // the top level also applies to staging, which is what we want:
-  //   "triggers": { "crons": ["*/5 * * * *"] }
-  // Queues are above, and are not inheritable - see the note there.
 }
