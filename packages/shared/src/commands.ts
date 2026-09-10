@@ -775,6 +775,31 @@ export const proposeItemTextsSchema = commandEnvelopeSchema.extend({
 export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
 
 /**
+ * propose_item_panel — the Panel Cockpit thinks a captured note belongs on,
+ * offered rather than filed ("Propose where a captured note belongs, without
+ * filing it there", issue 298).
+ *
+ * **Self-sent, exactly as `propose_item_texts` is and for the same reason**:
+ * it is the enrichment job's own reading of the note, not a request a client
+ * makes, so it carries no route in `http/app.ts`.
+ *
+ * **`reason` is required and non-empty**, the same rule the two texts above
+ * obey: a proposal that would not say why is not a proposal, and the hover
+ * text it becomes having nothing on it is a bug rather than a quiet case.
+ *
+ * **There is no null Panel here, unlike `move_item_to_panel`'s.** A null
+ * there is the Inbox, a destination somebody chose; this command only ever
+ * names a Panel, because "nothing fits" is the job simply not sending it at
+ * all rather than a value carried inside it.
+ */
+export const proposeItemPanelSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  panelId: z.uuid(),
+  reason: z.string().trim().min(1),
+});
+export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
+
+/**
  * The command registry: name → payload schema. The API mounts one POST route
  * per entry; the client gets a typed sender per entry. Adding a command means
  * adding it here and writing its domain handler; no other wiring.
@@ -816,6 +841,7 @@ export const commandSchemas = {
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
   propose_item_texts: proposeItemTextsSchema,
+  propose_item_panel: proposeItemPanelSchema,
 } as const;
 
 export type CommandName = keyof typeof commandSchemas;
@@ -831,7 +857,7 @@ export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchem
  * send breaks the client's typecheck, and the fix that suggests itself is to
  * publish an endpoint nothing should call.
  */
-export type SelfSentCommandName = 'propose_item_texts';
+export type SelfSentCommandName = 'propose_item_texts' | 'propose_item_panel';
 
 /** The commands a client sends, which is every command with an endpoint. */
 export type ClientCommandName = Exclude<CommandName, SelfSentCommandName>;

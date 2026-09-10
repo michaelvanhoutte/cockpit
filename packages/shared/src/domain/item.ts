@@ -180,6 +180,25 @@ export const itemSchema = z.object({
    */
   readings: itemReadingSchema.array().nullable(),
   /**
+   * The Panel Cockpit thinks this note belongs on, proposed rather than filed
+   * ("Propose where a captured note belongs, without filing it there", issue
+   * 298) - null where nothing was proposed, which is a real answer and often
+   * the right one.
+   *
+   * **Read as a proposal only while the Item is filed nowhere.** A routing has
+   * no settled flag the way `textsSettledAt` is one for the two texts above:
+   * settling a routing *is* filing it, so the moment that happens the Item
+   * leaves the Inbox - the only place a proposal is ever drawn - and a value
+   * left here afterwards is never read again.
+   */
+  proposedPanelId: z.uuid().nullable(),
+  /**
+   * Why, beside the Panel above - in words meant for the row's own hover text,
+   * not a report of what the model did. Null exactly when `proposedPanelId`
+   * is, the two always written together.
+   */
+  proposedPanelReason: z.string().nullable(),
+  /**
    * What kind of thing this is ("Capture a thought or an action, and see which
    * it is", issue 155). Nullable: an item captured before types existed, and
    * one whose type was deleted, both have none, and a row with no type is drawn

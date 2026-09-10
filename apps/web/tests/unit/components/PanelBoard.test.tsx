@@ -131,6 +131,8 @@ function anItem(id: string, title: string): Item {
     description: null,
     textsSettledAt: null,
     readings: null,
+    proposedPanelId: null,
+    proposedPanelReason: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,

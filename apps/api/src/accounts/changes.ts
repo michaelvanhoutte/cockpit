@@ -77,6 +77,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     DROP_LAYOUT_NAME_AND_WIDTH,
     ITEM_TEXTS_SETTLED,
     ITEM_READINGS,
+    ITEM_PROPOSED_PANEL,
     firstWorkspace(accountId),
   ];
 }
@@ -163,6 +164,51 @@ const ITEM_TEXTS_SETTLED: Change = {
 const ITEM_READINGS: Change = {
   name: '0022-item-readings',
   statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `readings` text' }],
+};
+
+/**
+ * The Panel Cockpit proposes an Item belongs on, and why ("Propose where a
+ * captured note belongs, without filing it there", issue 298) - two nullable
+ * columns and nothing else, the same shape `0021-item-texts-settled` and
+ * `0022-item-readings` are.
+ *
+ * **The reference is spelled out, like every foreign key added to a live
+ * table here.** SQLite's default action is NO ACTION, which is not what
+ * `schema.ts` declares, and nothing in the constraints test compares the two
+ * - it reads the target table and not the action.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds two columns and writes to no row.
+ * - **Interrupted partway.** It cannot be: a change's statements and the
+ *   record that they ran commit together (up-to-date.ts), so a failure leaves
+ *   neither column and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left neither column. Nothing is written to any row, so a second run
+ *   doubles nothing.
+ * - **Data the new rules reject.** None. Both columns start null on every row,
+ *   which is exactly what "nothing has been proposed yet" means.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop,
+ *   in staging and in production alike.
+ * - **The windows it can be interrupted in.** Two, and both are safe because
+ *   this is additive. *Before it runs*, the code in front of it is the
+ *   previous release, which does not name either column. *After it runs, with
+ *   that release promoted back*, its reads name a subset of the columns that
+ *   exist, and its writes never reach these two - so the worst a rollback
+ *   costs is a proposal from after it that nobody sees until the release goes
+ *   forward again.
+ */
+const ITEM_PROPOSED_PANEL: Change = {
+  name: '0023-item-proposed-panel',
+  statements: [
+    {
+      sql: 'ALTER TABLE `items` ADD COLUMN `proposed_panel_id` text REFERENCES `panels`(`id`) ON UPDATE no action ON DELETE restrict',
+    },
+    { sql: 'ALTER TABLE `items` ADD COLUMN `proposed_panel_reason` text' },
+  ],
 };
 
 /**

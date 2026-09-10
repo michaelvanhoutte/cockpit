@@ -487,9 +487,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // 0022-item-readings. The other of the two, 0015-first-workspace, inserts
-    // rows and adds no column.
-    items: ['readings'],
+    // 0023-item-proposed-panel. The other of the two, 0015-first-workspace,
+    // inserts rows and adds no column.
+    items: ['proposed_panel_id', 'proposed_panel_reason'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

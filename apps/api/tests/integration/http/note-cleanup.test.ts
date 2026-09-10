@@ -3,6 +3,7 @@ import { env, applyD1Migrations } from 'cloudflare:test';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
+  DASHBOARD_ID,
   OTHER_ACCOUNT_NAME,
   OTHER_USER_ID,
   TASK_TYPE_ID,
@@ -24,7 +25,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v2.test.ts).
+ * (tests/contract/clean-up-a-note.v3.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -193,6 +194,59 @@ async function untilTheNoteHasBeenRead(itemId: string): Promise<void> {
   );
 }
 
+/**
+ * The routing Cockpit proposed for an item, read straight out of the store -
+ * the panel half of "Propose where a captured note belongs, without filing it
+ * there" (issue 298), beside `textsOf` above.
+ */
+async function routingOf(itemId: string, accountName = ACCOUNT_NAME) {
+  const rows = await inStoreAsItIs(accountName, (sql) =>
+    sql
+      .exec<{ proposed_panel_id: string | null; proposed_panel_reason: string | null }>(
+        'SELECT proposed_panel_id, proposed_panel_reason FROM items WHERE id = ? AND tenant_id = ?',
+        itemId,
+        accountName,
+      )
+      .toArray(),
+  );
+  return rows[0] ?? null;
+}
+
+/** Whether an item is filed on any Panel at all - the Inbox is the absence of one. */
+async function isFiled(itemId: string, accountName = ACCOUNT_NAME): Promise<boolean> {
+  const rows = await inStoreAsItIs(accountName, (sql) =>
+    sql.exec('SELECT 1 FROM panel_items WHERE item_id = ? AND tenant_id = ?', itemId, accountName).toArray(),
+  );
+  return rows.length > 0;
+}
+
+async function aPanel(name: string, kind: 'items' | 'text' = 'items'): Promise<string> {
+  const panelId = nextId();
+  const response = await postChange('add_panel', {
+    commandId: nextId(),
+    issuedAt: '2026-09-09T10:00:00.000Z',
+    workspaceId: WORKSPACE_ID,
+    dashboardId: DASHBOARD_ID,
+    panelId,
+    name,
+    kind,
+  });
+  expect(response.status).toBe(200);
+  return panelId;
+}
+
+async function fileOnto(itemId: string, panelId: string): Promise<void> {
+  const response = await postChange('add_item_to_panel', {
+    commandId: nextId(),
+    issuedAt: '2026-09-09T10:00:01.000Z',
+    workspaceId: WORKSPACE_ID,
+    itemId,
+    panelId,
+    order: [itemId],
+  });
+  expect(response.status).toBe(200);
+}
+
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
@@ -293,6 +347,138 @@ describe('Capture', () => {
       );
 
       expect((await textsOf(itemId))?.readings).toBeNull();
+    });
+  });
+
+  /**
+   * "Propose where a captured note belongs, without filing it there" (issue
+   * 298): the routing half of the same job, riding on the same model call as
+   * the texts above.
+   */
+  describe('a note is proposed a panel, without being filed on it', () => {
+    it('writes the proposal and leaves the item in the Inbox', async () => {
+      const compliance = await aPanel('Compliance questions');
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      await vi.waitFor(
+        async () => {
+          expect((await routingOf(itemId))?.proposed_panel_id).toBe(compliance);
+        },
+        { timeout: 15_000, interval: 50 },
+      );
+      expect((await routingOf(itemId))?.proposed_panel_reason).toBe('a compliance question');
+      expect(await isFiled(itemId)).toBe(false);
+    });
+
+    it('proposes nothing where the model names no panel - the common, right answer', async () => {
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      const routing = await routingOf(itemId);
+      expect(routing?.proposed_panel_id).toBeNull();
+      expect(routing?.proposed_panel_reason).toBeNull();
+    });
+
+    /**
+     * "Never trust a panel id back": the schema's own `enum` should already
+     * make this impossible against the real model, but the fake here answers
+     * whatever it is told to, which is exactly what proves the check does not
+     * depend on the model behaving - `readProposal`'s own validation is what
+     * catches it, before the job ever tries to write anything.
+     */
+    it('never proposes a panel it did not itself offer', async () => {
+      const foreign = nextId();
+      theModelIs({ says: { ...A_READING, panel: { panelId: foreign, reason: 'not actually offered' } } });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
+    });
+
+    /**
+     * Settling a routing is filing it, so an item already on a Panel by the
+     * time this write lands has already answered the question a proposal
+     * asks - and the write refuses to disturb what is already true, the same
+     * rule `command-service.ts`'s own comment states.
+     */
+    it('discards the proposal, and disturbs nothing, when the item was filed while the note was being read', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const elsewhere = await aPanel('Somewhere else');
+      // The first, automatic read proposes no panel - spent here so that the
+      // manual second read below is the only one that ever tries to, and the
+      // race is on that write and nothing else.
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+      asked = [];
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      whileReading = () => fileOnto(itemId, elsewhere);
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId }), env);
+
+      expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
+      expect(await isFiled(itemId)).toBe(true);
+    });
+
+    /**
+     * The panel a routing proposal names is checked fresh, at the moment of
+     * writing, against what is actually still true - not against the list the
+     * prompt was built from - which is what catches one deleted in the window
+     * between asking and this write landing.
+     */
+    it('discards the proposal when the panel it named was deleted while the note was being read', async () => {
+      const compliance = await aPanel('Compliance questions');
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      whileReading = () =>
+        postChange('delete_panel', {
+          commandId: nextId(),
+          issuedAt: '2026-09-09T10:00:01.000Z',
+          workspaceId: WORKSPACE_ID,
+          panelId: compliance,
+        });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
+    });
+
+    /**
+     * `delete_workspace` tombstones the Workspace alone and leaves its
+     * Dashboards and Panels untouched, so a Panel of a deleted Workspace would
+     * otherwise still read as live to everything but this check.
+     */
+    it('discards the proposal when the item’s own workspace was deleted while the note was being read', async () => {
+      const compliance = await aPanel('Compliance questions');
+      theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
+      whileReading = () =>
+        postChange('delete_workspace', {
+          commandId: nextId(),
+          issuedAt: '2026-09-09T10:00:01.000Z',
+          workspaceId: WORKSPACE_ID,
+        });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
+    });
+
+    it('offers only the panels that take items, never one made of text', async () => {
+      await aPanel('Compliance questions');
+      await aPanel('Reading list', 'text');
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('Compliance questions');
+      expect(asked[0]!.system).not.toContain('Reading list');
     });
   });
 

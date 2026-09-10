@@ -29,6 +29,8 @@ function anItem(overrides: Partial<Item> = {}): Item {
     description: null,
     textsSettledAt: null,
     readings: null,
+    proposedPanelId: null,
+    proposedPanelReason: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,
@@ -57,6 +59,8 @@ function aRow({
   onMoveHere,
   item = anItem(),
   selecting,
+  routingProposal,
+  onAcceptRouting,
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
@@ -65,6 +69,8 @@ function aRow({
   onMoveHere?: () => void;
   item?: Item;
   selecting?: { picked: boolean; revealed: boolean; onPick: (withShift: boolean) => void };
+  routingProposal?: { panelName: string; reason: string };
+  onAcceptRouting?: () => void;
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
@@ -82,6 +88,8 @@ function aRow({
         {...(ordering ? { ordering } : {})}
         {...(onMoveHere ? { onMoveHere } : {})}
         {...(selecting ? { selecting } : {})}
+        {...(routingProposal ? { routingProposal } : {})}
+        {...(onAcceptRouting ? { onAcceptRouting } : {})}
       />
     </UndoWhatJustHappened>,
   );
@@ -491,6 +499,46 @@ describe('Item editing', () => {
       aRow({ item: anItem({ readings, textsSettledAt: settled }) });
 
       expect(screen.queryByLabelText('Reads more than one way') !== null).toBe(marked);
+    });
+  });
+
+  /**
+   * "Propose where a captured note belongs, without filing it there" (issue
+   * 298): the chip is only ever drawn from what the list resolved and handed
+   * down, never worked out by the row itself - `ItemList.test.tsx` is where
+   * that resolution is proved.
+   */
+  describe('a row offers the panel Cockpit proposed, and takes it in one click', () => {
+    it('draws nothing when nothing was handed down', () => {
+      aRow();
+
+      expect(screen.queryByText(/^→/) !== null).toBe(false);
+    });
+
+    it('names the panel, and explains why on hover', () => {
+      aRow({
+        routingProposal: { panelName: 'Compliance questions', reason: 'a compliance question' },
+        onAcceptRouting: () => {},
+      });
+
+      const chip = screen.getByText('→ Compliance questions');
+      expect(chip).toHaveAttribute('title', 'a compliance question');
+    });
+
+    it('takes the proposal with one click, and lets nothing else on the row hear it', async () => {
+      const user = userEvent.setup();
+      const onAcceptRouting = vi.fn();
+      const onOpen = vi.fn();
+      aRow({
+        routingProposal: { panelName: 'Compliance questions', reason: 'a compliance question' },
+        onAcceptRouting,
+        onOpen,
+      });
+
+      await user.click(screen.getByText('→ Compliance questions'));
+
+      expect(onAcceptRouting).toHaveBeenCalledOnce();
+      expect(onOpen).not.toHaveBeenCalled();
     });
   });
 

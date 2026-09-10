@@ -26,6 +26,16 @@ export interface ReadingCandidate {
   meaning: string;
 }
 
+/**
+ * The Panel a note belongs on, in the model's own field names - matching
+ * `ReadingCandidate` above ("Propose where a captured note belongs, without
+ * filing it there", issue 298).
+ */
+export interface RoutingCandidate {
+  panelId: string;
+  reason: string;
+}
+
 /** What comes back, once it is known to be usable. */
 export interface NoteTexts {
   /** The language the model named for itself before writing either text. */
@@ -34,6 +44,8 @@ export interface NoteTexts {
   message: string;
   /** The other ways the note could be read, where the model genuinely found any. */
   readings: ReadingCandidate[];
+  /** The Panel this note belongs on, or null where nothing was proposed. */
+  panel: RoutingCandidate | null;
 }
 
 /**
@@ -81,6 +93,17 @@ const readingSchema = z.object({
 });
 
 /**
+ * The shape a panel proposal's two fields have to be, before it is even
+ * checked against the ids the call actually offered - `readPanelCandidate`
+ * below is where that second check happens, because it needs the list of
+ * offered ids and a shape schema alone cannot carry one.
+ */
+const panelCandidateShape = z.object({
+  panelId: z.string(),
+  reason: z.string(),
+});
+
+/**
  * Either the proposal, or why there is not one.
  *
  * A reason rather than a bare null: every one of these means the Item silently
@@ -112,8 +135,18 @@ export type ProposalRead = { proposal: NoteTexts } | { discarded: string };
  * by itself, so one that would not fit the boxes it would land in is simply
  * not among them, and the readings that do fit are unaffected ("A reading
  * survives the same trip its title does", issue 297).
+ *
+ * **The panel is read the same way, and checked against `offeredPanelIds` on
+ * top of its shape** ("Propose where a captured note belongs, without filing
+ * it there", issue 298, "Never trust a panel id back") - an id the schema's
+ * own `enum` should already have made impossible is checked again here rather
+ * than assumed, exactly as `command-service.ts` checks a third time, freshly,
+ * at the moment it would write. Anything that does not survive all of it - an
+ * empty id, an id not offered, a reason left empty - reads as no proposal,
+ * which is a real answer this call gives out loud on every note that does not
+ * clearly belong anywhere.
  */
-export function readProposal(raw: unknown): ProposalRead {
+export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): ProposalRead {
   if (typeof raw !== 'string') return { discarded: 'the answer carried no text' };
 
   let parsed: unknown;
@@ -137,5 +170,31 @@ export function readProposal(raw: unknown): ProposalRead {
     return usable.success ? [usable.data] : [];
   });
 
-  return { proposal: { ...read.data, readings } };
+  const panel =
+    typeof parsed === 'object' && parsed !== null
+      ? readPanelCandidate((parsed as Record<string, unknown>).panel, offeredPanelIds)
+      : null;
+
+  return { proposal: { ...read.data, readings, panel } };
+}
+
+/**
+ * One panel proposal, checked against its shape and then against the ids this
+ * call actually offered - the empty id, an id not offered, and a reason left
+ * empty all read as "no proposal" rather than as a reason to throw away the
+ * title and message riding beside it.
+ */
+function readPanelCandidate(
+  raw: unknown,
+  offeredPanelIds: readonly string[],
+): RoutingCandidate | null {
+  const read = panelCandidateShape.safeParse(raw);
+  if (!read.success) return null;
+
+  const panelId = read.data.panelId.trim();
+  const reason = read.data.reason.trim();
+  if (panelId === '' || reason === '') return null;
+  if (!offeredPanelIds.includes(panelId)) return null;
+
+  return { panelId, reason };
 }

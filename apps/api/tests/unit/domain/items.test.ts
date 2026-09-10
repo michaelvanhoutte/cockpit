@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Item } from '@cockpit/shared';
 import {
+  applyProposedPanel,
   applyProposedTexts,
   applySetDescription,
   applySetDismissed,
@@ -316,6 +317,47 @@ describe('Capture', () => {
       { situation: 'both texts have been edited', after: (item: Item) => described(titled(item, LATER, 'Mine'), LATEST, 'Also mine') },
     ])('keeps what was captured exactly as it was said once $situation', ({ after }) => {
       expect(after(anItem()).capturedMessage).toBe('Make appointment with Novy');
+    });
+  });
+
+  /**
+   * L1: what `applyProposedPanel` writes, unconditionally - whether it *may*
+   * be written at all is answered before it runs, in `command-service.ts`
+   * (the Panel is live, the Item is not yet filed anywhere), because neither
+   * question is one this function could ask for itself. That half is proved
+   * against a real store in apps/api/tests/integration/http/note-cleanup.test.ts
+   * ("Propose where a captured note belongs, without filing it there", issue
+   * 298).
+   */
+  describe('a proposed panel is written exactly as it was proposed', () => {
+    const proposed = (item: Item, panelId: string, reason: string) =>
+      applyProposedPanel(item, { ...request, issuedAt: LATEST, itemId: item.id, panelId, reason });
+
+    it('writes the panel and the reason, and touches nothing else', () => {
+      const before = anItem();
+
+      const after = proposed(before, 'panel-1', "it's a compliance question");
+
+      expect(after.proposedPanelId).toBe('panel-1');
+      expect(after.proposedPanelReason).toBe("it's a compliance question");
+      expect(after.title).toBe(before.title);
+      expect(after.description).toBe(before.description);
+    });
+
+    /**
+     * "The system may replace what it proposed, never what a person settled"
+     * (`decideWorkspace`'s own comment) - and a routing has no settled state
+     * of its own to refuse into, unlike the two texts above: it is always
+     * written, because whether it *should* be is a question this function
+     * does not have the tables in front of it to ask.
+     */
+    it('replaces an earlier proposal without being asked', () => {
+      const first = proposed(anItem(), 'panel-1', 'a first reason');
+
+      const second = proposed(first, 'panel-2', 'a different reason');
+
+      expect(second.proposedPanelId).toBe('panel-2');
+      expect(second.proposedPanelReason).toBe('a different reason');
     });
   });
 });

@@ -5,9 +5,11 @@ import type {
   CommandResult,
   Item,
   ItemType,
+  Panel,
   ServerEvent,
   Workspace,
 } from '@cockpit/shared';
+import { panelTakesItems } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
@@ -133,6 +135,26 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    */
   item(accountName: string, itemId: string): Answer<Item | null> {
     return this.#answer(accountName, (db) => getItem(db, accountName, itemId));
+  }
+
+  /**
+   * Every live Panel of one Workspace that takes items - what a routing
+   * proposal may choose from ("Propose where a captured note belongs, without
+   * filing it there", issue 298). A Panel of text is excluded here rather
+   * than left to the caller, the same rule `MoveToPicker` applies client-side:
+   * nothing is ever filed on one, so proposing one would be a chip that can
+   * never be taken.
+   *
+   * `missing` where the Workspace itself has gone, the same as `snapshot`
+   * above answers for the same reason: a Workspace's own tombstone leaves its
+   * Dashboards and Panels untouched, so without this check a deleted
+   * Workspace's Panels would still read as live.
+   */
+  panelsThatTakeItems(accountName: string, workspaceId: string): Answer<Panel[]> {
+    return this.#answer(accountName, (db) => {
+      if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+      return listPanelsInWorkspace(db, accountName, workspaceId).filter(panelTakesItems);
+    });
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

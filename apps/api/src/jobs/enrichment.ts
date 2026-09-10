@@ -137,7 +137,24 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
   // is what stops a model call being paid for to be refused.
   if (item.textsSettledAt !== null) return say(job, 'nothing was proposed: the texts are already edited');
 
-  const read = await ai.cleanUpNote(item.capturedMessage);
+  // Read fresh, for this call: the Panels this call may propose among are
+  // this account's own and change from one note to the next, which is why
+  // `cleanUpNote` takes them rather than closing over a fixed list ("Propose
+  // where a captured note belongs, without filing it there", issue 298).
+  let panels;
+  try {
+    panels = await account.panelsThatTakeItems(item.workspaceId);
+  } catch (error) {
+    // The Item's own Workspace went between the read above and this one - a
+    // tombstone leaves its Dashboards and Panels untouched, so this is the
+    // one place that race is visible at all. Nothing will make this job work,
+    // so it declines rather than throwing something worth a retry.
+    if (error instanceof NotFoundInAccountError) {
+      return say(job, 'nothing was proposed: the workspace went while the note was being read');
+    }
+    throw error;
+  }
+  const read = await ai.cleanUpNote(item.capturedMessage, panels);
   if (!('proposal' in read)) return say(job, `nothing was proposed: ${read.discarded}`);
 
   try {
@@ -172,6 +189,30 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
       return say(job, 'nothing was written: the item went while the note was being read');
     }
     throw error;
+  }
+
+  // A second, independent write: naming no Panel is the common, welcome
+  // answer ("Proposing nothing is a real answer and often the right one",
+  // issue 298), so there is simply nothing to send in that case rather than a
+  // value saying so. `command-service.ts` is where this is checked once more,
+  // freshly, against the Panel and the Item as they actually stand by the time
+  // this write lands.
+  if (read.proposal.panel) {
+    try {
+      await account.applyChange('propose_item_panel', {
+        commandId: crypto.randomUUID(),
+        issuedAt: new Date().toISOString(),
+        workspaceId: item.workspaceId,
+        itemId: item.id,
+        panelId: read.proposal.panel.panelId,
+        reason: read.proposal.panel.reason,
+      });
+    } catch (error) {
+      if (error instanceof NotFoundInAccountError) {
+        return say(job, 'nothing was routed: the item went while the note was being read');
+      }
+      throw error;
+    }
   }
 }
 

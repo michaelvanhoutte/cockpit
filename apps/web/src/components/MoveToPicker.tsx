@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import type { Dashboard, Panel, Workspace } from '@cockpit/shared';
+import { panelTakesItems, type Dashboard, type Panel, type Workspace } from '@cockpit/shared';
 
 /**
  * Where an item can be moved: onto a panel, or into a workspace's Inbox.
@@ -112,7 +112,7 @@ export function MoveToPicker({
   // Filtered once, here, so the tree below and the recent list above it cannot
   // come to disagree - and so the three call sites that hand this its panels
   // cannot each forget separately.
-  const takesItems = panels.filter((panel) => panel.kind !== 'text');
+  const takesItems = panels.filter(panelTakesItems);
   const groups = dashboardsInOrder(dashboards, openDashboardId).map((dashboard) => ({
     dashboard,
     panels: takesItems.filter((panel) => panel.dashboardId === dashboard.id),

@@ -5,6 +5,7 @@ import type {
   CommandResult,
   Item,
   ItemType,
+  Panel,
   ServerEvent,
   Workspace,
 } from '@cockpit/shared';
@@ -45,6 +46,13 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * filters on the account - is the ordinary case and not a failure to report.
    */
   item(accountName: string, itemId: string): Awaitable<Answer<Item | null>>;
+  /**
+   * Every live Panel that takes items, in one Workspace - what a routing
+   * proposal may choose from ("Propose where a captured note belongs, without
+   * filing it there", issue 298). Read by the enrichment job and by nothing
+   * else: a browser already has the full snapshot, panels of text included.
+   */
+  panelsThatTakeItems(accountName: string, workspaceId: string): Awaitable<Answer<Panel[]>>;
   changesSince(
     accountName: string,
     since: string,

@@ -48,7 +48,7 @@ describe('Capture', () => {
         answer: JSON.stringify({ language: 'English', title: 'Novy', message: '' }),
       },
     ])('says why it was thrown away when $situation', ({ answer }) => {
-      const read = readProposal(answer);
+      const read = readProposal(answer, []);
 
       expect(read).not.toHaveProperty('proposal');
       // The reason is the only place the difference between these is visible,
@@ -57,12 +57,13 @@ describe('Capture', () => {
     });
 
     it('keeps a usable reading exactly as it came, including the language it named', () => {
-      expect(readProposal(usable)).toEqual({
+      expect(readProposal(usable, [])).toEqual({
         proposal: {
           language: 'English',
           title: 'Ask Novy about the Part 11 audit trail',
           message: 'A question about the Part 11 audit trail for the validation protocol.',
           readings: [],
+          panel: null,
         },
       });
     });
@@ -79,11 +80,13 @@ describe('Capture', () => {
       expect(
         readProposal(
           JSON.stringify({ language: 'Dutch', title: atTheCap, message: 'Bellen.', readings: [] }),
+          [],
         ),
       ).toHaveProperty('proposal');
       expect(
         readProposal(
           JSON.stringify({ language: 'Dutch', title: `${atTheCap}x`, message: 'Bellen.', readings: [] }),
+          [],
         ),
       ).not.toHaveProperty('proposal');
     });
@@ -106,6 +109,7 @@ describe('Capture', () => {
     it('keeps a reading whose title and meaning are both usable, message included', () => {
       const read = readProposal(
         answer([{ title: 'Call in January', message: '', meaning: "'jan' is short for January" }]),
+        [],
       );
 
       expect(read).toEqual({
@@ -116,6 +120,7 @@ describe('Capture', () => {
           readings: [
             { title: 'Call in January', message: '', meaning: "'jan' is short for January" },
           ],
+          panel: null,
         },
       });
     });
@@ -136,13 +141,13 @@ describe('Capture', () => {
     ])('drops a reading where $situation, keeping the rest', ({ reading }) => {
       const usable = { title: 'Call Jan (person)', message: '', meaning: "'jan' is a person's name" };
 
-      const read = readProposal(answer([reading, usable]));
+      const read = readProposal(answer([reading, usable]), []);
 
       expect('proposal' in read && read.proposal.readings).toEqual([usable]);
     });
 
     it('reports none where the model found only the one reading', () => {
-      const read = readProposal(answer([]));
+      const read = readProposal(answer([]), []);
 
       expect('proposal' in read && read.proposal.readings).toEqual([]);
     });
@@ -168,10 +173,98 @@ describe('Capture', () => {
         }),
       },
     ])('still cleans up the note when $situation', ({ answer: malformed }) => {
-      const read = readProposal(malformed);
+      const read = readProposal(malformed, []);
 
       expect(read).toEqual({
-        proposal: { language: 'English', title: 'Call Jan', message: 'Ring Jan.', readings: [] },
+        proposal: {
+          language: 'English',
+          title: 'Call Jan',
+          message: 'Ring Jan.',
+          readings: [],
+          panel: null,
+        },
+      });
+    });
+  });
+
+  /**
+   * "Propose where a captured note belongs, without filing it there" (issue
+   * 298): a panel proposal riding on this same call must not make the two
+   * texts it is already relied on fragile, the same rule `readings` above
+   * already obeys - and the panel itself is read no less strictly than a
+   * reading is, plus one check neither text needs: an id the call did not
+   * actually offer is never trusted back ("Never trust a panel id back").
+   */
+  describe('a panel proposal is read no less strictly, and never trusted back', () => {
+    const answer = (panel: unknown) =>
+      JSON.stringify({
+        language: 'English',
+        title: 'Part 11 audit trail question',
+        message: 'A question about the Part 11 audit trail.',
+        readings: [],
+        panel,
+      });
+
+    it('keeps a panel proposal whose id was genuinely offered', () => {
+      const read = readProposal(
+        answer({ panelId: 'panel-1', reason: "it's a compliance question" }),
+        ['panel-1', 'panel-2'],
+      );
+
+      expect('proposal' in read && read.proposal.panel).toEqual({
+        panelId: 'panel-1',
+        reason: "it's a compliance question",
+      });
+    });
+
+    it.each([
+      { situation: 'the empty string - the model proposing nothing', panelId: '' },
+      { situation: 'an id never offered on this call', panelId: 'panel-9' },
+    ])('reads $situation as no proposal, leaving the texts untouched', ({ panelId }) => {
+      const read = readProposal(answer({ panelId, reason: 'a reason' }), ['panel-1', 'panel-2']);
+
+      expect('proposal' in read && read.proposal.panel).toBeNull();
+      expect('proposal' in read && read.proposal.title).toBe('Part 11 audit trail question');
+    });
+
+    /**
+     * `reason` is required and non-empty the same way a reading's `meaning`
+     * is: a proposal that would not say why is not a proposal, and there is
+     * no runtime check of the command's own schema between this and the
+     * store for a self-sent command (`propose_item_panel` is never posted
+     * through `commandSchemas`), so this read is the only place that rule is
+     * actually enforced.
+     */
+    it('reads a named panel with no reason as no proposal', () => {
+      const read = readProposal(answer({ panelId: 'panel-1', reason: '' }), ['panel-1']);
+
+      expect('proposal' in read && read.proposal.panel).toBeNull();
+    });
+
+    it.each([
+      { situation: 'the field was left out entirely', panel: undefined },
+      { situation: 'the field was not an object', panel: 'panel-1' },
+      { situation: 'the field had no reason at all', panel: { panelId: 'panel-1' } },
+    ])('still cleans up the note when $situation', ({ panel }) => {
+      const raw = panel === undefined
+        ? JSON.stringify({
+            language: 'English',
+            title: 'Part 11 audit trail question',
+            message: 'A question about the Part 11 audit trail.',
+            readings: [],
+          })
+        : answer(panel);
+
+      const read = readProposal(raw, ['panel-1']);
+
+      expect(read).toEqual({
+        proposal: {
+          language: 'English',
+          title: 'Part 11 audit trail question',
+          message: 'A question about the Part 11 audit trail.',
+          readings: [],
+          panel: null,
+        },
       });
     });
   });

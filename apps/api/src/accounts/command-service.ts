@@ -25,6 +25,7 @@ import {
   getPanel,
   getScreenSize,
   getWorkspace,
+  isItemFiled,
   lastWorkspacePosition,
   listDashboards,
   lastItemTypePosition,
@@ -38,7 +39,13 @@ import {
   listScreenSizes,
   listWorkspaces,
 } from './repo.js';
-import { ACCOUNT_WIDE, DEFAULT_SCREEN_SIZE_NAME, isPaletteTheme, nearestScreenSize } from '@cockpit/shared';
+import {
+  ACCOUNT_WIDE,
+  DEFAULT_SCREEN_SIZE_NAME,
+  isPaletteTheme,
+  nearestScreenSize,
+  panelTakesItems,
+} from '@cockpit/shared';
 import { foldName } from '../domain/names.js';
 import {
   dashboardFromCommand,
@@ -76,6 +83,7 @@ import {
 } from '../domain/item-types.js';
 import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import {
+  applyProposedPanel,
   applyProposedTexts,
   applySetDescription,
   applySetDismissed,
@@ -336,7 +344,7 @@ function dashboardTheChangeIsAbout(
  * and quietly reopen the hole this exists to close.
  */
 function refuseAPanelOfText(panel: { name: string; kind: PanelKind } | null) {
-  if (panel && panel.kind === 'text') {
+  if (panel && !panelTakesItems(panel)) {
     throw new PanelHoldsSomethingElseError(`${panel.name} holds text, so nothing is filed on it`);
   }
 }
@@ -350,7 +358,7 @@ function refuseAPanelOfText(panel: { name: string; kind: PanelKind } | null) {
  * to answer differently about the same panel.
  */
 function refuseUnlessPanelOfText(panel: { name: string; kind: PanelKind }) {
-  if (panel.kind !== 'text') {
+  if (panelTakesItems(panel)) {
     throw new PanelHoldsSomethingElseError(`${panel.name} holds items, not text`);
   }
 }
@@ -373,6 +381,41 @@ function panelTheChangeIsAbout(
   if (!getDashboard(db, tenantId, workspaceId, panel.dashboardId)) {
     throw new PanelNotFoundError(panelId);
   }
+  return panel;
+}
+
+/**
+ * The Panel a routing proposal names, checked exactly as strictly as a
+ * person's own filing is - the Workspace live, the Panel live, its dashboard
+ * live and in that Workspace, and holding items rather than text - except
+ * that failing any of it answers `null` rather than throwing.
+ *
+ * **Never trust a panel id back** ("Propose where a captured note belongs,
+ * without filing it there", issue 298): the model chooses among the ids it
+ * was given, and this is where what came back is checked against what is
+ * actually still true, freshly, rather than against the list the prompt was
+ * built from - which is what catches a Panel deleted in the moment between
+ * asking and this write. Failing it is not a user's mistake to refuse, it is
+ * a discarded proposal, exactly as an answer that will not parse is.
+ *
+ * **The Workspace check matters here in a way it would not for a person's own
+ * filing.** `delete_workspace` tombstones the Workspace alone and leaves its
+ * Dashboards and Panels exactly as they were - "the items stay exactly where
+ * they are" - so a Panel of a deleted Workspace still passes every other
+ * check in this function. A person can never reach it, because nothing
+ * offers a Workspace that has gone; the Item behind this proposal can, since
+ * `item.workspaceId` is read from a row that predates the deletion.
+ */
+function liveDestinationPanel(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  panelId: string,
+): { id: string; kind: PanelKind } | null {
+  if (!getWorkspace(db, tenantId, workspaceId)) return null;
+  const panel = getPanel(db, tenantId, panelId);
+  if (!panel || !panelTakesItems(panel)) return null;
+  if (!getDashboard(db, tenantId, workspaceId, panel.dashboardId)) return null;
   return panel;
 }
 
@@ -1518,6 +1561,41 @@ export function runCommand<N extends CommandName>(
         db.insert(commands).values(commandRow).run();
         applied = false;
       } else {
+        db.transaction((tx) => {
+          tx.update(items)
+            .set(updated)
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
+      }
+      break;
+    }
+    case 'propose_item_panel': {
+      const cmd = payload as CommandPayload<'propose_item_panel'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      // The same 404 every other command naming an item answers with, and the
+      // ordinary case here rather than a caller's mistake - the job that sends
+      // this carries an item id from minutes ago ("Propose where a captured
+      // note belongs, without filing it there", issue 298).
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+
+      const panel = liveDestinationPanel(db, tenantId, existing.workspaceId, cmd.panelId);
+      // Settling a routing is filing it, so an Item already on some Panel has
+      // already answered the question this proposes - by hand, or by taking an
+      // earlier proposal - and there is nothing left to overwrite.
+      const usable = panel !== null && !isItemFiled(db, tenantId, cmd.itemId);
+
+      if (!usable) {
+        // Discarded, not refused: nothing a queued job sent is a mistake worth
+        // reporting to anybody, and the command is still logged so a
+        // redelivery of the same job is a replay rather than a second
+        // decision.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        const updated = applyProposedPanel(existing, cmd);
         db.transaction((tx) => {
           tx.update(items)
             .set(updated)

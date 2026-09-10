@@ -129,6 +129,8 @@ function anItem(id: string, title: string): Item {
     description: null,
     textsSettledAt: null,
     readings: null,
+    proposedPanelId: null,
+    proposedPanelReason: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,
@@ -491,6 +493,50 @@ describe('Panels', () => {
 
       expect(held.mutate).not.toHaveBeenCalled();
       expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  /**
+   * "Propose where a captured note belongs, without filing it there" (issue
+   * 298): taking a proposal calls `move` directly, the same function the
+   * picker's own choice calls, so this is the same send the picker cases above
+   * already prove the shape of - what is new here is only that a proposal
+   * resolves to a Panel's name, and that taking it needs no dialog at all.
+   */
+  describe('a proposed panel is drawn as a chip, and taken with one click', () => {
+    const proposed = { ...BART, proposedPanelId: 'p-falcon', proposedPanelReason: 'a Falcon question' };
+
+    it('draws the name of the panel proposed, resolved from the id the item carries', async () => {
+      await showList({ items: [proposed] });
+
+      const chip = screen.getByText('→ Falcon');
+      expect(chip).toHaveAttribute('title', 'a Falcon question');
+    });
+
+    it('draws nothing where the panel proposed no longer exists', async () => {
+      await showList({ items: [{ ...BART, proposedPanelId: 'p-gone', proposedPanelReason: 'a reason' }] });
+
+      expect(screen.queryByText(/^→/)).toBeNull();
+    });
+
+    it('sends the same move the picker would, naming the panel proposed', async () => {
+      const user = await showList({ items: [proposed] });
+
+      await user.click(screen.getByText('→ Falcon'));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('offers no chip once the item is filed - the only place a proposal is drawn', async () => {
+      await showList({ items: [proposed], panelId: 'p-falcon' });
+
+      expect(screen.queryByText(/^→/)).toBeNull();
     });
   });
 

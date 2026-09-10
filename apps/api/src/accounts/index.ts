@@ -4,6 +4,7 @@ import type {
   CommandResult,
   Item,
   ItemType,
+  Panel,
   ServerEvent,
   Workspace,
 } from '@cockpit/shared';
@@ -83,6 +84,13 @@ export interface Account {
    * browser holds the whole workspace and has no reason to ask for one row.
    */
   item(itemId: string): Promise<Item | null>;
+  /**
+   * Every live Panel of one Workspace that takes items - what a routing
+   * proposal may choose from ("Propose where a captured note belongs, without
+   * filing it there", issue 298). Read by the enrichment job and by nothing
+   * else.
+   */
+  panelsThatTakeItems(workspaceId: string): Promise<Panel[]>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
@@ -119,6 +127,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     itemTypes: async () => unwrap(await store.itemTypes(accountName)),
     snapshot: async (workspaceId) => unwrap(await store.snapshot(accountName, workspaceId)),
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),
+    panelsThatTakeItems: async (workspaceId) =>
+      unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };
