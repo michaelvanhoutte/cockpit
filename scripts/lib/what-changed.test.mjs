@@ -304,9 +304,21 @@ describe('the mechanical jobs', () => {
     // not gate, and Scripts is the check that reads the prose the others skip
     // on - see its comment in ci.yml.
     const yaml = workflow('ci.yml');
-    for (const id of ['scripts', 'test-explorer', 'stability', 'pages']) {
+    for (const id of ['scripts', 'test-explorer-check', 'test-explorer', 'stability', 'pages']) {
       assert.ok(!needsOf(job(yaml, id)).includes('changes'), `${id} should not be gated on what changed`);
     }
+  });
+
+  it('keep Test Explorer downstream of Test, not of this job', () => {
+    // Sharing `test`'s instrumented run instead of paying for a second one is
+    // issue 289's finding, not this issue's - `Test Explorer` skips a
+    // documentation-only diff for free, because `test` does and a skipped
+    // dependency is not a successful one, rather than needing a gate of its
+    // own. A rewrite that drops `Concepts` or this chain loses both that
+    // saving and the artifact hop `test-explorer-spec.md` documents, silently:
+    // every job here still exists and still passes.
+    const yaml = workflow('ci.yml');
+    assert.deepEqual(needsOf(job(yaml, 'test-explorer')), ['test', 'test-explorer-check'], "Test Explorer's dependency on Test and Concepts went missing");
   });
 
   it('leave CodeQL to run on every diff, its third context being nobody here to post', () => {

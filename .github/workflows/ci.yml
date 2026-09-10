@@ -157,7 +157,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-      - run: pnpm test
+      # Instrumented (`test:coverage`, not plain `test`) so the suite runs once for
+      # both the gate and `test-explorer`'s coverage columns, rather than once here
+      # and again there ("Run the suite once in CI, not once to gate and once to
+      # measure", issue 289). Uploaded because Actions jobs share no filesystem —
+      # this artifact is the explicit hop `test-explorer` downloads instead of
+      # re-running the suite.
+      #
+      # The globs mirror pnpm-workspace.yaml's own package roots rather than
+      # naming the specific packages that happen to have a `test:coverage`
+      # script today, so a package gaining one later is picked up here too
+      # instead of silently missing from the artifact.
+      - run: pnpm test:coverage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            apps/*/coverage/coverage-final.json
+            packages/*/coverage/coverage-final.json
+            packages/connectors/*/coverage/coverage-final.json
+            tools/*/coverage/coverage-final.json
 
   # F3, the browser tier. Its own job rather than part of `Test`, because it is
   # the one tier that boots the whole application (wrangler + local D1 + Vite)
@@ -264,28 +283,61 @@ jobs:
       - name: Verify the dev, test-stack, health-check, review-gate and what-changed scripts, the walks' conventions and the writing rules
         run: node --test scripts/lib/*.test.mjs
 
-  # Publishes which product concepts own which tests: as a downloadable
-  # artifact on every run, and — from `main` only — as the page the `pages` job
-  # below deploys. Does not gate: docs/test-explorer-spec.md's "CLI, scripts,
-  # CI" (§8) deliberately stops short of failing the build on the report's
-  # content, only on concepts.json drift (a source file the registry can't
-  # place).
-  test-explorer:
-    name: Test Explorer
+  # The cheap third of the report pipeline: fails on a feature area a test declares
+  # that concepts.json does not register, the only one of the three checks here that
+  # fails for a reason somebody has to fix. Its own job with no `needs`, so it stays
+  # fast and independent rather than waiting on `test`'s instrumented run — nothing
+  # about it requires coverage ("Run the suite once in CI, not once to gate and once
+  # to measure", issue 289).
+  test-explorer-check:
+    name: Concepts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - run: pnpm test:explorer:check
-      # Runs the suite a second time, instrumented (apps/api uses the
-      # istanbul provider, not v8 — the Workers runtime has no
-      # node:inspector Session API for v8 to attach to; see
-      # apps/api/vitest.config.ts), so "branches nothing takes" reports real
-      # data instead of "unknown". A second full run rather than reusing the
-      # `test` job's is the cost of that: coverage instrumentation is not
-      # free, and Actions jobs don't share a filesystem without an explicit
-      # artifact hop, which running it again here avoids needing.
-      - run: pnpm test:coverage
+
+  # Publishes which product concepts own which tests: as a downloadable
+  # artifact on every run, and — from `main` only — as the page the `pages` job
+  # below deploys. Does not gate: docs/test-explorer-spec.md's "CLI, scripts,
+  # CI" (§8) deliberately stops short of failing the build on the report's
+  # content, only on concepts.json drift, which `test-explorer-check` guards.
+  #
+  # `needs: [test, test-explorer-check]` rather than running either itself: the
+  # coverage this job renders as "branches nothing takes" is `test`'s own
+  # instrumented run, downloaded as an artifact instead of collected again, and
+  # a red suite or a registry drift already kills the report the way it always
+  # has — this job simply never starts. On a documentation-only diff `test` is
+  # skipped rather than failed, and a skipped dependency is not a successful
+  # one, so this job (and `pages` behind it) is skipped too, by the same
+  # `needs` chain rather than a gate of its own — the second thing this
+  # regains, along with the artifact hop, that a stale rewrite of this file
+  # once dropped ("Skip the mechanical checks on a pull request that touches
+  # nothing they cover", issue 345).
+  test-explorer:
+    name: Test Explorer
+    needs: [test, test-explorer-check]
+    runs-on: ubuntu-latest
+    # download-artifact reads this run's own artifacts through the Actions API,
+    # which the workflow-level block withholds by default — the same reason
+    # `pages` below declares it.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Download the coverage `test` already collected
+        uses: actions/download-artifact@v4
+        # Missing rather than failed: if `test:coverage` ran but somehow wrote
+        # no `coverage-final.json` anywhere, `test` still succeeded and no
+        # artifact exists to download. Continuing without it degrades the
+        # report to "unknown" coverage columns — tools/test-explorer's own
+        # designed fallback — rather than failing this advisory job outright.
+        continue-on-error: true
+        with:
+          name: coverage-reports
+          path: .
       - run: pnpm test:explorer
       # Kept on every branch, and not replaced by the published page: it is how
       # a pull request's own report gets read, and the fallback when a deploy
@@ -300,9 +352,10 @@ jobs:
   # red, and the recent failures linked to the step they died on ("See how
   # reliable each CI job on main is, without counting runs by hand", issue 244).
   #
-  # Its own job rather than a step of `test-explorer`, which runs the
-  # instrumented suite: a suite failure there would take down the page whose
-  # purpose is reporting suite failures, at the one moment it is worth reading.
+  # Its own job rather than a step of `test-explorer`, which now needs `test`'s
+  # instrumented run and is skipped whenever it fails: folding this in would take
+  # down the page whose purpose is reporting suite failures, at the one moment it
+  # is worth reading.
   #
   # No install step, for the reason `scripts` gives — it reads the API with the
   # standard library and has no dependencies to fetch.
