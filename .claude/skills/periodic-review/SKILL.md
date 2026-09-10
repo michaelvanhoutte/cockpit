@@ -56,6 +56,8 @@ Keep the raw count and which pull request or issue each instance came from. That
 
 **A class needs at least two instances in the sample to be filed** — the bar issue 278's own sample draws, and the one issue 286 draws for the same reason. Two on the same pull request count as much as two across different ones — issue 286 allows both. A class shown once is dropped here, not carried anywhere: there is no report to hold it in reserve for next time.
 
+**Unless an open `periodic-review` issue already covers it.** A class that recurs because its fix hasn't shipped yet will clear the bar again on every later run; check `gh issue list --label periodic-review --state open` for one already naming the same mistake, and skip filing — the open issue is the record, not a fresh one.
+
 ### 5. Size and file each class
 
 Each class that clears the bar is already one unit — [scoping](../scoping/SKILL.md)'s "Size it as a vertical slice" step needs no further split. Run its remaining steps in brief: failure modes only if the fix touches state that cannot be put back (rare for a process or guidance fix); a statement list per its "Generate the statement list" step, and where the fix is prose rather than code, "None" is the honest answer most recent process issues already give.
