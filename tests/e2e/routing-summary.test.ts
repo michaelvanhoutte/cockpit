@@ -1,4 +1,4 @@
-import { expect, expectNoSidewaysScroll, openInbox, press, test } from './support/app';
+import { expect, expectNoSidewaysScroll, openInbox, press, test, uniqueTitle } from './support/app';
 
 /**
  * F3, for the same reason `item-types.test.ts` beside this file is: the
@@ -34,8 +34,16 @@ test.describe('Capture', () => {
       await expectNoSidewaysScroll(page);
       await expect(page.getByText('Not enough has been filed here yet')).toBeVisible();
 
+      // Unique per run, not a fixed sentence: the desktop and phone projects
+      // share one database and one Workspace (support/app.ts, "The register
+      // is not rebuilt between the two projects"), so the phone project's own
+      // run of this walk finds whatever the desktop project's run already
+      // saved here - a fixed correction would already equal what is stored,
+      // leaving Save permanently disabled with nothing to save.
+      const correctionText = uniqueTitle('Sign-off questions go to Laurens, not Compliance questions.');
+
       const correction = page.getByLabel('Your correction');
-      await correction.fill('Sign-off questions go to Laurens, not Compliance questions.');
+      await correction.fill(correctionText);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
       // Saved rather than merely typed: the button that only means something
       // while there is an unsent draft goes back to doing nothing.
@@ -44,9 +52,7 @@ test.describe('Capture', () => {
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'What Cockpit has learned' }), isMobile);
-      await expect(page.getByLabel('Your correction')).toHaveValue(
-        'Sign-off questions go to Laurens, not Compliance questions.',
-      );
+      await expect(page.getByLabel('Your correction')).toHaveValue(correctionText);
       await expectNoSidewaysScroll(page);
     });
   });
