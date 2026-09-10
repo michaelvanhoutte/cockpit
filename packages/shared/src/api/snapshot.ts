@@ -10,93 +10,33 @@ import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
 import { screenSizeSchema } from '../domain/screen-size.js';
 
 /**
- * The read model (architecture, "The read model: persisted snapshot,
- * revalidate, push"): one snapshot call per workspace. The client derives every
- * panel locally from this; there are no fine-grained item resources.
+ * The read model (architecture.md, "The read model: persisted snapshot,
+ * revalidate, push"; §4.4, "packages/shared: schema and command rationale",
+ * for field-by-field rationale): one snapshot call per workspace. The client
+ * derives every panel locally from this; there are no fine-grained item
+ * resources.
  */
 export const workspaceSnapshotSchema = z.object({
   workspace: workspaceSchema,
   /** Open items only: tombstoned and dismissed items are excluded server-side. */
   items: z.array(itemSchema),
-  /**
-   * The workspace's dashboards, oldest first, so the bar under the workspace
-   * tabs is derived from the snapshot the client already reads rather than from
-   * a second call with its own revalidation to get wrong ("Add and switch
-   * dashboards", issue 32).
-   */
+  /** The workspace's dashboards, oldest first ("Add and switch dashboards", issue 32; architecture.md §4.4). */
   dashboards: z.array(dashboardSchema),
-  /**
-   * Every panel of every dashboard of this workspace, oldest first, and every
-   * layout that arranges them ("Panels on a dashboard, with per-screen-size
-   * layouts", issue 33).
-   *
-   * All of the workspace's dashboards rather than only the one being looked at,
-   * because the snapshot is the workspace's read model and the client switches
-   * between dashboards without a round trip (architecture, "The read model:
-   * persisted snapshot, revalidate, push"). It is also what lets a dashboard's
-   * dashboards window say how many panels deleting one takes with it, from the same
-   * copy the bar is drawn from.
-   */
+  /** Every panel of every dashboard of this workspace, and every layout that arranges them ("Panels on a dashboard, with per-screen-size layouts", issue 33; architecture.md §4.4). */
   panels: z.array(panelSchema),
   layouts: z.array(layoutSchema),
-  /**
-   * Which Items are filed on which of those Panels, and in what order
-   * ("Panels hold the items filed into them, and the Inbox holds the rest",
-   * issue 36).
-   *
-   * A flat list rather than items nested under each panel, because an Item can
-   * be filed on several Panels and nesting would send it once per Panel. What a
-   * Panel holds and what the Inbox holds are both derived from this in the
-   * client, the way every other panel-shaped view already is.
-   *
-   * Filings of deleted Panels are left out server-side, like the Panels
-   * themselves, so an Item whose only Panel has gone is back in the Inbox
-   * without the client knowing anything about deletion.
-   */
+  /** Which Items are filed on which of those Panels, and in what order ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36; architecture.md §4.4). */
   filings: z.array(filingSchema),
   associations: z.array(associationSchema),
-  /**
-   * Every live Type of the account, in the order they are offered in ("Capture
-   * a thought or an action, and see which it is", issue 155).
-   *
-   * In the workspace's snapshot although types belong to the account, because
-   * every screen that draws an item needs them and this is the one call a
-   * workspace makes: a second resource would be a second thing to revalidate
-   * and a second chance for a row to be drawn before its type has arrived.
-   */
+  /** Every live Type of the account, in the order they are offered in ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). */
   itemTypes: z.array(itemTypeSchema),
-  /**
-   * Every Screen size of the account, narrowest first ("Give the account a list
-   * of screen sizes, before anything reads it", issue 262).
-   *
-   * In the workspace's snapshot although sizes belong to the account, for the
-   * reason Types are: a Dashboard's own bar offers them, and this is the one
-   * call a workspace makes. **Empty until "Draw a dashboard against the screen
-   * sizes its account has" (issue 263)**, which is what makes that issue a
-   * change of behaviour rather than of shape.
-   */
+  /** Every Screen size of the account, narrowest first ("Give the account a list of screen sizes, before anything reads it", issue 262; architecture.md §4.4). Empty until "Draw a dashboard against the screen sizes its account has" (issue 263). */
   screenSizes: z.array(screenSizeSchema).default([]),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as
-   * the account's own store stamped it. A tab compares it against a change
-   * event's `at` to tell whether it already holds what the event announces, and
-   * skips the refetch when it does.
-   *
-   * **Not `generatedAt`, though that looks like the same fact.** `generatedAt`
-   * is the Worker's wall clock and a change is stamped by the account's object,
-   * a different process on a possibly different machine - so comparing those
-   * two would decide a refetch on clock skew. This is one clock read twice.
-   *
-   * **Known limit, and the thing to settle before this ships.** A millisecond
-   * is not a monotone cursor: two changes stamped in the same millisecond, with
-   * a snapshot read between them, make this claim the second one. The command
-   * log has a real sequence to use instead.
-   *
-   * **Optional and absent rather than empty**, both for an account that has
-   * never taken a change and for every fixture and hand-built snapshot. A copy
-   * held from before this field existed comes back from IndexedDB without it,
-   * and a tab holding one refetches the way it does today.
+   * the account's own store stamped it (architecture.md §4.4 — not
+   * `generatedAt`, and a known monotonicity limit).
    */
   upTo: z.iso.datetime().optional(),
 });
@@ -107,14 +47,7 @@ export const workspaceListSchema = z.object({
 });
 export type WorkspaceList = z.infer<typeof workspaceListSchema>;
 
-/**
- * The account's live Types, in the order they are offered in ("Manage the
- * types, and put them in the order you want", issue 156).
- *
- * Its own call because the page that manages them is outside any workspace, so
- * there is no snapshot to read them from - the same reason the workspace list
- * has one.
- */
+/** The account's live Types, in the order they are offered in ("Manage the types, and put them in the order you want", issue 156). Its own call because the page that manages them is outside any workspace. */
 export const itemTypeListSchema = z.object({
   itemTypes: z.array(itemTypeSchema),
 });

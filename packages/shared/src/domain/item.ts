@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * The Item + Association model (functional definition §4.2).
+ * The Item + Association model (functional-definition.md §4.2).
  * These are the wire shapes shared by the API and the client; the database
  * schema in apps/api mirrors them with snake_case columns.
  */
@@ -13,23 +13,13 @@ export type Source = z.infer<typeof sourceSchema>;
 export const prioritySchema = z.enum(['low', 'normal', 'high']);
 export type Priority = z.infer<typeof prioritySchema>;
 
-/**
- * How long a title may be. A product number, not a storage one - long enough
- * for a mail subject, short enough to stay a row label.
- */
+/** How long a title may be. A product number, not a storage one (architecture.md §4.4, "packages/shared: schema and command rationale"). */
 export const TITLE_LENGTH = 200;
 
 /**
- * An Item carries three texts, answering three different questions (functional
- * definition, "An Item carries three texts"): `capturedMessage` is what arrived
- * or what you said, `title` names the Item, `description` is what you have to
- * say about it. Only the last two are editable, and only the last two are ever
- * shown - the captured message is the record capture is judged against, kept
- * for reading back rather than for standing in as a name.
- *
- * A title is one line, because it is a row label. Empty is allowed: a title is
- * not required, and a title of nothing but blanks trims to empty rather than
- * being refused, because there is nothing to refuse it for.
+ * An Item carries three texts, answering three different questions
+ * (functional-definition.md, "An Item carries three texts"; architecture.md
+ * §4.4 for the schema rationale).
  */
 export const itemTitleSchema = z
   .string()
@@ -39,40 +29,13 @@ export const itemTitleSchema = z
     message: 'a title is a single line, without tabs or line breaks',
   });
 
-/**
- * A description is as long as it needs to be and holds line breaks, being the
- * one text in the product meant to run to paragraphs. The cap is what stops one
- * Item making the copy every device holds unreasonable; 60,000 is past anything
- * typed by hand and short of a pasted mail thread. Over it is refused rather
- * than cut, because repairing input is where the bypasses live.
- *
- * Not enforced by a CHECK: adding one to `items` means rebuilding the table
- * (architecture, "A CHECK cannot be added to a table that already has
- * children"), which that section says is not worth paying for a nullable column
- * only the command handlers write.
- */
+/** A description is as long as it needs to be and holds line breaks (architecture.md §4.4). */
 export const itemDescriptionSchema = z.string().trim().max(60_000);
 
 /**
  * One other way a captured note could be read, offered beside the reading
  * Cockpit already proposed ("Offer the other readings when a captured note
- * says two things", issue 297).
- *
- * **The same two boxes a chosen reading fills, plus a third that never gets
- * stored.** `title` and `description` obey exactly the rules the Item's own
- * do, because taking a reading is the same act as typing it into the form by
- * hand - a reading the form would refuse is not a reading Cockpit may offer.
- * `meaning` is the few words saying what this reading takes the note to mean,
- * which is what a person picks between; it is shown beside the reading and
- * never lands on the Item.
- *
- * **`description` may be empty where `title` may not.** A reading exists to
- * offer a different *title* - "Call Jan" against "Call in January" - and where
- * the note has nothing more to add beyond that, repeating the same message
- * under both readings would say nothing a person could use to tell them apart.
- * The main proposal has no such case: it is the one reading Cockpit is
- * confident enough to write onto the Item unasked, so it has to justify itself
- * with more than a title.
+ * says two things", issue 297; architecture.md §4.4).
  */
 export const itemReadingSchema = z.object({
   title: itemTitleSchema.refine((title) => title.length > 0, {
@@ -84,45 +47,20 @@ export const itemReadingSchema = z.object({
 export type ItemReading = z.infer<typeof itemReadingSchema>;
 
 /**
- * Fields are kept in three groups (architecture, "Schema conventions"): a
- * connector re-sync overwrites the source-owned group unconditionally, never
- * touches the app-owned group, and cannot reach `capturedMessage` at all, which
- * is written once when the Item is made and never again.
- *
- * `title` is app-owned rather than source-owned even though a source proposes
- * it: a subject seeds it at ingest and never afterwards, so renaming an Item
- * survives the next poll.
+ * Fields are kept in three groups — write-once, source-owned, app-owned
+ * (architecture.md, "Schema conventions"; §4.4 for what that means field by
+ * field on this schema).
  */
 export const itemSchema = z.object({
   id: z.uuid(),
   tenantId: z.string(),
-  /**
-   * The Workspace this Item belongs to - or, while `workspaceDecided` is
-   * false, the one it was captured from, which it does not belong to yet.
-   */
+  /** The Workspace this Item belongs to — or, while `workspaceDecided` is false, the one it was captured from. */
   workspaceId: z.string(),
-  /**
-   * Whether anybody has said which Workspace this Item belongs to ("Capture
-   * something before you know which workspace it belongs to", issue 165).
-   *
-   * False means it belongs to none, so it shows in *every* Workspace's Inbox:
-   * it is not clear where it goes, so it is offered everywhere. It turns true
-   * the first time somebody says where - by filing it onto a Panel, or by
-   * moving it to a Workspace's Inbox - and never turns back.
-   *
-   * Read it through `workspaceIsDecided` rather than directly. A snapshot
-   * stored before this landed is rehydrated without being parsed again
-   * (main.tsx), so the field can be missing, and missing has to read as
-   * *decided*: an Item wrongly shown in one Workspace is where it always was,
-   * where an Item wrongly shown in all of them is a privacy boundary crossed.
-   */
+  /** Whether anybody has said which Workspace this Item belongs to ("Capture something before you know which workspace it belongs to", issue 165; architecture.md §4.4). Read through `workspaceIsDecided` rather than directly. */
   workspaceDecided: z.boolean(),
 
   // -- write-once --
-  /**
-   * What arrived, or what you said, as it stood when the Item was made. It
-   * names nothing - see `textsFromCapture`, which is where the naming is.
-   */
+  /** What arrived, or what you said, as it stood when the Item was made. See `textsFromCapture`. */
   capturedMessage: z.string().nullable(),
 
   // -- source-owned --
@@ -135,97 +73,27 @@ export const itemSchema = z.object({
   sourceResolvedAt: z.iso.datetime().nullable(),
 
   // -- app-owned --
-  /**
-   * Permissive here, and capped on the way in (`setTitleSchema`), for the
-   * reason `typeId` below is permissive: what is stored has to render even
-   * where it predates a rule. `capture_item` accepted an uncapped title until
-   * this change, so a title longer than the cap can exist - and this shape is
-   * parsed for the whole snapshot at once, so refusing one would blank the
-   * workspace rather than draw one row oddly. The read model does not
-   * re-enforce what the write path already refuses.
-   */
+  /** Permissive here, capped on the way in (`setTitleSchema`) — architecture.md §4.4. */
   title: z.string(),
   description: z.string().nullable(),
-  /**
-   * When you took the title and the description over from Cockpit, and null
-   * while they are still Cockpit's to replace ("Clean up a captured note into a
-   * clear title and a fuller message", issue 296).
-   *
-   * **One field for both texts, because editing either settles both.** What
-   * Cockpit proposed is one reading of one note, so replacing half of it after
-   * somebody rewrote the other half would leave the Item describing itself two
-   * ways.
-   *
-   * **The first answer wins**, the way `workspaceDecided` does: this is when a
-   * person took the texts over, not when they last touched them.
-   *
-   * Null on every Item captured before this shipped, and they are never
-   * proposed for either - nothing sweeps existing rows (issue 296, "What does
-   * it run on?"), so nothing can overwrite a title written by hand.
-   */
+  /** When the title and description were taken over from Cockpit's own reading, and null while still Cockpit's to replace ("Clean up a captured note into a clear title and a fuller message", issue 296; architecture.md §4.4). */
   textsSettledAt: z.iso.datetime().nullable(),
-  /**
-   * The other ways this note could genuinely be read, where Cockpit found any
-   * ("Offer the other readings when a captured note says two things", issue
-   * 297). Null on every Item captured before this shipped, and on most Items
-   * after it - ambiguity is meant to be rare, so reporting none is the common
-   * case and the right one.
-   *
-   * **Read as offered only while `textsSettledAt` is still null.** The two are
-   * written together (`applyProposedTexts`), and once a person has taken the
-   * texts over there is nothing left for an alternate reading to be an
-   * alternative *to* - the row's mark and the form's picker both gate on the
-   * pair rather than on this field alone, so a stale set of readings from
-   * before an edit never resurfaces as though it were still live.
-   */
+  /** The other ways this note could genuinely be read, where Cockpit found any (issue 297; architecture.md §4.4). */
   readings: itemReadingSchema.array().nullable(),
-  /**
-   * The Panel Cockpit thinks this note belongs on, proposed rather than filed
-   * ("Propose where a captured note belongs, without filing it there", issue
-   * 298) - null where nothing was proposed, which is a real answer and often
-   * the right one.
-   *
-   * **Read as a proposal only while the Item is filed nowhere.** A routing has
-   * no settled flag the way `textsSettledAt` is one for the two texts above:
-   * settling a routing *is* filing it, so the moment that happens the Item
-   * leaves the Inbox - the only place a proposal is ever drawn - and a value
-   * left here afterwards is never read again.
-   */
+  /** The Panel Cockpit thinks this note belongs on, proposed rather than filed ("Propose where a captured note belongs, without filing it there", issue 298; architecture.md §4.4). */
   proposedPanelId: z.uuid().nullable(),
-  /**
-   * Why, beside the Panel above - in words meant for the row's own hover text,
-   * not a report of what the model did. Null exactly when `proposedPanelId`
-   * is, the two always written together.
-   */
+  /** Why, beside the Panel above — in words meant for the row's own hover text. Null exactly when `proposedPanelId` is. */
   proposedPanelReason: z.string().nullable(),
-  /**
-   * What kind of thing this is ("Capture a thought or an action, and see which
-   * it is", issue 155). Nullable: an item captured before types existed, and
-   * one whose type was deleted, both have none, and a row with no type is drawn
-   * rather than hidden.
-   *
-   * The permissive `z.string()` rather than a uuid, for the reason every other
-   * id read back here is permissive: the *Task* and *Note* every account starts
-   * with have ids derived from the account's own. A `z.uuid()` here
-   * refused the whole snapshot the first time an item was captured as one of
-   * them, which is a blank workspace rather than one item drawn oddly.
-   */
+  /** What kind of thing this is ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). Nullable: an item with no type, or a deleted type, draws with none rather than hidden. */
   typeId: z.string().nullable(),
-  /** The current, always-editable next-action label (functional definition §6.1). */
+  /** The current, always-editable next-action label (functional-definition.md §6.1). */
   nextAction: z.string().nullable(),
-  /**
-   * When this was finished with, and the whole of what "done" means ("An item
-   * is either yours to deal with or finished with", issue 154).
-   *
-   * A time rather than a flag, because the two things that ask are "is this
-   * still yours to deal with" and "when did you finish it", and a flag answers
-   * only the first. It is app-owned: a re-sync from a source never clears it.
-   */
+  /** When this was finished with — a time rather than a flag ("An item is either yours to deal with or finished with", issue 154; architecture.md §4.4). App-owned: a re-sync never clears it. */
   completedAt: z.iso.datetime().nullable(),
   priority: prioritySchema.nullable(),
   dueDate: z.iso.date().nullable(),
   unseen: z.boolean(),
-  /** Tombstone, never a hard delete (architecture §4.2). */
+  /** Tombstone, never a hard delete (architecture.md §4.2). */
   deletedAt: z.iso.datetime().nullable(),
 
   createdAt: z.iso.datetime(),
@@ -237,24 +105,9 @@ export type Item = z.infer<typeof itemSchema>;
 export const UNTITLED = 'Untitled';
 
 /**
- * What a row shows: the next action, or the title (functional definition, "A
- * row shows the next action, or the title").
- *
- * Worked out where the row is drawn rather than stored as a text of its own,
- * which would be free to go stale behind the two it stands for.
- *
- * **The captured message is not one of the answers** - `textsFromCapture`
- * below says why, and `0018-title-from-captured-message` is what gave a title
- * to every Item captured before that was true.
- *
- * **Blank counts as absent**, for the next action and the title alike: a title
- * of spaces is stored as the empty string. **And when both are blank it says
- * so**, rather than returning nothing - a row, a drag and an offer to undo
- * would each render as a gap where a name should be, and there is no length at
- * which an unlabelled row is better off unlabelled.
- *
- * **Runs of whitespace collapse**, because a title written before it was one
- * line may hold a line break and a row is one line.
+ * What a row shows: the next action, or the title (functional-definition.md,
+ * "A row shows the next action, or the title"; architecture.md §4.4 for why
+ * this is computed rather than stored).
  */
 export function itemLabel(item: Pick<Item, 'nextAction' | 'title'>): string {
   const oneLine = (text: string) => text.replace(/\s+/gu, ' ').trim();
@@ -264,34 +117,10 @@ export function itemLabel(item: Pick<Item, 'nextAction' | 'title'>): string {
 
 /**
  * The title and description an Item is made with, from the one text capture
- * takes ("Capture writes the title", this file's `itemLabel` above).
- *
- * **What was captured names the Item.** Capture used to leave the title empty
- * and let the row fall through to the captured message, which put two names on
- * one Item: the one the row showed and the empty one its form offered. So the
- * message becomes the title, and the captured message stays beside it as the
- * record of exactly what was typed - which is what the two texts are read back
- * against.
- *
- * **This is the title an Item is *made* with, and a moment later Cockpit
- * replaces it**, having read the note ("Clean up a captured note into a clear
- * title and a fuller message", issue 296). What is written here therefore has
- * two jobs rather than one: it names the Item while the reading is happening,
- * and it is what the Item keeps for good wherever the reading cannot happen -
- * no key, a call that failed, an answer that will not validate - so it stays a
- * cut of what was typed rather than becoming a guess at what was meant.
- *
- * **A title is one line and at most `TITLE_LENGTH`, and a captured message is
- * neither.** Where the message does not fit as it stands, the title takes its
- * first `TITLE_LENGTH` characters and the *whole* message goes into the
- * description, so nothing a person typed is only in a text they do not edit.
- * Where it does fit, there is no description: repeating a one-line note under
- * itself would be the same duplication in a second place.
+ * takes (architecture.md §4.4, "What names an item at capture").
  */
 export function textsFromCapture(message: string): { title: string; description: string | null } {
-  // Exactly what `itemTitleSchema` refuses, so the title this makes is one the
-  // form would accept: control characters and the line and paragraph
-  // separators, which a browser breaks a line on just as readily.
+  // Exactly what `itemTitleSchema` refuses: control characters and the line and paragraph separators.
   const oneLine = message.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim();
   const title = cutTo(oneLine, TITLE_LENGTH);
   return { title, description: title === message ? null : message };
@@ -308,27 +137,18 @@ function cutTo(text: string, limit: number): string {
   const lead = text.charCodeAt(limit - 1);
   return text.slice(0, lead >= 0xd800 && lead <= 0xdbff ? limit - 1 : limit);
 }
-/**
- * Whether this Item belongs to a Workspace at all yet, read so that a snapshot
- * older than the field answers *yes* rather than putting every Item it holds
- * into every Workspace's Inbox (see `workspaceDecided`).
- */
+
+/** Whether this Item belongs to a Workspace at all yet (see `workspaceDecided`). */
 export function workspaceIsDecided(item: Pick<Item, 'workspaceDecided'>): boolean {
   return item.workspaceDecided !== false;
 }
 
-/**
- * Whether this Item has another reading genuinely worth offering right now -
- * the row's mark and the form's picker both ask this and nothing narrower, so
- * the pairing `readings`' own doc comment describes cannot drift between the
- * two ("Offer the other readings when a captured note says two things", issue
- * 297).
- */
+/** Whether this Item has another reading genuinely worth offering right now (issue 297). */
 export function itemHasOpenReadings(item: Pick<Item, 'readings' | 'textsSettledAt'>): boolean {
   return item.textsSettledAt === null && !!item.readings && item.readings.length > 0;
 }
 
-/** What an Association can point at (functional definition §4.2). */
+/** What an Association can point at (functional-definition.md §4.2). */
 export const associationKindSchema = z.enum(['person', 'project', 'topic']);
 export type AssociationKind = z.infer<typeof associationKindSchema>;
 
@@ -344,34 +164,17 @@ export const associationSchema = z.object({
 export type Association = z.infer<typeof associationSchema>;
 
 /**
- * Names are compared with the surrounding blanks removed and without regard to
- * case, so `" Personal "` and `personal` are the same name. `.trim()` runs
- * before the length checks, which is what makes a name of nothing but blanks
- * fail `min(1)` rather than being stored as an empty string.
- *
- * The cap is a product decision, not a storage one: a workspace name is a tab
- * label, and there is no length at which one stays readable in a tab and
- * unreadable at 60.
+ * Names are compared trimmed and case-insensitively; the cap is a product
+ * decision, not a storage one (architecture.md §4.4). Shared by
+ * `dashboardNameSchema`, `panelNameSchema`, `itemTypeNameSchema` and
+ * `screenSizeNameSchema` — only where uniqueness is scoped differs between them.
  */
 export const workspaceNameSchema = z
   .string()
   .trim()
   .min(1)
   .max(60)
-  /**
-   * A name is a single line. A tab or a newline inside one breaks every place
-   * it is displayed and is nothing a person meant to type, so it is refused
-   * rather than cleaned up - repairing input is where the bypasses live.
-   *
-   * `\p{Cc}` is the C0 and C1 control characters, and `\p{Zl}`/`\p{Zp}` are the
-   * line and paragraph separators - not control characters at all, and a
-   * browser breaks the line on U+2028 as readily as on a newline, so a name
-   * holding one still renders over two lines. `.trim()` above takes them off
-   * the ends and leaves the interior alone, which is where they would sit.
-   *
-   * Not `\p{Cf}`, which would take the zero-width joiner with it and refuse
-   * half the emoji anybody would put in a name.
-   */
+  /** A name is a single line — refused rather than cleaned up (architecture.md §4.4). */
   .refine((name) => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(name), {
     message: 'a name is a single line, without tabs or line breaks',
   });
@@ -379,31 +182,9 @@ export const workspaceNameSchema = z
 export const workspaceSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
-  /**
-   * Deliberately the permissive `z.string()` and not `workspaceNameSchema`:
-   * this is the shape read back, and a stored name that predates the rules
-   * should still render rather than blanking the screen it appears on. The
-   * rules belong on the way in, where they can be refused with a message.
-   */
+  /** Permissive read-back field, for the reason every one below is (architecture.md §4.4). */
   name: z.string(),
-  /**
-   * The Workspace's four colors (functional definition, "Container
-   * hierarchy"): `color` is the saturated tint on the tab dot and the selected
-   * tab, `header` is the bar across the top, `bar` is the strip the dashboard
-   * tabs sit on one step lighter than it, and `ground` is the page behind the
-   * panels. They are chosen together, from the fixed palette in
-   * domain/workspace-themes.ts.
-   *
-   * All four are stored, rather than the name of a theme: the palette is then
-   * a picker rather than a storage format, so letting somebody mix their own
-   * colors later is a second writer of the same four fields rather than a
-   * migration.
-   *
-   * Deliberately the permissive `z.string()` and not `hexColorSchema`, for the
-   * reason `name` above is permissive: this is the shape read back, and a
-   * stored color that predates the rules should still render rather than
-   * blanking the screen it appears on. The rules belong on the way in.
-   */
+  /** The Workspace's four colors (functional-definition.md, "Container hierarchy"; architecture.md §4.4). */
   color: z.string(),
   bar: z.string(),
   ground: z.string(),
@@ -411,25 +192,13 @@ export const workspaceSchema = z.object({
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
 
-/**
- * A Dashboard's name obeys exactly the rules a Workspace's does, by being the
- * same schema rather than a copy of it: required, trimmed, single-line, at most
- * 60 characters. What differs is only the scope uniqueness is decided in - the
- * workspace rather than the account - and that is not a shape, so it is not
- * here ("Add and switch dashboards", issue 32).
- */
+/** A Dashboard's name obeys exactly the rules a Workspace's does, by being the same schema ("Add and switch dashboards", issue 32). */
 export const dashboardNameSchema = workspaceNameSchema;
 
 /**
  * A Dashboard: a named view inside a Workspace, which you switch between like
- * tabs (functional definition, "Container hierarchy"). It holds Panels once
- * "Panels on a dashboard, with per-screen-size layouts" (issue 33) lands.
- *
- * `name` and `id` are the permissive `z.string()` for the reason a Workspace's
- * are: this is the shape read back, and a stored name that predates the rules
- * should still render rather than blanking the bar it appears in. The ids of
- * the dashboards every workspace was given when this landed are derived from
- * their workspace's own id, so they are not all uuids either.
+ * tabs (functional-definition.md, "Container hierarchy"; architecture.md §4.4
+ * for the read-back fields).
  */
 export const dashboardSchema = z.object({
   id: z.string(),
