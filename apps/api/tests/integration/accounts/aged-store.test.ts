@@ -37,6 +37,19 @@ import { inStoreAsItIs, startFromEmpty, storeNamed } from '../seed.js';
  * an *index* asks the other half of the same question: a row written to stand
  * for something arranged before it has to stay writable after it, which is what
  * `once` below is for.
+ *
+ * **What it did not add, until "Prove a change keeps the rows it did not mean
+ * to drop" (issue 281).** Reaching the right shape says nothing about what
+ * survived getting there - "Draw a dashboard against the screen sizes it has
+ * defined" (pull request 272) and the first commit of "Take the width and
+ * the name off a layout, now that its size carries them" (pull request 273)
+ * each reached the right shape while deleting rows nobody meant to lose, and
+ * both were caught only by review. "every update keeps the rows it does not
+ * mean to drop" below is that gate: every update runs alone
+ * against a store aged and filled exactly as above, and a table that holds
+ * fewer rows afterwards fails - unless `DECLARED_LOSSES` names the same
+ * change and count, which is how an update that means to drop something
+ * says so.
  */
 
 const AT = '2026-08-12T10:00:00.000Z';
@@ -270,12 +283,45 @@ const rowsFor: {
   },
 ];
 
+/**
+ * The rows a change means to drop, named the way its own issue names them -
+ * table and count. `0020-drop-layout-name-and-width` is the only one: a
+ * Layout written before "Take the width and the name off a layout, now
+ * that its size carries them" (issue 264) ever ran carries no
+ * `screen_size_id`, and the new NOT NULL rule rejects it. `ly-before` and
+ * `ly-twin`, from `rowsFor`, are exactly the two such Layouts this file
+ * ever seeds, and everything they carry - a row and a placement each -
+ * goes with them.
+ */
+const DECLARED_LOSSES: Record<string, Record<string, number>> = {
+  '0020-drop-layout-name-and-width': {
+    layouts: 2,
+    panel_placements: 2,
+    layout_rows: 2,
+  },
+};
+
 /** What a table's columns are called, in the order the store holds them. */
 function columnsOf(sql: SqlStorage, table: string): string[] {
   return sql
     .exec<{ name: string }>(`PRAGMA table_info(${table})`)
     .toArray()
     .map((column) => column.name);
+}
+
+/** How many rows each table the store holds has, keyed by table name. */
+function rowCountsOf(sql: SqlStorage): Record<string, number> {
+  const tables = sql
+    .exec<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+    )
+    .toArray()
+    .map((row) => row.name);
+  const counts: Record<string, number> = {};
+  for (const table of tables) {
+    counts[table] = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM \`${table}\``).toArray()[0]!.n;
+  }
+  return counts;
 }
 
 /** Fills every table the store has, so the outstanding updates meet data rather than emptiness. */
@@ -328,9 +374,16 @@ function justBefore(change: string): number {
  * that one change, without opening it, which would carry it all the way to
  * the newest change in the list instead. Only meaningful straight after
  * `agedTo(name, justBefore(change))`.
+ *
+ * **By `accountChanges(name)`, not the module-level `updates`.** Three
+ * changes derive ids and `tenant_id`s from the account they are handed
+ * (`itemTypes`, `standardTypes`, `firstWorkspace`) - `agedTo` already looks
+ * these up per store for exactly that reason, and a change applied here
+ * under `updates`' fixed `'any-account-would-do'` would run against ids and
+ * a tenant this store never wrote, silently doing nothing to it.
  */
 async function applyChange(name: string, change: string): Promise<void> {
-  const found = updates.find((update) => update.name === change);
+  const found = accountChanges(name).find((update) => update.name === change);
   expect(found, `no change called ${change}`).toBeDefined();
   await inStoreAsItIs(name, (sql) => {
     for (const statement of found!.statements) {
@@ -382,6 +435,56 @@ describe('Accounts', () => {
         ]);
       },
     );
+  });
+
+  describe('every update keeps the rows it does not mean to drop', () => {
+    /**
+     * Unlike the loop above, each update here runs alone: `agedTo(name, index)`
+     * ages the store to exactly the point before it, `fillWithWhatIsAlreadyThere`
+     * gives every table it meets a row, and only that one change is applied
+     * (`applyChange`) rather than catching the store all the way up - so a
+     * count lost here is that update's own doing, not a later one's.
+     *
+     * Index 0 is aged to an empty store, which has no table yet to lose a row
+     * from - the same reason `points` above leaves it out. Named by position
+     * rather than the change itself, the same reason `points` above is: what
+     * the runner prints is the statement list, and a migration's own name is
+     * the mechanism, not a sentence about the product.
+     *
+     * **Bounded by what one shared fixture can show.** `rowsFor` gives
+     * `0020-drop-layout-name-and-width` only Layouts the new rule rejects, so
+     * this proves the change drops *something* and no more than it declares,
+     * not that it keeps a Layout that already names a real screen size - that
+     * precision is "keeps a Layout that already names a real screen size..."
+     * below, against a Layout this fixture does not carry. And this compares
+     * counts, not row identities, so a change that lost N rows of a table
+     * while inserting N different ones in the same breath would net to zero
+     * here - no update does that today.
+     */
+    const everyUpdate = updates
+      .map((update, index) => ({ changeName: update.name, index, position: index + 1, total: updates.length }))
+      .filter(({ index }) => index > 0);
+
+    it.each(everyUpdate)('update $position of $total keeps the rows it does not mean to drop', async ({ changeName, index }) => {
+      const name = `row-survival-${changeName}`;
+      await agedTo(name, index);
+      await fillWithWhatIsAlreadyThere(name);
+
+      const before = await inStoreAsItIs(name, rowCountsOf);
+      await applyChange(name, changeName);
+      const after = await inStoreAsItIs(name, rowCountsOf);
+
+      // A table not present afterwards counts as every row it had lost, which
+      // is what catches a change that drops a table outright rather than
+      // rebuilding it under the same name.
+      const lost: Record<string, number> = {};
+      for (const [table, count] of Object.entries(before)) {
+        const missing = count - (after[table] ?? 0);
+        if (missing > 0) lost[table] = missing;
+      }
+
+      expect(lost).toEqual(DECLARED_LOSSES[changeName] ?? {});
+    });
   });
 
   describe('an item carries the three texts it has and nothing left over from before', () => {
