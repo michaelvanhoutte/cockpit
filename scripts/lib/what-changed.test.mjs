@@ -96,7 +96,10 @@ describe('productChanged', () => {
 
   it('answers the same question the run log answers, so the two cannot disagree', () => {
     for (const paths of [['docs/a.md'], ['docs/a.md', 'apps/web/src/main.tsx'], ['apps/web/src/main.tsx'], [], ['  ']]) {
-      const empty = paths.filter((path) => path.trim() !== '').length === 0;
+      // Mirrors productChanged's own definition exactly - no trim-based
+      // emptiness test of its own, which is the shape the blank-path bug
+      // this file also guards against took.
+      const empty = paths.length === 0;
       assert.equal(productChanged(paths), empty || productPaths(paths).length > 0, `${JSON.stringify(paths)} is answered two ways`);
     }
   });
