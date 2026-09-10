@@ -455,16 +455,22 @@ tools/test-explorer/package.json
 every ordinary build. The root gains `test:explorer`, `test:explorer:check` and
 `test:coverage` (`pnpm -r test:coverage`).
 
-CI (`.github/workflows/ci.yml`) gains a `Test Explorer` job, independent of `test`,
-`typecheck` and `build` — it needs neither their success nor their output. In order:
-`test:explorer:check` (fails the job on `concepts.json` drift), `test:coverage`
-(instrumented), `test:explorer`, then the uploads named under "Where the report is
-published" below. The job itself carries the reasoning; it is not repeated here.
+CI (`.github/workflows/ci.yml`) gains two jobs. `Concepts` runs `test:explorer:check`
+alone, independent of everything else — it needs no coverage, so it stays fast rather
+than waiting on the suite. `Test Explorer` needs both `Concepts` and `Test`: `Test`
+now runs the suite instrumented (`test:coverage` in place of plain `test`) and uploads
+`coverage-final.json` from every package that has one as an artifact, which `Test
+Explorer` downloads before running `test:explorer` and the uploads named under "Where
+the report is published" below. The jobs themselves carry the reasoning; it is not
+repeated here.
 
-The original draft had the job `needs: test` "to reuse the coverage output", which was
-wrong: Actions jobs run in separate VMs, so only an uploaded artifact shares a directory.
-The job runs the suite a second time, instrumented, inside its own VM — roughly doubling
-its runtime, accepted because it keeps the job self-contained and avoids the artifact hop.
+An earlier draft ran the suite a second time inside `Test Explorer`, instrumented,
+rather than sharing `Test`'s run — accepted at the time because Actions jobs run in
+separate VMs and only an uploaded artifact shares a directory, and rejected once
+measurement showed the instrumentation added nothing: 282s for `Test`, 269s for the
+instrumented run, so the second run bought no safety net, only four minutes ("Run the
+suite once in CI, not once to gate and once to measure", issue 289). The artifact hop
+that draft avoided is what replaced it.
 
 **This publishes, and does not gate.** No job fails on a red cell; `check-concepts` only
 fails on registry drift, which is build hygiene rather than a coverage judgment. Gating on
