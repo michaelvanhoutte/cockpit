@@ -29,20 +29,22 @@ gh issue list --state closed --search "closed:>=<window-start> -label:periodic-r
 
 The label exclusion keeps this skill's own earlier output out of its own input. Read every closed issue's body, not just its title — the same reason the pull-request path below reads full threads: two instances of a class rarely share wording, and a title-only read misses the ones that don't.
 
-From the merged pull requests, sample the 25 most recently *merged* for a review-thread read — the sample size "Fail on the writing rules a script can decide, instead of finding them in review" (issue 278) itself used. Sort by `mergedAt` explicitly first: the list above comes back in creation order, not merge order, and a pull request opened early but merged late is exactly the kind that draws the most review. For each sampled pull request, read the whole thread, not only its opening comment — a later reply is often the one that says a finding was already spun into its own issue:
+From the merged pull requests, sample the 25 most recently *merged* for a review read — the sample size "Fail on the writing rules a script can decide, instead of finding them in review" (issue 278) itself used. Sort by `mergedAt` explicitly first: the list above comes back in creation order, not merge order, and a pull request opened early but merged late is exactly the kind that draws the most review. A finding lands in three different places on a pull request here — an inline thread, a top-level comment (this repo's own security-review bot posts one on every pull request, inline or not), or a review's summary body — so read all three, not only the inline threads:
 
 ```bash
 gh api graphql -f query='
   query($owner:String!,$repo:String!,$number:Int!){
     repository(owner:$owner,name:$repo){
       pullRequest(number:$number){
-        reviewThreads(first:100){
-          nodes{ comments(first:10){ nodes{ body path } } }
-        }
+        reviewThreads(first:100){ nodes{ comments(first:20){ nodes{ body path } } } }
+        comments(first:100){ nodes{ body } }
+        reviews(first:20){ nodes{ body } }
       }
     }
   }' -F owner=<owner> -F repo=<repo> -F number=<n>
 ```
+
+Each list is capped (100 threads, 20 replies per thread, 100 top-level comments, 20 reviews) — a known truncation, not a claim that nothing past it exists.
 
 ### 3. Group into classes
 
