@@ -240,6 +240,34 @@ describe('Triage', () => {
       expect(await historyFor(itemId)).toHaveLength(1);
     });
 
+    /**
+     * Deleting a Panel tombstones it without touching the `panel_items` rows
+     * that pointed at it, which is what puts the Item back in the Inbox
+     * (`isItemFiled` in repo.ts). Filing it onto a new Panel afterwards is
+     * therefore a genuine first-ever, visible filing, not a reorganizing
+     * move of one still filed somewhere - and has to be told apart from
+     * that case correctly, or the entry is lost for good.
+     */
+    it('appends an entry when an item is re-filed after its only panel was deleted', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const anna = await aPanel(today, 'Anna');
+      const itemId = await anItem('Reply to Bart');
+      await move(itemId, falcon);
+      expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: falcon })).status).toBe(200);
+
+      expect((await move(itemId, anna)).status).toBe(200);
+
+      // Two entries, not one: the original Falcon filing was a genuine first
+      // filing too, and stands - deleting its Panel afterwards does not
+      // erase that it happened. The Anna filing is a second, equally
+      // genuine first-ever-*visible* filing, not a reorganization of the
+      // first.
+      const rows = await historyFor(itemId);
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.chosen_panel_id).sort()).toEqual([anna, falcon].sort());
+    });
+
     it('appends nothing for add_item_to_panel, which puts an item on a second panel without saying it primarily belongs there', async () => {
       const today = await aDashboard();
       const falcon = await aPanel(today, 'Falcon');

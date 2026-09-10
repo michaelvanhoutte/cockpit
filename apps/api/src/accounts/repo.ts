@@ -687,6 +687,12 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
  * accept) and sometimes not (an override). Both resolve even for a Panel
  * since tombstoned - the whole reason `decision_history` references `panels`
  * rather than copying its name at write time (schema.ts).
+ *
+ * **A dismissed Item's entry is left out**, unlike a tombstoned Panel's -
+ * `items.deletedAt` is the one dismissal a person actually asked for
+ * (`set_dismissed`), and its whole point is that the note stops being acted
+ * on; a decision history that went on handing its captured text to every
+ * future classification call would not have honoured that.
  */
 export function decisionHistoryForWorkspace(
   db: AccountDb,
@@ -714,7 +720,13 @@ export function decisionHistoryForWorkspace(
     .innerJoin(items, eq(decisionHistory.itemId, items.id))
     .innerJoin(chosenPanels, eq(decisionHistory.chosenPanelId, chosenPanels.id))
     .leftJoin(proposedPanels, eq(decisionHistory.proposedPanelId, proposedPanels.id))
-    .where(and(eq(decisionHistory.tenantId, tenantId), eq(decisionHistory.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(decisionHistory.tenantId, tenantId),
+        eq(decisionHistory.workspaceId, workspaceId),
+        isNull(items.deletedAt),
+      ),
+    )
     .orderBy(asc(decisionHistory.decidedAt))
     .all();
 }
@@ -780,14 +792,35 @@ export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean
  * Whether an Item is filed on any Panel at all - the boundary a routing
  * proposal may not cross once true, being filed being the only way a routing
  * settles ("Propose where a captured note belongs, without filing it there",
- * issue 298).
+ * issue 298), and what tells a first-ever filing apart from a reorganizing
+ * one for `decision_history` ("Learn where notes belong from where you
+ * actually file them", issue 299).
+ *
+ * **Excludes a filing whose Panel or Dashboard has since been deleted**,
+ * exactly as `listFilingsInWorkspace` does and for the same reason: deleting
+ * a Panel tombstones it without touching the `panel_items` rows that pointed
+ * at it, which is what puts the Item back in the Inbox - so a row surviving
+ * there is not evidence the Item is still filed anywhere a person can see.
+ * Without this, an Item whose only Panel was deleted would read as filed
+ * forever, permanently refusing it a fresh proposal and, now, permanently
+ * losing the decision-history entry its next, genuinely-first-seen filing
+ * ought to write.
  */
 export function isItemFiled(db: AccountDb, tenantId: string, itemId: string): boolean {
   return (
     db
       .select({ panelId: panelItems.panelId })
       .from(panelItems)
-      .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, itemId)))
+      .innerJoin(panels, eq(panelItems.panelId, panels.id))
+      .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+      .where(
+        and(
+          eq(panelItems.tenantId, tenantId),
+          eq(panelItems.itemId, itemId),
+          isNull(panels.deletedAt),
+          isNull(dashboards.deletedAt),
+        ),
+      )
       .limit(1)
       .all().length > 0
   );

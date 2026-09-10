@@ -656,6 +656,34 @@ describe('Capture', () => {
       expect(asked[0]!.system).not.toContain('part 11 audit trail question');
     });
 
+    /**
+     * `decisionHistoryForWorkspace` joins the Item back in to read its
+     * captured text, and a dismissed Item is not deleted (architecture,
+     * "Tombstones, not deletes") - so without excluding it explicitly, the
+     * note somebody dismissed would go on being handed to every future
+     * classification call anyway.
+     */
+    it('never carries a decision about a note that has since been dismissed', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const dismissed = await captureANote({ message: 'part 11 audit trail question' });
+      await untilTheNoteHasBeenRead(dismissed);
+      await moveOnto(dismissed, compliance);
+      await postChange('set_dismissed', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:02.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId: dismissed,
+        dismissed: true,
+      });
+      asked = [];
+
+      const itemId = await captureANote({ message: 'a second, unrelated note' });
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('(nothing filed yet)');
+      expect(asked[0]!.system).not.toContain('part 11 audit trail question');
+    });
+
     it('names another note captured lately and not yet filed', async () => {
       const waiting = await captureANote({ message: 'still sitting in the inbox' });
       await untilTheNoteHasBeenRead(waiting);
