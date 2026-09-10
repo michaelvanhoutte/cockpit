@@ -74,13 +74,33 @@ jobs:
       - run: pnpm lint
       - run: pnpm test:lint
 
+  # On a pull request this runs only the tests that depend on what changed
+  # since the merge-base with `main` (scripts/ci-test.mjs, scripts/lib/test-selection.mjs,
+  # scripts/lib/workspace.mjs) - the point being proved is that affected-selection scales as the suite
+  # grows, not that any one run is faster today ("Run only the affected tests
+  # in CI's Test job on a pull request", issue 346).
+  #
+  # testing-strategy.md's "Definition of done for agents" section (§6) requires
+  # the fast tiers in full, with no selection - unaffected by this, since that
+  # rule is about what an agent runs *locally* before claiming a change works
+  # (`pnpm test`, untouched here) and is backstopped by CI regardless of what
+  # was run by hand. That backstop is this job, and it still has to actually
+  # run everything at some point rather than trust a diff - which is why a push
+  # to `main` runs every package in full unconditionally: it is the actual gate
+  # before staging, and a diff computed there against its own squash-merge
+  # parent would just reproduce the same small set the pull request already ran.
+  #
+  # fetch-depth: 0 is what makes the merge-base computable at all - see
+  # ci-test.mjs's own comment for why no other ref is needed.
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
-      - run: pnpm test
+      - run: node scripts/ci-test.mjs
 
   # F3, the browser tier. Its own job rather than part of `Test`, because it is
   # the one tier that boots the whole application (wrangler + local D1 + Vite)
