@@ -242,7 +242,7 @@ describe('classify', () => {
 });
 
 describe('the mechanical jobs', () => {
-  const gate = "if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}";
+  const gate = "if: ${{ needs.changes.outputs.product_changed != 'false' }}";
 
   /** One job's own lines, from its key down to whatever comes next at that indent. */
   function job(yaml, id) {
@@ -357,13 +357,16 @@ describe('the mechanical jobs', () => {
 
   it('cannot skip on a classifier that failed rather than answered', () => {
     // `needs` on a failed job skips the lot, and a skip is what a required check
-    // accepts - so both steps here carry `continue-on-error`, and the gate below
-    // reads `!failure()` rather than trusting GitHub's default `success()`, which
-    // "Set up job" - the platform phase neither step's own guard reaches - could
-    // still fail outright. `!cancelled()` was rejected on purpose: unlike
-    // `!failure()`, it also opts the job out of the ordinary cancellation
-    // cascade, turning a genuinely cancelled run into a passing `skipped` rather
-    // than the `cancelled` a required context is supposed to read.
+    // accepts - so both steps here carry `continue-on-error`, covering every way
+    // either one can fail. "Set up job", the platform phase ahead of both, is
+    // not covered and is left that way on purpose: `!failure()` cannot help
+    // (it is true on exactly the condition the default `success()` already
+    // tests, so it changes nothing), and `!cancelled()` trades this rare gap
+    // for the common one - it opts the job out of the ordinary cancellation
+    // cascade, turning the cancellation this workflow's own
+    // `cancel-in-progress: true` produces on every second push in a minute
+    // into a passing `skipped` instead of the `cancelled` a required context
+    // is supposed to read (docs/deployment.md, "Bootstrap runbook").
     const yaml = workflow('ci.yml');
     const changes = job(yaml, 'changes');
     // Every step in the block, not a count that a new step could drift past:

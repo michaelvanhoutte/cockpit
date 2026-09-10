@@ -82,15 +82,22 @@ jobs:
   # That does not make the *job* unable to fail: "Set up job", the platform
   # phase ahead of either step, answers to neither `continue-on-error`, and a
   # runner that never starts reports this job `failure` with nothing of ours
-  # having run. The five gates below therefore read `!failure()`, not a bare
-  # `if:` - GitHub's default `success()` would skip all five exactly there,
-  # which is the same hole with the run undamaged rather than tampered with.
-  # `!failure()`, unlike `!cancelled()`, does not also opt this job out of the
-  # ordinary cancellation cascade: a genuinely cancelled run still leaves a
-  # required context reading `cancelled` (docs/deployment.md, "Bootstrap
-  # runbook"), which is what matters, and `!failure()` is silent on that case
-  # rather than fighting it - a downstream job it lets through gets cancelled
-  # in turn once it starts, the same as it always would have.
+  # having run - the five gates' `needs: changes` then skips all five, on the
+  # one failure mode this file cannot make safe from inside a `run:` block.
+  #
+  # **Left as a bare `if:` rather than patched, because every patch tried made
+  # a more common case worse.** `!failure()` looked like the fix and is not
+  # one: `failure()` is true on exactly the condition GitHub's own implicit
+  # `success()` already tests, so it changes nothing. `!cancelled()` does
+  # change something, but the wrong direction - it also opts this job out of
+  # the ordinary cancellation cascade, so the routine case this workflow's own
+  # `cancel-in-progress: true` produces on every second push in a minute would
+  # report the five gates `skipped` rather than `cancelled`, which is exactly
+  # what "A cancelled run reports `cancelled`, not a passing conclusion"
+  # (docs/deployment.md, "Bootstrap runbook") measured and what round two of
+  # this issue's own review already found wrong once. A platform outage severe
+  # enough to fail "Set up job" is rarer than a second push landing inside a
+  # minute, so the trade is not taken: this gap is accepted, not closed.
   changes:
     name: What changed
     runs-on: ubuntu-latest
@@ -151,7 +158,7 @@ jobs:
     # Skipped on a documentation-only diff, and run on anything `changes` could
     # not read — see there.
     needs: changes
-    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -173,7 +180,7 @@ jobs:
     name: Lint
     # Documentation-only diffs skip this; see the `changes` job.
     needs: changes
-    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -185,7 +192,7 @@ jobs:
     name: Test
     # Documentation-only diffs skip this; see the `changes` job.
     needs: changes
-    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -231,7 +238,7 @@ jobs:
     # Documentation-only diffs skip this; see the `changes` job. The 7.7 minutes
     # this tier costs is most of that job's argument.
     needs: changes
-    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -274,7 +281,7 @@ jobs:
     name: Build
     # Documentation-only diffs skip this; see the `changes` job.
     needs: changes
-    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
