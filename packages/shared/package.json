@@ -22,6 +22,6 @@
     "@cockpit/config": "workspace:*",
     "@vitest/coverage-v8": "4.1.10",
     "typescript": "^5.9.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
