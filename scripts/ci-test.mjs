@@ -27,14 +27,21 @@
 // already exists to catch, and treating a failed `git diff` as "nothing
 // changed" would silently select too little rather than too much.
 //
-// Every package runs concurrently, all of them always to completion, rather
-// than one at a time stopping at the first failure: `pnpm -r test`, what this
-// replaces, defaults to running independent packages in parallel too, and a
-// sequential stop-on-first-failure loop would report fewer failures per push
-// than the command it replaces did.
+// Packages run concurrently, up to a limit, all of them always to completion
+// rather than one at a time stopping at the first failure: `pnpm -r test`,
+// what this replaces, defaults to running independent packages in parallel
+// too, and a sequential stop-on-first-failure loop would report fewer
+// failures per push than the command it replaces did. Unbounded concurrency
+// was tried first and cost a real CI run: five vitest processes at once
+// (apps/api's own workerd runtime among them) starved a fully-mocked,
+// five-second-budget tools/ci-stability test of CPU on a standard GitHub
+// runner, timing it out on nothing it was actually waiting on - a genuine
+// regression `pnpm -r`'s own bounded concurrency never produced. The cap
+// below is what keeps the speed this exists for without reproducing that.
 //
 
 import { readFileSync } from 'node:fs';
+import { cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -105,7 +112,9 @@ console.log(
 for (const pkg of plan.packages) console.log(paint('2', `  ${pkg.name}: ${pkg.mode}`));
 
 const COLORS = ['36', '35', '33', '32', '31', '34'];
-const children = plan.packages.map((pkg, i) => {
+
+/** Runs one package's suite; resolves with its exit code, never rejects. */
+function runOne(pkg, index) {
   const args = ['--filter', pkg.name, 'test'];
   // --passWithNoTests: a package the PR never touches routinely has zero
   // files left once --changed narrows it. Vitest 4's own default already
@@ -114,45 +123,57 @@ const children = plan.packages.map((pkg, i) => {
   // default, and the one time it changes upstream is not a moment to
   // discover a package the PR never touched failing the job on its behalf.
   if (pkg.mode === 'changed') args.push('--changed', mergeBase, '--passWithNoTests');
-  return { pkg, child: start(args, `${pkg.name} (${pkg.mode})`, COLORS[i % COLORS.length], root) };
-});
-
-/**
- * Waits for every child to fully finish - not just exit, but its stdio
- * streams closed too, which is what guarantees `start()`'s buffered last
- * line has actually been printed - and names the ones that failed. Never
- * short-circuits on the first failure.
- */
-function waitAll(started) {
-  if (started.length === 0) return Promise.resolve([]);
+  const child = start(args, `${pkg.name} (${pkg.mode})`, COLORS[index % COLORS.length], root);
 
   return new Promise((resolve) => {
-    const failed = [];
-    let remaining = started.length;
-    const settled = new Set();
-    const settle = (pkg, code) => {
-      // A child can fire both 'error' and 'close' for the same failure (a
-      // spawn error such as a missing binary does, on POSIX) - counted once,
-      // or `remaining` reaches 0 with other packages still mid-run.
-      if (settled.has(pkg)) return;
-      settled.add(pkg);
-      if (code !== 0) failed.push(pkg.name);
-      if (--remaining === 0) resolve(failed);
+    let settled = false;
+    // A child can fire both 'error' and 'close' for the same failure (a spawn
+    // error such as a missing binary does, on POSIX) - counted once.
+    const settle = (code) => {
+      if (settled) return;
+      settled = true;
+      resolve(code ?? 1);
     };
-    for (const { pkg, child } of started) {
-      // Defensive, as supervise() in processes.mjs is: a child that exited
-      // before this listener attached would otherwise never settle.
-      if (child.exitCode !== null || child.signalCode !== null) {
-        settle(pkg, child.exitCode ?? 1);
-        continue;
-      }
-      child.on('close', (code) => settle(pkg, code ?? 1));
-      child.on('error', () => settle(pkg, 1));
+    // Defensive, as supervise() in processes.mjs is: a child that exited
+    // before this listener attached would otherwise never settle.
+    if (child.exitCode !== null || child.signalCode !== null) settle(child.exitCode ?? 1);
+    // 'close', not 'exit': what guarantees start()'s buffered last line has
+    // actually been printed before this package is considered done.
+    else {
+      child.on('close', settle);
+      child.on('error', () => settle(1));
     }
   });
 }
 
-const failed = await waitAll(children);
+/**
+ * Runs every package to completion - never short-circuits on the first
+ * failure - at most `limit` at once, and names the ones that failed.
+ *
+ * A fixed-size pool of workers pulling from a shared queue, rather than
+ * starting everything and letting the OS schedule it: that is exactly what
+ * ran five processes at once and starved a lightweight test of CPU on a real
+ * runner (see this file's own top comment). `Math.max(1, cpus().length - 1)`
+ * leaves one core for the runner itself, capped at packages.length so a
+ * five-core box does not still open a worker with nothing left to pull.
+ */
+async function runAll(allPackages) {
+  const queue = [...allPackages];
+  const failed = [];
+  const limit = Math.max(1, Math.min(allPackages.length, cpus().length - 1));
+
+  async function worker() {
+    for (let pkg = queue.shift(); pkg; pkg = queue.shift()) {
+      const code = await runOne(pkg, allPackages.indexOf(pkg));
+      if (code !== 0) failed.push(pkg.name);
+    }
+  }
+
+  await Promise.all(Array.from({ length: limit }, worker));
+  return failed;
+}
+
+const failed = await runAll(plan.packages);
 if (failed.length > 0) {
   console.error(paint('31', `\n${failed.join(', ')} failed.`));
   // process.exitCode rather than process.exit(): stdout/stderr are pipes on
