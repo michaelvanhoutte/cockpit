@@ -40,6 +40,41 @@ permissions:
   contents: read
 
 jobs:
+  # Whether this diff touches anything the mechanical jobs below cover.
+  # Each of them skips when it does not, and a skipped job satisfies a required
+  # status check (docs/deployment.md, "Bootstrap runbook"), so every context
+  # still reports — which a workflow-level `paths:` filter would not, and is why
+  # codeql.yml's own comment rules that out ("Skip the mechanical checks on a
+  # pull request that touches nothing they cover", issue 345).
+  #
+  # The decision is scripts/lib/what-changed.mjs, asserted by node --test in the
+  # `Scripts` job: `docs/`, `.claude/` and root-level `*.md` are the only paths
+  # that skip, and anything else runs everything. codeql.yml carries this job
+  # again rather than reading it from here, because `needs:` cannot cross a
+  # workflow file.
+  #
+  # Checkout-only and no install, for the reason `scripts` gives, so it costs
+  # the jobs that wait on it seconds rather than a minute. `fetch-depth: 0`
+  # because the range it diffs reaches back to the base commit.
+  #
+  # **The gate below fails open twice**, because the dangerous direction is a
+  # skip nobody meant: `!= 'false'` runs the job on an output this never wrote,
+  # and `!cancelled()` runs it even when this job failed outright — `needs` on a
+  # failed job otherwise skips the lot, and a skip is what a required check
+  # accepts. Cancellation stays a skip, as it is for every other job here.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      product_changed: ${{ steps.classify.outputs.product_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Work out whether this diff touches the product
+        id: classify
+        run: node scripts/what-changed.mjs
+
   # Architecture §9.1 asks for the fast test tiers split one job per tier, so a
   # misplaced test is visible. Today Cockpit is one service with one test file,
   # and testing-strategy §2 is explicit that levels are roles rather than
@@ -48,6 +83,10 @@ jobs:
   # The per-tier split lands with the tiers.
   typecheck:
     name: Typecheck
+    # Skipped on a documentation-only diff, and run on anything `changes` could
+    # not read — see there.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +106,9 @@ jobs:
   # for as long as nothing happens to break.
   lint:
     name: Lint
+    # Documentation-only diffs skip this; see the `changes` job.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -76,6 +118,9 @@ jobs:
 
   test:
     name: Test
+    # Documentation-only diffs skip this; see the `changes` job.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +144,10 @@ jobs:
   # in "Deferred, with reasons" (docs/deployment.md).
   e2e:
     name: E2E (F3)
+    # Documentation-only diffs skip this; see the `changes` job. The 7.7 minutes
+    # this tier costs is most of that job's argument.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -139,6 +188,9 @@ jobs:
 
   build:
     name: Build
+    # Documentation-only diffs skip this; see the `changes` job.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -151,6 +203,12 @@ jobs:
       # have to build again to see it.
       - run: pnpm bundle:budget
 
+  # **The one mechanical job with no `if:`**, though the issue behind the gate
+  # above listed it with the rest. Its last test reads the repository's Markdown — the writing rules
+  # of CLAUDE.md — so it is the only check that has anything to say about the
+  # very paths the others skip on, and skipping it would take the prose gate off
+  # exactly the pull requests it exists for. It is also checkout-only and takes
+  # seconds, so gating it would save nothing worth the hole.
   scripts:
     name: Scripts
     runs-on: ubuntu-latest

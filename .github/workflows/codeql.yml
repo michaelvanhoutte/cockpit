@@ -4,10 +4,16 @@ name: CodeQL
 # merge commit on main is a tree that has never been analysed as such.
 #
 # Deliberately no path filters, on this workflow or on claude-code-review.yml.
-# A required status check that is skipped on some pull requests does not report
-# green - it does not report at all, and the pull request waits on it forever.
-# "Skip the analysis on documentation-only changes" and "block every
-# documentation-only pull request" are the same setting.
+# A required status check whose *workflow* never triggers does not report green -
+# it does not report at all, and the pull request waits on it forever. At the
+# trigger level, "skip the analysis on documentation-only changes" and "block
+# every documentation-only pull request" are the same setting.
+#
+# **A job-level `if:` is not that**, and the analysis below now takes one: a
+# skipped job reports a conclusion of `skipped`, which satisfies a required
+# context (docs/deployment.md, "Bootstrap runbook", where it is measured rather
+# than assumed). That is the same mechanism the two Claude review workflows use
+# to skip a draft.
 on:
   push:
     branches: [main]
@@ -30,6 +36,25 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # ci.yml's `changes` job again, because `needs:` cannot cross a workflow file.
+  # The decision itself is not duplicated: both invocations run
+  # scripts/what-changed.mjs, which the Scripts job asserts. See ci.yml for what
+  # counts as a non-product path and why the gate below fails open.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      product_changed: ${{ steps.classify.outputs.product_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Work out whether this diff touches the product
+        id: classify
+        run: node scripts/what-changed.mjs
+
   analyze:
     # This name is what branch protection matches on, once per matrix leg:
     # "CodeQL (javascript-typescript)" and "CodeQL (actions)", both verified
@@ -43,6 +68,11 @@ jobs:
     # posted by GitHub Advanced Security rather than by this workflow, and it is
     # required alongside them for exactly that reason.
     name: CodeQL (${{ matrix.language }})
+    # Both legs skip together on a documentation-only diff, and both run on
+    # anything `changes` could not read - see the note at the top of this file
+    # for why a skip here is safe where a trigger filter is not.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
