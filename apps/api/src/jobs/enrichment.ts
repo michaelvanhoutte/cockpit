@@ -362,12 +362,13 @@ export async function enqueueRepropose(env: Env, accountName: string, workspaceI
  * than the whole job being retried and Items 1 and 2 classified a second
  * time for nothing new.
  *
- * **Sequential, not parallel.** Nobody is waiting on the job as a whole, but
- * somebody may already be triaging the first card by the time it starts, and
- * a card refreshed while it is still on screen has to land below wherever
- * triage has reached, never above it and never all at once
- * (`docs/routing-learning.md`, "Moment 3 in slow motion" - the proposal for
- * the moment this job fires instead of).
+ * **Sequential, not parallel.** Nobody is waiting on the job as a whole, and
+ * one candidate's write landing before the next is asked about is what keeps
+ * this from updating a whole screenful of chips in the same frame. It does
+ * not, on its own, guarantee a chip only ever changes below wherever triage
+ * has reached - that positional guarantee is `docs/routing-learning.md`,
+ * "Moment 3 in slow motion"'s own proposal for the inbox-open trigger this
+ * job fires instead of, and nothing client-side implements it yet.
  */
 export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promise<void> {
   const ai = aiFor(env);

@@ -22,7 +22,7 @@ Model calls at personal volume cost cents per day, so the goal is not to minimis
 | When it fires | What it does | Who is looking at the screen |
 |---|---|---|
 | A note syncs in | proposes a routing, reading the full decision history | nobody |
-| The inbox is opened | refreshes proposals for everything not yet settled | me, but it runs behind the instant paint (§7) |
+| The inbox is opened *(not built - a settle fires the equivalent instead, "The decision moments")* | refreshes proposals for everything not yet settled | me, but it runs behind the instant paint |
 | Nightly | rewrites the plain-English summary of my filing patterns | nobody |
 | I press "re-suggest" on one item | reclassifies that item on demand | me, by explicit request, spinner accepted |
 
@@ -55,7 +55,7 @@ Consequences:
 |---|---|---|---|---|
 | 1. I capture a note | nothing | | | no |
 | 2. The note syncs | a proposed routing | model, background job | no | no |
-| 3. I open the inbox | proposals refreshed for all unsettled items | model, background job | no | no |
+| 3. I open the inbox *(not built - see below)* | proposals refreshed for all unsettled items | model, background job | no | no |
 | 4. I triage an item | the routing settles; one history entry appended | **me** | **yes, permanently** | no |
 | 5. Nightly | plain-English summary of my patterns rewritten | model | routes nothing | no |
 
@@ -70,6 +70,8 @@ Consequences:
 **Moment 5** keeps the model's input bounded as the history grows, and makes what the system learned *visible and editable*: the summary renders in settings as plain English ("notes about validation, audit trails and sign-off go to Compliance questions, even when they name a person") and I can correct it in a sentence. Same philosophy as plain-English panel rules — no black box, no rule wizard.
 
 ## 7. Moment 3 in slow motion
+
+**Not built** ("The decision moments"): the inbox-open trigger below never shipped, and moment 4 fires the same kind of refresh instead. Kept as the design this section's own positional guarantee (step 3) still names an intention for, not a description of what runs today.
 
 1. I open the inbox. It paints **instantly from the persisted local snapshot**, which already carries the moment-2 proposals. Nothing is requested before paint.
 2. At the same instant the server begins refreshing proposals for unsettled items, taking one to two seconds in total.
