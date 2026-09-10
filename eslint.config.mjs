@@ -55,13 +55,14 @@ export default [
   {
     // Build output, runtime scratch and failure artefacts. `poc/` is outside
     // the workspace on purpose (readme.md, "Proofs of concept"), so it is
-    // outside this too. `.claude/` is on the CI-skip classifier's non-product
-    // allowlist (scripts/lib/what-changed.mjs, "Skip the mechanical checks on
-    // a pull request that touches nothing they cover", issue 345), which holds
-    // only because a documentation-only diff never reaches `Lint` - a `.js`
-    // file added there later would otherwise match one of the `files:` globs
-    // below (flat config lints dot-directories by default) and be read by a
-    // job the allowlist says cannot see it.
+    // outside this too. `docs/` and `.claude/` are the CI-skip classifier's
+    // non-product allowlist (scripts/lib/what-changed.mjs, "Skip the
+    // mechanical checks on a pull request that touches nothing they cover",
+    // issue 345), which holds only because a documentation-only diff never
+    // reaches `Lint` - a `.js`/`.test.mjs` file added under either later would
+    // otherwise match one of the `files:` globs below (flat config lints
+    // dot-directories by default) and be read by a job the allowlist says
+    // cannot see it.
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
@@ -72,6 +73,7 @@ export default [
       'playwright-report/**',
       'tools/*/out/**',
       'poc/**',
+      'docs/**',
       '.claude/**',
     ],
   },

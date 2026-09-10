@@ -242,7 +242,7 @@ describe('classify', () => {
 });
 
 describe('the mechanical jobs', () => {
-  const gate = "if: ${{ needs.changes.outputs.product_changed != 'false' }}";
+  const gate = "if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}";
 
   /** One job's own lines, from its key down to whatever comes next at that indent. */
   function job(yaml, id) {
@@ -319,6 +319,20 @@ describe('the mechanical jobs', () => {
     assert.match(changes, /git show "\$BASE_SHA:scripts\/lib\/what-changed\.mjs"/, "the base commit's own module is not taken");
   });
 
+  it('names every local file the base-commit extraction would need to copy too', () => {
+    // ci.yml's `git show` pair is two hard-coded paths, not a general copy of
+    // whatever the wrapper imports - so a third local file added to either
+    // module later would leave the extraction reading a wrapper that cannot
+    // resolve its own import, `continue-on-error` turning that crash into a
+    // silent "every check runs" rather than a loud one. This is the tripwire:
+    // it names the one local import the wrapper has today, and fails the
+    // moment a second one is added, which is when ci.yml needs a third
+    // `git show` too.
+    const wrapper = readFileSync(join(repo, 'scripts/what-changed.mjs'), 'utf8');
+    const localImports = [...wrapper.matchAll(/from '(\.[^']+)'/g)].map((match) => match[1]);
+    assert.deepEqual(localImports, ['./lib/what-changed.mjs']);
+  });
+
   it('never falls back to the pull request\'s own classifier when the base commit has none', () => {
     // A pull request whose base predates this classifier - every branch open
     // when it merges, until each is rebased - would otherwise hit exactly the
@@ -327,21 +341,39 @@ describe('the mechanical jobs', () => {
     // only" about its own payload. Failing open (`product_changed=true`
     // written directly, no `node` call) is the only safe answer once the base
     // commit's copy could not be read.
+    //
+    // Split on the `fi` *keyword* closing the `if git show ... ; then`, not on
+    // the substring - `split('fi')` alone cuts inside "classifier" on the very
+    // first comment line of the else branch, leaving 70 bytes of 1062 to
+    // search and passing whether or not a `node` call is hiding past that
+    // point (it was, once, while this test still read that way).
     const changes = job(workflow('ci.yml'), 'changes');
     const elseBranch = changes.slice(changes.indexOf('else', changes.indexOf('git show')));
-    assert.doesNotMatch(elseBranch.split('fi')[0], /node /, "the else branch still runs a classifier - which one, on whose copy?");
-    assert.match(elseBranch, /product_changed=true/, 'the else branch does not fail open directly');
+    const body = elseBranch.split(/\n {10}fi\n/)[0];
+    assert.ok(body.length > 200, `the else branch looked too short to be real: ${body.length} bytes`);
+    assert.doesNotMatch(body, /node /, "the else branch still runs a classifier - which one, on whose copy?");
+    assert.match(body, /product_changed=true/, 'the else branch does not fail open directly');
   });
 
   it('cannot skip on a classifier that failed rather than answered', () => {
     // `needs` on a failed job skips the lot, and a skip is what a required check
-    // accepts - so this job carries `continue-on-error` instead of the gate
-    // carrying `!cancelled()`, which would have turned a cancelled run into a
-    // passing one.
+    // accepts - so both steps here carry `continue-on-error`, and the gate below
+    // reads `!failure()` rather than trusting GitHub's default `success()`, which
+    // "Set up job" - the platform phase neither step's own guard reaches - could
+    // still fail outright. `!cancelled()` was rejected on purpose: unlike
+    // `!failure()`, it also opts the job out of the ordinary cancellation
+    // cascade, turning a genuinely cancelled run into a passing `skipped` rather
+    // than the `cancelled` a required context is supposed to read.
     const yaml = workflow('ci.yml');
     const changes = job(yaml, 'changes');
-    assert.equal((changes.match(/^ {8}continue-on-error: true$/gm) ?? []).length, 2, 'both steps of the changes job should continue on error');
-    assert.doesNotMatch(job(yaml, 'typecheck'), /!cancelled\(\)/, 'the gate should leave a cancelled run cancelled');
+    // Every step in the block, not a count that a new step could drift past:
+    // `- uses:`/`- name:` at the step indent should equal how many
+    // `continue-on-error: true` lines follow it.
+    const steps = (changes.match(/^ {6}- (?:uses|name):/gm) ?? []).length;
+    const continues = (changes.match(/^ {8}continue-on-error: true$/gm) ?? []).length;
+    assert.ok(steps >= 2, `expected at least two steps in the changes job, found ${steps}`);
+    assert.equal(continues, steps, `every step of the changes job should continue on error (${continues} of ${steps} do)`);
+    assert.doesNotMatch(job(yaml, 'typecheck'), /!cancelled\(\)/, 'the gate should leave a cancelled run cancelled, not turn it into a passing skip');
   });
 
   it('leave the reports and the writing rules alone', () => {

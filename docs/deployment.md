@@ -714,11 +714,15 @@ Then, by hand (no API, or deliberately not automated):
      when none does has never been measured here — a required context nothing
      reports under sits at *Expected* forever, so guessing wrong blocks every
      documentation-only pull request permanently. The cost settled it rather than
-     the risk: across three pull requests sampled on 10 September 2026 the legs
-     took 0.6–3.3 minutes each, against `claude-review` on the same head at
-     9.0–14.9 and `Test Explorer` at 5.1–6.8, neither of which is gated. The legs
-     already finish inside the shadow of checks that run regardless, so skipping
-     them would shorten nothing anybody waits for.
+     the risk: across three ordinary pull requests sampled on 10 September 2026
+     the legs took 0.6–3.3 minutes each, against `claude-review` on the same head
+     at 9.0–14.9 and `Test Explorer` at 5.1–6.8. `claude-review` is ungated and
+     unaffected by this file's own documentation-only skip, so it alone carries
+     the argument for the pull requests that skip actually decides — the legs
+     already finish inside its shadow there, shortening nothing anybody waits
+     for. `Test Explorer`'s figure describes an ordinary pull request only: on
+     the documentation-only ones this measurement is about, it skips too, for
+     free, once `Test` does (ci.yml's `test-explorer` job says why).
 
      **All three names were read off a real run** ("Analyse every pull request with
      CodeQL, and let Dependabot report vulnerable dependencies", pull request 92),

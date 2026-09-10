@@ -74,13 +74,23 @@ jobs:
   # because the range it diffs reaches back to the base commit, and the whole
   # history is 8MB packed.
   #
-  # **This job cannot fail**, which is what lets the gate below be an ordinary
-  # `if:`. The dangerous direction is a skip nobody meant: `needs` on a *failed*
-  # job skips the lot, and a skip is what a required check accepts, so a lost
-  # network here would otherwise wave the diff through five green ticks. Both
-  # steps are `continue-on-error`, so any failure leaves `product_changed`
-  # unwritten and `!= 'false'` runs everything. Cancellation is then left to mean
-  # cancelled, as it does for every other job here.
+  # **Both steps are `continue-on-error`**, so any failure inside either one
+  # leaves `product_changed` unwritten and the gate's `!= 'false'` runs
+  # everything - the dangerous direction is a skip nobody meant, since `needs`
+  # on a failed job skips the lot and a skip is what a required check accepts.
+  #
+  # That does not make the *job* unable to fail: "Set up job", the platform
+  # phase ahead of either step, answers to neither `continue-on-error`, and a
+  # runner that never starts reports this job `failure` with nothing of ours
+  # having run. The five gates below therefore read `!failure()`, not a bare
+  # `if:` - GitHub's default `success()` would skip all five exactly there,
+  # which is the same hole with the run undamaged rather than tampered with.
+  # `!failure()`, unlike `!cancelled()`, does not also opt this job out of the
+  # ordinary cancellation cascade: a genuinely cancelled run still leaves a
+  # required context reading `cancelled` (docs/deployment.md, "Bootstrap
+  # runbook"), which is what matters, and `!failure()` is silent on that case
+  # rather than fighting it - a downstream job it lets through gets cancelled
+  # in turn once it starts, the same as it always would have.
   changes:
     name: What changed
     runs-on: ubuntu-latest
@@ -141,7 +151,7 @@ jobs:
     # Skipped on a documentation-only diff, and run on anything `changes` could
     # not read — see there.
     needs: changes
-    if: ${{ needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -163,7 +173,7 @@ jobs:
     name: Lint
     # Documentation-only diffs skip this; see the `changes` job.
     needs: changes
-    if: ${{ needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -175,7 +185,7 @@ jobs:
     name: Test
     # Documentation-only diffs skip this; see the `changes` job.
     needs: changes
-    if: ${{ needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -221,7 +231,7 @@ jobs:
     # Documentation-only diffs skip this; see the `changes` job. The 7.7 minutes
     # this tier costs is most of that job's argument.
     needs: changes
-    if: ${{ needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -264,7 +274,7 @@ jobs:
     name: Build
     # Documentation-only diffs skip this; see the `changes` job.
     needs: changes
-    if: ${{ needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ !failure() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
