@@ -3,8 +3,10 @@ import { panelNameSchema } from './panel.js';
 
 /**
  * A Screen size: a name for one of the screens you work on, and the width to
- * match a window against (issue 262; architecture.md §4.4 for why it belongs
- * to the account rather than to a Dashboard).
+ * match a window against ("Give the account a list of screen sizes, before
+ * anything reads it", issue 262; architecture.md §4.4, "packages/shared:
+ * schema and command rationale", for why it belongs to the account rather
+ * than to a Dashboard).
  */
 
 /** A Screen size's name obeys exactly the rules a Panel's title does, by being the same schema. */
@@ -14,7 +16,7 @@ export const screenSizeNameSchema = panelNameSchema;
 export const MIN_SCREEN_WIDTH = 1;
 export const MAX_SCREEN_WIDTH = 100000;
 
-/** What the account's first screen size is called, made the first time an arrangement change needs one (issue 263; architecture.md §4.4). */
+/** What the account's first screen size is called, made the first time an arrangement change needs one ("Draw a dashboard against the screen sizes its account has", issue 263; architecture.md §4.4). */
 export const DEFAULT_SCREEN_SIZE_NAME = 'Default';
 
 export const screenSizeSchema = z.object({
@@ -31,7 +33,9 @@ export type ScreenSize = z.infer<typeof screenSizeSchema>;
 /**
  * The account's screen size nearest this window, ties going to the narrower
  * (issue 263). Shared rather than written twice, since server and client both
- * ask the same question from the same list (architecture.md §4.4).
+ * ask the same question from the same list — the client calls this from
+ * `apps/web/src/panels/arrangement.ts`'s `layoutToDraw`, to decide whether a
+ * picked size has expired (architecture.md §4.4).
  */
 export function nearestScreenSize(
   sizes: readonly ScreenSize[],

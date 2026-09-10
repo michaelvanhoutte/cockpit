@@ -13,7 +13,7 @@ export type Source = z.infer<typeof sourceSchema>;
 export const prioritySchema = z.enum(['low', 'normal', 'high']);
 export type Priority = z.infer<typeof prioritySchema>;
 
-/** How long a title may be. A product number, not a storage one (architecture.md §4.4). */
+/** How long a title may be. A product number, not a storage one (architecture.md §4.4, "packages/shared: schema and command rationale"). */
 export const TITLE_LENGTH = 200;
 
 /**
@@ -34,7 +34,8 @@ export const itemDescriptionSchema = z.string().trim().max(60_000);
 
 /**
  * One other way a captured note could be read, offered beside the reading
- * Cockpit already proposed (issue 297; architecture.md §4.4).
+ * Cockpit already proposed ("Offer the other readings when a captured note
+ * says two things", issue 297; architecture.md §4.4).
  */
 export const itemReadingSchema = z.object({
   title: itemTitleSchema.refine((title) => title.length > 0, {
@@ -55,7 +56,7 @@ export const itemSchema = z.object({
   tenantId: z.string(),
   /** The Workspace this Item belongs to — or, while `workspaceDecided` is false, the one it was captured from. */
   workspaceId: z.string(),
-  /** Whether anybody has said which Workspace this Item belongs to (issue 165; architecture.md §4.4). Read through `workspaceIsDecided` rather than directly. */
+  /** Whether anybody has said which Workspace this Item belongs to ("Capture something before you know which workspace it belongs to", issue 165; architecture.md §4.4). Read through `workspaceIsDecided` rather than directly. */
   workspaceDecided: z.boolean(),
 
   // -- write-once --
@@ -75,19 +76,19 @@ export const itemSchema = z.object({
   /** Permissive here, capped on the way in (`setTitleSchema`) — architecture.md §4.4. */
   title: z.string(),
   description: z.string().nullable(),
-  /** When the title and description were taken over from Cockpit's own reading, and null while still Cockpit's to replace (issue 296; architecture.md §4.4). */
+  /** When the title and description were taken over from Cockpit's own reading, and null while still Cockpit's to replace ("Clean up a captured note into a clear title and a fuller message", issue 296; architecture.md §4.4). */
   textsSettledAt: z.iso.datetime().nullable(),
   /** The other ways this note could genuinely be read, where Cockpit found any (issue 297; architecture.md §4.4). */
   readings: itemReadingSchema.array().nullable(),
-  /** The Panel Cockpit thinks this note belongs on, proposed rather than filed (issue 298; architecture.md §4.4). */
+  /** The Panel Cockpit thinks this note belongs on, proposed rather than filed ("Propose where a captured note belongs, without filing it there", issue 298; architecture.md §4.4). */
   proposedPanelId: z.uuid().nullable(),
   /** Why, beside the Panel above — in words meant for the row's own hover text. Null exactly when `proposedPanelId` is. */
   proposedPanelReason: z.string().nullable(),
-  /** What kind of thing this is (issue 155; architecture.md §4.4). Nullable: an item with no type, or a deleted type, draws with none rather than hidden. */
+  /** What kind of thing this is ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). Nullable: an item with no type, or a deleted type, draws with none rather than hidden. */
   typeId: z.string().nullable(),
   /** The current, always-editable next-action label (functional-definition.md §6.1). */
   nextAction: z.string().nullable(),
-  /** When this was finished with — a time rather than a flag (issue 154; architecture.md §4.4). App-owned: a re-sync never clears it. */
+  /** When this was finished with — a time rather than a flag ("An item is either yours to deal with or finished with", issue 154; architecture.md §4.4). App-owned: a re-sync never clears it. */
   completedAt: z.iso.datetime().nullable(),
   priority: prioritySchema.nullable(),
   dueDate: z.iso.date().nullable(),
@@ -191,7 +192,7 @@ export const workspaceSchema = z.object({
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
 
-/** A Dashboard's name obeys exactly the rules a Workspace's does, by being the same schema (issue 32). */
+/** A Dashboard's name obeys exactly the rules a Workspace's does, by being the same schema ("Add and switch dashboards", issue 32). */
 export const dashboardNameSchema = workspaceNameSchema;
 
 /**

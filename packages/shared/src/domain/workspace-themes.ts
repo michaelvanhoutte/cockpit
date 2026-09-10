@@ -3,8 +3,9 @@ import { z } from 'zod';
 /**
  * The colors a Workspace can be dressed in, and the rule that only these are
  * allowed (functional-definition.md, "Container hierarchy"; architecture.md
- * §4.4 for the full design rationale). Shared, because both the workspaces
- * window and the server need the same list for different halves of one rule.
+ * §4.4, "packages/shared: schema and command rationale", for the full design
+ * rationale). Shared, because both the workspaces window and the server need
+ * the same list for different halves of one rule.
  */
 
 /** `#rrggbb`, the one form every color here is written and stored in. */

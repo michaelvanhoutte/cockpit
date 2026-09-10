@@ -69,7 +69,11 @@ export const reorderWorkspacesSchema = commandEnvelopeSchema
   });
 export type ReorderWorkspacesCommand = z.infer<typeof reorderWorkspacesSchema>;
 
-/** set_workspace_theme — all four colors together (architecture.md §4.4). */
+/**
+ * set_workspace_theme — all four colors together (architecture.md §4.4). The
+ * server refuses a set that is not one of the eight palette entries
+ * (`hexColorSchema` only validates `#rrggbb` shape, not membership).
+ */
 export const setWorkspaceThemeSchema = commandEnvelopeSchema.extend({
   color: hexColorSchema,
   bar: hexColorSchema,
@@ -144,13 +148,22 @@ export const setPanelFormatSchema = commandEnvelopeSchema.extend({
 });
 export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
 
-/** save_layout — one arrangement of a dashboard's panels, whole (architecture.md §4.4). */
+/**
+ * save_layout — one arrangement of a dashboard's panels, whole (architecture.md
+ * §4.4). Still an upsert: a `layoutId` the dashboard already has updates that
+ * layout, a fresh client-generated one creates it.
+ */
 export const saveLayoutSchema = commandEnvelopeSchema.extend({
   dashboardId: z.string(),
   layoutId: z.uuid(),
   /** Bounded so a layout can never record a width no screen has (architecture.md §4.4). */
   screenWidth: z.number().int().min(1).max(100_000),
-  /** Which screen size this save defines a Layout for; optional — see architecture.md §4.4 for what happens where it is left out. */
+  /**
+   * Which screen size this save defines a Layout for. Optional: left out, the
+   * size is resolved on the way in to the account's nearest size, or one
+   * called *Default* at `screenWidth` where the account has none at all —
+   * sent explicitly, it means *Define a layout for X* (architecture.md §4.4).
+   */
   screenSizeId: z.string().min(1).optional(),
   /** The rows, top to bottom. An arrangement is the whole list. */
   rows: z
@@ -202,21 +215,27 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
   /** Capped where a description is capped, on the way in only (architecture.md §4.4). */
   message: z.string().trim().min(1).max(60_000),
   nextAction: z.string().optional(),
-  /** Required — every Item has a Type (issue 155; architecture.md §4.4). */
+  /** Required — every Item has a Type ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). */
   typeId: z.string().min(1),
-  /** Whether the envelope's Workspace is where this Item belongs, or merely where it was captured from (issue 165; architecture.md §4.4). */
+  /**
+   * Whether the envelope's Workspace is where this Item belongs, or merely
+   * where it was captured from ("Capture something before you know which
+   * workspace it belongs to", issue 165). Defaults to true when left out, so
+   * every front door that captures into a named workspace keeps saying what
+   * it always said (architecture.md §4.4).
+   */
   workspaceDecided: z.boolean().optional(),
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 
-/** create_item_type — made only from the types-management page (issue 203; architecture.md §4.4). */
+/** create_item_type — made only from the types-management page ("Make a type where types are managed, not while capturing", issue 203; architecture.md §4.4). */
 export const createItemTypeSchema = commandEnvelopeSchema.extend({
   typeId: z.uuid(),
   name: itemTypeNameSchema,
 });
 export type CreateItemTypeCommand = z.infer<typeof createItemTypeSchema>;
 
-/** rename_item_type (issue 156; architecture.md §4.4). */
+/** rename_item_type ("Manage the types, and put them in the order you want", issue 156; architecture.md §4.4). */
 export const renameItemTypeSchema = commandEnvelopeSchema.extend({
   typeId: z.string().min(1),
   name: itemTypeNameSchema,
@@ -259,7 +278,7 @@ const namesEachItemOnce = (cmd: { order: string[] }) =>
   new Set(cmd.order).size === cmd.order.length;
 const ONCE = { message: 'an item can only be in one place in the order', path: ['order'] };
 
-/** move_item_to_panel — where an Item lives now, and the target Panel's whole order (issue 36; architecture.md §4.4). */
+/** move_item_to_panel — where an Item lives now, and the target Panel's whole order ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36; architecture.md §4.4). */
 export const moveItemToPanelSchema = commandEnvelopeSchema
   .extend({
     itemId: z.uuid(),
@@ -275,7 +294,7 @@ export const moveItemToPanelSchema = commandEnvelopeSchema
   });
 export type MoveItemToPanelCommand = z.infer<typeof moveItemToPanelSchema>;
 
-/** add_item_to_panel — `move_item_to_panel` without the taking-off (issue 142; architecture.md §4.4). */
+/** add_item_to_panel — `move_item_to_panel` without the taking-off ("Ask whether to move an item to a panel or add it to one", issue 142; architecture.md §4.4). */
 export const addItemToPanelSchema = commandEnvelopeSchema
   .extend({
     itemId: z.uuid(),
@@ -296,7 +315,7 @@ export const removeItemFromPanelSchema = commandEnvelopeSchema.extend({
 });
 export type RemoveItemFromPanelCommand = z.infer<typeof removeItemFromPanelSchema>;
 
-/** set_done — a flag rather than a pair of commands each way (issue 154; architecture.md §4.4). */
+/** set_done — a flag rather than a pair of commands each way ("An item is either yours to deal with or finished with", issue 154; architecture.md §4.4). */
 export const setDoneSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   done: z.boolean(),
@@ -331,7 +350,7 @@ export const setPrioritySchema = commandEnvelopeSchema.extend({
 });
 export type SetPriorityCommand = z.infer<typeof setPrioritySchema>;
 
-/** set_title / set_description — two commands rather than one save (issue 159; architecture.md §4.4). */
+/** set_title / set_description — two commands rather than one save ("Edit an item's title and description on a form of its own", issue 159; architecture.md §4.4). */
 export const setTitleSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   title: itemTitleSchema,
@@ -346,7 +365,8 @@ export type SetDescriptionCommand = z.infer<typeof setDescriptionSchema>;
 
 /**
  * propose_item_texts — one command for both texts, sent by the enrichment job
- * rather than a client (issue 296; architecture.md §4.4, "two commands carry no
+ * rather than a client ("Clean up a captured note into a clear title and a
+ * fuller message", issue 296; architecture.md §4.4, "two commands carry no
  * client and no route").
  */
 export const proposeItemTextsSchema = commandEnvelopeSchema.extend({
@@ -355,14 +375,15 @@ export const proposeItemTextsSchema = commandEnvelopeSchema.extend({
     message: 'a proposed title has to name the note',
   }),
   description: itemDescriptionSchema.min(1),
-  /** The other ways this note could genuinely be read (issue 297); empty where there is only the one. */
+  /** The other ways this note could genuinely be read ("Offer the other readings when a captured note says two things", issue 297); empty where there is only the one. */
   readings: z.array(itemReadingSchema),
 });
 export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
 
 /**
  * propose_item_panel — the Panel Cockpit thinks a captured note belongs on,
- * offered rather than filed (issue 298; architecture.md §4.4).
+ * offered rather than filed ("Propose where a captured note belongs, without
+ * filing it there", issue 298; architecture.md §4.4).
  */
 export const proposeItemPanelSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),

@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 /**
  * Push invalidation over SSE (architecture.md, "The read model" and "How the
- * client talks to the backend"; §4.4 for `snapshot_invalidated`'s `at`).
+ * client talks to the backend"; §4.4, "packages/shared: schema and command
+ * rationale", for `snapshot_invalidated`'s `at`).
  */
 export const serverEventSchema = z.discriminatedUnion('type', [
   z.object({

@@ -3,9 +3,11 @@ import { workspaceNameSchema } from './item.js';
 import { hexColorSchema, WORKSPACE_THEMES } from './workspace-themes.js';
 
 /**
- * What kind of thing an Item is (issue 155). The set is open, not a fixed enum
- * (architecture.md §4.4 for why), and is a separate axis from being done
- * (issue 154).
+ * What kind of thing an Item is ("Capture a thought or an action, and see
+ * which it is", issue 155). The set is open, not a fixed enum (architecture.md
+ * §4.4, "packages/shared: schema and command rationale", for why), and is a
+ * separate axis from being done ("An item is either yours to deal with or
+ * finished with", issue 154).
  */
 
 /** A Type's name obeys exactly the rules a Workspace's does, by being the same schema. */
@@ -27,7 +29,7 @@ export const itemTypeSchema = z.object({
   /** Permissive read-back field, for the reason `id` above is (architecture.md §4.4). */
   name: z.string(),
   color: z.string(),
-  /** Where this Type sits in the list you put it in (issue 156). Written by nothing yet; ties break on `createdAt`. */
+  /** Where this Type sits in the list you put it in ("Manage the types, and put them in the order you want", issue 156). Written by nothing yet; ties break on `createdAt`. */
   position: z.number().int(),
   createdAt: z.iso.datetime(),
 });

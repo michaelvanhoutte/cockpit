@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 /**
  * Who a user is, as far as anything outside the register is concerned
- * (architecture.md §4.4 for why `role` crosses this boundary and nothing else does).
+ * (architecture.md §4.4, "packages/shared: schema and command rationale", for
+ * why `role` crosses this boundary and nothing else does).
  */
 /** The two roles there are, written once so both sides compare against the same word (architecture.md §4.4). */
 export const ROLES = ['user', 'admin'] as const;
@@ -32,7 +33,7 @@ export const registeredUserSchema = z.object({
   /** The account this person owns, which is theirs alone. */
   accountName: z.string(),
   hasSignedIn: z.boolean(),
-  /** That their access was taken away (issue 233; architecture.md §4.4). */
+  /** That their access was taken away ("Take somebody's access away without taking their work", issue 233; architecture.md §4.4). */
   disabled: z.boolean(),
 });
 export type RegisteredUser = z.infer<typeof registeredUserSchema>;
@@ -47,7 +48,8 @@ export const ADDRESS_LIMIT = 254;
 
 /**
  * Adding somebody: their name, and the Google address they will sign in with
- * (issue 231; architecture.md §4.4 for why the bounds are this loose).
+ * ("Add a user on the admin page, so a second person no longer needs SQL",
+ * issue 231; architecture.md §4.4 for why the bounds are this loose).
  */
 export const addUserSchema = z.object({
   name: z.string().min(1).max(NAME_LIMIT),
@@ -64,7 +66,8 @@ export type UserAdded = z.infer<typeof userAddedSchema>;
 
 /**
  * Changing somebody: the name they are shown by and the role that decides what
- * they may reach (issue 232; architecture.md §4.4 for why both fields travel together).
+ * they may reach ("Rename a user, and make somebody an admin", issue 232;
+ * architecture.md §4.4 for why both fields travel together).
  */
 export const changeUserSchema = z.object({
   name: z.string().min(1).max(NAME_LIMIT),
@@ -95,7 +98,11 @@ export function losingAdminIsRefused({
 }: {
   /** The person being changed, as the register holds them today. */
   who: { id: string; role: string };
-  /** Whether they would still be an admin who can sign in afterwards (issue 233). */
+  /**
+   * Whether they would still be an admin who can sign in afterwards — a role
+   * change asks it of the new role, an access change asks it of sign-in
+   * ability (issue 233).
+   */
   stillAnAdmin: boolean;
   /** Who is asking, which one of the two reasons is about. */
   askedBy: string | undefined;

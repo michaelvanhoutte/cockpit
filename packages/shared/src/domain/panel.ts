@@ -2,14 +2,15 @@ import { z } from 'zod';
 import { workspaceNameSchema } from './item.js';
 
 /**
- * Panels and the layouts that arrange them (issue 33).
+ * Panels and the layouts that arrange them ("Panels on a dashboard, with
+ * per-screen-size layouts", issue 33).
  *
  * A Panel is a movable, resizable, titled box on a Dashboard
  * (functional-definition.md, "Container hierarchy"). A Layout is one
  * arrangement of that Dashboard's Panels at one screen size.
  */
 
-/** The grid every Dashboard is drawn on (architecture.md §4.4 for why twelve). */
+/** The grid every Dashboard is drawn on (architecture.md §4.4, "packages/shared: schema and command rationale", for why twelve). */
 export const GRID_COLUMNS = 12;
 
 /** The tallest and shortest a row may be set to, in pixels (architecture.md §4.4). */
@@ -27,7 +28,8 @@ export const panelNameSchema = workspaceNameSchema;
 
 /**
  * What a Panel is made of: the Items filed into it, or the text written in it
- * (issue 250; architecture.md §4.4 — decided when the Panel is made and never after).
+ * ("Put a panel of text on a dashboard, and write in it", issue 250);
+ * architecture.md §4.4 — decided when the Panel is made and never after.
  */
 export const PANEL_KINDS = ['items', 'text'] as const;
 export const panelKindSchema = z.enum(PANEL_KINDS);
@@ -35,8 +37,11 @@ export type PanelKind = z.infer<typeof panelKindSchema>;
 
 /**
  * Whether a Panel takes items filed onto it — every kind except one made of
- * text (issue 250). One function rather than the check written in each of its
- * call sites, so they cannot come to disagree about what a Panel will take.
+ * text (issue 250). One function rather than the check written at each call
+ * site — the server refusing a filing, the server offering panels to a
+ * routing proposal, and the client's own picker — so they cannot come to
+ * disagree about what a Panel will take, the same shape of rule
+ * `refuseAPanelOfText` in `apps/api/src/accounts/command-service.ts` enforces.
  */
 export function panelTakesItems(panel: { kind: PanelKind }): boolean {
   return panel.kind !== 'text';
@@ -44,8 +49,9 @@ export function panelTakesItems(panel: { kind: PanelKind }): boolean {
 
 /**
  * How a Panel of text's words are drawn: as the characters that were typed, or
- * as what they mean (issue 251; architecture.md §4.4 — not a conversion either
- * way, and `'plain'` is the default for performance).
+ * as what they mean ("Format what a panel says, without making every
+ * dashboard pay for an editor", issue 251); architecture.md §4.4 — not a
+ * conversion either way, and `'plain'` is the default for performance.
  */
 export const PANEL_FORMATS = ['plain', 'rich'] as const;
 export const panelFormatSchema = z.enum(PANEL_FORMATS);
@@ -58,7 +64,8 @@ export const panelTextSchema = z.string().max(PANEL_TEXT_LIMIT);
 /**
  * A Panel, as it is read back. What a Panel *holds* is not here — a filing is
  * its own shape (`filingSchema` below), because an Item can be filed on
- * several Panels at once (issue 36; architecture.md §4.4).
+ * several Panels at once ("Panels hold the items filed into them, and the
+ * Inbox holds the rest", issue 36; architecture.md §4.4).
  */
 export const panelSchema = z.object({
   id: z.string(),
@@ -90,7 +97,7 @@ export const layoutRowSchema = z.object({
 });
 export type LayoutRow = z.infer<typeof layoutRowSchema>;
 
-/** One arrangement of a Dashboard's Panels, at one Screen size (issue 263, 264; architecture.md §4.4). */
+/** One arrangement of a Dashboard's Panels, at one Screen size ("Draw a dashboard against the screen sizes its account has", issue 263; "Take the width and the name off a layout, now that its size carries them", issue 264; architecture.md §4.4). */
 export const layoutSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
