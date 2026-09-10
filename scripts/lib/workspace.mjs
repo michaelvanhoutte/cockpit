@@ -3,10 +3,11 @@
 // know about at all: every package pnpm's own workspace listing reports,
 // narrowed to the ones that declare a "test:coverage" script - what
 // scripts/ci-test.mjs actually runs per package (instrumented, so the suite
-// runs once for both this gate and test-explorer's coverage columns - issue
+// runs once for both this gate and test-explorer's coverage columns, per
+// "Run the suite once in CI, not once to gate and once to measure", issue
 // 289), and the same set `pnpm test:coverage` ran before scripts/ci-test.mjs
-// took over the Test job's step (issue 346, "Run only the affected tests in
-// CI's Test job on a pull request").
+// took over the Test job's step, per "Run only the affected tests in CI's
+// Test job on a pull request" (issue 346).
 //
 // A hand-maintained list was tried first and was wrong the moment it was
 // written: `tools/ci-stability` and `tools/test-explorer` already carry their
