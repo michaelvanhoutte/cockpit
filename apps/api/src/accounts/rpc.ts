@@ -56,19 +56,29 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   panelsThatTakeItems(accountName: string, workspaceId: string): Awaitable<Answer<Panel[]>>;
   /**
    * What a routing proposal reads beside the note itself: the account's
-   * whole decision history for one workspace, oldest first, and what else it
-   * has captured lately and not yet filed, most recent first, `excludeItemId`
+   * whole decision history for one workspace, oldest first, what else it has
+   * captured lately and not yet filed, most recent first, `excludeItemId`
    * left out ("Learn where notes belong from where you actually file them",
-   * issue 299). One round trip for both, since nothing ever reads one
-   * without the other - the same reasoning `snapshot` above already carries
-   * several reads in one answer. Read by the enrichment job and by nothing
-   * else, the same as `panelsThatTakeItems` beside it.
+   * issue 299), and the Workspace's own live correction of what the system
+   * otherwise learned, or null ("Show what the system learned, in a sentence
+   * you can correct", issue 301). One round trip for all three, since nothing
+   * ever reads one without the others - the same reasoning `snapshot` above
+   * already carries several reads in one answer. Read by the enrichment job
+   * and by nothing else, the same as `panelsThatTakeItems` beside it.
    */
   routingContext(
     accountName: string,
     workspaceId: string,
     excludeItemId: string,
-  ): Awaitable<Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>>;
+  ): Awaitable<
+    Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }>
+  >;
+  /**
+   * One Workspace's whole decision history alone, oldest first - what the
+   * nightly summary job reads ("Show what the system learned, in a sentence
+   * you can correct", issue 301). Read by that job and by nothing else.
+   */
+  decisionHistory(accountName: string, workspaceId: string): Awaitable<Answer<DecisionHistoryEntry[]>>;
   /**
    * Every item in one workspace's Inbox with a captured note - what a
    * settled filing re-proposes the panel for ("Re-propose the rest of the

@@ -10,12 +10,14 @@ import { aiFor } from '../ai/index.js';
 import type { RoutingCandidate } from '../ai/index.js';
 
 /**
- * Two jobs on the account's own classification: reading a captured note and
+ * Three jobs on the account's own classification: reading a captured note and
  * proposing what to call it, what it said, and which Panel it belongs on
  * ("Clean up a captured note into a clear title and a fuller message", issue
- * 296), and re-reading only that last part for everything still unsettled
- * once a filing elsewhere changes what a proposal should be ("Re-propose the
- * rest of the inbox the moment you file one", issue 300).
+ * 296), re-reading only that last part for everything still unsettled once a
+ * filing elsewhere changes what a proposal should be ("Re-propose the rest of
+ * the inbox the moment you file one", issue 300), and rewriting one
+ * Workspace's own plain-English filing-pattern summary once a night ("Show
+ * what the system learned, in a sentence you can correct", issue 301).
  *
  * Plain functions calling `accounts/` and `ai/`; the queue is the adapter
  * that hands each one a message (architecture, "Background jobs"), which is
@@ -38,7 +40,7 @@ import type { RoutingCandidate } from '../ai/index.js';
  * is what a message from before a deploy is refused by rather than
  * misinterpreted.
  */
-export type EnrichmentJob = CleanUpJob | ReproposePanelsJob;
+export type EnrichmentJob = CleanUpJob | ReproposePanelsJob | SummarizeWorkspaceJob;
 
 export interface CleanUpJob {
   kind: 'clean-up-a-note';
@@ -64,6 +66,21 @@ export interface ReproposePanelsJob {
 }
 
 /**
+ * Asks for one Workspace's filing-pattern summary to be rewritten from its
+ * current decision history ("Show what the system learned, in a sentence you
+ * can correct", issue 301). One of these is queued per Workspace, every
+ * night, by `handleScheduled` (`jobs/index.ts`) - the fan-out itself stays
+ * outside the scheduled handler's own tight execution budget by doing nothing
+ * more than enumerating accounts and Workspaces and putting one message per
+ * Workspace on this same queue, the actual model call happening here instead.
+ */
+export interface SummarizeWorkspaceJob {
+  kind: 'summarize-workspace';
+  accountName: string;
+  workspaceId: string;
+}
+
+/**
  * A message is not a value from inside this program: it was written by a
  * previous version of this Worker and has been sitting on a queue, so it is
  * parsed like a request body rather than cast.
@@ -80,6 +97,11 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     // A plain string, not `z.uuid()`: a Workspace's id is whatever the
     // client that created it generated (`commandEnvelopeSchema.workspaceId`,
     // packages/shared), and this is carried straight from there.
+    workspaceId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('summarize-workspace'),
+    accountName: z.string().min(1),
     workspaceId: z.string().min(1),
   }),
 ]);
@@ -184,16 +206,19 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // alone needs.
   const panels = await panelsOrEmpty(account, item.workspaceId);
 
-  // The account's decision history for this Workspace, and what else it has
+  // The account's decision history for this Workspace, what else it has
   // captured lately and not yet filed - the two inputs that let a proposal
   // learn from where notes actually get filed ("Learn where notes belong from
-  // where you actually file them", issue 299), read together in one round
-  // trip since nothing ever needs one without the other. Neither checks the
-  // Workspace still exists: an empty answer is already the right one for a
-  // Workspace this far gone, exactly as an empty `panels` list is above.
-  const { history, recentlyCaptured } = await account.routingContext(item.workspaceId, item.id);
+  // where you actually file them", issue 299) - and the Workspace's own live
+  // correction of what the nightly summary said it learned ("Show what the
+  // system learned, in a sentence you can correct", issue 301), read together
+  // in one round trip since nothing ever needs one without the others.
+  // Neither checks the Workspace still exists: an empty answer is already the
+  // right one for a Workspace this far gone, exactly as an empty `panels`
+  // list is above.
+  const { history, recentlyCaptured, correction } = await account.routingContext(item.workspaceId, item.id);
 
-  const read = await ai.cleanUpNote(item.capturedMessage, panels, history, recentlyCaptured);
+  const read = await ai.cleanUpNote(item.capturedMessage, panels, history, recentlyCaptured, correction);
   if (!('proposal' in read)) return say(job.itemId, `nothing was proposed: ${read.discarded}`);
 
   try {
@@ -399,8 +424,17 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       // exactly as `cleanUpACapturedNote` reads it, not as if it already
       // belonged where the settle that triggered this happened to be.
       const panels = await panelsOrEmpty(account, candidate.workspaceId);
-      const { history, recentlyCaptured } = await account.routingContext(candidate.workspaceId, candidate.id);
-      const read = await ai.cleanUpNote(candidate.capturedMessage, panels, history, recentlyCaptured);
+      const { history, recentlyCaptured, correction } = await account.routingContext(
+        candidate.workspaceId,
+        candidate.id,
+      );
+      const read = await ai.cleanUpNote(
+        candidate.capturedMessage,
+        panels,
+        history,
+        recentlyCaptured,
+        correction,
+      );
       if (!('proposal' in read)) {
         say(candidate.id, `nothing was refreshed: ${read.discarded}`);
         continue;
@@ -426,6 +460,96 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
         }),
       );
     }
+  }
+}
+
+/**
+ * Asks for one Workspace's filing-pattern summary to be rewritten, without
+ * making the caller wait for it - the same shape as `enqueueRepropose` above,
+ * and the same guard: an environment with no key queues nothing its consumer
+ * would only discard. Called once per Workspace by `handleScheduled`
+ * (`jobs/index.ts`), never by a client.
+ */
+export async function enqueueSummarizeWorkspace(
+  env: Env,
+  accountName: string,
+  workspaceId: string,
+): Promise<void> {
+  if (!env.ANTHROPIC_API_KEY) return;
+
+  const job: EnrichmentJob = { kind: 'summarize-workspace', accountName, workspaceId };
+  try {
+    await env.ENRICHMENT.send(job);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `workspace ${workspaceId} was not queued for its nightly summary: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
+}
+
+/**
+ * Rewrites one Workspace's filing-pattern summary from its current decision
+ * history ("Show what the system learned, in a sentence you can correct",
+ * issue 301).
+ *
+ * **A Workspace with no decision history is left alone, not summarized as
+ * empty.** There is no pattern to name yet, and writing one over the row
+ * every night would either invent structure that is not there or, if the
+ * model were asked to say so instead, repeat the same "nothing yet" sentence
+ * every night for nothing - the correction, if any, is untouched either way.
+ *
+ * **Every way this can decline is a return, and every way it can fail is a
+ * throw**, the same rule `cleanUpACapturedNote` follows and for the same
+ * reason: a Workspace nobody can summarize tonight must not be redelivered
+ * forever, and a model that was rate-limited must be.
+ */
+export async function summarizeWorkspace(env: Env, job: SummarizeWorkspaceJob): Promise<void> {
+  const ai = aiFor(env);
+  if (!ai) {
+    return sayForWorkspace(job.workspaceId, 'nothing was summarized: this environment has no ANTHROPIC_API_KEY');
+  }
+
+  let account;
+  try {
+    account = await openAccount(env, job.accountName);
+  } catch (error) {
+    if (error instanceof AccountNotInRegisterError) {
+      return sayForWorkspace(job.workspaceId, 'nothing was summarized: the account is no longer in the register');
+    }
+    throw error;
+  }
+
+  const history = await account.decisionHistory(job.workspaceId);
+  if (history.length === 0) {
+    return sayForWorkspace(job.workspaceId, 'nothing was summarized: no decision history yet');
+  }
+
+  const read = await ai.summarizeFilingPatterns(history);
+  if (!('summary' in read)) {
+    return sayForWorkspace(job.workspaceId, `nothing was summarized: ${read.discarded}`);
+  }
+
+  try {
+    await account.applyChange('write_routing_summary', {
+      commandId: crypto.randomUUID(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: job.workspaceId,
+      summary: read.summary,
+    });
+    sayForWorkspace(job.workspaceId, 'summarized');
+  } catch (error) {
+    // The Workspace was deleted between `workspaces()` finding it (in
+    // `handleScheduled`) and this write landing - the same race
+    // `applyProposedPanelIfAny` above guards against for an Item.
+    if (error instanceof NotFoundInAccountError) {
+      return sayForWorkspace(job.workspaceId, 'nothing was written: the workspace went while it was being summarized');
+    }
+    throw error;
   }
 }
 

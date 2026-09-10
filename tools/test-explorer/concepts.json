@@ -90,7 +90,7 @@
         "apps/web/src/components/ManageTypes.tsx",
         "apps/api/src/ai/index.ts",
         "apps/api/src/ai/note-texts.ts",
-        "apps/api/src/ai/prompts/clean-up-a-note.v4.ts",
+        "apps/api/src/ai/prompts/clean-up-a-note.v5.ts",
         "apps/api/src/jobs/index.ts",
         "apps/api/src/jobs/enrichment.ts",
         "apps/api/src/domain/decision-history.ts"
@@ -246,6 +246,27 @@
         "apps/web/src/tabDrag.ts",
         "apps/web/src/components/Menu.tsx",
         "apps/web/src/components/DeleteQuestion.tsx"
+      ]
+    },
+    {
+      "key": "What Cockpit has learned",
+      "label": "What Cockpit has learned",
+      "parent": "Workspaces",
+      "sourcePatterns": [
+        "apps/api/src/ai/routing-summary.ts",
+        "apps/api/src/ai/prompts/summarize-filing-patterns.v1.ts",
+        "packages/shared/src/domain/routing-summary.ts",
+        "packages/shared/src/commands.ts",
+        "apps/web/src/components/RoutingSummaryWindow.tsx",
+        "apps/web/src/pages/Layout.tsx",
+        "apps/api/src/accounts/schema.ts",
+        "apps/api/src/accounts/changes.ts",
+        "apps/api/src/accounts/command-service.ts",
+        "apps/api/src/accounts/repo.ts",
+        "apps/api/src/accounts/store.ts",
+        "apps/api/src/jobs/index.ts",
+        "apps/api/src/jobs/enrichment.ts",
+        "apps/api/src/domain/decision-history.ts"
       ]
     },
     {

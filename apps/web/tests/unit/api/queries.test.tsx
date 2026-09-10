@@ -82,6 +82,7 @@ const snapshot: WorkspaceSnapshot = {
   itemTypes: [],
     screenSizes: [],
   filings: [],
+  routingSummary: null,
   generatedAt: '2026-08-31T10:00:00.000Z',
 };
 
