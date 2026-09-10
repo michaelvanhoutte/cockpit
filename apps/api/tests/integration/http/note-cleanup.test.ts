@@ -469,6 +469,32 @@ describe('Capture', () => {
       expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
     });
 
+    /**
+     * The text cleanup this job already did has no dependency on the
+     * Workspace at all (`propose_item_texts`'s own handler checks only the
+     * Item) - so a Workspace gone *before* the Panels read even runs must not
+     * hold that cleanup hostage to a read only the routing half needs.
+     */
+    it('still cleans up the note when the item’s own workspace had already been deleted', async () => {
+      const compliance = await aPanel('Compliance questions');
+      // The first, automatic read is spent with the workspace still live, so
+      // the second - driven after the deletion - is the only one testing
+      // this race.
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+      await postChange('delete_workspace', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:01.000Z',
+        workspaceId: WORKSPACE_ID,
+      });
+      theModelIs({ says: { ...SOMETHING_ELSE, panel: { panelId: compliance, reason: 'a compliance question' } } });
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId }), env);
+
+      expect((await textsOf(itemId))?.title).toBe(SOMETHING_ELSE.title);
+      expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
+    });
+
     it('offers only the panels that take items, never one made of text', async () => {
       await aPanel('Compliance questions');
       await aPanel('Reading list', 'text');

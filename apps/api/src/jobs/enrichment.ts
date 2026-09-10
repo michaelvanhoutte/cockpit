@@ -141,18 +141,23 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
   // this account's own and change from one note to the next, which is why
   // `cleanUpNote` takes them rather than closing over a fixed list ("Propose
   // where a captured note belongs, without filing it there", issue 298).
-  let panels;
+  //
+  // **Falls back to none rather than declining the whole job.** The Item's
+  // own Workspace can go between the read above and this one - a tombstone
+  // leaves its Dashboards and Panels untouched, so this is the one place that
+  // race is visible at all - but the text cleanup below has no such
+  // dependency and must not be held hostage to a read the routing half alone
+  // needs. An empty list is a safe answer to hand the model: its schema's
+  // `panelId` enum then holds only the empty string, so it can propose
+  // nothing but "no panel fits" - which is also what `liveDestinationPanel`
+  // would answer for any Panel of a Workspace this far gone, were one
+  // proposed anyway.
+  let panels: Awaited<ReturnType<typeof account.panelsThatTakeItems>>;
   try {
     panels = await account.panelsThatTakeItems(item.workspaceId);
   } catch (error) {
-    // The Item's own Workspace went between the read above and this one - a
-    // tombstone leaves its Dashboards and Panels untouched, so this is the
-    // one place that race is visible at all. Nothing will make this job work,
-    // so it declines rather than throwing something worth a retry.
-    if (error instanceof NotFoundInAccountError) {
-      return say(job, 'nothing was proposed: the workspace went while the note was being read');
-    }
-    throw error;
+    if (!(error instanceof NotFoundInAccountError)) throw error;
+    panels = [];
   }
   const read = await ai.cleanUpNote(item.capturedMessage, panels);
   if (!('proposal' in read)) return say(job, `nothing was proposed: ${read.discarded}`);
