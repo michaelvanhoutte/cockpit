@@ -283,6 +283,39 @@ export function ItemList({
     );
   };
 
+  /**
+   * The proposal an Item's row draws as a chip, resolved to the Panel's live
+   * name - the display half of "Propose where a captured note belongs,
+   * without filing it there" (issue 298).
+   *
+   * **One function, not two kept in step by convention.** `acceptRoutingFor`
+   * below reads this rather than `item.proposedPanelId` directly, so there is
+   * exactly one place that decides a proposal is still good - a chip that
+   * would not be drawn can never be taken either.
+   *
+   * A proposed id the snapshot's own panels no longer hold - deleted since it
+   * was written - reads as no proposal here, the same way the store itself
+   * would refuse to write it fresh; this is only the display catching up to a
+   * `proposedPanelId` that has gone stale.
+   */
+  const routingProposalFor = (item: Item): { panelName: string; reason: string } | undefined => {
+    if (!item.proposedPanelId) return undefined;
+    const panel = data?.panels.find((p) => p.id === item.proposedPanelId);
+    return panel ? { panelName: panel.name, reason: item.proposedPanelReason ?? '' } : undefined;
+  };
+
+  /**
+   * Taking a proposal - the same filing `onMoveHere` above already makes for
+   * "the one you are looking at": `move` directly, with the Panel proposed
+   * rather than asked for, so accepting a chip and picking the same Panel by
+   * hand are one call and land the Item the same way.
+   */
+  const acceptRoutingFor = (item: Item): (() => void) | undefined => {
+    if (!routingProposalFor(item)) return undefined;
+    const panelId = item.proposedPanelId!;
+    return () => move(item, panelId, 0);
+  };
+
   /** The order this panel would be in with the item at this place among its rows. */
   const orderFor = (panelId: string, item: Item, atAmongDrawn: number) => {
     const held = filedOrderOnPanel(data?.filings ?? [], panelId);
@@ -802,7 +835,13 @@ export function ItemList({
                         },
                         onRemoveFromHere: () => removeFromHere(item, panelId),
                       }
-                    : {})}
+                    : // A proposal is only ever drawn in the Inbox: it is what a
+                      // filed Item's routing already answered, and there is
+                      // nothing left here for one to be a proposal *for*.
+                      {
+                        routingProposal: routingProposalFor(item),
+                        onAcceptRouting: acceptRoutingFor(item),
+                      })}
                 />
               </Fragment>
             ))}

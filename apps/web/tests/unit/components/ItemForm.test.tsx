@@ -93,6 +93,8 @@ function anItem(over: Partial<Item> = {}): Item {
     capturedMessage: 'Ask Novy about part 11',
     textsSettledAt: null,
     readings: null,
+    proposedPanelId: null,
+    proposedPanelReason: null,
     sourceResolvedAt: null,
     title: 'Part 11',
     description: null,

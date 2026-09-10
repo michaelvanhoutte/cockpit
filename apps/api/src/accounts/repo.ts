@@ -523,6 +523,8 @@ const itemColumns = {
   description: items.description,
   textsSettledAt: items.textsSettledAt,
   readings: items.readings,
+  proposedPanelId: items.proposedPanelId,
+  proposedPanelReason: items.proposedPanelReason,
   sourceResolvedAt: items.sourceResolvedAt,
   typeId: items.typeId,
   nextAction: items.nextAction,
@@ -673,6 +675,23 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
 
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {
   return db.select().from(commands).where(eq(commands.commandId, commandId)).all().length > 0;
+}
+
+/**
+ * Whether an Item is filed on any Panel at all - the boundary a routing
+ * proposal may not cross once true, being filed being the only way a routing
+ * settles ("Propose where a captured note belongs, without filing it there",
+ * issue 298).
+ */
+export function isItemFiled(db: AccountDb, tenantId: string, itemId: string): boolean {
+  return (
+    db
+      .select({ panelId: panelItems.panelId })
+      .from(panelItems)
+      .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, itemId)))
+      .limit(1)
+      .all().length > 0
+  );
 }
 
 /**

@@ -783,6 +783,25 @@ export const items = sqliteTable(
      */
     readings: text('readings', { mode: 'json' }).$type<ItemReading[]>(),
     /**
+     * The Panel Cockpit proposes this Item belongs on, and why - offered
+     * rather than filed ("Propose where a captured note belongs, without
+     * filing it there", issue 298). Null where nothing was proposed, which is
+     * the common case and a real answer.
+     *
+     * **No settled flag beside it, unlike `texts_settled_at` above.** A
+     * routing settles by being filed, which is a row in `panel_items` and not
+     * a state on the Item, so there is nothing here for a person taking the
+     * proposal over to write - the Item simply leaves the Inbox, which is the
+     * only place a proposal is drawn.
+     *
+     * Nullable and carries no CHECK, for the reason `type_id` and
+     * `texts_settled_at` do: `items` cannot be rebuilt while `panel_items` and
+     * `associations` point at it under RESTRICT, and SQLite accepts a new
+     * column with a REFERENCES clause only when its default is NULL.
+     */
+    proposedPanelId: text('proposed_panel_id').references(() => panels.id, { onDelete: 'restrict' }),
+    proposedPanelReason: text('proposed_panel_reason'),
+    /**
      * What kind of thing it is ("Capture a thought or an action, and see which
      * it is", issue 155). Nullable, which is what let it be added at all:
      * SQLite accepts a new column with a REFERENCES clause only when its

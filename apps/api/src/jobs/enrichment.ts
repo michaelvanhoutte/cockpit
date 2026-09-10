@@ -137,7 +137,29 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
   // is what stops a model call being paid for to be refused.
   if (item.textsSettledAt !== null) return say(job, 'nothing was proposed: the texts are already edited');
 
-  const read = await ai.cleanUpNote(item.capturedMessage);
+  // Read fresh, for this call: the Panels this call may propose among are
+  // this account's own and change from one note to the next, which is why
+  // `cleanUpNote` takes them rather than closing over a fixed list ("Propose
+  // where a captured note belongs, without filing it there", issue 298).
+  //
+  // **Falls back to none rather than declining the whole job.** The Item's
+  // own Workspace can go between the read above and this one - a tombstone
+  // leaves its Dashboards and Panels untouched, so this is the one place that
+  // race is visible at all - but the text cleanup below has no such
+  // dependency and must not be held hostage to a read the routing half alone
+  // needs. An empty list is a safe answer to hand the model: its schema's
+  // `panelId` enum then holds only the empty string, so it can propose
+  // nothing but "no panel fits" - which is also what `liveDestinationPanel`
+  // would answer for any Panel of a Workspace this far gone, were one
+  // proposed anyway.
+  let panels: Awaited<ReturnType<typeof account.panelsThatTakeItems>>;
+  try {
+    panels = await account.panelsThatTakeItems(item.workspaceId);
+  } catch (error) {
+    if (!(error instanceof NotFoundInAccountError)) throw error;
+    panels = [];
+  }
+  const read = await ai.cleanUpNote(item.capturedMessage, panels);
   if (!('proposal' in read)) return say(job, `nothing was proposed: ${read.discarded}`);
 
   try {
@@ -172,6 +194,30 @@ export async function cleanUpACapturedNote(env: Env, job: EnrichmentJob): Promis
       return say(job, 'nothing was written: the item went while the note was being read');
     }
     throw error;
+  }
+
+  // A second, independent write: naming no Panel is the common, welcome
+  // answer ("Proposing nothing is a real answer and often the right one",
+  // issue 298), so there is simply nothing to send in that case rather than a
+  // value saying so. `command-service.ts` is where this is checked once more,
+  // freshly, against the Panel and the Item as they actually stand by the time
+  // this write lands.
+  if (read.proposal.panel) {
+    try {
+      await account.applyChange('propose_item_panel', {
+        commandId: crypto.randomUUID(),
+        issuedAt: new Date().toISOString(),
+        workspaceId: item.workspaceId,
+        itemId: item.id,
+        panelId: read.proposal.panel.panelId,
+        reason: read.proposal.panel.reason,
+      });
+    } catch (error) {
+      if (error instanceof NotFoundInAccountError) {
+        return say(job, 'nothing was routed: the item went while the note was being read');
+      }
+      throw error;
+    }
   }
 }
 

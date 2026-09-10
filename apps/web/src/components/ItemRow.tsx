@@ -27,6 +27,8 @@ export function ItemRow({
   onOpen,
   onRemoveFromHere,
   onMoveHere,
+  routingProposal,
+  onAcceptRouting,
   selecting,
 }: {
   item: Item;
@@ -85,6 +87,27 @@ export function ItemRow({
    * out for itself from the item rather than being told twice.
    */
   onMoveHere?: () => void;
+  /**
+   * Which Panel Cockpit thinks this Item belongs on, and why - offered rather
+   * than filed ("Propose where a captured note belongs, without filing it
+   * there", issue 298).
+   *
+   * Resolved by the list rather than read off the Item directly: the Item
+   * carries a Panel id, and drawing a name from it needs the Panels the
+   * snapshot already holds, which the row is not given wholesale.
+   *
+   * Absent once this row is not in the Inbox, whichever of the two reasons
+   * that is - nothing was proposed, or the Item has since been filed and so
+   * left the Inbox this chip only ever draws in.
+   */
+  routingProposal?: { panelName: string; reason: string } | undefined;
+  /**
+   * Taking the proposal above - the same filing the picker's own "Move to"
+   * makes, by being the same call (`ItemList`'s `move`), so accepting a chip
+   * and choosing the same Panel by hand land the Item in the same place in
+   * its order and are undone by the same bar.
+   */
+  onAcceptRouting?: (() => void) | undefined;
   /**
    * Picking this row out to be acted on with others ("Select several items, and
    * file them all in one go", issue 169), and whether it is picked.
@@ -519,6 +542,24 @@ export function ItemRow({
               <span className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep">
                 Any workspace
               </span>
+            )}
+            {/* Cockpit's own proposal, not yet taken - a click is the whole of
+                accepting it, and `title` is where "in your own terms rather
+                than the model's" lives, the reason written for this hover and
+                nothing else. Stops the click reaching the row underneath it,
+                which opens the Item's form. */}
+            {routingProposal && onAcceptRouting && (
+              <button
+                type="button"
+                className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep hover:bg-accent hover:text-white"
+                title={routingProposal.reason}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAcceptRouting();
+                }}
+              >
+                → {routingProposal.panelName}
+              </button>
             )}
           </span>
         </span>

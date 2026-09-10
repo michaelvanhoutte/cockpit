@@ -33,6 +33,8 @@ function anItem(id: string, completedAt: string | null = null): Item {
     description: null,
     textsSettledAt: null,
     readings: null,
+    proposedPanelId: null,
+    proposedPanelReason: null,
     sourceResolvedAt: null,
     typeId: null,
     nextAction: null,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeAiService } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { CLEAN_UP_A_NOTE } from '../../src/ai/prompts/clean-up-a-note.v2.js';
+import { buildCleanUpANote } from '../../src/ai/prompts/clean-up-a-note.v3.js';
 
 /**
  * The contract tier: the real Claude API, the real prompt, no fake anywhere
@@ -12,12 +12,14 @@ import { CLEAN_UP_A_NOTE } from '../../src/ai/prompts/clean-up-a-note.v2.js';
  * What only this tier can prove: that the prompt still gets the behaviours out
  * of the model that it was written to get. Every one of them was measured
  * failing before the prompt version that fixed it existed - a note answered in
- * the wrong language, a model filling in a fact the note never carried, and a
+ * the wrong language, a model filling in a fact the note never carried, a
  * model offering a reading for every note rather than the rare few that
  * genuinely support one ("Clean up a captured note into a clear title and a
  * fuller message", issue 296; "Offer the other readings when a captured note
- * says two things", issue 297) - and none of it is provable against a fake,
- * which answers whatever the test told it to.
+ * says two things", issue 297), and a model naming a panel for a note that
+ * fits none of them ("Propose where a captured note belongs, without filing
+ * it there", issue 298) - and none of it is provable against a fake, which
+ * answers whatever the test told it to.
  *
  * A failure here is the model or the prompt having drifted apart, and fixing it
  * is priority work. It is never fixed by running it again.
@@ -45,13 +47,17 @@ const MARKERS = {
  * Reads one note, and none of the notes below is one the prompt carries.
  *
  * **That is the whole difference between testing the model and testing its
- * recall.** The prompt has three worked examples with their answers written
+ * recall.** The prompt has five worked examples with their answers written
  * out, so a case that reuses one of them can be passed by copying the example -
  * and the drift this tier exists to catch would sail through, since a note it
  * has been shown the answer to is not a note it had to decide anything about.
+ *
+ * `panels` defaults to none, for every case that is not itself about routing:
+ * a note being read for its title and message is not made more or less
+ * ambiguous by what panels happen to exist.
  */
-async function read(note: string) {
-  const answer = await reading.cleanUpNote(note);
+async function read(note: string, panels: readonly { id: string; name: string }[] = []) {
+  const answer = await reading.cleanUpNote(note, panels);
   // Said out loud, because a discarded answer is the one failure whose reason
   // is otherwise only in the logs of a scheduled run nobody was watching.
   if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
@@ -179,7 +185,7 @@ describe('Capture', () => {
       expect(proposal.title.length).toBeLessThan(note.length);
       // A name and a fuller text, rather than the same words twice.
       expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
-      expect(CLEAN_UP_A_NOTE.version).toBe('v2');
+      expect(buildCleanUpANote([]).version).toBe('v3');
     });
   });
 
@@ -231,6 +237,57 @@ describe('Capture', () => {
       expect(proposal.readings.length).toBeGreaterThanOrEqual(1);
       const titles = [proposal.title, ...proposal.readings.map((r) => r.title)];
       expect(new Set(titles.map((title) => title.toLowerCase())).size).toBe(titles.length);
+    });
+  });
+
+  /**
+   * A compliance-flavoured note offered a panel plainly made for compliance
+   * questions ("Propose where a captured note belongs, without filing it
+   * there", issue 298) - the same shape the prompt's own worked example is,
+   * deliberately neither the same note nor the same panel name as that
+   * example (`clean-up-a-note.v3.ts`'s fifth example pairs "Compliance
+   * questions" with the Part 11 audit trail note). A pass on the exact note
+   * and panel name the prompt was shown the answer to would prove recall
+   * rather than generalisation - the failure this tier exists to catch, per
+   * this file's own class comment. Panel ids are ordinary UUIDs here, exactly
+   * the shape a real account's are, so a pass here is not proving something a
+   * shorter id would not.
+   */
+  describe('a note is offered the panel it clearly belongs on, where one does', () => {
+    const panels = [
+      { id: '018f0000-0000-7000-8000-000000000001', name: 'Regulatory questions' },
+      { id: '018f0000-0000-7000-8000-000000000002', name: 'Weekend ideas' },
+    ];
+    const COMPLIANCE_NOTE = 'gdpr data retention policy needs sign-off before next month’s audit';
+
+    it('names the panel and says why, in terms of the note rather than of itself', async () => {
+      const proposal = await read(COMPLIANCE_NOTE, panels);
+
+      expect(proposal.panel?.panelId).toBe(panels[0]!.id);
+      expect(proposal.panel?.reason.length).toBeGreaterThan(0);
+      // The reason reads as an explanation of the note, not a report of what a
+      // model did - "I chose this because" is the failure this line guards.
+      expect(proposal.panel?.reason.toLowerCase()).not.toContain('i chose');
+      expect(proposal.panel?.reason.toLowerCase()).not.toContain('model');
+    });
+
+    /**
+     * Proposing nothing is the common, right answer for most notes ("Propose
+     * where a captured note belongs, without filing it there", issue 298) -
+     * checked here rather than assumed, because a schema field that exists
+     * invites filling it in, the exact failure "a note that is merely terse
+     * is not read as ambiguous" above already guards for `readings`.
+     */
+    it('proposes nothing for a note that fits none of the panels offered', async () => {
+      const proposal = await read('milk, eggs, bread - stop on the way home', panels);
+      expect(proposal.panel).toBeNull();
+    });
+
+    it('never names a panel it was not offered', async () => {
+      const proposal = await read(COMPLIANCE_NOTE, panels);
+      if (proposal.panel) {
+        expect(panels.map((panel) => panel.id)).toContain(proposal.panel.panelId);
+      }
     });
   });
 });

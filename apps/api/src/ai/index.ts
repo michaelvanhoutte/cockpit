@@ -1,9 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { CLEAN_UP_A_NOTE } from './prompts/clean-up-a-note.v2.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v3.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
 
-export type { NoteTexts, ProposalRead, ReadingCandidate } from './note-texts.js';
+export type { NoteTexts, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
 
 /**
  * The AI layer behind a project-owned interface (architecture, "AI layer"):
@@ -15,14 +15,21 @@ export type { NoteTexts, ProposalRead, ReadingCandidate } from './note-texts.js'
  * title and a message ("Clean up a captured note into a clear title and a
  * fuller message", issue 296), which now also answers with the other ways the
  * note could genuinely be read ("Offer the other readings when a captured note
- * says two things", issue 297) - the same call, not a second ask, so it stays
- * one method rather than becoming two. A routing proposal and plain-English
- * panel rules are still their own issues and land as their own methods, rather
- * than as placeholders here that nothing calls and no test covers.
+ * says two things", issue 297) and which Panel it belongs on, where one
+ * clearly fits ("Propose where a captured note belongs, without filing it
+ * there", issue 298) - the same call each time, not a second ask, so it stays
+ * one method rather than becoming several. Plain-English panel rules are still
+ * their own issue and land as their own thing to read, rather than as a
+ * placeholder here that nothing calls and no test covers.
  */
 export interface AiService {
   /**
-   * Reads a captured note and proposes what to call it and what it said.
+   * Reads a captured note and proposes what to call it, what it said, and
+   * which of the given Panels it belongs on.
+   *
+   * `panels` is the account's own, read fresh for this call - what the answer's
+   * `panel.panelId` is allowed to be, structurally, is that list and nothing
+   * else (`buildCleanUpANote`'s schema `enum`).
    *
    * Answers a refusal rather than throwing for anything the model itself said:
    * an answer that will not parse or will not validate is a discarded proposal,
@@ -30,7 +37,10 @@ export interface AiService {
    * *fails* - no network, a 5xx, a rate limit - throws, because that is worth
    * retrying and a discarded proposal is not.
    */
-  cleanUpNote(capturedMessage: string): Promise<ProposalRead>;
+  cleanUpNote(
+    capturedMessage: string,
+    panels: readonly { id: string; name: string }[],
+  ): Promise<ProposalRead>;
 }
 
 /**
@@ -70,9 +80,13 @@ export class ClaudeAiService implements AiService {
     });
   }
 
-  async cleanUpNote(capturedMessage: string): Promise<ProposalRead> {
+  async cleanUpNote(
+    capturedMessage: string,
+    panels: readonly { id: string; name: string }[],
+  ): Promise<ProposalRead> {
+    const prompt = buildCleanUpANote(panels);
     const answer = await this.#client.messages.create({
-      model: CLEAN_UP_A_NOTE.model,
+      model: prompt.model,
       /**
        * Room for the reasoning as well as the answer, since thinking is on by
        * default on this model and is counted here. A note's two texts are a few
@@ -80,19 +94,21 @@ export class ClaudeAiService implements AiService {
        * mid-JSON, which reaches `readProposal` as an answer that will not parse.
        */
       max_tokens: 8_192,
-      system: CLEAN_UP_A_NOTE.system,
+      system: prompt.system,
       messages: [{ role: 'user', content: capturedMessage }],
       output_config: {
         // Constrained to the prompt's own schema, which is what makes the
-        // language a field the answer commits to before it writes anything.
-        format: { type: 'json_schema', schema: CLEAN_UP_A_NOTE.schema },
+        // language a field the answer commits to before it writes anything -
+        // and what makes a proposed panel id structurally one of the ids this
+        // very call offered.
+        format: { type: 'json_schema', schema: prompt.schema },
         // **Cast because the installed SDK's `OutputConfig` predates `effort`,
         // not because this is unsupported.** `effort` is a field of
         // `output_config` on the wire and the SDK sends the object as given, so
         // the request is right and only its typing is behind; the contract
         // tests are what would notice if that stopped being true. Drop the cast
         // when the SDK names the field.
-        effort: CLEAN_UP_A_NOTE.effort,
+        effort: prompt.effort,
       } as Anthropic.OutputConfig,
     });
 
@@ -101,6 +117,6 @@ export class ClaudeAiService implements AiService {
     // discarded proposal is.
     if (answer.stop_reason === 'refusal') return { discarded: 'the model declined the note' };
     const text = answer.content.find((block) => block.type === 'text');
-    return readProposal(text?.text);
+    return readProposal(text?.text, panels.map((panel) => panel.id));
   }
 }

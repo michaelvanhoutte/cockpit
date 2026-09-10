@@ -42,6 +42,8 @@ function anItemOf(type: ItemType | null, at: number): Item {
     description: null,
     textsSettledAt: null,
     readings: null,
+    proposedPanelId: null,
+    proposedPanelReason: null,
     sourceResolvedAt: null,
     typeId: type?.id ?? null,
     nextAction: null,

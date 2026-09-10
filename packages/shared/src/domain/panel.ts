@@ -94,6 +94,21 @@ export const panelKindSchema = z.enum(PANEL_KINDS);
 export type PanelKind = z.infer<typeof panelKindSchema>;
 
 /**
+ * Whether a Panel takes items filed onto it - every kind except one made of
+ * text ("Put a panel of text on a dashboard, and write in it", issue 250).
+ *
+ * One function rather than the check written in each of its four places -
+ * the server refusing a filing, the server offering panels to a routing
+ * proposal, and the client's own picker filtering the same way - so they
+ * cannot come to disagree about what a Panel will take (the reason
+ * `refuseAPanelOfText` in `command-service.ts` already gives for the same
+ * shape of rule).
+ */
+export function panelTakesItems(panel: { kind: PanelKind }): boolean {
+  return panel.kind !== 'text';
+}
+
+/**
  * How a Panel of text's words are drawn: as the characters that were typed, or
  * as what they mean ("Format what a panel says, without making every dashboard
  * pay for an editor", issue 251).

@@ -4,6 +4,7 @@ import {
   type Association,
   type CaptureItemCommand,
   type Item,
+  type ProposeItemPanelCommand,
   type ProposeItemTextsCommand,
   type SetDescriptionCommand,
   type SetDismissedCommand,
@@ -60,6 +61,10 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     // to ("Offer the other readings when a captured note says two things",
     // issue 297).
     readings: null,
+    // Nothing has been proposed yet either ("Propose where a captured note
+    // belongs, without filing it there", issue 298).
+    proposedPanelId: null,
+    proposedPanelReason: null,
     sourceResolvedAt: null,
     // Every capture names one, so nothing is defaulted here. The column stays
     // nullable for the Items that have no Type - captured before Types
@@ -212,6 +217,28 @@ export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): It
     description: cmd.description,
     readings: cmd.readings.length > 0 ? cmd.readings : null,
   };
+}
+
+/**
+ * Where Cockpit proposes this Item belongs, offered rather than filed
+ * ("Propose where a captured note belongs, without filing it there", issue
+ * 298).
+ *
+ * **Unconditional, unlike `applyProposedTexts` beside it.** Whether this may
+ * still be written is answered before this runs, in `command-service.ts`: the
+ * named Panel is live and the Item is not yet filed anywhere. Neither is a
+ * question this function could ask for itself - a Panel's liveness and an
+ * Item's filings live in tables this file does not read - so what is left for
+ * a domain handler to decide is nothing, and it writes what it was asked.
+ *
+ * **Replaced at will, the way `decideWorkspace`'s own comment says a proposed
+ * routing would need to be**, and for the same reason: there is no settled
+ * state to refuse into, because settling a routing *is* filing it. The moment
+ * that happens the Item leaves the Inbox, and this proposal - right or wrong
+ * - is never read again.
+ */
+export function applyProposedPanel(item: Item, cmd: ProposeItemPanelCommand): Item {
+  return { ...item, proposedPanelId: cmd.panelId, proposedPanelReason: cmd.reason };
 }
 
 /**
