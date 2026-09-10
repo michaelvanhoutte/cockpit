@@ -1,6 +1,6 @@
 ---
 name: periodic-review
-description: Cockpit's process for periodically reading merged pull requests, their review threads, and closed issues since the last run, and filing one issue per class of finding that recurs at least twice - never a report, and never on a single instance. Use every few weeks to look back over recent work, or when asked to review recent pull requests or issues for process gaps. Hands each class through `scoping` and `github-issue`; never edits code, workflows, or guidance itself.
+description: Cockpit's process for periodically reading merged pull requests, their review threads, and closed issues since the last run, and filing one issue per class of finding that recurs at least twice and isn't already tracked - never a report, and never on a single instance. Use every few weeks to look back over recent work, or when asked to review recent pull requests or issues for process gaps. Hands each class through `scoping` and `github-issue`; never edits code, workflows, or guidance itself.
 ---
 
 # Looking back over recent work
@@ -56,7 +56,13 @@ Keep the raw count and which pull request or issue each instance came from. That
 
 **A class needs at least two instances in the sample to be filed** — the bar issue 278's own sample draws, and the one issue 286 draws for the same reason. Two on the same pull request count as much as two across different ones — issue 286 allows both. A class shown once is dropped here, not carried anywhere: there is no report to hold it in reserve for next time.
 
-**Unless an open `periodic-review` issue already covers it.** A class that recurs because its fix hasn't shipped yet will clear the bar again on every later run; check `gh issue list --label periodic-review --state open` for one already naming the same mistake, and skip filing — the open issue is the record, not a fresh one.
+**Unless an open `periodic-review` issue already covers it.** A class that recurs because its fix hasn't shipped yet will clear the bar again on every later run; check whether one already names the same mistake, matching on body rather than title for the same reason step 2 does:
+
+```bash
+gh issue list --label periodic-review --state open --json number,title,body -L 100
+```
+
+Skip filing if one matches — the open issue is the record, not a fresh one.
 
 ### 5. Size and file each class
 
@@ -66,4 +72,4 @@ Hand the sized class to [github-issue](../github-issue/SKILL.md) for the body: t
 
 ## Output
 
-Filed issues, one per class that recurred at least twice, each carrying the count and the sample it came from and naming the file its fix belongs in. Nothing is edited by this skill itself, and nothing is written down for a class seen only once.
+Filed issues, one per class that recurred at least twice and wasn't already tracked, each carrying the count and the sample it came from and naming the file its fix belongs in. Nothing is edited by this skill itself, and nothing is written down for a class seen only once.
