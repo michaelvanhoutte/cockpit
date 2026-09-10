@@ -499,6 +499,14 @@ export function runCommand<N extends CommandName>(
   };
 
   let applied = true;
+  // Set only by `move_item_to_panel`/`add_item_to_panel`, and only on the
+  // same `!alreadyFiled` branch that writes `decisionHistory` - the one
+  // signal the HTTP layer needs to know a routing genuinely settled just
+  // now, read off this atomic call rather than by asking `isItemFiled`
+  // again itself, before and separately from it, and racing whatever moves
+  // the same Item in between ("Re-propose the rest of the inbox the moment
+  // you file one", issue 300).
+  let settledRouting = false;
 
   switch (name) {
     case 'create_workspace': {
@@ -1369,6 +1377,7 @@ export function runCommand<N extends CommandName>(
           // write, so its `proposedPanelId`/`proposedPanelReason` are exactly
           // what the Inbox chip showed for this, its one settling filing.
           if (!alreadyFiled) {
+            settledRouting = true;
             tx.insert(decisionHistory)
               .values(decisionHistoryEntryFor(item, cmd, panel.id))
               .onConflictDoNothing()
@@ -1435,6 +1444,7 @@ export function runCommand<N extends CommandName>(
           tx.insert(panelItems).values(batch).run();
         }
         if (!alreadyFiled) {
+          settledRouting = true;
           tx.insert(decisionHistory)
             .values(decisionHistoryEntryFor(item, cmd, panel.id))
             .onConflictDoNothing()
@@ -1643,11 +1653,16 @@ export function runCommand<N extends CommandName>(
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
       if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
 
-      const panel = liveDestinationPanel(db, tenantId, existing.workspaceId, cmd.panelId);
+      // A withdrawal names no Panel to look up - `null` is the answer itself,
+      // not something to resolve ("Re-propose the rest of the inbox the
+      // moment you file one", issue 300).
+      const panel = cmd.panelId ? liveDestinationPanel(db, tenantId, existing.workspaceId, cmd.panelId) : null;
       // Settling a routing is filing it, so an Item already on some Panel has
       // already answered the question this proposes - by hand, or by taking an
-      // earlier proposal - and there is nothing left to overwrite.
-      const usable = panel !== null && !isItemFiled(db, tenantId, cmd.itemId);
+      // earlier proposal - and there is nothing left to overwrite, a
+      // withdrawal included: it too would misattribute a live filing to a
+      // decision that already happened.
+      const usable = (cmd.panelId === null || panel !== null) && !isItemFiled(db, tenantId, cmd.itemId);
 
       if (!usable) {
         // Discarded, not refused: nothing a queued job sent is a mistake worth
@@ -1716,5 +1731,5 @@ export function runCommand<N extends CommandName>(
 
   // No explicit broadcast: SSE connections derive invalidations from the
   // command log itself (see events.ts for why in-memory fan-out can't work).
-  return { ok: true, applied };
+  return settledRouting ? { ok: true, applied, settledRouting } : { ok: true, applied };
 }

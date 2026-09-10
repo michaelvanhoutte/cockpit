@@ -68,6 +68,7 @@ import {
   listPanelsInWorkspace,
   listWorkspaces,
   recentlyCapturedUnfiled,
+  unfiledItemsInWorkspace,
 } from './repo.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
@@ -175,6 +176,18 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       history: decisionHistoryForWorkspace(db, accountName, workspaceId),
       recentlyCaptured: recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
     }));
+  }
+
+  /**
+   * Every item in one Workspace's Inbox with a captured note - the rest of
+   * the inbox a settled filing re-proposes ("Re-propose the rest of the
+   * inbox the moment you file one", issue 300).
+   */
+  unfiledItemsInWorkspace(
+    accountName: string,
+    workspaceId: string,
+  ): Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]> {
+    return this.#answer(accountName, (db) => unfiledItemsInWorkspace(db, accountName, workspaceId));
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */
