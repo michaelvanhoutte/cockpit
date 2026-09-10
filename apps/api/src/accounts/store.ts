@@ -186,7 +186,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   unfiledItemsInWorkspace(
     accountName: string,
     workspaceId: string,
-  ): Answer<{ id: string; workspaceId: string; capturedMessage: string }[]> {
+  ): Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]> {
     return this.#answer(accountName, (db) => unfiledItemsInWorkspace(db, accountName, workspaceId));
   }
 

@@ -79,7 +79,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   unfiledItemsInWorkspace(
     accountName: string,
     workspaceId: string,
-  ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string }[]>>;
+  ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]>>;
   changesSince(
     accountName: string,
     since: string,

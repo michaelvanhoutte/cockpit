@@ -530,5 +530,33 @@ describe('Triage', () => {
 
       await untilRouted(waiting, compliance);
     });
+
+    it('withdraws a stale proposal once a refresh concludes nothing fits any more', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const elsewhere = await aPanel('Somewhere else');
+      // Every note answers "nothing fits" (the `beforeEach` default) - this
+      // case is about what a refresh does with that answer when the Item
+      // already had a proposal standing, not about what changes the answer.
+      const waiting = await captureANote('a note about validation');
+      // A proposal from an earlier round, standing on the chip already -
+      // written directly, since only a refresh with different history could
+      // ever produce it here, and this case is about what happens once one
+      // concludes the opposite.
+      await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+        sql.exec(
+          `UPDATE items SET proposed_panel_id = ?, proposed_panel_reason = 'a compliance question' WHERE id = ?`,
+          compliance,
+          waiting,
+        ),
+      );
+      const settling = await captureANote('call jan about the invoice');
+
+      await moveOnto(settling, elsewhere);
+
+      await vi.waitFor(async () => expect(await routingOf(waiting)).toBeNull(), {
+        timeout: 15_000,
+        interval: 50,
+      });
+    });
   });
 });

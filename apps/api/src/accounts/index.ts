@@ -112,7 +112,7 @@ export interface Account {
    */
   unfiledItemsInWorkspace(
     workspaceId: string,
-  ): Promise<{ id: string; workspaceId: string; capturedMessage: string }[]>;
+  ): Promise<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;

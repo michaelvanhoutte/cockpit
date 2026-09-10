@@ -1653,11 +1653,16 @@ export function runCommand<N extends CommandName>(
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
       if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
 
-      const panel = liveDestinationPanel(db, tenantId, existing.workspaceId, cmd.panelId);
+      // A withdrawal names no Panel to look up - `null` is the answer itself,
+      // not something to resolve ("Re-propose the rest of the inbox the
+      // moment you file one", issue 300).
+      const panel = cmd.panelId ? liveDestinationPanel(db, tenantId, existing.workspaceId, cmd.panelId) : null;
       // Settling a routing is filing it, so an Item already on some Panel has
       // already answered the question this proposes - by hand, or by taking an
-      // earlier proposal - and there is nothing left to overwrite.
-      const usable = panel !== null && !isItemFiled(db, tenantId, cmd.itemId);
+      // earlier proposal - and there is nothing left to overwrite, a
+      // withdrawal included: it too would misattribute a live filing to a
+      // decision that already happened.
+      const usable = (cmd.panelId === null || panel !== null) && !isItemFiled(db, tenantId, cmd.itemId);
 
       if (!usable) {
         // Discarded, not refused: nothing a queued job sent is a mistake worth

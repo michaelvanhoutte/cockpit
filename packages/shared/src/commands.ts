@@ -384,12 +384,26 @@ export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
  * propose_item_panel — the Panel Cockpit thinks a captured note belongs on,
  * offered rather than filed ("Propose where a captured note belongs, without
  * filing it there", issue 298; architecture.md §4.4).
+ *
+ * `panelId: null` withdraws an earlier proposal rather than naming a new one
+ * - a routing may be replaced by the system at any time
+ * (`docs/routing-learning.md`, "The rule"), and a settled filing's refresh of
+ * the rest of its Workspace's Inbox ("Re-propose the rest of the inbox the
+ * moment you file one", issue 300) can conclude that a Panel it once
+ * proposed no longer fits, which is a replacement with nothing rather than
+ * with something else. `reason` is empty exactly when `panelId` is, the same
+ * idiom the AI layer's own schema uses for "none".
  */
-export const proposeItemPanelSchema = commandEnvelopeSchema.extend({
-  itemId: z.uuid(),
-  panelId: z.uuid(),
-  reason: z.string().trim().min(1),
-});
+export const proposeItemPanelSchema = commandEnvelopeSchema
+  .extend({
+    itemId: z.uuid(),
+    panelId: z.uuid().nullable(),
+    reason: z.string().trim(),
+  })
+  .refine((cmd) => (cmd.panelId === null ? cmd.reason === '' : cmd.reason.length > 0), {
+    message: 'a reason is required when naming a Panel, and empty when withdrawing the proposal',
+    path: ['reason'],
+  });
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
 /**

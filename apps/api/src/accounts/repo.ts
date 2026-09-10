@@ -826,9 +826,14 @@ export function unfiledItemsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
-): { id: string; workspaceId: string; capturedMessage: string }[] {
+): { id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[] {
   return db
-    .select({ id: items.id, workspaceId: items.workspaceId, capturedMessage: items.capturedMessage })
+    .select({
+      id: items.id,
+      workspaceId: items.workspaceId,
+      capturedMessage: items.capturedMessage,
+      proposedPanelId: items.proposedPanelId,
+    })
     .from(items)
     .where(
       and(
@@ -842,7 +847,12 @@ export function unfiledItemsInWorkspace(
     )
     .orderBy(desc(items.createdAt))
     .all()
-    .map((row) => ({ id: row.id, workspaceId: row.workspaceId, capturedMessage: row.capturedMessage! }));
+    .map((row) => ({
+      id: row.id,
+      workspaceId: row.workspaceId,
+      capturedMessage: row.capturedMessage!,
+      proposedPanelId: row.proposedPanelId,
+    }));
 }
 
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {

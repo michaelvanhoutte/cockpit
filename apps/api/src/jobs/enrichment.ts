@@ -234,7 +234,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // re-proposal ("Re-propose the rest of the inbox the moment you file one",
   // issue 300) writes the same thing from a call of its own that never
   // touches the two texts above.
-  const routed = await applyProposedPanelIfAny(account, item, read.proposal.panel);
+  const routed = await applyProposedPanelIfAny(account, item, read.proposal.panel, item.proposedPanelId);
   if (routed === 'the item went while it was being read') {
     say(job.itemId, `nothing was routed: ${routed}`);
   }
@@ -268,15 +268,28 @@ async function panelsOrEmpty(
 }
 
 /**
- * Writes a proposed Panel onto an Item, or does nothing where none was
- * proposed - naming no Panel is the common, welcome answer ("Proposing
- * nothing is a real answer and often the right one", issue 298), so there is
- * simply nothing to send in that case rather than a value saying so.
- * `command-service.ts` is where this is checked once more, freshly, against
- * the Panel and the Item as they actually stand by the time this write lands
- * - which is what makes this safe to call from a refresh running well after
- * the read that produced `panel`, and not only from the same call that read
- * it.
+ * Writes a proposed Panel onto an Item, withdraws its current one, or does
+ * neither - naming no Panel is the common, welcome answer ("Proposing
+ * nothing is a real answer and often the right one", issue 298), and where
+ * the Item had no proposal already there is simply nothing to send, rather
+ * than a value saying so. `command-service.ts` is where this is checked once
+ * more, freshly, against the Panel and the Item as they actually stand by the
+ * time this write lands - which is what makes this safe to call from a
+ * refresh running well after the read that produced `panel`, and not only
+ * from the same call that read it.
+ *
+ * **`currentProposedPanelId` is what tells "nothing new fits" apart from
+ * "nothing ever did".** A freshly captured Item has no proposal to lose
+ * either way, so moment 2 passing this always answers `null` here is a true
+ * no-op, unchanged from before this parameter existed. A settled filing's
+ * refresh of the rest of its Workspace's Inbox ("Re-propose the rest of the
+ * inbox the moment you file one", issue 300) reads Items that may already
+ * carry an earlier proposal, and where its own fresh read concludes nothing
+ * fits any more, that proposal is exactly as wrong to leave standing as one
+ * naming the wrong Panel would be (`docs/routing-learning.md`, "The rule": a
+ * proposed routing may be replaced by the system at any time, without
+ * asking) - replaced here with nothing, via `propose_item_panel`'s own
+ * `panelId: null` withdrawal, rather than left for someone to notice.
  *
  * Shared by `cleanUpACapturedNote` (moment 2) and `reproposePanels` below
  * (the settle-triggered refresh), because the write and its one race are the
@@ -286,18 +299,19 @@ async function applyProposedPanelIfAny(
   account: Account,
   item: { id: string; workspaceId: string },
   panel: RoutingCandidate | null,
-): Promise<'routed' | 'no panel fit' | 'the item went while it was being read'> {
-  if (!panel) return 'no panel fit';
+  currentProposedPanelId: string | null,
+): Promise<'routed' | 'withdrawn' | 'no panel fit' | 'the item went while it was being read'> {
+  if (!panel && currentProposedPanelId === null) return 'no panel fit';
   try {
     await account.applyChange('propose_item_panel', {
       commandId: crypto.randomUUID(),
       issuedAt: new Date().toISOString(),
       workspaceId: item.workspaceId,
       itemId: item.id,
-      panelId: panel.panelId,
-      reason: panel.reason,
+      panelId: panel?.panelId ?? null,
+      reason: panel?.reason ?? '',
     });
-    return 'routed';
+    return panel ? 'routed' : 'withdrawn';
   } catch (error) {
     if (error instanceof NotFoundInAccountError) return 'the item went while it was being read';
     throw error;
@@ -352,8 +366,8 @@ export async function enqueueRepropose(env: Env, accountName: string, workspaceI
  * somebody may already be triaging the first card by the time it starts, and
  * a card refreshed while it is still on screen has to land below wherever
  * triage has reached, never above it and never all at once
- * (`docs/routing-learning.md` §7's proposal, for the moment this job fires
- * instead of).
+ * (`docs/routing-learning.md`, "Moment 3 in slow motion" - the proposal for
+ * the moment this job fires instead of).
  */
 export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promise<void> {
   const ai = aiFor(env);
@@ -386,8 +400,13 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
         say(candidate.id, `nothing was refreshed: ${read.discarded}`);
         continue;
       }
-      const routed = await applyProposedPanelIfAny(account, candidate, read.proposal.panel);
-      say(candidate.id, routed === 'routed' ? 'refreshed' : `nothing was refreshed: ${routed}`);
+      const routed = await applyProposedPanelIfAny(
+        account,
+        candidate,
+        read.proposal.panel,
+        candidate.proposedPanelId,
+      );
+      say(candidate.id, routed === 'routed' || routed === 'withdrawn' ? routed : `nothing was refreshed: ${routed}`);
     } catch (error) {
       // Worth trying again another time, but not worth losing the rest of
       // this refresh over: the queue's own retry is for the whole job, and a
