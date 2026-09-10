@@ -40,28 +40,30 @@ permissions:
   contents: read
 
 jobs:
-  # Whether this diff touches anything the mechanical jobs below cover.
+  # Whether this diff touches anything the five mechanical jobs below cover.
   # Each of them skips when it does not, and a skipped job satisfies a required
   # status check (docs/deployment.md, "Bootstrap runbook"), so every context
   # still reports — which a workflow-level `paths:` filter would not, and is why
   # codeql.yml's own comment rules that out ("Skip the mechanical checks on a
-  # pull request that touches nothing they cover", issue 345).
+  # pull request that touches nothing they cover", issue 345). CodeQL is not
+  # gated on this at all; codeql.yml says why.
   #
   # The decision is scripts/lib/what-changed.mjs, asserted by node --test in the
   # `Scripts` job: `docs/`, `.claude/` and root-level `*.md` are the only paths
-  # that skip, and anything else runs everything. codeql.yml carries this job
-  # again rather than reading it from here, because `needs:` cannot cross a
-  # workflow file.
+  # that skip, and anything else runs everything.
   #
   # Checkout-only and no install, for the reason `scripts` gives, so it costs
   # the jobs that wait on it seconds rather than a minute. `fetch-depth: 0`
-  # because the range it diffs reaches back to the base commit.
+  # because the range it diffs reaches back to the base commit, and the whole
+  # history is 8MB packed.
   #
-  # **The gate below fails open twice**, because the dangerous direction is a
-  # skip nobody meant: `!= 'false'` runs the job on an output this never wrote,
-  # and `!cancelled()` runs it even when this job failed outright — `needs` on a
-  # failed job otherwise skips the lot, and a skip is what a required check
-  # accepts. Cancellation stays a skip, as it is for every other job here.
+  # **This job cannot fail**, which is what lets the gate below be an ordinary
+  # `if:`. The dangerous direction is a skip nobody meant: `needs` on a *failed*
+  # job skips the lot, and a skip is what a required check accepts, so a lost
+  # network here would otherwise wave the diff through five green ticks. Both
+  # steps are `continue-on-error`, so any failure leaves `product_changed`
+  # unwritten and `!= 'false'` runs everything. Cancellation is then left to mean
+  # cancelled, as it does for every other job here.
   changes:
     name: What changed
     runs-on: ubuntu-latest
@@ -69,11 +71,41 @@ jobs:
       product_changed: ${{ steps.classify.outputs.product_changed }}
     steps:
       - uses: actions/checkout@v4
+        continue-on-error: true
         with:
           fetch-depth: 0
       - name: Work out whether this diff touches the product
         id: classify
-        run: node scripts/what-changed.mjs
+        continue-on-error: true
+        env:
+          # Into the environment rather than into the script text, which is the
+          # shape CodeQL's `actions` leg asks for.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # **The classifier runs from the base commit, never from this branch.**
+          # `pull_request` builds the merge ref, so the copy in the tree is the
+          # one the pull request's author wrote — and a branch left to run its
+          # own classifier could answer "documentation only" about its own
+          # payload and skip every check that would have read it. `git diff`
+          # still runs in this checkout, so the diff is this branch's; only the
+          # judgement passing on it is `main`'s.
+          #
+          # A push to `main` has no base sha and needs none: what is in the tree
+          # there arrived by a reviewed squash merge.
+          classifier=scripts/what-changed.mjs
+          if [ -n "$BASE_SHA" ]; then
+            base="$RUNNER_TEMP/base-classifier"
+            mkdir -p "$base/lib"
+            if git show "$BASE_SHA:scripts/what-changed.mjs" > "$base/what-changed.mjs" &&
+               git show "$BASE_SHA:scripts/lib/what-changed.mjs" > "$base/lib/what-changed.mjs"; then
+              classifier="$base/what-changed.mjs"
+            else
+              # True of the pull request that introduced the classifier, and of
+              # nothing after it.
+              echo "::warning::The base commit carries no classifier, so this branch's own is deciding."
+            fi
+          fi
+          node "$classifier"
 
   # Architecture §9.1 asks for the fast test tiers split one job per tier, so a
   # misplaced test is visible. Today Cockpit is one service with one test file,
@@ -86,7 +118,7 @@ jobs:
     # Skipped on a documentation-only diff, and run on anything `changes` could
     # not read — see there.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +140,7 @@ jobs:
     name: Lint
     # Documentation-only diffs skip this; see the `changes` job.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -120,7 +152,7 @@ jobs:
     name: Test
     # Documentation-only diffs skip this; see the `changes` job.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -147,7 +179,7 @@ jobs:
     # Documentation-only diffs skip this; see the `changes` job. The 7.7 minutes
     # this tier costs is most of that job's argument.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -190,7 +222,7 @@ jobs:
     name: Build
     # Documentation-only diffs skip this; see the `changes` job.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
+    if: ${{ needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -203,12 +235,12 @@ jobs:
       # have to build again to see it.
       - run: pnpm bundle:budget
 
-  # **The one mechanical job with no `if:`**, though the issue behind the gate
-  # above listed it with the rest. Its last test reads the repository's Markdown
-  # — the writing rules of CLAUDE.md — so it is the only check with anything to
-  # say about the very paths the others skip on, and skipping it would take the
-  # prose gate off exactly the pull requests it exists for. It is checkout-only
-  # and takes seconds, so gating it would save nothing worth that hole.
+  # **Ungated, though the issue behind the gate above listed it with the rest.**
+  # Its last test reads the repository's Markdown — the writing rules of
+  # CLAUDE.md — so it is the only check with anything to say about the very paths
+  # the others skip on, and skipping it would take the prose gate off exactly the
+  # pull requests it exists for. It is checkout-only and takes seconds, so gating
+  # it would save nothing worth that hole.
   scripts:
     name: Scripts
     runs-on: ubuntu-latest
@@ -224,10 +256,12 @@ jobs:
       # times. The last two are here because they read source text rather than
       # running anything, so no other tier can check them and this job can: the
       # walks' conventions, and the writing rules of CLAUDE.md that a script can
-      # decide, which were costing a review round each.
+      # decide, which were costing a review round each. The classifier the
+      # `changes` job above runs is asserted here too, which is why a mistake in
+      # it cannot skip its own test.
       # No install step: these tests use only node:test and the standard
       # library, so this job stays checkout-only and finishes in seconds.
-      - name: Verify the dev, test-stack, health-check and review-gate scripts, the walks' conventions and the writing rules
+      - name: Verify the dev, test-stack, health-check, review-gate and what-changed scripts, the walks' conventions and the writing rules
         run: node --test scripts/lib/*.test.mjs
 
   # Publishes which product concepts own which tests: as a downloadable

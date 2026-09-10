@@ -1,10 +1,11 @@
 //
 // Two halves, and both are needed. The first proves the classifier tells a
 // documentation-only diff from every other kind, against path lists written
-// here. The second reads the two workflow files, which is the half that gates:
-// the classifier is only worth anything if the jobs actually consult it, and a
-// job added or an output renamed would otherwise be found by a pull request
-// that skipped its own checks.
+// here, and that every way its I/O can fail still says "product changed". The
+// second reads the two workflow files, which is the half that gates: the
+// classifier is only worth anything if the jobs actually consult it, and a job
+// added or an output renamed would otherwise be found by a pull request that
+// skipped its own checks.
 //
 
 import assert from 'node:assert/strict';
@@ -13,13 +14,17 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { diffRange, isNonProduct, pathsFromDiff, productChanged, productPaths } from './what-changed.mjs';
+import { classify, diffRange, isNonProduct, pathsFromDiff, printable, productChanged, productPaths } from './what-changed.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const workflow = (name) => readFileSync(join(repo, '.github/workflows', name), 'utf8');
 
 /** A commit the way GitHub writes one. */
 const sha = (char) => char.repeat(40);
+
+/** Written by code point, so no test file ever carries a raw control byte. */
+const NUL = String.fromCharCode(0);
+const NEWLINE = String.fromCharCode(10);
 
 describe('productChanged', () => {
   it('skips the mechanical jobs on a diff of documentation and agent instructions alone', () => {
@@ -68,6 +73,13 @@ describe('productChanged', () => {
       assert.equal(productChanged([path]), true, `${path} should force the full suite`);
     }
   });
+
+  it('answers the same question the run log answers, so the two cannot disagree', () => {
+    for (const paths of [['docs/a.md'], ['docs/a.md', 'apps/web/src/main.tsx'], ['apps/web/src/main.tsx'], [], ['  ']]) {
+      const empty = paths.filter((path) => path.trim() !== '').length === 0;
+      assert.equal(productChanged(paths), empty || productPaths(paths).length > 0, `${JSON.stringify(paths)} is answered two ways`);
+    }
+  });
 });
 
 describe('diffRange', () => {
@@ -99,39 +111,192 @@ describe('diffRange', () => {
 
 describe('pathsFromDiff', () => {
   it('reads the NUL-separated names git prints, so a space in one is not two paths', () => {
-    assert.deepEqual(pathsFromDiff('docs/a b.md\0apps/web/src/main.tsx\0'), ['docs/a b.md', 'apps/web/src/main.tsx']);
+    assert.deepEqual(pathsFromDiff(`docs/a b.md${NUL}apps/web/src/main.tsx${NUL}`), ['docs/a b.md', 'apps/web/src/main.tsx']);
     assert.deepEqual(pathsFromDiff(''), []);
     assert.deepEqual(pathsFromDiff(undefined), []);
   });
 });
 
+describe('printable', () => {
+  it('flattens the control characters a path may legally carry', () => {
+    assert.equal(printable(`apps/x.ts${NEWLINE}::stop-commands::4f1a`), 'apps/x.ts?::stop-commands::4f1a');
+    assert.equal(printable(`a${NUL}b`), 'a?b');
+    // Carriage return, tab, escape and delete, which is every other shape a
+    // command injected into the log could take.
+    assert.equal(printable(String.fromCharCode(13, 9, 27, 127)), '????');
+  });
+
+  it('leaves an ordinary path, and anything not a string, alone', () => {
+    assert.equal(printable('apps/api/src/index.ts'), 'apps/api/src/index.ts');
+    assert.equal(printable('docs/a b.md'), 'docs/a b.md');
+    assert.equal(printable('docs/décor.md'), 'docs/décor.md');
+    assert.equal(printable(undefined), '');
+    assert.equal(printable(null), '');
+  });
+});
+
+describe('classify', () => {
+  const eventPath = '/github/workflow/event.json';
+
+  /** The runner's two readers, each replaceable by one that fails. */
+  const readers = ({ event = {}, diff = '', failRead = false, failDiff = false } = {}) => ({
+    eventName: 'pull_request',
+    eventPath,
+    readFile: (path) => {
+      if (failRead) throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+      return typeof event === 'string' ? event : JSON.stringify(event);
+    },
+    gitDiff: () => {
+      if (failDiff) throw new Error(`fatal: bad object${NEWLINE}::error::not really`);
+      return diff;
+    },
+  });
+
+  const pullRequest = { pull_request: { base: { sha: sha('a') }, head: { sha: sha('b') } } };
+
+  it('says a documentation-only pull request changed nothing the checks read', () => {
+    const { changed, lines } = classify(readers({ event: pullRequest, diff: `docs/a.md${NUL}CLAUDE.md${NUL}` }));
+    assert.equal(changed, false);
+    assert.match(lines[0], /2 path\(s\) changed, 0 of them product\./);
+  });
+
+  it('names the product paths that made the suite run, and stops naming at twenty', () => {
+    const many = Array.from({ length: 25 }, (unused, index) => `apps/web/src/f${index}.ts`);
+    const { changed, lines } = classify(readers({ event: pullRequest, diff: `${many.join(NUL)}${NUL}` }));
+    assert.equal(changed, true);
+    assert.equal(lines.filter((line) => line.startsWith('  apps/')).length, 20);
+    assert.equal(lines.at(-1), '  ... and 5 more');
+  });
+
+  it('runs everything when git could not answer, and says so as a warning', () => {
+    const { changed, lines } = classify(readers({ event: pullRequest, failDiff: true }));
+    assert.equal(changed, true);
+    assert.match(lines[0], /^::warning::Could not diff /);
+    assert.equal(lines.length, 1);
+  });
+
+  it('runs everything when there is no event payload to read', () => {
+    const { changed, lines } = classify(readers({ failRead: true }));
+    assert.equal(changed, true);
+    assert.match(lines[0], /^No diff range for a pull_request event/);
+  });
+
+  it('runs everything when the event payload is not the JSON it should be', () => {
+    for (const event of ['', 'not json at all', '[]']) {
+      const { changed } = classify(readers({ event }));
+      assert.equal(changed, true, `a payload of ${JSON.stringify(event)} should run everything`);
+    }
+  });
+
+  it('runs everything on an event it has no range for', () => {
+    const { changed, lines } = classify({ ...readers({ event: pullRequest }), eventName: 'schedule' });
+    assert.equal(changed, true);
+    assert.match(lines[0], /^No diff range for a schedule event/);
+    assert.equal(classify().changed, true);
+  });
+
+  it('prints no line a runner would read as a workflow command of its own', () => {
+    // A path may hold a newline, and `git diff -z` hands it over intact - so
+    // `apps/x.ts` and a `::stop-commands::` on the line after it is one file
+    // name, and printing it raw would silence the rest of the job's log.
+    const nasty = `apps/x.ts${NEWLINE}::stop-commands::4f1a`;
+    const printed = [
+      ...classify(readers({ event: pullRequest, diff: `${nasty}${NUL}` })).lines,
+      ...classify(readers({ event: pullRequest, failDiff: true })).lines,
+    ];
+    for (const line of printed) {
+      assert.ok(!line.includes(NEWLINE), `a printed line carried a newline: ${JSON.stringify(line)}`);
+      assert.ok(!line.includes(String.fromCharCode(13)), `a printed line carried a carriage return: ${JSON.stringify(line)}`);
+    }
+  });
+});
+
 describe('the mechanical jobs', () => {
-  const gate = "if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}";
+  const gate = "if: ${{ needs.changes.outputs.product_changed != 'false' }}";
 
   /** One job's own lines, from its key down to whatever comes next at that indent. */
   function job(yaml, id) {
+    const block = jobIfAny(yaml, id);
+    assert.notEqual(block, null, `${id} is not a job here`);
+    return block;
+  }
+
+  /** The same, but `null` rather than a failure where there is no such job. */
+  function jobIfAny(yaml, id) {
     const lines = yaml.split('\n');
     const start = lines.indexOf(`  ${id}:`);
-    assert.notEqual(start, -1, `${id} is not a job here`);
+    if (start === -1) return null;
     const rest = lines.slice(start + 1);
     const end = rest.findIndex((line) => /^ {2}\S/.test(line));
     return rest.slice(0, end === -1 ? rest.length : end).join('\n');
   }
 
-  it('consult what changed, in both workflow files, since needs cannot cross one', () => {
-    for (const [file, ids] of [
-      ['ci.yml', ['typecheck', 'lint', 'test', 'e2e', 'build']],
-      ['codeql.yml', ['analyze']],
-    ]) {
-      const yaml = workflow(file);
-      assert.match(job(yaml, 'changes'), /product_changed: \$\{\{ steps\.classify\.outputs\.product_changed \}\}/, `${file}'s changes job publishes no answer`);
-      assert.match(job(yaml, 'changes'), /node scripts\/what-changed\.mjs/, `${file}'s changes job decides it somewhere else`);
-      for (const id of ids) {
-        const block = job(yaml, id);
-        assert.match(block, /needs: changes/, `${file}'s ${id} job does not wait for what changed`);
-        assert.ok(block.includes(gate), `${file}'s ${id} job does not carry the gate: ${gate}`);
-      }
+  /**
+   * The jobs a block declares it waits for, in any of the three shapes YAML
+   * allows. Matching `/needs: changes/` alone would read `needs: [changes, x]`
+   * as no dependency at all, so a job could gain the gate - or lose it - without
+   * either assertion below noticing.
+   */
+  function needsOf(block) {
+    const declaration = block.match(/^ {4}needs:[^\S\n]*(.*)$/m);
+    if (!declaration) return [];
+    const value = declaration[1].trim();
+    if (value !== '') {
+      return value
+        .replace(/^\[/, '')
+        .replace(/\]$/, '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => id !== '');
     }
+    const following = block.slice(declaration.index + declaration[0].length).split('\n').slice(1);
+    const items = [];
+    for (const line of following) {
+      const item = line.match(/^ {6}- (.+)$/);
+      if (!item) break;
+      items.push(item[1].trim());
+    }
+    return items;
+  }
+
+  it('reads a dependency in every shape a workflow file may write one', () => {
+    assert.deepEqual(needsOf('    needs: changes\n    runs-on: x'), ['changes']);
+    assert.deepEqual(needsOf('    needs: [test-explorer, changes]\n    runs-on: x'), ['test-explorer', 'changes']);
+    assert.deepEqual(needsOf('    needs:\n      - test-explorer\n      - changes\n    runs-on: x'), ['test-explorer', 'changes']);
+    assert.deepEqual(needsOf('    runs-on: x'), []);
+  });
+
+  it('consult what changed, since a skipped job is what a required check accepts', () => {
+    const yaml = workflow('ci.yml');
+    const changes = job(yaml, 'changes');
+    assert.match(changes, /product_changed: \$\{\{ steps\.classify\.outputs\.product_changed \}\}/, "ci.yml's changes job publishes no answer");
+    assert.match(changes, /node "\$classifier"/, "ci.yml's changes job decides it somewhere else");
+    for (const id of ['typecheck', 'lint', 'test', 'e2e', 'build']) {
+      const block = job(yaml, id);
+      assert.ok(needsOf(block).includes('changes'), `ci.yml's ${id} job does not wait for what changed`);
+      assert.ok(block.includes(gate), `ci.yml's ${id} job does not carry the gate: ${gate}`);
+    }
+  });
+
+  it('decide from the base commit, so a branch cannot rule on its own diff', () => {
+    // `pull_request` builds the merge ref, so the classifier in the tree is the
+    // one this branch wrote. Running it would let a diff answer "documentation
+    // only" about its own payload and skip every check that would have read it.
+    const changes = job(workflow('ci.yml'), 'changes');
+    assert.match(changes, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/, 'the base commit is never named');
+    assert.match(changes, /git show "\$BASE_SHA:scripts\/what-changed\.mjs"/, "the base commit's own wrapper is not taken");
+    assert.match(changes, /git show "\$BASE_SHA:scripts\/lib\/what-changed\.mjs"/, "the base commit's own module is not taken");
+  });
+
+  it('cannot skip on a classifier that failed rather than answered', () => {
+    // `needs` on a failed job skips the lot, and a skip is what a required check
+    // accepts - so this job carries `continue-on-error` instead of the gate
+    // carrying `!cancelled()`, which would have turned a cancelled run into a
+    // passing one.
+    const yaml = workflow('ci.yml');
+    const changes = job(yaml, 'changes');
+    assert.equal((changes.match(/^ {8}continue-on-error: true$/gm) ?? []).length, 2, 'both steps of the changes job should continue on error');
+    assert.doesNotMatch(job(yaml, 'typecheck'), /!cancelled\(\)/, 'the gate should leave a cancelled run cancelled');
   });
 
   it('leave the reports and the writing rules alone', () => {
@@ -140,7 +305,19 @@ describe('the mechanical jobs', () => {
     // on - see its comment in ci.yml.
     const yaml = workflow('ci.yml');
     for (const id of ['scripts', 'test-explorer', 'stability', 'pages']) {
-      assert.doesNotMatch(job(yaml, id), /needs: changes/, `${id} should not be gated on what changed`);
+      assert.ok(!needsOf(job(yaml, id)).includes('changes'), `${id} should not be gated on what changed`);
     }
+  });
+
+  it('leave CodeQL to run on every diff, its third context being nobody here to post', () => {
+    // `CodeQL (javascript-typescript)` and `CodeQL (actions)` are jobs and would
+    // skip safely. The third required context, `CodeQL`, is posted by GitHub
+    // Advanced Security when an analysis uploads results, and a required context
+    // nothing reports under waits forever - see the note at the top of codeql.yml.
+    const yaml = workflow('codeql.yml');
+    assert.equal(jobIfAny(yaml, 'changes'), null, 'codeql.yml should not classify the diff at all');
+    const analyze = job(yaml, 'analyze');
+    assert.deepEqual(needsOf(analyze), [], 'the analysis should wait for nothing');
+    assert.doesNotMatch(analyze, /product_changed/, 'the analysis should not read the classifier');
   });
 });

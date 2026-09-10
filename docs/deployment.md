@@ -706,12 +706,19 @@ Then, by hand (no API, or deliberately not automated):
      above the failure threshold. Requiring the legs without it would gate on the
      analysis having happened while letting a high-severity finding merge.
 
-     **That split is the one thing to watch about the documentation-only skip.**
-     The legs are jobs, so they report `skipped` and satisfy their contexts by the
-     mechanism measured below; the third is posted by a service rather than by a
-     job, and whether it reports at all on a pull request whose analysis never ran
-     is unmeasured here. If `CodeQL` is ever left *Expected* on a documentation-only
-     pull request, the answer is to stop gating `codeql.yml`.
+     **That split is why the documentation-only skip stops at `ci.yml`**, though
+     "Skip the mechanical checks on a pull request that touches nothing they
+     cover" (issue 345) asked for the two legs as well. They are jobs and would
+     report `skipped` by the mechanism measured below; the third is posted by a
+     service when an analysis uploads results, and whether it is posted at all
+     when none does has never been measured here — a required context nothing
+     reports under sits at *Expected* forever, so guessing wrong blocks every
+     documentation-only pull request permanently. The cost settled it rather than
+     the risk: across three pull requests sampled on 10 September 2026 the legs
+     took 0.6–3.3 minutes each, against `claude-review` on the same head at
+     9.0–14.9 and `Test Explorer` at 5.1–6.8, neither of which is gated. The legs
+     already finish inside the shadow of checks that run regardless, so skipping
+     them would shorten nothing anybody waits for.
 
      **All three names were read off a real run** ("Analyse every pull request with
      CodeQL, and let Dependabot report vulnerable dependencies", pull request 92),
