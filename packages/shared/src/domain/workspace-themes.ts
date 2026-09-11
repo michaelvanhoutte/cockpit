@@ -35,7 +35,7 @@ export type WorkspaceTheme = z.infer<typeof workspaceThemeSchema>;
  * (architecture.md §4.4). Order is the order colors are handed out to new
  * workspaces.
  */
-export const WORKSPACE_THEMES: readonly WorkspaceTheme[] = [
+export const WORKSPACE_THEMES = [
   { name: 'Violet', tint: '#6f62b5', bar: '#211d37', ground: '#edebf7', header: '#18152b' },
   { name: 'Blue', tint: '#3a72c8', bar: '#1d2737', ground: '#ebf0f7', header: '#151e2b' },
   { name: 'Terracotta', tint: '#c06a45', bar: '#37251d', ground: '#f7efeb', header: '#2b1c15' },
@@ -44,7 +44,15 @@ export const WORKSPACE_THEMES: readonly WorkspaceTheme[] = [
   { name: 'Amber', tint: '#b58a2f', bar: '#372f1d', ground: '#f7f3eb', header: '#2b2415' },
   { name: 'Cyan', tint: '#4f8fa8', bar: '#1d3037', ground: '#ebf4f7', header: '#15252b' },
   { name: 'Olive', tint: '#7d8f3f', bar: '#31371d', ground: '#f4f7eb', header: '#262b15' },
-] as const;
+] as const satisfies readonly WorkspaceTheme[];
+
+/**
+ * The tint of a theme in the palette, as a type. `themeOf` answers an unknown
+ * tint with the default rather than refusing it, which is right for a column
+ * read out of a store; it makes a tint *written down in source* a silent
+ * mistake, so anything naming one names it as this.
+ */
+export type WorkspaceTint = (typeof WORKSPACE_THEMES)[number]['tint'];
 
 /** What a workspace wears when nothing else fits — an unrecognised tint's fallback, not a refusal (architecture.md §4.4). */
 export const DEFAULT_WORKSPACE_THEME: WorkspaceTheme = WORKSPACE_THEMES[0]!;
