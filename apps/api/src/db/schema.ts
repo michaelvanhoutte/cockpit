@@ -163,6 +163,23 @@ export const users = sqliteTable(
      * is read is only whether it is there.
      */
     disabledAt: text('disabled_at'),
+    /**
+     * When this person last signed in through a real round trip with Google -
+     * `NULL` for somebody who never has ("Show when each person last signed in,
+     * on the admin page", issue 342).
+     *
+     * **Written once, at `auth/register.ts`'s `startVisit`, and nowhere else.**
+     * A session sliding its own expiry (`extendSession`) is not a fresh sign-in
+     * and must not move it, which is the whole point of the column: the
+     * register already knew *whether* somebody had signed in, from
+     * `google_subject` being set, and what this adds is *when*.
+     *
+     * **No CHECK, for the reason `disabled_at` has none**: adding one to a table
+     * that exists rebuilds it in SQLite, which is the manoeuvre that nearly
+     * emptied the register once ("Make the database enforce the schema
+     * conventions, not just the callers", issue 69).
+     */
+    lastSignedInAt: text('last_signed_in_at'),
     createdAt: text('created_at').notNull(),
   },
   (table) => [

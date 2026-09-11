@@ -147,13 +147,23 @@ type SigningIn = { id: string; name: string };
 /**
  * A sign-in of its own, always: whatever the browser arrived holding is neither
  * read nor reused, so there is nothing to fix a session onto.
+ *
+ * **The register's `last_signed_in_at` is written in the same batch** ("Show
+ * when each person last signed in, on the admin page", issue 342): this
+ * function runs only after a real round trip through Google, never when a
+ * session merely renews itself (`extendSession`), so it is the one place that
+ * distinction already exists to write from.
  */
 async function startVisit(env: Env, user: SigningIn, now: Date): Promise<SignIn> {
   const sessionId = newSessionId();
   const expiresAt = endsFrom(now);
-  await createDb(env.DB)
-    .insert(sessions)
-    .values({ id: sessionId, userId: user.id, createdAt: now.toISOString(), expiresAt });
+  const at = now.toISOString();
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
+    ).bind(sessionId, user.id, at, expiresAt),
+    env.DB.prepare('UPDATE users SET last_signed_in_at = ? WHERE id = ?').bind(at, user.id),
+  ]);
   return { signedIn: true, sessionId, expiresAt, user };
 }
 

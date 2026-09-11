@@ -89,6 +89,15 @@ export function AdminPage() {
    * next list, and a form open on a row nothing holds would save into nothing.
    */
   const beingEdited = data?.users.find((user) => user.id === editing?.id);
+  /**
+   * Stalest first, so the people a "hasn't signed in in three months" question
+   * is about are the ones an admin sees without scrolling ("Show when each
+   * person last signed in, on the admin page", issue 342). Sorted here rather
+   * than by the register's own query, which orders by name for a different
+   * reason of its own (`accounts/register.ts`) - this is what the screen shows,
+   * not what the list *is*.
+   */
+  const byStaleness = [...(data?.users ?? [])].sort(compareByStaleness);
 
   const startEditing = (user: RegisteredUser, openedFrom: HTMLElement | null) => {
     changing.reset();
@@ -153,7 +162,7 @@ export function AdminPage() {
             </tr>
           </thead>
           <tbody>
-            {data.users.map((user) => (
+            {byStaleness.map((user) => (
               <Row
                 key={user.id}
                 user={user}
@@ -245,6 +254,39 @@ export function AdminPage() {
 /** What a role is called on the screen, rather than the word the register holds. */
 function roleName(role: Role): string {
   return role === ADMIN ? 'Admin' : 'User';
+}
+
+/**
+ * Puts whoever has gone longest without signing in - or never has - ahead of
+ * everybody else ("Show when each person last signed in, on the admin page",
+ * issue 342). `null` sorts first: nobody has been waiting longer than somebody
+ * who has never signed in at all.
+ */
+function compareByStaleness(a: RegisteredUser, b: RegisteredUser): number {
+  if (a.lastSignedInAt === b.lastSignedInAt) return 0;
+  if (a.lastSignedInAt === null) return -1;
+  if (b.lastSignedInAt === null) return 1;
+  return a.lastSignedInAt < b.lastSignedInAt ? -1 : 1;
+}
+
+/**
+ * What the register's exact instant reads as on the screen, or `'not yet'` for
+ * somebody who has never signed in - the same words the boolean this replaced
+ * used to say (issue 342).
+ *
+ * **A date, not a relative label.** "3 months ago" is the same fact dressed up,
+ * and it goes stale the moment the page has been open a while; the exact
+ * instant is already proven by the register's own CHECK, so there is nothing
+ * left to test by adding one.
+ *
+ * **Fixed to UTC** rather than the reader's own timezone, so this and every
+ * test asserting it agree regardless of where either runs.
+ */
+export function lastSignedInLabel(lastSignedInAt: string | null): string {
+  if (lastSignedInAt === null) return 'not yet';
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(
+    new Date(lastSignedInAt),
+  );
 }
 
 /**
@@ -443,7 +485,7 @@ function Row({
       <td className="py-2 pr-4 text-ink-faint">{user.email ?? 'no address — cannot sign in'}</td>
       <td className="py-2 pr-4">{roleName(user.role)}</td>
       <td className="py-2 pr-4 text-ink-faint">{user.accountName}</td>
-      <td className="py-2 pr-4 text-ink-faint">{user.hasSignedIn ? 'yes' : 'not yet'}</td>
+      <td className="py-2 pr-4 text-ink-faint">{lastSignedInLabel(user.lastSignedInAt)}</td>
       <td className="py-2">
         <RowMenu
           label={`Actions for ${user.name}`}

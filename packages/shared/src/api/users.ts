@@ -32,7 +32,8 @@ export const registeredUserSchema = z.object({
   role: z.enum(ROLES),
   /** The account this person owns, which is theirs alone. */
   accountName: z.string(),
-  hasSignedIn: z.boolean(),
+  /** When this person last signed in, or `null` for somebody who never has. */
+  lastSignedInAt: z.string().nullable(),
   /** That their access was taken away ("Take somebody's access away without taking their work", issue 233; architecture.md §4.4). */
   disabled: z.boolean(),
 });

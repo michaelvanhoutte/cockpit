@@ -32,10 +32,13 @@ export async function accountIsRegistered(env: Env, accountName: string): Promis
  * like it breaks - a query scoped to the account the session names - is about
  * an account's *data*, which lives in a store this cannot reach at all.
  *
- * **`hasSignedIn` is derived rather than stored.** The register records the
- * Google identity at somebody's first sign-in, so its presence is the fact, and
- * publishing the identity itself would put a stable account key on a page for
- * no gain.
+ * **`lastSignedInAt` is a column of its own** ("Show when each person last
+ * signed in, on the admin page", issue 342), written by `auth/register.ts`'s
+ * `startVisit` and nowhere else - a session sliding its own expiry is not a
+ * fresh sign-in. `null` reads the same as "never" did before this column
+ * existed: nothing here derives it from `google_subject` any more, since the
+ * timestamp is now the fact and the identity would put a stable account key on
+ * a page for no gain.
  *
  * Ordered by name so the list is the same list twice running. Nothing pages it:
  * the register holds the people who can sign in to one Cockpit, and a limit
@@ -67,7 +70,7 @@ function peopleInRegister(db: ReturnType<typeof createDb>) {
       // `tenant-ada` is how the platform reaches a store and means nothing to
       // somebody reading a page; the register holds the name beside it.
       accountName: tenants.name,
-      googleSubject: users.googleSubject,
+      lastSignedInAt: users.lastSignedInAt,
       disabledAt: users.disabledAt,
     })
     .from(users)
@@ -75,11 +78,10 @@ function peopleInRegister(db: ReturnType<typeof createDb>) {
 }
 
 function asShown({
-  googleSubject,
   disabledAt,
   ...user
 }: Awaited<ReturnType<typeof peopleInRegister>>[number]): RegisteredUser {
-  return { ...user, hasSignedIn: googleSubject !== null, disabled: hasNoAccess(disabledAt) };
+  return { ...user, disabled: hasNoAccess(disabledAt) };
 }
 
 /**
@@ -179,7 +181,7 @@ export async function addUser(
     email,
     role: 'user',
     accountName: name.trim(),
-    hasSignedIn: false,
+    lastSignedInAt: null,
     disabled: false,
   };
 
