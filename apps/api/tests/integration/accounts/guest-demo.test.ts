@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
+import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
 import type { Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { accountChanges } from '../../../src/accounts/changes.js';
 import { GUEST_ACCOUNT_NAME } from '../../../src/auth/register.js';
@@ -55,6 +56,19 @@ function snapshotOf(cookie: string, workspaceId: string): Promise<WorkspaceSnaps
   );
 }
 
+/** A command issued the way the app issues one, as the guest who is holding this cookie. */
+async function send(command: string, cookie: string, body: Record<string, unknown>) {
+  return SELF.fetch(`http://cockpit.test/v1/commands/${command}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', cookie },
+    body: JSON.stringify({
+      commandId: '018f0000-0000-7000-8000-000000000001',
+      issuedAt: '2026-09-11T10:00:00.000Z',
+      ...body,
+    }),
+  });
+}
+
 const named = (workspaces: readonly Workspace[], name: string): Workspace => {
   const found = workspaces.find((one) => one.name === name);
   expect(found, `no workspace called ${name}: ${workspaces.map((w) => w.name).join(', ')}`).toBeDefined();
@@ -104,6 +118,60 @@ describe('Accounts', () => {
         ['Infrastructure & cloud', 'Data migration', 'API & service cutover'],
         ['Testing & QA', 'Rollout & communications'],
       ]);
+    });
+
+    /**
+     * The point of the whole change, and the one claim a list of statements
+     * cannot make: the app opens on the first workspace it is handed
+     * (`somewhereThatWorks`, apps/web/src/router.tsx), so what is being asked
+     * here is what the ordinary read puts first.
+     */
+    it('hands the demonstration back ahead of the empty starter, so that is where a guest lands', async () => {
+      const cookie = await continueAsGuest();
+
+      const workspaces = await workspacesOf(cookie);
+
+      expect(workspaces.map((one) => one.name)).toEqual([
+        'Personal',
+        'Halcyon Health',
+        'Oakline Retail',
+        FIRST_WORKSPACE_NAME,
+      ]);
+    });
+
+    /**
+     * A seeded arrangement a guest cannot touch is a demonstration of a
+     * read-only Cockpit. `save_layout` takes its `layoutId` as a uuid, so this
+     * is what a readable one would have cost: a 400 before the handler ran,
+     * on every drag of every seeded dashboard.
+     */
+    it('lets a guest rearrange a dashboard it seeded', async () => {
+      const cookie = await continueAsGuest();
+      const halcyon = await snapshotOf(cookie, named(await workspacesOf(cookie), 'Halcyon Health').id);
+      const migration = halcyon.dashboards.find((one) => one.name === 'Platform migration')!;
+      const layout = halcyon.layouts.find((one) => one.dashboardId === migration.id)!;
+      // The first row's panels, the first two of them swapped - a drag, said
+      // the way the client says it.
+      const [first, ...rest] = layout.rows;
+      const swapped = [
+        { height: first!.height, cells: [first!.cells[1]!, first!.cells[0]!, ...first!.cells.slice(2)] },
+        ...rest.map((row) => ({ height: row.height, cells: row.cells })),
+      ];
+
+      const saved = await send('save_layout', cookie, {
+        workspaceId: halcyon.workspace.id,
+        dashboardId: migration.id,
+        layoutId: layout.id,
+        screenWidth: 1440,
+        rows: swapped,
+      });
+
+      expect(saved.status, await saved.clone().text()).toBe(200);
+      const now = await snapshotOf(cookie, halcyon.workspace.id);
+      const again = now.layouts.find((one) => one.dashboardId === migration.id)!;
+      expect(again.rows[0]!.cells.map((cell) => cell.panelId)).toEqual(
+        swapped[0]!.cells.map((cell) => cell.panelId),
+      );
     });
 
     it('files items onto those panels, some due on a date at a priority and some tied to a person or a project', async () => {

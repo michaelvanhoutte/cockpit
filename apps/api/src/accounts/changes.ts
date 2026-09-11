@@ -3,12 +3,19 @@ import {
   FIRST_PANEL_NAME,
   FIRST_WORKSPACE_NAME,
   GRID_COLUMNS,
+  MOST_ACROSS,
   themeOf,
 } from '@cockpit/shared';
 import type { AssociationKind } from '@cockpit/shared';
 import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { foldName } from '../domain/names.js';
-import { GUEST_DEMO, SEEDED_AT, type SeedDashboard, type SeedItem } from './guest-seed-data.js';
+import {
+  GUEST_DEMO,
+  SEEDED_AT,
+  type SeedDashboard,
+  type SeedItem,
+  type SeedWorkspace,
+} from './guest-seed-data.js';
 import type { Change, Statement } from './up-to-date.js';
 
 /**
@@ -860,6 +867,16 @@ const ITEM_COMPLETED_AT: Change = {
  * only loss available is the change failing partway - which `transactionSync`
  * rules out (store.ts), leaving the account to apply it whole next time.
  */
+/**
+ * The ids of the two types every account is given below - *Task* and *Note*
+ * since `0012-standard-types` renamed them, under the ids `0008-item-types`
+ * first wrote. Named here because four places derive them and a fifth reads
+ * them back in a test; the strings are the ones already in every account, so
+ * this is the same value said once rather than an edit to a shipped change.
+ */
+export const taskTypeId = (accountId: string) => `${accountId}-type-action`;
+export const noteTypeId = (accountId: string) => `${accountId}-type-thought`;
+
 function itemTypes(accountId: string): Change {
   const at = '2026-09-04T00:00:00.000Z';
   return {
@@ -890,12 +907,12 @@ function itemTypes(accountId: string): Change {
       {
         sql: `INSERT OR IGNORE INTO item_types (id, tenant_id, name, folded_name, color, position, created_at)
               VALUES (?, ?, 'Action', 'action', '#6f62b5', 0, ?)`,
-        params: [`${accountId}-type-action`, accountId, at],
+        params: [taskTypeId(accountId), accountId, at],
       },
       {
         sql: `INSERT OR IGNORE INTO item_types (id, tenant_id, name, folded_name, color, position, created_at)
               VALUES (?, ?, 'Thought', 'thought', '#3a72c8', 1, ?)`,
-        params: [`${accountId}-type-thought`, accountId, at],
+        params: [noteTypeId(accountId), accountId, at],
       },
     ],
   };
@@ -1410,11 +1427,11 @@ function standardTypes(accountId: string): Change {
     statements: [
       {
         sql: `UPDATE item_types SET name = 'Task', folded_name = 'task' WHERE id = ?`,
-        params: [`${accountId}-type-action`],
+        params: [taskTypeId(accountId)],
       },
       {
         sql: `UPDATE item_types SET name = 'Note', folded_name = 'note' WHERE id = ?`,
-        params: [`${accountId}-type-thought`],
+        params: [noteTypeId(accountId)],
       },
     ],
   };
@@ -1978,13 +1995,14 @@ const DEMO_SCREEN_SIZE_NAME = 'Desktop';
 const DEMO_SCREEN_WIDTH = 1440;
 
 /**
- * The ids the demonstration's Panels, Items and Associations carry.
+ * The ids the demonstration's Layouts, Panels, Items and Associations carry.
  *
  * **Real uuids rather than readable strings**, for the reason `FIRST_PANEL_ID`
- * above is one: five Panel commands and every Item and Association command take
- * their id as `z.uuid()`, so a seeded row with a readable id would be a row
- * nobody could rename, file or delete. Workspaces, Dashboards and Layouts take
- * no such schema, so those keep names you can read in a query.
+ * above is one: `save_layout` and `delete_layout` take a `layoutId` as
+ * `z.uuid()`, five Panel commands and every Item and Association command take
+ * theirs the same way, so a seeded row with a readable id would be a row nobody
+ * could rearrange, rename, file or delete. Workspaces and Dashboards are named
+ * in no such schema, so those keep ids you can read in a query.
  *
  * Counted rather than random: the whole dataset has to come out the same every
  * time it is applied.
@@ -1994,12 +2012,70 @@ const demoId = (prefix: string, nth: number) =>
 const DEMO_PANEL = '0a000000';
 const DEMO_ITEM = '0b000000';
 const DEMO_ASSOCIATION = '0c000000';
+const DEMO_LAYOUT = '0d000000';
 
 /** A readable, stable id for the things whose ids are not uuids: `Day to day` -> `day-to-day`. */
 function demoSlug(name: string): string {
   return foldName(name)
     .replace(/[^a-z0-9]+/gu, '-')
     .replace(/^-+|-+$/gu, '');
+}
+
+/**
+ * What the demonstration has to be true of before it can be turned into rows,
+ * checked once so that a future edit to guest-seed-data.ts fails loudly instead
+ * of failing the guest account.
+ *
+ * Every one of these is a live constraint somewhere below, and every one of
+ * them takes the *whole* change with it if it is broken - the statements commit
+ * in one transaction, so a single refused insert leaves the guest account
+ * unopenable rather than one Panel short. A thrown error here is a red test and
+ * a cold start that says what is wrong; the same mistake unchecked is a 500 to
+ * whoever presses "Continue as guest".
+ *
+ * Exported so each refusal can be asked for directly: the data it guards is
+ * correct, which leaves nothing else that could make it say no.
+ */
+export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedWorkspace[] {
+  const wrong = (why: string): never => {
+    throw new Error(`the guest demonstration data cannot be seeded: ${why}`);
+  };
+  const workspaceIds = new Set<string>();
+  const dashboardIds = new Set<string>();
+  for (const workspace of demo) {
+    const slug = demoSlug(workspace.name);
+    // Two names folding to one slug would be two Workspaces racing for one id:
+    // the second insert is guarded on the id, so it would silently not happen.
+    if (!slug) wrong(`the workspace "${workspace.name}" leaves no id behind`);
+    if (workspaceIds.has(slug)) wrong(`two workspaces share the id "${slug}"`);
+    workspaceIds.add(slug);
+    for (const dashboard of workspace.dashboards) {
+      const under = `${slug}-${demoSlug(dashboard.name)}`;
+      if (dashboardIds.has(under)) wrong(`two dashboards share the id "${under}"`);
+      dashboardIds.add(under);
+      // `panels_dashboard_live_folded_name` is unique, and it is the live
+      // index rather than a guard this change could write around.
+      const panelNames = new Set<string>();
+      for (const row of dashboard.rows) {
+        // A row of none divides by zero and a row of more than `MOST_ACROSS`
+        // is narrower than a Panel is meant to be read at - and past twelve,
+        // `panel_placements_span_fits_the_grid` refuses the span outright.
+        if (row.panels.length < 1 || row.panels.length > MOST_ACROSS) {
+          wrong(
+            `a row of "${dashboard.name}" holds ${row.panels.length} panels, and a row holds 1 to ${MOST_ACROSS}`,
+          );
+        }
+        for (const panel of row.panels) {
+          const folded = foldName(panel.name);
+          if (panelNames.has(folded)) {
+            wrong(`"${dashboard.name}" has two panels called "${panel.name}"`);
+          }
+          panelNames.add(folded);
+        }
+      }
+    }
+  }
+  return demo;
 }
 
 /** Every Association one seeded Item carries, its Dashboard's Project included. */
@@ -2047,8 +2123,10 @@ function demoAssociations(
  * a Layout hangs off whichever row is actually there.
  *
  * **Nothing already in the account is touched.** The `Workspace 1` that
- * `0015-first-workspace` hands every account stays exactly where it is, beside
- * these three - additive, with nothing to overwrite.
+ * `0015-first-workspace` hands every account keeps its row and its position
+ * untouched - additive, with nothing to overwrite. These three simply take
+ * positions below it, so a guest lands on the demonstration rather than on the
+ * empty starter; the note beside that number says why it is negative.
  *
  * Its failure modes, per the scoping skill:
  *
@@ -2077,11 +2155,27 @@ function demoAssociations(
 function guestDemoSeed(accountId: string): Change {
   const name = '0026-guest-demo-seed';
   if (accountId !== GUEST_ACCOUNT_NAME) return { name, statements: [] };
+  seededOnce ??= guestDemoStatements(GUEST_ACCOUNT_NAME);
+  return { name, statements: seededOnce };
+}
 
+/**
+ * The statements themselves, built once per isolate.
+ *
+ * `accountChanges` is called on every read an account serves, and the branch
+ * above depends on nothing but a constant - so without this the demonstration's
+ * four hundred statements were rebuilt for every request the guest account
+ * answered, long after the change itself had been recorded as applied. Building
+ * them once is also what makes `checkedGuestDemo` free enough to run always.
+ */
+let seededOnce: readonly Statement[] | undefined;
+
+function guestDemoStatements(accountId: string): readonly Statement[] {
+  const demo = checkedGuestDemo(GUEST_DEMO);
   const at = SEEDED_AT;
   const folded = foldName(DEMO_SCREEN_SIZE_NAME);
-  const taskType = `${accountId}-type-action`;
-  const noteType = `${accountId}-type-thought`;
+  const taskType = taskTypeId(accountId);
+  const noteType = noteTypeId(accountId);
   const statements: Statement[] = [
     {
       sql: `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
@@ -2100,11 +2194,12 @@ function guestDemoSeed(accountId: string): Change {
     },
   ];
 
+  let layoutsSoFar = 0;
   let panelsSoFar = 0;
   let itemsSoFar = 0;
   let associationsSoFar = 0;
 
-  GUEST_DEMO.forEach((workspace, index) => {
+  demo.forEach((workspace, index) => {
     const workspaceId = `guest-ws-${demoSlug(workspace.name)}`;
     const theme = themeOf(workspace.tint);
     statements.push({
@@ -2120,11 +2215,16 @@ function guestDemoSeed(accountId: string): Change {
         theme.bar,
         theme.ground,
         theme.header,
-        // After the one `0015-first-workspace` gives every account, which
-        // holds 0. A guest who has made Workspaces of their own may already
-        // hold these numbers, which the column allows: `created_at` breaks the
-        // tie, so the tabs still come back in one stable order.
-        index + 1,
+        // *Before* the `Workspace 1` that `0015-first-workspace` gives every
+        // account, which holds 0, and before anything a guest has made for
+        // themselves, which is 1 upwards: a guest lands on the first tab
+        // (`somewhereThatWorks`, apps/web/src/router.tsx) and landing on the
+        // empty starter with the demonstration behind it is the whole thing
+        // this change exists to stop. Counting down from minus the dataset's
+        // size keeps these three in the order they are written in. The column
+        // carries no uniqueness and no floor, and `created_at` breaks any tie,
+        // so the tabs come back in one stable order regardless.
+        index - demo.length,
         at,
         accountId,
         foldName(workspace.name),
@@ -2134,7 +2234,8 @@ function guestDemoSeed(accountId: string): Change {
     for (const dashboard of workspace.dashboards) {
       const under = `${demoSlug(workspace.name)}-${demoSlug(dashboard.name)}`;
       const dashboardId = `guest-db-${under}`;
-      const layoutId = `guest-layout-${under}`;
+      layoutsSoFar += 1;
+      const layoutId = demoId(DEMO_LAYOUT, layoutsSoFar);
       statements.push({
         sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
                 SELECT ?, ?, ?, ?, ?, ?
@@ -2174,7 +2275,13 @@ function guestDemoSeed(accountId: string): Change {
 
         // The cells of a row divide it in proportion to their spans, so an
         // equal share each is the grid over however many Panels are on it.
-        const span = Math.floor(GRID_COLUMNS / row.panels.length);
+        // Clamped as well as checked (`checkedGuestDemo`), because a span
+        // outside 1..12 is refused by `panel_placements_span_fits_the_grid`
+        // and would take the whole change - and with it guest sign-in.
+        const span = Math.min(
+          GRID_COLUMNS,
+          Math.max(1, Math.floor(GRID_COLUMNS / row.panels.length)),
+        );
 
         row.panels.forEach((panel, position) => {
           panelsSoFar += 1;
@@ -2298,5 +2405,5 @@ function guestDemoSeed(accountId: string): Change {
     }
   });
 
-  return { name, statements };
+  return statements;
 }

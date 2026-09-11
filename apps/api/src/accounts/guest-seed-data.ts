@@ -1,4 +1,4 @@
-import type { Priority } from '@cockpit/shared';
+import type { Priority, WorkspaceTint } from '@cockpit/shared';
 
 /**
  * What the shared guest account holds when a visitor opens it: a contractor's
@@ -24,6 +24,14 @@ import type { Priority } from '@cockpit/shared';
  * **Invented people and companies, on purpose.** Nothing here is Cockpit's own
  * development content or anybody's real customer, so nothing a visitor reads
  * can be mistaken for leaked data.
+ *
+ * **Editable only until it ships, like the change that writes it.** This is the
+ * content half of `0026-guest-demo-seed`, so changes.ts's own rule - a change
+ * that has been applied to an account may never be edited - covers this file
+ * too. Once the real guest account has recorded that change as applied, editing
+ * anything below changes nothing for it; it reaches only stores that have not
+ * applied the change yet, which is developers' and tests'. Content that has to
+ * reach the live guest account needs a *new* change appended after this one.
  */
 
 /** The instant everything seeded here was made at, and the date the due dates are written around. */
@@ -73,8 +81,14 @@ export interface SeedDashboard {
 
 export interface SeedWorkspace {
   readonly name: string;
-  /** The tint of one of the palette's themes; the other three surfaces are read off it (`themeOf`). */
-  readonly tint: string;
+  /**
+   * The tint of one of the palette's themes; the other three surfaces are read
+   * off it (`themeOf`). Typed as the palette rather than as a string, because
+   * `themeOf` answers a tint it does not know with the default theme - so a
+   * mistyped hex here would paint a demonstration Workspace like a brand-new
+   * one, with nothing anywhere failing.
+   */
+  readonly tint: WorkspaceTint;
   readonly dashboards: readonly SeedDashboard[];
 }
 
