@@ -227,14 +227,14 @@ const GUEST_NAME = 'Guest';
  * goes first because the user's account is a real foreign key to it.
  *
  * **The row is read back and checked before anybody is signed into it.** These
- * ids are derived the same way `idsForNewUser` derives one for a real person
- * added by name (`accounts/new-user.ts`) - so a person added as "Guest" before
- * this route is ever pressed would otherwise occupy `user-guest` first, both
- * inserts above would conflict and write nothing, and this would sign a
- * stranger straight into that person's real account with whatever role they
- * hold. What no real user ever has is a null address - `addUser` requires one
- * - so a row with one is never anybody's but the guest's, and the guest is
- * refused right along with a disabled one rather than trusted on sight.
+ * ids have the shape `idsForNewUser` gives a real person, and though it never
+ * hands them out (`accounts/new-user.ts`), a restored backup or a hand-written
+ * row still can - and then both inserts above would conflict and write nothing,
+ * and this would sign a stranger straight into that person's real account with
+ * whatever role they hold. What no real user ever has is a null address -
+ * `addUser` requires one and a Google sign-in brings one - so a row with one is
+ * never anybody's but the guest's, and the guest is refused right along with a
+ * disabled one rather than trusted on sight.
  *
  * **The role is checked too, and not because the insert above could ever write
  * `admin`.** Nothing stops an admin later promoting the row this makes through

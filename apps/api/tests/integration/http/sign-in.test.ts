@@ -468,13 +468,12 @@ describe('Sign-in', () => {
     });
 
     /**
-     * These ids are derived from a name the same way a real person's are
-     * (`accounts/new-user.ts`), so a person added as "Guest" before anybody
-     * ever presses this control would occupy them first: both inserts above
-     * would then conflict and write nothing, and blindly signing in as the id
-     * would hand a stranger that real person's account. The row is checked
-     * rather than trusted on sight - no real person is ever added without an
-     * address, so one is never the guest's.
+     * Nothing hands these ids to a real person any more (`idsForNewUser`), but
+     * a restored backup or a hand-written row can still put somebody there
+     * first: both inserts would then conflict and write nothing, and blindly
+     * signing in as the id would hand a stranger that real person's account.
+     * The row is checked rather than trusted on sight - no real person is ever
+     * without an address, so one is never the guest's.
      */
     it('refuses to sign anybody in where the guest id already belongs to somebody real', async () => {
       await env.DB.batch([
