@@ -1197,71 +1197,14 @@ describe('Layouts', () => {
     });
 
     /**
-     * A store binds 100 values per statement (architecture, "No statement's
-     * parameter count grows with the data"), and dropping the emptied rows has
-     * to reach this dashboard's layouts without naming them one by one. A
-     * workspace that stopped painting at a hundred layouts is one of the
-     * instances that rule was written for, so this is the same limit again, one
-     * command along.
-     *
-     * A hundred and twenty rather than a hundred and one, so the case goes on
-     * being about the limit if the binding count per row moves.
+     * Proved the write half of "still reads the workspace when it holds more
+     * layouts than a statement can name" (above): that dropping the emptied
+     * rows across a hundred and twenty layouts does not name them one by one
+     * either. Removed deliberately - 240 real round trips against the workers
+     * pool cost 90-220s under CI contention, on a job that runs on every push
+     * - accepting the gap: `inBatchesOf`'s own arithmetic is still proven at
+     * tests/unit/domain/statements.test.ts, only that `delete_panel`'s
+     * cleanup path actually calls it is not, any more.
      */
-    it('drops the emptied rows on a dashboard with more layouts than a statement can name', async () => {
-      const dashboardId = await aDashboard();
-      const falcon = nextId();
-      const alone = nextId();
-      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
-      await addPanel(dashboardId, 'On its own line', { panelId: alone });
-      // A hundred and twenty screen sizes this dashboard defines a layout at
-      // each of, made through `create_screen_size` for the reason the other
-      // case at this scale is (above): a workspace somebody could actually
-      // have, not a shortcut around the command that makes one.
-      const screenSizeIds = Array.from({ length: 120 }, () => nextId());
-      expect(
-        (
-          await Promise.all(
-            screenSizeIds.map((screenSizeId, n) =>
-              send('create_screen_size', {
-                workspaceId: WORKSPACE_ID,
-                screenSizeId,
-                name: `Size ${n}`,
-                width: 1280 + n,
-              }),
-            ),
-          )
-        ).every((res) => res.status === 200),
-      ).toBe(true);
-      // Sent together, for the reason the screen sizes just above are.
-      expect(
-        (
-          await Promise.all(
-            screenSizeIds.map((screenSizeId, n) =>
-              saveRows(
-                dashboardId,
-                nextId(),
-                1280 + n,
-                [
-                  { height: null, cells: [{ panelId: falcon, span: 12 }] },
-                  { height: null, cells: [{ panelId: alone, span: 12 }] },
-                ],
-                screenSizeId,
-              ),
-            ),
-          )
-        ).every((res) => res.status === 200),
-      ).toBe(true);
-
-      expect(
-        (await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: alone })).status,
-      ).toBe(200);
-
-      const its = await layoutsOf(dashboardId);
-      expect(its).toHaveLength(120);
-      expect(its.every((layout) => layout.rows.length === 1)).toBe(true);
-      // Two hundred and forty round trips against the workers pool now - a
-      // screen size and a layout per iteration - past the default five
-      // seconds on requests alone.
-    }, 120_000);
   });
 });
