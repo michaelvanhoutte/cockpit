@@ -12,12 +12,15 @@ import {
 import { NotSignedIn, SIGN_IN_PATH } from '../api/client';
 import { statusOf } from '../api/loadFailure';
 import {
+  accountHoldingsQuery,
   meQuery,
   registeredUsersQuery,
   useAddUser,
   useChangeUser,
+  useDeleteUser,
   useSetAccess,
 } from '../api/queries';
+import { DeleteQuestion } from '../components/DeleteQuestion';
 import { RowForm, wasOnTheRow } from '../components/RowForm';
 import { RowMenu } from '../components/Menu';
 
@@ -33,9 +36,9 @@ import { RowMenu } from '../components/Menu';
  * is no workspace behind it to keep, so it heads itself the way Capture does
  * rather than borrowing the band above.
  *
- * **It reads, it adds, it changes a person's name and role, and it takes their
- * access away or gives it back.** Deleting somebody is the issue after this
- * one; what landed here first was the role check that guards all of them.
+ * **It reads, it adds, it changes a person's name and role, it takes their
+ * access away or gives it back, and it deletes them** with the account they
+ * own ("Delete a user, and the account they owned with them", issue 234).
  *
  * **The server is what refuses**, not this page. The entry to it is hidden from
  * an ordinary user, and hiding is a courtesy: whoever types the address anyway
@@ -66,6 +69,18 @@ export function AdminPage() {
   } | null>(null);
   const changing = useChangeUser();
   const access = useSetAccess();
+  /**
+   * Whose deletion is being asked about ("Delete a user, and the account they
+   * owned with them", issue 234), and what their account holds - read when the
+   * question opens, because how much goes with somebody is part of what is
+   * being asked.
+   */
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const holdings = useQuery({
+    ...accountHoldingsQuery(deleting ?? ''),
+    enabled: deleting !== null,
+  });
+  const remover = useDeleteUser();
   const askedFrom = useRef<HTMLElement | null>(null);
   /**
    * The admins a lockout rule counts, for a change about one particular
@@ -89,6 +104,18 @@ export function AdminPage() {
    * next list, and a form open on a row nothing holds would save into nothing.
    */
   const beingEdited = data?.users.find((user) => user.id === editing?.id);
+  const beingDeleted = data?.users.find((user) => user.id === deleting);
+
+  const startDeleting = (user: RegisteredUser, openedFrom: HTMLElement | null) => {
+    remover.reset();
+    askedFrom.current = openedFrom;
+    setDeleting(user.id);
+  };
+  const stopDeleting = () => {
+    setDeleting(null);
+    remover.reset();
+  };
+
   /**
    * Stalest first, so the people a "hasn't signed in in three months" question
    * is about are the ones an admin sees without scrolling ("Show when each
@@ -171,6 +198,11 @@ export function AdminPage() {
                 user={user}
                 onEdit={startEditing}
                 onAccess={(disabled) => access.mutate({ userId: user.id, disabled })}
+                onDelete={startDeleting}
+                deleteStuck={whyDeletingIsStuck(user, {
+                  me: me.data?.user.id,
+                  admins: adminsCounting(user),
+                })}
                 // Only a disabling is ever refused, so only a row that still
                 // has its access has a reason to carry.
                 accessStuck={
@@ -248,6 +280,22 @@ export function AdminPage() {
             )
           }
           returnFocusTo={askedFrom.current}
+        />
+      )}
+
+      {beingDeleted && (
+        <DeleteQuestion
+          open
+          question={deleteQuestion(beingDeleted.name, holdings.data)}
+          confirmLabel={`Yes, delete ${beingDeleted.name}`}
+          // Nothing goes before the question has an answer in it, and a count
+          // that could not be read lets it through rather than trapping you -
+          // the trade the workspace question makes.
+          canConfirm={!remover.isPending && (holdings.data !== undefined || holdings.isError)}
+          refusal={remover.error ? whatItSaid(remover.error) : null}
+          returnFocusTo={askedFrom.current}
+          onCancel={stopDeleting}
+          onConfirm={() => remover.mutate(beingDeleted.id, { onSuccess: () => setDeleting(null) })}
         />
       )}
     </Framed>
@@ -361,6 +409,41 @@ function whyAccessIsStuck(
   if (losing === 'the last admin') return 'The only admin, so make somebody else one first';
   if (losing === 'your own') return 'You cannot take your own access away';
   return null;
+}
+
+/**
+ * Why this person cannot be deleted, or `null` when they can: the same rule
+ * again, asked of somebody who will not exist afterwards ("Delete a user, and
+ * the account they owned with them", issue 234).
+ */
+function whyDeletingIsStuck(
+  user: RegisteredUser,
+  { me, admins }: { me: string | undefined; admins: number },
+): string | null {
+  const losing = losingAdminIsRefused({ who: user, stillAnAdmin: false, askedBy: me, admins });
+  if (losing === 'the last admin') return 'The only admin, so make somebody else one first';
+  if (losing === 'your own') return 'You cannot delete yourself';
+  return null;
+}
+
+/**
+ * The question asked before somebody is deleted: who, what goes with them, and
+ * that nothing but a backup brings it back. Without a count until one is read,
+ * the same way when it cannot be - and the same way again when no workspace is
+ * live but the account still holds something, since a deleted workspace keeps
+ * what was in it and "nothing" would be false in front of destroying it.
+ */
+function deleteQuestion(
+  name: string,
+  held: { workspaces: number; empty: boolean } | undefined,
+): string {
+  const back = 'A backup taken beforehand is the only way back.';
+  if (held?.empty) return `Delete ${name}? There is nothing in their account. ${back}`;
+  if (!held || held.workspaces === 0) {
+    return `Delete ${name} and everything in their account? ${back}`;
+  }
+  const counted = `${held.workspaces} workspace${held.workspaces === 1 ? '' : 's'}`;
+  return `Delete ${name} and the ${counted} in their account? ${back}`;
 }
 
 /**
@@ -479,12 +562,17 @@ function Row({
   onEdit,
   onAccess,
   accessStuck,
+  onDelete,
+  deleteStuck,
 }: {
   user: RegisteredUser;
   onEdit: (user: RegisteredUser, openedFrom: HTMLElement | null) => void;
   onAccess: (disabled: boolean) => void;
   /** Why this person's access cannot be taken away, when it cannot. */
   accessStuck: string | null;
+  onDelete: (user: RegisteredUser, openedFrom: HTMLElement | null) => void;
+  /** Why this person cannot be deleted, when they cannot. */
+  deleteStuck: string | null;
 }) {
   return (
     <tr
@@ -527,6 +615,14 @@ function Row({
               unavailable: accessStuck ?? undefined,
               destructive: !user.disabled,
               onSelect: () => onAccess(!user.disabled),
+            },
+            {
+              // Opens the question rather than acting, so the focus goes to it
+              // and back to this menu's button afterwards.
+              label: 'Delete',
+              unavailable: deleteStuck ?? undefined,
+              destructive: true,
+              onSelect: (openedFrom) => onDelete(user, openedFrom),
             },
           ]}
         />

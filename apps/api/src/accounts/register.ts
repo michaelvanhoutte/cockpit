@@ -313,7 +313,7 @@ export async function changeUser(
     db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)),
     db.select({ id: users.id }).from(users).where(adminsCounting(userId)),
   ]);
-  if (!held) return nobodyHere(userId);
+  if (!held) return { changed: false, ...nobodyHere(userId) };
 
   const stops = whatStopsChanging({
     who: held,
@@ -352,12 +352,127 @@ export async function changeUser(
   const [after] = await peopleInRegister(db).where(eq(users.id, userId));
   // Gone between the write and the read back, which is the same answer as gone
   // before it: this page is out of date, rather than the server having broken.
-  if (!after) return nobodyHere(userId);
+  if (!after) return { changed: false, ...nobodyHere(userId) };
   return { changed: true, user: asShown(after) };
 }
 
-function nobodyHere(userId: string): Changed {
-  return { changed: false, refused: `${userId} is nobody here`, because: 'nobody' };
+/** The answer for somebody the register does not hold, written once for every admin route that meets one. */
+export function nobodyHere(userId: string) {
+  return { refused: `${userId} is nobody here`, because: 'nobody' } as const;
+}
+
+/**
+ * Whether somebody may be deleted, and the account that goes with them if so
+ * ("Delete a user, and the account they owned with them", issue 234). The
+ * deleting itself is `deleteUser` in `index.ts`, since it reaches a store as
+ * well as this register.
+ */
+export type Deletable =
+  | { deletable: true; accountId: string }
+  | { deletable: false; refused: string; because: 'nobody' | 'a rule' };
+
+/**
+ * The refusals a deletion answers before anything is touched.
+ *
+ * **The two a role change and a disabling answer**, asked of somebody who will
+ * not exist afterwards: deleting the last admin, or yourself, leaves the admin
+ * pages reachable by nobody. The whole point of the second is that the page
+ * you would undo it from is gone the moment it lands.
+ *
+ * **And a third of its own: an account somebody else also points at.** Adding a
+ * user always makes them an account of their own, but a restored register only
+ * checks that the account exists, so a row naming somebody else's is a state
+ * that can arrive - and destroying that store would destroy the other person's
+ * work, which nothing puts back.
+ */
+export async function whoCanBeDeleted(
+  env: Env,
+  userId: string,
+  askedBy: string,
+): Promise<Deletable> {
+  const db = createDb(env.DB);
+  const [[held], admins, sharing] = await Promise.all([
+    db
+      .select({ id: users.id, role: users.role, accountId: users.accountId })
+      .from(users)
+      .where(eq(users.id, userId)),
+    db.select({ id: users.id }).from(users).where(adminsCounting(userId)),
+    env.DB.prepare(
+      'SELECT id FROM users WHERE account_id = (SELECT account_id FROM users WHERE id = ?) AND id != ?',
+    )
+      .bind(userId, userId)
+      .all<{ id: string }>(),
+  ]);
+  if (!held) return { deletable: false, ...nobodyHere(userId) };
+
+  const losing = losingAdminIsRefused({
+    who: held,
+    stillAnAdmin: false,
+    askedBy,
+    admins: admins.length,
+  });
+  if (losing) {
+    return {
+      deletable: false,
+      because: 'a rule',
+      refused:
+        losing === 'the last admin'
+          ? 'this is the only admin, so make somebody else an admin before deleting this one'
+          : 'you cannot delete yourself - another admin can do it for you',
+    };
+  }
+
+  const [other] = sharing.results;
+  if (other) {
+    return {
+      deletable: false,
+      because: 'a rule',
+      refused: `${other.id} uses the same account, so deleting ${userId} would destroy their work too`,
+    };
+  }
+  return { deletable: true, accountId: held.accountId };
+}
+
+/** The account somebody owns, by the id that addresses its store, or null for nobody. */
+export async function accountOwnedBy(env: Env, userId: string): Promise<string | null> {
+  const db = createDb(env.DB);
+  const [held] = await db.select({ accountId: users.accountId }).from(users).where(eq(users.id, userId));
+  return held?.accountId ?? null;
+}
+
+/** Ends every sign-in somebody holds: the first of deleting them's three steps. */
+export async function endSignInsOf(env: Env, userId: string): Promise<void> {
+  await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId).run();
+}
+
+/**
+ * The last of deleting somebody's three steps: the person and their account's
+ * row, in one write, so the register never holds one without the other.
+ *
+ * **Their sign-ins are deleted again**, for one that landed while their account
+ * was being destroyed: `sessions` points at `users`, so the person could not be
+ * removed while it was there.
+ *
+ * **So are the account's rows in D1's four old tables**, children first. An
+ * account older than the stores can still have some (architecture, "D1 still
+ * holds the four tables an account's data used to live in"), and three of those
+ * tables hold `tenants` with a restricting foreign key - so without this the
+ * register row is refused after the store is already gone, on every retry. The
+ * release that drops those tables takes these four statements with it.
+ */
+export async function removeFromRegister(
+  env: Env,
+  { userId, accountId }: { userId: string; accountId: string },
+): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM associations WHERE tenant_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM items WHERE tenant_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM commands WHERE tenant_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM workspaces WHERE tenant_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM tenants WHERE id = ?').bind(accountId),
+  ]);
 }
 
 /**
@@ -391,7 +506,7 @@ export async function setAccess(
     db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)),
     db.select({ id: users.id }).from(users).where(adminsCounting(userId)),
   ]);
-  if (!held) return nobodyHere(userId);
+  if (!held) return { changed: false, ...nobodyHere(userId) };
 
   const losing = losingAdminIsRefused({
     who: held,
@@ -426,7 +541,7 @@ export async function setAccess(
   ]);
 
   const [after] = await peopleInRegister(db).where(eq(users.id, userId));
-  if (!after) return nobodyHere(userId);
+  if (!after) return { changed: false, ...nobodyHere(userId) };
   return { changed: true, user: asShown(after) };
 }
 

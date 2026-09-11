@@ -134,12 +134,34 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * Puts the shared guest account back to the demonstration it opens on
    * ("Reset the guest account to its seeded state", issue 356).
    *
-   * **The one method here that takes no account name**, because there is only
-   * one account it may be asked of and it names that itself. A store holding
-   * any other account's rows answers `conflict` and drops nothing - see
+   * **No account name, like `destroy` below**, because there is only one
+   * account it may be asked of and it names that itself. A store holding any
+   * other account's rows answers `conflict` and drops nothing - see
    * `resetGuest` in `store.ts`.
    */
   resetGuest(): Awaitable<Answer<null>>;
+  /**
+   * How many live workspaces the store holds, and whether it holds anything at
+   * all, for the question asked before its owner is deleted ("Delete a user,
+   * and the account they owned with them", issue 234). Both, because a
+   * deleted workspace keeps what was in it - so none left live is not the
+   * same as nothing held.
+   *
+   * **Counted as it stands, like the export**: an admin looking at somebody's
+   * row must not be what creates or migrates their account. One nobody ever
+   * opened has no tables, and holds nothing.
+   */
+  holdings(accountName: string): Awaitable<{ workspaces: number; empty: boolean }>;
+  /**
+   * Destroys everything the store holds - every table and the record of which
+   * changes ran - so the next time anything opens it, it starts as a new
+   * account does (issue 234).
+   *
+   * **No account name, like `resetGuest` above, and for the opposite reason**:
+   * nothing is filtered, the whole object goes. Only `deleteUser` reaches it,
+   * and only after the register has named whose account this is.
+   */
+  destroy(): Awaitable<void>;
 }
 
 type Awaitable<T> = T | Promise<T>;

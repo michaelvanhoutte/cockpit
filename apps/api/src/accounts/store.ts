@@ -392,6 +392,39 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   }
 
   /**
+   * How many live workspaces the store holds, and whether it holds anything at
+   * all, read as it stands (`rpc.ts`). Both, because a deleted workspace keeps
+   * what was in it - so none left live is not the same as nothing held.
+   */
+  holdings(accountName: string): { workspaces: number; empty: boolean } {
+    const sql = this.ctx.storage.sql;
+    const tables = accountTables(sql);
+    const empty = !storeHoldsAnything(sql, tables);
+    if (!tables.includes('workspaces')) return { workspaces: 0, empty };
+    const [counted] = sql
+      .exec<{ workspaces: number }>(
+        'SELECT count(*) AS workspaces FROM workspaces WHERE tenant_id = ? AND deleted_at IS NULL',
+        accountName,
+      )
+      .toArray();
+    return { workspaces: counted?.workspaces ?? 0, empty };
+  }
+
+  /**
+   * Destroys everything the store holds (`rpc.ts`).
+   *
+   * **The memory of being up to date goes with it**, for the reason a restore
+   * forgets it: the object stays in memory after its storage is gone, and would
+   * otherwise serve the next request over tables that are no longer there
+   * rather than creating them afresh.
+   */
+  async destroy(): Promise<void> {
+    await this.ctx.storage.deleteAll();
+    this.#db = null;
+    this.#upToDate = false;
+  }
+
+  /**
    * Puts the shared guest account back to the demonstration it opens on
    * ("Reset the guest account to its seeded state", issue 356), and whatever
    * guests did to it is gone.

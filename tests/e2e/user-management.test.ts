@@ -297,6 +297,65 @@ test.describe('User management', () => {
       await expect(workspaceTab(page, HERS)).toBeVisible();
     });
 
+    /**
+     * The capability of "Delete a user, and the account they owned with them"
+     * (issue 234), and only provable here: an admin answers a question naming
+     * what goes, the person leaves the list, and signing in again - which any
+     * Google account may - makes them somebody new, with nothing of theirs. What
+     * deleting destroys, and that a name given back carries nothing, are settled
+     * at apps/api/tests/integration/http/user-management.test.ts and the
+     * question's wording at apps/web/tests/unit/pages/AdminPage.test.tsx.
+     *
+     * Somebody added by this walk rather than Ada, for the reason the walks
+     * above add one: deleting a seeded person would take her from every other
+     * walk sharing this database.
+     */
+    test('deletes somebody after asking, and signing in again finds nothing of theirs', async ({
+      page,
+      isMobile,
+    }) => {
+      const anna = somebodyNew('Anna');
+      /** What she calls her workspace, so what would survive is something she chose. */
+      const HERS = `${anna.name}’s work`;
+      await signIn(page, MICHAEL, isMobile);
+      await page.goto('/admin');
+      await addSomebody(page, anna, isMobile);
+
+      await signOut(page, isMobile);
+      await signInWith(page, anna.address, isMobile);
+      await page.getByLabel('Name of the workspace').fill(HERS);
+      await press(page.getByRole('button', { name: 'Open Cockpit' }), isMobile);
+      await expect(workspaceTab(page, HERS)).toBeVisible();
+
+      await signOutAndIn(page, addressOf(MICHAEL), isMobile);
+      await page.goto('/admin');
+      await press(page.getByRole('button', { name: `Actions for ${anna.name}` }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Delete' }), isMobile);
+      // The one workspace she named - and the question says so.
+      const question = page.getByRole('alertdialog');
+      await expect(question).toContainText('1 workspace');
+      await press(question.getByRole('button', { name: `Yes, delete ${anna.name}` }), isMobile);
+
+      await expect(question).toHaveCount(0);
+      await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(0);
+
+      // Back as somebody new, under the name Google gives her - the one she was
+      // added by, which derives the same account as before: the question a new
+      // account opens on, and none of what she named.
+      await signOut(page, isMobile);
+      await page.goto('/signin');
+      await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
+      await page.getByPlaceholder('somebody@example.com').fill(anna.address);
+      await page.getByPlaceholder('Their name at Google').fill(anna.name);
+      await press(page.getByRole('button', { name: 'Continue' }), isMobile);
+      await expect(
+        page.getByRole('heading', { name: 'What are you going to use Cockpit for?' }),
+      ).toBeVisible();
+      await press(page.getByRole('button', { name: 'Skip' }), isMobile);
+      await expect(dashboardBar(page)).toBeVisible();
+      await expect(workspaceTab(page, HERS)).toHaveCount(0);
+    });
+
     test('refuses an ordinary user who types the address, and offers them no way in', async ({
       page,
       isMobile,

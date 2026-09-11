@@ -5,12 +5,13 @@ import { QueryClient, QueryClientProvider, focusManager, useQuery } from '@tanst
 import userEvent from '@testing-library/user-event';
 import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
 import {
+  accountHoldingsQuery,
   snapshotQuery,
   useCommand,
   useLatestSnapshot,
   type CommandArgs,
 } from '../../../src/api/queries';
-import { fetchSnapshot, sendCommand } from '../../../src/api/client';
+import { fetchAccountHoldings, fetchSnapshot, sendCommand } from '../../../src/api/client';
 import { ItemForm } from '../../../src/components/ItemForm';
 
 /**
@@ -29,10 +30,12 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
   fetchSnapshot: vi.fn(),
   sendCommand: vi.fn(),
+  fetchAccountHoldings: vi.fn(),
 }));
 
 const reads = vi.mocked(fetchSnapshot);
 const sends = vi.mocked(sendCommand);
+const holds = vi.mocked(fetchAccountHoldings);
 
 /**
  * The item's form is rendered for real by the last rule here, because what it
@@ -115,6 +118,45 @@ afterEach(() => {
   vi.useRealTimers();
   // The manual focus state outlives the test that set it.
   focusManager.setFocused(undefined);
+});
+
+describe('Deleting', () => {
+  describe('the question about deleting somebody never answers from an earlier count', () => {
+    /**
+     * **The bug this is here for.** The count was served from the copy kept
+     * since the question was last asked, drawn - and answerable - before the
+     * fresh one landed; after deleting somebody and adding a person under the
+     * same name, that copy was the previous person's.
+     */
+    it('knows nothing of the count until it has been asked again', async () => {
+      holds.mockReset();
+      holds.mockResolvedValueOnce({ workspaces: 3, empty: false });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      function Question() {
+        const { data } = useQuery(accountHoldingsQuery('user-ada'));
+        return <p>{data ? `${data.workspaces} workspaces` : 'not known yet'}</p>;
+      }
+
+      const first = render(
+        <QueryClientProvider client={client}>
+          <Question />
+        </QueryClientProvider>,
+      );
+      await screen.findByText('3 workspaces');
+      first.unmount();
+      // A moment between closing the question and asking it again, and the
+      // second answer still out when it opens.
+      await vi.advanceTimersByTimeAsync(10);
+      holds.mockReturnValueOnce(new Promise(() => {}));
+      render(
+        <QueryClientProvider client={client}>
+          <Question />
+        </QueryClientProvider>,
+      );
+
+      expect(screen.getByText('not known yet')).toBeVisible();
+    });
+  });
 });
 
 describe('Offline', () => {

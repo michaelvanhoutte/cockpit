@@ -10,7 +10,13 @@ import type {
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { GUEST_ACCOUNT_NAME, whoHoldsTheGuestAccount } from '../auth/register.js';
-import { accountIsRegistered } from './register.js';
+import {
+  accountIsRegistered,
+  accountOwnedBy,
+  endSignInsOf,
+  removeFromRegister,
+  whoCanBeDeleted,
+} from './register.js';
 import { describeForeignRows, type AccountBackup } from './backup.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
@@ -23,6 +29,7 @@ export {
   RegisterRowUnusableError,
   addUser,
   changeUser,
+  nobodyHere,
   registerContents,
   registeredAccountNames,
   registeredUsers,
@@ -202,6 +209,69 @@ export async function backUpAccount(env: Env, accountName: string): Promise<Acco
     throw new RowsFromAnotherAccountError(describeForeignRows(foreign, accountName));
   }
   return backup;
+}
+
+/**
+ * How many live workspaces somebody's account holds, and whether it holds
+ * anything at all, for the question asked before they are deleted - or null
+ * for somebody the register does not hold. Counted as the store stands
+ * (`rpc.ts`), so looking opens nothing.
+ */
+export async function accountHoldings(
+  env: Env,
+  userId: string,
+): Promise<{ workspaces: number; empty: boolean } | null> {
+  const accountId = await accountOwnedBy(env, userId);
+  if (!accountId) return null;
+  return env.ACCOUNT.get(env.ACCOUNT.idFromName(accountId)).holdings(accountId);
+}
+
+/** Somebody was deleted, or was not and this is why - `because` as a change's (`register.ts`). */
+export type Deleted =
+  | { deleted: true }
+  | { deleted: false; refused: string; because: 'nobody' | 'a rule' };
+
+/**
+ * Deletes somebody, and destroys the account they owned ("Delete a user, and
+ * the account they owned with them", issue 234) - the one operation in the
+ * product that empties an account, and one only a backup taken beforehand can
+ * undo.
+ *
+ * **The order is the answer to stopping halfway**: sign-ins, then the account's
+ * data, then the register.
+ *
+ * | Stopped | What is left |
+ * |---|---|
+ * | before the sign-ins end | nothing has happened |
+ * | after the sign-ins, before the data | they are signed out of an account that is still whole |
+ * | after the data, before the register | they can sign in, to an empty account - visible, and finished by deleting again |
+ *
+ * The other order leaves an account nobody can see, holding data, under a name
+ * `addUser` derives again - handing one person's work to the next person of
+ * that name, which is the failure this exists to prevent.
+ *
+ * **Run a second time, it answers that there is nobody** and touches nothing:
+ * the register no longer holds them. An account nobody ever opened holds no
+ * data, and destroying it is a change with no effect rather than a failure.
+ *
+ * **Two windows are left open knowingly**, as `changeUser` leaves its own,
+ * because no request can be timed to prove a lock on either: two admins
+ * deleting each other in the same instant both pass the refusals and leave no
+ * admin at all; and anything already holding the account when this starts - a
+ * request past the gate before their sign-ins end, or a background job midway
+ * through a model call, like the nightly summary - can reach the store after
+ * it is destroyed, rebuilding it with whatever it writes, which the next
+ * person given this account would inherit. Closing that means a store refusing
+ * to rebuild itself for an account the register no longer holds.
+ */
+export async function deleteUser(env: Env, userId: string, askedBy: string): Promise<Deleted> {
+  const who = await whoCanBeDeleted(env, userId, askedBy);
+  if (!who.deletable) return { deleted: false, refused: who.refused, because: who.because };
+
+  await endSignInsOf(env, userId);
+  await env.ACCOUNT.get(env.ACCOUNT.idFromName(who.accountId)).destroy();
+  await removeFromRegister(env, { userId, accountId: who.accountId });
+  return { deleted: true };
 }
 
 /**

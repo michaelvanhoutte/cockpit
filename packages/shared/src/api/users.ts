@@ -88,6 +88,23 @@ export const setAccessSchema = z.object({ disabled: z.boolean() });
 export type SetAccess = z.infer<typeof setAccessSchema>;
 
 /**
+ * What somebody's account holds, asked before they are deleted so the question
+ * can name what goes with them ("Delete a user, and the account they owned with
+ * them", issue 234; architecture.md, "packages/shared: schema and command
+ * rationale", for why it is its own read).
+ */
+export const accountHoldingsSchema = z.object({
+  workspaces: z.number().int().nonnegative(),
+  /** That it holds nothing at all - not the same as no live workspaces, since a deleted one keeps what was in it. */
+  empty: z.boolean(),
+});
+export type AccountHoldings = z.infer<typeof accountHoldingsSchema>;
+
+/** That somebody, and the account they owned, are gone (issue 234). */
+export const userDeletedSchema = z.object({ deleted: z.literal(true) });
+export type UserDeleted = z.infer<typeof userDeletedSchema>;
+
+/**
  * Why an admin may not be left unable to admin, or `null` when they may — the
  * one rule both sides of every such change have to agree on (architecture.md §4.4).
  */
