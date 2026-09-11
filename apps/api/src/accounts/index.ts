@@ -256,9 +256,12 @@ export type Deleted =
  * **Two windows are left open knowingly**, as `changeUser` leaves its own,
  * because no request can be timed to prove a lock on either: two admins
  * deleting each other in the same instant both pass the refusals and leave no
- * admin at all; and a request of theirs already past the gate when their
- * sign-ins end can reach the store after it is destroyed, rebuilding it with
- * whatever it wrote - which the next person given this account would inherit.
+ * admin at all; and anything already holding the account when this starts - a
+ * request past the gate before their sign-ins end, or a background job midway
+ * through a model call, like the nightly summary - can reach the store after
+ * it is destroyed, rebuilding it with whatever it writes, which the next
+ * person given this account would inherit. Closing that means a store refusing
+ * to rebuild itself for an account the register no longer holds.
  */
 export async function deleteUser(env: Env, userId: string, askedBy: string): Promise<Deleted> {
   const who = await whoCanBeDeleted(env, userId, askedBy);

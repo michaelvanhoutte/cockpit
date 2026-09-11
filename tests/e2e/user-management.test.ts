@@ -339,10 +339,15 @@ test.describe('User management', () => {
       await expect(question).toHaveCount(0);
       await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(0);
 
-      // Back as somebody new: the question a new account opens on, and none of
-      // what she named.
+      // Back as somebody new, under the name Google gives her - the one she was
+      // added by, which derives the same account as before: the question a new
+      // account opens on, and none of what she named.
       await signOut(page, isMobile);
-      await signInWith(page, anna.address, isMobile);
+      await page.goto('/signin');
+      await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
+      await page.getByPlaceholder('somebody@example.com').fill(anna.address);
+      await page.getByPlaceholder('Their name at Google').fill(anna.name);
+      await press(page.getByRole('button', { name: 'Continue' }), isMobile);
       await expect(
         page.getByRole('heading', { name: 'What are you going to use Cockpit for?' }),
       ).toBeVisible();
