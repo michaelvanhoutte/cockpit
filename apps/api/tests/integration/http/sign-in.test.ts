@@ -267,6 +267,69 @@ describe('Sign-in', () => {
   });
 
   /**
+   * The register can now say when, not only whether ("Show when each person
+   * last signed in, on the admin page", issue 342). Read straight off `users`
+   * rather than through the admin list, since what is under test is the write
+   * itself and `accounts/register.ts`'s own reading of the column is proved at
+   * apps/api/tests/integration/http/user-management.test.ts.
+   */
+  describe('every real sign-in is recorded, so the register can say when', () => {
+    async function lastSignedInAt(userId: string): Promise<string | null> {
+      const row = await env.DB.prepare('SELECT last_signed_in_at FROM users WHERE id = ?')
+        .bind(userId)
+        .first<{ last_signed_in_at: string | null }>();
+      return row?.last_signed_in_at ?? null;
+    }
+
+    it('records when somebody signs in for the first time', async () => {
+      expect(await lastSignedInAt(USER_ID)).toBeNull();
+
+      await signInAsGoogleAccount({ email: 'michael@example.com' });
+
+      expect(await lastSignedInAt(USER_ID)).toEqual(expect.any(String));
+    });
+
+    /**
+     * Backdated rather than waited for, the same reason the expiry case above
+     * writes straight to the row: what is under test is that a *later* sign-in
+     * moves the timestamp forward, not how many milliseconds a test takes to
+     * run.
+     */
+    it('moves the timestamp to a later sign-in, not just the first', async () => {
+      await signInAsGoogleAccount({ email: 'michael@example.com', subject: 'google|michael' });
+      await env.DB.prepare('UPDATE users SET last_signed_in_at = ? WHERE id = ?')
+        .bind('2020-01-01T00:00:00.000Z', USER_ID)
+        .run();
+
+      await signInAsGoogleAccount({ email: 'michael@example.com', subject: 'google|michael' });
+
+      // Greater than, not merely different: two same-shape ISO instants
+      // compare lexicographically the same as chronologically, so this is
+      // "later" rather than just "a different value".
+      expect((await lastSignedInAt(USER_ID))! > '2020-01-01T00:00:00.000Z').toBe(true);
+    });
+
+    /**
+     * A session sliding its own expiry is not a fresh sign-in, and must not
+     * read as one: an admin asking "who hasn't signed in in three months"
+     * would otherwise never get a true answer from anybody who keeps a tab
+     * open.
+     */
+    it('is not moved by a session merely renewing itself', async () => {
+      const back = await signInAsGoogleAccount({ email: 'michael@example.com' });
+      const at = await lastSignedInAt(USER_ID);
+      expect(at).not.toBeNull();
+
+      const res = await SELF.fetch('http://cockpit.test/v1/workspaces', {
+        headers: { cookie: sessionIn(back)! },
+      });
+
+      expect(res.status).toBe(200);
+      expect(await lastSignedInAt(USER_ID)).toBe(at);
+    });
+  });
+
+  /**
    * Both ends of the wire from Google's reply to the register: a name that
    * arrives is the one kept, and one that does not refuses nothing. Every
    * other decision about the name - spaces, length, one no account can be

@@ -1,0 +1,17 @@
+-- The register gains somewhere to record when somebody last signed in ("Show
+-- when each person last signed in, on the admin page", issue 342). Absent
+-- means never, so every row already there keeps reading as "not yet" and
+-- nothing is backfilled.
+--
+-- **One statement, and there is no half of it**, the same reason 0012 gives.
+--
+-- **No CHECK on the column**, unlike every other timestamp in this schema:
+-- adding one to a table that exists rebuilds it in SQLite, which is the
+-- manoeuvre that nearly emptied the register once ("Make the database enforce
+-- the schema conventions, not just the callers", issue 69). `disabled_at`
+-- arrived the same way in 0012.
+--
+-- **The four tables an account's data used to live in are deliberately not
+-- dropped**, though drizzle-kit emits exactly that when this is regenerated -
+-- it did here, and the DROPs were taken back out, the same as 0012.
+ALTER TABLE `users` ADD `last_signed_in_at` text;

@@ -184,6 +184,23 @@ test.describe('User management', () => {
 
       await expect(dashboardBar(page)).toBeVisible();
       await expect(workspaceTab(page, STARTING_WORKSPACE)).toBeVisible();
+
+      /**
+       * And the register now says when, not only that she has ("Show when
+       * each person last signed in, on the admin page", issue 342). Nothing
+       * below this tier can prove that a real sign-in moves what a whole
+       * browser reads on the admin page a moment later - the API suite proves
+       * the column is written and the component suite proves the cell draws a
+       * timestamp it is given, neither can say the one causes the other.
+       */
+      await signOutAndIn(page, addressOf(MICHAEL), isMobile);
+      await page.goto('/admin');
+      // The row first, then the text: a locator scoped to a row that has not
+      // drawn yet finds no text either, so "not yet" not being there would
+      // pass against a page still loading - which is the one thing this is
+      // meant to prove does not happen (`setAccess`, above).
+      await expect(row).toHaveCount(1);
+      await expect(row).not.toContainText('not yet');
     });
 
     /**

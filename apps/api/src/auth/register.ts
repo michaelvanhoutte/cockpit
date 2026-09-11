@@ -280,13 +280,26 @@ export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
 /**
  * A sign-in of its own, always: whatever the browser arrived holding is neither
  * read nor reused, so there is nothing to fix a session onto.
+ *
+ * **The register's `last_signed_in_at` is written in the same batch** ("Show
+ * when each person last signed in, on the admin page", issue 342): this
+ * function runs only for a deliberate sign-in - a real round trip through
+ * Google, or a press of "Continue as guest" - never when a session merely
+ * renews itself (`extendSession`), so it is the one place that distinction
+ * already exists to write from. Through `createDb`, like every other write
+ * and read in this file, rather than a raw `env.DB.prepare(...)` - a column
+ * renamed in `db/schema.ts` then fails to typecheck here instead of failing
+ * at runtime the first time somebody signs in.
  */
 async function startVisit(env: Env, user: SigningIn, now: Date): Promise<Visit> {
   const sessionId = newSessionId();
   const expiresAt = endsFrom(now);
-  await createDb(env.DB)
-    .insert(sessions)
-    .values({ id: sessionId, userId: user.id, createdAt: now.toISOString(), expiresAt });
+  const at = now.toISOString();
+  const db = createDb(env.DB);
+  await db.batch([
+    db.insert(sessions).values({ id: sessionId, userId: user.id, createdAt: at, expiresAt }),
+    db.update(users).set({ lastSignedInAt: at }).where(eq(users.id, user.id)),
+  ]);
   return { signedIn: true, sessionId, expiresAt, user };
 }
 
