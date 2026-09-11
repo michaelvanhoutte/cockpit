@@ -11,11 +11,10 @@ import {
  * F1, and pure: how wide the Inbox column may be dragged, and what is
  * remembered of it, are both decisions over numbers and a storage handed in
  * rather than reached for - exactly the shape `lastVisited.ts`'s own tests
- * take, and for the same reason. That the drag itself lands on these numbers,
- * and that the band and the column stay in step while it runs, is the real
- * browser walk in tests/e2e/inbox.test.ts; that the column and the automatic
- * sizing it falls back to actually render is
- * tests/unit/router.test.tsx.
+ * take, and for the same reason. That a real drag lands on these numbers is
+ * not walked in a browser any more - the walk that did failed at random under
+ * CI load and was deleted; that the column and the automatic sizing it falls
+ * back to actually render is tests/unit/router.test.tsx.
  */
 describe('Triage', () => {
   describe('a dragged width is brought inside a floor and the row’s own ceiling', () => {

@@ -349,9 +349,10 @@ describe('Triage', () => {
 
   /**
    * F1 for what renders from a stored preference; that dragging the handle
-   * actually produces one, and that it survives a real reload, is the browser
-   * walk in tests/e2e/inbox.test.ts. The clamp itself is pure and tested on
-   * its own in tests/unit/inboxWidth.test.ts.
+   * actually produces one, and that it survives a real reload, is not walked
+   * in a browser any more - that walk failed at random under CI load and was
+   * deleted. The clamp itself is pure and tested on its own in
+   * tests/unit/inboxWidth.test.ts.
    */
   describe('the Inbox column can be resized past its automatic width', () => {
     /** The band above the column, which mirrors whatever width it settles on. */
