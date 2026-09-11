@@ -60,8 +60,10 @@ statement list" step]
 
 ## Out of scope / open questions
 
-What this issue deliberately doesn't answer. A question genuinely blocking a rule
-belongs here, not as a todo in the eventual test file.
+What this issue deliberately doesn't cover, and questions whose answer wouldn't
+change the diff either way - record these here, never as a todo in the eventual
+test file. A question scoping's gate would refuse belongs there, not here: close
+it in scoping before drafting, never carry it forward as an open question.
 ```
 
 ### 2. Confirm, then publish
