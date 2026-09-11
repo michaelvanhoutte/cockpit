@@ -92,6 +92,8 @@ gh pr ready <number>
 
 **Start the waiter after marking it ready, never before.** The two reviews are the only checks that fire on `ready_for_review` — `ci.yml` and `codeql.yml` name no `types`, so they run on the draft's pushes and not on the transition. A waiter started while the pull request is still a draft therefore sees a complete set of completed runs, with neither review among them, and reports a pass nobody reviewed.
 
+**Check `gh pr view N --json mergeable,mergeStateStatus` first, too.** A conflicted pull request gets no checks at all, so `check-runs` stays empty forever and the loop below has nothing to tell that apart from "nothing new yet" — it ran for close to two hours against a `CONFLICTING` pull request before anyone noticed, on "Show when each person last signed in, on the admin page" (pull request 358). `CONFLICTING` is the one case this file permits merging `main` in for.
+
 **Opening the pull request is not the end of the task — the review runs after the push.** "CI was still pending when I looked" is not a status; it is a note saying nobody looked again. "Create a workspace from a settings page" (pull request 81) was opened while `claude-review` was still pending and reported done in the same breath, and the one finding it went on to raise sat unanswered until somebody noticed by hand. Wait for the checks to settle, then work the findings to the end of the rule below.
 
 ```bash
