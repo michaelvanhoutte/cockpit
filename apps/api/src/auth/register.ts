@@ -201,9 +201,13 @@ const GUEST_NAME = 'Guest';
  * **The role is checked too, and not because the insert above could ever write
  * `admin`.** Nothing stops an admin later promoting the row this makes through
  * the ordinary "Rename a user, and make somebody an admin" page (issue 232) -
- * it reads like any other person in that list - and the one thing this route
- * must never do is answer that mistake by handing every anonymous visitor an
- * admin session.
+ * it reads like any other person in that list. This is the one place that
+ * mistake is answered: no *new* guest sign-in completes once it has happened.
+ * A session already open when it happens is not touched here - the gate reads
+ * a visitor's role fresh on every request (`auth/gate.ts`), the same way any
+ * other promotion or demotion takes effect, and closing that door wider than
+ * this route belongs to whatever answers it for everybody else, not to guest
+ * sign-in alone.
  */
 export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
   const db = createDb(env.DB);

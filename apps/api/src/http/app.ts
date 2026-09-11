@@ -1001,7 +1001,10 @@ const routes = app
    * somebody to without their doing anything - so a browser already holding a
    * live sign-in is sent straight to `/` untouched rather than having its
    * cookie replaced: the one thing this must never do is quietly move a real
-   * person into the account every stranger reads.
+   * person into the account every stranger reads. **Asked first, before
+   * anything about the environment**, so a signed-in visitor on a deployment
+   * that does not offer guest sign-in is sent home the same way rather than
+   * refused and left wondering whether they are still signed in at all.
    *
    * **Offered only where the environment says so**, which is production
    * (wrangler.jsonc). The control is in one built SPA that both deployments
@@ -1012,14 +1015,16 @@ const routes = app
    * Refused in the same words as everything else that will not be completed:
    * there is nothing a visitor can do about a way in this deployment does not
    * have, so the reason goes to the log and the page says the sign-in failed.
+   * That covers a failure reading the existing cookie too, which is why the
+   * check above is inside the same `try` rather than ahead of it.
    */
   .get('/v1/sign-in/guest', async (c) => {
-    if (!c.env.GUEST_SIGN_IN) return refuse(c, 'this environment offers no guest sign-in');
-
-    const held = getCookie(c, sessionCookieName(c.req.url));
-    if (held && (await stillSignedIn(c.env, held))) return c.redirect('/', 302);
-
     try {
+      const held = getCookie(c, sessionCookieName(c.req.url));
+      if (held && (await stillSignedIn(c.env, held))) return c.redirect('/', 302);
+
+      if (!c.env.GUEST_SIGN_IN) return refuse(c, 'this environment offers no guest sign-in');
+
       const signedIn = await signInAsGuest(c.env, new Date());
       if (!signedIn.signedIn) return refuse(c, 'the guest account is not available');
       rememberSessionCookie(c, signedIn.sessionId);

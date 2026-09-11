@@ -393,6 +393,25 @@ describe('Sign-in', () => {
         expect(sessionIn(back)).toBeUndefined();
         expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
       });
+
+      /**
+       * The same question asked in the other order: whether guest sign-in is
+       * offered here is not the first thing this route answers, because
+       * somebody already signed in is sent home untouched whether it is or not.
+       */
+      it('still leaves an already signed-in visitor exactly where they were', async () => {
+        const signedIn = await signInAsGoogleAccount({ email: 'michael@example.com' });
+        const before = sessionIn(signedIn)!;
+
+        const back = await SELF.fetch(
+          'http://cockpit.test/v1/sign-in/guest',
+          carrying(before, { redirect: 'manual' }),
+        );
+
+        expect(back.headers.get('location')).toBe('/');
+        expect(sessionIn(back)).toBeUndefined();
+        expect(await whoTheyAre(before)).toMatchObject({ id: USER_ID });
+      });
     });
   });
 
