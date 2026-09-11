@@ -391,20 +391,23 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     return { status: 'ok', value: written };
   }
 
-  /** How many live workspaces the store holds, read as it stands (`rpc.ts`). */
-  holdings(accountName: string): { workspaces: number } {
+  /**
+   * How many live workspaces the store holds, and whether it holds anything at
+   * all, read as it stands (`rpc.ts`). Both, because a deleted workspace keeps
+   * what was in it - so none left live is not the same as nothing held.
+   */
+  holdings(accountName: string): { workspaces: number; empty: boolean } {
     const sql = this.ctx.storage.sql;
-    const [table] = sql
-      .exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspaces'`)
-      .toArray();
-    if (!table) return { workspaces: 0 };
+    const tables = accountTables(sql);
+    const empty = !storeHoldsAnything(sql, tables);
+    if (!tables.includes('workspaces')) return { workspaces: 0, empty };
     const [counted] = sql
       .exec<{ workspaces: number }>(
         'SELECT count(*) AS workspaces FROM workspaces WHERE tenant_id = ? AND deleted_at IS NULL',
         accountName,
       )
       .toArray();
-    return { workspaces: counted?.workspaces ?? 0 };
+    return { workspaces: counted?.workspaces ?? 0, empty };
   }
 
   /**

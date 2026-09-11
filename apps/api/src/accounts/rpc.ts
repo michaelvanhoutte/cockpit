@@ -149,7 +149,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * row must not be what creates or migrates their account. One nobody ever
    * opened has no tables, and holds nothing.
    */
-  holdings(accountName: string): Awaitable<{ workspaces: number }>;
+  holdings(accountName: string): Awaitable<{ workspaces: number; empty: boolean }>;
   /**
    * Destroys everything the store holds - every table and the record of which
    * changes ran - so the next time anything opens it, it starts as a new

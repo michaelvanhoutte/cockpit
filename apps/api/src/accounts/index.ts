@@ -212,14 +212,15 @@ export async function backUpAccount(env: Env, accountName: string): Promise<Acco
 }
 
 /**
- * How many live workspaces somebody's account holds, for the question asked
- * before they are deleted - or null for somebody the register does not hold.
- * Counted as the store stands (`rpc.ts`), so looking opens nothing.
+ * How many live workspaces somebody's account holds, and whether it holds
+ * anything at all, for the question asked before they are deleted - or null
+ * for somebody the register does not hold. Counted as the store stands
+ * (`rpc.ts`), so looking opens nothing.
  */
 export async function accountHoldings(
   env: Env,
   userId: string,
-): Promise<{ workspaces: number } | null> {
+): Promise<{ workspaces: number; empty: boolean } | null> {
   const accountId = await accountOwnedBy(env, userId);
   if (!accountId) return null;
   return env.ACCOUNT.get(env.ACCOUNT.idFromName(accountId)).holdings(accountId);

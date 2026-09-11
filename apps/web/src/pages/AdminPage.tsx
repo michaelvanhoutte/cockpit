@@ -286,7 +286,7 @@ export function AdminPage() {
       {beingDeleted && (
         <DeleteQuestion
           open
-          question={deleteQuestion(beingDeleted.name, holdings.data?.workspaces)}
+          question={deleteQuestion(beingDeleted.name, holdings.data)}
           confirmLabel={`Yes, delete ${beingDeleted.name}`}
           // Nothing goes before the question has an answer in it, and a count
           // that could not be read lets it through rather than trapping you -
@@ -429,13 +429,20 @@ function whyDeletingIsStuck(
 /**
  * The question asked before somebody is deleted: who, what goes with them, and
  * that nothing but a backup brings it back. Without a count until one is read,
- * and the same way when it cannot be.
+ * the same way when it cannot be - and the same way again when no workspace is
+ * live but the account still holds something, since a deleted workspace keeps
+ * what was in it and "nothing" would be false in front of destroying it.
  */
-function deleteQuestion(name: string, workspaces: number | undefined): string {
+function deleteQuestion(
+  name: string,
+  held: { workspaces: number; empty: boolean } | undefined,
+): string {
   const back = 'A backup taken beforehand is the only way back.';
-  if (workspaces === undefined) return `Delete ${name} and everything in their account? ${back}`;
-  if (workspaces === 0) return `Delete ${name}? There is nothing in their account. ${back}`;
-  const counted = `${workspaces} workspace${workspaces === 1 ? '' : 's'}`;
+  if (held?.empty) return `Delete ${name}? There is nothing in their account. ${back}`;
+  if (!held || held.workspaces === 0) {
+    return `Delete ${name} and everything in their account? ${back}`;
+  }
+  const counted = `${held.workspaces} workspace${held.workspaces === 1 ? '' : 's'}`;
   return `Delete ${name} and the ${counted} in their account? ${back}`;
 }
 

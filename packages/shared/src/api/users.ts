@@ -93,7 +93,11 @@ export type SetAccess = z.infer<typeof setAccessSchema>;
  * them", issue 234; architecture.md, "packages/shared: schema and command
  * rationale", for why it is its own read).
  */
-export const accountHoldingsSchema = z.object({ workspaces: z.number().int().nonnegative() });
+export const accountHoldingsSchema = z.object({
+  workspaces: z.number().int().nonnegative(),
+  /** That it holds nothing at all - not the same as no live workspaces, since a deleted one keeps what was in it. */
+  empty: z.boolean(),
+});
 export type AccountHoldings = z.infer<typeof accountHoldingsSchema>;
 
 /** That somebody, and the account they owned, are gone (issue 234). */

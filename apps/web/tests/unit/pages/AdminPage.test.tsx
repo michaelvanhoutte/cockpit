@@ -569,20 +569,35 @@ describe('Deleting', () => {
     }
 
     /** Only Ada's account answers with the count, so a question drawn from anybody else's cannot pass. */
-    function adaHolds(workspaces: number) {
+    function adaHolds(held: { workspaces: number; empty: boolean }) {
       holds.mockImplementation((userId: string) =>
-        Promise.resolve({ workspaces: userId === 'user-ada' ? workspaces : 99 }),
+        Promise.resolve(userId === 'user-ada' ? held : { workspaces: 99, empty: false }),
       );
     }
 
     it.each([
       {
         situation: 'somebody with workspaces',
-        held: 3,
+        held: { workspaces: 3, empty: false },
         says: /Delete Ada and the 3 workspaces in their account\?/,
       },
-      { situation: 'somebody with one', held: 1, says: /Delete Ada and the 1 workspace in their account\?/ },
-      { situation: 'somebody whose account is empty', held: 0, says: /There is nothing in their account/ },
+      {
+        situation: 'somebody with one',
+        held: { workspaces: 1, empty: false },
+        says: /Delete Ada and the 1 workspace in their account\?/,
+      },
+      {
+        situation: 'somebody whose account is empty',
+        held: { workspaces: 0, empty: true },
+        says: /There is nothing in their account/,
+      },
+      {
+        // A deleted workspace keeps what was in it, so none left live is not
+        // nothing held - and this is the sentence in front of destroying it.
+        situation: 'somebody whose workspaces were all deleted, which keeps what was in them',
+        held: { workspaces: 0, empty: false },
+        says: /Delete Ada and everything in their account\?/,
+      },
     ])('says what goes with $situation, and that only a backup brings it back', async ({ held, says }) => {
       adaHolds(held);
       await askAbout(PEOPLE[1]!);
@@ -624,7 +639,7 @@ describe('Deleting', () => {
         answer: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}'),
       },
     ])('sends nothing and leaves the row on $situation', async ({ answer }) => {
-      adaHolds(3);
+      adaHolds({ workspaces: 3, empty: false });
       const user = await askAbout(PEOPLE[1]!);
       await screen.findByRole('alertdialog');
 
@@ -636,7 +651,7 @@ describe('Deleting', () => {
     });
 
     it('says what the server refused inside the question, which stays open', async () => {
-      adaHolds(3);
+      adaHolds({ workspaces: 3, empty: false });
       deletes.mockRejectedValue(new Error('user-grace uses the same account'));
       const user = await askAbout(PEOPLE[1]!);
 

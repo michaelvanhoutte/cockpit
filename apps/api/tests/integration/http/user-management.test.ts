@@ -828,12 +828,33 @@ describe('User management', () => {
   describe('what somebody’s account holds is counted before they are deleted', () => {
     async function counted(who: string) {
       const res = await asUser(`${ADMIN_USERS}/${who}/account`);
-      return { status: res.status, body: res.ok ? ((await res.json()) as { workspaces: number }) : null };
+      return {
+        status: res.status,
+        body: res.ok ? ((await res.json()) as { workspaces: number; empty: boolean }) : null,
+      };
     }
 
     it('counts an account nobody ever opened as holding nothing, and opens nothing to say so', async () => {
-      expect(await counted(OTHER_USER_ID)).toEqual({ status: 200, body: { workspaces: 0 } });
+      expect(await counted(OTHER_USER_ID)).toEqual({ status: 200, body: { workspaces: 0, empty: true } });
       expect(await tablesIn(OTHER_ACCOUNT_NAME)).toEqual([]);
+    });
+
+    /**
+     * Deleting a workspace marks it deleted and keeps what was in it, so no live
+     * workspaces is not the same as nothing held - and "there is nothing in
+     * their account" is the one sentence in front of destroying it that must not
+     * be said of an account still holding work.
+     */
+    it('says an account whose workspaces were all deleted still holds something', async () => {
+      await adaHasCaptured();
+      await inStoreAsItIs(OTHER_ACCOUNT_NAME, (sql) =>
+        sql.exec(
+          `UPDATE workspaces SET deleted_at = '2026-09-11T00:00:01.000Z' WHERE tenant_id = ?`,
+          OTHER_ACCOUNT_NAME,
+        ),
+      );
+
+      expect(await counted(OTHER_USER_ID)).toEqual({ status: 200, body: { workspaces: 0, empty: false } });
     });
 
     it('counts the workspaces an account holds, and not the ones deleted from it', async () => {
@@ -846,7 +867,7 @@ describe('User management', () => {
         ),
       );
 
-      expect(await counted(OTHER_USER_ID)).toEqual({ status: 200, body: { workspaces: 1 } });
+      expect(await counted(OTHER_USER_ID)).toEqual({ status: 200, body: { workspaces: 1, empty: false } });
     });
 
     it('answers that there is no such user for somebody the register does not hold', async () => {

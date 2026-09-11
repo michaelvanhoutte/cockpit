@@ -130,7 +130,7 @@ describe('Deleting', () => {
      */
     it('knows nothing of the count until it has been asked again', async () => {
       holds.mockReset();
-      holds.mockResolvedValueOnce({ workspaces: 3 });
+      holds.mockResolvedValueOnce({ workspaces: 3, empty: false });
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       function Question() {
         const { data } = useQuery(accountHoldingsQuery('user-ada'));
