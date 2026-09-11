@@ -89,7 +89,8 @@ export type SetAccess = z.infer<typeof setAccessSchema>;
 /**
  * What somebody's account holds, asked before they are deleted so the question
  * can name what goes with them ("Delete a user, and the account they owned with
- * them", issue 234; architecture.md §4.4 for why it is its own read).
+ * them", issue 234; architecture.md, "packages/shared: schema and command
+ * rationale", for why it is its own read).
  */
 export const accountHoldingsSchema = z.object({ workspaces: z.number().int().nonnegative() });
 export type AccountHoldings = z.infer<typeof accountHoldingsSchema>;

@@ -294,7 +294,8 @@ export async function changeUser(
   return { changed: true, user: asShown(after) };
 }
 
-function nobodyHere(userId: string) {
+/** The answer for somebody the register does not hold, written once for every admin route that meets one. */
+export function nobodyHere(userId: string) {
   return { refused: `${userId} is nobody here`, because: 'nobody' } as const;
 }
 

@@ -35,6 +35,7 @@ import {
   addUser,
   changeUser,
   deleteUser,
+  nobodyHere,
   registerContents,
   registeredAccountNames,
   registeredUsers,
@@ -846,7 +847,7 @@ const routes = app
   .openapi(accountHoldingsRoute, async (c) => {
     const { userId } = c.req.valid('param');
     const holdings = await accountHoldings(c.env, userId);
-    if (!holdings) return c.json({ error: `${userId} is nobody here` }, 404);
+    if (!holdings) return c.json({ error: nobodyHere(userId).refused }, 404);
     return c.json(holdings, 200);
   })
   .openapi(healthRoute, async (c) => {

@@ -28,6 +28,7 @@ export {
   RegisterRowUnusableError,
   addUser,
   changeUser,
+  nobodyHere,
   registerContents,
   registeredAccountNames,
   registeredUsers,
@@ -251,9 +252,12 @@ export type Deleted =
  * the register no longer holds them. An account nobody ever opened holds no
  * data, and destroying it is a change with no effect rather than a failure.
  *
- * One window is left open knowingly, as `changeUser` leaves its own: two admins
- * deleting each other in the same instant both pass the refusals, and leave no
- * admin at all.
+ * **Two windows are left open knowingly**, as `changeUser` leaves its own,
+ * because no request can be timed to prove a lock on either: two admins
+ * deleting each other in the same instant both pass the refusals and leave no
+ * admin at all; and a request of theirs already past the gate when their
+ * sign-ins end can reach the store after it is destroyed, rebuilding it with
+ * whatever it wrote - which the next person given this account would inherit.
  */
 export async function deleteUser(env: Env, userId: string, askedBy: string): Promise<Deleted> {
   const who = await whoCanBeDeleted(env, userId, askedBy);

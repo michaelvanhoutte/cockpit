@@ -123,13 +123,18 @@ export function useSetAccess() {
 /**
  * What somebody's account holds, read when the question about deleting them
  * opens ("Delete a user, and the account they owned with them", issue 234).
- * Never served from a copy: it is asked just before the answer it informs.
+ *
+ * **Never served from a copy, and none is kept once the question closes**: a
+ * count held for the default five minutes is drawn - and can be answered -
+ * before the fresh one lands, which after deleting somebody and adding another
+ * person under the same name is the previous person's count.
  */
 export const accountHoldingsQuery = (userId: string) =>
   queryOptions({
     queryKey: ['accountHoldings', userId],
     queryFn: () => fetchAccountHoldings(userId),
     staleTime: 0,
+    gcTime: 0,
   });
 
 /**
