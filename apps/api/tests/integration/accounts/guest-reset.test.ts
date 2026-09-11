@@ -210,7 +210,16 @@ describe('Accounts', () => {
      * written directly: adding no longer produces this state, and a register
      * from before it can still hold it.
      */
-    it('leaves a real person alone, even one added under the name "Guest"', async () => {
+    it.each([
+      {
+        situation: 'somebody added under the name "Guest"',
+        userId: GUEST_USER_ID,
+        address: 'somebody.called.guest@example.com' as string | null,
+      },
+      // No address, so only the id gives them away - the state a restore of an
+      // old register could leave, since nothing else puts anybody here.
+      { situation: 'somebody other than the guest', userId: 'user-somebody-else', address: null },
+    ])('leaves the guest account alone where it holds $situation', async ({ userId, address }) => {
       await env.DB.batch([
         env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)').bind(
           GUEST_ACCOUNT_NAME,
@@ -219,7 +228,7 @@ describe('Accounts', () => {
         ),
         env.DB.prepare(
           'INSERT INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        ).bind(GUEST_USER_ID, 'Guest', GUEST_ACCOUNT_NAME, 'user', 'somebody.called.guest@example.com', AT),
+        ).bind(userId, 'Guest', GUEST_ACCOUNT_NAME, 'user', address, AT),
       ]);
       // Their account, opened, with work of their own in it.
       expect((await storeNamed(GUEST_ACCOUNT_NAME).workspaces(GUEST_ACCOUNT_NAME)).status).toBe('ok');

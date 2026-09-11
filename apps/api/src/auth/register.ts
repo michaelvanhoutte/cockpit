@@ -287,6 +287,7 @@ export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
  * given them, and every row they write carries `tenant-guest` - so only the
  * register can tell their account from the guest's, and wiping theirs is the
  * one mistake a reset cannot take back.
+ *
  * Read the way `signInAsGuest` reads it: an address is what only a real person
  * has, and anybody else in that account is somebody added rather than the
  * guest. An account with nobody in it yet is the guest's, half-made by a first
