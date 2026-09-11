@@ -353,6 +353,24 @@ describe('Sign-in', () => {
     });
 
     /**
+     * The guest account reads like any other person on the admin page, and
+     * nothing stops an admin promoting it there ("Rename a user, and make
+     * somebody an admin", issue 232). That mistake must not become every
+     * anonymous visitor holding an admin session.
+     */
+    it('refuses to sign anybody in once the guest account has been made an admin', async () => {
+      await continueAsGuest();
+      await env.DB.prepare("UPDATE users SET role = 'admin' WHERE id = ?")
+        .bind(GUEST_USER_ID)
+        .run();
+
+      const back = await continueAsGuest();
+
+      expect(back.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(back)).toBeUndefined();
+    });
+
+    /**
      * Staging, and anybody who found the address: the same answer to both,
      * because the control is in one built SPA that every deployment serves and
      * the Worker is the only thing that can tell them apart.

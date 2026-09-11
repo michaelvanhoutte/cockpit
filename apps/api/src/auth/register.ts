@@ -197,6 +197,13 @@ const GUEST_NAME = 'Guest';
  * hold. What no real user ever has is a null address - `addUser` requires one
  * - so a row with one is never anybody's but the guest's, and the guest is
  * refused right along with a disabled one rather than trusted on sight.
+ *
+ * **The role is checked too, and not because the insert above could ever write
+ * `admin`.** Nothing stops an admin later promoting the row this makes through
+ * the ordinary "Rename a user, and make somebody an admin" page (issue 232) -
+ * it reads like any other person in that list - and the one thing this route
+ * must never do is answer that mistake by handing every anonymous visitor an
+ * admin session.
  */
 export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
   const db = createDb(env.DB);
@@ -218,10 +225,12 @@ export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
     .onConflictDoNothing({ target: users.id });
 
   const [row] = await db
-    .select({ email: users.email, disabledAt: users.disabledAt })
+    .select({ email: users.email, role: users.role, disabledAt: users.disabledAt })
     .from(users)
     .where(eq(users.id, GUEST_USER_ID));
-  if (!row || row.email != null || hasNoAccess(row.disabledAt)) return TURNED_AWAY;
+  if (!row || row.email != null || row.role !== 'user' || hasNoAccess(row.disabledAt)) {
+    return TURNED_AWAY;
+  }
 
   return startVisit(env, { id: GUEST_USER_ID, name: GUEST_NAME }, now);
 }

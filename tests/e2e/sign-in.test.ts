@@ -8,6 +8,7 @@ import {
   inbox,
   itemRow,
   makeWorkspace,
+  pastOnboarding,
   press,
   signIn,
   switchTo,
@@ -106,11 +107,13 @@ test.describe('Sign-in', () => {
       // screen. (The same wait `signInWithoutSkipping` makes, and for the same
       // reason - asserting against a page mid-redirect fails saying it could
       // not find a heading rather than that it never arrived.)
-      const skip = page.getByRole('button', { name: 'Skip' });
-      await skip.or(dashboardBar(page)).first().waitFor({ state: 'visible' });
-      if (await skip.isVisible()) await press(skip, isMobile);
+      await page
+        .getByRole('button', { name: 'Skip' })
+        .or(dashboardBar(page))
+        .first()
+        .waitFor({ state: 'visible' });
+      await pastOnboarding(page, isMobile);
 
-      await expect(dashboardBar(page)).toBeVisible();
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);
       await expect(page.getByText('Signed in as Guest')).toBeVisible();
     });
