@@ -137,7 +137,7 @@ export const users = sqliteTable(
      * What Google calls this person, learned the first time they sign in.
      *
      * It is kept *as well as* the address because the two answer different
-     * questions: an address is what somebody is allowed in by, and can be
+     * questions: an address is how somebody is recognised the first time, and can be
      * changed or handed to a new owner, while this never changes and is never
      * reissued. So the address is how somebody is recognised the first time and
      * this is how they are recognised afterwards - which is what stops a
