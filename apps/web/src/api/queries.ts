@@ -11,6 +11,8 @@ import {
   CommandRefused,
   addUser,
   changeUser,
+  deleteUser,
+  fetchAccountHoldings,
   fetchItemTypes,
   fetchMe,
   fetchRegisteredUsers,
@@ -115,6 +117,30 @@ export function useSetAccess() {
   return useMutation({
     mutationFn: setAccess,
     onSuccess: () => bothReadAgain(queryClient),
+  });
+}
+
+/**
+ * What somebody's account holds, read when the question about deleting them
+ * opens ("Delete a user, and the account they owned with them", issue 234).
+ * Never served from a copy: it is asked just before the answer it informs.
+ */
+export const accountHoldingsQuery = (userId: string) =>
+  queryOptions({
+    queryKey: ['accountHoldings', userId],
+    queryFn: () => fetchAccountHoldings(userId),
+    staleTime: 0,
+  });
+
+/**
+ * Deleting somebody, and re-reading the list once they are gone. Only the list:
+ * nobody can delete themselves, so what `me` says cannot have changed.
+ */
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteUser,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['registeredUsers'] }),
   });
 }
 

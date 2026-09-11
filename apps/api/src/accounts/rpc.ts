@@ -130,6 +130,26 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     backup: AccountBackup,
     force: boolean,
   ): Awaitable<Answer<RestoreReport>>;
+  /**
+   * How many live workspaces the store holds, for the question asked before
+   * its owner is deleted ("Delete a user, and the account they owned with
+   * them", issue 234).
+   *
+   * **Counted as it stands, like the export**: an admin looking at somebody's
+   * row must not be what creates or migrates their account. One nobody ever
+   * opened has no tables, and holds nothing.
+   */
+  holdings(accountName: string): Awaitable<{ workspaces: number }>;
+  /**
+   * Destroys everything the store holds - every table and the record of which
+   * changes ran - so the next time anything opens it, it starts as a new
+   * account does (issue 234).
+   *
+   * **No account name, unlike everything above**: nothing is filtered, the
+   * whole object goes. Only `deleteUser` reaches it, and only after the
+   * register has named whose account this is.
+   */
+  destroy(): Awaitable<void>;
 }
 
 type Awaitable<T> = T | Promise<T>;

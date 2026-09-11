@@ -2,8 +2,10 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
+  accountHoldingsSchema,
   addUserSchema,
   changeUserSchema,
+  userDeletedSchema,
   commandResultSchema,
   commandSchemas,
   itemTypeListSchema,
@@ -27,10 +29,12 @@ import {
   RegisterDisagreesError,
   RegisterRowUnusableError,
   RowsFromAnotherAccountError,
+  accountHoldings,
   backUpAccount,
   openAccount,
   addUser,
   changeUser,
+  deleteUser,
   registerContents,
   registeredAccountNames,
   registeredUsers,
@@ -447,6 +451,72 @@ const changeUserRoute = createRoute({
 });
 
 /**
+ * Deleting somebody, and the account they owned ("Delete a user, and the
+ * account they owned with them", issue 234). Behind the same role gate as the
+ * rest of the admin pages.
+ *
+ * The same 404 and 409 a change answers: somebody the register does not hold -
+ * which is what a second deletion of the same person meets - and a deletion it
+ * holds them for and will not make.
+ */
+const deleteUserRoute = createRoute({
+  method: 'delete',
+  path: '/v1/admin/users/{userId}',
+  request: { params: z.object({ userId: z.string() }) },
+  responses: {
+    200: {
+      description: 'They, and the account they owned, are gone',
+      content: { 'application/json': { schema: userDeletedSchema } },
+    },
+    404: {
+      description: 'Nobody the register holds',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    409: {
+      description: 'Refused: yourself, the last admin, or an account somebody else also uses',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
+ * What somebody's account holds, for the question asked before deleting them
+ * (issue 234). Its own read rather than a column in the list, because counting
+ * for every row would wake every account's store to draw one page.
+ */
+const accountHoldingsRoute = createRoute({
+  method: 'get',
+  path: '/v1/admin/users/{userId}/account',
+  request: { params: z.object({ userId: z.string() }) },
+  responses: {
+    200: {
+      description: 'How many workspaces their account holds',
+      content: { 'application/json': { schema: accountHoldingsSchema } },
+    },
+    404: {
+      description: 'Nobody the register holds',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * Taking somebody's access away, or giving it back ("Take somebody's access
  * away without taking their work", issue 233). Behind the same role gate as the
  * rest of the admin pages.
@@ -762,6 +832,22 @@ const routes = app
         : c.json({ error: changed.refused }, 409);
     }
     return c.json({ user: changed.user }, 200);
+  })
+  .openapi(deleteUserRoute, async (c) => {
+    const { userId } = c.req.valid('param');
+    const deleted = await deleteUser(c.env, userId, c.get('visitor').userId);
+    if (!deleted.deleted) {
+      return deleted.because === 'nobody'
+        ? c.json({ error: deleted.refused }, 404)
+        : c.json({ error: deleted.refused }, 409);
+    }
+    return c.json({ deleted: true as const }, 200);
+  })
+  .openapi(accountHoldingsRoute, async (c) => {
+    const { userId } = c.req.valid('param');
+    const holdings = await accountHoldings(c.env, userId);
+    if (!holdings) return c.json({ error: `${userId} is nobody here` }, 404);
+    return c.json(holdings, 200);
   })
   .openapi(healthRoute, async (c) => {
     const { register, store, ai, failure } = await checkHealth(c.env);

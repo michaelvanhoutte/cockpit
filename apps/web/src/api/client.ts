@@ -1,8 +1,11 @@
 import { hc } from 'hono/client';
 import type { AppType } from '@cockpit/api';
 import {
+  accountHoldingsSchema,
   itemTypeListSchema,
   registeredUserListSchema,
+  userDeletedSchema,
+  type AccountHoldings,
   signedInSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
@@ -152,9 +155,35 @@ export async function setAccess({
 }
 
 /**
- * Why somebody could not be added or changed, in the server's words, for the
- * box or the form to show. One class for both, because both forms do the same
- * thing with it: print the reason and keep what was typed.
+ * What somebody's account holds, for the question asked before deleting them
+ * ("Delete a user, and the account they owned with them", issue 234).
+ */
+export async function fetchAccountHoldings(userId: string): Promise<AccountHoldings> {
+  const res = await api.v1.admin.users[':userId'].account.$get({ param: { userId } });
+  if (!res.ok) throw refusal('what their account holds', res.status);
+  return accountHoldingsSchema.parse(await res.json());
+}
+
+/**
+ * Deletes somebody and the account they owned (issue 234). A 404 is a refusal
+ * in the server's words, as it is for a change: somebody already gone is this
+ * page being out of date, not a failure.
+ */
+export async function deleteUser(userId: string): Promise<void> {
+  const res = await api.v1.admin.users[':userId'].$delete({ param: { userId } });
+  if (res.status === 409 || res.status === 404) {
+    const { error } = (await res.json()) as { error: string };
+    throw new UserRefused(error);
+  }
+  if (!res.ok) throw refusal('deleting a user', res.status);
+  userDeletedSchema.parse(await res.json());
+}
+
+/**
+ * Why somebody could not be added, changed or deleted, in the server's words,
+ * for the box, the form or the question to show. One class for all three,
+ * because each does the same thing with it: print the reason and keep what was
+ * there.
  */
 export class UserRefused extends Error {
   constructor(message: string) {

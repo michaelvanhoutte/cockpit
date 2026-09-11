@@ -280,6 +280,44 @@ test.describe('User management', () => {
       await expect(workspaceTab(page, HERS)).toBeVisible();
     });
 
+    /**
+     * The capability of "Delete a user, and the account they owned with them"
+     * (issue 234), and only provable here: an admin answers a question naming
+     * what goes, the person leaves the list, and signing in afterwards meets
+     * somebody this Cockpit does not know. What deleting destroys, and that a
+     * name given back carries nothing, are settled at
+     * apps/api/tests/integration/http/user-management.test.ts and the
+     * question's wording at apps/web/tests/unit/pages/AdminPage.test.tsx.
+     *
+     * Somebody added by this walk rather than Ada, for the reason the walks
+     * above add one: deleting a seeded person would take her from every other
+     * walk sharing this database.
+     */
+    test('deletes somebody after asking, and they can no longer sign in', async ({
+      page,
+      isMobile,
+    }) => {
+      const anna = somebodyNew('Anna');
+      await signIn(page, MICHAEL, isMobile);
+      await page.goto('/admin');
+      await addSomebody(page, anna, isMobile);
+
+      await press(page.getByRole('button', { name: `Actions for ${anna.name}` }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Delete' }), isMobile);
+      // Her account was prepared as she was added, so it holds the workspace
+      // every account starts with - and the question says so.
+      const question = page.getByRole('alertdialog');
+      await expect(question).toContainText('1 workspace');
+      await press(question.getByRole('button', { name: `Yes, delete ${anna.name}` }), isMobile);
+
+      await expect(question).toHaveCount(0);
+      await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(0);
+
+      await signOut(page, isMobile);
+      await signInWith(page, anna.address, isMobile);
+      await expect(page.getByRole('alert')).toContainText(/not one this Cockpit knows/i);
+    });
+
     test('refuses an ordinary user who types the address, and offers them no way in', async ({
       page,
       isMobile,

@@ -1,16 +1,21 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
+import type { SqlStorage } from '@cloudflare/workers-types';
 import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
 import type { ChangeUser, RegisteredUser } from '@cockpit/shared';
 import {
+  ACCOUNT_NAME,
   OTHER_ACCOUNT_NAME,
   OTHER_USER_ID,
   USER_ID,
+  WORKSPACE_ID,
   asUser,
   inStoreAsItIs,
   seedRegister,
   signInAs,
   startFromEmpty,
+  storeNamed,
+  taskTypeIn,
 } from '../seed.js';
 
 /**
@@ -53,6 +58,69 @@ function access(who: string, disabled: boolean, askedBy: string = USER_ID): Prom
       body: JSON.stringify({ disabled }),
     },
     askedBy,
+  );
+}
+
+/** Deleting somebody, as the question on their row sends it once answered. */
+function remove(who: string, askedBy: string = USER_ID): Promise<Response> {
+  return asUser(`${ADMIN_USERS}/${who}`, { method: 'DELETE' }, askedBy);
+}
+
+/** Something Ada captured, so her account holds work of her own rather than only what every account starts with. */
+const ADAS_ITEM = '018f0000-0000-7000-8000-000000000234';
+
+/**
+ * Written into her account directly rather than through a request, because a
+ * request would sign her in - and the cases about her sign-in are the ones
+ * that have to start it.
+ */
+async function adaHasCaptured(): Promise<void> {
+  const answer = await storeNamed(OTHER_ACCOUNT_NAME).applyChange(OTHER_ACCOUNT_NAME, 'capture_item', {
+    commandId: '018f0000-0000-7000-8000-000000000235',
+    issuedAt: '2026-09-11T10:00:00.000Z',
+    workspaceId: WORKSPACE_ID,
+    itemId: ADAS_ITEM,
+    message: 'Ada’s own note',
+    typeId: taskTypeIn(OTHER_ACCOUNT_NAME),
+  });
+  expect(answer.status).toBe('ok');
+}
+
+/** The tables an account holds, read as it stands, with the platform's own left out. */
+function tablesIn(accountName: string): Promise<string[]> {
+  return inStoreAsItIs(accountName, (sql) => ownTables(sql));
+}
+
+function ownTables(sql: SqlStorage): string[] {
+  return sql
+    .exec<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
+    .toArray()
+    .map((row) => row.name)
+    .filter((name) => !name.startsWith('_cf_') && !name.startsWith('sqlite_'));
+}
+
+/** Every row of every table an account holds, for the case that none of it changed. */
+function everythingIn(accountName: string) {
+  return inStoreAsItIs(accountName, (sql) =>
+    ownTables(sql).map((table) => ({ table, rows: sql.exec(`SELECT * FROM "${table}"`).toArray() })),
+  );
+}
+
+function itemsIn(accountName: string): Promise<string[]> {
+  return inStoreAsItIs(accountName, (sql) =>
+    sql
+      .exec<{ id: string }>('SELECT id FROM items ORDER BY id')
+      .toArray()
+      .map((row) => row.id),
+  );
+}
+
+function workspacesIn(accountName: string): Promise<string[]> {
+  return inStoreAsItIs(accountName, (sql) =>
+    sql
+      .exec<{ name: string }>('SELECT name FROM workspaces WHERE deleted_at IS NULL ORDER BY name')
+      .toArray()
+      .map((row) => row.name),
   );
 }
 
@@ -543,6 +611,211 @@ describe('User management', () => {
 
     it('refuses taking the access of somebody the register does not hold', async () => {
       expect((await access('user-nobody', true)).status).toBe(404);
+    });
+  });
+
+  describe('deleting a user takes the account they owned with them', () => {
+    it('leaves nothing of somebody who had workspaces and items, in the register or their account', async () => {
+      await adaHasCaptured();
+      expect(await tablesIn(OTHER_ACCOUNT_NAME)).not.toEqual([]);
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(200);
+
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
+      expect(
+        (await env.DB.prepare('SELECT id FROM tenants WHERE id = ?').bind(OTHER_ACCOUNT_NAME).all())
+          .results,
+      ).toHaveLength(0);
+      // Not a table left, the record of which changes ran included: that is
+      // what makes whatever opens this account next start it as a new one.
+      expect(await tablesIn(OTHER_ACCOUNT_NAME)).toEqual([]);
+    });
+
+    it('deletes somebody who never signed in, whose account nobody ever opened', async () => {
+      expect(await tablesIn(OTHER_ACCOUNT_NAME)).toEqual([]);
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(200);
+
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
+    });
+
+    it('leaves every other account exactly as it was', async () => {
+      // Both opened, so "untouched" is a claim about something that is there.
+      await asUser('http://cockpit.test/v1/workspaces');
+      await adaHasCaptured();
+      const before = await everythingIn(ACCOUNT_NAME);
+      expect(before.length).toBeGreaterThan(0);
+
+      await remove(OTHER_USER_ID);
+
+      expect(await everythingIn(ACCOUNT_NAME)).toEqual(before);
+    });
+
+    it('refuses the next request from a sign-in they were holding', async () => {
+      const ada = await signInAs(OTHER_USER_ID);
+      expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(200);
+
+      await remove(OTHER_USER_ID);
+
+      expect((await SELF.fetch(ME, { headers: { cookie: ada } })).status).toBe(401);
+    });
+
+    /**
+     * Adding somebody always makes them an account of their own, but a
+     * restored register only checks that an account exists - so two people
+     * pointing at one is a state that can arrive, and destroying it would take
+     * the other person's work with it.
+     */
+    it('refuses when somebody else uses the same account, and destroys nothing', async () => {
+      await env.DB.prepare(
+        'INSERT INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+        .bind('user-grace', 'Grace', OTHER_ACCOUNT_NAME, 'user', 'grace@example.com', '2026-09-11T00:00:00.000Z')
+        .run();
+      await adaHasCaptured();
+
+      const res = await remove(OTHER_USER_ID);
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(/user-grace uses the same account/);
+      expect(await itemsIn(OTHER_ACCOUNT_NAME)).toEqual([ADAS_ITEM]);
+    });
+  });
+
+  describe('a name given back carries nothing of the person who had it', () => {
+    /** The reason this whole capability exists, and so the one case it has. */
+    it('opens somebody added under a deleted user’s name on what every account starts with, and nothing else', async () => {
+      await adaHasCaptured();
+      await remove(OTHER_USER_ID);
+
+      const res = await asUser(ADMIN_USERS, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Ada', email: 'ada.again@example.com' }),
+      });
+      expect(res.status).toBe(201);
+
+      // The same account as the Ada before her, which is what makes the rest of
+      // this mean anything: a name deriving a fresh account would pass whatever
+      // deleting did.
+      expect(
+        (await env.DB.prepare('SELECT account_id FROM users WHERE email = ?').bind('ada.again@example.com').first())
+          ?.account_id,
+      ).toBe(OTHER_ACCOUNT_NAME);
+      expect(await workspacesIn(OTHER_ACCOUNT_NAME)).toEqual([FIRST_WORKSPACE_NAME]);
+      expect(await itemsIn(OTHER_ACCOUNT_NAME)).toEqual([]);
+    });
+  });
+
+  describe('a deletion interrupted leaves nothing that cannot be finished', () => {
+    /**
+     * Where a deletion that stopped after destroying the account leaves it:
+     * still in the register, holding nothing. Destroyed by the account's own
+     * operation, which is what the deletion calls.
+     */
+    async function stoppedAfterTheData() {
+      await adaHasCaptured();
+      await storeNamed(OTHER_ACCOUNT_NAME).destroy();
+    }
+
+    it('lets the person still sign in, to an account holding nothing of theirs', async () => {
+      await stoppedAfterTheData();
+
+      const res = await asUser('http://cockpit.test/v1/workspaces', {}, OTHER_USER_ID);
+
+      expect(res.status).toBe(200);
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toContain(OTHER_USER_ID);
+      expect(await itemsIn(OTHER_ACCOUNT_NAME)).toEqual([]);
+    });
+
+    it('finishes when it is run again after that', async () => {
+      await stoppedAfterTheData();
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(200);
+
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
+    });
+
+    it('answers that there is no such user when run for somebody already deleted, and changes nothing', async () => {
+      await remove(OTHER_USER_ID);
+
+      const res = await remove(OTHER_USER_ID);
+
+      expect(res.status).toBe(404);
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
+      expect(await tablesIn(OTHER_ACCOUNT_NAME)).toEqual([]);
+    });
+  });
+
+  describe('you cannot delete the last way in', () => {
+    it.each([
+      {
+        situation: 'an admin deletes themselves while another admin is there',
+        secondAdmin: true,
+        says: /cannot delete yourself/,
+      },
+      {
+        situation: 'the only admin deletes themselves',
+        secondAdmin: false,
+        says: /only admin/,
+      },
+    ])('refuses it and changes nothing when $situation', async ({ secondAdmin, says }) => {
+      if (secondAdmin) await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+      await asUser('http://cockpit.test/v1/workspaces');
+
+      const res = await remove(USER_ID);
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(says);
+      expect((await asUser(ADMIN_USERS, {}, USER_ID)).status).toBe(200);
+      expect(await workspacesIn(ACCOUNT_NAME)).toEqual([FIRST_WORKSPACE_NAME]);
+    });
+
+    /**
+     * "The last admin, deleted by another admin" is not a case: whoever asks is
+     * an admin who can sign in, so two are counted whenever the two differ. What
+     * is left to prove is the direction - that one admin can delete another.
+     */
+    it('lets an admin be deleted by another admin', async () => {
+      await change(OTHER_USER_ID, { name: 'Ada', role: 'admin' });
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(200);
+    });
+
+    it('refuses somebody who is not an admin, and deletes nothing', async () => {
+      const res = await remove(USER_ID, OTHER_USER_ID);
+
+      expect(res.status).toBe(403);
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toContain(USER_ID);
+    });
+  });
+
+  describe('what somebody’s account holds is counted before they are deleted', () => {
+    async function counted(who: string) {
+      const res = await asUser(`${ADMIN_USERS}/${who}/account`);
+      return { status: res.status, body: res.ok ? ((await res.json()) as { workspaces: number }) : null };
+    }
+
+    it('counts an account nobody ever opened as holding nothing, and opens nothing to say so', async () => {
+      expect(await counted(OTHER_USER_ID)).toEqual({ status: 200, body: { workspaces: 0 } });
+      expect(await tablesIn(OTHER_ACCOUNT_NAME)).toEqual([]);
+    });
+
+    it('counts the workspaces an account holds, and not the ones deleted from it', async () => {
+      await adaHasCaptured();
+      await inStoreAsItIs(OTHER_ACCOUNT_NAME, (sql) =>
+        sql.exec(
+          `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, position, created_at, deleted_at)
+           VALUES ('ws-gone', ?, 'Gone', 'gone', '#3a72c8', 5, '2026-09-11T00:00:00.000Z', '2026-09-11T00:00:01.000Z')`,
+          OTHER_ACCOUNT_NAME,
+        ),
+      );
+
+      expect(await counted(OTHER_USER_ID)).toEqual({ status: 200, body: { workspaces: 1 } });
+    });
+
+    it('answers that there is no such user for somebody the register does not hold', async () => {
+      expect((await counted('user-nobody')).status).toBe(404);
     });
   });
 

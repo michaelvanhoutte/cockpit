@@ -389,6 +389,36 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     return { status: 'ok', value: written };
   }
 
+  /** How many live workspaces the store holds, read as it stands (`rpc.ts`). */
+  holdings(accountName: string): { workspaces: number } {
+    const sql = this.ctx.storage.sql;
+    const [table] = sql
+      .exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspaces'`)
+      .toArray();
+    if (!table) return { workspaces: 0 };
+    const [counted] = sql
+      .exec<{ workspaces: number }>(
+        'SELECT count(*) AS workspaces FROM workspaces WHERE tenant_id = ? AND deleted_at IS NULL',
+        accountName,
+      )
+      .toArray();
+    return { workspaces: counted?.workspaces ?? 0 };
+  }
+
+  /**
+   * Destroys everything the store holds (`rpc.ts`).
+   *
+   * **The memory of being up to date goes with it**, for the reason a restore
+   * forgets it: the object stays in memory after its storage is gone, and would
+   * otherwise serve the next request over tables that are no longer there
+   * rather than creating them afresh.
+   */
+  async destroy(): Promise<void> {
+    await this.ctx.storage.deleteAll();
+    this.#db = null;
+    this.#upToDate = false;
+  }
+
   /**
    * Brings the account up to date, then does the work - and turns the two
    * things a caller has to be able to tell apart into an answer rather than an

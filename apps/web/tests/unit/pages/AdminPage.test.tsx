@@ -39,6 +39,9 @@ const reads = vi.fn();
 const adds = vi.fn();
 const changes = vi.fn();
 const access = vi.fn();
+const deletes = vi.fn();
+/** What the account of whoever is being deleted holds. */
+const holds = vi.fn();
 /** Who the page believes is asking, which one of the two role refusals is about. */
 const iAm = vi.fn();
 
@@ -47,11 +50,16 @@ vi.mock('../../../src/api/queries', async () => {
   return {
     registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => reads() },
     meQuery: { queryKey: ['me'], queryFn: () => iAm() },
+    accountHoldingsQuery: (userId: string) => ({
+      queryKey: ['accountHoldings', userId],
+      queryFn: () => holds(userId),
+    }),
     // The real hooks, minus the cache invalidation they do on success - which
     // needs a client these cases do not have and proves nothing about the form.
     useAddUser: () => useMutation({ mutationFn: adds }),
     useChangeUser: () => useMutation({ mutationFn: changes }),
     useSetAccess: () => useMutation({ mutationFn: access }),
+    useDeleteUser: () => useMutation({ mutationFn: deletes }),
   };
 });
 
@@ -68,6 +76,8 @@ afterEach(() => {
   adds.mockReset();
   changes.mockReset();
   access.mockReset();
+  deletes.mockReset();
+  holds.mockReset();
   iAm.mockReset();
 });
 
@@ -454,6 +464,34 @@ describe('User management', () => {
     });
   });
 
+  describe('you cannot delete the last way in', () => {
+    /**
+     * Drawn the way the role and the access refuse, present and unavailable
+     * with the reason on it - and the question is never asked.
+     */
+    it.each([
+      { situation: 'the only admin', people: PEOPLE, says: /only admin/i },
+      {
+        situation: 'yourself, while another admin is there',
+        people: [PEOPLE[0]!, { ...PEOPLE[1]!, role: 'admin' as const }],
+        says: /cannot delete yourself/i,
+      },
+    ])('will not delete $situation', async ({ people, says }) => {
+      const user = userEvent.setup();
+      reads.mockResolvedValue({ users: people });
+      drawn();
+
+      await user.click(await screen.findByRole('button', { name: `Actions for ${PEOPLE[0]!.name}` }));
+      await waitFor(() =>
+        expect(screen.getByRole('menuitem', { name: /^Delete/ })).toHaveAccessibleName(says),
+      );
+
+      await user.click(screen.getByRole('menuitem', { name: /^Delete/ }));
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(deletes).not.toHaveBeenCalled();
+    });
+  });
+
   describe('being refused the admin page says so rather than showing nothing', () => {
     /**
      * The one thing this page must not do with a refusal is draw an empty
@@ -482,6 +520,101 @@ describe('User management', () => {
 
       expect(await screen.findByText(/could not be read/i)).toBeVisible();
       expect(screen.queryByText(/for admins/i)).toBeNull();
+    });
+  });
+});
+
+describe('Deleting', () => {
+  describe('the question about deleting somebody names what goes with them', () => {
+    async function askAbout(person: RegisteredUser) {
+      const user = userEvent.setup();
+      reads.mockResolvedValue({ users: PEOPLE });
+      drawn();
+
+      await user.click(await screen.findByRole('button', { name: `Actions for ${person.name}` }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+      return user;
+    }
+
+    /** Only Ada's account answers with the count, so a question drawn from anybody else's cannot pass. */
+    function adaHolds(workspaces: number) {
+      holds.mockImplementation((userId: string) =>
+        Promise.resolve({ workspaces: userId === 'user-ada' ? workspaces : 99 }),
+      );
+    }
+
+    it.each([
+      {
+        situation: 'somebody with workspaces',
+        held: 3,
+        says: /Delete Ada and the 3 workspaces in their account\?/,
+      },
+      { situation: 'somebody with one', held: 1, says: /Delete Ada and the 1 workspace in their account\?/ },
+      { situation: 'somebody whose account is empty', held: 0, says: /There is nothing in their account/ },
+    ])('says what goes with $situation, and that only a backup brings it back', async ({ held, says }) => {
+      adaHolds(held);
+      await askAbout(PEOPLE[1]!);
+
+      const question = await screen.findByRole('alertdialog');
+      await waitFor(() => expect(question).toHaveTextContent(says));
+      expect(question).toHaveTextContent(/backup taken beforehand/);
+    });
+
+    it('does not let it through before it knows what goes with them', async () => {
+      holds.mockReturnValue(new Promise(() => {}));
+      await askAbout(PEOPLE[1]!);
+
+      expect(await screen.findByRole('button', { name: 'Yes, delete Ada' })).toBeDisabled();
+    });
+
+    it('lets it through when what their account holds cannot be read, rather than trapping you', async () => {
+      holds.mockRejectedValue(new Error('what their account holds failed: 500'));
+      deletes.mockResolvedValue(undefined);
+      const user = await askAbout(PEOPLE[1]!);
+
+      const yes = await screen.findByRole('button', { name: 'Yes, delete Ada' });
+      await waitFor(() => expect(yes).toBeEnabled());
+      await user.click(yes);
+
+      await waitFor(() => expect(deletes).toHaveBeenCalled());
+      expect(deletes.mock.lastCall?.[0]).toBe('user-ada');
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    });
+
+    it.each([
+      {
+        situation: 'Cancel',
+        answer: (user: ReturnType<typeof userEvent.setup>) =>
+          user.click(screen.getByRole('button', { name: 'Cancel' })),
+      },
+      {
+        situation: 'Escape',
+        answer: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}'),
+      },
+    ])('sends nothing and leaves the row on $situation', async ({ answer }) => {
+      adaHolds(3);
+      const user = await askAbout(PEOPLE[1]!);
+      await screen.findByRole('alertdialog');
+
+      await answer(user);
+
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+      expect(deletes).not.toHaveBeenCalled();
+      expect(screen.getByText('ada@example.com')).toBeVisible();
+    });
+
+    it('says what the server refused inside the question, which stays open', async () => {
+      adaHolds(3);
+      deletes.mockRejectedValue(new Error('user-grace uses the same account'));
+      const user = await askAbout(PEOPLE[1]!);
+
+      const yes = await screen.findByRole('button', { name: 'Yes, delete Ada' });
+      await waitFor(() => expect(yes).toBeEnabled());
+      await user.click(yes);
+
+      expect(await within(screen.getByRole('alertdialog')).findByRole('alert')).toHaveTextContent(
+        /same account/,
+      );
     });
   });
 });
