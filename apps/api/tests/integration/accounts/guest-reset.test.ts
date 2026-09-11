@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Workspace } from '@cockpit/shared';
-import { GUEST_ACCOUNT_NAME } from '../../../src/auth/register.js';
+import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../../../src/auth/register.js';
 import { handleScheduled } from '../../../src/jobs/index.js';
 import {
   ACCOUNT_NAME,
@@ -86,7 +86,10 @@ function resetNightly(): Promise<void> {
   return handleScheduled({} as never, env);
 }
 
-/** The two ways in, which have to be one reset (issue 356, "both run the same logic"). */
+/**
+ * The two ways in, which have to be one reset ("Reset the guest account to its
+ * seeded state", issue 356: "both run the same logic").
+ */
 const WAYS = [
   {
     situation: 'an operator asks for it',
@@ -197,6 +200,42 @@ describe('Accounts', () => {
       // And the guest account did go back, so the silence above is not a reset
       // that did nothing at all.
       expect(await held(GUEST_ACCOUNT_NAME)).toEqual(seeded);
+    });
+
+    /**
+     * The one real account the guest's own id can reach. Adding somebody called
+     * "Guest" derives these same ids (accounts/new-user.ts), and every row they
+     * write carries `tenant-guest`, so only the register can say whose it is.
+     * The register is written directly, as sign-in.test.ts arranges the same
+     * collision, because what is asked about is the reset rather than adding.
+     */
+    it('leaves a real person alone, even one added under the name "Guest"', async () => {
+      await env.DB.batch([
+        env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)').bind(
+          GUEST_ACCOUNT_NAME,
+          'Guest',
+          AT,
+        ),
+        env.DB.prepare(
+          'INSERT INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        ).bind(GUEST_USER_ID, 'Guest', GUEST_ACCOUNT_NAME, 'user', 'somebody.called.guest@example.com', AT),
+      ]);
+      // Their account, opened, with work of their own in it.
+      expect((await storeNamed(GUEST_ACCOUNT_NAME).workspaces(GUEST_ACCOUNT_NAME)).status).toBe('ok');
+      await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => {
+        sql.exec(
+          `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, position, created_at)
+           VALUES ('ws-theirs', ?, 'Their own', 'their own', '#3a72c8', 99, ?)`,
+          GUEST_ACCOUNT_NAME,
+          AT,
+        );
+      });
+      const before = await held(GUEST_ACCOUNT_NAME);
+
+      expect((await resetByOperator()).status).toBe(409);
+      await resetNightly();
+
+      expect(await held(GUEST_ACCOUNT_NAME)).toEqual(before);
     });
 
     /**

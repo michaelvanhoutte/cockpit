@@ -240,6 +240,37 @@ export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
 }
 
 /**
+ * Who holds the guest account's id, asked before the reset wipes it ("Reset
+ * the guest account to its seeded state", issue 356).
+ *
+ * **The id is fixed and its owner is not.** Somebody added under the name
+ * "Guest" is given these same ids (`idsForNewUser`), and every row they write
+ * carries `tenant-guest` - so only the register can tell their account from
+ * the guest's, and wiping theirs is the one mistake a reset cannot take back.
+ * Read the way `signInAsGuest` reads it: an address is what only a real person
+ * has, and anybody else in that account is somebody added rather than the
+ * guest. An account with nobody in it yet is the guest's, half-made by a first
+ * press that stopped between its two writes.
+ */
+export async function whoHoldsTheGuestAccount(
+  env: Env,
+): Promise<'nobody' | 'the guest' | 'somebody real'> {
+  const db = createDb(env.DB);
+  const [account] = await db
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(eq(tenants.id, GUEST_ACCOUNT_NAME));
+  if (!account) return 'nobody';
+  const people = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(eq(users.accountId, GUEST_ACCOUNT_NAME));
+  return people.every((one) => one.id === GUEST_USER_ID && one.email == null)
+    ? 'the guest'
+    : 'somebody real';
+}
+
+/**
  * A sign-in of its own, always: whatever the browser arrived holding is neither
  * read nor reused, so there is nothing to fix a session onto.
  */

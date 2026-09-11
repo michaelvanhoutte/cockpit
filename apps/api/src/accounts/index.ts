@@ -9,7 +9,7 @@ import type {
   Workspace,
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
-import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
+import { GUEST_ACCOUNT_NAME, whoHoldsTheGuestAccount } from '../auth/register.js';
 import { accountIsRegistered } from './register.js';
 import { describeForeignRows, type AccountBackup } from './backup.js';
 import type { RestoreReport } from './rpc.js';
@@ -238,8 +238,11 @@ export async function restoreAccount(
  * seeded state", issue 356).
  *
  * **Takes no account, so no caller can point it at one.** The guest's store is
- * the only one this addresses; whether that store really is the guest's is
- * checked inside it (`resetGuest`, store.ts).
+ * the only one this addresses, and two locks stand in front of wiping it: the
+ * register has to say the guest's id is the guest's rather than somebody's
+ * added under that name (`whoHoldsTheGuestAccount`), and the store has to hold
+ * nothing but the guest's rows (`resetGuest`, store.ts). Either failing is a
+ * conflict, and nothing is dropped.
  *
  * **An environment with no guest account resets nothing and creates nothing.**
  * Addressing a store by name makes one, so without the register check the
@@ -247,7 +250,13 @@ export async function restoreAccount(
  * refused (`GUEST_SIGN_IN`) - for nobody to open.
  */
 export async function resetGuestAccount(env: Env): Promise<'reset' | 'no guest account'> {
-  if (!(await accountIsRegistered(env, GUEST_ACCOUNT_NAME))) return 'no guest account';
+  const holder = await whoHoldsTheGuestAccount(env);
+  if (holder === 'nobody') return 'no guest account';
+  if (holder === 'somebody real') {
+    throw new ConflictInAccountError(
+      `${GUEST_ACCOUNT_NAME} belongs to somebody added under the name Guest rather than to the guest, so nothing was reset`,
+    );
+  }
   const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(GUEST_ACCOUNT_NAME));
   unwrap(await store.resetGuest());
   return 'reset';

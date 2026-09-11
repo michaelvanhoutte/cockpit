@@ -440,8 +440,9 @@ other's work — accepted, because the account goes back to its demonstration
 every night and on `pnpm guest:reset` ("Reset the guest account to its seeded
 state", issue 356). The reset drops the store's tables and applies the whole
 change list again in one transaction, which is exactly what a first opening
-does, so there is no seed file to drift from the code; a store holding another
-account's rows refuses it before anything is dropped.
+does, so there is no seed file to drift from the code. Before anything is
+dropped it refuses where the register says a real person holds the guest's id,
+and where the store holds another account's rows.
 
 **Only `openid email` is asked for.** The name shown in the app is the register's, so asking Google for a profile it would never read would be collecting somebody's data for nothing; and neither scope is sensitive, which is what keeps a verification review out of the way of a working sign-in.
 

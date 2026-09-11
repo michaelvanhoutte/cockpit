@@ -396,7 +396,7 @@ And `pnpm guest:reset` puts the shared guest account back to its demonstration n
 pnpm guest:reset --env production
 ```
 
-**It can reach the guest account and nothing else**: it names no account, and a store holding any other account's rows refuses before anything is dropped. The reset is one transaction, so one that fails leaves the account as it was. It asks for no confirmation, unlike a restore, because what it removes is promised to nobody; an environment with no guest account — staging — answers that it has none.
+**It can reach the guest account and nothing else**: it names no account, it refuses where the guest's id belongs to a real person — somebody added under the name "Guest" is given it — and a store holding any other account's rows refuses before anything is dropped. The reset is one transaction, so one that fails leaves the account as it was. It asks for no confirmation, unlike a restore, because what it removes is promised to nobody; an environment with no guest account — staging — answers that it has none.
 
 ## 6. Secrets and access
 

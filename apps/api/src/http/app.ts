@@ -1211,11 +1211,14 @@ const routes = app
   // same reset the nightly run does (jobs/index.ts), for a demo due before it
   // comes round. It names no account because there is only one it can mean.
   .post('/v1/operator/guest/reset', async (c) => {
-    let outcome: Awaited<ReturnType<typeof resetGuestAccount>>;
     try {
-      outcome = await resetGuestAccount(c.env);
+      if ((await resetGuestAccount(c.env)) === 'no guest account') {
+        return c.json({ error: 'this environment has no guest account to reset' }, 404);
+      }
+      return c.json({ reset: GUEST_ACCOUNT_NAME }, 200);
     } catch (error) {
-      // A store holding somebody else's rows: `onError`'s 409 says what it found.
+      // The guest's id held by somebody real, or a store holding another
+      // account's rows: `onError`'s 409 says which.
       if (error instanceof ConflictInAccountError) throw error;
       // Anything else is ours rather than the caller's - nothing was sent that
       // could cause it - so it is logged. The sentence still goes back, because
@@ -1225,10 +1228,6 @@ const routes = app
       console.error(JSON.stringify({ level: 'error', message: `the guest account was not reset: ${why}` }));
       return c.json({ error: `the guest account was not reset, and holds what it held: ${why}` }, 500);
     }
-    if (outcome === 'no guest account') {
-      return c.json({ error: 'this environment has no guest account to reset' }, 404);
-    }
-    return c.json({ reset: GUEST_ACCOUNT_NAME }, 200);
   });
 
 // Behind the gate like everything else not named in `PATHS_OUTSIDE_THE_GATE`.
