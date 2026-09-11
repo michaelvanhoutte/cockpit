@@ -1199,12 +1199,16 @@ describe('Layouts', () => {
     /**
      * Proved the write half of "still reads the workspace when it holds more
      * layouts than a statement can name" (above): that dropping the emptied
-     * rows across a hundred and twenty layouts does not name them one by one
-     * either. Removed deliberately - 240 real round trips against the workers
-     * pool cost 90-220s under CI contention, on a job that runs on every push
-     * - accepting the gap: `inBatchesOf`'s own arithmetic is still proven at
-     * tests/unit/domain/statements.test.ts, only that `delete_panel`'s
-     * cleanup path actually calls it is not, any more.
+     * rows across a hundred and twenty layouts works at that scale too, the
+     * same way smaller cases in this file already prove it works at all.
+     * Removed deliberately - 240 real round trips against the workers pool
+     * cost 90-220s under CI contention, on a job that runs on every push -
+     * accepting the gap: `delete_panel`'s cleanup (`command-service.ts`) is a
+     * join, `exists`/`notExists` subqueries rather than an `IN` list of ids,
+     * chosen specifically to avoid the statement-size ceiling this scale was
+     * proving against. Nothing now catches a regression back to a bound `IN`
+     * list, or any other scale-dependent behaviour in that join, past a
+     * hundred layouts on one dashboard.
      */
   });
 });
