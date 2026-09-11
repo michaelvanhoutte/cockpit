@@ -2,9 +2,14 @@ import {
   FIRST_DASHBOARD_NAME,
   FIRST_PANEL_NAME,
   FIRST_WORKSPACE_NAME,
+  GRID_COLUMNS,
+  themeOf,
 } from '@cockpit/shared';
+import type { AssociationKind } from '@cockpit/shared';
+import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { foldName } from '../domain/names.js';
-import type { Change } from './up-to-date.js';
+import { GUEST_DEMO, SEEDED_AT, type SeedDashboard, type SeedItem } from './guest-seed-data.js';
+import type { Change, Statement } from './up-to-date.js';
 
 /**
  * Every change an account's store has ever needed, oldest first. An account
@@ -81,6 +86,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     DECISION_HISTORY,
     WORKSPACE_ROUTING_SUMMARY,
     firstWorkspace(accountId),
+    guestDemoSeed(accountId),
   ];
 }
 
@@ -1958,4 +1964,339 @@ function firstWorkspace(accountId: string): Change {
       },
     ],
   };
+}
+
+/**
+ * The screen size the seeded Layouts below are arranged at. **Not
+ * `DEFAULT_SCREEN_SIZE_NAME`**, which `save_layout` creates by itself the first
+ * time somebody arranges a Dashboard (command-service.ts): a guest may have
+ * done exactly that before this change ever runs, and `screen_sizes` is unique
+ * on the folded name with no tombstone to fall back on.
+ */
+const DEMO_SCREEN_SIZE_ID = 'guest-screen-desktop';
+const DEMO_SCREEN_SIZE_NAME = 'Desktop';
+const DEMO_SCREEN_WIDTH = 1440;
+
+/**
+ * The ids the demonstration's Panels, Items and Associations carry.
+ *
+ * **Real uuids rather than readable strings**, for the reason `FIRST_PANEL_ID`
+ * above is one: five Panel commands and every Item and Association command take
+ * their id as `z.uuid()`, so a seeded row with a readable id would be a row
+ * nobody could rename, file or delete. Workspaces, Dashboards and Layouts take
+ * no such schema, so those keep names you can read in a query.
+ *
+ * Counted rather than random: the whole dataset has to come out the same every
+ * time it is applied.
+ */
+const demoId = (prefix: string, nth: number) =>
+  `${prefix}-0000-7000-8000-${String(nth).padStart(12, '0')}`;
+const DEMO_PANEL = '0a000000';
+const DEMO_ITEM = '0b000000';
+const DEMO_ASSOCIATION = '0c000000';
+
+/** A readable, stable id for the things whose ids are not uuids: `Day to day` -> `day-to-day`. */
+function demoSlug(name: string): string {
+  return foldName(name)
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '');
+}
+
+/** Every Association one seeded Item carries, its Dashboard's Project included. */
+function demoAssociations(
+  item: SeedItem,
+  dashboard: SeedDashboard,
+): { kind: AssociationKind; label: string }[] {
+  return [
+    ...(dashboard.project ? [{ kind: 'project' as const, label: dashboard.project }] : []),
+    ...(item.people ?? []).map((label) => ({ kind: 'person' as const, label })),
+    ...(item.topics ?? []).map((label) => ({ kind: 'topic' as const, label })),
+  ];
+}
+
+/**
+ * What the shared guest account holds when somebody opens it: three Workspaces
+ * of a contractor's week, their Dashboards arranged in rows, and the Items
+ * filed on their Panels ("Seed the guest account with a full demo dataset",
+ * issue 355). The content itself is in guest-seed-data.ts; this turns it into
+ * rows.
+ *
+ * **A no-op for every other account**, decided on the account's own name rather
+ * than on a flag: there is exactly one guest account and it is named in one
+ * place (auth/register.ts). Everybody else applies a change with no statements,
+ * which still records itself and so never runs again.
+ *
+ * **Generated from a structure, unlike every change above it.** That file's
+ * header rule - the SQL is written out, not generated - is about *schema*:
+ * there is no migration tool that can emit a Durable Object's DDL, and a
+ * generated `CREATE TABLE` would be hand-edited anyway. This is bootstrap data,
+ * the same kind `itemTypes` already builds from a parameter, and three hundred
+ * rows written out by hand would be three hundred rows nobody re-reads.
+ *
+ * **Every insert is guarded twice: on the row it would write, and on the row it
+ * hangs off.** The second guard is the one that matters, and it is what stops a
+ * name collision breaking guest sign-in for everybody. The guest account is
+ * shared and already live, so by the time this runs a visitor may have made a
+ * Workspace called `Personal` of their own - and `workspaces` is unique on the
+ * live folded name. That Workspace is then skipped, and because its Dashboards,
+ * Panels and Items are all guarded on it existing, its whole subtree is skipped
+ * with it rather than failing a foreign key and taking the transaction - and
+ * the rest of the demonstration still lands. `screen_sizes` is the other table
+ * a collision is possible in, which is why the size is called `Desktop` and
+ * every Layout resolves its id by a subquery rather than naming the literal:
+ * a Layout hangs off whichever row is actually there.
+ *
+ * **Nothing already in the account is touched.** The `Workspace 1` that
+ * `0015-first-workspace` hands every account stays exactly where it is, beside
+ * these three - additive, with nothing to overwrite.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). Inserts only, and only into one account.
+ * - **If it stops halfway:** it cannot. A change's statements and the record
+ *   that they ran commit in one `transactionSync` (store.ts), so a failure
+ *   leaves none of these rows and the whole thing is retried next time the
+ *   guest account is opened.
+ * - **The second time it runs:** it does not, having been recorded. Idempotent
+ *   regardless - every insert is guarded on the row it would duplicate.
+ * - **Rows that already break the new rule:** there is no new rule. A guest's
+ *   own Workspace wearing one of these names keeps it, and is never renamed or
+ *   tombstoned to make room.
+ * - **What is in each environment:** the guest account is offered in
+ *   development and in production and refused in staging (`GUEST_SIGN_IN`,
+ *   wrangler.jsonc), so this writes rows only where somebody can reach them;
+ *   every other account applies an empty change everywhere.
+ * - **The windows it can be interrupted in.** *Before it runs*: the guest
+ *   account holds its ordinary starter and the previous release draws it.
+ *   *After it runs, with the previous release promoted back*: every row here is
+ *   an ordinary Workspace, Dashboard, Panel, Layout, Item or Association in
+ *   columns that release already reads, so it draws the demonstration exactly
+ *   as this one does. Nothing is lost either way.
+ */
+function guestDemoSeed(accountId: string): Change {
+  const name = '0026-guest-demo-seed';
+  if (accountId !== GUEST_ACCOUNT_NAME) return { name, statements: [] };
+
+  const at = SEEDED_AT;
+  const folded = foldName(DEMO_SCREEN_SIZE_NAME);
+  const taskType = `${accountId}-type-action`;
+  const noteType = `${accountId}-type-thought`;
+  const statements: Statement[] = [
+    {
+      sql: `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
+              SELECT ?, ?, ?, ?, ?, ?
+              WHERE NOT EXISTS (SELECT 1 FROM screen_sizes WHERE tenant_id = ? AND folded_name = ?)`,
+      params: [
+        DEMO_SCREEN_SIZE_ID,
+        accountId,
+        DEMO_SCREEN_SIZE_NAME,
+        folded,
+        DEMO_SCREEN_WIDTH,
+        at,
+        accountId,
+        folded,
+      ],
+    },
+  ];
+
+  let panelsSoFar = 0;
+  let itemsSoFar = 0;
+  let associationsSoFar = 0;
+
+  GUEST_DEMO.forEach((workspace, index) => {
+    const workspaceId = `guest-ws-${demoSlug(workspace.name)}`;
+    const theme = themeOf(workspace.tint);
+    statements.push({
+      sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, bar, ground, header, position, created_at)
+              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE tenant_id = ? AND folded_name = ? AND deleted_at IS NULL)`,
+      params: [
+        workspaceId,
+        accountId,
+        workspace.name,
+        foldName(workspace.name),
+        theme.tint,
+        theme.bar,
+        theme.ground,
+        theme.header,
+        // After the one `0015-first-workspace` gives every account, which
+        // holds 0. A guest who has made Workspaces of their own may already
+        // hold these numbers, which the column allows: `created_at` breaks the
+        // tie, so the tabs still come back in one stable order.
+        index + 1,
+        at,
+        accountId,
+        foldName(workspace.name),
+      ],
+    });
+
+    for (const dashboard of workspace.dashboards) {
+      const under = `${demoSlug(workspace.name)}-${demoSlug(dashboard.name)}`;
+      const dashboardId = `guest-db-${under}`;
+      const layoutId = `guest-layout-${under}`;
+      statements.push({
+        sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+                SELECT ?, ?, ?, ?, ?, ?
+                WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM dashboards WHERE id = ?)`,
+        params: [
+          dashboardId,
+          accountId,
+          workspaceId,
+          dashboard.name,
+          foldName(dashboard.name),
+          at,
+          workspaceId,
+          accountId,
+          dashboardId,
+        ],
+      });
+      statements.push({
+        sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+                SELECT ?, ?, ?,
+                       (SELECT id FROM screen_sizes WHERE tenant_id = ? AND folded_name = ? LIMIT 1), ?
+                WHERE EXISTS (SELECT 1 FROM dashboards WHERE id = ? AND tenant_id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM layouts WHERE id = ?)`,
+        params: [layoutId, accountId, dashboardId, accountId, folded, at, dashboardId, accountId, layoutId],
+      });
+
+      dashboard.rows.forEach((row, rowIndex) => {
+        statements.push({
+          // A null height is "as tall as what is in it", which is every row
+          // here and is why `SeedRow` carries no number to bind.
+          sql: `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
+                  SELECT ?, ?, ?, NULL
+                  WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND tenant_id = ?)
+                    AND NOT EXISTS (SELECT 1 FROM layout_rows WHERE layout_id = ? AND row_index = ?)`,
+          params: [accountId, layoutId, rowIndex, layoutId, accountId, layoutId, rowIndex],
+        });
+
+        // The cells of a row divide it in proportion to their spans, so an
+        // equal share each is the grid over however many Panels are on it.
+        const span = Math.floor(GRID_COLUMNS / row.panels.length);
+
+        row.panels.forEach((panel, position) => {
+          panelsSoFar += 1;
+          const panelId = demoId(DEMO_PANEL, panelsSoFar);
+          statements.push({
+            sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
+                    SELECT ?, ?, ?, ?, ?, ?
+                    WHERE EXISTS (SELECT 1 FROM dashboards WHERE id = ? AND tenant_id = ?)
+                      AND NOT EXISTS (SELECT 1 FROM panels WHERE id = ?)`,
+            params: [
+              panelId,
+              accountId,
+              dashboardId,
+              panel.name,
+              foldName(panel.name),
+              at,
+              dashboardId,
+              accountId,
+              panelId,
+            ],
+          });
+          statements.push({
+            sql: `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
+                    SELECT ?, ?, ?, ?, ?, ?
+                    WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND tenant_id = ?)
+                      AND EXISTS (SELECT 1 FROM panels WHERE id = ? AND tenant_id = ?)
+                      AND NOT EXISTS (SELECT 1 FROM panel_placements WHERE layout_id = ? AND panel_id = ?)`,
+            params: [
+              accountId,
+              layoutId,
+              panelId,
+              rowIndex,
+              position,
+              span,
+              layoutId,
+              accountId,
+              panelId,
+              accountId,
+              layoutId,
+              panelId,
+            ],
+          });
+
+          panel.items.forEach((item, filedAt) => {
+            itemsSoFar += 1;
+            const itemId = demoId(DEMO_ITEM, itemsSoFar);
+            statements.push({
+              // `source` is `internal` because these were captured inside
+              // Cockpit rather than synced from anywhere, and `status` carries
+              // `DEAD_STATUS_VALUE` (schema.ts) because the column is NOT NULL
+              // with a CHECK and nothing reads it. `focus_horizon` is left
+              // alone: it is dead too, and what this demonstrates in its place
+              // is a due date and a priority, which are live.
+              sql: `INSERT INTO items (id, tenant_id, workspace_id, captured_message, source, title, description,
+                                       type_id, priority, due_date, status, created_at, updated_at)
+                      SELECT ?, ?, ?, ?, 'internal', ?, ?, ?, ?, ?, 'to_process', ?, ?
+                      WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
+                        AND NOT EXISTS (SELECT 1 FROM items WHERE id = ?)`,
+              params: [
+                itemId,
+                accountId,
+                workspaceId,
+                item.title,
+                item.title,
+                item.description ?? null,
+                item.note ? noteType : taskType,
+                item.priority ?? null,
+                item.due ?? null,
+                at,
+                at,
+                workspaceId,
+                accountId,
+                itemId,
+              ],
+            });
+            statements.push({
+              sql: `INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at)
+                      SELECT ?, ?, ?, ?, ?
+                      WHERE EXISTS (SELECT 1 FROM panels WHERE id = ? AND tenant_id = ?)
+                        AND EXISTS (SELECT 1 FROM items WHERE id = ? AND tenant_id = ?)
+                        AND NOT EXISTS (SELECT 1 FROM panel_items WHERE panel_id = ? AND item_id = ?)`,
+              params: [
+                accountId,
+                panelId,
+                itemId,
+                filedAt,
+                at,
+                panelId,
+                accountId,
+                itemId,
+                accountId,
+                panelId,
+                itemId,
+              ],
+            });
+
+            for (const association of demoAssociations(item, dashboard)) {
+              associationsSoFar += 1;
+              const associationId = demoId(DEMO_ASSOCIATION, associationsSoFar);
+              statements.push({
+                sql: `INSERT INTO associations (id, tenant_id, item_id, kind, label, created_at)
+                        SELECT ?, ?, ?, ?, ?, ?
+                        WHERE EXISTS (SELECT 1 FROM items WHERE id = ? AND tenant_id = ?)
+                          AND NOT EXISTS (SELECT 1 FROM associations WHERE id = ?)`,
+                params: [
+                  associationId,
+                  accountId,
+                  itemId,
+                  association.kind,
+                  association.label,
+                  at,
+                  itemId,
+                  accountId,
+                  associationId,
+                ],
+              });
+            }
+          });
+        });
+      });
+    }
+  });
+
+  return { name, statements };
 }
