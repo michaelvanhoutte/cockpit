@@ -1195,5 +1195,31 @@ describe('Layouts', () => {
         { height: null, cells: [{ panelId: falcon, span: 6 }] },
       ]);
     });
+
+    /**
+     * A case at this scale used to prove the write half of "still reads the
+     * workspace when it holds more layouts than a statement can name"
+     * (above): that dropping the emptied rows across a hundred and twenty
+     * layouts works at that scale too, not only at the small scale the cases
+     * above already prove it at.
+     *
+     * **Removed, not quarantined** ("Delete a user, and the account they
+     * owned with them", issue 234): 240 real round trips against the workers
+     * pool cost ~95s on a clean run, and under heavier CI contention ran past
+     * its own 120s timeout and failed outright - passing and failing
+     * intermittently with no code change, which is testing-strategy.md's own
+     * "Flakiness policy" definition of a suite bug that normally asks for
+     * quarantine before a decision to delete. Skipped here on purpose: the
+     * owner made the call directly rather than deferring it, the same way
+     * "Delete the two summary-job tests that fail at random" (pull request
+     * 365) did for two other cases the same week.
+     *
+     * **The accepted gap**: `delete_panel`'s cleanup (`command-service.ts`)
+     * is a join - `exists`/`notExists` subqueries rather than an `IN` list of
+     * ids, chosen specifically to avoid the statement-size ceiling this
+     * scale was proving against. Nothing now catches a regression back to a
+     * bound `IN` list, or any other scale-dependent behaviour in that join,
+     * past a hundred layouts on one dashboard.
+     */
   });
 });
