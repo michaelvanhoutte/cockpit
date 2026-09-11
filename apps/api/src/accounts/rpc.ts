@@ -141,9 +141,11 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   resetGuest(): Awaitable<Answer<null>>;
   /**
-   * How many live workspaces the store holds, for the question asked before
-   * its owner is deleted ("Delete a user, and the account they owned with
-   * them", issue 234).
+   * How many live workspaces the store holds, and whether it holds anything at
+   * all, for the question asked before its owner is deleted ("Delete a user,
+   * and the account they owned with them", issue 234). Both, because a
+   * deleted workspace keeps what was in it - so none left live is not the
+   * same as nothing held.
    *
    * **Counted as it stands, like the export**: an admin looking at somebody's
    * row must not be what creates or migrates their account. One nobody ever
