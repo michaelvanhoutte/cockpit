@@ -97,8 +97,14 @@ export function LogonPage() {
  * sentence** ("Take somebody's access away without taking their work", issue
  * 233). It tells anyone trying the address that this Cockpit holds it, which is
  * a disclosure taken knowingly: the person it actually happens to is a
- * colleague who would otherwise be told, wrongly, that they have no account
- * here and sent looking for a sign-in problem that is not theirs.
+ * colleague who would otherwise be told, wrongly, that their Google account
+ * cannot sign in here and sent looking for a sign-in problem that is not theirs.
+ *
+ * **The unknown-account sentence no longer suggests asking to be added**:
+ * anybody the register has never seen gets an account of their own ("Sign in
+ * with any Google account, so a recruiter doesn't need to be added first",
+ * issue 343), so what is left behind it is an address another Google account
+ * already holds here, which no admin adds a way past.
  *
  * Read straight off the address rather than through the router, because the
  * Worker is what put it there: this page is where a redirect lands, not
@@ -111,7 +117,7 @@ function Refusal() {
   return (
     <p role="alert" className="mt-4 text-sm text-ink-soft">
       {refused === 'unknown-account'
-        ? 'That Google account is not one this Cockpit knows. Try another, or ask for one to be added.'
+        ? 'That Google account cannot sign in to this Cockpit. Try again, or try another.'
         : refused === 'access-removed'
           ? 'Your access to this Cockpit was removed. Everything you had is still here; ask an admin to give it back.'
           : 'That did not work. Try signing in again.'}

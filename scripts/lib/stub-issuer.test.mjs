@@ -31,7 +31,7 @@ before(async () => {
 after(() => issuer.close());
 
 /** Walks up to the point where a code has been issued, as a browser does. */
-async function codeFor(email, { verifier = 'a-verifier-of-some-length' } = {}) {
+async function codeFor(email, { verifier = 'a-verifier-of-some-length', scope, name } = {}) {
   const ask = new URLSearchParams({
     client_id: 'cockpit-test',
     redirect_uri: REDIRECT,
@@ -40,6 +40,8 @@ async function codeFor(email, { verifier = 'a-verifier-of-some-length' } = {}) {
     code_challenge: createHash('sha256').update(verifier).digest('base64url'),
     code_challenge_method: 'S256',
     as: email,
+    ...(scope ? { scope } : {}),
+    ...(name ? { name } : {}),
   });
   const picked = await fetch(`${issuer.origin}/authorize/pick?${ask}`, { redirect: 'manual' });
   return new URL(picked.headers.get('location')).searchParams.get('code');
@@ -102,6 +104,22 @@ describe('the stub issuer signs people in the way Google does', () => {
     assert.equal(subject(first.id_token), subject(again.id_token));
   });
 
+  /**
+   * Google gives a name only for the `profile` scope, so the stub does too: one
+   * handing over a name the application never asked for would let a missing
+   * scope pass here and fail there.
+   */
+  it('gives the name typed for somebody only where their profile was asked for', async () => {
+    const claimsFor = async (scope) => {
+      const code = await codeFor('rita@example.com', { scope, name: 'Rita Recruiter' });
+      const { id_token: token } = await (await spend(code)).json();
+      return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+    };
+
+    assert.equal((await claimsFor('openid email profile')).name, 'Rita Recruiter');
+    assert.equal((await claimsFor('openid email')).name, undefined);
+  });
+
   it('refuses a code spent with the wrong verifier', async () => {
     const spent = await spend(await codeFor('michael@example.com'), { verifier: 'not-the-one' });
     assert.equal(spent.status, 400);
@@ -146,7 +164,9 @@ describe('the stub issuer signs people in the way Google does', () => {
     // all, which is the half escaping alone would not give.
     assert.deepEqual(
       [...page.matchAll(/<input[^>]*name="([^"]*)"/g)].map((match) => match[1]).sort(),
-      ['as', 'code_challenge', 'nonce', 'redirect_uri', 'state'],
+      // `as` and `name` are the page's own boxes for anybody the seed does not
+      // hold; the rest are the flow's, carried through.
+      ['as', 'code_challenge', 'name', 'nonce', 'redirect_uri', 'state'],
     );
   });
 });

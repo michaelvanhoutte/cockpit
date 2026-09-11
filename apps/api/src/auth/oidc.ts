@@ -20,20 +20,17 @@ import { jwtVerify, type JWTVerifyGetKey } from 'jose';
  */
 
 /**
- * Everything Cockpit asks Google for, which is as little as a sign-in can ask.
- * `openid` is what makes this a sign-in rather than an API grant, and `email`
- * is what the register is keyed on.
- *
- * **`profile` is deliberately not asked for**, though the issue this was built
- * from named it: the name shown in the app is the register's, chosen when a
- * person is added, and asking Google for one it would never read is collecting
- * somebody's personal data for nothing.
+ * Everything Cockpit asks Google for. `openid` is what makes this a sign-in
+ * rather than an API grant, `email` is what the register is keyed on, and
+ * `profile` is where the name comes from for somebody who signs in without
+ * having been added first ("Sign in with any Google account, so a recruiter
+ * doesn't need to be added first", issue 343) - nobody typed one in for them.
  *
  * Nothing here is a sensitive scope, which is what keeps a verification review
- * from standing between this and a working sign-in. Anything beyond these two
+ * from standing between this and a working sign-in. Anything beyond these three
  * would want that sentence re-checked.
  */
-export const SCOPES = 'openid email';
+export const SCOPES = 'openid email profile';
 
 /** Where an issuer answers, as its own discovery document declares. */
 export interface IssuerEndpoints {
@@ -59,13 +56,18 @@ export interface Attempt {
 }
 
 /**
- * Who the issuer says this is - the two things the register needs and nothing
- * else, since nothing else was asked for.
+ * Who the issuer says this is - what the register needs and nothing else.
  */
 export interface Identity {
   /** Google's own name for the person, which never changes and is never reissued. */
   readonly subject: string;
   readonly email: string;
+  /**
+   * What they are called at Google, where it said. Read only when the register
+   * has never seen them and has to call them something; anybody it already
+   * holds keeps the name they were given there.
+   */
+  readonly name?: string;
 }
 
 /**
@@ -196,13 +198,19 @@ export async function identityFrom(
 
   // **An unverified address is refused rather than trusted.** Anybody can put
   // any address on an account they own; `email_verified` is Google saying it
-  // checked, and without it the register's allowlist would be a list of
-  // addresses anyone could claim.
+  // checked, and without it an address an admin added would be one anyone
+  // could claim - and signing in as it would open that person's account.
   if (claims.email_verified !== true) {
     return { identified: false, refusal: 'the address is not verified' };
   }
 
-  return { identified: true, identity: { subject, email: normaliseAddress(email) } };
+  // A name is somebody's to leave out, so its absence is not a refusal: the
+  // register falls back to the address (accounts/new-user.ts, `newcomerNamed`).
+  const name = typeof claims.name === 'string' ? claims.name.trim() : '';
+  return {
+    identified: true,
+    identity: { subject, email: normaliseAddress(email), ...(name ? { name } : {}) },
+  };
 }
 
 /**

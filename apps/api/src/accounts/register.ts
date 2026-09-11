@@ -3,7 +3,13 @@ import { ADMIN, losingAdminIsRefused, type RegisteredUser } from '@cockpit/share
 import { createDb } from '../db/client.js';
 import { tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
-import { foldAddress, idSearchPrefix, idsForNewUser, whatIsWrongWith } from './new-user.js';
+import {
+  foldAddress,
+  idSearchPrefix,
+  idsForNewUser,
+  newcomerNamed,
+  whatIsWrongWith,
+} from './new-user.js';
 import { whatStopsChanging, type UserChange } from './user-changes.js';
 
 /**
@@ -210,6 +216,60 @@ export async function addUser(
   }
 
   return { added: true, user, accountId: ids.accountId };
+}
+
+/**
+ * Somebody the register has never seen, given a user and the account they own
+ * the moment they first sign in ("Sign in with any Google account, so a
+ * recruiter doesn't need to be added first", issue 343) - or `null` where
+ * somebody else wrote first and the register has to be read again.
+ *
+ * **The two rows `addUser` writes, in one write, with the Google identity
+ * recorded on the way in** rather than at a later sign-in. Nobody typed this
+ * address in, so the identity is the only thing saying whose row it is, and a
+ * row written without it could be claimed by the next Google account arriving
+ * with the same address.
+ *
+ * **Ordinary, like everybody added**: nothing a stranger does makes them an
+ * admin.
+ *
+ * `null` is a uniqueness refusal and nothing else - the address, the identity
+ * or the ids taken between the caller's read and this write, which is two
+ * first sign-ins racing. Everything else is thrown, for the reason `addUser`
+ * throws it.
+ */
+export async function admitNewcomer(
+  env: Env,
+  identity: { subject: string; email: string; name?: string },
+  now: Date,
+): Promise<{ user: { id: string; name: string }; accountId: string } | null> {
+  const { name, idsFrom } = newcomerNamed(identity.email, identity.name);
+  // The address as a second source, for a name that has used up every suffix:
+  // a name is the stranger's own to choose, so a thousand Google accounts
+  // called one thing must not be a way to stop the next person of that name
+  // signing in at all.
+  const ids = (await freeIds(env, idsFrom)) ?? (await freeIds(env, identity.email));
+  // Said without the address: the register logs ids, never who they belong to.
+  if (!ids) throw new Error('no ids are free for somebody signing in for the first time');
+  const at = now.toISOString();
+
+  try {
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)').bind(
+        ids.accountId,
+        name,
+        at,
+      ),
+      env.DB.prepare(
+        'INSERT INTO users (id, name, account_id, role, email, google_subject, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).bind(ids.userId, name, ids.accountId, 'user', identity.email, identity.subject, at),
+    ]);
+  } catch (error) {
+    if (!isUniquenessRefusal(error)) throw error;
+    return null;
+  }
+
+  return { user: { id: ids.userId, name }, accountId: ids.accountId };
 }
 
 /**
