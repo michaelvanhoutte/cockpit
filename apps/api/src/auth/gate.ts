@@ -166,15 +166,6 @@ export function isOutsideTheGate(path: string): boolean {
 }
 
 /**
- * Refuses anything that did not arrive with a current sign-in, and extends the
- * ones that did.
- *
- * The extension is a write on every request, which is a deliberate trade: this
- * is one small `UPDATE` against the register, and the alternative - only
- * renewing once a sign-in is past some fraction of its life - is a second rule
- * with its own branch to get wrong, for a saving nothing here is short of.
- */
-/**
  * The session cookie this request arrived holding, or `undefined` for one
  * that holds none - read the one way, so a request asked twice (the gate, and
  * anything outside it that still cares whether a browser is already signed
@@ -184,6 +175,15 @@ export function heldSessionId(c: Context): string | undefined {
   return getCookie(c, sessionCookieName(c.req.url));
 }
 
+/**
+ * Refuses anything that did not arrive with a current sign-in, and extends the
+ * ones that did.
+ *
+ * The extension is a write on every request, which is a deliberate trade: this
+ * is one small `UPDATE` against the register, and the alternative - only
+ * renewing once a sign-in is past some fraction of its life - is a second rule
+ * with its own branch to get wrong, for a saving nothing here is short of.
+ */
 export function gate(): MiddlewareHandler<GatedEnv> {
   return async (c, next) => {
     // `c.req.path` rather than the raw URL's pathname, so this gate and the
