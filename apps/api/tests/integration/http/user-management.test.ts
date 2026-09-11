@@ -682,6 +682,44 @@ describe('User management', () => {
     });
   });
 
+  describe('deleting a user takes the rows their account kept from before it had a store', () => {
+    /**
+     * An account older than the stores can still have rows in the four tables
+     * D1 kept for rollback (architecture, "D1 still holds the four tables an
+     * account's data used to live in"), and three of them hold `tenants` with a
+     * restricting foreign key - so removing the register row was refused after
+     * the store had already been destroyed, on every attempt. Written straight
+     * into D1, because nothing but history makes these rows now.
+     */
+    it('deletes somebody whose account still has them, and leaves none behind', async () => {
+      const at = '2026-08-01T00:00:00.000Z';
+      await env.DB.batch([
+        env.DB.prepare(
+          'INSERT INTO workspaces (id, tenant_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)',
+        ).bind('old-ws', OTHER_ACCOUNT_NAME, 'Old', '#3a72c8', at),
+        env.DB.prepare(
+          'INSERT INTO items (id, tenant_id, workspace_id, source, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        ).bind('old-item', OTHER_ACCOUNT_NAME, 'old-ws', 'internal', 'Old item', 'to_process', at, at),
+        env.DB.prepare(
+          'INSERT INTO associations (id, tenant_id, item_id, kind, label, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        ).bind('old-association', OTHER_ACCOUNT_NAME, 'old-item', 'person', 'Bart', at),
+        env.DB.prepare(
+          'INSERT INTO commands (command_id, tenant_id, workspace_id, name, payload, issued_at, received_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ).bind('old-command', OTHER_ACCOUNT_NAME, 'old-ws', 'capture_item', '{}', at, at),
+      ]);
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(200);
+
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
+      for (const table of ['workspaces', 'items', 'associations', 'commands']) {
+        const { results } = await env.DB.prepare(`SELECT tenant_id FROM ${table} WHERE tenant_id = ?`)
+          .bind(OTHER_ACCOUNT_NAME)
+          .all();
+        expect(results, table).toHaveLength(0);
+      }
+    });
+  });
+
   describe('a name given back carries nothing of the person who had it', () => {
     /** The reason this whole capability exists, and so the one case it has. */
     it('opens somebody added under a deleted user’s name on what every account starts with, and nothing else', async () => {

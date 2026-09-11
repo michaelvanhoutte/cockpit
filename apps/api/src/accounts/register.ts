@@ -452,12 +452,23 @@ export async function endSignInsOf(env: Env, userId: string): Promise<void> {
  * **Their sign-ins are deleted again**, for one that landed while their account
  * was being destroyed: `sessions` points at `users`, so the person could not be
  * removed while it was there.
+ *
+ * **So are the account's rows in D1's four old tables**, children first. An
+ * account older than the stores can still have some (architecture, "D1 still
+ * holds the four tables an account's data used to live in"), and three of those
+ * tables hold `tenants` with a restricting foreign key - so without this the
+ * register row is refused after the store is already gone, on every retry. The
+ * release that drops those tables takes these four statements with it.
  */
 export async function removeFromRegister(
   env: Env,
   { userId, accountId }: { userId: string; accountId: string },
 ): Promise<void> {
   await env.DB.batch([
+    env.DB.prepare('DELETE FROM associations WHERE tenant_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM items WHERE tenant_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM commands WHERE tenant_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM workspaces WHERE tenant_id = ?').bind(accountId),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
     env.DB.prepare('DELETE FROM tenants WHERE id = ?').bind(accountId),
