@@ -2,7 +2,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { Role } from '@cockpit/shared';
 import { hasNoAccess } from '../accounts/register.js';
 import { createDb } from '../db/client.js';
-import { sessions, users } from '../db/schema.js';
+import { sessions, tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
 import type { Identity } from './oidc.js';
 import { endsFrom, type StoredSession } from './session.js';
@@ -124,9 +124,22 @@ export async function signInWithGoogle(
  * address learns this Cockpit holds it - a disclosure taken knowingly, and the
  * smaller harm of the two.
  */
-export type SignIn =
-  | { signedIn: true; sessionId: string; expiresAt: string; user: SigningIn }
-  | { signedIn: false; because: 'not known' | 'access removed' };
+export type SignIn = Visit | { signedIn: false; because: 'not known' | 'access removed' };
+
+/**
+ * The half of that which happened: what the browser is given to carry, and
+ * whose it is.
+ *
+ * Named separately so a path that cannot be refused says so in its type -
+ * signing in as the guest asks nobody's permission, and returning the union
+ * there would make every caller narrow past a branch that cannot occur.
+ */
+export type Visit = {
+  signedIn: true;
+  sessionId: string;
+  expiresAt: string;
+  user: SigningIn;
+};
 
 const NOT_KNOWN = { signedIn: false, because: 'not known' } as const;
 const TURNED_AWAY = { signedIn: false, because: 'access removed' } as const;
@@ -145,10 +158,66 @@ const TURNED_AWAY = { signedIn: false, because: 'access removed' } as const;
 type SigningIn = { id: string; name: string };
 
 /**
+ * The one guest account, which everybody who continues as a guest shares
+ * ("Sign in as a guest, without a password", issue 354).
+ *
+ * **Fixed ids rather than a column to look it up by**, the convention
+ * `ACCOUNT_WIDE` and `DEFAULT_SCREEN_SIZE_NAME` already follow: there is
+ * exactly one of these, so there is nothing to search for and no schema to
+ * change. Concurrent guests deliberately land in the same account and see each
+ * other's work, which the daily reset that follows this issue is what makes
+ * safe.
+ */
+export const GUEST_ACCOUNT_NAME = 'tenant-guest';
+export const GUEST_USER_ID = 'user-guest';
+const GUEST_NAME = 'Guest';
+
+/**
+ * Signs whoever asked into that account, making it the first time anybody does.
+ *
+ * **Nothing decides whether they are allowed**, unlike every other way in: that
+ * is the whole feature, and what gates it is the environment offering the route
+ * at all (`env.GUEST_SIGN_IN`, read where the route is). So this is not the
+ * register's allowlist being widened - the guest is a row the product puts
+ * there, not a person somebody admitted.
+ *
+ * Both writes ignore a conflict on the id, which is what makes two first
+ * presses at the same instant come to one account: whichever write lost wrote
+ * nothing, and both sign in as the id they already hold. The tenant goes first
+ * because the user's account is a real foreign key to it.
+ *
+ * `role` is `user`, never `admin`, and no address or Google account is
+ * recorded: a guest never goes through that exchange, so there is no identity
+ * to write - and SQLite counts NULLs as distinct, so the unique indexes on both
+ * columns have nothing to collide with.
+ */
+export async function signInAsGuest(env: Env, now: Date): Promise<Visit> {
+  const db = createDb(env.DB);
+  const createdAt = now.toISOString();
+
+  await db
+    .insert(tenants)
+    .values({ id: GUEST_ACCOUNT_NAME, name: GUEST_NAME, createdAt })
+    .onConflictDoNothing({ target: tenants.id });
+  await db
+    .insert(users)
+    .values({
+      id: GUEST_USER_ID,
+      name: GUEST_NAME,
+      accountId: GUEST_ACCOUNT_NAME,
+      role: 'user',
+      createdAt,
+    })
+    .onConflictDoNothing({ target: users.id });
+
+  return startVisit(env, { id: GUEST_USER_ID, name: GUEST_NAME }, now);
+}
+
+/**
  * A sign-in of its own, always: whatever the browser arrived holding is neither
  * read nor reused, so there is nothing to fix a session onto.
  */
-async function startVisit(env: Env, user: SigningIn, now: Date): Promise<SignIn> {
+async function startVisit(env: Env, user: SigningIn, now: Date): Promise<Visit> {
   const sessionId = newSessionId();
   const expiresAt = endsFrom(now);
   await createDb(env.DB)

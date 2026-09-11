@@ -61,7 +61,7 @@ import {
 } from '../auth/gate.js';
 import { endpointsFor, exchangeCode, issuerFor, keysOf } from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
-import { endSession, signInWithGoogle } from '../auth/register.js';
+import { endSession, signInAsGuest, signInWithGoogle } from '../auth/register.js';
 import { getConnector } from '../connectors/registry.js';
 
 type AppEnv = GatedEnv;
@@ -987,6 +987,34 @@ const routes = app
       return c.redirect('/', 302);
     } catch (error) {
       return refuse(c, 'the sign-in could not be finished', error);
+    }
+  })
+  /**
+   * The way in that asks nobody anything: one press, into the one guest account
+   * everybody shares ("Sign in as a guest, without a password", issue 354).
+   *
+   * A navigation like the two above rather than a request, for the same reason:
+   * it ends somewhere else, and the browser already knows how to follow a link.
+   *
+   * **Offered only where the environment says so**, which is production
+   * (wrangler.jsonc). The control is in one built SPA that both deployments
+   * serve, so this is the only place the two can be told apart - and an
+   * environment that does not offer it answers a direct request exactly as it
+   * answers the control being pressed.
+   *
+   * Refused in the same words as everything else that will not be completed:
+   * there is nothing a visitor can do about a way in this deployment does not
+   * have, so the reason goes to the log and the page says the sign-in failed.
+   */
+  .get('/v1/sign-in/guest', async (c) => {
+    if (!c.env.GUEST_SIGN_IN) return refuse(c, 'this environment offers no guest sign-in');
+
+    try {
+      const signedIn = await signInAsGuest(c.env, new Date());
+      rememberSessionCookie(c, signedIn.sessionId);
+      return c.redirect('/', 302);
+    } catch (error) {
+      return refuse(c, 'the guest sign-in could not be finished', error);
     }
   })
   // --- push invalidation: an SSE doorbell, not a data channel ----------------

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, inject, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
+import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../../../src/auth/register.js';
 import {
   OTHER_USER_ID,
   TASK_TYPE_ID,
@@ -9,6 +10,7 @@ import {
   seedRegister,
   signInAs,
   startFromEmpty,
+  taskTypeIn,
 } from '../seed.js';
 import {
   issuerIsForgotten,
@@ -168,6 +170,139 @@ describe('Sign-in', () => {
 
       expect(back.headers.get('location')).toBe('/signin?refused=unknown-account');
       expect(sessionIn(back)).toBeUndefined();
+    });
+  });
+
+  /**
+   * The other way in, which asks nobody anything ("Sign in as a guest, without
+   * a password", issue 354). Every rule here is about what the register ends up
+   * holding - one account however many people ask for it, and none at all where
+   * the deployment does not offer one - so it is asked of a real register,
+   * through the route a press actually makes.
+   */
+  describe('continuing as a guest puts everybody in one shared account', () => {
+    /** Pressing "Continue as guest", which is a navigation like the other two. */
+    function continueAsGuest(): Promise<Response> {
+      return SELF.fetch('http://cockpit.test/v1/sign-in/guest', { redirect: 'manual' });
+    }
+
+    /** How many accounts and how many people the register holds. */
+    async function registerHolds(): Promise<{ accounts: number; people: number }> {
+      const counted = await env.DB.prepare(
+        'SELECT (SELECT count(*) FROM tenants) AS accounts, (SELECT count(*) FROM users) AS people',
+      ).first<{ accounts: number; people: number }>();
+      return counted!;
+    }
+
+    /** Who a browser holding this cookie is, as the register answers it. */
+    async function whoTheyAre(cookie: string): Promise<{ id: string; name: string }> {
+      const res = await SELF.fetch('http://cockpit.test/v1/me', carrying(cookie));
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { user: { id: string; name: string } }).user;
+    }
+
+    it('makes the guest account the first time somebody asks for it, and signs them in', async () => {
+      // The seed's two people in their two accounts, and no guest anywhere:
+      // what every case here starts from, so a third of each is the guest's.
+      expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
+
+      const back = await continueAsGuest();
+
+      expect(back.headers.get('location')).toBe('/');
+      expect(await whoTheyAre(sessionIn(back)!)).toMatchObject({ id: GUEST_USER_ID });
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+    });
+
+    it('signs a second guest into the account that is already there', async () => {
+      const first = await continueAsGuest();
+
+      const second = await continueAsGuest();
+
+      expect(second.headers.get('location')).toBe('/');
+      // A visit of their own, into the same account - which is the pair of
+      // claims: a shared account is not a shared sign-in.
+      expect(sessionIn(second)).not.toBe(sessionIn(first));
+      expect(await whoTheyAre(sessionIn(second)!)).toEqual(await whoTheyAre(sessionIn(first)!));
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+    });
+
+    /**
+     * The one race this feature has: two strangers pressing it in the same
+     * instant, before there is anything to find. Only the register decides
+     * this - one write wins and the other is ignored - which is why it is asked
+     * here and not at L1.
+     */
+    it('makes one account when two people ask at the same moment', async () => {
+      const [first, second] = await Promise.all([continueAsGuest(), continueAsGuest()]);
+
+      expect([first.headers.get('location'), second.headers.get('location')]).toEqual(['/', '/']);
+      expect(await whoTheyAre(sessionIn(first)!)).toMatchObject({ id: GUEST_USER_ID });
+      expect(await whoTheyAre(sessionIn(second)!)).toMatchObject({ id: GUEST_USER_ID });
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+    });
+
+    /**
+     * The accepted consequence, asserted rather than assumed: guests are not
+     * kept apart, and what one files is there for the next one. The account
+     * resetting daily is what makes that safe, and is its own piece of work.
+     */
+    it('shows one guest what another guest filed', async () => {
+      const filed = await continueAsGuest();
+      const reading = await continueAsGuest();
+      const itemId = '018f0000-0000-7000-8000-00000000035a';
+
+      const captured = await SELF.fetch(
+        'http://cockpit.test/v1/commands/capture_item',
+        carrying(sessionIn(filed)!, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: '018f0000-0000-7000-8000-00000000035b',
+            issuedAt: AT,
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            message: 'Left behind by the guest before you',
+            typeId: taskTypeIn(GUEST_ACCOUNT_NAME),
+          }),
+        }),
+      );
+      expect({ status: captured.status, said: await captured.text() }).toMatchObject({
+        status: 200,
+      });
+
+      const seen = await SELF.fetch(
+        `http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`,
+        carrying(sessionIn(reading)!),
+      );
+      expect(seen.status).toBe(200);
+      expect(((await seen.json()) as { items: { id: string }[] }).items.map((i) => i.id)).toContain(
+        itemId,
+      );
+    });
+
+    /**
+     * Staging, and anybody who found the address: the same answer to both,
+     * because the control is in one built SPA that every deployment serves and
+     * the Worker is the only thing that can tell them apart.
+     *
+     * Taking the variable off `env` rather than standing a second stack up -
+     * absence is the whole mechanism, and it is one line here.
+     */
+    describe('where the deployment offers no guest sign-in', () => {
+      beforeEach(() => {
+        delete env.GUEST_SIGN_IN;
+      });
+      afterEach(() => {
+        env.GUEST_SIGN_IN = 'true';
+      });
+
+      it('refuses, and makes no account to sign anybody into', async () => {
+        const back = await continueAsGuest();
+
+        expect(back.headers.get('location')).toBe('/signin?refused=failed');
+        expect(sessionIn(back)).toBeUndefined();
+        expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
+      });
     });
   });
 

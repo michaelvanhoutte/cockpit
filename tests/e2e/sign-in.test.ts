@@ -88,6 +88,34 @@ test.describe('Sign-in', () => {
     });
   });
 
+  /**
+   * The capability's one walk ("Sign in as a guest, without a password", issue
+   * 354): a stranger with no account of their own presses once and is working.
+   * What the register ends up holding - one account however many press it - is
+   * settled far more cheaply at
+   * apps/api/tests/integration/http/sign-in.test.ts and is not re-proved here.
+   */
+  test.describe('you can continue as a guest, with no account of your own', () => {
+    test('goes straight from one press into a workspace', async ({ page, isMobile }) => {
+      await page.goto('/signin');
+
+      await press(page.getByRole('link', { name: 'Continue as guest' }), isMobile);
+
+      // Either landing, waited for as one: the guest account may never have
+      // been opened on before, and the question that asks is the first thing on
+      // screen. (The same wait `signInWithoutSkipping` makes, and for the same
+      // reason - asserting against a page mid-redirect fails saying it could
+      // not find a heading rather than that it never arrived.)
+      const skip = page.getByRole('button', { name: 'Skip' });
+      await skip.or(dashboardBar(page)).first().waitFor({ state: 'visible' });
+      if (await skip.isVisible()) await press(skip, isMobile);
+
+      await expect(dashboardBar(page)).toBeVisible();
+      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await expect(page.getByText('Signed in as Guest')).toBeVisible();
+    });
+  });
+
   test.describe('signing out ends the visit and leaves nothing of it behind', () => {
     test('puts you back on the logon page, holding none of your work', async ({
       page,

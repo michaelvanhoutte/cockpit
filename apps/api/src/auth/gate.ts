@@ -98,6 +98,11 @@ export const RETIRED_PATHS: readonly string[] = ['/v1/users', '/v1/sign-in'];
  * - `/v1/sign-in/google/callback` is where Google sends you back, carrying
  *   nothing this application will believe until it has checked it
  *   (src/auth/oidc.ts).
+ * - `/v1/sign-in/guest` is the other way to stop being nobody, where the
+ *   environment offers one ("Sign in as a guest, without a password", issue
+ *   354). Whether it does is the route's own question and not this gate's: a
+ *   request that never gets past here could not be refused for the right
+ *   reason.
  *
  * **The list of people to choose from is gone from here**, along with the
  * endpoint behind it: once it is no longer the way in, publishing who has an
@@ -111,6 +116,7 @@ export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
   '/health',
   '/v1/sign-in/google',
   '/v1/sign-in/google/callback',
+  '/v1/sign-in/guest',
   ...RETIRED_PATHS,
 ];
 
