@@ -101,10 +101,18 @@
   // character-for-character one of the redirect URIs registered with the Google
   // client.
   //
-  // `vars` is not inheritable, so staging repeats both below.
+  // **`GUEST_SIGN_IN` is set here and deliberately absent from staging**, which
+  // is what refuses the guest route there ("Sign in as a guest, without a
+  // password", issue 354): the control is in one built SPA served by both
+  // environments, so the server is the only thing that can tell them apart.
+  // `OIDC_ISSUER` above cannot carry this - it is unset on *both*, being about
+  // Google versus a stub issuer rather than about which deployment this is.
+  //
+  // `vars` is not inheritable, so staging repeats the other two below.
   "vars": {
     "GOOGLE_CLIENT_ID": "1049607304950-0j1ssp9dn4cf35vjlfndtb45jgqof62a.apps.googleusercontent.com",
-    "APP_ORIGIN": "https://cockpit.vanhoutte-michael.workers.dev"
+    "APP_ORIGIN": "https://cockpit.vanhoutte-michael.workers.dev",
+    "GUEST_SIGN_IN": "true"
   },
 
   // Deferred work, consumed by this same Worker (architecture, "Background

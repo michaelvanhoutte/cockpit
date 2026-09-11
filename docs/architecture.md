@@ -430,6 +430,15 @@ Cockpit has two auth problems and only one was ever open. **Connector OAuth** is
 
 **The register is the allowlist.** Proving who you are at Google is not being entitled to an account here: an address the register holds gets in, anyone else is refused with nothing written on their behalf. Somebody is looked for by their Google subject first and by their address only if that finds nobody, so a changed address does not lock a person out and a *reassigned* one is not a way into the previous owner's account.
 
+**Production offers one way in that is not a Google account at all**: *Continue
+as guest* ("Sign in as a guest, without a password", issue 354), which signs the
+visitor into one fixed, shared guest account created on first press and issues an
+ordinary session. It is gated by `GUEST_SIGN_IN`, set on production's environment
+block alone, because one built SPA serves both deployments and only the Worker
+can tell them apart. Guests are not kept apart from each other and see each
+other's work — accepted, and the daily reset that makes it safe is the dependent
+issue that follows.
+
 **Only `openid email` is asked for.** The name shown in the app is the register's, so asking Google for a profile it would never read would be collecting somebody's data for nothing; and neither scope is sensitive, which is what keeps a verification review out of the way of a working sign-in.
 
 **Local development and the browser suite sign in against a stub issuer we run** (`scripts/lib/stub-issuer.mjs`), pointed at by `OIDC_ISSUER`, which no deployed environment sets. That is what keeps there being one sign-in path: the alternative was the name picker kept alive behind a flag, which is a bypass compiled into the deployed application and defended by a variable being unset. The application runs the same code either way — real redirect, real code exchange, real RS256 signature check, real state, nonce and PKCE — and no `localhost` redirect URI is ever registered with Google, which matters because every worktree has ports of its own (`scripts/lib/ports.mjs`) and a web OAuth client demands exact redirect URIs.

@@ -435,7 +435,15 @@ cannot sign anybody in to the other.
 |---|---|---|
 | Variable | `GOOGLE_CLIENT_ID` | `apps/api/wrangler.jsonc`, per environment — not a secret |
 | Variable | `APP_ORIGIN` | same; must match a registered redirect URI exactly |
+| Variable | `GUEST_SIGN_IN` | same, production's block only — see below |
 | Secret | `GOOGLE_CLIENT_SECRET` | `wrangler secret put`, per environment |
+
+**`GUEST_SIGN_IN` is set on production and deliberately absent from staging**
+("Sign in as a guest, without a password", issue 354), which is what makes
+staging refuse the guest route: one built SPA is served by both environments, so
+the control is on the logon page either way and only the Worker can tell them
+apart. Wrangler warns on a staging deploy that a top-level var is missing from
+`env.staging.vars`; here that is the configuration, not an oversight.
 
 **`OIDC_ISSUER` is deliberately unset on both**, which means Google. Only local
 development and the browser suite set it, at the stub issuer they run

@@ -53,6 +53,7 @@ import {
   forgetAttempt,
   forgetSessionCookie,
   gate,
+  heldSessionId,
   rememberAttempt,
   rememberSessionCookie,
   stillSignedIn,
@@ -61,7 +62,7 @@ import {
 } from '../auth/gate.js';
 import { endpointsFor, exchangeCode, issuerFor, keysOf } from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
-import { endSession, signInWithGoogle } from '../auth/register.js';
+import { endSession, signInAsGuest, signInWithGoogle } from '../auth/register.js';
 import { getConnector } from '../connectors/registry.js';
 
 type AppEnv = GatedEnv;
@@ -987,6 +988,48 @@ const routes = app
       return c.redirect('/', 302);
     } catch (error) {
       return refuse(c, 'the sign-in could not be finished', error);
+    }
+  })
+  /**
+   * The way in that asks nobody anything: one press, into the one guest account
+   * everybody shares ("Sign in as a guest, without a password", issue 354).
+   *
+   * A navigation like the two above rather than a request, for the same reason:
+   * it ends somewhere else, and the browser already knows how to follow a link.
+   * That is also its exposure - a plain `GET` a cross-site page can send
+   * somebody to without their doing anything - so a browser already holding a
+   * live sign-in is sent straight to `/` untouched rather than having its
+   * cookie replaced: the one thing this must never do is quietly move a real
+   * person into the account every stranger reads. **Asked first, before
+   * anything about the environment**, so a signed-in visitor on a deployment
+   * that does not offer guest sign-in is sent home the same way rather than
+   * refused and left wondering whether they are still signed in at all.
+   *
+   * **Offered only where the environment says so**, which is production
+   * (wrangler.jsonc). The control is in one built SPA that both deployments
+   * serve, so this is the only place the two can be told apart - and an
+   * environment that does not offer it answers a direct request exactly as it
+   * answers the control being pressed.
+   *
+   * Refused in the same words as everything else that will not be completed:
+   * there is nothing a visitor can do about a way in this deployment does not
+   * have, so the reason goes to the log and the page says the sign-in failed.
+   * That covers a failure reading the existing cookie too, which is why the
+   * check above is inside the same `try` rather than ahead of it.
+   */
+  .get('/v1/sign-in/guest', async (c) => {
+    try {
+      const held = heldSessionId(c);
+      if (held && (await stillSignedIn(c.env, held))) return c.redirect('/', 302);
+
+      if (c.env.GUEST_SIGN_IN !== 'true') return refuse(c, 'this environment offers no guest sign-in');
+
+      const signedIn = await signInAsGuest(c.env, new Date());
+      if (!signedIn.signedIn) return refuse(c, 'the guest account is not available');
+      rememberSessionCookie(c, signedIn.sessionId);
+      return c.redirect('/', 302);
+    } catch (error) {
+      return refuse(c, 'the guest sign-in could not be finished', error);
     }
   })
   // --- push invalidation: an SSE doorbell, not a data channel ----------------

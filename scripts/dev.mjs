@@ -156,6 +156,13 @@ if (running.api) {
         'GOOGLE_CLIENT_ID:cockpit-local',
         '--var',
         'GOOGLE_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+        // Production sets this and staging deliberately does not, which is what
+        // decides where "Continue as guest" works ("Sign in as a guest, without
+        // a password", issue 354). Set here so the control can be driven
+        // locally at all; staging never comes through this file, so its refusal
+        // is untouched by it.
+        '--var',
+        'GUEST_SIGN_IN:true',
         // Where a sign-in comes back to: the address a person has open, which
         // is Vite's when both halves are running and this Worker's when it is
         // the only half there is (`pnpm dev:api`).

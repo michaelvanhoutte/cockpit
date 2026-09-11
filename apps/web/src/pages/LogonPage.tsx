@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
-import { SIGN_IN_PATH } from '../api/client';
+import { GUEST_SIGN_IN_PATH, SIGN_IN_PATH } from '../api/client';
 import { forgetEverything } from '../session/forget';
 
 /**
- * The logon page: one way in, which is your Google account.
+ * The logon page: your Google account, or - where the deployment offers it -
+ * the shared guest account ("Sign in as a guest, without a password", issue
+ * 354).
  *
  * **It reads nothing.** The list of names it used to show was the one read that
  * answered before anybody had signed in, and it went with the picker ("Sign in
@@ -13,6 +15,11 @@ import { forgetEverything } from '../session/forget';
  * account here buys nothing once it is no longer the way in. So there is no
  * loading state, no failure to recover from, and nothing on this page that
  * belongs to anybody.
+ *
+ * That is also why both controls are drawn everywhere: one build is served by
+ * every deployment, and a page that reads nothing has nothing to ask about the
+ * one it is running on. Pressing the guest control where guest sign-in is not
+ * offered comes back refused, like any other sign-in that will not complete.
  *
  * It paints in the default theme rather than in a workspace's: there is no
  * workspace yet, and there must not be one, because the whole point of this
@@ -58,6 +65,16 @@ export function LogonPage() {
           className="mt-4 flex w-full items-center justify-center rounded-md border border-accent-soft/70 bg-accent-tint px-3 py-2 text-sm font-medium text-accent-deep hover:border-accent hover:bg-accent hover:text-white"
         >
           Continue with Google
+        </a>
+
+        {/* A link for the same reason as the one above, though this journey
+            never leaves Cockpit: it ends in a page rather than in an answer to
+            parse, so there is nothing here to await. */}
+        <a
+          href={GUEST_SIGN_IN_PATH}
+          className="mt-2 flex w-full items-center justify-center rounded-md border border-black/10 px-3 py-2 text-sm font-medium text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+        >
+          Continue as guest
         </a>
 
         <Refusal />

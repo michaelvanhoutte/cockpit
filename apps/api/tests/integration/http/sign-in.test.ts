@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, inject, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
+import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../../../src/auth/register.js';
 import {
   OTHER_USER_ID,
   TASK_TYPE_ID,
@@ -9,6 +10,7 @@ import {
   seedRegister,
   signInAs,
   startFromEmpty,
+  taskTypeIn,
 } from '../seed.js';
 import {
   issuerIsForgotten,
@@ -168,6 +170,262 @@ describe('Sign-in', () => {
 
       expect(back.headers.get('location')).toBe('/signin?refused=unknown-account');
       expect(sessionIn(back)).toBeUndefined();
+    });
+  });
+
+  /**
+   * The other way in, which asks nobody anything ("Sign in as a guest, without
+   * a password", issue 354). Every rule here is about what the register ends up
+   * holding - one account however many people ask for it, and none at all where
+   * the deployment does not offer one - so it is asked of a real register,
+   * through the route a press actually makes.
+   */
+  describe('continuing as a guest puts everybody in one shared account', () => {
+    /** Pressing "Continue as guest", which is a navigation like the other two. */
+    function continueAsGuest(): Promise<Response> {
+      return SELF.fetch('http://cockpit.test/v1/sign-in/guest', { redirect: 'manual' });
+    }
+
+    /** How many accounts and how many people the register holds. */
+    async function registerHolds(): Promise<{ accounts: number; people: number }> {
+      const counted = await env.DB.prepare(
+        'SELECT (SELECT count(*) FROM tenants) AS accounts, (SELECT count(*) FROM users) AS people',
+      ).first<{ accounts: number; people: number }>();
+      return counted!;
+    }
+
+    /** Who a browser holding this cookie is, as the register answers it. */
+    async function whoTheyAre(cookie: string): Promise<{ id: string; name: string }> {
+      const res = await SELF.fetch('http://cockpit.test/v1/me', carrying(cookie));
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { user: { id: string; name: string } }).user;
+    }
+
+    it('makes the guest account the first time somebody asks for it, and signs them in', async () => {
+      // The seed's two people in their two accounts, and no guest anywhere:
+      // what every case here starts from, so a third of each is the guest's.
+      expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
+
+      const back = await continueAsGuest();
+
+      expect(back.headers.get('location')).toBe('/');
+      expect(await whoTheyAre(sessionIn(back)!)).toMatchObject({ id: GUEST_USER_ID });
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+    });
+
+    it('signs a second guest into the account that is already there', async () => {
+      const first = await continueAsGuest();
+
+      const second = await continueAsGuest();
+
+      expect(second.headers.get('location')).toBe('/');
+      // A visit of their own, into the same account - which is the pair of
+      // claims: a shared account is not a shared sign-in.
+      expect(sessionIn(second)).not.toBe(sessionIn(first));
+      expect(await whoTheyAre(sessionIn(second)!)).toEqual(await whoTheyAre(sessionIn(first)!));
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+    });
+
+    /**
+     * The one thing a plain link must never do: a cross-site page can send a
+     * browser here without its owner doing anything, so a live sign-in is left
+     * exactly as it is rather than being replaced with the one every stranger
+     * can read.
+     */
+    it('leaves a visitor who is already signed in exactly where they were', async () => {
+      const signedIn = await signInAsGoogleAccount({ email: 'michael@example.com' });
+      const before = sessionIn(signedIn)!;
+
+      const back = await SELF.fetch(
+        'http://cockpit.test/v1/sign-in/guest',
+        carrying(before, { redirect: 'manual' }),
+      );
+
+      expect(back.headers.get('location')).toBe('/');
+      expect(sessionIn(back)).toBeUndefined();
+      expect(await whoTheyAre(before)).toMatchObject({ id: USER_ID });
+      expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
+    });
+
+    /**
+     * The one race this feature has: two strangers pressing it in the same
+     * instant, before there is anything to find. Only the register decides
+     * this - one write wins and the other is ignored - which is why it is asked
+     * here and not at L1.
+     */
+    it('makes one account when two people ask at the same moment', async () => {
+      const [first, second] = await Promise.all([continueAsGuest(), continueAsGuest()]);
+
+      expect([first.headers.get('location'), second.headers.get('location')]).toEqual(['/', '/']);
+      expect(await whoTheyAre(sessionIn(first)!)).toMatchObject({ id: GUEST_USER_ID });
+      expect(await whoTheyAre(sessionIn(second)!)).toMatchObject({ id: GUEST_USER_ID });
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+    });
+
+    /**
+     * The accepted consequence, asserted rather than assumed: guests are not
+     * kept apart, and what one files is there for the next one. The account
+     * resetting daily is what makes that safe, and is its own piece of work.
+     */
+    it('shows one guest what another guest filed', async () => {
+      const filed = await continueAsGuest();
+      const reading = await continueAsGuest();
+      const itemId = '018f0000-0000-7000-8000-00000000035a';
+
+      const captured = await SELF.fetch(
+        'http://cockpit.test/v1/commands/capture_item',
+        carrying(sessionIn(filed)!, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: '018f0000-0000-7000-8000-00000000035b',
+            issuedAt: AT,
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            message: 'Left behind by the guest before you',
+            typeId: taskTypeIn(GUEST_ACCOUNT_NAME),
+          }),
+        }),
+      );
+      expect({ status: captured.status, said: await captured.text() }).toMatchObject({
+        status: 200,
+      });
+
+      const seen = await SELF.fetch(
+        `http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`,
+        carrying(sessionIn(reading)!),
+      );
+      expect(seen.status).toBe(200);
+      expect(((await seen.json()) as { items: { id: string }[] }).items.map((i) => i.id)).toContain(
+        itemId,
+      );
+    });
+
+    /**
+     * These ids are derived from a name the same way a real person's are
+     * (`accounts/new-user.ts`), so a person added as "Guest" before anybody
+     * ever presses this control would occupy them first: both inserts above
+     * would then conflict and write nothing, and blindly signing in as the id
+     * would hand a stranger that real person's account. The row is checked
+     * rather than trusted on sight - no real person is ever added without an
+     * address, so one is never the guest's.
+     */
+    it('refuses to sign anybody in where the guest id already belongs to somebody real', async () => {
+      await env.DB.batch([
+        env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)').bind(
+          GUEST_ACCOUNT_NAME,
+          'Somebody Real',
+          AT,
+        ),
+        env.DB.prepare(
+          'INSERT INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        ).bind(GUEST_USER_ID, 'Somebody Real', GUEST_ACCOUNT_NAME, 'admin', 'real@example.com', AT),
+      ]);
+
+      const back = await continueAsGuest();
+
+      expect(back.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(back)).toBeUndefined();
+      expect(
+        await env.DB.prepare('SELECT email, role FROM users WHERE id = ?').bind(GUEST_USER_ID).first(),
+      ).toMatchObject({ email: 'real@example.com', role: 'admin' });
+    });
+
+    /**
+     * Disabling the guest account works the same way disabling anybody else
+     * does ("Take somebody's access away without taking their work", issue
+     * 233): existing guest sessions end and no new one can be started, which an
+     * admin who finds "Guest" in the register and disables it is entitled to
+     * expect.
+     */
+    describe('where the guest account has been disabled', () => {
+      it('refuses, the same way a disabled person is refused anywhere else', async () => {
+        await continueAsGuest();
+        await env.DB.prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
+          .bind(AT, GUEST_USER_ID)
+          .run();
+
+        const back = await continueAsGuest();
+
+        expect(back.headers.get('location')).toBe('/signin?refused=failed');
+        expect(sessionIn(back)).toBeUndefined();
+      });
+    });
+
+    /**
+     * The guest account reads like any other person on the admin page, and
+     * nothing stops an admin promoting it there ("Rename a user, and make
+     * somebody an admin", issue 232). That mistake must not become every
+     * anonymous visitor holding an admin session.
+     */
+    it('refuses to sign anybody in once the guest account has been made an admin', async () => {
+      await continueAsGuest();
+      await env.DB.prepare("UPDATE users SET role = 'admin' WHERE id = ?")
+        .bind(GUEST_USER_ID)
+        .run();
+
+      const back = await continueAsGuest();
+
+      expect(back.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(back)).toBeUndefined();
+    });
+
+    /**
+     * Staging, and anybody who found the address: the same answer to both,
+     * because the control is in one built SPA that every deployment serves and
+     * the Worker is the only thing that can tell them apart.
+     *
+     * Taking the variable off `env` rather than standing a second stack up -
+     * absence is the whole mechanism, and it is one line here.
+     */
+    describe('where the deployment offers no guest sign-in', () => {
+      beforeEach(() => {
+        delete env.GUEST_SIGN_IN;
+      });
+      afterEach(() => {
+        env.GUEST_SIGN_IN = 'true';
+      });
+
+      it('refuses, and makes no account to sign anybody into', async () => {
+        const back = await continueAsGuest();
+
+        expect(back.headers.get('location')).toBe('/signin?refused=failed');
+        expect(sessionIn(back)).toBeUndefined();
+        expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
+      });
+
+      /**
+       * Every var here is a string, so absence is not the only way this can be
+       * turned off: a `"false"` typed into an environment block reads as
+       * meaning it, and has to refuse the same way absence does.
+       */
+      it('refuses on the word "false" the same way it refuses on nothing at all', async () => {
+        env.GUEST_SIGN_IN = 'false';
+
+        const back = await continueAsGuest();
+
+        expect(back.headers.get('location')).toBe('/signin?refused=failed');
+        expect(sessionIn(back)).toBeUndefined();
+      });
+
+      /**
+       * The same question asked in the other order: whether guest sign-in is
+       * offered here is not the first thing this route answers, because
+       * somebody already signed in is sent home untouched whether it is or not.
+       */
+      it('still leaves an already signed-in visitor exactly where they were', async () => {
+        const signedIn = await signInAsGoogleAccount({ email: 'michael@example.com' });
+        const before = sessionIn(signedIn)!;
+
+        const back = await SELF.fetch(
+          'http://cockpit.test/v1/sign-in/guest',
+          carrying(before, { redirect: 'manual' }),
+        );
+
+        expect(back.headers.get('location')).toBe('/');
+        expect(sessionIn(back)).toBeUndefined();
+        expect(await whoTheyAre(before)).toMatchObject({ id: USER_ID });
+      });
     });
   });
 

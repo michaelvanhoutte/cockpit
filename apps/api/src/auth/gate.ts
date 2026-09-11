@@ -94,10 +94,16 @@ export const RETIRED_PATHS: readonly string[] = ['/v1/users', '/v1/sign-in'];
  *   the post-deploy assertion both read it.
  * - `/v1/sign-in/google` is how you stop being nobody: it sends you to Google
  *   to be asked who you are, and it is the only thing a person who is nobody
- *   yet can usefully reach.
+ *   yet can usefully reach - unless the environment also offers the guest
+ *   route below.
  * - `/v1/sign-in/google/callback` is where Google sends you back, carrying
  *   nothing this application will believe until it has checked it
  *   (src/auth/oidc.ts).
+ * - `/v1/sign-in/guest` is the other way to stop being nobody, where the
+ *   environment offers one ("Sign in as a guest, without a password", issue
+ *   354). Whether it does is the route's own question and not this gate's: a
+ *   request that never gets past here could not be refused for the right
+ *   reason.
  *
  * **The list of people to choose from is gone from here**, along with the
  * endpoint behind it: once it is no longer the way in, publishing who has an
@@ -111,6 +117,7 @@ export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
   '/health',
   '/v1/sign-in/google',
   '/v1/sign-in/google/callback',
+  '/v1/sign-in/guest',
   ...RETIRED_PATHS,
 ];
 
@@ -160,6 +167,16 @@ export function isOutsideTheGate(path: string): boolean {
 }
 
 /**
+ * The session cookie this request arrived holding, or `undefined` for one
+ * that holds none - read the one way, so a request asked twice (the gate, and
+ * anything outside it that still cares whether a browser is already signed
+ * in) cannot end up reading two different cookies for two different reasons.
+ */
+export function heldSessionId(c: Context): string | undefined {
+  return getCookie(c, sessionCookieName(c.req.url));
+}
+
+/**
  * Refuses anything that did not arrive with a current sign-in, and extends the
  * ones that did.
  *
@@ -178,7 +195,7 @@ export function gate(): MiddlewareHandler<GatedEnv> {
     // how the next gate inherits the wrong one.
     if (isOutsideTheGate(c.req.path)) return next();
 
-    const sessionId = getCookie(c, sessionCookieName(c.req.url));
+    const sessionId = heldSessionId(c);
     const held = sessionId ? await sessionHeld(c.env, sessionId) : null;
     const now = new Date();
     const verdict = recogniseSession(held?.session, now);
