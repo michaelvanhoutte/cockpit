@@ -152,6 +152,9 @@
   // account and Workspace and queues one summary job per Workspace onto the
   // enrichment queue above - the actual model calls happen there rather than
   // in the scheduled handler itself, which has a tight execution budget.
+  // Before that, the same run puts the guest account back to its
+  // demonstration ("Reset the guest account to its seeded state", issue 356),
+  // which does nothing in staging, having no guest account to reset.
   // `triggers` is inheritable, so this one schedule also applies to staging,
   // which is what we want - both are where cron triggers and queue consumers
   // actually run (see the comment on `env.staging` below). 03:00 UTC: outside

@@ -21,7 +21,7 @@ const PEOPLE: RegisteredUser[] = [
     email: 'michael@example.com',
     role: 'admin',
     accountName: 'tenant-default',
-    hasSignedIn: true,
+    lastSignedInAt: '2026-09-01T00:00:00.000Z',
     disabled: false,
   },
   {
@@ -30,7 +30,7 @@ const PEOPLE: RegisteredUser[] = [
     email: 'ada@example.com',
     role: 'user',
     accountName: 'tenant-ada',
-    hasSignedIn: false,
+    lastSignedInAt: null,
     disabled: false,
   },
 ];
@@ -173,7 +173,16 @@ describe('User management', () => {
 
   describe('the list says everything the register knows about a person', () => {
     it.each([
-      { situation: 'an admin who has signed in', person: PEOPLE[0]!, role: 'Admin', signedIn: 'yes' },
+      {
+        situation: 'an admin who has signed in',
+        person: PEOPLE[0]!,
+        role: 'Admin',
+        // A literal, not a call to `lastSignedInLabel` - PEOPLE[0]'s
+        // `lastSignedInAt` is 2026-09-01T00:00:00.000Z, and this is what that
+        // reads as. Computing it via the function under test would make this
+        // case pass however that function's own formatting broke.
+        signedIn: 'Sep 1, 2026',
+      },
       {
         situation: 'an ordinary user who never has',
         person: PEOPLE[1]!,
@@ -195,7 +204,8 @@ describe('User management', () => {
 
     /**
      * The register's address column is nullable, and a row without one is a
-     * person nobody can sign in as - the register being the allowlist. Said on
+     * person nobody can sign in as - the address being how a sign-in finds its
+     * row. Said on
      * the screen rather than left blank, because an empty cell reads as a page
      * that failed rather than as a fact about somebody.
      */
@@ -204,6 +214,28 @@ describe('User management', () => {
       drawn();
 
       expect(await screen.findByText(/no address/i)).toBeVisible();
+    });
+
+    /**
+     * Stalest first, so the people a "hasn't signed in in three months"
+     * question is about are the ones an admin sees without scrolling ("Show
+     * when each person last signed in, on the admin page", issue 342). The
+     * register hands the list back by name (`accounts/register.ts`), so this
+     * is drawn out of name order on purpose - a page that merely preserved
+     * the register's own order would pass this by accident.
+     */
+    it('sorts the list so whoever has gone longest without signing in - or never has - comes first', async () => {
+      const recent = { ...PEOPLE[0]!, id: 'user-recent', name: 'Recent', lastSignedInAt: '2026-09-08T00:00:00.000Z' };
+      const stale = { ...PEOPLE[0]!, id: 'user-stale', name: 'Stale', lastSignedInAt: '2026-01-01T00:00:00.000Z' };
+      const never = { ...PEOPLE[1]!, id: 'user-never', name: 'Never', lastSignedInAt: null };
+      reads.mockResolvedValue({ users: [recent, stale, never] });
+      drawn();
+
+      const rows = await screen.findAllByRole('row');
+      // The header row draws first, so the people are everything after it.
+      const names = rows.slice(1).map((row) => within(row).getByText(/Recent|Stale|Never/).textContent);
+
+      expect(names).toEqual(['Never', 'Stale', 'Recent']);
     });
   });
 

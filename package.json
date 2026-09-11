@@ -24,6 +24,7 @@
     "stability": "pnpm --filter @cockpit/ci-stability generate",
     "backup:export": "node scripts/backup-export.mjs",
     "backup:restore": "node scripts/backup-restore.mjs",
+    "guest:reset": "node scripts/guest-reset.mjs",
     "bundle:budget": "node scripts/bundle-budget.mjs",
     "branches:tidy": "node scripts/tidy-branches.mjs"
   },

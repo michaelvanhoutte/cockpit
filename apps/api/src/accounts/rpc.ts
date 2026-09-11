@@ -131,6 +131,16 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     force: boolean,
   ): Awaitable<Answer<RestoreReport>>;
   /**
+   * Puts the shared guest account back to the demonstration it opens on
+   * ("Reset the guest account to its seeded state", issue 356).
+   *
+   * **No account name, like `destroy` below**, because there is only one
+   * account it may be asked of and it names that itself. A store holding any
+   * other account's rows answers `conflict` and drops nothing - see
+   * `resetGuest` in `store.ts`.
+   */
+  resetGuest(): Awaitable<Answer<null>>;
+  /**
    * How many live workspaces the store holds, for the question asked before
    * its owner is deleted ("Delete a user, and the account they owned with
    * them", issue 234).
@@ -145,9 +155,9 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * changes ran - so the next time anything opens it, it starts as a new
    * account does (issue 234).
    *
-   * **No account name, unlike everything above**: nothing is filtered, the
-   * whole object goes. Only `deleteUser` reaches it, and only after the
-   * register has named whose account this is.
+   * **No account name, like `resetGuest` above, and for the opposite reason**:
+   * nothing is filtered, the whole object goes. Only `deleteUser` reaches it,
+   * and only after the register has named whose account this is.
    */
   destroy(): Awaitable<void>;
 }

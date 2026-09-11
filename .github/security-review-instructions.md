@@ -35,7 +35,7 @@ The architecture chose to hand-roll Google OIDC and its own sessions, and it say
 - ID token validation: signature, issuer, audience, expiry — all four, not some;
 - session expiry and the sliding-refresh path.
 
-**Nothing fronts the deployments.** Cockpit's own sign-in is all there is: a Google account checked against the register, which is the allowlist ("Sign in with Google, and retire the list of names", issue 196). Real authentication, and the only layer: there is no perimeter to fall back on, and "it is only reachable by us" is not a reason for any of the above to be missing.
+**Nothing fronts the deployments.** Cockpit's own sign-in is all there is: any verified Google account, which the register gives an account of its own if it has never seen it ("Sign in with any Google account, so a recruiter doesn't need to be added first", issue 343). Real authentication with no allowlist behind it - anybody with a Google account can hold a session - and the only layer: there is no perimeter to fall back on, and "it is only reachable by us" is not a reason for any of the above to be missing.
 
 ## The workflows themselves
 

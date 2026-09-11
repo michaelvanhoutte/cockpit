@@ -199,7 +199,7 @@ describe('User management', () => {
         email: 'anna@example.com',
         role: 'user',
         accountName: 'Anna',
-        hasSignedIn: false,
+        lastSignedInAt: null,
       });
       expect(accountReady).toBe(true);
 
@@ -857,16 +857,16 @@ describe('User management', () => {
     });
 
     /**
-     * Signing in is what records the Google identity, so this is the one field
-     * that is a fact about what somebody has done rather than about the row.
-     * Michael has signed in by the time the list is read - `asUser` signs him
-     * in to ask - and Ada has not.
+     * Signing in is what records the timestamp, so this is the one field that
+     * is a fact about what somebody has done rather than about the row. Michael
+     * has signed in by the time the list is read - `asUser` signs him in to ask
+     * - and Ada has not.
      */
-    it('says whether somebody has ever signed in', async () => {
+    it('says when somebody last signed in, or that they never have', async () => {
       const users = await listedBy(USER_ID);
 
-      expect(users.find((user) => user.id === USER_ID)?.hasSignedIn).toBe(true);
-      expect(users.find((user) => user.id === OTHER_USER_ID)?.hasSignedIn).toBe(false);
+      expect(users.find((user) => user.id === USER_ID)?.lastSignedInAt).toEqual(expect.any(String));
+      expect(users.find((user) => user.id === OTHER_USER_ID)?.lastSignedInAt).toBeNull();
     });
 
     /**

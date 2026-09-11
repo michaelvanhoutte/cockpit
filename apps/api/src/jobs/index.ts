@@ -1,6 +1,6 @@
 import type { Message, MessageBatch, ScheduledController } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
-import { openAccount, registeredAccountNames } from '../accounts/index.js';
+import { openAccount, registeredAccountNames, resetGuestAccount } from '../accounts/index.js';
 import {
   cleanUpACapturedNote,
   enqueueSummarizeWorkspace,
@@ -25,13 +25,47 @@ export type { EnrichmentJob, CleanUpJob, ReproposePanelsJob, SummarizeWorkspaceJ
  * Background jobs (architecture, "Background jobs"): plain functions calling
  * domain/ and accounts/; the queue and cron are adapters.
  *
- * **The first thing Cron Triggers actually run.** `wrangler.jsonc`'s own
- * comment on `triggers` had this landing with the first connector sync; it
- * landed here instead, nightly, with "Show what the system learned, in a
- * sentence you can correct" (issue 301). Connector sync cadences,
- * reconciliation passes and the dead-man's-switch watchdog (architecture,
- * "Observability") still dispatch from here too, added as their own issues
- * build them.
+ * **Everything Cron Triggers run, once a night.** `wrangler.jsonc` declares a
+ * single schedule, so there is nothing to dispatch on: every nightly job runs
+ * on every tick, each caught on its own so that one failing costs only itself.
+ * Connector sync cadences, reconciliation passes and the dead-man's-switch
+ * watchdog (architecture, "Observability") dispatch from here too, added as
+ * their own issues build them.
+ *
+ * **The guest account is put back first** ("Reset the guest account to its
+ * seeded state", issue 356), so the summaries queued after it are of the
+ * Workspaces the guest account will open on tomorrow rather than ones a guest
+ * made today and the reset has just removed.
+ */
+export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
+  void controller;
+  await resetTheGuestAccount(env);
+  await queueNightlySummaries(env);
+}
+
+/**
+ * The nightly half of the guest reset; `pnpm guest:reset` is the other, and
+ * both are `resetGuestAccount`. An environment with no guest account - staging
+ * - is not a failure, so it passes without a word.
+ */
+async function resetTheGuestAccount(env: Env): Promise<void> {
+  try {
+    await resetGuestAccount(env);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `the guest account was not reset tonight, and holds what it held: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
+}
+
+/**
+ * The first thing Cron Triggers ran, with "Show what the system learned, in a
+ * sentence you can correct" (issue 301).
  *
  * **Fans out rather than doing the work.** A scheduled handler has a tight
  * execution budget, and summarizing is a model call per Workspace across
@@ -56,8 +90,7 @@ export type { EnrichmentJob, CleanUpJob, ReproposePanelsJob, SummarizeWorkspaceJ
  * to discard each one - real Durable Object wake-ups spent on a run that was
  * always going to queue nothing.
  */
-export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
-  void controller;
+async function queueNightlySummaries(env: Env): Promise<void> {
   if (!env.ANTHROPIC_API_KEY) return;
 
   const accountNames = await registeredAccountNames(env);

@@ -1,9 +1,9 @@
 {
   "$comment": [
     "Copy to backup-tokens.json, which is gitignored, and put your own values in.",
-    "This is where `pnpm backup:export` and `pnpm backup:restore` get an",
-    "environment's secret from, so that running one names the environment and",
-    "nothing else.",
+    "This is where `pnpm backup:export`, `pnpm backup:restore` and",
+    "`pnpm guest:reset` get an environment's secret from, so that running one",
+    "names the environment and nothing else.",
     "Each token is the same value as that environment's own BACKUP_TOKEN, the",
     "secret its operator routes are behind. You invent it; a deployed one has to",
     "be long and random, and anything will do locally. See docs/deployment.md,",
