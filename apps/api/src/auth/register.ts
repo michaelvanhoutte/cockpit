@@ -130,9 +130,9 @@ export type SignIn = Visit | { signedIn: false; because: 'not known' | 'access r
  * The half of that which happened: what the browser is given to carry, and
  * whose it is.
  *
- * Named separately so a path that cannot be refused says so in its type -
- * signing in as the guest asks nobody's permission, and returning the union
- * there would make every caller narrow past a branch that cannot occur.
+ * Named separately because `startVisit` itself never refuses - whatever calls
+ * it has already decided somebody may sign in, so its own return would make
+ * every caller narrow past a branch that cannot occur there.
  */
 export type Visit = {
   signedIn: true;
@@ -173,25 +173,32 @@ export const GUEST_USER_ID = 'user-guest';
 const GUEST_NAME = 'Guest';
 
 /**
- * Signs whoever asked into that account, making it the first time anybody does.
+ * Signs whoever asked into that account, making it the first time anybody does
+ * - unless the id is not really the guest's, which is checked rather than
+ * assumed.
  *
- * **Nothing decides whether they are allowed**, unlike every other way in: that
- * is the whole feature, and what gates it is the environment offering the route
- * at all (`env.GUEST_SIGN_IN`, read where the route is). So this is not the
- * register's allowlist being widened - the guest is a row the product puts
- * there, not a person somebody admitted.
+ * **Nothing decides whether a stranger is allowed in**, unlike every other way
+ * in: that is the whole feature, and what gates it is the environment offering
+ * the route at all (`env.GUEST_SIGN_IN`, read where the route is). So this is
+ * not the register's allowlist being widened - the guest is a row the product
+ * puts there, not a person somebody admitted.
  *
  * Both writes ignore a conflict on the id, which is what makes two first
  * presses at the same instant come to one account: whichever write lost wrote
- * nothing, and both sign in as the id they already hold. The tenant goes first
- * because the user's account is a real foreign key to it.
+ * nothing, and both go on to read the row that is actually there. The tenant
+ * goes first because the user's account is a real foreign key to it.
  *
- * `role` is `user`, never `admin`, and no address or Google account is
- * recorded: a guest never goes through that exchange, so there is no identity
- * to write - and SQLite counts NULLs as distinct, so the unique indexes on both
- * columns have nothing to collide with.
+ * **The row is read back and checked before anybody is signed into it.** These
+ * ids are derived the same way `idsForNewUser` derives one for a real person
+ * added by name (`accounts/new-user.ts`) - so a person added as "Guest" before
+ * this route is ever pressed would otherwise occupy `user-guest` first, both
+ * inserts above would conflict and write nothing, and this would sign a
+ * stranger straight into that person's real account with whatever role they
+ * hold. What no real user ever has is a null address - `addUser` requires one
+ * - so a row with one is never anybody's but the guest's, and the guest is
+ * refused right along with a disabled one rather than trusted on sight.
  */
-export async function signInAsGuest(env: Env, now: Date): Promise<Visit> {
+export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
   const db = createDb(env.DB);
   const createdAt = now.toISOString();
 
@@ -209,6 +216,12 @@ export async function signInAsGuest(env: Env, now: Date): Promise<Visit> {
       createdAt,
     })
     .onConflictDoNothing({ target: users.id });
+
+  const [row] = await db
+    .select({ email: users.email, disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(users.id, GUEST_USER_ID));
+  if (!row || row.email != null || hasNoAccess(row.disabledAt)) return TURNED_AWAY;
 
   return startVisit(env, { id: GUEST_USER_ID, name: GUEST_NAME }, now);
 }

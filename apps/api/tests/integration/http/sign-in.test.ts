@@ -227,6 +227,27 @@ describe('Sign-in', () => {
     });
 
     /**
+     * The one thing a plain link must never do: a cross-site page can send a
+     * browser here without its owner doing anything, so a live sign-in is left
+     * exactly as it is rather than being replaced with the one every stranger
+     * can read.
+     */
+    it('leaves a visitor who is already signed in exactly where they were', async () => {
+      const signedIn = await signInAsGoogleAccount({ email: 'michael@example.com' });
+      const before = sessionIn(signedIn)!;
+
+      const back = await SELF.fetch(
+        'http://cockpit.test/v1/sign-in/guest',
+        carrying(before, { redirect: 'manual' }),
+      );
+
+      expect(back.headers.get('location')).toBe('/');
+      expect(sessionIn(back)).toBeUndefined();
+      expect(await whoTheyAre(before)).toMatchObject({ id: USER_ID });
+      expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
+    });
+
+    /**
      * The one race this feature has: two strangers pressing it in the same
      * instant, before there is anything to find. Only the register decides
      * this - one write wins and the other is ignored - which is why it is asked
@@ -278,6 +299,57 @@ describe('Sign-in', () => {
       expect(((await seen.json()) as { items: { id: string }[] }).items.map((i) => i.id)).toContain(
         itemId,
       );
+    });
+
+    /**
+     * These ids are derived from a name the same way a real person's are
+     * (`accounts/new-user.ts`), so a person added as "Guest" before anybody
+     * ever presses this control would occupy them first: both inserts above
+     * would then conflict and write nothing, and blindly signing in as the id
+     * would hand a stranger that real person's account. The row is checked
+     * rather than trusted on sight - no real person is ever added without an
+     * address, so one is never the guest's.
+     */
+    it('refuses to sign anybody in where the guest id already belongs to somebody real', async () => {
+      await env.DB.batch([
+        env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)').bind(
+          GUEST_ACCOUNT_NAME,
+          'Somebody Real',
+          AT,
+        ),
+        env.DB.prepare(
+          'INSERT INTO users (id, name, account_id, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        ).bind(GUEST_USER_ID, 'Somebody Real', GUEST_ACCOUNT_NAME, 'admin', 'real@example.com', AT),
+      ]);
+
+      const back = await continueAsGuest();
+
+      expect(back.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(back)).toBeUndefined();
+      expect(
+        await env.DB.prepare('SELECT email, role FROM users WHERE id = ?').bind(GUEST_USER_ID).first(),
+      ).toMatchObject({ email: 'real@example.com', role: 'admin' });
+    });
+
+    /**
+     * Disabling the guest account works the same way disabling anybody else
+     * does ("Take somebody's access away without taking their work", issue
+     * 233): existing guest sessions end and no new one can be started, which an
+     * admin who finds "Guest" in the register and disables it is entitled to
+     * expect.
+     */
+    describe('where the guest account has been disabled', () => {
+      it('refuses, the same way a disabled person is refused anywhere else', async () => {
+        await continueAsGuest();
+        await env.DB.prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
+          .bind(AT, GUEST_USER_ID)
+          .run();
+
+        const back = await continueAsGuest();
+
+        expect(back.headers.get('location')).toBe('/signin?refused=failed');
+        expect(sessionIn(back)).toBeUndefined();
+      });
     });
 
     /**

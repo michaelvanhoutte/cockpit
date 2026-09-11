@@ -1,5 +1,6 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import type { Context } from 'hono';
+import { getCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import {
   addUserSchema,
@@ -55,6 +56,7 @@ import {
   gate,
   rememberAttempt,
   rememberSessionCookie,
+  sessionCookieName,
   stillSignedIn,
   RETIRED_PATHS,
   type GatedEnv,
@@ -995,6 +997,11 @@ const routes = app
    *
    * A navigation like the two above rather than a request, for the same reason:
    * it ends somewhere else, and the browser already knows how to follow a link.
+   * That is also its exposure - a plain `GET` a cross-site page can send
+   * somebody to without their doing anything - so a browser already holding a
+   * live sign-in is sent straight to `/` untouched rather than having its
+   * cookie replaced: the one thing this must never do is quietly move a real
+   * person into the account every stranger reads.
    *
    * **Offered only where the environment says so**, which is production
    * (wrangler.jsonc). The control is in one built SPA that both deployments
@@ -1009,8 +1016,12 @@ const routes = app
   .get('/v1/sign-in/guest', async (c) => {
     if (!c.env.GUEST_SIGN_IN) return refuse(c, 'this environment offers no guest sign-in');
 
+    const held = getCookie(c, sessionCookieName(c.req.url));
+    if (held && (await stillSignedIn(c.env, held))) return c.redirect('/', 302);
+
     try {
       const signedIn = await signInAsGuest(c.env, new Date());
+      if (!signedIn.signedIn) return refuse(c, 'the guest account is not available');
       rememberSessionCookie(c, signedIn.sessionId);
       return c.redirect('/', 302);
     } catch (error) {
