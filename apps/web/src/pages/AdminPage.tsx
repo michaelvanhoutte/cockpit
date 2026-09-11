@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ADDRESS_LIMIT,
@@ -97,7 +97,10 @@ export function AdminPage() {
    * reason of its own (`accounts/register.ts`) - this is what the screen shows,
    * not what the list *is*.
    */
-  const byStaleness = [...(data?.users ?? [])].sort(compareByStaleness);
+  const byStaleness = useMemo(
+    () => (data?.users ?? []).toSorted(compareByStaleness),
+    [data?.users],
+  );
 
   const startEditing = (user: RegisteredUser, openedFrom: HTMLElement | null) => {
     changing.reset();
@@ -257,36 +260,59 @@ function roleName(role: Role): string {
 }
 
 /**
+ * `lastSignedInAt` as something the sort and the label can both trust, or
+ * `null` for "never" and for anything that isn't really an instant.
+ *
+ * **One place decides what counts as unusable**, so the sort and the label
+ * cannot disagree about it: `last_signed_in_at` carries no CHECK, the same
+ * reason `disabled_at` has none (`db/schema.ts`), and a restored backup does
+ * not validate a column's shape beyond the ones a row must carry to insert at
+ * all (`accounts/register.ts`'s `unusableRows`) - so a garbage value reaching
+ * either function separately is a real path, not a hypothetical one. Treating
+ * it there as "never" rather than crashing (`Intl.DateTimeFormat.format`
+ * throws on an invalid date) and here as some arbitrary sort position would
+ * show a row that reads "not yet" anywhere but at the top of "stalest first".
+ */
+function usableInstant(lastSignedInAt: string | null): string | null {
+  if (lastSignedInAt === null) return null;
+  return Number.isNaN(new Date(lastSignedInAt).getTime()) ? null : lastSignedInAt;
+}
+
+/**
  * Puts whoever has gone longest without signing in - or never has - ahead of
  * everybody else ("Show when each person last signed in, on the admin page",
  * issue 342). `null` sorts first: nobody has been waiting longer than somebody
- * who has never signed in at all.
+ * who has never signed in at all. Coalesced to `''` rather than branched on,
+ * since an empty string already sorts before every ISO instant this ever
+ * compares against.
  */
 function compareByStaleness(a: RegisteredUser, b: RegisteredUser): number {
-  if (a.lastSignedInAt === b.lastSignedInAt) return 0;
-  if (a.lastSignedInAt === null) return -1;
-  if (b.lastSignedInAt === null) return 1;
-  return a.lastSignedInAt < b.lastSignedInAt ? -1 : 1;
+  const av = usableInstant(a.lastSignedInAt) ?? '';
+  const bv = usableInstant(b.lastSignedInAt) ?? '';
+  return av < bv ? -1 : av > bv ? 1 : 0;
 }
+
+/**
+ * `Intl.DateTimeFormat` construction resolves locale data and is worth paying
+ * for once rather than once per row per render.
+ */
+const SIGNED_IN_FORMAT = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
 
 /**
  * What the register's exact instant reads as on the screen, or `'not yet'` for
  * somebody who has never signed in - the same words the boolean this replaced
- * used to say (issue 342).
+ * used to say ("Show when each person last signed in, on the admin page",
+ * issue 342).
  *
  * **A date, not a relative label.** "3 months ago" is the same fact dressed up,
- * and it goes stale the moment the page has been open a while; the exact
- * instant is already proven by the register's own CHECK, so there is nothing
- * left to test by adding one.
+ * and it goes stale the moment the page has been open a while.
  *
  * **Fixed to UTC** rather than the reader's own timezone, so this and every
  * test asserting it agree regardless of where either runs.
  */
 export function lastSignedInLabel(lastSignedInAt: string | null): string {
-  if (lastSignedInAt === null) return 'not yet';
-  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(
-    new Date(lastSignedInAt),
-  );
+  const at = usableInstant(lastSignedInAt);
+  return at === null ? 'not yet' : SIGNED_IN_FORMAT.format(new Date(at));
 }
 
 /**

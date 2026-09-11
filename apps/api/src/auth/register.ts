@@ -152,17 +152,19 @@ type SigningIn = { id: string; name: string };
  * when each person last signed in, on the admin page", issue 342): this
  * function runs only after a real round trip through Google, never when a
  * session merely renews itself (`extendSession`), so it is the one place that
- * distinction already exists to write from.
+ * distinction already exists to write from. Through `createDb`, like every
+ * other write and read in this file, rather than a raw `env.DB.prepare(...)` -
+ * a column renamed in `db/schema.ts` then fails to typecheck here instead of
+ * failing at runtime the first time somebody signs in.
  */
 async function startVisit(env: Env, user: SigningIn, now: Date): Promise<SignIn> {
   const sessionId = newSessionId();
   const expiresAt = endsFrom(now);
   const at = now.toISOString();
-  await env.DB.batch([
-    env.DB.prepare(
-      'INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
-    ).bind(sessionId, user.id, at, expiresAt),
-    env.DB.prepare('UPDATE users SET last_signed_in_at = ? WHERE id = ?').bind(at, user.id),
+  const db = createDb(env.DB);
+  await db.batch([
+    db.insert(sessions).values({ id: sessionId, userId: user.id, createdAt: at, expiresAt }),
+    db.update(users).set({ lastSignedInAt: at }).where(eq(users.id, user.id)),
   ]);
   return { signedIn: true, sessionId, expiresAt, user };
 }

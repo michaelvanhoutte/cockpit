@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RegisteredUser } from '@cockpit/shared';
-import { AdminPage, lastSignedInLabel } from '../../../src/pages/AdminPage';
+import { AdminPage } from '../../../src/pages/AdminPage';
 
 /**
  * F1: what the page draws from what it is given. That only an admin may read it
@@ -167,7 +167,11 @@ describe('User management', () => {
         situation: 'an admin who has signed in',
         person: PEOPLE[0]!,
         role: 'Admin',
-        signedIn: lastSignedInLabel(PEOPLE[0]!.lastSignedInAt),
+        // A literal, not a call to `lastSignedInLabel` - PEOPLE[0]'s
+        // `lastSignedInAt` is 2026-09-01T00:00:00.000Z, and this is what that
+        // reads as. Computing it via the function under test would make this
+        // case pass however that function's own formatting broke.
+        signedIn: 'Sep 1, 2026',
       },
       {
         situation: 'an ordinary user who never has',
@@ -203,10 +207,11 @@ describe('User management', () => {
 
     /**
      * Stalest first, so the people a "hasn't signed in in three months"
-     * question is about are the ones an admin sees without scrolling (issue
-     * 342). The register hands the list back by name (`accounts/register.ts`),
-     * so this is drawn out of name order on purpose - a page that merely
-     * preserved the register's own order would pass this by accident.
+     * question is about are the ones an admin sees without scrolling ("Show
+     * when each person last signed in, on the admin page", issue 342). The
+     * register hands the list back by name (`accounts/register.ts`), so this
+     * is drawn out of name order on purpose - a page that merely preserved
+     * the register's own order would pass this by accident.
      */
     it('sorts the list so whoever has gone longest without signing in - or never has - comes first', async () => {
       const recent = { ...PEOPLE[0]!, id: 'user-recent', name: 'Recent', lastSignedInAt: '2026-09-08T00:00:00.000Z' };

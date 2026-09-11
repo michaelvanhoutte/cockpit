@@ -208,7 +208,10 @@ describe('Sign-in', () => {
 
       await signInAsGoogleAccount({ email: 'michael@example.com', subject: 'google|michael' });
 
-      expect(await lastSignedInAt(USER_ID)).not.toBe('2020-01-01T00:00:00.000Z');
+      // Greater than, not merely different: two same-shape ISO instants
+      // compare lexicographically the same as chronologically, so this is
+      // "later" rather than just "a different value".
+      expect((await lastSignedInAt(USER_ID))! > '2020-01-01T00:00:00.000Z').toBe(true);
     });
 
     /**
