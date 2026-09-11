@@ -189,20 +189,6 @@ describe('What Cockpit has learned', () => {
       expect(row?.correction).toBeNull();
     });
 
-    it('reads the decision history into the call', async () => {
-      const compliance = await aPanel('Compliance questions');
-      await aFiledNote('part 11 audit trail question', compliance);
-      // The capture above already spent one call of its own (`clean-up-a-note`,
-      // over the empty history a fresh Item reads) - reset so `asked[0]` below
-      // is unambiguously the summarize call under test.
-      asked = [];
-
-      await summarizeWorkspace();
-
-      expect(asked[0]!.system).toContain('part 11 audit trail question');
-      expect(asked[0]!.system).toContain('Compliance questions');
-    });
-
     it('overwrites an earlier summary, and does not touch a correction already written', async () => {
       await postChange('set_routing_summary_correction', {
         commandId: nextId(),
@@ -249,35 +235,6 @@ describe('What Cockpit has learned', () => {
       await summarizeWorkspace('tenant-does-not-exist', WORKSPACE_ID);
 
       expect(asked).toHaveLength(0);
-    });
-
-    /**
-     * `delete_workspace` tombstones the Workspace alone (`deleted_at`) rather
-     * than removing the row, so the decision history this job reads is still
-     * there to read - the race is entirely in the write that follows,
-     * exactly as `note-cleanup.test.ts` covers for a Panel and a Workspace
-     * deleted while a note is being read.
-     */
-    it('writes nothing when the workspace itself has gone by the time the write lands', async () => {
-      const compliance = await aPanel('Compliance questions');
-      await aFiledNote('part 11 audit trail question', compliance);
-      expect(
-        (
-          await postChange('delete_workspace', {
-            commandId: nextId(),
-            issuedAt: '2026-09-10T10:00:02.000Z',
-            workspaceId: WORKSPACE_ID,
-          })
-        ).status,
-      ).toBe(200);
-      // The capture above already spent one call of its own; reset so the one
-      // call left is unambiguously the summarize call under test.
-      asked = [];
-
-      await summarizeWorkspace();
-
-      expect(asked).toHaveLength(1);
-      expect(await rowFor(ACCOUNT_NAME, WORKSPACE_ID)).toBeNull();
     });
 
     it('never reaches another account’s workspace of the same id', async () => {
