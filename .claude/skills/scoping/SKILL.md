@@ -37,6 +37,8 @@ Prose that reads fine fails on contact — two designs agreed in discussion over
 
 Resolve any term used inconsistently with those docs, and any unstated product decision, before drafting. Never guess, and never ask the user what you could answer by reading the docs or the code.
 
+**A question is unresolved scope, not open scope, whenever two answers to it would produce different diffs.** Close it here, or — where reading and discussion can't settle it — via step 2's POC; never carry it forward for whoever builds the issue to answer. "Take the width and the name off a layout, now that its size carries them" (issue 264) named its own two-answer question as "the agreed trade," described the alternative, said "Decide before building," and then listed that same question as out of scope anyway; a full review round went on the question that was already known to be open before a line was written.
+
 Use the `grilling` skill's round-based interview (mattpocock-skills): number each open question, give a recommended answer, work one round at a time until nothing about the scope is fuzzy. Skip only when the request is already small and unambiguous.
 
 Do not write to `CONTEXT.md` or `docs/adr/` — Cockpit's glossary and decisions live in `functional-definition.md`, `architecture.md` and the `*-options.md` docs. Record anything permanent there, in that document's own style.
@@ -91,6 +93,7 @@ Do not proceed — to code or to `gh issue create` — if any of these holds:
 - The slice is too big for one sitting → step 4.
 - The work changes state it cannot put back and its failure modes are not written down → step 5. A review round is an expensive way to be told what a checklist asks.
 - Any real behaviour this work describes has no row in the statement list → step 6.
+- A question would produce a different diff depending on its answer → step 3, or step 2's POC where discussion can't settle it. It is unfinished scope, not an entry for **Out of scope / open questions**.
 
 ## Output
 
