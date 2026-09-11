@@ -61,10 +61,11 @@ statement list" step]
 ## Out of scope / open questions
 
 What this issue deliberately doesn't cover, and questions whose answer wouldn't
-change the diff either way. A question whose two answers would produce different
-diffs is not open scope - scoping's step 7 gate already refuses to file it here,
-so close it in scoping (step 2 or step 3) before drafting rather than carrying it
-into this section.
+change the diff either way - record these here, never as a todo in the eventual
+test file. A question whose two answers would produce different diffs is not
+open scope: scoping's gate already refuses to file it, so close it in scoping
+before drafting - see it first if the doubt needs that, sharpen it out in
+discussion otherwise.
 ```
 
 ### 2. Confirm, then publish
