@@ -2,7 +2,7 @@
 
 The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where). Unscheduled ideas are in [docs/ideas.md](docs/ideas.md) (the maybe).
 
-The showcase is this repository rather than a running instance. Both deployed environments are reachable by anyone who knows the URL, with Cockpit's own sign-in the only thing in the way — a Google account, checked against a register that is the allowlist, so reaching the URL and getting in are two different things. No connector has landed, so nothing arrives on its own, but **both hold real data from 7 September 2026** — put there by hand in production, accumulated by use in staging — and nothing re-seeds, wipes or restores over either: see "The environments" in [docs/deployment.md](docs/deployment.md).
+The showcase is this repository rather than a running instance. Both deployed environments are reachable by anyone who knows the URL, with Cockpit's own sign-in the only thing in the way — and it admits any Google account, giving one it has never seen an account of its own, so anybody with one who reaches the URL gets in. No connector has landed, so nothing arrives on its own, but **both hold real data from 7 September 2026** — put there by hand in production, accumulated by use in staging — and nothing re-seeds, wipes or restores over either: see "The environments" in [docs/deployment.md](docs/deployment.md).
 
 ## Layout
 

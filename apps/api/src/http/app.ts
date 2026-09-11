@@ -70,6 +70,7 @@ import {
   signInWithGoogle,
 } from '../auth/register.js';
 import { getConnector } from '../connectors/registry.js';
+import type { Env } from '../env.js';
 
 type AppEnv = GatedEnv;
 
@@ -102,8 +103,9 @@ function callbackUrl(c: Context): string {
  * **Why goes to the log and never to the browser.** Each reason names something
  * an attacker got wrong, and the person actually signing in can do nothing with
  * any of them; the page says the sign-in failed and offers to start another.
- * The one refusal they *can* act on - a Google account this Cockpit does not
- * know - is the one the callback answers with a reason of its own.
+ * The refusals they *can* act on - an address a different Google account holds
+ * here, or access taken away - are the ones the callback answers with a reason
+ * of its own.
  */
 function refuse(c: Context, reason: string, cause?: unknown) {
   console.error(
@@ -116,6 +118,34 @@ function refuse(c: Context, reason: string, cause?: unknown) {
     }),
   );
   return c.redirect('/signin?refused=failed', 302);
+}
+
+/**
+ * Opens an account the register has just made, and says whether it opened -
+ * for adding somebody, and for somebody's first sign-in making them one.
+ *
+ * **Opened straight away**, so a change that will not apply is met by whoever
+ * made the account rather than by its owner's first request.
+ *
+ * **Never throws.** After the register and never before it: a store opened for
+ * an account nobody owns is an object nothing can reach, while a person whose
+ * account is not ready simply has it made on their first request. So what a
+ * failure here costs is a log line, not the answer.
+ */
+async function accountOpened(env: Env, accountId: string, who: string): Promise<boolean> {
+  try {
+    await (await openAccount(env, accountId)).workspaces();
+    return true;
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `${who} but their account would not open`,
+        cause: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return false;
+  }
 }
 
 /** Thin adapters only: validate → call the account, serialize (architecture, "Hono + Zod on Cloudflare Workers"). */
@@ -718,29 +748,9 @@ const routes = app
     const added = await addUser(c.env, { name, address: email }, new Date());
     if (!added.added) return c.json({ error: added.refused }, 409);
 
-    /**
-     * **The account is opened as they are added**, so a change that will not
-     * apply is met by the admin who added them rather than by that person's
-     * first sign-in - which is the whole reason this happens here rather than
-     * being left to happen naturally.
-     *
-     * After the register and never before it: a store opened for an account
-     * nobody owns is an object nothing can reach, while a person whose account
-     * is not ready simply has it made on their first request.
-     */
-    let accountReady = true;
-    try {
-      await (await openAccount(c.env, added.accountId)).workspaces();
-    } catch (error) {
-      accountReady = false;
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: `${added.user.id} was added but their account would not open`,
-          cause: error instanceof Error ? error.message : String(error),
-        }),
-      );
-    }
+    // Opened as they are added, so a change that will not apply is met by the
+    // admin who added them rather than by that person's first sign-in.
+    const accountReady = await accountOpened(c.env, added.accountId, `${added.user.id} was added`);
     return c.json({ user: added.user, accountReady }, 201);
   })
   .openapi(changeUserRoute, async (c) => {
@@ -980,7 +990,6 @@ const routes = app
       if (!verdict.identified) return refuse(c, verdict.refusal);
 
       const signedIn = await signInWithGoogle(c.env, verdict.identity, new Date());
-      // Proving who you are at Google is not being entitled to an account here.
       // These are the two refusals the person can act on, so they are the two
       // the logon page is told about - and they are told apart, because a
       // colleague whose access was removed must not be sent looking for a
@@ -988,6 +997,18 @@ const routes = app
       if (!signedIn.signedIn) {
         const refused = signedIn.because === 'access removed' ? 'access-removed' : 'unknown-account';
         return c.redirect(`/signin?refused=${refused}`, 302);
+      }
+
+      // Somebody the register had never seen, whose account this sign-in just
+      // made: opened before they land in it, for the reason adding somebody
+      // opens theirs. They are signed in whether or not it opens - their first
+      // request makes it if this could not.
+      if (signedIn.newAccount) {
+        await accountOpened(
+          c.env,
+          signedIn.newAccount,
+          `${signedIn.user.id} signed in for the first time`,
+        );
       }
 
       rememberSessionCookie(c, signedIn.sessionId);

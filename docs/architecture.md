@@ -399,7 +399,7 @@ Two standing rules follow: **never block paint on auth** (paint the cached snaps
 
 ## 8. Security
 
-- **App login per "App login: hand-rolled Google OIDC + own sessions" (§8.1)**; no passwords stored, ever. Signing in is a Google account, checked against the register, which is the allowlist; the session, cookie and request gate behind it are the application's own.
+- **App login per "App login: hand-rolled Google OIDC + own sessions" (§8.1)**; no passwords stored, ever. Signing in is any Google account, found in the register or added to it on the way in; the session, cookie and request gate behind it are the application's own.
 - **Source tokens encrypted at rest** (application-level encryption for connected-account OAuth tokens).
 - **Workspace scoping enforced server-side** on every query via `tenant_id` plus workspace filters; the UI's scoping is presentation, not protection. The account those filters carry is resolved from the session on every request, never from anything the client sends.
 - **Message content sent to the AI provider is an explicit, documented flow** (which fields, which provider, retention posture) — the single most sensitive thing this product does. **The flow that exists, as of "Clean up a captured note into a clear title and a fuller message" (issue 296) and "Offer the other readings when a captured note says two things" (issue 297):**
@@ -428,7 +428,7 @@ Cockpit has two auth problems and only one was ever open. **Connector OAuth** is
 
 **Shipped whole, 2026-09-06.** Issue 86 built the downstream half — a session row in D1, an httpOnly cookie with sliding expiry, a gate that refuses in the application's own JSON rather than with a web page, users and accounts in the register, an account resolved per request — behind a logon page you signed in at by clicking a name. "Sign in with Google, and retire the list of names" (issue 196) replaced that one step, and the picker is gone along with the endpoint that listed everybody: publishing who has an account buys nothing once it is no longer the way in.
 
-**The register is the allowlist.** Proving who you are at Google is not being entitled to an account here: an address the register holds gets in, anyone else is refused with nothing written on their behalf. Somebody is looked for by their Google subject first and by their address only if that finds nobody, so a changed address does not lock a person out and a *reassigned* one is not a way into the previous owner's account.
+**The register is no longer the allowlist** ("Sign in with any Google account, so a recruiter doesn't need to be added first", issue 343, reversing issue 196's rule). Cockpit is also a live demo somebody has to be able to walk up to, so a verified Google address the register has never seen gets an ordinary user and an account of their own, named from Google's profile or else the address, and lands in it. **Production and staging are therefore open to anybody with a Google account**, with no rate limit and no switch to close them — both deliberately left for later. The two rows are written in one batch with the Google subject already on them; two first sign-ins racing make one person, because the loser's write is refused by the register's uniqueness and it reads again. Somebody already in the register is looked for by their Google subject first and by their address only if that finds nobody, so a changed address does not lock a person out and a *reassigned* one is not a way into the previous owner's account — that address is still refused, since it cannot be given a second row.
 
 **Production offers one way in that is not a Google account at all**: *Continue
 as guest* ("Sign in as a guest, without a password", issue 354), which signs the
@@ -444,7 +444,7 @@ does, so there is no seed file to drift from the code. Before anything is
 dropped it refuses where the register says a real person holds the guest's id,
 and where the store holds another account's rows.
 
-**Only `openid email` is asked for.** The name shown in the app is the register's, so asking Google for a profile it would never read would be collecting somebody's data for nothing; and neither scope is sensitive, which is what keeps a verification review out of the way of a working sign-in.
+**`openid email profile` is asked for**, `profile` only so that somebody nobody added has a name: anybody the register already holds keeps the one it gave them, and nothing else from the profile is kept. None of the three is a sensitive scope, which is what keeps a verification review out of the way of a working sign-in.
 
 **Local development and the browser suite sign in against a stub issuer we run** (`scripts/lib/stub-issuer.mjs`), pointed at by `OIDC_ISSUER`, which no deployed environment sets. That is what keeps there being one sign-in path: the alternative was the name picker kept alive behind a flag, which is a bypass compiled into the deployed application and defended by a variable being unset. The application runs the same code either way — real redirect, real code exchange, real RS256 signature check, real state, nonce and PKCE — and no `localhost` redirect URI is ever registered with Google, which matters because every worktree has ports of its own (`scripts/lib/ports.mjs`) and a web OAuth client demands exact redirect URIs.
 

@@ -113,12 +113,20 @@ function accountStore() {
  * them.
  */
 /**
- * The accounts a case can bring into being by adding somebody, which the
- * register alone cannot clear (see `startFromEmpty`). Derived from the names
- * those cases type, so this list and
- * tests/integration/http/user-management.test.ts move together.
+ * The accounts a case can bring into being - by adding somebody, or by
+ * somebody the register has never seen signing in - which the register alone
+ * cannot clear (see `startFromEmpty`). Derived from the names those cases type
+ * and the names their Google accounts give, so this list moves together with
+ * tests/integration/http/user-management.test.ts and sign-in.test.ts.
  */
-const ADDABLE_ACCOUNTS = ['tenant-anna', 'tenant-anna-2', 'tenant-someone'];
+const ADDABLE_ACCOUNTS = [
+  'tenant-anna',
+  'tenant-anna-2',
+  'tenant-someone',
+  'tenant-rita-recruiter',
+  'tenant-stranger-example-com',
+  'tenant-guest-2',
+];
 
 export async function startFromEmpty(): Promise<void> {
   // Every account's store, and the one /health practises on: all of them

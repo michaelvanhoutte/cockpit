@@ -189,13 +189,28 @@ describe('Sign-in', () => {
     });
 
     /**
-     * Only `openid email` is asked for, so an identity carrying more than that
-     * is somebody else's decision arriving in our data. Nothing is kept from
-     * it, and nothing downstream can start depending on it by accident.
+     * `profile` is asked for so that somebody nobody added has something to be
+     * called, and their name is the one thing kept from it: a picture or a
+     * locale arriving beside it is somebody else's decision in our data, and
+     * nothing downstream can start depending on it by accident.
      */
-    it('keeps nothing from an identity but who it names and the address', async () => {
-      const token = await identityToken({ claims: { name: 'Michael', picture: 'https://...' } });
+    it('keeps who it names, the address and what they are called, and nothing else', async () => {
+      const token = await identityToken({
+        claims: { name: '  Rita Recruiter ', picture: 'https://...' },
+      });
       await expect(verdictFor(token)).resolves.toEqual({
+        identified: true,
+        identity: { subject: 'google-michael', email: 'michael@example.com', name: 'Rita Recruiter' },
+      });
+    });
+
+    /** A name is somebody's to leave out, so going without one refuses nothing. */
+    it.each([
+      { situation: 'no name at all', claims: {} },
+      { situation: 'a name of nothing but spaces', claims: { name: '   ' } },
+      { situation: 'a name that is not text', claims: { name: 42 } },
+    ])('believes an identity carrying $situation, and keeps no name from it', async ({ claims }) => {
+      await expect(verdictFor(await identityToken({ claims }))).resolves.toEqual({
         identified: true,
         identity: { subject: 'google-michael', email: 'michael@example.com' },
       });
@@ -209,7 +224,7 @@ describe('Sign-in', () => {
         client_id: CLIENT_ID,
         redirect_uri: 'https://app.test/back',
         response_type: 'code',
-        scope: 'openid email',
+        scope: 'openid email profile',
         state: attempt.state,
         nonce: attempt.nonce,
         code_challenge_method: 'S256',

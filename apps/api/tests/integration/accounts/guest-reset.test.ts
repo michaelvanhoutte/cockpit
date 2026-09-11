@@ -204,10 +204,11 @@ describe('Accounts', () => {
 
     /**
      * The one real account the guest's own id can reach. Adding somebody called
-     * "Guest" derives these same ids (accounts/new-user.ts), and every row they
-     * write carries `tenant-guest`, so only the register can say whose it is.
-     * The register is written directly, as sign-in.test.ts arranges the same
-     * collision, because what is asked about is the reset rather than adding.
+     * "Guest" handed out these same ids until add-user stopped offering them
+     * (accounts/new-user.ts), and every row such a person writes carries
+     * `tenant-guest`, so only the register can say whose it is. The register is
+     * written directly: adding no longer produces this state, and a register
+     * from before it can still hold it.
      */
     it('leaves a real person alone, even one added under the name "Guest"', async () => {
       await env.DB.batch([
