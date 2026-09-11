@@ -125,6 +125,7 @@ const ADDABLE_ACCOUNTS = [
   'tenant-someone',
   'tenant-rita-recruiter',
   'tenant-stranger-example-com',
+  'tenant-guest-2',
 ];
 
 export async function startFromEmpty(): Promise<void> {

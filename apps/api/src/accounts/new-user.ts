@@ -37,13 +37,30 @@ import { NAME_LIMIT } from '@cockpit/shared';
 import { normaliseAddress } from '../auth/oidc.js';
 
 /**
+ * The one guest account's ids ("Sign in as a guest, without a password", issue
+ * 354) - fixed rather than looked up, the convention `ACCOUNT_WIDE` and
+ * `DEFAULT_SCREEN_SIZE_NAME` already follow.
+ *
+ * **Kept beside the derivation because they are ids it would otherwise hand
+ * out**: they are exactly what "Guest" derives, and a person holding them locks
+ * every guest out, since the guest refuses a row with an address on it. Anybody
+ * with a Google account can now arrive under that name ("Sign in with any
+ * Google account, so a recruiter doesn't need to be added first", issue 343),
+ * so `idsForNewUser` never offers them.
+ */
+export const GUEST_ACCOUNT_NAME = 'tenant-guest';
+export const GUEST_USER_ID = 'user-guest';
+
+/**
  * What somebody who signed in without being added is called, and what their
  * ids are derived from ("Sign in with any Google account, so a recruiter
  * doesn't need to be added first", issue 343).
  *
  * The name Google gave where it gave one, and the address where it did not: a
  * sign-in is not refused over a name somebody chose to leave out. **Cut to the
- * length the rename form accepts**, so an admin can still edit the row.
+ * length the rename form accepts**, so an admin can still edit the row - which
+ * is counted in UTF-16 units, as `z.string().max` and a box's `maxlength` both
+ * count, so a name of emoji is cut at half as many characters.
  *
  * **The ids come from the address when the name leaves nothing an id can
  * hold** (`日本語`). An admin adding somebody is told to type another name,
@@ -51,12 +68,14 @@ import { normaliseAddress } from '../auth/oidc.js';
  * an id can be made of.
  */
 export function newcomerNamed(address: string, googleName?: string): { name: string; idsFrom: string } {
-  // By code point rather than by UTF-16 unit, so the cut never splits a
-  // character in two.
-  const name = Array.from(googleName?.trim() || address)
-    .slice(0, NAME_LIMIT)
-    .join('')
-    .trim();
+  let cut = '';
+  // Character by character, so the cut falls between two rather than through
+  // the middle of one.
+  for (const character of googleName?.trim() || address) {
+    if (cut.length + character.length > NAME_LIMIT) break;
+    cut += character;
+  }
+  const name = cut.trim();
   return { name, idsFrom: nameAsIdPart(name) ? name : address };
 }
 
@@ -132,7 +151,9 @@ export function idsForNewUser(name: string, taken: (ids: NewIds) => boolean): Ne
 
     const ending = `${base}${tag}`;
     const ids = { accountId: `${ACCOUNT_PREFIX}${ending}`, userId: `${USER_PREFIX}${ending}` };
-    if (!taken(ids)) return ids;
+    // Never the guest's, whatever the register holds today (`GUEST_USER_ID`).
+    const theGuests = ids.accountId === GUEST_ACCOUNT_NAME || ids.userId === GUEST_USER_ID;
+    if (!theGuests && !taken(ids)) return ids;
   }
   // Bounded rather than endless: a register holding a thousand people of one
   // name is not a case to keep searching, and a refusal an admin can read beats

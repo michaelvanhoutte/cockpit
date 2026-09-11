@@ -117,7 +117,7 @@ function Refusal() {
   return (
     <p role="alert" className="mt-4 text-sm text-ink-soft">
       {refused === 'unknown-account'
-        ? 'That Google account cannot sign in to this Cockpit. Try another.'
+        ? 'That Google account cannot sign in to this Cockpit. Try again, or try another.'
         : refused === 'access-removed'
           ? 'Your access to this Cockpit was removed. Everything you had is still here; ask an admin to give it back.'
           : 'That did not work. Try signing in again.'}

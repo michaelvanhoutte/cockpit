@@ -249,7 +249,8 @@ export async function admitNewcomer(
   // called one thing must not be a way to stop the next person of that name
   // signing in at all.
   const ids = (await freeIds(env, idsFrom)) ?? (await freeIds(env, identity.email));
-  if (!ids) throw new Error(`no ids are free for ${identity.email}`);
+  // Said without the address: the register logs ids, never who they belong to.
+  if (!ids) throw new Error('no ids are free for somebody signing in for the first time');
   const at = now.toISOString();
 
   try {

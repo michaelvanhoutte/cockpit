@@ -60,14 +60,41 @@ describe('Sign-in', () => {
     });
 
     /**
-     * Cut to what the rename form accepts, so an admin can still edit the row -
-     * and by character rather than by UTF-16 unit, so the cut never leaves half
-     * of one behind.
+     * Cut to what the rename form accepts, so an admin can still edit the row.
+     * That form counts UTF-16 units, so an emoji costs two; and the cut falls
+     * between characters, never leaving half of one behind.
      */
-    it('cuts a very long name to what an admin could have typed', () => {
-      const { name } = newcomerNamed('rita@example.com', '😀'.repeat(NAME_LIMIT + 10));
+    it.each([
+      { situation: 'letters', given: 'a'.repeat(NAME_LIMIT + 10), called: 'a'.repeat(NAME_LIMIT) },
+      {
+        situation: 'emoji, each counted twice',
+        given: '😀'.repeat(NAME_LIMIT),
+        called: '😀'.repeat(NAME_LIMIT / 2),
+      },
+      {
+        situation: 'emoji that would end half-way over the limit',
+        given: `a${'😀'.repeat(NAME_LIMIT)}`,
+        called: `a${'😀'.repeat((NAME_LIMIT - 2) / 2)}`,
+      },
+    ])('cuts a very long name of $situation to what an admin could have typed', ({ given, called }) => {
+      const { name } = newcomerNamed('rita@example.com', given);
 
-      expect(name).toBe('😀'.repeat(NAME_LIMIT));
+      expect(name).toBe(called);
+      expect(name.length).toBeLessThanOrEqual(NAME_LIMIT);
+    });
+  });
+
+  /**
+   * "Guest" derives exactly the guest account's ids, and a person holding them
+   * locks every guest out. Asked of the derivation itself, since both ways
+   * somebody arrives - added, or signing in unadded - come through it.
+   */
+  describe('somebody called Guest never gets the guest account', () => {
+    it('gives them an account of their own beside it', () => {
+      expect(idsForNewUser('Guest', () => false)).toEqual({
+        accountId: 'tenant-guest-2',
+        userId: 'user-guest-2',
+      });
     });
   });
 });

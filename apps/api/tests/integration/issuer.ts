@@ -79,6 +79,8 @@ async function signingKeys(): Promise<CryptoKeyPair> {
  * the real internet with nothing here noticing it had been undone.
  */
 export async function issuerIsReachable(): Promise<void> {
+  // A hold a failed case left armed would stall every exchange after it.
+  gate = null;
   const { publicKey } = await signingKeys();
   const jwks = { keys: [{ ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig' }] };
 

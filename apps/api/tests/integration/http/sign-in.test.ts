@@ -413,6 +413,22 @@ describe('Sign-in', () => {
     });
 
     /**
+     * "Guest" derives the guest account's own ids, and a person holding them
+     * would lock every guest out for good - the guest refuses a row with an
+     * address on it. Anybody with a Google account can arrive under that name
+     * now, before anybody has pressed this, so the ids are never offered.
+     */
+    it('leaves the guest account to guests when somebody called Guest signs in with Google first', async () => {
+      const stranger = await signInAsGoogleAccount({ email: 'guest.person@example.com', name: 'Guest' });
+      expect(stranger.headers.get('location')).toBe('/');
+
+      const back = await continueAsGuest();
+
+      expect(back.headers.get('location')).toBe('/');
+      expect(await whoTheyAre(sessionIn(back)!)).toMatchObject({ id: GUEST_USER_ID });
+    });
+
+    /**
      * The accepted consequence, asserted rather than assumed: guests are not
      * kept apart, and what one files is there for the next one. The account
      * resetting daily is what makes that safe, and is its own piece of work.

@@ -1,5 +1,6 @@
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { Role } from '@cockpit/shared';
+import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../accounts/new-user.js';
 import { admitNewcomer, hasNoAccess } from '../accounts/register.js';
 import { createDb } from '../db/client.js';
 import { sessions, tenants, users } from '../db/schema.js';
@@ -76,7 +77,8 @@ export async function signInWithGoogle(
       return { ...(await startVisit(env, admitted.user, now)), newAccount: admitted.accountId };
     }
   }
-  throw new Error(`signing ${identity.email} in lost a race to write ${READS_BEFORE_GIVING_UP} times`);
+  // Said without the address: the register logs ids, never who they belong to.
+  throw new Error(`a first sign-in lost a race to write ${READS_BEFORE_GIVING_UP} times`);
 }
 
 const READS_BEFORE_GIVING_UP = 3;
@@ -200,17 +202,12 @@ type SigningIn = { id: string; name: string };
 
 /**
  * The one guest account, which everybody who continues as a guest shares
- * ("Sign in as a guest, without a password", issue 354).
- *
- * **Fixed ids rather than a column to look it up by**, the convention
- * `ACCOUNT_WIDE` and `DEFAULT_SCREEN_SIZE_NAME` already follow: there is
- * exactly one of these, so there is nothing to search for and no schema to
- * change. Concurrent guests deliberately land in the same account and see each
- * other's work, which the daily reset that follows this issue is what makes
- * safe.
+ * ("Sign in as a guest, without a password", issue 354). Its ids live with the
+ * derivation that must never hand them to anybody else (`accounts/new-user.ts`).
+ * Concurrent guests deliberately land in the same account and see each other's
+ * work, which the daily reset that follows this issue is what makes safe.
  */
-export const GUEST_ACCOUNT_NAME = 'tenant-guest';
-export const GUEST_USER_ID = 'user-guest';
+export { GUEST_ACCOUNT_NAME, GUEST_USER_ID };
 const GUEST_NAME = 'Guest';
 
 /**
