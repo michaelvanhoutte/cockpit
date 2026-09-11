@@ -15,6 +15,7 @@ import {
   taskTypeIn,
 } from '../seed.js';
 import {
+  issuerAnswersTogether,
   issuerIsForgotten,
   issuerIsReachable,
   issuerWillIdentify,
@@ -173,17 +174,25 @@ describe('Sign-in', () => {
      * register's uniqueness lets one through, and the other must read again
      * rather than fail - which is only decided by a real register, so it is
      * asked here and not at L1.
+     *
+     * The issuer answers both at once, because otherwise they are not at once:
+     * one finished before the other looked, and this passed against code that
+     * never read again at all.
      */
     it('makes one user when two first sign-ins of one address arrive at once', async () => {
       await issuerIsReachable();
       const [one, two] = await Promise.all([startSignIn(), startSignIn()]);
       issuerWillIdentify({ ...NEWCOMER, nonce: one.asked.searchParams.get('nonce')! }, 'code-one');
       issuerWillIdentify({ ...NEWCOMER, nonce: two.asked.searchParams.get('nonce')! }, 'code-two');
+      const together = issuerAnswersTogether(2);
 
-      const [first, second] = await Promise.all([
+      const both = Promise.all([
         comeBack({ code: 'code-one', state: one.asked.searchParams.get('state')! }, one.attempt),
         comeBack({ code: 'code-two', state: two.asked.searchParams.get('state')! }, two.attempt),
       ]);
+      while (!together.allArrived()) await new Promise((resolve) => setTimeout(resolve, 5));
+      together.answer();
+      const [first, second] = await both;
 
       expect([first.headers.get('location'), second.headers.get('location')]).toEqual(['/', '/']);
       expect(await whoTheyAre(sessionIn(first)!)).toMatchObject({ id: NEWCOMER_ID });

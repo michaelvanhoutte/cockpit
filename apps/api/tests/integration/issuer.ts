@@ -47,6 +47,25 @@ let keys: CryptoKeyPair | null = null;
  */
 const answers = new Map<string, Claims | 'refuses'>();
 
+/**
+ * Exchanges held back until a number of them have arrived, then answered at
+ * once - so the sign-ins behind them reach the register at the same instant.
+ *
+ * **Without it two sign-ins "at once" are not at once.** One finishes writing
+ * before the other has looked, and a case about them racing passes against
+ * code with no answer to the race at all - which is what the first version of
+ * that case did.
+ *
+ * **Answered by the test, never by the last exchange to arrive, and arrival
+ * is a count the test polls rather than a promise.** The runtime wakes a
+ * request for a promise another request resolved only once that one is done.
+ * Opened from inside the second sign-in, the first one's answer waited for the
+ * second to finish altogether, so the two still ran one after the other; and a
+ * promise telling the test they had arrived never reached it, because the
+ * sign-in that settled it was waiting on the test.
+ */
+let gate: { expected: number; count: number; opened: Promise<void> } | null = null;
+
 async function signingKeys(): Promise<CryptoKeyPair> {
   keys ??= await generateKeyPair('RS256', { extractable: true });
   return keys;
@@ -79,6 +98,11 @@ export async function issuerIsReachable(): Promise<void> {
     }
     if (url.pathname === '/jwks') return Response.json(jwks);
     if (url.pathname === '/token') {
+      if (gate) {
+        const waiting = gate;
+        waiting.count += 1;
+        await waiting.opened;
+      }
       const code = new URLSearchParams(init?.body as URLSearchParams).get('code') ?? '';
       const asked = answers.get(code);
       // Spent once, as a real code is: what a second exchange of the same code
@@ -101,10 +125,32 @@ export function issuerWillRefuseTheExchange(code = 'a-code'): void {
   answers.set(code, 'refuses');
 }
 
+/**
+ * Holds every exchange until `answer` lets them all through at once, once
+ * `allArrived` says the expected number are waiting.
+ */
+export function issuerAnswersTogether(expected: number): {
+  allArrived: () => boolean;
+  answer: () => void;
+} {
+  let open!: () => void;
+  const opened = new Promise<void>((resolve) => (open = resolve));
+  const waiting = { expected, count: 0, opened };
+  gate = waiting;
+  return {
+    allArrived: () => waiting.count >= waiting.expected,
+    answer: () => {
+      gate = null;
+      open();
+    },
+  };
+}
+
 /** Puts the issuer back out of reach, and forgets what it was going to say. */
 export function issuerIsForgotten(): void {
   vi.unstubAllGlobals();
   answers.clear();
+  gate = null;
 }
 
 export async function identityToken({
