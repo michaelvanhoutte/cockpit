@@ -195,6 +195,11 @@ test.describe('User management', () => {
        */
       await signOutAndIn(page, addressOf(MICHAEL), isMobile);
       await page.goto('/admin');
+      // The row first, then the text: a locator scoped to a row that has not
+      // drawn yet finds no text either, so "not yet" not being there would
+      // pass against a page still loading - which is the one thing this is
+      // meant to prove does not happen (`setAccess`, above).
+      await expect(row).toHaveCount(1);
       await expect(row).not.toContainText('not yet');
     });
 
