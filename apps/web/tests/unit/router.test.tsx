@@ -97,6 +97,7 @@ async function open(
       itemTypes: types,
       screenSizes: [],
       filings: [],
+      routingSummary: null,
       generatedAt: '2026-08-31T10:00:00.000Z',
     };
     // Answered already unless a case asked for it to be held: every other case
@@ -601,6 +602,7 @@ describe('Dashboards', () => {
           itemTypes: [],
     screenSizes: [],
           filings: [],
+          routingSummary: null,
           generatedAt: '2026-08-31T10:00:00.000Z',
         },
         // Older than the fifteen seconds a snapshot stays fresh, which is what
@@ -715,6 +717,7 @@ describe('Sign-in', () => {
         itemTypes: [],
     screenSizes: [],
         filings: [],
+        routingSummary: null,
         generatedAt: '2026-08-31T10:00:00.000Z',
       });
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

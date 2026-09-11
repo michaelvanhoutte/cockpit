@@ -4,10 +4,23 @@ name: CodeQL
 # merge commit on main is a tree that has never been analysed as such.
 #
 # Deliberately no path filters, on this workflow or on claude-code-review.yml.
-# A required status check that is skipped on some pull requests does not report
-# green - it does not report at all, and the pull request waits on it forever.
-# "Skip the analysis on documentation-only changes" and "block every
-# documentation-only pull request" are the same setting.
+# A required status check whose *workflow* never triggers does not report green -
+# it does not report at all, and the pull request waits on it forever. At the
+# trigger level, "skip the analysis on documentation-only changes" and "block
+# every documentation-only pull request" are the same setting.
+#
+# **And no job-level `if:` either**, though "Skip the mechanical checks on a
+# pull request that touches nothing they cover" (issue 345) asked for one and
+# ci.yml's five mechanical jobs took it. Two of this workflow's three required
+# contexts are jobs and would skip safely; the third, `CodeQL`, is posted by
+# GitHub Advanced Security when an analysis uploads its results, and whether it
+# is posted at all when none does is not something this repository has measured.
+# A required context nothing reports under waits forever, so the wrong guess
+# blocks every documentation-only pull request permanently - the exact failure
+# the paragraph above exists to avoid, arrived at by another route. The two legs
+# cost 0.6-3.3 minutes against a `claude-review` on the same pull request that
+# takes 9-15, so skipping them would shorten nothing anybody waits for.
+# deployment.md's "Bootstrap runbook" carries the measurement.
 on:
   push:
     branches: [main]

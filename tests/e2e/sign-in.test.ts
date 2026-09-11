@@ -8,6 +8,7 @@ import {
   inbox,
   itemRow,
   makeWorkspace,
+  pastOnboarding,
   press,
   signIn,
   switchTo,
@@ -85,6 +86,36 @@ test.describe('Sign-in', () => {
 
       await expect(page.getByText(/not one this Cockpit knows/)).toBeVisible();
       await expect(dashboardBar(page)).toHaveCount(0);
+    });
+  });
+
+  /**
+   * The capability's one walk ("Sign in as a guest, without a password", issue
+   * 354): a stranger with no account of their own presses once and is working.
+   * What the register ends up holding - one account however many press it - is
+   * settled far more cheaply at
+   * apps/api/tests/integration/http/sign-in.test.ts and is not re-proved here.
+   */
+  test.describe('you can continue as a guest, with no account of your own', () => {
+    test('goes straight from one press into a workspace', async ({ page, isMobile }) => {
+      await page.goto('/signin');
+
+      await press(page.getByRole('link', { name: 'Continue as guest' }), isMobile);
+
+      // Either landing, waited for as one: the guest account may never have
+      // been opened on before, and the question that asks is the first thing on
+      // screen. (The same wait `signInWithoutSkipping` makes, and for the same
+      // reason - asserting against a page mid-redirect fails saying it could
+      // not find a heading rather than that it never arrived.)
+      await page
+        .getByRole('button', { name: 'Skip' })
+        .or(dashboardBar(page))
+        .first()
+        .waitFor({ state: 'visible' });
+      await pastOnboarding(page, isMobile);
+
+      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await expect(page.getByText('Signed in as Guest')).toBeVisible();
     });
   });
 

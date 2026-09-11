@@ -18,6 +18,14 @@ describe('Sign-in', () => {
       { situation: 'the health check', path: '/health' },
       { situation: 'starting to sign in', path: '/v1/sign-in/google' },
       { situation: 'coming back from Google', path: '/v1/sign-in/google/callback' },
+      {
+        // Where the environment says so - the route itself is what checks
+        // that, since being outside this gate and being refused both have to
+        // look the same to a stranger who has not signed in ("Sign in as a
+        // guest, without a password", issue 354).
+        situation: 'continuing as a guest',
+        path: '/v1/sign-in/guest',
+      },
       // Not because they are open, but because what they answer is "gone", and
       // the browser that needs to hear it is holding no sign-in ("Update
       // instead of failing when a build asks for an address that has been
@@ -63,6 +71,7 @@ describe('Sign-in', () => {
 
     it.each([
       { situation: 'anything hung off signing in', path: '/v1/sign-in/google/x' },
+      { situation: 'anything hung off continuing as a guest', path: '/v1/sign-in/guest/x' },
       {
         // Not a sub-path but a longer name, which a prefix check would let
         // through and an exact one does not.

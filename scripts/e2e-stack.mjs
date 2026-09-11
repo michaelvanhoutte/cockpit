@@ -209,6 +209,13 @@ const api = start(
     'GOOGLE_CLIENT_ID:cockpit-e2e',
     '--var',
     'GOOGLE_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+    // Set, because a walk about continuing as a guest needs the environment to
+    // offer it. That it is *absent* somewhere - which is what refuses the route
+    // on staging - is held one tier down, where taking a variable away is a
+    // line rather than a second stack
+    // (apps/api/tests/integration/http/sign-in.test.ts).
+    '--var',
+    'GUEST_SIGN_IN:true',
     // The address the browser is on, which is Vite's: a sign-in has to come
     // back to the application under test rather than to the Worker behind it.
     '--var',

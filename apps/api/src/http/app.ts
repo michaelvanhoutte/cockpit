@@ -41,7 +41,7 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
-import { enqueueCleanUp } from '../jobs/index.js';
+import { enqueueCleanUp, enqueueRepropose } from '../jobs/index.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -53,6 +53,7 @@ import {
   forgetAttempt,
   forgetSessionCookie,
   gate,
+  heldSessionId,
   rememberAttempt,
   rememberSessionCookie,
   stillSignedIn,
@@ -61,7 +62,7 @@ import {
 } from '../auth/gate.js';
 import { endpointsFor, exchangeCode, issuerFor, keysOf } from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
-import { endSession, signInWithGoogle } from '../auth/register.js';
+import { endSession, signInAsGuest, signInWithGoogle } from '../auth/register.js';
 import { getConnector } from '../connectors/registry.js';
 
 type AppEnv = GatedEnv;
@@ -581,6 +582,37 @@ async function change<N extends CommandName>(
 }
 
 /**
+ * `move_item_to_panel` and `add_item_to_panel`, either of which may settle a
+ * routing - landing an Item on a real Panel for the first time - which is
+ * the moment a refresh of the rest of its Workspace's Inbox is worth firing
+ * ("Re-propose the rest of the inbox the moment you file one", issue 300).
+ *
+ * **Reads `result.settledRouting` rather than asking first, separately,
+ * whether the Item was already filed.** A pre-read would be a second,
+ * independent call answering the same question `command-service.ts` already
+ * decides atomically inside `applyChange` - two calls a concurrent move of
+ * the same Item could land between, so one settle is missed or one
+ * reorganizing move is wrongly read as one. Reading the fact off the one
+ * call that decided it has no such window.
+ *
+ * **`waitUntil`, not `await`**, for the same reason `capture_item` below
+ * enqueues its own job that way: nobody filing an item is waiting on the
+ * rest of the Inbox to be refreshed.
+ */
+async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'add_item_to_panel'>(
+  c: Context<AppEnv>,
+  name: N,
+  payload: CommandPayload<N>,
+): Promise<CommandResult> {
+  const accountName = c.get('visitor').accountName;
+  const result = await change(c, name, payload);
+  if (result.settledRouting) {
+    c.executionCtx.waitUntil(enqueueRepropose(c.env, accountName, payload.workspaceId));
+  }
+  return result;
+}
+
+/**
  * Whether an error raised while streaming changes is worth reporting.
  *
  * A browser closing its tab is how a stream ends, not a failure: the loop is
@@ -836,13 +868,15 @@ const routes = app
     commandRoute('move_item_to_panel', {
       conflict: 'The order sent is not the order of that panel any more',
     }),
-    async (c) => c.json(await change(c, 'move_item_to_panel', c.req.valid('json')), 200),
+    async (c) =>
+      c.json(await changeThatMightSettleARouting(c, 'move_item_to_panel', c.req.valid('json')), 200),
   )
   .openapi(
     commandRoute('add_item_to_panel', {
       conflict: 'The order sent is not the order of that panel any more',
     }),
-    async (c) => c.json(await change(c, 'add_item_to_panel', c.req.valid('json')), 200),
+    async (c) =>
+      c.json(await changeThatMightSettleARouting(c, 'add_item_to_panel', c.req.valid('json')), 200),
   )
   .openapi(commandRoute('remove_item_from_panel'), async (c) =>
     c.json(await change(c, 'remove_item_from_panel', c.req.valid('json')), 200),
@@ -870,6 +904,9 @@ const routes = app
   .openapi(commandRoute('set_title'), async (c) => c.json(await change(c, 'set_title', c.req.valid('json')), 200))
   .openapi(commandRoute('set_description'), async (c) =>
     c.json(await change(c, 'set_description', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('set_routing_summary_correction'), async (c) =>
+    c.json(await change(c, 'set_routing_summary_correction', c.req.valid('json')), 200),
   )
   // --- signing in: two navigations, not two requests -------------------------
   /**
@@ -951,6 +988,48 @@ const routes = app
       return c.redirect('/', 302);
     } catch (error) {
       return refuse(c, 'the sign-in could not be finished', error);
+    }
+  })
+  /**
+   * The way in that asks nobody anything: one press, into the one guest account
+   * everybody shares ("Sign in as a guest, without a password", issue 354).
+   *
+   * A navigation like the two above rather than a request, for the same reason:
+   * it ends somewhere else, and the browser already knows how to follow a link.
+   * That is also its exposure - a plain `GET` a cross-site page can send
+   * somebody to without their doing anything - so a browser already holding a
+   * live sign-in is sent straight to `/` untouched rather than having its
+   * cookie replaced: the one thing this must never do is quietly move a real
+   * person into the account every stranger reads. **Asked first, before
+   * anything about the environment**, so a signed-in visitor on a deployment
+   * that does not offer guest sign-in is sent home the same way rather than
+   * refused and left wondering whether they are still signed in at all.
+   *
+   * **Offered only where the environment says so**, which is production
+   * (wrangler.jsonc). The control is in one built SPA that both deployments
+   * serve, so this is the only place the two can be told apart - and an
+   * environment that does not offer it answers a direct request exactly as it
+   * answers the control being pressed.
+   *
+   * Refused in the same words as everything else that will not be completed:
+   * there is nothing a visitor can do about a way in this deployment does not
+   * have, so the reason goes to the log and the page says the sign-in failed.
+   * That covers a failure reading the existing cookie too, which is why the
+   * check above is inside the same `try` rather than ahead of it.
+   */
+  .get('/v1/sign-in/guest', async (c) => {
+    try {
+      const held = heldSessionId(c);
+      if (held && (await stillSignedIn(c.env, held))) return c.redirect('/', 302);
+
+      if (c.env.GUEST_SIGN_IN !== 'true') return refuse(c, 'this environment offers no guest sign-in');
+
+      const signedIn = await signInAsGuest(c.env, new Date());
+      if (!signedIn.signedIn) return refuse(c, 'the guest account is not available');
+      rememberSessionCookie(c, signedIn.sessionId);
+      return c.redirect('/', 302);
+    } catch (error) {
+      return refuse(c, 'the guest sign-in could not be finished', error);
     }
   })
   // --- push invalidation: an SSE doorbell, not a data channel ----------------

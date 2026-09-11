@@ -57,6 +57,7 @@ import {
 import {
   decisionHistoryForWorkspace,
   getItem,
+  getRoutingSummary,
   getWorkspace,
   listAssociationsForWorkspace,
   listItemTypes,
@@ -68,6 +69,7 @@ import {
   listPanelsInWorkspace,
   listWorkspaces,
   recentlyCapturedUnfiled,
+  unfiledItemsInWorkspace,
 } from './repo.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
@@ -125,6 +127,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
         itemTypes: listItemTypes(db, accountName),
         screenSizes: listScreenSizes(db, accountName),
+        routingSummary: getRoutingSummary(db, accountName, workspaceId),
       };
     });
   }
@@ -163,18 +166,47 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   /**
    * What a routing proposal reads beside the note itself, in one round trip
    * ("Learn where notes belong from where you actually file them", issue
-   * 299): the account's whole decision history for one workspace, and what
-   * else it has captured lately and not yet filed.
+   * 299): the account's whole decision history for one workspace, what else
+   * it has captured lately and not yet filed, and the Workspace's own live
+   * correction of what the system otherwise learned ("Show what the system
+   * learned, in a sentence you can correct", issue 301, "the correction is
+   * an input to the proposals like anything else") - null where none has
+   * been written.
    */
   routingContext(
     accountName: string,
     workspaceId: string,
     excludeItemId: string,
-  ): Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }> {
+  ): Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }> {
     return this.#answer(accountName, (db) => ({
       history: decisionHistoryForWorkspace(db, accountName, workspaceId),
       recentlyCaptured: recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
+      correction: getRoutingSummary(db, accountName, workspaceId)?.correction ?? null,
     }));
+  }
+
+  /**
+   * One Workspace's whole decision history alone, oldest first - what the
+   * nightly summary job reads ("Show what the system learned, in a sentence
+   * you can correct", issue 301). Bare, unlike `routingContext` beside it:
+   * that job has no note of its own to exclude and reads neither recent
+   * captures nor the correction (`ai/prompts/summarize-filing-patterns.v1.ts`
+   * reads only the history).
+   */
+  decisionHistory(accountName: string, workspaceId: string): Answer<DecisionHistoryEntry[]> {
+    return this.#answer(accountName, (db) => decisionHistoryForWorkspace(db, accountName, workspaceId));
+  }
+
+  /**
+   * Every item in one Workspace's Inbox with a captured note - the rest of
+   * the inbox a settled filing re-proposes ("Re-propose the rest of the
+   * inbox the moment you file one", issue 300).
+   */
+  unfiledItemsInWorkspace(
+    accountName: string,
+    workspaceId: string,
+  ): Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]> {
+    return this.#answer(accountName, (db) => unfiledItemsInWorkspace(db, accountName, workspaceId));
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

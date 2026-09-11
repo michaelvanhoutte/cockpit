@@ -16,6 +16,7 @@ import {
   panelTextSchema,
   rowInputSchema,
 } from './domain/panel.js';
+import { routingSummaryCorrectionSchema } from './domain/routing-summary.js';
 import { MAX_SCREEN_WIDTH, MIN_SCREEN_WIDTH, screenSizeNameSchema } from './domain/screen-size.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
@@ -364,6 +365,35 @@ export const setDescriptionSchema = commandEnvelopeSchema.extend({
 export type SetDescriptionCommand = z.infer<typeof setDescriptionSchema>;
 
 /**
+ * set_routing_summary_correction — the whole correction sentence for one
+ * Workspace's filing-pattern summary, as it now reads ("Show what the system
+ * learned, in a sentence you can correct", issue 301). The empty string
+ * clears it, the same idiom `set_description`'s `null` uses for "nothing
+ * here" — empty rather than null because this field has no third state to
+ * spend null on (`domain/routing-summary.ts`).
+ */
+export const setRoutingSummaryCorrectionSchema = commandEnvelopeSchema.extend({
+  correction: routingSummaryCorrectionSchema,
+});
+export type SetRoutingSummaryCorrectionCommand = z.infer<typeof setRoutingSummaryCorrectionSchema>;
+
+/**
+ * write_routing_summary — the plain-English summary a nightly job wrote for
+ * one Workspace's filing patterns, sent by that job rather than a client
+ * ("Show what the system learned, in a sentence you can correct", issue 301;
+ * architecture.md §4.4, "two commands carry no client and no route" — this is
+ * a third). Only ever written where the job found decision history to
+ * summarize and a usable answer came back; the job simply does not call this
+ * otherwise, the same as `propose_item_texts`/`propose_item_panel` beside it.
+ * Never touches `correction` — the two are independently owned
+ * (`domain/routing-summary.ts`).
+ */
+export const writeRoutingSummarySchema = commandEnvelopeSchema.extend({
+  summary: z.string().trim().min(1),
+});
+export type WriteRoutingSummaryCommand = z.infer<typeof writeRoutingSummarySchema>;
+
+/**
  * propose_item_texts — one command for both texts, sent by the enrichment job
  * rather than a client ("Clean up a captured note into a clear title and a
  * fuller message", issue 296; architecture.md §4.4, "two commands carry no
@@ -384,12 +414,26 @@ export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
  * propose_item_panel — the Panel Cockpit thinks a captured note belongs on,
  * offered rather than filed ("Propose where a captured note belongs, without
  * filing it there", issue 298; architecture.md §4.4).
+ *
+ * `panelId: null` withdraws an earlier proposal rather than naming a new one
+ * - a routing may be replaced by the system at any time
+ * (`docs/routing-learning.md`, "The rule"), and a settled filing's refresh of
+ * the rest of its Workspace's Inbox ("Re-propose the rest of the inbox the
+ * moment you file one", issue 300) can conclude that a Panel it once
+ * proposed no longer fits, which is a replacement with nothing rather than
+ * with something else. `reason` is empty exactly when `panelId` is, the same
+ * idiom the AI layer's own schema uses for "none".
  */
-export const proposeItemPanelSchema = commandEnvelopeSchema.extend({
-  itemId: z.uuid(),
-  panelId: z.uuid(),
-  reason: z.string().trim().min(1),
-});
+export const proposeItemPanelSchema = commandEnvelopeSchema
+  .extend({
+    itemId: z.uuid(),
+    panelId: z.uuid().nullable(),
+    reason: z.string().trim(),
+  })
+  .refine((cmd) => (cmd.panelId === null ? cmd.reason === '' : cmd.reason.length > 0), {
+    message: 'a reason is required when naming a Panel, and empty when withdrawing the proposal',
+    path: ['reason'],
+  });
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
 /**
@@ -433,6 +477,8 @@ export const commandSchemas = {
   set_priority: setPrioritySchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
+  set_routing_summary_correction: setRoutingSummaryCorrectionSchema,
+  write_routing_summary: writeRoutingSummarySchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
 } as const;
@@ -445,14 +491,30 @@ export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchem
  * the ones with no endpoint and no sender (architecture.md §4.4, "two commands
  * carry no client and no route").
  */
-export type SelfSentCommandName = 'propose_item_texts' | 'propose_item_panel';
+export type SelfSentCommandName =
+  | 'propose_item_texts'
+  | 'propose_item_panel'
+  | 'write_routing_summary';
 
 /** The commands a client sends, which is every command with an endpoint. */
 export type ClientCommandName = Exclude<CommandName, SelfSentCommandName>;
 
-/** What every command endpoint returns. `applied: false` = idempotent replay. */
+/**
+ * What every command endpoint returns. `applied: false` = idempotent replay.
+ *
+ * `settledRouting` is `true` only for `move_item_to_panel`/`add_item_to_panel`,
+ * and only where the write landed an Item on a real Panel for the first time
+ * - the same fact `command-service.ts` computes once, atomically, to decide
+ * whether to write `decisionHistory` ("Learn where notes belong from where
+ * you actually file them", issue 299), surfaced here so a caller that needs
+ * to know can read it off this one call rather than asking again, separately
+ * and racily, before it ("Re-propose the rest of the inbox the moment you
+ * file one", issue 300). Absent, not `false`, everywhere else - every other
+ * command answers `applied` alone, exactly as before this existed.
+ */
 export const commandResultSchema = z.object({
   ok: z.literal(true),
   applied: z.boolean(),
+  settledRouting: z.boolean().optional(),
 });
 export type CommandResult = z.infer<typeof commandResultSchema>;

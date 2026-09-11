@@ -40,6 +40,105 @@ permissions:
   contents: read
 
 jobs:
+  # Whether this diff touches anything the five mechanical jobs below cover.
+  # Each of them skips when it does not, and a skipped job satisfies a required
+  # status check (docs/deployment.md, "Bootstrap runbook"), so every context
+  # still reports — which a workflow-level `paths:` filter would not, and is why
+  # codeql.yml's own comment rules that out ("Skip the mechanical checks on a
+  # pull request that touches nothing they cover", issue 345). CodeQL is not
+  # gated on this at all; codeql.yml says why.
+  #
+  # The decision is scripts/lib/what-changed.mjs, asserted by node --test in the
+  # `Scripts` job: `docs/`, `.claude/` and root-level `*.md` are the only paths
+  # that skip, and anything else runs everything.
+  #
+  # `Concepts` and `Stability` carry no gate of their own either, left that way
+  # rather than decided: whether the reporting pipeline should skip too was
+  # out of scope there. One consequence follows
+  # from `Test Explorer` needing `Test` regardless: on a documentation-only
+  # push to `main`, `Test Explorer` (and `Publish` behind it) skips for free,
+  # while `Stability` — ungated, unrelated to `Test` — still runs and spends
+  # part of its rate-limited Actions-API budget on a report `Publish` will not
+  # deploy. Narrow and self-correcting on the next code merge, not fixed here.
+  #
+  # This closes one gap in what a pull request's own head can influence — the
+  # classifier's decision — and not the wider one: `pull_request` still builds
+  # this very workflow file from the merge ref, so a branch with write access
+  # could edit `changes` itself, or drop `needs: changes` from a job below, and
+  # get the same five skips this guards against. Pinning the classifier closes
+  # the quiet route; it was never going to close the loud one, which every
+  # workflow file in this repository already trusts required checks over.
+  #
+  # Checkout-only and no install, for the reason `scripts` gives, so it costs
+  # the jobs that wait on it seconds rather than a minute. `fetch-depth: 0`
+  # because the range it diffs reaches back to the base commit, and the whole
+  # history is 8MB packed.
+  #
+  # **Both steps are `continue-on-error`**, so any failure inside either one
+  # leaves `product_changed` unwritten and the gate's `!= 'false'` runs
+  # everything - the dangerous direction is a skip nobody meant, since `needs`
+  # on a failed job skips the lot and a skip is what a required check accepts.
+  #
+  # That does not make the *job* unable to fail: "Set up job", the platform
+  # phase ahead of either step, answers to neither `continue-on-error`, and a
+  # runner that never starts reports this job `failure` with nothing of ours
+  # having run. The five gates below read `!cancelled()` for it, the same
+  # reason `pages` already does further down this file: GitHub's own
+  # expressions reference names it as the recommended way to run a job
+  # regardless of an upstream failure, and its cancellation reference says a
+  # job whose re-evaluated condition is still true is not itself cancelled -
+  # `!failure()` was tried first and is not this: `failure()` is true on
+  # exactly the case `success()` already tests for a `needs`-only job, so it
+  # changes nothing about the case it was meant to fix.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      product_changed: ${{ steps.classify.outputs.product_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+      - name: Work out whether this diff touches the product
+        id: classify
+        continue-on-error: true
+        env:
+          # Into the environment rather than into the script text, which is the
+          # shape CodeQL's `actions` leg asks for.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # **The classifier runs from the base commit, never from this branch.**
+          # `pull_request` builds the merge ref, so the copy in the tree is the
+          # one the pull request's author wrote — and a branch left to run its
+          # own classifier could answer "documentation only" about its own
+          # payload and skip every check that would have read it. `git diff`
+          # still runs in this checkout, so the diff is this branch's; only the
+          # judgement passing on it is `main`'s.
+          #
+          # A push to `main` has no base sha and needs none: what is in the tree
+          # there arrived by a reviewed squash merge, so running the checkout's
+          # own copy here is running `main`'s own, not a pull request's.
+          if [ -z "$BASE_SHA" ]; then
+            node scripts/what-changed.mjs
+            exit 0
+          fi
+          base="$RUNNER_TEMP/base-classifier"
+          mkdir -p "$base/lib"
+          if git show "$BASE_SHA:scripts/what-changed.mjs" > "$base/what-changed.mjs" &&
+             git show "$BASE_SHA:scripts/lib/what-changed.mjs" > "$base/lib/what-changed.mjs"; then
+            node "$base/what-changed.mjs"
+          else
+            # True of the pull request that introduced the classifier, and of
+            # nothing after it - or of `scripts/what-changed.mjs`'s own shape
+            # having moved since. Either way, falling back to *this branch's
+            # own copy* would be exactly the hole the base-commit extraction
+            # above exists to close, so this fails open instead: no classifier
+            # runs, and the mechanical jobs do.
+            echo "::warning::The base commit carries no classifier, so every check runs rather than trusting this branch's own."
+            echo "product_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # Architecture §9.1 asks for the fast test tiers split one job per tier, so a
   # misplaced test is visible. Today Cockpit is one service with one test file,
   # and testing-strategy §2 is explicit that levels are roles rather than
@@ -48,6 +147,10 @@ jobs:
   # The per-tier split lands with the tiers.
   typecheck:
     name: Typecheck
+    # Skipped on a documentation-only diff, and run on anything `changes` could
+    # not read — see there.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +170,9 @@ jobs:
   # for as long as nothing happens to break.
   lint:
     name: Lint
+    # Documentation-only diffs skip this; see the `changes` job.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,13 +180,54 @@ jobs:
       - run: pnpm lint
       - run: pnpm test:lint
 
+  # On a pull request this runs only the tests that depend on what changed
+  # since the merge-base with `main` (scripts/ci-test.mjs, scripts/lib/test-selection.mjs,
+  # scripts/lib/workspace.mjs) - the point being proved is that affected-selection scales as the suite
+  # grows, not that any one run is faster today ("Run only the affected tests
+  # in CI's Test job on a pull request", issue 346).
+  #
+  # testing-strategy.md's "Definition of done for agents" section (§6) requires
+  # the fast tiers in full, with no selection - unaffected by this, since that
+  # rule is about what an agent runs *locally* before claiming a change works
+  # (`pnpm test`, untouched here) and is backstopped by CI regardless of what
+  # was run by hand. That backstop is this job, and it still has to actually
+  # run everything at some point rather than trust a diff - which is why a push
+  # to `main` runs every package in full unconditionally: it is the actual gate
+  # before staging, and a diff computed there against its own squash-merge
+  # parent would just reproduce the same small set the pull request already ran.
+  #
+  # fetch-depth: 0 is what makes the merge-base computable at all - see
+  # ci-test.mjs's own comment for why no other ref is needed.
+  #
+  # Instrumented (`test:coverage`, not plain `test`) even when selective, so the
+  # suite still runs once for both the gate and `test-explorer`'s coverage
+  # columns rather than once here and again there ("Run the suite once in CI,
+  # not once to gate and once to measure", issue 289) - a selective pull
+  # request run therefore uploads real coverage for what it actually ran and
+  # "unknown" for what it didn't, same as `test-explorer` already renders any
+  # file no test reaches at all. Uploaded because Actions jobs share no
+  # filesystem - this artifact is the explicit hop `test-explorer` downloads
+  # instead of re-running the suite.
   test:
     name: Test
+    # Documentation-only diffs skip this; see the `changes` job.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
-      - run: pnpm test
+      - run: node scripts/ci-test.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            apps/*/coverage/coverage-final.json
+            packages/*/coverage/coverage-final.json
+            packages/connectors/*/coverage/coverage-final.json
+            tools/*/coverage/coverage-final.json
 
   # F3, the browser tier. Its own job rather than part of `Test`, because it is
   # the one tier that boots the whole application (wrangler + local D1 + Vite)
@@ -99,6 +246,10 @@ jobs:
   # in "Deferred, with reasons" (docs/deployment.md).
   e2e:
     name: E2E (F3)
+    # Documentation-only diffs skip this; see the `changes` job. The 7.7 minutes
+    # this tier costs is most of that job's argument.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -139,6 +290,9 @@ jobs:
 
   build:
     name: Build
+    # Documentation-only diffs skip this; see the `changes` job.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -151,6 +305,12 @@ jobs:
       # have to build again to see it.
       - run: pnpm bundle:budget
 
+  # **Ungated, though the issue behind the gate above listed it with the rest.**
+  # Its last test reads the repository's Markdown — the writing rules of
+  # CLAUDE.md — so it is the only check with anything to say about the very paths
+  # the others skip on, and skipping it would take the prose gate off exactly the
+  # pull requests it exists for. It is checkout-only and takes seconds, so gating
+  # it would save nothing worth that hole.
   scripts:
     name: Scripts
     runs-on: ubuntu-latest
@@ -166,34 +326,69 @@ jobs:
       # times. The last two are here because they read source text rather than
       # running anything, so no other tier can check them and this job can: the
       # walks' conventions, and the writing rules of CLAUDE.md that a script can
-      # decide, which were costing a review round each.
+      # decide, which were costing a review round each. The classifier the
+      # `changes` job above runs is asserted here too, which is why a mistake in
+      # it cannot skip its own test.
       # No install step: these tests use only node:test and the standard
       # library, so this job stays checkout-only and finishes in seconds.
-      - name: Verify the dev, test-stack, health-check and review-gate scripts, the walks' conventions and the writing rules
+      - name: Verify the dev, test-stack, health-check, review-gate and what-changed scripts, the walks' conventions and the writing rules
         run: node --test scripts/lib/*.test.mjs
 
-  # Publishes which product concepts own which tests: as a downloadable
-  # artifact on every run, and — from `main` only — as the page the `pages` job
-  # below deploys. Does not gate: docs/test-explorer-spec.md's "CLI, scripts,
-  # CI" (§8) deliberately stops short of failing the build on the report's
-  # content, only on concepts.json drift (a source file the registry can't
-  # place).
-  test-explorer:
-    name: Test Explorer
+  # The cheap third of the report pipeline: fails on a feature area a test declares
+  # that concepts.json does not register, the only one of the three checks here that
+  # fails for a reason somebody has to fix. Its own job with no `needs`, so it stays
+  # fast and independent rather than waiting on `test`'s instrumented run — nothing
+  # about it requires coverage ("Run the suite once in CI, not once to gate and once
+  # to measure", issue 289).
+  test-explorer-check:
+    name: Concepts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - run: pnpm test:explorer:check
-      # Runs the suite a second time, instrumented (apps/api uses the
-      # istanbul provider, not v8 — the Workers runtime has no
-      # node:inspector Session API for v8 to attach to; see
-      # apps/api/vitest.config.ts), so "branches nothing takes" reports real
-      # data instead of "unknown". A second full run rather than reusing the
-      # `test` job's is the cost of that: coverage instrumentation is not
-      # free, and Actions jobs don't share a filesystem without an explicit
-      # artifact hop, which running it again here avoids needing.
-      - run: pnpm test:coverage
+
+  # Publishes which product concepts own which tests: as a downloadable
+  # artifact on every run, and — from `main` only — as the page the `pages` job
+  # below deploys. Does not gate: docs/test-explorer-spec.md's "CLI, scripts,
+  # CI" (§8) deliberately stops short of failing the build on the report's
+  # content, only on concepts.json drift, which `test-explorer-check` guards.
+  #
+  # `needs: [test, test-explorer-check]` rather than running either itself: the
+  # coverage this job renders as "branches nothing takes" is `test`'s own
+  # instrumented run, downloaded as an artifact instead of collected again, and
+  # a red suite or a registry drift already kills the report the way it always
+  # has — this job simply never starts. On a documentation-only diff `test` is
+  # skipped rather than failed, and a skipped dependency is not a successful
+  # one, so this job (and `pages` behind it) is skipped too, by the same
+  # `needs` chain rather than a gate of its own — the second thing this
+  # regains, along with the artifact hop, that a stale rewrite of this file
+  # once dropped ("Skip the mechanical checks on a pull request that touches
+  # nothing they cover", issue 345).
+  test-explorer:
+    name: Test Explorer
+    needs: [test, test-explorer-check]
+    runs-on: ubuntu-latest
+    # download-artifact reads this run's own artifacts through the Actions API,
+    # which the workflow-level block withholds by default — the same reason
+    # `pages` below declares it.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Download the coverage `test` already collected
+        uses: actions/download-artifact@v4
+        # Missing rather than failed: if `test:coverage` ran but somehow wrote
+        # no `coverage-final.json` anywhere, `test` still succeeded and no
+        # artifact exists to download. Continuing without it degrades the
+        # report to "unknown" coverage columns — tools/test-explorer's own
+        # designed fallback — rather than failing this advisory job outright.
+        continue-on-error: true
+        with:
+          name: coverage-reports
+          path: .
       - run: pnpm test:explorer
       # Kept on every branch, and not replaced by the published page: it is how
       # a pull request's own report gets read, and the fallback when a deploy
@@ -208,9 +403,10 @@ jobs:
   # red, and the recent failures linked to the step they died on ("See how
   # reliable each CI job on main is, without counting runs by hand", issue 244).
   #
-  # Its own job rather than a step of `test-explorer`, which runs the
-  # instrumented suite: a suite failure there would take down the page whose
-  # purpose is reporting suite failures, at the one moment it is worth reading.
+  # Its own job rather than a step of `test-explorer`, which now needs `test`'s
+  # instrumented run and is skipped whenever it fails: folding this in would take
+  # down the page whose purpose is reporting suite failures, at the one moment it
+  # is worth reading.
   #
   # No install step, for the reason `scripts` gives — it reads the API with the
   # standard library and has no dependencies to fetch.

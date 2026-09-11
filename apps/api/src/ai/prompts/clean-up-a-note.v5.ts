@@ -2,60 +2,27 @@ import { TITLE_LENGTH } from '@cockpit/shared';
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 4. `v3`
- * ("Propose where a captured note belongs, without filing it there", issue
- * 298) asked the same call to also name a Panel; this version does not change
- * what is asked for - `schema` is untouched - but changes what the call reads
- * before answering: the account's own decision history, and what else has
- * been captured lately and not yet filed ("Learn where notes belong from
- * where you actually file them", issue 299). A prompt is a versioned file
- * reviewed like code (architecture, "AI layer"), and this much of the system
- * prompt changing, plus a third and fourth parameter this call is not shaped
- * like before, earns the next version rather than an edit.
+ * What Cockpit asks Claude for when a note has been captured, version 5. `v4`
+ * ("Learn where notes belong from where you actually file them", issue 299)
+ * added the decision history and recent captures; this version adds one more
+ * read, a Workspace's own correction of what the nightly summary said it
+ * learned ("Show what the system learned, in a sentence you can correct",
+ * issue 301) - "the correction is an input to the proposals like anything
+ * else". Nothing about what is asked for changes; `schema` is untouched.
  *
- * **A function now, not a plain object.** Every version before this one was
- * the same call for every account, so it could be a constant; a routing
- * proposal cannot be, because the Panels it chooses among are that account's
- * own and change from one call to the next. `buildCleanUpANote` is called
- * once per note, with the Panels the Item's Workspace holds at that moment.
- *
- * **`panelId` is constrained to the ids handed in, by the schema itself, not
- * only by the prompt asking nicely.** `enum` on the field is what makes the
- * model structurally unable to answer with an id it was not given - belt and
- * suspenders, because `command-service.ts` checks again at the moment it
- * would write, which is what also catches a Panel deleted in the window
- * between building this call and its answer landing ("Never trust a panel id
- * back", issue 298).
- *
- * **The empty string is "none", the same idiom `readings` uses for "none
- * found".** A schema field that only accepts a real id would make "nothing
- * fits" impossible to say rather than the common, welcome answer it is
- * ("Proposing nothing is a real answer and often the right one", issue 298) -
- * so it is asked for exactly as directly as everything else here, an answer
- * every note gets rather than a value that can be left out.
- *
- * **The four worked examples below stay exactly as `v2` wrote them, panel
- * left empty.** None of the Panels they would be measured against exist
- * outside a real account, so inventing one for a canned example would teach
- * the model to expect a Panel of that name rather than to read the ones it is
- * actually given. The fifth is new, and is the one place this file shows what
- * naming a Panel looks like - the first note once more, with one Panel now on
- * offer, worked out for `panel` alone: its language, title and message would
- * say nothing a second time that the first example didn't already.
- *
- * **`history` and `recentlyCaptured` are rendered as prose sections, not as
- * more worked examples.** A worked example is answered whole, so it teaches
- * the shape of a correct *answer*; history and recent captures are read
- * material the model reasons over before answering, the same as the Panel
- * list above them - not something a fixed example could stand in for without
- * being wrong for every account that is not the one it was written about.
+ * `correction` is `string | null` rather than defaulting to an empty string:
+ * null is "nothing has ever been written here", a fact worth rendering
+ * differently from an empty section, the same way `history` and
+ * `recentlyCaptured` each render their own "nothing yet" line rather than an
+ * empty one.
  */
 export function buildCleanUpANote(
   panels: readonly { id: string; name: string }[],
   history: readonly DecisionHistoryEntry[],
   recentlyCaptured: readonly string[],
+  correction: string | null,
 ): {
-  version: 'v4';
+  version: 'v5';
   model: string;
   effort: 'low';
   system: string;
@@ -67,12 +34,13 @@ export function buildCleanUpANote(
       : '(this account has no panels yet)';
 
   return {
-    version: 'v4',
+    version: 'v5',
 
     /**
-     * Unchanged from `v3`: nothing about reading more before answering
-     * changes what the model has to be to answer the rest of this well, and
-     * the contract tests are what would notice if that stopped being true.
+     * Unchanged from `v4`: nothing about reading one more thing before
+     * answering changes what the model has to be to answer the rest of this
+     * well, and the contract tests are what would notice if that stopped
+     * being true.
      */
     model: 'claude-opus-5',
     effort: 'low',
@@ -109,6 +77,8 @@ ${panelList}
 You are also given this account's own decision history: every note filed so far, oldest first, with what you proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for weeks and a habit from a year ago can still hold. Where an entry shows you proposed one panel and they filed it on another, that correction outweighs an entry where they simply accepted what you proposed - it names a wrong answer as well as a right one, so read it as the stronger signal.
 
 ${renderHistory(history)}
+
+${renderCorrection(correction)}
 
 You are also given what else has been captured in this workspace recently and not yet filed - separate from the history above, because none of it has been decided yet. It is still evidence: what somebody is writing notes about right now, before any of it has a destination. Weigh it alongside the history, never above it - an actual past decision is a stronger signal than a guess at a pattern in still-unfiled notes.
 
@@ -152,13 +122,9 @@ Note: part 11 audit trail q for validation protocol, who signs off eod
 panel: Compliance questions, because it's a compliance question - Part 11 and the validation protocol`,
 
     /**
-     * The shape the answer is constrained to. `panel` is last, after the two
-     * texts and the readings, because nothing about naming a destination needs
-     * to be committed to before either text is - unlike `language`, which has
-     * to come first for the reason `v1`'s own note gives.
-     *
-     * Unchanged from `v3`: history and recent captures are read material, not
-     * something the answer reports back, so nothing here names either.
+     * Unchanged from `v4`: history, the correction and recent captures are
+     * read material, not something the answer reports back, so nothing here
+     * names any of them.
      */
     schema: {
       type: 'object',
@@ -231,17 +197,7 @@ panel: Compliance questions, because it's a compliance question - Part 11 and th
 }
 
 /**
- * The decision-history section, or a line saying there is none yet - every
- * account's first note ever proposed for reads this, and there is nothing to
- * read back at it.
- *
- * One line per entry, oldest first, each dated ("Learn where notes belong
- * from where you actually file them", issue 299: recency is made legible
- * rather than enforced by a window, since a fixed cutoff cannot tell a
- * project that has gone quiet from one that never existed): the date, the
- * note, and either that it was accepted, that nothing was proposed, or - the
- * stronger signal - both what was proposed and what was chosen where the two
- * differ.
+ * Unchanged from `v4`'s own `renderHistory`.
  */
 function renderHistory(history: readonly DecisionHistoryEntry[]): string {
   if (history.length === 0) return 'Decision history: (nothing filed yet)';
@@ -249,9 +205,6 @@ function renderHistory(history: readonly DecisionHistoryEntry[]): string {
   const lines = history.map((entry) => {
     const date = entry.decidedAt.slice(0, 10);
     const note = entry.capturedMessage ?? entry.itemTitle;
-    // Compared by id, never by name: two Panels of one Workspace can share a
-    // display name, and comparing names would misread an override as an
-    // accept the moment they do.
     const outcome =
       entry.proposedPanelId === null
         ? `filed on ${entry.chosenPanelName} (nothing was proposed)`
@@ -265,9 +218,26 @@ function renderHistory(history: readonly DecisionHistoryEntry[]): string {
 }
 
 /**
- * The recently-captured section, or a line saying there is none - most Inbox
- * refreshes have nothing else waiting, and that is the common, unremarkable
- * case rather than a gap in the read.
+ * The correction section, or a line saying none has been written - most
+ * Workspaces have none yet, either because nobody has corrected the nightly
+ * summary or because there is no summary yet to correct ("Show what the
+ * system learned, in a sentence you can correct", issue 301).
+ *
+ * **Framed as outranking the history above it, not merely joining it.** A
+ * correction is a person overriding what the system inferred on its own, in
+ * their own words, which is a stronger and more direct signal than any
+ * pattern read out of the history - the same reason an override entry in the
+ * history itself outranks an accept.
+ */
+function renderCorrection(correction: string | null): string {
+  if (correction === null) {
+    return 'This person has not written a correction to what Cockpit has learned.';
+  }
+  return `This person has written the following correction to what Cockpit has learned about their filing patterns - treat it as the most direct signal available, ahead of any pattern read out of the history above: "${correction}"`;
+}
+
+/**
+ * Unchanged from `v4`'s own `renderRecentlyCaptured`.
  */
 function renderRecentlyCaptured(recentlyCaptured: readonly string[]): string {
   if (recentlyCaptured.length === 0) {

@@ -15,6 +15,7 @@ import {
   panelPlacements,
   panels,
   screenSizes,
+  workspaceRoutingSummary,
   workspaces,
 } from './schema.js';
 import {
@@ -499,6 +500,14 @@ export function runCommand<N extends CommandName>(
   };
 
   let applied = true;
+  // Set only by `move_item_to_panel`/`add_item_to_panel`, and only on the
+  // same `!alreadyFiled` branch that writes `decisionHistory` - the one
+  // signal the HTTP layer needs to know a routing genuinely settled just
+  // now, read off this atomic call rather than by asking `isItemFiled`
+  // again itself, before and separately from it, and racing whatever moves
+  // the same Item in between ("Re-propose the rest of the inbox the moment
+  // you file one", issue 300).
+  let settledRouting = false;
 
   switch (name) {
     case 'create_workspace': {
@@ -1369,6 +1378,7 @@ export function runCommand<N extends CommandName>(
           // write, so its `proposedPanelId`/`proposedPanelReason` are exactly
           // what the Inbox chip showed for this, its one settling filing.
           if (!alreadyFiled) {
+            settledRouting = true;
             tx.insert(decisionHistory)
               .values(decisionHistoryEntryFor(item, cmd, panel.id))
               .onConflictDoNothing()
@@ -1435,6 +1445,7 @@ export function runCommand<N extends CommandName>(
           tx.insert(panelItems).values(batch).run();
         }
         if (!alreadyFiled) {
+          settledRouting = true;
           tx.insert(decisionHistory)
             .values(decisionHistoryEntryFor(item, cmd, panel.id))
             .onConflictDoNothing()
@@ -1643,11 +1654,16 @@ export function runCommand<N extends CommandName>(
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
       if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
 
-      const panel = liveDestinationPanel(db, tenantId, existing.workspaceId, cmd.panelId);
+      // A withdrawal names no Panel to look up - `null` is the answer itself,
+      // not something to resolve ("Re-propose the rest of the inbox the
+      // moment you file one", issue 300).
+      const panel = cmd.panelId ? liveDestinationPanel(db, tenantId, existing.workspaceId, cmd.panelId) : null;
       // Settling a routing is filing it, so an Item already on some Panel has
       // already answered the question this proposes - by hand, or by taking an
-      // earlier proposal - and there is nothing left to overwrite.
-      const usable = panel !== null && !isItemFiled(db, tenantId, cmd.itemId);
+      // earlier proposal - and there is nothing left to overwrite, a
+      // withdrawal included: it too would misattribute a live filing to a
+      // decision that already happened.
+      const usable = (cmd.panelId === null || panel !== null) && !isItemFiled(db, tenantId, cmd.itemId);
 
       if (!usable) {
         // Discarded, not refused: nothing a queued job sent is a mistake worth
@@ -1666,6 +1682,71 @@ export function runCommand<N extends CommandName>(
           tx.insert(commands).values(commandRow).run();
         });
       }
+      break;
+    }
+    case 'set_routing_summary_correction': {
+      const cmd = payload as CommandPayload<'set_routing_summary_correction'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      // The empty string is what clears it - there is no third state between
+      // "never set" and "set to nothing" (`domain/routing-summary.ts`).
+      const correction = cmd.correction === '' ? null : cmd.correction;
+      db.transaction((tx) => {
+        // Upserted, because the row may not exist yet - a Workspace with no
+        // decision history summarized and no correction ever written, which
+        // is every Workspace's starting condition (`schema.ts`'s own comment
+        // on `workspaceRoutingSummary`). Only the correction's own two
+        // columns are ever written here; `summary`/`summary_generated_at`
+        // stay whatever the nightly job last wrote, or null.
+        tx.insert(workspaceRoutingSummary)
+          .values({
+            workspaceId: cmd.workspaceId,
+            tenantId,
+            correction,
+            // Null exactly when the correction is, never a timestamp beside
+            // a cleared value - the "set to nothing" state is null on both
+            // columns, or a stale `correction_set_at` would survive its own
+            // clear (`domain/routing-summary.ts`).
+            correctionSetAt: correction === null ? null : cmd.issuedAt,
+          })
+          .onConflictDoUpdate({
+            target: workspaceRoutingSummary.workspaceId,
+            set: { correction, correctionSetAt: correction === null ? null : cmd.issuedAt },
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'write_routing_summary': {
+      const cmd = payload as CommandPayload<'write_routing_summary'>;
+      // Sent by the nightly job (`jobs/enrichment.ts`'s `summarizeWorkspace`)
+      // with an id it just read `workspaces()` for, but a Workspace can be
+      // deleted between that read and this write landing - the same race
+      // `propose_item_panel` above guards against for an Item.
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      db.transaction((tx) => {
+        // Upserted, same as the correction above. Only `summary`/
+        // `summary_generated_at` are ever written here; `correction`/
+        // `correction_set_at` stay exactly what they were - this command
+        // never touches them.
+        tx.insert(workspaceRoutingSummary)
+          .values({
+            workspaceId: cmd.workspaceId,
+            tenantId,
+            summary: cmd.summary,
+            summaryGeneratedAt: cmd.issuedAt,
+          })
+          .onConflictDoUpdate({
+            target: workspaceRoutingSummary.workspaceId,
+            set: { summary: cmd.summary, summaryGeneratedAt: cmd.issuedAt },
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     default: {
@@ -1716,5 +1797,5 @@ export function runCommand<N extends CommandName>(
 
   // No explicit broadcast: SSE connections derive invalidations from the
   // command log itself (see events.ts for why in-memory fan-out can't work).
-  return { ok: true, applied };
+  return settledRouting ? { ok: true, applied, settledRouting } : { ok: true, applied };
 }

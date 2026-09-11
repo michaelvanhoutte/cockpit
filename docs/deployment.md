@@ -435,7 +435,15 @@ cannot sign anybody in to the other.
 |---|---|---|
 | Variable | `GOOGLE_CLIENT_ID` | `apps/api/wrangler.jsonc`, per environment — not a secret |
 | Variable | `APP_ORIGIN` | same; must match a registered redirect URI exactly |
+| Variable | `GUEST_SIGN_IN` | same, production's block only — see below |
 | Secret | `GOOGLE_CLIENT_SECRET` | `wrangler secret put`, per environment |
+
+**`GUEST_SIGN_IN` is set on production and deliberately absent from staging**
+("Sign in as a guest, without a password", issue 354), which is what makes
+staging refuse the guest route: one built SPA is served by both environments, so
+the control is on the logon page either way and only the Worker can tell them
+apart. Wrangler warns on a staging deploy that a top-level var is missing from
+`env.staging.vars`; here that is the configuration, not an oversight.
 
 **`OIDC_ISSUER` is deliberately unset on both**, which means Google. Only local
 development and the browser suite set it, at the stub issuer they run
@@ -689,12 +697,15 @@ Then, by hand (no API, or deliberately not automated):
      merging. It would force an "Update branch" click every time `main` moves, and
      the semantic conflict it guards against is exactly what staging catches; a
      bad merge reaches staging, never production.
-   - **`contexts`** — eleven names: six of the nine jobs in `ci.yml`, three from
-     CodeQL, and the two Claude reviews, matched exactly. The three CI jobs left
-     out are the reports', and for two reasons: Test Explorer deliberately does
-     not gate, while Publish and Stability *could not* gate anything if they were
-     listed — the `if:` on each skips it on every pull request, and a skipped job
-     reports as passing.
+   - **`contexts`** — eleven names: six of `ci.yml`'s eleven jobs, three from
+     CodeQL, and the two Claude reviews, matched exactly. The five CI jobs left
+     out are the reports' and the classifier: Concepts and Test Explorer
+     deliberately do not gate; Publish and Stability *could not* gate anything if
+     they were listed — the `if:` on each skips it on every pull request, and a
+     skipped job reports as passing; and What changed only decides whether the
+     mechanical jobs do their work ("Skip the mechanical checks on a pull request
+     that touches nothing they cover", issue 345), so requiring it would gate on
+     the decision rather than on the checking.
 
      The three are not interchangeable. `CodeQL (javascript-typescript)` and
      `CodeQL (actions)` are the matrix legs and say only that the analysis *ran*.
@@ -702,6 +713,24 @@ Then, by hand (no API, or deliberately not automated):
      posted by GitHub Advanced Security — the check that goes red on an alert at or
      above the failure threshold. Requiring the legs without it would gate on the
      analysis having happened while letting a high-severity finding merge.
+
+     **That split is why the documentation-only skip stops at `ci.yml`**, though
+     "Skip the mechanical checks on a pull request that touches nothing they
+     cover" (issue 345) asked for the two legs as well. They are jobs and would
+     report `skipped` by the mechanism measured below; the third is posted by a
+     service when an analysis uploads results, and whether it is posted at all
+     when none does has never been measured here — a required context nothing
+     reports under sits at *Expected* forever, so guessing wrong blocks every
+     documentation-only pull request permanently. The cost settled it rather than
+     the risk: across three ordinary pull requests sampled on 10 September 2026
+     the legs took 0.6–3.3 minutes each, against `claude-review` on the same head
+     at 9.0–14.9 and `Test Explorer` at 5.1–6.8. `claude-review` is ungated and
+     unaffected by ci.yml's own documentation-only skip, so it alone carries
+     the argument for the pull requests that skip actually decides — the legs
+     already finish inside its shadow there, shortening nothing anybody waits
+     for. `Test Explorer`'s figure describes an ordinary pull request only: on
+     the documentation-only ones this measurement is about, it skips too, for
+     free, once `Test` does (ci.yml's `test-explorer` job says why).
 
      **All three names were read off a real run** ("Analyse every pull request with
      CodeQL, and let Dependabot report vulnerable dependencies", pull request 92),
@@ -748,7 +777,8 @@ Then, by hand (no API, or deliberately not automated):
        repository (deleted after): a job skipping on `draft == true`, required by name,
        left a draft pull request `mergeable: MERGEABLE` and `mergeStateStatus: CLEAN` while
        its only check-run read `skipped`. The exclusion of Test Explorer, Publish and
-       Stability above already assumed this; it is now measured rather than assumed.
+       Stability above already assumed this; it is now measured rather than assumed,
+       and the mechanical jobs' documentation-only skip is built on it.
      - **When one name reports twice on a head, the most recent run wins.** The same
        throwaway pull request went `skipped` (draft) then `success` (marked ready) on one
        commit and stayed `MERGEABLE` throughout. "Require the checks the payload already

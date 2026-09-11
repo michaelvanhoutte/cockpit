@@ -93,6 +93,14 @@ export default defineConfig({
            */
           ANTHROPIC_API_KEY: '',
           OIDC_ISSUER: 'https://issuer.test',
+          /**
+           * Set, as production sets it: an environment that offers guest
+           * sign-in is the one most cases here should be standing in. The
+           * environment that does *not* offer it is staging, and the case that
+           * asks what happens there takes this off `env` for itself
+           * (tests/integration/http/sign-in.test.ts).
+           */
+          GUEST_SIGN_IN: 'true',
           GOOGLE_CLIENT_ID: 'cockpit-test',
           GOOGLE_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',
           APP_ORIGIN: 'http://cockpit.test',

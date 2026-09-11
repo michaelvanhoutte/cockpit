@@ -236,9 +236,18 @@ export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): It
  * state to refuse into, because settling a routing *is* filing it. The moment
  * that happens the Item leaves the Inbox, and this proposal - right or wrong
  * - is never read again.
+ *
+ * **`cmd.reason`'s empty string becomes `null`, not itself.** The wire
+ * schema uses the empty string for "no Panel, no reason" the same way the AI
+ * layer's own answer does; the column stores absence as `null`, the
+ * convention every other cleared text column here follows.
  */
 export function applyProposedPanel(item: Item, cmd: ProposeItemPanelCommand): Item {
-  return { ...item, proposedPanelId: cmd.panelId, proposedPanelReason: cmd.reason };
+  return {
+    ...item,
+    proposedPanelId: cmd.panelId,
+    proposedPanelReason: cmd.panelId === null ? null : cmd.reason,
+  };
 }
 
 /**

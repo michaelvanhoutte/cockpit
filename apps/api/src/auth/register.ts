@@ -2,7 +2,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { Role } from '@cockpit/shared';
 import { hasNoAccess } from '../accounts/register.js';
 import { createDb } from '../db/client.js';
-import { sessions, users } from '../db/schema.js';
+import { sessions, tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
 import type { Identity } from './oidc.js';
 import { endsFrom, type StoredSession } from './session.js';
@@ -124,9 +124,22 @@ export async function signInWithGoogle(
  * address learns this Cockpit holds it - a disclosure taken knowingly, and the
  * smaller harm of the two.
  */
-export type SignIn =
-  | { signedIn: true; sessionId: string; expiresAt: string; user: SigningIn }
-  | { signedIn: false; because: 'not known' | 'access removed' };
+export type SignIn = Visit | { signedIn: false; because: 'not known' | 'access removed' };
+
+/**
+ * The half of that which happened: what the browser is given to carry, and
+ * whose it is.
+ *
+ * Named separately because `startVisit` itself never refuses - whatever calls
+ * it has already decided somebody may sign in, so its own return would make
+ * every caller narrow past a branch that cannot occur there.
+ */
+export type Visit = {
+  signedIn: true;
+  sessionId: string;
+  expiresAt: string;
+  user: SigningIn;
+};
 
 const NOT_KNOWN = { signedIn: false, because: 'not known' } as const;
 const TURNED_AWAY = { signedIn: false, because: 'access removed' } as const;
@@ -145,6 +158,88 @@ const TURNED_AWAY = { signedIn: false, because: 'access removed' } as const;
 type SigningIn = { id: string; name: string };
 
 /**
+ * The one guest account, which everybody who continues as a guest shares
+ * ("Sign in as a guest, without a password", issue 354).
+ *
+ * **Fixed ids rather than a column to look it up by**, the convention
+ * `ACCOUNT_WIDE` and `DEFAULT_SCREEN_SIZE_NAME` already follow: there is
+ * exactly one of these, so there is nothing to search for and no schema to
+ * change. Concurrent guests deliberately land in the same account and see each
+ * other's work, which the daily reset that follows this issue is what makes
+ * safe.
+ */
+export const GUEST_ACCOUNT_NAME = 'tenant-guest';
+export const GUEST_USER_ID = 'user-guest';
+const GUEST_NAME = 'Guest';
+
+/**
+ * Signs whoever asked into that account, making it the first time anybody does
+ * - unless the id is not really the guest's, which is checked rather than
+ * assumed.
+ *
+ * **Nothing decides whether a stranger is allowed in**, unlike every other way
+ * in: that is the whole feature, and what gates it is the environment offering
+ * the route at all (`env.GUEST_SIGN_IN`, read where the route is). So this is
+ * not the register's allowlist being widened - the guest is a row the product
+ * puts there, not a person somebody admitted.
+ *
+ * Both writes ignore a conflict on the id, which is what makes two first
+ * presses at the same instant come to one account: whichever write lost wrote
+ * nothing, and both go on to read the row that is actually there. The tenant
+ * goes first because the user's account is a real foreign key to it.
+ *
+ * **The row is read back and checked before anybody is signed into it.** These
+ * ids are derived the same way `idsForNewUser` derives one for a real person
+ * added by name (`accounts/new-user.ts`) - so a person added as "Guest" before
+ * this route is ever pressed would otherwise occupy `user-guest` first, both
+ * inserts above would conflict and write nothing, and this would sign a
+ * stranger straight into that person's real account with whatever role they
+ * hold. What no real user ever has is a null address - `addUser` requires one
+ * - so a row with one is never anybody's but the guest's, and the guest is
+ * refused right along with a disabled one rather than trusted on sight.
+ *
+ * **The role is checked too, and not because the insert above could ever write
+ * `admin`.** Nothing stops an admin later promoting the row this makes through
+ * the ordinary "Rename a user, and make somebody an admin" page (issue 232) -
+ * it reads like any other person in that list. This is the one place that
+ * mistake is answered: no *new* guest sign-in completes once it has happened.
+ * A session already open when it happens is not touched here - the gate reads
+ * a visitor's role fresh on every request (`auth/gate.ts`), the same way any
+ * other promotion or demotion takes effect, and closing that door wider than
+ * this route belongs to whatever answers it for everybody else, not to guest
+ * sign-in alone.
+ */
+export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
+  const db = createDb(env.DB);
+  const createdAt = now.toISOString();
+
+  await db
+    .insert(tenants)
+    .values({ id: GUEST_ACCOUNT_NAME, name: GUEST_NAME, createdAt })
+    .onConflictDoNothing({ target: tenants.id });
+  await db
+    .insert(users)
+    .values({
+      id: GUEST_USER_ID,
+      name: GUEST_NAME,
+      accountId: GUEST_ACCOUNT_NAME,
+      role: 'user',
+      createdAt,
+    })
+    .onConflictDoNothing({ target: users.id });
+
+  const [row] = await db
+    .select({ email: users.email, role: users.role, disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(users.id, GUEST_USER_ID));
+  if (!row || row.email != null || row.role !== 'user' || hasNoAccess(row.disabledAt)) {
+    return TURNED_AWAY;
+  }
+
+  return startVisit(env, { id: GUEST_USER_ID, name: GUEST_NAME }, now);
+}
+
+/**
  * A sign-in of its own, always: whatever the browser arrived holding is neither
  * read nor reused, so there is nothing to fix a session onto.
  *
@@ -157,7 +252,7 @@ type SigningIn = { id: string; name: string };
  * a column renamed in `db/schema.ts` then fails to typecheck here instead of
  * failing at runtime the first time somebody signs in.
  */
-async function startVisit(env: Env, user: SigningIn, now: Date): Promise<SignIn> {
+async function startVisit(env: Env, user: SigningIn, now: Date): Promise<Visit> {
   const sessionId = newSessionId();
   const expiresAt = endsFrom(now);
   const at = now.toISOString();

@@ -2,9 +2,21 @@ import {
   FIRST_DASHBOARD_NAME,
   FIRST_PANEL_NAME,
   FIRST_WORKSPACE_NAME,
+  GRID_COLUMNS,
+  MOST_ACROSS,
+  themeOf,
 } from '@cockpit/shared';
+import type { AssociationKind } from '@cockpit/shared';
+import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { foldName } from '../domain/names.js';
-import type { Change } from './up-to-date.js';
+import {
+  GUEST_DEMO,
+  SEEDED_AT,
+  type SeedDashboard,
+  type SeedItem,
+  type SeedWorkspace,
+} from './guest-seed-data.js';
+import type { Change, Statement } from './up-to-date.js';
 
 /**
  * Every change an account's store has ever needed, oldest first. An account
@@ -79,7 +91,9 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_READINGS,
     ITEM_PROPOSED_PANEL,
     DECISION_HISTORY,
+    WORKSPACE_ROUTING_SUMMARY,
     firstWorkspace(accountId),
+    guestDemoSeed(accountId),
   ];
 }
 
@@ -260,6 +274,46 @@ const DECISION_HISTORY: Change = {
     },
     {
       sql: 'CREATE INDEX `decision_history_tenant_workspace_decided` ON `decision_history` (`tenant_id`,`workspace_id`,`decided_at`)',
+    },
+  ],
+};
+
+/**
+ * One new, additive table (`schema.ts`'s own comment on `workspaceRoutingSummary`
+ * carries the design; this is its failure-mode account, per the scoping skill,
+ * for "Show what the system learned, in a sentence you can correct", issue
+ * 301):
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It creates a table and writes to no row.
+ * - **Interrupted partway.** It cannot be, for the same reason every change
+ *   here cannot: the statement and the record that it ran commit together
+ *   (up-to-date.ts).
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left no table.
+ * - **Rows that already break the new rule.** None - the table is new and
+ *   holds nothing to have broken any rule yet.
+ * - **What each environment does.** The same thing everywhere: an account
+ *   applies its outstanding changes inside the first request that opens it.
+ */
+const WORKSPACE_ROUTING_SUMMARY: Change = {
+  name: '0025-workspace-routing-summary',
+  statements: [
+    {
+      sql: `CREATE TABLE \`workspace_routing_summary\` (
+	\`workspace_id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`summary\` text,
+	\`summary_generated_at\` text,
+	\`correction\` text,
+	\`correction_set_at\` text,
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "workspace_routing_summary_generated_at_is_timestamp" CHECK(summary_generated_at IS NULL OR (datetime(summary_generated_at) IS NOT NULL AND substr(summary_generated_at, 11, 1) = 'T' AND substr(summary_generated_at, -1) = 'Z' AND length(summary_generated_at) >= 20 AND date(summary_generated_at) = substr(summary_generated_at, 1, 10))),
+	CONSTRAINT "workspace_routing_summary_correction_set_at_is_timestamp" CHECK(correction_set_at IS NULL OR (datetime(correction_set_at) IS NOT NULL AND substr(correction_set_at, 11, 1) = 'T' AND substr(correction_set_at, -1) = 'Z' AND length(correction_set_at) >= 20 AND date(correction_set_at) = substr(correction_set_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `workspace_routing_summary_tenant_workspace` ON `workspace_routing_summary` (`tenant_id`,`workspace_id`)',
     },
   ],
 };
@@ -813,6 +867,16 @@ const ITEM_COMPLETED_AT: Change = {
  * only loss available is the change failing partway - which `transactionSync`
  * rules out (store.ts), leaving the account to apply it whole next time.
  */
+/**
+ * The ids of the two types every account is given below - *Task* and *Note*
+ * since `0012-standard-types` renamed them, under the ids `0008-item-types`
+ * first wrote. Named here because four places derive them and a fifth reads
+ * them back in a test; the strings are the ones already in every account, so
+ * this is the same value said once rather than an edit to a shipped change.
+ */
+export const taskTypeId = (accountId: string) => `${accountId}-type-action`;
+export const noteTypeId = (accountId: string) => `${accountId}-type-thought`;
+
 function itemTypes(accountId: string): Change {
   const at = '2026-09-04T00:00:00.000Z';
   return {
@@ -843,12 +907,12 @@ function itemTypes(accountId: string): Change {
       {
         sql: `INSERT OR IGNORE INTO item_types (id, tenant_id, name, folded_name, color, position, created_at)
               VALUES (?, ?, 'Action', 'action', '#6f62b5', 0, ?)`,
-        params: [`${accountId}-type-action`, accountId, at],
+        params: [taskTypeId(accountId), accountId, at],
       },
       {
         sql: `INSERT OR IGNORE INTO item_types (id, tenant_id, name, folded_name, color, position, created_at)
               VALUES (?, ?, 'Thought', 'thought', '#3a72c8', 1, ?)`,
-        params: [`${accountId}-type-thought`, accountId, at],
+        params: [noteTypeId(accountId), accountId, at],
       },
     ],
   };
@@ -1363,11 +1427,11 @@ function standardTypes(accountId: string): Change {
     statements: [
       {
         sql: `UPDATE item_types SET name = 'Task', folded_name = 'task' WHERE id = ?`,
-        params: [`${accountId}-type-action`],
+        params: [taskTypeId(accountId)],
       },
       {
         sql: `UPDATE item_types SET name = 'Note', folded_name = 'note' WHERE id = ?`,
-        params: [`${accountId}-type-thought`],
+        params: [noteTypeId(accountId)],
       },
     ],
   };
@@ -1917,4 +1981,429 @@ function firstWorkspace(accountId: string): Change {
       },
     ],
   };
+}
+
+/**
+ * The screen size the seeded Layouts below are arranged at. **Not
+ * `DEFAULT_SCREEN_SIZE_NAME`**, which `save_layout` creates by itself the first
+ * time somebody arranges a Dashboard (command-service.ts): a guest may have
+ * done exactly that before this change ever runs, and `screen_sizes` is unique
+ * on the folded name with no tombstone to fall back on.
+ */
+const DEMO_SCREEN_SIZE_ID = 'guest-screen-desktop';
+const DEMO_SCREEN_SIZE_NAME = 'Desktop';
+const DEMO_SCREEN_WIDTH = 1440;
+
+/**
+ * The ids the demonstration's Layouts, Panels, Items and Associations carry.
+ *
+ * **Real uuids rather than readable strings**, for the reason `FIRST_PANEL_ID`
+ * above is one: `save_layout` and `delete_layout` take a `layoutId` as
+ * `z.uuid()`, five Panel commands and every Item and Association command take
+ * theirs the same way, so a seeded row with a readable id would be a row nobody
+ * could rearrange, rename, file or delete. Workspaces and Dashboards are named
+ * in no such schema, so those keep ids you can read in a query.
+ *
+ * Counted rather than random: the whole dataset has to come out the same every
+ * time it is applied.
+ */
+const demoId = (prefix: string, nth: number) =>
+  `${prefix}-0000-7000-8000-${String(nth).padStart(12, '0')}`;
+const DEMO_PANEL = '0a000000';
+const DEMO_ITEM = '0b000000';
+const DEMO_ASSOCIATION = '0c000000';
+const DEMO_LAYOUT = '0d000000';
+
+/** A readable, stable id for the things whose ids are not uuids: `Day to day` -> `day-to-day`. */
+function demoSlug(name: string): string {
+  return foldName(name)
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '');
+}
+
+/**
+ * What the demonstration has to be true of before it can be turned into rows,
+ * checked once so that a future edit to guest-seed-data.ts fails loudly instead
+ * of failing the guest account.
+ *
+ * Every one of these is a live constraint somewhere below, and every one of
+ * them takes the *whole* change with it if it is broken - the statements commit
+ * in one transaction, so a single refused insert leaves the guest account
+ * unopenable rather than one Panel short. A thrown error here is a red test and
+ * a cold start that says what is wrong; the same mistake unchecked is a 500 to
+ * whoever presses "Continue as guest".
+ *
+ * Exported so each refusal can be asked for directly: the data it guards is
+ * correct, which leaves nothing else that could make it say no.
+ */
+export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedWorkspace[] {
+  const wrong = (why: string): never => {
+    throw new Error(`the guest demonstration data cannot be seeded: ${why}`);
+  };
+  const workspaceIds = new Set<string>();
+  const dashboardIds = new Set<string>();
+  for (const workspace of demo) {
+    const slug = demoSlug(workspace.name);
+    // Two names folding to one slug would be two Workspaces racing for one id:
+    // the second insert is guarded on the id, so it would silently not happen.
+    if (!slug) wrong(`the workspace "${workspace.name}" leaves no id behind`);
+    if (workspaceIds.has(slug)) wrong(`two workspaces share the id "${slug}"`);
+    workspaceIds.add(slug);
+    for (const dashboard of workspace.dashboards) {
+      const under = `${slug}-${demoSlug(dashboard.name)}`;
+      if (dashboardIds.has(under)) wrong(`two dashboards share the id "${under}"`);
+      dashboardIds.add(under);
+      // `panels_dashboard_live_folded_name` is unique, and it is the live
+      // index rather than a guard this change could write around.
+      const panelNames = new Set<string>();
+      for (const row of dashboard.rows) {
+        // A row of none divides by zero and a row of more than `MOST_ACROSS`
+        // is narrower than a Panel is meant to be read at - and past twelve,
+        // `panel_placements_span_fits_the_grid` refuses the span outright.
+        if (row.panels.length < 1 || row.panels.length > MOST_ACROSS) {
+          wrong(
+            `a row of "${dashboard.name}" holds ${row.panels.length} panels, and a row holds 1 to ${MOST_ACROSS}`,
+          );
+        }
+        for (const panel of row.panels) {
+          const folded = foldName(panel.name);
+          if (panelNames.has(folded)) {
+            wrong(`"${dashboard.name}" has two panels called "${panel.name}"`);
+          }
+          panelNames.add(folded);
+        }
+      }
+    }
+  }
+  return demo;
+}
+
+/** Every Association one seeded Item carries, its Dashboard's Project included. */
+function demoAssociations(
+  item: SeedItem,
+  dashboard: SeedDashboard,
+): { kind: AssociationKind; label: string }[] {
+  return [
+    ...(dashboard.project ? [{ kind: 'project' as const, label: dashboard.project }] : []),
+    ...(item.people ?? []).map((label) => ({ kind: 'person' as const, label })),
+    ...(item.topics ?? []).map((label) => ({ kind: 'topic' as const, label })),
+  ];
+}
+
+/**
+ * What the shared guest account holds when somebody opens it: three Workspaces
+ * of a contractor's week, their Dashboards arranged in rows, and the Items
+ * filed on their Panels ("Seed the guest account with a full demo dataset",
+ * issue 355). The content itself is in guest-seed-data.ts; this turns it into
+ * rows.
+ *
+ * **A no-op for every other account**, decided on the account's own name rather
+ * than on a flag: there is exactly one guest account and it is named in one
+ * place (auth/register.ts). Everybody else applies a change with no statements,
+ * which still records itself and so never runs again.
+ *
+ * **Generated from a structure, unlike every change above it.** That file's
+ * header rule - the SQL is written out, not generated - is about *schema*:
+ * there is no migration tool that can emit a Durable Object's DDL, and a
+ * generated `CREATE TABLE` would be hand-edited anyway. This is bootstrap data,
+ * the same kind `itemTypes` already builds from a parameter, and three hundred
+ * rows written out by hand would be three hundred rows nobody re-reads.
+ *
+ * **Every insert is guarded twice: on the row it would write, and on the row it
+ * hangs off.** The second guard is the one that matters, and it is what stops a
+ * name collision breaking guest sign-in for everybody. The guest account is
+ * shared and already live, so by the time this runs a visitor may have made a
+ * Workspace called `Personal` of their own - and `workspaces` is unique on the
+ * live folded name. That Workspace is then skipped, and because its Dashboards,
+ * Panels and Items are all guarded on it existing, its whole subtree is skipped
+ * with it rather than failing a foreign key and taking the transaction - and
+ * the rest of the demonstration still lands. `screen_sizes` is the other table
+ * a collision is possible in, which is why the size is called `Desktop` and
+ * every Layout resolves its id by a subquery rather than naming the literal:
+ * a Layout hangs off whichever row is actually there.
+ *
+ * **Nothing already in the account is touched.** The `Workspace 1` that
+ * `0015-first-workspace` hands every account keeps its row and its position
+ * untouched - additive, with nothing to overwrite. These three simply take
+ * positions below it, so a guest lands on the demonstration rather than on the
+ * empty starter; the note beside that number says why it is negative.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). Inserts only, and only into one account.
+ * - **If it stops halfway:** it cannot. A change's statements and the record
+ *   that they ran commit in one `transactionSync` (store.ts), so a failure
+ *   leaves none of these rows and the whole thing is retried next time the
+ *   guest account is opened.
+ * - **The second time it runs:** it does not, having been recorded. Idempotent
+ *   regardless - every insert is guarded on the row it would duplicate.
+ * - **Rows that already break the new rule:** there is no new rule. A guest's
+ *   own Workspace wearing one of these names keeps it, and is never renamed or
+ *   tombstoned to make room.
+ * - **What is in each environment:** the guest account is offered in
+ *   development and in production and refused in staging (`GUEST_SIGN_IN`,
+ *   wrangler.jsonc), so this writes rows only where somebody can reach them;
+ *   every other account applies an empty change everywhere.
+ * - **The windows it can be interrupted in.** *Before it runs*: the guest
+ *   account holds its ordinary starter and the previous release draws it.
+ *   *After it runs, with the previous release promoted back*: every row here is
+ *   an ordinary Workspace, Dashboard, Panel, Layout, Item or Association in
+ *   columns that release already reads, so it draws the demonstration exactly
+ *   as this one does. Nothing is lost either way.
+ */
+function guestDemoSeed(accountId: string): Change {
+  const name = '0026-guest-demo-seed';
+  if (accountId !== GUEST_ACCOUNT_NAME) return { name, statements: [] };
+  seededOnce ??= guestDemoStatements(GUEST_ACCOUNT_NAME);
+  return { name, statements: seededOnce };
+}
+
+/**
+ * The statements themselves, built once per isolate.
+ *
+ * `accountChanges` is called on every read an account serves, and the branch
+ * above depends on nothing but a constant - so without this the demonstration's
+ * four hundred statements were rebuilt for every request the guest account
+ * answered, long after the change itself had been recorded as applied. Building
+ * them once is also what makes `checkedGuestDemo` free enough to run always.
+ */
+let seededOnce: readonly Statement[] | undefined;
+
+function guestDemoStatements(accountId: string): readonly Statement[] {
+  const demo = checkedGuestDemo(GUEST_DEMO);
+  const at = SEEDED_AT;
+  const folded = foldName(DEMO_SCREEN_SIZE_NAME);
+  const taskType = taskTypeId(accountId);
+  const noteType = noteTypeId(accountId);
+  const statements: Statement[] = [
+    {
+      sql: `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
+              SELECT ?, ?, ?, ?, ?, ?
+              WHERE NOT EXISTS (SELECT 1 FROM screen_sizes WHERE tenant_id = ? AND folded_name = ?)`,
+      params: [
+        DEMO_SCREEN_SIZE_ID,
+        accountId,
+        DEMO_SCREEN_SIZE_NAME,
+        folded,
+        DEMO_SCREEN_WIDTH,
+        at,
+        accountId,
+        folded,
+      ],
+    },
+  ];
+
+  let layoutsSoFar = 0;
+  let panelsSoFar = 0;
+  let itemsSoFar = 0;
+  let associationsSoFar = 0;
+
+  demo.forEach((workspace, index) => {
+    const workspaceId = `guest-ws-${demoSlug(workspace.name)}`;
+    const theme = themeOf(workspace.tint);
+    statements.push({
+      sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, bar, ground, header, position, created_at)
+              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE tenant_id = ? AND folded_name = ? AND deleted_at IS NULL)`,
+      params: [
+        workspaceId,
+        accountId,
+        workspace.name,
+        foldName(workspace.name),
+        theme.tint,
+        theme.bar,
+        theme.ground,
+        theme.header,
+        // *Before* the `Workspace 1` that `0015-first-workspace` gives every
+        // account, which holds 0, and before anything a guest has made for
+        // themselves, which is 1 upwards: a guest lands on the first tab
+        // (`somewhereThatWorks`, apps/web/src/router.tsx) and landing on the
+        // empty starter with the demonstration behind it is the whole thing
+        // this change exists to stop. Counting down from minus the dataset's
+        // size keeps these three in the order they are written in. The column
+        // carries no uniqueness and no floor, and `created_at` breaks any tie,
+        // so the tabs come back in one stable order regardless.
+        index - demo.length,
+        at,
+        accountId,
+        foldName(workspace.name),
+      ],
+    });
+
+    for (const dashboard of workspace.dashboards) {
+      const under = `${demoSlug(workspace.name)}-${demoSlug(dashboard.name)}`;
+      const dashboardId = `guest-db-${under}`;
+      layoutsSoFar += 1;
+      const layoutId = demoId(DEMO_LAYOUT, layoutsSoFar);
+      statements.push({
+        sql: `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+                SELECT ?, ?, ?, ?, ?, ?
+                WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM dashboards WHERE id = ?)`,
+        params: [
+          dashboardId,
+          accountId,
+          workspaceId,
+          dashboard.name,
+          foldName(dashboard.name),
+          at,
+          workspaceId,
+          accountId,
+          dashboardId,
+        ],
+      });
+      statements.push({
+        sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+                SELECT ?, ?, ?,
+                       (SELECT id FROM screen_sizes WHERE tenant_id = ? AND folded_name = ? LIMIT 1), ?
+                WHERE EXISTS (SELECT 1 FROM dashboards WHERE id = ? AND tenant_id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM layouts WHERE id = ?)`,
+        params: [layoutId, accountId, dashboardId, accountId, folded, at, dashboardId, accountId, layoutId],
+      });
+
+      dashboard.rows.forEach((row, rowIndex) => {
+        statements.push({
+          // A null height is "as tall as what is in it", which is every row
+          // here and is why `SeedRow` carries no number to bind.
+          sql: `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
+                  SELECT ?, ?, ?, NULL
+                  WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND tenant_id = ?)
+                    AND NOT EXISTS (SELECT 1 FROM layout_rows WHERE layout_id = ? AND row_index = ?)`,
+          params: [accountId, layoutId, rowIndex, layoutId, accountId, layoutId, rowIndex],
+        });
+
+        // The cells of a row divide it in proportion to their spans, so an
+        // equal share each is the grid over however many Panels are on it.
+        // Clamped as well as checked (`checkedGuestDemo`), because a span
+        // outside 1..12 is refused by `panel_placements_span_fits_the_grid`
+        // and would take the whole change - and with it guest sign-in.
+        const span = Math.min(
+          GRID_COLUMNS,
+          Math.max(1, Math.floor(GRID_COLUMNS / row.panels.length)),
+        );
+
+        row.panels.forEach((panel, position) => {
+          panelsSoFar += 1;
+          const panelId = demoId(DEMO_PANEL, panelsSoFar);
+          statements.push({
+            sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
+                    SELECT ?, ?, ?, ?, ?, ?
+                    WHERE EXISTS (SELECT 1 FROM dashboards WHERE id = ? AND tenant_id = ?)
+                      AND NOT EXISTS (SELECT 1 FROM panels WHERE id = ?)`,
+            params: [
+              panelId,
+              accountId,
+              dashboardId,
+              panel.name,
+              foldName(panel.name),
+              at,
+              dashboardId,
+              accountId,
+              panelId,
+            ],
+          });
+          statements.push({
+            sql: `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
+                    SELECT ?, ?, ?, ?, ?, ?
+                    WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND tenant_id = ?)
+                      AND EXISTS (SELECT 1 FROM panels WHERE id = ? AND tenant_id = ?)
+                      AND NOT EXISTS (SELECT 1 FROM panel_placements WHERE layout_id = ? AND panel_id = ?)`,
+            params: [
+              accountId,
+              layoutId,
+              panelId,
+              rowIndex,
+              position,
+              span,
+              layoutId,
+              accountId,
+              panelId,
+              accountId,
+              layoutId,
+              panelId,
+            ],
+          });
+
+          panel.items.forEach((item, filedAt) => {
+            itemsSoFar += 1;
+            const itemId = demoId(DEMO_ITEM, itemsSoFar);
+            statements.push({
+              // `source` is `internal` because these were captured inside
+              // Cockpit rather than synced from anywhere, and `status` carries
+              // `DEAD_STATUS_VALUE` (schema.ts) because the column is NOT NULL
+              // with a CHECK and nothing reads it. `focus_horizon` is left
+              // alone: it is dead too, and what this demonstrates in its place
+              // is a due date and a priority, which are live.
+              sql: `INSERT INTO items (id, tenant_id, workspace_id, captured_message, source, title, description,
+                                       type_id, priority, due_date, status, created_at, updated_at)
+                      SELECT ?, ?, ?, ?, 'internal', ?, ?, ?, ?, ?, 'to_process', ?, ?
+                      WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
+                        AND NOT EXISTS (SELECT 1 FROM items WHERE id = ?)`,
+              params: [
+                itemId,
+                accountId,
+                workspaceId,
+                item.title,
+                item.title,
+                item.description ?? null,
+                item.note ? noteType : taskType,
+                item.priority ?? null,
+                item.due ?? null,
+                at,
+                at,
+                workspaceId,
+                accountId,
+                itemId,
+              ],
+            });
+            statements.push({
+              sql: `INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at)
+                      SELECT ?, ?, ?, ?, ?
+                      WHERE EXISTS (SELECT 1 FROM panels WHERE id = ? AND tenant_id = ?)
+                        AND EXISTS (SELECT 1 FROM items WHERE id = ? AND tenant_id = ?)
+                        AND NOT EXISTS (SELECT 1 FROM panel_items WHERE panel_id = ? AND item_id = ?)`,
+              params: [
+                accountId,
+                panelId,
+                itemId,
+                filedAt,
+                at,
+                panelId,
+                accountId,
+                itemId,
+                accountId,
+                panelId,
+                itemId,
+              ],
+            });
+
+            for (const association of demoAssociations(item, dashboard)) {
+              associationsSoFar += 1;
+              const associationId = demoId(DEMO_ASSOCIATION, associationsSoFar);
+              statements.push({
+                sql: `INSERT INTO associations (id, tenant_id, item_id, kind, label, created_at)
+                        SELECT ?, ?, ?, ?, ?, ?
+                        WHERE EXISTS (SELECT 1 FROM items WHERE id = ? AND tenant_id = ?)
+                          AND NOT EXISTS (SELECT 1 FROM associations WHERE id = ?)`,
+                params: [
+                  associationId,
+                  accountId,
+                  itemId,
+                  association.kind,
+                  association.label,
+                  at,
+                  itemId,
+                  accountId,
+                  associationId,
+                ],
+              });
+            }
+          });
+        });
+      });
+    }
+  });
+
+  return statements;
 }

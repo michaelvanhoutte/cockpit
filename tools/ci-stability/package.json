@@ -14,7 +14,8 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:fast": "pnpm test:unit",
-    "test:all": "vitest run"
+    "test:all": "vitest run",
+    "test:coverage": "vitest run"
   },
   "devDependencies": {
     "vitest": "^4.1.10"

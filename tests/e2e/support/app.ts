@@ -207,13 +207,25 @@ export const ADA = 'Ada';
  */
 export async function signIn(page: Page, name: string, isMobile: boolean): Promise<void> {
   await signInWithoutSkipping(page, name, isMobile);
-  // Answered the way somebody who wants the app would, where it was asked at
-  // all. **Conditional, and that is not order-dependence sneaking back in:**
-  // whether an account has been started on depends on what else has run - the
-  // tier shares one database - and having been through the question is
-  // remembered in the browser, which Playwright gives every walk fresh. So the
-  // honest thing for a helper whose job is "get me into the app" is to answer
-  // the question when it is asked and notice nothing when it is not.
+  await pastOnboarding(page, isMobile);
+}
+
+/**
+ * The onboarding question, answered the way somebody who wants the app would,
+ * where it was asked at all - and the dashboard afterwards either way.
+ *
+ * **Conditional, and that is not order-dependence sneaking back in:** whether
+ * an account has been started on depends on what else has run - the tier
+ * shares one database - and having been through the question is remembered in
+ * the browser, which Playwright gives every walk fresh. So the honest thing is
+ * to answer the question when it is asked and notice nothing when it is not.
+ *
+ * **Shared by every way into the app, not only `signIn`.** Continuing as a
+ * guest can land here too - the guest account may never have been opened on
+ * before - and the caller is expected to have already waited for one of the
+ * two landings, the way `signInWithoutSkipping` does for this one.
+ */
+export async function pastOnboarding(page: Page, isMobile: boolean): Promise<void> {
   const skip = page.getByRole('button', { name: 'Skip' });
   if (await skip.isVisible()) await press(skip, isMobile);
   await expect(dashboardBar(page)).toBeVisible();

@@ -1009,6 +1009,71 @@ export const decisionHistory = sqliteTable(
 );
 
 /**
+ * One row per Workspace: the plain-English summary of its filing patterns a
+ * nightly job writes, and the sentence a person may correct it with ("Show
+ * what the system learned, in a sentence you can correct", issue 301).
+ *
+ * **Two independently-owned halves of one row, not one text a person edits.**
+ * `summary`/`summary_generated_at` are written only by the nightly job
+ * (`jobs/enrichment.ts`'s `summarizeWorkspace`); `correction`/
+ * `correction_set_at` are written only by the `set_routing_summary_correction`
+ * command. Neither write ever touches the other's columns - the same
+ * source-owned/app-owned split `items` already carries (architecture, "Schema
+ * conventions"), here between "the system's own account of what it learned"
+ * and "the person's own word against it". A generated summary a person had
+ * hand-edited would be neither, and the next night's rewrite would have no
+ * way to know which words were whose (issue 301, "Out of scope / open
+ * questions").
+ *
+ * **`workspace_id` is the primary key, not a separate `id`.** There is
+ * exactly one summary and one correction per Workspace, ever, so a row is
+ * addressed by the Workspace it belongs to and there is nothing else it could
+ * be keyed on.
+ *
+ * **The row does not exist until something is written.** A freshly made
+ * Workspace has no decision history to summarize and nobody has corrected
+ * anything yet, so there is no row to create in step with it - unlike
+ * `workspaces` itself, which is a row from the moment it is made. Reads
+ * treat a missing row exactly as they would an existing one with every
+ * column null.
+ *
+ * **All four value columns are nullable.** `summary`/`summary_generated_at`
+ * are null until the first nightly run finds any decision history to
+ * summarize (a fresh Workspace, or one still empty). `correction`/
+ * `correction_set_at` are null until a person writes one, and go back to null
+ * when they clear it - there is no third state between "never set" and "set
+ * to nothing" worth telling apart, the same choice `set_description` already
+ * makes.
+ */
+export const workspaceRoutingSummary = sqliteTable(
+  'workspace_routing_summary',
+  {
+    workspaceId: text('workspace_id')
+      .primaryKey()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    tenantId: text('tenant_id').notNull(),
+    summary: text('summary'),
+    summaryGeneratedAt: text('summary_generated_at'),
+    correction: text('correction'),
+    correctionSetAt: text('correction_set_at'),
+  },
+  (t) => [
+    // The one access pattern this table has: one workspace's own row, scoped
+    // to its tenant so a routing bug returns nothing rather than another
+    // account's summary (architecture, "`tenant_id` stays on every row").
+    index('workspace_routing_summary_tenant_workspace').on(t.tenantId, t.workspaceId),
+    check(
+      'workspace_routing_summary_generated_at_is_timestamp',
+      isTimestamp('summary_generated_at'),
+    ),
+    check(
+      'workspace_routing_summary_correction_set_at_is_timestamp',
+      isTimestamp('correction_set_at'),
+    ),
+  ],
+);
+
+/**
  * The command log (architecture, "Mutations are commands, not object PUTs"):
  * idempotency check for retries and the audit trail. command_id is the
  * client-generated ID; a replayed command is a no-op.

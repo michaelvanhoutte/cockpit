@@ -172,6 +172,18 @@ export class UserRefused extends Error {
  */
 export const SIGN_IN_PATH = '/v1/sign-in/google';
 
+/**
+ * The other way in, where the deployment offers one ("Sign in as a guest,
+ * without a password", issue 354). A navigation for the same reason, even
+ * though this one never leaves Cockpit: what it ends in is a page, not an
+ * answer to parse.
+ *
+ * **Nothing here asks whether it is offered.** One build is served by every
+ * deployment, and this page reads nothing, so the control is always drawn and
+ * the Worker is what refuses where guest sign-in is not on.
+ */
+export const GUEST_SIGN_IN_PATH = '/v1/sign-in/guest';
+
 export async function signOut(): Promise<void> {
   // Read before branching, and as a plain number: the typed client narrows the
   // response away entirely once `ok` is ruled out, which leaves nothing to ask
@@ -255,6 +267,8 @@ const commandSenders = {
   set_title: (p: CommandPayload<'set_title'>) => api.v1.commands.set_title.$post({ json: p }),
   set_description: (p: CommandPayload<'set_description'>) =>
     api.v1.commands.set_description.$post({ json: p }),
+  set_routing_summary_correction: (p: CommandPayload<'set_routing_summary_correction'>) =>
+    api.v1.commands.set_routing_summary_correction.$post({ json: p }),
 } as const;
 
 /**

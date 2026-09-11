@@ -1,6 +1,7 @@
 import { abortAllDurableObjects, env, runInDurableObject, SELF } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
 import { PROBE_NAME } from '../../src/accounts/probe.js';
+import { GUEST_ACCOUNT_NAME } from '../../src/auth/register.js';
 import { issuerIsReachable, issuerWillIdentify } from './issuer.js';
 
 /**
@@ -129,7 +130,18 @@ export async function startFromEmpty(): Promise<void> {
   // somebody prepares their account would then pass against a store the
   // previous case prepared. `ADDABLE_ACCOUNTS` is what the add-user cases can
   // derive; a case that adds a name not on this list has to add it here too.
-  for (const name of [ACCOUNT_NAME, OTHER_ACCOUNT_NAME, PROBE_NAME, ...ADDABLE_ACCOUNTS]) {
+  //
+  // The guest's is on the list for the same reason, arrived at from the other
+  // direction: no case adds it, but continuing as a guest creates it, and a
+  // case proving the guest lands in a starter workspace would otherwise pass
+  // against the workspace a previous case left behind.
+  for (const name of [
+    ACCOUNT_NAME,
+    OTHER_ACCOUNT_NAME,
+    PROBE_NAME,
+    GUEST_ACCOUNT_NAME,
+    ...ADDABLE_ACCOUNTS,
+  ]) {
     await runInDurableObject(storeNamed(name), (_instance, state) => state.storage.deleteAll());
   }
   await abortAllDurableObjects();

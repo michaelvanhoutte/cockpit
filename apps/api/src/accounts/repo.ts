@@ -9,6 +9,7 @@ import type {
   Layout,
   LayoutRow,
   Panel,
+  RoutingSummary,
   ScreenSize,
   Workspace,
 } from '@cockpit/shared';
@@ -28,6 +29,7 @@ import {
   panelPlacements,
   panels,
   screenSizes,
+  workspaceRoutingSummary,
   workspaces,
 } from './schema.js';
 
@@ -770,18 +772,122 @@ export function recentlyCapturedUnfiled(
         isNull(items.completedAt),
         isNull(items.deletedAt),
         isNotNull(items.capturedMessage),
-        notExists(
-          db
-            .select({ one: sql`1` })
-            .from(panelItems)
-            .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, items.id))),
-        ),
+        notFiledOnALivePanel(db, tenantId),
       ),
     )
     .orderBy(desc(items.createdAt))
     .limit(RECENTLY_CAPTURED_LIMIT)
     .all()
     .map((row) => row.capturedMessage!);
+}
+
+const routingSummaryColumns = {
+  summary: workspaceRoutingSummary.summary,
+  summaryGeneratedAt: workspaceRoutingSummary.summaryGeneratedAt,
+  correction: workspaceRoutingSummary.correction,
+  correctionSetAt: workspaceRoutingSummary.correctionSetAt,
+};
+
+/**
+ * One Workspace's filing-pattern summary and correction ("Show what the
+ * system learned, in a sentence you can correct", issue 301), or null where
+ * no row exists yet - a Workspace with no decision history summarized and no
+ * correction ever written, which is every Workspace's starting condition
+ * (`schema.ts`'s own comment on `workspaceRoutingSummary`).
+ */
+export function getRoutingSummary(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): RoutingSummary | null {
+  return (
+    db
+      .select(routingSummaryColumns)
+      .from(workspaceRoutingSummary)
+      .where(
+        and(
+          eq(workspaceRoutingSummary.tenantId, tenantId),
+          eq(workspaceRoutingSummary.workspaceId, workspaceId),
+        ),
+      )
+      .get() ?? null
+  );
+}
+
+/**
+ * The `notExists` clause `recentlyCapturedUnfiled` above and
+ * `unfiledItemsInWorkspace` below both filter on: excludes an Item genuinely
+ * filed on a live Panel, the same test `isItemFiled` below makes of one Item
+ * at a time and for the same reason its own comment gives - a Panel or
+ * Dashboard tombstoned since the filing leaves its `panel_items` row
+ * untouched, which is what puts the Item back in the Inbox, so a plain
+ * `notExists(panelItems)` alone would read it as still filed forever.
+ */
+function notFiledOnALivePanel(db: AccountDb, tenantId: string) {
+  return notExists(
+    db
+      .select({ one: sql`1` })
+      .from(panelItems)
+      .innerJoin(panels, eq(panelItems.panelId, panels.id))
+      .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+      .where(
+        and(
+          eq(panelItems.tenantId, tenantId),
+          eq(panelItems.itemId, items.id),
+          isNull(panels.deletedAt),
+          isNull(dashboards.deletedAt),
+        ),
+      ),
+  );
+}
+
+/**
+ * Every item in one workspace's Inbox that has a captured note - the rest of
+ * the inbox a settled filing re-proposes ("Re-propose the rest of the inbox
+ * the moment you file one", issue 300). The same predicate
+ * `recentlyCapturedUnfiled` above filters on, without its exclusion or its
+ * limit: this call *is* the list to reclassify, not context for classifying
+ * one more note.
+ *
+ * `workspaceId` carried per row, not assumed to be the workspace this refresh
+ * was triggered from: an item still undecided between workspaces keeps
+ * whatever workspace it was captured into ("Capture something before you know
+ * which workspace it belongs to", issue 165) until it is filed, and that is
+ * the workspace its own classification reads panels and history from -
+ * exactly what `cleanUpACapturedNote` already does per note, which this
+ * mirrors rather than substituting the triggering workspace for.
+ */
+export function unfiledItemsInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): { id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[] {
+  return db
+    .select({
+      id: items.id,
+      workspaceId: items.workspaceId,
+      capturedMessage: items.capturedMessage,
+      proposedPanelId: items.proposedPanelId,
+    })
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
+        isNotNull(items.capturedMessage),
+        notFiledOnALivePanel(db, tenantId),
+      ),
+    )
+    .orderBy(desc(items.createdAt))
+    .all()
+    .map((row) => ({
+      id: row.id,
+      workspaceId: row.workspaceId,
+      capturedMessage: row.capturedMessage!,
+      proposedPanelId: row.proposedPanelId,
+    }));
 }
 
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {

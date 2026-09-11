@@ -37,6 +37,23 @@ export interface Env {
    */
   OIDC_ISSUER?: string;
   /**
+   * Whether this environment offers a way in without a Google account at all
+   * ("Sign in as a guest, without a password", issue 354). Set on production,
+   * and on the two local stacks so the control can be driven at all;
+   * deliberately absent from staging, which holds real rows rather than being
+   * somewhere to show a stranger the product.
+   *
+   * Optional in the type because absence is how it is turned off, so an
+   * environment that has never set it must compile and refuse the route rather
+   * than fail to build.
+   *
+   * **Compared to the literal `'true'`, not merely truthy.** Every var here is
+   * a string, so a stray `"false"` typed into an environment block meaning to
+   * turn this off would otherwise turn it on - the one value that ever came
+   * from a person's own judgement rather than from a boolean.
+   */
+  GUEST_SIGN_IN?: string;
+  /**
    * The operator's secret, and the only thing standing in front of the backup
    * routes. Optional in the type because it is a secret rather than a binding:
    * an environment that has not had one put in it must refuse those routes
