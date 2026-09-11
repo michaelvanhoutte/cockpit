@@ -102,6 +102,12 @@ pnpm backup:restore --env local --from ./backups/mine --user tenant-default --fo
 
 **A restore replaces an account; it never merges into one**, and what that costs you — when it refuses, what has to be typed before a deployed environment is written to, and what is true if a run stops partway — is in [docs/deployment.md](docs/deployment.md), under "Migrations and rollback". Read it before pointing this at anything but `local`: both deployed environments hold real data, so a restore into either replaces something that has no other copy.
 
+The shared guest account goes back to its demonstration every night; this does it now, for a demo that cannot wait:
+
+```bash
+pnpm guest:reset --env production
+```
+
 ### Tidying up branches
 
 ```bash

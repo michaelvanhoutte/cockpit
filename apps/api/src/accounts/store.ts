@@ -17,12 +17,14 @@ import { accountChanges } from './changes.js';
 import {
   CHANGE_LEDGER,
   accountTables,
+  countForeignRows,
   describeForeignRowsInBackup,
   foreignRows,
   readStoreAsItStands,
   type AccountBackup,
   type ForeignRow,
 } from './backup.js';
+import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import {
   deleteAllRows,
   dropAccountTables,
@@ -390,6 +392,58 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   }
 
   /**
+   * Puts the shared guest account back to the demonstration it opens on
+   * ("Reset the guest account to its seeded state", issue 356), and whatever
+   * guests did to it is gone.
+   *
+   * **A new account's own path, run over an emptied store**, rather than a
+   * restore from a file. The demonstration is a change like any other
+   * (`0026-guest-demo-seed`, changes.ts), so dropping every table and applying
+   * the whole change list is exactly what the guest account holds the first
+   * time anybody opens it - with no seed file beside the code to drift from it.
+   *
+   * **Names its account itself, and checks it is in the right store.** There is
+   * only one account this may be asked of, so no caller gets to say which. What
+   * is left to go wrong is the Worker addressing the wrong store, and the rows
+   * answer that: a store holding any other account's row is refused before
+   * anything is dropped - the `foreignRows` lock a backup is read through - so
+   * a real account's data cannot be wiped by being mistaken for the guest's.
+   *
+   * **All of it or none of it**, for the reason `restoreFrom` gives: the drop
+   * and every change are one `transactionSync`, so a reset that fails partway
+   * leaves the account as it was. Two arriving at once - the nightly run and an
+   * operator - cannot interleave either: there is no `await` in here and the
+   * object serves one call at a time, so the second resets what the first put
+   * back. A failure is thrown rather than answered, because nothing a caller
+   * sent can cause one; the callers log it.
+   */
+  resetGuest(): Answer<null> {
+    const sql = this.ctx.storage.sql;
+    const wrong = foreignRows(readStoreAsItStands(sql), GUEST_ACCOUNT_NAME);
+    if (wrong.length > 0) {
+      return {
+        status: 'conflict',
+        what: `this is not the guest account, so nothing was reset: ${countForeignRows(wrong)}`,
+      };
+    }
+
+    this.ctx.storage.transactionSync(() => {
+      dropAccountTables(sql, tablesParentsFirst(sql, accountTables(sql)));
+      sql.exec(`DROP TABLE IF EXISTS ${CHANGE_LEDGER}`);
+      this.#createLedger();
+      // `#apply` straight, not `#bringUpToDate`'s one transaction per change:
+      // this whole reset is the one transaction.
+      bringUpToDate(GUEST_ACCOUNT_NAME, accountChanges(GUEST_ACCOUNT_NAME), [], (change) =>
+        this.#apply(change),
+      );
+    });
+    // Every change there is has just been applied, so there is nothing left
+    // for the next call to bring up to date.
+    this.#upToDate = true;
+    return { status: 'ok', value: null };
+  }
+
+  /**
    * Brings the account up to date, then does the work - and turns the two
    * things a caller has to be able to tell apart into an answer rather than an
    * exception, because a Durable Object's exceptions reach the Worker as an
@@ -465,12 +519,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   #bringUpToDate(accountName: string): void {
     if (this.#upToDate) return;
 
-    this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS account_changes (
-         name text PRIMARY KEY NOT NULL,
-         applied_at text NOT NULL
-       ) STRICT`,
-    );
+    this.#createLedger();
     const applied = this.ctx.storage.sql
       .exec<{ name: string }>('SELECT name FROM account_changes')
       .toArray()
@@ -481,6 +530,16 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     });
 
     this.#upToDate = true;
+  }
+
+  /** The record of which changes have run, which nothing but this store can create. */
+  #createLedger(): void {
+    this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS ${CHANGE_LEDGER} (
+         name text PRIMARY KEY NOT NULL,
+         applied_at text NOT NULL
+       ) STRICT`,
+    );
   }
 
   #apply(change: Change): void {

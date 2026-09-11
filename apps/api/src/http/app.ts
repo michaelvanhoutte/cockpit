@@ -35,6 +35,7 @@ import {
   registeredAccountNames,
   registeredUsers,
   setAccess,
+  resetGuestAccount,
   restoreAccount,
   restoreRegister,
   type AccountBackup,
@@ -62,7 +63,12 @@ import {
 } from '../auth/gate.js';
 import { endpointsFor, exchangeCode, issuerFor, keysOf } from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
-import { endSession, signInAsGuest, signInWithGoogle } from '../auth/register.js';
+import {
+  GUEST_ACCOUNT_NAME,
+  endSession,
+  signInAsGuest,
+  signInWithGoogle,
+} from '../auth/register.js';
 import { getConnector } from '../connectors/registry.js';
 import type { Env } from '../env.js';
 
@@ -1220,6 +1226,28 @@ const routes = app
         return c.json({ error: error.message }, 409);
       }
       throw error;
+    }
+  })
+  // Putting the shared guest account back to its demonstration by hand - the
+  // same reset the nightly run does (jobs/index.ts), for a demo due before it
+  // comes round. It names no account because there is only one it can mean.
+  .post('/v1/operator/guest/reset', async (c) => {
+    try {
+      if ((await resetGuestAccount(c.env)) === 'no guest account') {
+        return c.json({ error: 'this environment has no guest account to reset' }, 404);
+      }
+      return c.json({ reset: GUEST_ACCOUNT_NAME }, 200);
+    } catch (error) {
+      // The guest's id held by somebody real, or a store holding another
+      // account's rows: `onError`'s 409 says which.
+      if (error instanceof ConflictInAccountError) throw error;
+      // Anything else is ours rather than the caller's - nothing was sent that
+      // could cause it - so it is logged. The sentence still goes back, because
+      // the operator is the one person who can act on it, and because the one
+      // thing they need to know is that the account was left as it was.
+      const why = error instanceof Error ? error.message : String(error);
+      console.error(JSON.stringify({ level: 'error', message: `the guest account was not reset: ${why}` }));
+      return c.json({ error: `the guest account was not reset, and holds what it held: ${why}` }, 500);
     }
   });
 
