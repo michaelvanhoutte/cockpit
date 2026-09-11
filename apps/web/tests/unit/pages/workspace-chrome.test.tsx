@@ -27,12 +27,13 @@ const BLUE = WORKSPACE_THEMES[1]!;
  * pale header over a pale ground, which is what a browser holding a stored copy
  * of a workspace from an older release still has.
  */
-const AN_OLDER_PALETTE = { bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
+type Surfaces = { bar: string; ground: string; header: string };
+const AN_OLDER_PALETTE: Surfaces = { bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
 
 const params: { workspaceId?: string } = {};
 /** What the two workspaces are wearing, so a case can hand them older colours. */
-const VIOLET_SURFACES = { bar: VIOLET.bar, ground: VIOLET.ground, header: VIOLET.header };
-const wearing: { violet: typeof VIOLET_SURFACES } = { violet: VIOLET_SURFACES };
+const VIOLET_SURFACES: Surfaces = { bar: VIOLET.bar, ground: VIOLET.ground, header: VIOLET.header };
+const wearing: { violet: Surfaces } = { violet: VIOLET_SURFACES };
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
