@@ -682,7 +682,7 @@ describe('User management', () => {
     });
   });
 
-  describe('deleting a user takes the rows their account kept from before it had a store', () => {
+  describe('deleting a user leaves nothing of their account behind, however old it is', () => {
     /**
      * An account older than the stores can still have rows in the four tables
      * D1 kept for rollback (architecture, "D1 still holds the four tables an
@@ -691,7 +691,7 @@ describe('User management', () => {
      * the store had already been destroyed, on every attempt. Written straight
      * into D1, because nothing but history makes these rows now.
      */
-    it('deletes somebody whose account still has them, and leaves none behind', async () => {
+    it('deletes somebody whose account is older than this version of Cockpit, and leaves none of what it held', async () => {
       const at = '2026-08-01T00:00:00.000Z';
       await env.DB.batch([
         env.DB.prepare(
