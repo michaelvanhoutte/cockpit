@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { NAME_LIMIT } from '@cockpit/shared';
 import {
   ACCOUNT_NAME_LIMIT,
   addressLooksReal,
@@ -6,6 +7,7 @@ import {
   idSearchPrefix,
   idsForNewUser,
   nameAsIdPart,
+  newcomerNamed,
   whatIsWrongWith,
 } from '../../../src/accounts/new-user.js';
 
@@ -16,6 +18,60 @@ import {
  * name of forty-eight characters or to `Straße` without writing one of each
  * into a register first, which would prove the same thing more slowly.
  */
+describe('Sign-in', () => {
+  /**
+   * Somebody who signs in without having been added ("Sign in with any Google
+   * account, so a recruiter doesn't need to be added first", issue 343) has
+   * nobody there to type a name for them, so every answer here is a name
+   * rather than a refusal. That the name reaches the register at all is
+   * tests/integration/http/sign-in.test.ts's.
+   */
+  describe('somebody who signs themselves up is called what Google calls them, and their account after it', () => {
+    it.each([
+      {
+        situation: 'the name Google gives',
+        given: 'Rita Recruiter',
+        called: 'Rita Recruiter',
+        accountAfter: 'Rita Recruiter',
+      },
+      { situation: 'that name without the spaces around it', given: '  Rita  ', called: 'Rita', accountAfter: 'Rita' },
+      {
+        situation: 'the address, where Google gives no name',
+        given: undefined,
+        called: 'rita@example.com',
+        accountAfter: 'rita@example.com',
+      },
+      {
+        situation: 'the address, where the name is nothing but spaces',
+        given: '   ',
+        called: 'rita@example.com',
+        accountAfter: 'rita@example.com',
+      },
+      // A name somebody may hold that no account can be named after: they are
+      // still called it, and nobody is there to be asked for another.
+      {
+        situation: 'a name no account can be named after, with the account named after the address',
+        given: '日本語',
+        called: '日本語',
+        accountAfter: 'rita@example.com',
+      },
+    ])('by $situation', ({ given, called, accountAfter }) => {
+      expect(newcomerNamed('rita@example.com', given)).toEqual({ name: called, idsFrom: accountAfter });
+    });
+
+    /**
+     * Cut to what the rename form accepts, so an admin can still edit the row -
+     * and by character rather than by UTF-16 unit, so the cut never leaves half
+     * of one behind.
+     */
+    it('cuts a very long name to what an admin could have typed', () => {
+      const { name } = newcomerNamed('rita@example.com', '😀'.repeat(NAME_LIMIT + 10));
+
+      expect(name).toBe('😀'.repeat(NAME_LIMIT));
+    });
+  });
+});
+
 describe('User management', () => {
   describe('a name gives an account something to be called, or is refused', () => {
     it.each([

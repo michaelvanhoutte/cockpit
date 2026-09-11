@@ -426,10 +426,11 @@ presents as a workflow that goes green having done nothing. The readme's
 *Development automation* section has the rest.
 
 **Cockpit's own sign-in is all there is in front of either environment**, and
-since "Sign in with Google, and retire the list of names" (issue 196) that is a
-Google account checked against the register, which is the allowlist. Each
-environment has a Google client of its own, so a secret that leaks from one
-cannot sign anybody in to the other.
+since "Sign in with any Google account, so a recruiter doesn't need to be added
+first" (issue 343) it admits any verified Google account, giving one the
+register has never seen an account of its own - so both environments are open
+to anybody who has one. Each environment has a Google client of its own, so a
+secret that leaks from one cannot sign anybody in to the other.
 
 | Kind | Name | Where |
 |---|---|---|
@@ -455,7 +456,7 @@ happens not to be one.
 ### A Google OAuth client
 
 Creating one is a person's job and costs nothing: a Google Cloud project needs
-no billing account, and `openid email` are not sensitive scopes, so no
+no billing account, and `openid email profile` are not sensitive scopes, so no
 verification review stands between this and a working sign-in. Per environment,
 in the Google Cloud console:
 
@@ -633,9 +634,13 @@ row is load-bearing now.** Everybody after them is added on the admin page ("Add
 a user on the admin page, so a second person no longer needs SQL", issue 231)
 and made an admin there too ("Rename a user, and make somebody an admin", issue
 232), and this step stays exactly as long as the chicken and egg does: nobody
-can open that page until somebody can sign in. It is also the only way back from
+can open that page until somebody is an admin. It is also the only way back from
 a register holding no admin at all, which is why the page refuses to make the
-last one ordinary. The second seeded person is a fixture
+last one ordinary. **Seeding comes before the deploy for a second reason** since
+"Sign in with any Google account, so a recruiter doesn't need to be added first"
+(issue 343): a sign-in that reached the Worker first would take the admin's
+address as an ordinary user, and the seed's `INSERT OR IGNORE` would then add
+nothing. The second seeded person is a fixture
 rather than a real colleague, and an environment that does not want one can
 delete the row before anybody signs in as them. **Neither environment is seeded again
 afterwards**: a bootstrap is not a deploy step, and since 7 September 2026 both
@@ -646,12 +651,14 @@ licence to point it at a live environment.
 
 **An environment bootstrapped before "Sign in by picking a name, each user in
 their own account" (issue 86) has an empty `users` table**, since that is the
-migration the table arrived in, and nobody there can sign in until somebody is
+migration the table arrived in, and nobody there is an admin until somebody is
 put in it. Production hit this on 2026-09-06 while Google sign-in was promoted:
 it held `tenant-default` and no people at all. **Look before assuming a person is
 there**, because the way this presents is misleading — an `UPDATE` that matches
-no row changes nothing and says nothing, and the sign-in it was supposed to fix
-is refused as an account this Cockpit does not know.
+no row changes nothing and says nothing, and since issue 343 the sign-in it was
+supposed to fix does not fail either: it lands you, ordinary, in a new empty
+account, whose row then holds your address so the insert below adds nothing.
+Put the row in before signing in.
 
 ```bash
 wrangler d1 execute cockpit --remote --command "SELECT id, email FROM users"

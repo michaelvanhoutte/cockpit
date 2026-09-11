@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
+import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
 import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../../../src/auth/register.js';
 import {
   OTHER_USER_ID,
   TASK_TYPE_ID,
   USER_ID,
   WORKSPACE_ID,
+  inStoreAsItIs,
   inTheStore,
   seedRegister,
   signInAs,
@@ -79,6 +81,37 @@ function carrying(cookie: string, init: RequestInit = {}): RequestInit {
   return { ...init, headers: { ...((init.headers as Record<string, string>) ?? {}), cookie } };
 }
 
+/** How many accounts and how many people the register holds. */
+async function registerHolds(): Promise<{ accounts: number; people: number }> {
+  const counted = await env.DB.prepare(
+    'SELECT (SELECT count(*) FROM tenants) AS accounts, (SELECT count(*) FROM users) AS people',
+  ).first<{ accounts: number; people: number }>();
+  return counted!;
+}
+
+/** Who a browser holding this cookie is, as the register answers it. */
+async function whoTheyAre(cookie: string): Promise<{ id: string; name: string }> {
+  const res = await SELF.fetch('http://cockpit.test/v1/me', carrying(cookie));
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { user: { id: string; name: string } }).user;
+}
+
+/** The workspaces an account's store holds, read as it stands rather than brought up to date. */
+async function workspacesIn(accountName: string): Promise<unknown[]> {
+  const rows = await inStoreAsItIs(accountName, (sql) => [
+    ...sql.exec('SELECT name FROM workspaces ORDER BY name').raw(),
+  ]);
+  return rows.flat();
+}
+
+/**
+ * Somebody the register has never seen, as Google describes them - and the
+ * user and account their first sign-in makes, derived from that name.
+ */
+const NEWCOMER = { email: 'rita@example.com', subject: 'google|rita', name: 'Rita Recruiter' };
+const NEWCOMER_ID = 'user-rita-recruiter';
+const NEWCOMER_ACCOUNT = 'tenant-rita-recruiter';
+
 /** Every kind of request the application answers, named as the person doing it. */
 const EVERY_WAY_IN = [
   { situation: 'asking for your workspaces', path: '/v1/workspaces' },
@@ -94,47 +127,98 @@ beforeEach(async () => {
 });
 
 describe('Sign-in', () => {
-  describe('you sign in with Google, and only people already in the register get in', () => {
-    it('opens the account of somebody whose address the register holds', async () => {
-      const back = await signInAsGoogleAccount({ email: 'michael@example.com' });
+  /**
+   * Anybody with a Google account gets in ("Sign in with any Google account, so
+   * a recruiter doesn't need to be added first", issue 343). Every rule here is
+   * about what the register ends up holding - one person, whatever order and
+   * however concurrently they arrive - so it is asked of a real register,
+   * through the callback a browser actually comes back to.
+   */
+  describe('an address the register has never seen gets in, with a user and an account made for them', () => {
+    it('makes an ordinary user and an account of their own, and lands them in it', async () => {
+      const back = await signInAsGoogleAccount(NEWCOMER);
 
       expect(back.headers.get('location')).toBe('/');
-      const workspaces = await SELF.fetch('http://cockpit.test/v1/workspaces', {
-        headers: { cookie: sessionIn(back)! },
-      });
-      expect(workspaces.status).toBe(200);
-    });
-
-    /**
-     * Proving who you are at Google is not being entitled to an account here:
-     * the register is the allowlist, and nothing on this path creates a person.
-     * The row count is the second half of that - a refusal that quietly made an
-     * account would still redirect the same way.
-     */
-    it('refuses an address the register does not hold, and writes nothing', async () => {
-      const before = await env.DB.prepare('SELECT count(*) AS n FROM users').first<{ n: number }>();
-
-      const back = await signInAsGoogleAccount({ email: 'stranger@example.com' });
-
-      expect(back.headers.get('location')).toBe('/signin?refused=unknown-account');
-      expect(sessionIn(back)).toBeUndefined();
       expect(
-        await env.DB.prepare('SELECT count(*) AS n FROM users').first<{ n: number }>(),
-      ).toEqual(before);
+        await env.DB.prepare(
+          'SELECT id, role, account_id, google_subject FROM users WHERE email = ?',
+        )
+          .bind(NEWCOMER.email)
+          .first(),
+      ).toEqual({
+        id: NEWCOMER_ID,
+        role: 'user',
+        account_id: NEWCOMER_ACCOUNT,
+        google_subject: NEWCOMER.subject,
+      });
+      // Their store, opened as they signed in: read as it stands rather than
+      // brought up to date, because being ready already is the claim.
+      expect(await workspacesIn(NEWCOMER_ACCOUNT)).toEqual([FIRST_WORKSPACE_NAME]);
+      expect(await whoTheyAre(sessionIn(back)!)).toMatchObject({ id: NEWCOMER_ID });
+    });
+
+    it('signs them into the same account the next time, and makes nothing twice', async () => {
+      await signInAsGoogleAccount(NEWCOMER);
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+
+      const again = await signInAsGoogleAccount(NEWCOMER);
+
+      expect(again.headers.get('location')).toBe('/');
+      expect(await whoTheyAre(sessionIn(again)!)).toMatchObject({ id: NEWCOMER_ID });
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
     });
 
     /**
-     * An address Google has not checked is one anybody can claim, so an
-     * allowlist of addresses would be worth nothing without this.
+     * Two tabs, or a double press: both find nobody and both write. The
+     * register's uniqueness lets one through, and the other must read again
+     * rather than fail - which is only decided by a real register, so it is
+     * asked here and not at L1.
      */
-    it('refuses an address Google has not verified', async () => {
-      const back = await signInAsGoogleAccount({
-        email: 'michael@example.com',
-        emailVerified: false,
-      });
+    it('makes one user when two first sign-ins of one address arrive at once', async () => {
+      await issuerIsReachable();
+      const [one, two] = await Promise.all([startSignIn(), startSignIn()]);
+      issuerWillIdentify({ ...NEWCOMER, nonce: one.asked.searchParams.get('nonce')! }, 'code-one');
+      issuerWillIdentify({ ...NEWCOMER, nonce: two.asked.searchParams.get('nonce')! }, 'code-two');
+
+      const [first, second] = await Promise.all([
+        comeBack({ code: 'code-one', state: one.asked.searchParams.get('state')! }, one.attempt),
+        comeBack({ code: 'code-two', state: two.asked.searchParams.get('state')! }, two.attempt),
+      ]);
+
+      expect([first.headers.get('location'), second.headers.get('location')]).toEqual(['/', '/']);
+      expect(await whoTheyAre(sessionIn(first)!)).toMatchObject({ id: NEWCOMER_ID });
+      expect(await whoTheyAre(sessionIn(second)!)).toMatchObject({ id: NEWCOMER_ID });
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+    });
+
+    /**
+     * An address Google has not checked is one anybody can claim, so believing
+     * it would make whoever typed it an account in somebody else's name - or,
+     * for an address an admin added, open that person's account.
+     */
+    it('refuses an address Google has not verified, and makes nobody', async () => {
+      const back = await signInAsGoogleAccount({ ...NEWCOMER, emailVerified: false });
 
       expect(back.headers.get('location')).toBe('/signin?refused=failed');
       expect(sessionIn(back)).toBeUndefined();
+      expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
+    });
+  });
+
+  describe('somebody the register already holds is found, and never made again', () => {
+    /**
+     * The name Google gives is for somebody nobody named: a person an admin
+     * added keeps the name they were given, and nothing is made beside them.
+     */
+    it('opens their own account and changes nothing about them', async () => {
+      const back = await signInAsGoogleAccount({
+        email: 'michael@example.com',
+        name: 'Mike, as Google has it',
+      });
+
+      expect(back.headers.get('location')).toBe('/');
+      expect(await whoTheyAre(sessionIn(back)!)).toMatchObject({ id: USER_ID, name: 'Michael' });
+      expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
     });
 
     /**
@@ -174,6 +258,78 @@ describe('Sign-in', () => {
   });
 
   /**
+   * Both ends of the wire from Google's reply to the register: a name that
+   * arrives is the one kept, and one that does not refuses nothing. Every
+   * other decision about the name - spaces, length, one no account can be
+   * named after - is tests/unit/accounts/new-user.test.ts's.
+   */
+  describe('somebody who signs themselves up is called what Google calls them', () => {
+    it.each([
+      {
+        situation: 'the name Google gives',
+        claims: { email: 'stranger@example.com', name: 'Rita Recruiter' },
+        called: 'Rita Recruiter',
+      },
+      {
+        situation: 'their address, where Google gives no name',
+        claims: { email: 'stranger@example.com' },
+        called: 'stranger@example.com',
+      },
+    ])('calls them $situation', async ({ claims, called }) => {
+      const back = await signInAsGoogleAccount(claims);
+
+      expect(back.headers.get('location')).toBe('/');
+      expect(await whoTheyAre(sessionIn(back)!)).toMatchObject({ name: called });
+    });
+  });
+
+  describe('making a stranger’s account is safe to retry if it stops halfway', () => {
+    /**
+     * Stopped after the register and before the account: the same state
+     * adding somebody can leave, and answered the same way - they are in the
+     * register, so they are signed in, and the account is made by whatever
+     * reaches it next.
+     */
+    it('signs them in though their account will not open yet, and it is there the next time', async () => {
+      // One of the tables the account's first update creates is already there,
+      // so that update fails - the shape tests/integration/accounts/health.test.ts
+      // breaks a store with.
+      await inStoreAsItIs(NEWCOMER_ACCOUNT, (sql) =>
+        sql.exec('CREATE TABLE commands (whatever text)'),
+      );
+
+      const first = await signInAsGoogleAccount(NEWCOMER);
+
+      expect(first.headers.get('location')).toBe('/');
+      expect(sessionIn(first)).toBeDefined();
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+
+      await inStoreAsItIs(NEWCOMER_ACCOUNT, (sql) => sql.exec('DROP TABLE commands'));
+      const next = await signInAsGoogleAccount(NEWCOMER);
+
+      const theirs = await SELF.fetch('http://cockpit.test/v1/workspaces', carrying(sessionIn(next)!));
+      expect(theirs.status).toBe(200);
+      expect(await workspacesIn(NEWCOMER_ACCOUNT)).toEqual([FIRST_WORKSPACE_NAME]);
+      expect(await registerHolds()).toEqual({ accounts: 3, people: 3 });
+    });
+
+    it('writes nothing when the exchange with Google fails, and refuses as it always has', async () => {
+      await issuerIsReachable();
+      const { asked, attempt } = await startSignIn();
+      issuerWillRefuseTheExchange();
+
+      const back = await comeBack(
+        { code: 'a-code', state: asked.searchParams.get('state')! },
+        attempt,
+      );
+
+      expect(back.headers.get('location')).toBe('/signin?refused=failed');
+      expect(sessionIn(back)).toBeUndefined();
+      expect(await registerHolds()).toEqual({ accounts: 2, people: 2 });
+    });
+  });
+
+  /**
    * The other way in, which asks nobody anything ("Sign in as a guest, without
    * a password", issue 354). Every rule here is about what the register ends up
    * holding - one account however many people ask for it, and none at all where
@@ -184,21 +340,6 @@ describe('Sign-in', () => {
     /** Pressing "Continue as guest", which is a navigation like the other two. */
     function continueAsGuest(): Promise<Response> {
       return SELF.fetch('http://cockpit.test/v1/sign-in/guest', { redirect: 'manual' });
-    }
-
-    /** How many accounts and how many people the register holds. */
-    async function registerHolds(): Promise<{ accounts: number; people: number }> {
-      const counted = await env.DB.prepare(
-        'SELECT (SELECT count(*) FROM tenants) AS accounts, (SELECT count(*) FROM users) AS people',
-      ).first<{ accounts: number; people: number }>();
-      return counted!;
-    }
-
-    /** Who a browser holding this cookie is, as the register answers it. */
-    async function whoTheyAre(cookie: string): Promise<{ id: string; name: string }> {
-      const res = await SELF.fetch('http://cockpit.test/v1/me', carrying(cookie));
-      expect(res.status).toBe(200);
-      return ((await res.json()) as { user: { id: string; name: string } }).user;
     }
 
     it('makes the guest account the first time somebody asks for it, and signs them in', async () => {
@@ -432,8 +573,8 @@ describe('Sign-in', () => {
   /**
    * The two refusals are told apart on purpose ("Take somebody's access away
    * without taking their work", issue 233): a colleague whose access was
-   * removed must not be told this Cockpit does not know them, and sent looking
-   * for a sign-in problem that is not theirs. The cost is that whoever tries
+   * removed must not be told their Google account cannot sign in here, and
+   * sent looking for a sign-in problem that is not theirs. The cost is that whoever tries
    * the address learns it is held here, taken knowingly.
    *
    * Whether the refusal reads as words on the logon page is
@@ -536,8 +677,9 @@ describe('Sign-in', () => {
    * Every way a reply can be wrong is proved at
    * tests/unit/auth/oidc.test.ts, against real tokens and a real key. What
    * cannot be proved there is that any of it is asked on the way in, which is
-   * these two - one reply that belongs to another sign-in, and one issuer that
-   * will not answer.
+   * what these are. An issuer that will not exchange the code is asked above,
+   * with making a stranger's account, since writing nothing is its half that
+   * matters now.
    */
   describe('a sign-in only completes for the browser that started it', () => {
     it('refuses a reply carrying another sign-in’s proof', async () => {
@@ -581,20 +723,6 @@ describe('Sign-in', () => {
 
       expect(again.headers.get('location')).toBe('/signin?refused=failed');
       expect(sessionIn(again)).toBeUndefined();
-    });
-
-    it('refuses when the issuer will not exchange the code', async () => {
-      await issuerIsReachable();
-      const { asked, attempt } = await startSignIn();
-      issuerWillRefuseTheExchange();
-
-      const back = await comeBack(
-        { code: 'a-code', state: asked.searchParams.get('state')! },
-        attempt,
-      );
-
-      expect(back.headers.get('location')).toBe('/signin?refused=failed');
-      expect(sessionIn(back)).toBeUndefined();
     });
 
     /**

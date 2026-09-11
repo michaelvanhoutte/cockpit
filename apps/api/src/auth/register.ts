@@ -1,6 +1,6 @@
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { Role } from '@cockpit/shared';
-import { hasNoAccess } from '../accounts/register.js';
+import { admitNewcomer, hasNoAccess } from '../accounts/register.js';
 import { createDb } from '../db/client.js';
 import { sessions, tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
@@ -43,28 +43,60 @@ export interface Visitor {
 }
 
 /**
- * Signs in whoever Google says this is, or says which of the two refusals this
- * is: somebody this Cockpit does not know, or somebody whose access was taken
- * away.
+ * Signs in whoever Google says this is, making them a user and an account of
+ * their own where the register has never seen them - or says which of the two
+ * refusals this is: an address that belongs to a different Google account, or
+ * somebody whose access was taken away.
  *
- * **The register is the allowlist** ("Sign in with Google, and retire the list
- * of names", issue 196). Proving who you are at Google is not the same as being
- * entitled to an account here, and nothing in this function creates one: a
- * person is put in the register deliberately, and everyone else is refused
- * having had nothing written on their behalf.
+ * **Anybody with a Google account gets in** ("Sign in with any Google account,
+ * so a recruiter doesn't need to be added first", issue 343), which reverses
+ * the register being the allowlist ("Sign in with Google, and retire the list
+ * of names", issue 196): Cockpit is also a demo that somebody has to be able to
+ * walk up to. What the register still decides is *whose* row a sign-in opens,
+ * and anybody it already holds is found exactly as before.
  *
- * Somebody is looked for by their Google identity first and by their address
- * only if that finds nobody, which is what makes a changed address harmless and
- * a *reassigned* one safe: the identity never changes and is never reissued,
- * while an address can be given to somebody new. The first sign-in is the one
- * that has only the address to go on, and recording the identity then is what
- * closes that door behind it.
+ * **Read again after losing a race to write.** Two first sign-ins of one
+ * stranger at once both find nothing and both write; the register's uniqueness
+ * lets one through, and the other reads again and finds it - so exactly one
+ * person is made and both sign-ins land in their account. Bounded, because a
+ * write can only lose to one that has already committed, so a second loss in
+ * a row is two different strangers deriving the same ids twice over.
  */
 export async function signInWithGoogle(
   env: Env,
   identity: Identity,
   now: Date,
 ): Promise<SignIn> {
+  for (let read = 1; read <= READS_BEFORE_GIVING_UP; read += 1) {
+    const known = await signInSomebodyKnown(env, identity, now);
+    if (known) return known;
+
+    const admitted = await admitNewcomer(env, identity, now);
+    if (admitted) {
+      return { ...(await startVisit(env, admitted.user, now)), newAccount: admitted.accountId };
+    }
+  }
+  throw new Error(`signing ${identity.email} in lost a race to write ${READS_BEFORE_GIVING_UP} times`);
+}
+
+const READS_BEFORE_GIVING_UP = 3;
+
+/**
+ * Signs in somebody the register already holds, or answers `null` where it
+ * holds nobody by either their Google identity or their address.
+ *
+ * Somebody is looked for by their Google identity first and by their address
+ * only if that finds nobody, which is what makes a changed address harmless and
+ * a *reassigned* one safe: the identity never changes and is never reissued,
+ * while an address can be given to somebody new. The first sign-in of somebody
+ * an admin added is the one that has only the address to go on, and recording
+ * the identity then is what closes that door behind it.
+ */
+async function signInSomebodyKnown(
+  env: Env,
+  identity: Identity,
+  now: Date,
+): Promise<SignIn | null> {
   const db = createDb(env.DB);
 
   const [known] = await db
@@ -88,10 +120,11 @@ export async function signInWithGoogle(
     })
     .from(users)
     .where(eq(users.email, identity.email));
+  if (!byAddress) return null;
   // Somebody whose address this is, but who is a different Google account than
   // the one that claimed it: refused, because an address given to a new owner
   // would otherwise be a way into the previous owner's account.
-  if (!byAddress || byAddress.googleSubject) return NOT_KNOWN;
+  if (byAddress.googleSubject) return NOT_KNOWN;
   /**
    * Answered before the identity is recorded, so somebody whose access was
    * taken away before they ever signed in is turned away without this Cockpit
@@ -117,12 +150,15 @@ export async function signInWithGoogle(
  * What signing in came to: a visit, or which of the two refusals this was.
  *
  * **They are told apart on purpose**, and the person is told which ("Take
- * somebody's access away without taking their work", issue 233). Saying "this
- * Cockpit does not know that account" to somebody whose access was removed
+ * somebody's access away without taking their work", issue 233). Saying "that
+ * Google account cannot sign in here" to somebody whose access was removed
  * would be a false statement to a real colleague, who would go looking for a
  * sign-in problem that is not theirs to fix. The cost is that anyone trying the
  * address learns this Cockpit holds it - a disclosure taken knowingly, and the
  * smaller harm of the two.
+ *
+ * `not known` is now only an address held by a different Google account than
+ * the one claiming it, since anybody the register has never seen is admitted.
  */
 export type SignIn = Visit | { signedIn: false; because: 'not known' | 'access removed' };
 
@@ -139,6 +175,11 @@ export type Visit = {
   sessionId: string;
   expiresAt: string;
   user: SigningIn;
+  /**
+   * The account this sign-in made, where it made one - for the route to open
+   * straight away, the way adding somebody opens theirs (`http/app.ts`).
+   */
+  newAccount?: string;
 };
 
 const NOT_KNOWN = { signedIn: false, because: 'not known' } as const;
@@ -177,11 +218,11 @@ const GUEST_NAME = 'Guest';
  * - unless the id is not really the guest's, which is checked rather than
  * assumed.
  *
- * **Nothing decides whether a stranger is allowed in**, unlike every other way
- * in: that is the whole feature, and what gates it is the environment offering
- * the route at all (`env.GUEST_SIGN_IN`, read where the route is). So this is
- * not the register's allowlist being widened - the guest is a row the product
- * puts there, not a person somebody admitted.
+ * **Nothing decides whether a stranger is allowed in**: that is the whole
+ * feature, and what gates it is the environment offering the route at all
+ * (`env.GUEST_SIGN_IN`, read where the route is). The guest is a row the
+ * product puts there, shared by everybody, where a Google sign-in makes each
+ * stranger an account of their own.
  *
  * Both writes ignore a conflict on the id, which is what makes two first
  * presses at the same instant come to one account: whichever write lost wrote

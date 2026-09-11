@@ -33,7 +33,32 @@ const USER_PREFIX = 'user-';
  * name for it.
  */
 export { normaliseAddress as foldAddress } from '../auth/oidc.js';
+import { NAME_LIMIT } from '@cockpit/shared';
 import { normaliseAddress } from '../auth/oidc.js';
+
+/**
+ * What somebody who signed in without being added is called, and what their
+ * ids are derived from ("Sign in with any Google account, so a recruiter
+ * doesn't need to be added first", issue 343).
+ *
+ * The name Google gave where it gave one, and the address where it did not: a
+ * sign-in is not refused over a name somebody chose to leave out. **Cut to the
+ * length the rename form accepts**, so an admin can still edit the row.
+ *
+ * **The ids come from the address when the name leaves nothing an id can
+ * hold** (`日本語`). An admin adding somebody is told to type another name,
+ * but nobody is there to ask here, and a verified address always has a domain
+ * an id can be made of.
+ */
+export function newcomerNamed(address: string, googleName?: string): { name: string; idsFrom: string } {
+  // By code point rather than by UTF-16 unit, so the cut never splits a
+  // character in two.
+  const name = Array.from(googleName?.trim() || address)
+    .slice(0, NAME_LIMIT)
+    .join('')
+    .trim();
+  return { name, idsFrom: nameAsIdPart(name) ? name : address };
+}
 
 /**
  * Whether an address is shaped like one.
@@ -148,8 +173,7 @@ export type Refusal = { what: string };
  * What is wrong with what was typed, or `null` when nothing is.
  *
  * The address is checked before the name because it is the one that makes a
- * user real: the register is the allowlist, so a row without an address is
- * somebody nobody can sign in as.
+ * user real: a row without an address is somebody nobody can sign in as.
  */
 export function whatIsWrongWith({ name, address }: { name: string; address: string }): Refusal | null {
   if (normaliseAddress(address).length === 0) {

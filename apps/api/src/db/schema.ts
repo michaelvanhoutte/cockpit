@@ -121,9 +121,9 @@ export const users = sqliteTable(
     // the contract.
     role: text('role').$type<Role>().notNull(),
     /**
-     * The address of the Google account this person signs in with, which is
-     * what decides whether they are allowed in at all: the register is the
-     * allowlist, so an address that is not here cannot sign in.
+     * The address of the Google account this person signs in with, and how
+     * the register recognises them the first time: an admin adds somebody by
+     * it, and somebody who signs in unadded arrives with it.
      *
      * **An address is held as it is written, and the index that keeps two
      * people from sharing one compares it the same way.** So whatever comes to
