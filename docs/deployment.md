@@ -109,7 +109,10 @@ argued — a recovery, in "Migrations and rollback", and the F3 suite deleting i
 own, under "Deferred, with reasons". Sign-in rows are not in it and never were:
 they come and go as people use the product, deleted by signing out and by
 taking somebody's access away ("Take somebody's access away without taking their
-work", issue 233), and one is re-made by signing in.
+work", issue 233), and one is re-made by signing in. **Nor is the guest account**,
+which the product itself puts back to its demonstration every night and on
+`pnpm guest:reset` ("Reset the guest account to its seeded state", issue 356):
+its contents are promised to nobody, and the reset can reach no other account.
 
 Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which
@@ -386,6 +389,14 @@ pnpm backup:restore --env staging --from ./backups/2026-09-06 --force
 ```
 
 **It replaces an account rather than merging into one**, so an account already holding data is refused without `--force`, and any target but `local` has to be confirmed by typing its name. **`--force` against a deployed environment is a deletion**, both of them holding real data since 7 September 2026: it is for putting an account back that lost something, never for making a restore go through, and what it is about to replace is exported first. Accounts are written before the register, so a user never exists pointing at a store that has not arrived, and a run that stops partway names the accounts that went in. A backup taken from a version newer than the one running is refused rather than half-applied.
+
+And `pnpm guest:reset` puts the shared guest account back to its demonstration now, rather than at the nightly 03:00 UTC run that does the same thing — for a demo due before then:
+
+```bash
+pnpm guest:reset --env production
+```
+
+**It can reach the guest account and nothing else**: it names no account, and a store holding any other account's rows refuses before anything is dropped. The reset is one transaction, so one that fails leaves the account as it was. It asks for no confirmation, unlike a restore, because what it removes is promised to nobody; an environment with no guest account — staging — answers that it has none.
 
 ## 6. Secrets and access
 

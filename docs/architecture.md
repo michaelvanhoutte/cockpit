@@ -347,7 +347,7 @@ The dependency rule is one-directional: `domain` imports nothing from the other 
 - **Job handlers are plain functions in `jobs/` calling `domain/`; the queue is an adapter**, so nothing in domain logic imports a Cloudflare API.
 - One caveat inherited honestly: pg-boss offered enqueue-in-the-same-transaction, Queues do not. Handlers are idempotent (§4.3), so at-least-once delivery plus retries is sufficient and no exactly-once machinery is built.
 
-**Queues are wired as of "Clean up a captured note into a clear title and a fuller message" (issue 296)**, which is the first job: one queue per environment in `apps/api/wrangler.jsonc` (`queues` is not inheritable, so a shared name would let staging write to production's accounts), consumed by this same Worker's `queue` handler. **Cron Triggers are wired as of "Show what the system learned, in a sentence you can correct" (issue 301)**: one schedule, declared once at the top level of `wrangler.jsonc` because `triggers` *is* inheritable, so staging runs it too — `handleScheduled` enumerates every account and Workspace and queues one `summarize-workspace` message per Workspace onto the same enrichment queue, rather than calling a model from inside the scheduled handler's own tight execution budget.
+**Queues are wired as of "Clean up a captured note into a clear title and a fuller message" (issue 296)**, which is the first job: one queue per environment in `apps/api/wrangler.jsonc` (`queues` is not inheritable, so a shared name would let staging write to production's accounts), consumed by this same Worker's `queue` handler. **Cron Triggers are wired as of "Show what the system learned, in a sentence you can correct" (issue 301)**: one schedule, declared once at the top level of `wrangler.jsonc` because `triggers` *is* inheritable, so staging runs it too — `handleScheduled` enumerates every account and Workspace and queues one `summarize-workspace` message per Workspace onto the same enrichment queue, rather than calling a model from inside the scheduled handler's own tight execution budget. Before that, the same tick puts the guest account back to its demonstration ("Reset the guest account to its seeded state", issue 356) — in the handler itself, since it is one Durable Object's synchronous transaction and no model call.
 
 Three decisions that job settled for every job after it:
 
@@ -436,8 +436,12 @@ visitor into one fixed, shared guest account created on first press and issues a
 ordinary session. It is gated by `GUEST_SIGN_IN`, set on production's environment
 block alone, because one built SPA serves both deployments and only the Worker
 can tell them apart. Guests are not kept apart from each other and see each
-other's work — accepted, and the daily reset that makes it safe is the dependent
-issue that follows.
+other's work — accepted, because the account goes back to its demonstration
+every night and on `pnpm guest:reset` ("Reset the guest account to its seeded
+state", issue 356). The reset drops the store's tables and applies the whole
+change list again in one transaction, which is exactly what a first opening
+does, so there is no seed file to drift from the code; a store holding another
+account's rows refuses it before anything is dropped.
 
 **Only `openid email` is asked for.** The name shown in the app is the register's, so asking Google for a profile it would never read would be collecting somebody's data for nothing; and neither scope is sensitive, which is what keeps a verification review out of the way of a working sign-in.
 

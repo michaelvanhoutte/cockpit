@@ -165,8 +165,8 @@ type SigningIn = { id: string; name: string };
  * `ACCOUNT_WIDE` and `DEFAULT_SCREEN_SIZE_NAME` already follow: there is
  * exactly one of these, so there is nothing to search for and no schema to
  * change. Concurrent guests deliberately land in the same account and see each
- * other's work, which the daily reset that follows this issue is what makes
- * safe.
+ * other's work, which the nightly reset (`resetGuestAccount`,
+ * accounts/index.ts) is what makes safe.
  */
 export const GUEST_ACCOUNT_NAME = 'tenant-guest';
 export const GUEST_USER_ID = 'user-guest';

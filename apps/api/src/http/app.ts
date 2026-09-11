@@ -35,6 +35,7 @@ import {
   registeredAccountNames,
   registeredUsers,
   setAccess,
+  resetGuestAccount,
   restoreAccount,
   restoreRegister,
   type AccountBackup,
@@ -62,7 +63,12 @@ import {
 } from '../auth/gate.js';
 import { endpointsFor, exchangeCode, issuerFor, keysOf } from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
-import { endSession, signInAsGuest, signInWithGoogle } from '../auth/register.js';
+import {
+  GUEST_ACCOUNT_NAME,
+  endSession,
+  signInAsGuest,
+  signInWithGoogle,
+} from '../auth/register.js';
 import { getConnector } from '../connectors/registry.js';
 
 type AppEnv = GatedEnv;
@@ -1200,6 +1206,29 @@ const routes = app
       }
       throw error;
     }
+  })
+  // Putting the shared guest account back to its demonstration by hand - the
+  // same reset the nightly run does (jobs/index.ts), for a demo due before it
+  // comes round. It names no account because there is only one it can mean.
+  .post('/v1/operator/guest/reset', async (c) => {
+    let outcome: Awaited<ReturnType<typeof resetGuestAccount>>;
+    try {
+      outcome = await resetGuestAccount(c.env);
+    } catch (error) {
+      // A store holding somebody else's rows: `onError`'s 409 says what it found.
+      if (error instanceof ConflictInAccountError) throw error;
+      // Anything else is ours rather than the caller's - nothing was sent that
+      // could cause it - so it is logged. The sentence still goes back, because
+      // the operator is the one person who can act on it, and because the one
+      // thing they need to know is that the account was left as it was.
+      const why = error instanceof Error ? error.message : String(error);
+      console.error(JSON.stringify({ level: 'error', message: `the guest account was not reset: ${why}` }));
+      return c.json({ error: `the guest account was not reset, and holds what it held: ${why}` }, 500);
+    }
+    if (outcome === 'no guest account') {
+      return c.json({ error: 'this environment has no guest account to reset' }, 404);
+    }
+    return c.json({ reset: GUEST_ACCOUNT_NAME }, 200);
   });
 
 // Behind the gate like everything else not named in `PATHS_OUTSIDE_THE_GATE`.

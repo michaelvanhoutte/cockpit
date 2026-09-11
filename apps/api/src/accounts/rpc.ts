@@ -130,6 +130,16 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     backup: AccountBackup,
     force: boolean,
   ): Awaitable<Answer<RestoreReport>>;
+  /**
+   * Puts the shared guest account back to the demonstration it opens on
+   * ("Reset the guest account to its seeded state", issue 356).
+   *
+   * **The one method here that takes no account name**, because there is only
+   * one account it may be asked of and it names that itself. A store holding
+   * any other account's rows answers `conflict` and drops nothing - see
+   * `resetGuest` in `store.ts`.
+   */
+  resetGuest(): Awaitable<Answer<null>>;
 }
 
 type Awaitable<T> = T | Promise<T>;
