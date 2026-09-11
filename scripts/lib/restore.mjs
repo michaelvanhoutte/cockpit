@@ -108,7 +108,9 @@ export async function putBack({ ask, backup, only, force, say = () => {} }) {
       // work out how far it got against a backup they can no longer trust.
       throw new Error(
         `${error.message}\n\nStopped there. ${describeProgress(done)} ` +
-          'The register was not touched, so nobody can sign in to a half-restored account.',
+          'The register was not touched. Run the restore again straight away: an account restored ' +
+          'here for the first time has no owner in the register yet, and until it does, somebody ' +
+          'signing in for the first time under a name that derives it would be given it.',
       );
     }
   }

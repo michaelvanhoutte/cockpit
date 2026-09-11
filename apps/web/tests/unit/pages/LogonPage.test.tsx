@@ -30,14 +30,15 @@ describe('Sign-in', () => {
     /**
      * "Access removed" is deliberately not the unknown-account sentence ("Take
      * somebody's access away without taking their work", issue 233): the person
-     * it happens to is a colleague, and telling them this Cockpit does not know
-     * them would send them looking for a sign-in problem that is not theirs.
+     * it happens to is a colleague, and telling them their Google account
+     * cannot sign in here would send them looking for a sign-in problem that is
+     * not theirs.
      */
     it.each([
       {
-        situation: 'the account is not one this Cockpit knows',
+        situation: 'the Google account cannot sign in here',
         query: '?refused=unknown-account',
-        says: /not one this Cockpit knows/,
+        says: /cannot sign in to this Cockpit/,
       },
       {
         situation: 'their access was taken away',

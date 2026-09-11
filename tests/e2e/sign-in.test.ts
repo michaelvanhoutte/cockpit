@@ -11,6 +11,7 @@ import {
   pastOnboarding,
   press,
   signIn,
+  somebodyNew,
   switchTo,
   test,
   uniqueTitle,
@@ -70,22 +71,38 @@ test.describe('Sign-in', () => {
     });
 
     /**
-     * The register is the allowlist, so proving who you are at Google is not
-     * the same as having an account here - and being turned away has to say so
-     * on the page rather than looking like something that broke.
+     * Anybody with a Google account gets in ("Sign in with any Google account,
+     * so a recruiter doesn't need to be added first", issue 343): an address
+     * nobody added lands in an account of its own, called what Google calls
+     * them. What the register ends up holding - one person however often or
+     * however concurrently they sign in - is settled at
+     * apps/api/tests/integration/http/sign-in.test.ts and not re-proved here.
      */
-    test('says so when the Google account is not one this Cockpit knows', async ({
+    test('lets in a Google account nobody added, into an account of its own', async ({
       page,
       isMobile,
     }) => {
+      // Fresh per run and per project, since the register is not rebuilt
+      // between the two and would otherwise already hold them the second time.
+      const { name, address } = somebodyNew('Recruiter');
       await page.goto('/signin');
       await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
 
-      await page.getByPlaceholder('somebody@example.com').fill('a-stranger@example.com');
+      await page.getByPlaceholder('somebody@example.com').fill(address);
+      await page.getByPlaceholder('Their name at Google').fill(name);
       await press(page.getByRole('button', { name: 'Continue' }), isMobile);
 
-      await expect(page.getByText(/not one this Cockpit knows/)).toBeVisible();
-      await expect(dashboardBar(page)).toHaveCount(0);
+      // Either landing, waited for as one: an account nobody has opened before
+      // may ask the onboarding question first (as `signInWithoutSkipping`).
+      await page
+        .getByRole('button', { name: 'Skip' })
+        .or(dashboardBar(page))
+        .first()
+        .waitFor({ state: 'visible' });
+      await pastOnboarding(page, isMobile);
+
+      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await expect(page.getByText(`Signed in as ${name}`)).toBeVisible();
     });
   });
 

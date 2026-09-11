@@ -506,8 +506,8 @@ function Row({
         )}
       </td>
       {/* A person with no address is one nobody can sign in as, since the
-          register is the allowlist. Said rather than left blank, because a
-          blank cell reads as a page that failed to draw. */}
+          address is how a sign-in finds its row. Said rather than left blank,
+          because a blank cell reads as a page that failed to draw. */}
       <td className="py-2 pr-4 text-ink-faint">{user.email ?? 'no address — cannot sign in'}</td>
       <td className="py-2 pr-4">{roleName(user.role)}</td>
       <td className="py-2 pr-4 text-ink-faint">{user.accountName}</td>

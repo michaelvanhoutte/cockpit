@@ -32,12 +32,39 @@ export interface Claims {
   nonce: string;
   subject?: string;
   emailVerified?: boolean;
+  /** What Google calls them, which it gives for the `profile` scope. */
+  name?: string;
 }
 
 let keys: CryptoKeyPair | null = null;
 
-/** What the issuer hands back the next time a code is spent, or its refusal. */
-let next: Claims | 'refuses' | null = null;
+/**
+ * What the issuer hands back when each code is spent, or its refusal.
+ *
+ * Keyed by code rather than one answer for whichever comes next, so two
+ * sign-ins in flight at once each get their own - which is what a case about
+ * two first sign-ins racing needs.
+ */
+const answers = new Map<string, Claims | 'refuses'>();
+
+/**
+ * Exchanges held back until a number of them have arrived, then answered at
+ * once - so the sign-ins behind them reach the register at the same instant.
+ *
+ * **Without it two sign-ins "at once" are not at once.** One finishes writing
+ * before the other has looked, and a case about them racing passes against
+ * code with no answer to the race at all - which is what the first version of
+ * that case did.
+ *
+ * **Answered by the test, never by the last exchange to arrive, and arrival
+ * is a count the test polls rather than a promise.** The runtime wakes a
+ * request for a promise another request resolved only once that one is done.
+ * Opened from inside the second sign-in, the first one's answer waited for the
+ * second to finish altogether, so the two still ran one after the other; and a
+ * promise telling the test they had arrived never reached it, because the
+ * sign-in that settled it was waiting on the test.
+ */
+let gate: { expected: number; count: number; opened: Promise<void> } | null = null;
 
 async function signingKeys(): Promise<CryptoKeyPair> {
   keys ??= await generateKeyPair('RS256', { extractable: true });
@@ -52,6 +79,8 @@ async function signingKeys(): Promise<CryptoKeyPair> {
  * the real internet with nothing here noticing it had been undone.
  */
 export async function issuerIsReachable(): Promise<void> {
+  // A hold a failed case left armed would stall every exchange after it.
+  gate = null;
   const { publicKey } = await signingKeys();
   const jwks = { keys: [{ ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig' }] };
 
@@ -71,10 +100,16 @@ export async function issuerIsReachable(): Promise<void> {
     }
     if (url.pathname === '/jwks') return Response.json(jwks);
     if (url.pathname === '/token') {
-      const asked = next;
+      if (gate) {
+        const waiting = gate;
+        waiting.count += 1;
+        await waiting.opened;
+      }
+      const code = new URLSearchParams(init?.body as URLSearchParams).get('code') ?? '';
+      const asked = answers.get(code);
       // Spent once, as a real code is: what a second exchange of the same code
       // gets is the refusal, not another identity.
-      next = null;
+      answers.delete(code);
       if (!asked || asked === 'refuses') return Response.json({ error: 'invalid_grant' }, { status: 400 });
       return Response.json({ token_type: 'Bearer', id_token: await identityToken(asked) });
     }
@@ -82,20 +117,42 @@ export async function issuerIsReachable(): Promise<void> {
   });
 }
 
-/** Who the issuer will say the next person is. */
-export function issuerWillIdentify(claims: Claims): void {
-  next = claims;
+/** Who the issuer will say somebody is, when the code they came back with is spent. */
+export function issuerWillIdentify(claims: Claims, code = 'a-code'): void {
+  answers.set(code, claims);
 }
 
 /** The issuer refusing to exchange a code, which is what a spent one gets. */
-export function issuerWillRefuseTheExchange(): void {
-  next = 'refuses';
+export function issuerWillRefuseTheExchange(code = 'a-code'): void {
+  answers.set(code, 'refuses');
+}
+
+/**
+ * Holds every exchange until `answer` lets them all through at once, once
+ * `allArrived` says the expected number are waiting.
+ */
+export function issuerAnswersTogether(expected: number): {
+  allArrived: () => boolean;
+  answer: () => void;
+} {
+  let open!: () => void;
+  const opened = new Promise<void>((resolve) => (open = resolve));
+  const waiting = { expected, count: 0, opened };
+  gate = waiting;
+  return {
+    allArrived: () => waiting.count >= waiting.expected,
+    answer: () => {
+      gate = null;
+      open();
+    },
+  };
 }
 
 /** Puts the issuer back out of reach, and forgets what it was going to say. */
 export function issuerIsForgotten(): void {
   vi.unstubAllGlobals();
-  next = null;
+  answers.clear();
+  gate = null;
 }
 
 export async function identityToken({
@@ -103,9 +160,10 @@ export async function identityToken({
   nonce,
   subject = `google|${email}`,
   emailVerified = true,
+  name,
 }: Claims): Promise<string> {
   const { privateKey } = await signingKeys();
-  return new SignJWT({ nonce, email, email_verified: emailVerified })
+  return new SignJWT({ nonce, email, email_verified: emailVerified, ...(name ? { name } : {}) })
     .setProtectedHeader({ alg: 'RS256' })
     .setIssuer(ISSUER)
     .setAudience(CLIENT_ID)

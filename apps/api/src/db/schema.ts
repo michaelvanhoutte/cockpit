@@ -121,9 +121,9 @@ export const users = sqliteTable(
     // the contract.
     role: text('role').$type<Role>().notNull(),
     /**
-     * The address of the Google account this person signs in with, which is
-     * what decides whether they are allowed in at all: the register is the
-     * allowlist, so an address that is not here cannot sign in.
+     * The address of the Google account this person signs in with, and how
+     * the register recognises them the first time: an admin adds somebody by
+     * it, and somebody who signs in unadded arrives with it.
      *
      * **An address is held as it is written, and the index that keeps two
      * people from sharing one compares it the same way.** So whatever comes to
@@ -137,7 +137,7 @@ export const users = sqliteTable(
      * What Google calls this person, learned the first time they sign in.
      *
      * It is kept *as well as* the address because the two answer different
-     * questions: an address is what somebody is allowed in by, and can be
+     * questions: an address is how somebody is recognised the first time, and can be
      * changed or handed to a new owner, while this never changes and is never
      * reissued. So the address is how somebody is recognised the first time and
      * this is how they are recognised afterwards - which is what stops a
@@ -164,9 +164,10 @@ export const users = sqliteTable(
      */
     disabledAt: text('disabled_at'),
     /**
-     * When this person last signed in through a real round trip with Google -
-     * `NULL` for somebody who never has ("Show when each person last signed in,
-     * on the admin page", issue 342).
+     * When this person last signed in, deliberately - a real round trip with
+     * Google, or a press of "Continue as guest" - `NULL` for somebody who
+     * never has ("Show when each person last signed in, on the admin page",
+     * issue 342).
      *
      * **Written once, at `auth/register.ts`'s `startVisit`, and nowhere else.**
      * A session sliding its own expiry (`extendSession`) is not a fresh sign-in

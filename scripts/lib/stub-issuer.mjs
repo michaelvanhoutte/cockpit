@@ -20,7 +20,8 @@ import { readFileSync } from 'node:fs';
 // redirect, a real code exchange, a real RS256 signature checked against a
 // published key, real state, nonce and PKCE. What differs is the consent
 // screen, where Google shows an account chooser and this shows the people the
-// seed put in the register.
+// seed put in the register, beside a box for anybody else and the name Google
+// would give them.
 //
 // **Nothing here ships.** It is a script, started by `pnpm dev` and by the
 // browser suite's own stack, and no deployed environment sets OIDC_ISSUER.
@@ -117,6 +118,7 @@ export async function startStubIssuer({ port, seedPath }) {
        <h1>Choose an account</h1>
        <ul>${buttons}</ul>
        <form action="/authorize/pick"><input name="as" placeholder="somebody@example.com" required>
+         <input name="name" placeholder="Their name at Google">
          ${Object.entries(ask)
            .map(([name, value]) => `<input type="hidden" name="${name}" value="${escaped(value)}">`)
            .join('')}
@@ -130,6 +132,10 @@ export async function startStubIssuer({ port, seedPath }) {
     const code = randomUUID();
     issued.set(code, {
       email: ask.as,
+      // Given only where `profile` was asked for, as Google gives it: a stub
+      // handing over a name the application never asked for would pass here
+      // what fails there.
+      name: (ask.scope ?? '').split(' ').includes('profile') ? ask.name || undefined : undefined,
       nonce: ask.nonce,
       challenge: ask.code_challenge,
       clientId: ask.client_id,
@@ -180,6 +186,7 @@ export async function startStubIssuer({ port, seedPath }) {
         sub: `stub|${held.email}`,
         email: held.email,
         email_verified: true,
+        ...(held.name ? { name: held.name } : {}),
         nonce: held.nonce,
         iat: now,
         exp: now + 300,
@@ -220,6 +227,7 @@ const OF_THE_FLOW = [
   'code_challenge_method',
   'prompt',
   'as',
+  'name',
 ];
 
 function whatWasAsked(url) {

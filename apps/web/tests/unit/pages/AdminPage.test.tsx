@@ -194,7 +194,8 @@ describe('User management', () => {
 
     /**
      * The register's address column is nullable, and a row without one is a
-     * person nobody can sign in as - the register being the allowlist. Said on
+     * person nobody can sign in as - the address being how a sign-in finds its
+     * row. Said on
      * the screen rather than left blank, because an empty cell reads as a page
      * that failed rather than as a fact about somebody.
      */
