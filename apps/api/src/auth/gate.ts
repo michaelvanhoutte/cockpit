@@ -174,6 +174,16 @@ export function isOutsideTheGate(path: string): boolean {
  * renewing once a sign-in is past some fraction of its life - is a second rule
  * with its own branch to get wrong, for a saving nothing here is short of.
  */
+/**
+ * The session cookie this request arrived holding, or `undefined` for one
+ * that holds none - read the one way, so a request asked twice (the gate, and
+ * anything outside it that still cares whether a browser is already signed
+ * in) cannot end up reading two different cookies for two different reasons.
+ */
+export function heldSessionId(c: Context): string | undefined {
+  return getCookie(c, sessionCookieName(c.req.url));
+}
+
 export function gate(): MiddlewareHandler<GatedEnv> {
   return async (c, next) => {
     // `c.req.path` rather than the raw URL's pathname, so this gate and the
@@ -184,7 +194,7 @@ export function gate(): MiddlewareHandler<GatedEnv> {
     // how the next gate inherits the wrong one.
     if (isOutsideTheGate(c.req.path)) return next();
 
-    const sessionId = getCookie(c, sessionCookieName(c.req.url));
+    const sessionId = heldSessionId(c);
     const held = sessionId ? await sessionHeld(c.env, sessionId) : null;
     const now = new Date();
     const verdict = recogniseSession(held?.session, now);

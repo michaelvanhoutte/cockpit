@@ -1,6 +1,5 @@
 import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi';
 import type { Context } from 'hono';
-import { getCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import {
   addUserSchema,
@@ -54,9 +53,9 @@ import {
   forgetAttempt,
   forgetSessionCookie,
   gate,
+  heldSessionId,
   rememberAttempt,
   rememberSessionCookie,
-  sessionCookieName,
   stillSignedIn,
   RETIRED_PATHS,
   type GatedEnv,
@@ -1020,10 +1019,10 @@ const routes = app
    */
   .get('/v1/sign-in/guest', async (c) => {
     try {
-      const held = getCookie(c, sessionCookieName(c.req.url));
+      const held = heldSessionId(c);
       if (held && (await stillSignedIn(c.env, held))) return c.redirect('/', 302);
 
-      if (!c.env.GUEST_SIGN_IN) return refuse(c, 'this environment offers no guest sign-in');
+      if (c.env.GUEST_SIGN_IN !== 'true') return refuse(c, 'this environment offers no guest sign-in');
 
       const signedIn = await signInAsGuest(c.env, new Date());
       if (!signedIn.signedIn) return refuse(c, 'the guest account is not available');
