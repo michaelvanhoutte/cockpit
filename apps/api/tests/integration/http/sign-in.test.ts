@@ -395,6 +395,20 @@ describe('Sign-in', () => {
       });
 
       /**
+       * Every var here is a string, so absence is not the only way this can be
+       * turned off: a `"false"` typed into an environment block reads as
+       * meaning it, and has to refuse the same way absence does.
+       */
+      it('refuses on the word "false" the same way it refuses on nothing at all', async () => {
+        env.GUEST_SIGN_IN = 'false';
+
+        const back = await continueAsGuest();
+
+        expect(back.headers.get('location')).toBe('/signin?refused=failed');
+        expect(sessionIn(back)).toBeUndefined();
+      });
+
+      /**
        * The same question asked in the other order: whether guest sign-in is
        * offered here is not the first thing this route answers, because
        * somebody already signed in is sent home untouched whether it is or not.

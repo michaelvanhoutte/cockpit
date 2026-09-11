@@ -94,7 +94,8 @@ export const RETIRED_PATHS: readonly string[] = ['/v1/users', '/v1/sign-in'];
  *   the post-deploy assertion both read it.
  * - `/v1/sign-in/google` is how you stop being nobody: it sends you to Google
  *   to be asked who you are, and it is the only thing a person who is nobody
- *   yet can usefully reach.
+ *   yet can usefully reach - unless the environment also offers the guest
+ *   route below.
  * - `/v1/sign-in/google/callback` is where Google sends you back, carrying
  *   nothing this application will believe until it has checked it
  *   (src/auth/oidc.ts).
