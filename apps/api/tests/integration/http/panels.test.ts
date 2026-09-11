@@ -1201,13 +1201,21 @@ describe('Layouts', () => {
      * layouts than a statement can name" (above): that dropping the emptied
      * rows across a hundred and twenty layouts works at that scale too, the
      * same way smaller cases in this file already prove it works at all.
-     * Removed deliberately - 240 real round trips against the workers pool
-     * cost 90-220s under CI contention, on a job that runs on every push -
-     * accepting the gap: `delete_panel`'s cleanup (`command-service.ts`) is a
-     * join, `exists`/`notExists` subqueries rather than an `IN` list of ids,
+     *
+     * **Removed deliberately, not quarantined**, though it meets
+     * testing-strategy.md's own "Flakiness policy" definition of the case
+     * that asks for quarantine first: 240 real round trips against the
+     * workers pool cost ~95s on a clean run, and under heavier CI contention
+     * ran past its own 120s timeout and failed outright rather than merely
+     * running slow - passing and failing intermittently with no code change,
+     * on a job that runs on every push. Quarantine exists to get that
+     * decision in front of an owner rather than leave it to decay; here the
+     * owner made the call directly instead, accepting the gap it leaves:
+     * `delete_panel`'s cleanup (`command-service.ts`) is a join -
+     * `exists`/`notExists` subqueries rather than an `IN` list of ids,
      * chosen specifically to avoid the statement-size ceiling this scale was
-     * proving against. Nothing now catches a regression back to a bound `IN`
-     * list, or any other scale-dependent behaviour in that join, past a
+     * proving against - and nothing now catches a regression back to a bound
+     * `IN` list, or any other scale-dependent behaviour in that join, past a
      * hundred layouts on one dashboard.
      */
   });
