@@ -110,9 +110,9 @@ own, under "Deferred, with reasons". Sign-in rows are not in it and never were:
 they come and go as people use the product, deleted by signing out and by
 taking somebody's access away ("Take somebody's access away without taking their
 work", issue 233), and one is re-made by signing in. **Nor is the guest account**,
-which the product itself puts back to its demonstration every night and on
-`pnpm guest:reset` ("Reset the guest account to its seeded state", issue 356):
-its contents are promised to nobody, and the reset can reach no other account.
+which the product puts back to its demonstration every night ("Reset the guest
+account to its seeded state", issue 356) — argued beside `pnpm guest:reset`, in
+"Migrations and rollback".
 
 Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which
