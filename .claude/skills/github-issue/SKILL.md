@@ -62,10 +62,8 @@ statement list" step]
 
 What this issue deliberately doesn't cover, and questions whose answer wouldn't
 change the diff either way - record these here, never as a todo in the eventual
-test file. A question whose two answers would produce different diffs is not
-open scope: scoping's gate already refuses to file it, so close it in scoping
-before drafting - see it first if the doubt needs that, sharpen it out in
-discussion otherwise.
+test file. A question scoping's gate would refuse belongs there, not here: close
+it in scoping before drafting, never carry it forward as an open question.
 ```
 
 ### 2. Confirm, then publish
