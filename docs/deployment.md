@@ -745,11 +745,15 @@ Then, by hand (no API, or deliberately not automated):
      documentation-only pull request permanently. The cost settled it rather than
      the risk: across three ordinary pull requests sampled on 10 September 2026
      the legs took 0.6–3.3 minutes each, against `claude-review` on the same head
-     at 9.0–14.9 and `Test Explorer` at 5.1–6.8. `claude-review` is ungated and
-     unaffected by ci.yml's own documentation-only skip, so it alone carries
-     the argument for the pull requests that skip actually decides — the legs
-     already finish inside its shadow there, shortening nothing anybody waits
-     for. `Test Explorer`'s figure describes an ordinary pull request only: on
+     at 9.0–14.9 and `Test Explorer` at 5.1–6.8. That comparison held while
+     `claude-review` ran on every pull request; "Skip the code review on a
+     documentation-only pull request, as CI already skips its jobs" (issue 371)
+     has it skip a documentation-only diff too, so it no longer dominates the
+     runtime this paragraph leaned on. Whether the two legs are still worth
+     leaving ungated once `claude-review` and the mechanical jobs both skip is
+     therefore open again rather than settled by the numbers above — issue 371
+     left it that way rather than deciding it. `Test Explorer`'s figure
+     describes an ordinary pull request only: on
      the documentation-only ones this measurement is about, it skips too, for
      free, once `Test` does (ci.yml's `test-explorer` job says why).
 

@@ -44,8 +44,19 @@ jobs:
   # rather than the bare output - see ci.yml's `changes` job for why: the
   # dangerous direction is a skip nobody meant, and a runner that never starts
   # answers to neither `continue-on-error`.
+  #
+  # Guarded by the same fork/draft/bot check `claude-review` carries, unlike
+  # ci.yml's own `changes` job: those three already cost this workflow zero
+  # runner minutes, since `claude-review`'s job-level `if:` used to be enough
+  # on its own to never start one. Computing an answer `claude-review` would
+  # ignore regardless would spend a checkout re-introducing exactly the cost
+  # those guards exist to avoid.
   changes:
     name: What changed
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.draft == false
+      && github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
     permissions:
       contents: read

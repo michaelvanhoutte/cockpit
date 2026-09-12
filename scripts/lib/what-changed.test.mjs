@@ -465,6 +465,23 @@ describe("the code review's own classifier", () => {
     assert.match(elseBranch, /product_changed=true/, 'the else branch does not fail open directly');
   });
 
+  it('skips itself on a fork, a draft or a bot pull request, the same way claude-review does', () => {
+    // Those three already cost this workflow zero runner minutes before this
+    // classifier existed - claude-review's own job-level `if:` was enough on
+    // its own to never start one. Without the same guard here, every one of
+    // those pull requests would pay for a checkout computing an answer
+    // claude-review would ignore regardless, reintroducing exactly the cost
+    // the guard exists to avoid.
+    const block = changes();
+    for (const clause of [
+      'github.event.pull_request.head.repo.full_name == github.repository',
+      'github.event.pull_request.draft == false',
+      "github.event.pull_request.user.type != 'Bot'",
+    ]) {
+      assert.ok(block.includes(clause), `the changes job is missing the guard: ${clause}`);
+    }
+  });
+
   it('gates claude-review on what changed, the same way ci.yml gates its own mechanical jobs', () => {
     const block = claudeReview();
     assert.ok(needsOf(block).includes('changes'), 'the claude-review job does not wait for what changed');
