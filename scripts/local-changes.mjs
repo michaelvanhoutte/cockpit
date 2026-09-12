@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-import { changeClass, pathsFromDiff, printable, productPaths } from './lib/what-changed.mjs';
+import { localChangeAnswer, pathsFromDiff, printable } from './lib/what-changed.mjs';
 import { testablePackages } from './lib/workspace.mjs';
 import { pnpmWorkspaceList } from './lib/processes.mjs';
 
@@ -55,37 +55,20 @@ function changedPaths() {
   return null;
 }
 
-function fallback(reason) {
-  console.error(printable(`${reason} So this answers 'product changed'.`));
-  console.log('product changed');
+/** The workspace's own packages, for localChangeAnswer to call only where it actually needs them - rethrown after explaining itself, since localChangeAnswer's own catch has nothing to print. */
+function packages() {
+  try {
+    return testablePackages(pnpmWorkspaceList(root), (pkgPath) => JSON.parse(readFileSync(join(pkgPath, 'package.json'), 'utf8')), root);
+  } catch (error) {
+    console.error(printable(`Could not read the workspace: ${error.message}. So this answers 'product changed'.`));
+    throw error;
+  }
 }
 
 const paths = changedPaths();
 if (paths === null) {
-  fallback('Could not diff against origin/main or main.');
-  process.exit(0);
+  console.error(printable("Could not diff against origin/main or main. So this answers 'product changed'."));
+  console.log('product changed');
+} else {
+  console.log(localChangeAnswer(paths, packages));
 }
-
-// The workspace's package list is only needed to tell 'tests' from
-// 'product' - never for 'docs', which productPaths alone already answers -
-// so a docs-only push, the cheapest row in CLAUDE.md's Tests table, never
-// pays for the `pnpm -r list` this otherwise costs on every invocation. An
-// empty diff is excluded on purpose: changeClass answers that 'product',
-// not 'docs' (its own doc comment gives the reason), and this has to agree.
-if (paths.length > 0 && productPaths(paths).length === 0) {
-  console.log('documentation only');
-  process.exit(0);
-}
-
-let packages;
-try {
-  packages = testablePackages(pnpmWorkspaceList(root), (pkgPath) => JSON.parse(readFileSync(join(pkgPath, 'package.json'), 'utf8')), root);
-} catch (error) {
-  fallback(`Could not read the workspace: ${error.message}.`);
-  process.exit(0);
-}
-
-const result = changeClass({ paths, packages });
-
-if (result.class === 'tests') console.log(`tests only (${result.packages.join(', ')})`);
-else console.log('product changed');

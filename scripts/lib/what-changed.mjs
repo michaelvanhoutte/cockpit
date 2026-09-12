@@ -257,6 +257,37 @@ export function changeClass({ paths, packages } = {}) {
   return { class: 'product' };
 }
 
+/**
+ * What scripts/local-changes.mjs prints, from a working tree's own changed
+ * paths (already merged with whatever untracked files count, by the caller)
+ * and `packages`, a zero-argument function returning the workspace's own
+ * `{ name, dir }[]` - the same shape `readFile`/`gitDiff` are for `classify`,
+ * below, so every way *this* I/O can fail is a case here rather than a path
+ * only a runner ever walks.
+ *
+ * `packages` is called at all only where `changeClass` would actually need
+ * it: never for an empty or docs-only `paths`, which `productPaths` alone
+ * already answers - so a docs-only push, the cheapest row in CLAUDE.md's
+ * Tests table, never pays for what discovering the workspace costs. Thrown
+ * or not, `packages()` is asked the same question `changeClass` already
+ * answers 'product' for a workspace it can't place: the safe direction on a
+ * failure is the one that costs a run rather than a merge.
+ */
+export function localChangeAnswer(paths, packages) {
+  const files = normalize(paths);
+  if (files.length > 0 && productPaths(files).length === 0) return 'documentation only';
+
+  let resolved;
+  try {
+    resolved = packages();
+  } catch {
+    return 'product changed';
+  }
+
+  const result = changeClass({ paths: files, packages: resolved });
+  return result.class === 'tests' ? `tests only (${result.packages.join(', ')})` : 'product changed';
+}
+
 /** How many product paths a run log names before it starts counting instead. */
 const NAMED = 20;
 

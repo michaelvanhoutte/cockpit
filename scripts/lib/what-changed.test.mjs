@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { changeClass, classify, diffRange, isNonProduct, pathsFromDiff, printable, productChanged, productPaths } from './what-changed.mjs';
+import { changeClass, classify, diffRange, isNonProduct, localChangeAnswer, pathsFromDiff, printable, productChanged, productPaths } from './what-changed.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const workflow = (name) => readFileSync(join(repo, '.github/workflows', name), 'utf8');
@@ -137,6 +137,56 @@ describe('changeClass', () => {
       assert.deepEqual(changeClass({ paths, packages }), want);
     });
   }
+});
+
+describe('localChangeAnswer', () => {
+  const packages = [
+    { name: '@cockpit/api', dir: 'apps/api' },
+    { name: '@cockpit/web', dir: 'apps/web' },
+  ];
+
+  /** A `packages` thunk that fails the test if scripts/local-changes.mjs's own short-circuit ever calls it. */
+  const mustNotBeCalled = () => assert.fail('localChangeAnswer asked for the workspace on a diff that never needed it');
+
+  it("never asks for the workspace on a documentation-only diff - the pnpm -r list a docs-only push has no reason to pay for", () => {
+    const paths = ['docs/architecture.md', 'docs/deployment.md'];
+    assert.equal(localChangeAnswer(paths, mustNotBeCalled), 'documentation only');
+  });
+
+  it('names the package a test-only diff belongs to', () => {
+    const paths = ['apps/api/tests/unit/commands.test.ts'];
+    assert.equal(localChangeAnswer(paths, () => packages), 'tests only (@cockpit/api)');
+  });
+
+  it('answers product changed on a mix of docs and product paths, without needing to ask why', () => {
+    const paths = ['docs/architecture.md', 'apps/web/src/main.tsx'];
+    assert.equal(localChangeAnswer(paths, () => packages), 'product changed');
+  });
+
+  it('answers product changed on an empty diff, agreeing with changeClass rather than reading it as documentation', () => {
+    // paths.length is 0, not > 0 - the one case the docs-only short-circuit
+    // deliberately excludes (scripts/local-changes.mjs's own comment on it),
+    // so this still asks for the workspace.
+    let asked = false;
+    assert.equal(
+      localChangeAnswer([], () => {
+        asked = true;
+        return packages;
+      }),
+      'product changed',
+    );
+    assert.equal(asked, true, 'an empty diff should still consult changeClass, not shortcut past it');
+  });
+
+  it('answers product changed, the safe direction, where the workspace could not be read', () => {
+    const paths = ['apps/web/src/main.tsx'];
+    assert.equal(
+      localChangeAnswer(paths, () => {
+        throw new Error('pnpm -r list failed: exit 1');
+      }),
+      'product changed',
+    );
+  });
 });
 
 describe('diffRange', () => {
