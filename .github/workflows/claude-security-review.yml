@@ -202,7 +202,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         # Every decision this makes is in scripts/lib/review-gate.mjs, asserted
-        # by node --test in the Scripts job. The equivalent step in
+        # by node --test in the Scripts step of ci.yml's `Checks` job. The
+        # equivalent step in
         # claude-code-review.yml decides through the same module, and was ~140
         # lines of bash until "Give the code review the tested gate the security
         # review already uses" (issue 277) moved it - bash whose comments record

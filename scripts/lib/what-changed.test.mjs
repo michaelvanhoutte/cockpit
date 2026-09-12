@@ -256,7 +256,7 @@ describe('classify', () => {
 
 describe('the mechanical checks', () => {
   const jobGate = "if: ${{ !cancelled() && needs.checks.outputs.product_changed != 'false' }}";
-  const stepGate = "if: ${{ steps.classify.outputs.product_changed != 'false' }}";
+  const stepGate = "if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}";
 
   /** One job's own lines, from its key down to whatever comes next at that indent. */
   function job(yaml, id) {

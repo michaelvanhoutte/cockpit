@@ -59,7 +59,12 @@ jobs:
   #
   # `Test` and `E2E (F3)` stay their own jobs — their cost is the work itself,
   # not the start-up (issue 378's own "Out of scope") — and still read this
-  # job's `product_changed` output the same way they read `changes`'s before.
+  # job's `product_changed` output the mechanism `changes` published before.
+  # The timing is not the same: a `needs:` job unblocks only once the whole
+  # upstream job finishes, so `Test` and `E2E (F3)` now wait out this job's
+  # gated steps too, not only the few-second classifier `changes` used to be.
+  # Traded deliberately for the one-runner saving this issue asks for; the
+  # wall-clock floor is a different lever (issue 369).
   # `Concepts`, `Test Explorer`, `Stability` and `Publish` still gate nothing
   # of their own; `docs/architecture.md` §9.1 says why.
   #
@@ -125,10 +130,7 @@ jobs:
       # **Both steps above are `continue-on-error`**, so a failure inside
       # either one leaves `product_changed` unwritten and the gate's
       # `!= 'false'` below still runs everything - the dangerous direction is
-      # a skip nobody meant. Unlike the separate-job shape this replaces, a
-      # step here needs no `!cancelled()` to survive that: continue-on-error
-      # already lets the job carry on to Scripts next, whatever happened
-      # above it.
+      # a skip nobody meant.
       #
       # Reads the repository's own prose (readme.md's writing rules, via
       # scripts/lib/writing-rules.mjs) and the scripts that decide whether a
@@ -143,7 +145,15 @@ jobs:
       # node:test and the standard library.
       - name: Scripts
         run: node --test scripts/lib/*.test.mjs
+      # `!cancelled()` from here down, on every step: a step's own `if:`
+      # replaces GitHub's implicit `success()` rather than joining it, so
+      # without this a Scripts failure - unrelated to install, Concepts,
+      # Typecheck, Lint or Build - would silently skip all of them, where five
+      # separate jobs used to let each report on its own regardless of the
+      # others. The four gated steps still skip on a documentation-only diff,
+      # same as before, via the second half of each condition.
       - uses: ./.github/actions/setup
+        if: ${{ !cancelled() }}
       # The cheap third of the report pipeline: fails on a feature area a test
       # declares that concepts.json does not register, the only one of the
       # three report-pipeline checks that fails for a reason somebody has to
@@ -151,6 +161,7 @@ jobs:
       # and reports on a documentation-only diff too, independent of whether
       # anything downstream skips.
       - name: Concepts
+        if: ${{ !cancelled() }}
         run: pnpm test:explorer:check
       # Architecture §9.1 asks for the fast tiers split one job per tier, so a
       # misplaced test is visible; the four steps below are what is left once
@@ -159,7 +170,7 @@ jobs:
       # Skipped on a documentation-only diff, and run on anything the
       # classifier above could not read — see its own comment.
       - name: Typecheck
-        if: ${{ steps.classify.outputs.product_changed != 'false' }}
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         run: pnpm typecheck
       # The lint layer ("Add the lint layer the code is already written against",
       # issue 282): the React Hooks rules, no focused test reaching `main`, and the
@@ -173,13 +184,13 @@ jobs:
       # actually goes wrong: a rule scoped one folder too wide passes the first step
       # for as long as nothing happens to break.
       - name: Lint
-        if: ${{ steps.classify.outputs.product_changed != 'false' }}
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         run: pnpm lint
       - name: Verify the lint config
-        if: ${{ steps.classify.outputs.product_changed != 'false' }}
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         run: pnpm test:lint
       - name: Build
-        if: ${{ steps.classify.outputs.product_changed != 'false' }}
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         run: pnpm build
       # The bundle gate (docs/architecture.md, "Performance budgets"): what a
       # cold open fetches stays under 200KB compressed, and so does any one
@@ -188,7 +199,7 @@ jobs:
       # it separately from the classifier's condition would build twice to
       # see it.
       - name: Bundle budget
-        if: ${{ steps.classify.outputs.product_changed != 'false' }}
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         run: pnpm bundle:budget
 
   # On a pull request this runs only the tests that depend on what changed
