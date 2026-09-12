@@ -27,6 +27,15 @@
 // what-changed.test.mjs rather than a path only a runner ever walks;
 // `scripts/what-changed.mjs` is the dozen lines that supply them.
 //
+// `changeClass`, below, answers a second, related question this same
+// allowlist already had half the answer to: not just "does the mechanical
+// suite need to run", but which of the three rows CLAUDE.md's Tests table
+// scales a session's own checks to. `scripts/local-changes.mjs` asks it of a
+// working tree the same way `scripts/what-changed.mjs` asks `classify` of a
+// CI diff, so a session reads the answer instead of judging it by eye
+// ("Scale a session's own checks to what the change touches, as CI already
+// does", issue 372).
+//
 
 /** Directory prefixes whose files no mechanical check reads. */
 const NON_PRODUCT_DIRS = ['docs/', '.claude/'];
@@ -190,6 +199,95 @@ function parseEvent(readFile, eventPath) {
   } catch {
     return {};
   }
+}
+
+/**
+ * Whether `path` sits under `pkg`'s own `tests/` - never the repo root's
+ * `tests/e2e/`, which belongs to no package (testing skill, "Where the test
+ * goes") and so is never attributed to one here.
+ */
+function isPackageTestPath(path, pkg) {
+  return path.startsWith(`${pkg.dir}/tests/`);
+}
+
+/**
+ * The packages whose own `tests/` covers every path in `paths`, sorted so two
+ * diffs touching the same packages in a different order read the same
+ * answer - or `null` where at least one path is not a package's own test: a
+ * root `tests/e2e/` change among them, or any product source path.
+ *
+ * `packages` is `{ name, dir }[]`, what scripts/lib/workspace.mjs's
+ * testablePackages discovers - the same list scripts/lib/test-selection.mjs
+ * already takes, so a package renamed or moved cannot make the two
+ * classifiers disagree about where it lives.
+ */
+function testOnlyPackages(paths, packages) {
+  const names = new Set();
+  for (const path of paths) {
+    const pkg = (packages ?? []).find((candidate) => isPackageTestPath(path, candidate));
+    if (!pkg) return null;
+    names.add(pkg.name);
+  }
+  return [...names].sort();
+}
+
+/**
+ * The class of a change - CLAUDE.md's Tests table, in code: `'docs'` (only
+ * `docs/`, `.claude/` or root Markdown), `'tests'` (every product path is a
+ * package's own test, `packages` naming which), or `'product'` (anything
+ * else, including nothing this could classify at all).
+ *
+ * `paths` is every path a change touches, gathered however the caller found
+ * them - a CI diff range and a working tree's own uncommitted and committed
+ * changes both reduce to a path list before reaching here, so both ask the
+ * same question of the same allowlist rather than keeping their own.
+ *
+ * An empty list is `'product'`, not `'docs'`, for the reason `productChanged`
+ * gives for the same case: indistinguishable from a range this could not
+ * read, and the safe direction on a failure is the one that costs a run
+ * rather than a merge.
+ */
+export function changeClass({ paths, packages } = {}) {
+  const files = normalize(paths);
+  if (files.length === 0) return { class: 'product' };
+  const product = productPaths(files);
+  if (product.length === 0) return { class: 'docs' };
+  const testPackages = testOnlyPackages(product, packages);
+  if (testPackages !== null) return { class: 'tests', packages: testPackages };
+  return { class: 'product' };
+}
+
+/**
+ * What scripts/local-changes.mjs prints, from a working tree's own changed
+ * paths (already merged with whatever untracked files count, by the caller)
+ * and `packages`, a zero-argument function returning the workspace's own
+ * `{ name, dir }[]` - the same shape `readFile`/`gitDiff` are for `classify`,
+ * below, so every way *this* I/O can fail is a case here rather than a path
+ * only a runner ever walks.
+ *
+ * `packages` is called at all only where `changeClass` would actually need
+ * it: never for a non-empty, docs-only `paths`, which `productPaths` alone
+ * already answers - so a docs-only push, the cheapest row in CLAUDE.md's
+ * Tests table, never pays for what discovering the workspace costs. An empty
+ * `paths` still calls it, since `changeClass` answers that 'product', not
+ * 'docs' (its own doc comment gives the reason), and this has to agree.
+ * Thrown or not, `packages()` is asked the same question `changeClass`
+ * already answers 'product' for a workspace it can't place: the safe
+ * direction on a failure is the one that costs a run rather than a merge.
+ */
+export function localChangeAnswer(paths, packages) {
+  const files = normalize(paths);
+  if (files.length > 0 && productPaths(files).length === 0) return 'documentation only';
+
+  let resolved;
+  try {
+    resolved = packages();
+  } catch {
+    return 'product changed';
+  }
+
+  const result = changeClass({ paths: files, packages: resolved });
+  return result.class === 'tests' ? `tests only (${result.packages.join(', ')})` : 'product changed';
 }
 
 /** How many product paths a run log names before it starts counting instead. */
