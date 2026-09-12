@@ -19,6 +19,51 @@ import { classify, diffRange, isNonProduct, pathsFromDiff, printable, productCha
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const workflow = (name) => readFileSync(join(repo, '.github/workflows', name), 'utf8');
 
+/** The same, but `null` rather than a failure where there is no such job. */
+function jobIfAny(yaml, id) {
+  const lines = yaml.split('\n');
+  const start = lines.indexOf(`  ${id}:`);
+  if (start === -1) return null;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^ {2}\S/.test(line));
+  return rest.slice(0, end === -1 ? rest.length : end).join('\n');
+}
+
+/** One job's own lines, from its key down to whatever comes next at that indent. */
+function job(yaml, id) {
+  const block = jobIfAny(yaml, id);
+  assert.notEqual(block, null, `${id} is not a job here`);
+  return block;
+}
+
+/**
+ * The jobs a block declares it waits for, in any of the three shapes YAML
+ * allows. Matching `/needs: changes/` alone would read `needs: [changes, x]`
+ * as no dependency at all, so a job could gain the gate - or lose it - without
+ * either assertion below noticing.
+ */
+function needsOf(block) {
+  const declaration = block.match(/^ {4}needs:[^\S\n]*(.*)$/m);
+  if (!declaration) return [];
+  const value = declaration[1].trim();
+  if (value !== '') {
+    return value
+      .replace(/^\[/, '')
+      .replace(/\]$/, '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id !== '');
+  }
+  const following = block.slice(declaration.index + declaration[0].length).split('\n').slice(1);
+  const items = [];
+  for (const line of following) {
+    const item = line.match(/^ {6}- (.+)$/);
+    if (!item) break;
+    items.push(item[1].trim());
+  }
+  return items;
+}
+
 /** A commit the way GitHub writes one. */
 const sha = (char) => char.repeat(40);
 
@@ -257,51 +302,6 @@ describe('classify', () => {
 describe('the mechanical jobs', () => {
   const gate = "if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}";
 
-  /** One job's own lines, from its key down to whatever comes next at that indent. */
-  function job(yaml, id) {
-    const block = jobIfAny(yaml, id);
-    assert.notEqual(block, null, `${id} is not a job here`);
-    return block;
-  }
-
-  /** The same, but `null` rather than a failure where there is no such job. */
-  function jobIfAny(yaml, id) {
-    const lines = yaml.split('\n');
-    const start = lines.indexOf(`  ${id}:`);
-    if (start === -1) return null;
-    const rest = lines.slice(start + 1);
-    const end = rest.findIndex((line) => /^ {2}\S/.test(line));
-    return rest.slice(0, end === -1 ? rest.length : end).join('\n');
-  }
-
-  /**
-   * The jobs a block declares it waits for, in any of the three shapes YAML
-   * allows. Matching `/needs: changes/` alone would read `needs: [changes, x]`
-   * as no dependency at all, so a job could gain the gate - or lose it - without
-   * either assertion below noticing.
-   */
-  function needsOf(block) {
-    const declaration = block.match(/^ {4}needs:[^\S\n]*(.*)$/m);
-    if (!declaration) return [];
-    const value = declaration[1].trim();
-    if (value !== '') {
-      return value
-        .replace(/^\[/, '')
-        .replace(/\]$/, '')
-        .split(',')
-        .map((id) => id.trim())
-        .filter((id) => id !== '');
-    }
-    const following = block.slice(declaration.index + declaration[0].length).split('\n').slice(1);
-    const items = [];
-    for (const line of following) {
-      const item = line.match(/^ {6}- (.+)$/);
-      if (!item) break;
-      items.push(item[1].trim());
-    }
-    return items;
-  }
-
   it('reads a dependency in every shape a workflow file may write one', () => {
     assert.deepEqual(needsOf('    needs: changes\n    runs-on: x'), ['changes']);
     assert.deepEqual(needsOf('    needs: [test-explorer, changes]\n    runs-on: x'), ['test-explorer', 'changes']);
@@ -433,5 +433,55 @@ describe('the mechanical jobs', () => {
     const analyze = job(yaml, 'analyze');
     assert.deepEqual(needsOf(analyze), [], 'the analysis should wait for nothing');
     assert.doesNotMatch(analyze, /product_changed/, 'the analysis should not read the classifier');
+  });
+});
+
+describe("the code review's own classifier", () => {
+  // claude-code-review.yml's version of ci.yml's `changes` job - see its
+  // comment there for why this is a second copy rather than a shared one.
+  const changes = () => job(workflow('claude-code-review.yml'), 'changes');
+  const claudeReview = () => job(workflow('claude-code-review.yml'), 'claude-review');
+
+  it('publishes the same product_changed output, read from the base commit', () => {
+    const block = changes();
+    assert.match(block, /product_changed: \$\{\{ steps\.classify\.outputs\.product_changed \}\}/, 'the changes job publishes no answer');
+    assert.match(block, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/, 'the base commit is never named');
+    assert.match(block, /git show "\$BASE_SHA:scripts\/what-changed\.mjs"/, "the base commit's own wrapper is not taken");
+    assert.match(block, /git show "\$BASE_SHA:scripts\/lib\/what-changed\.mjs"/, "the base commit's own module is not taken");
+    assert.doesNotMatch(block, /node scripts\/what-changed\.mjs/, 'this workflow never triggers on push, so it should not carry a push fallback');
+  });
+
+  it('cannot skip on a classifier that failed rather than answered', () => {
+    // Mirrors ci.yml's own version of this test: both steps continue past a
+    // failure, and the else branch fails open (`product_changed=true`
+    // written directly) rather than falling back to this branch's own copy.
+    const block = changes();
+    const steps = (block.match(/^ {6}- \w+:/gm) ?? []).length;
+    const continues = (block.match(/^ {8}continue-on-error: true$/gm) ?? []).length;
+    assert.ok(steps >= 2, `expected at least two steps in the changes job, found ${steps}`);
+    assert.equal(continues, steps, `every step of the changes job should continue on error (${continues} of ${steps} do)`);
+    const elseBranch = block.slice(block.indexOf('else', block.indexOf('git show')));
+    assert.doesNotMatch(elseBranch, /node /, 'the else branch still runs a classifier - which one, on whose copy?');
+    assert.match(elseBranch, /product_changed=true/, 'the else branch does not fail open directly');
+  });
+
+  it('gates claude-review on what changed, the same way ci.yml gates its own mechanical jobs', () => {
+    const block = claudeReview();
+    assert.ok(needsOf(block).includes('changes'), 'the claude-review job does not wait for what changed');
+    assert.match(block, /!cancelled\(\)/, 'the gate should run despite changes failing outright, not only despite its output being unset');
+    assert.match(block, /needs\.changes\.outputs\.product_changed != 'false'/, 'the claude-review job does not read the classifier');
+  });
+
+  it('skips the whole job, assert step included, so the gate can never read the skip as a decline', () => {
+    // "Assert the review actually ran" is a step of claude-review itself, not
+    // a job of its own - so the same `if:` that skips a fork, a draft or a
+    // bot pull request skips this step with it, and a documentation-only one
+    // is skipped the identical way. There is no path here where the review
+    // step is skipped but the assert step still runs against an empty
+    // execution file, which is what would read a legitimate skip as a
+    // reviewer that looked and said nothing.
+    const block = claudeReview();
+    assert.match(block, /Assert the review actually ran/, 'the assert step should live inside the claude-review job');
+    assert.equal(jobIfAny(workflow('claude-code-review.yml'), 'assert-code-review'), null, 'the assert step should not be split into a job of its own');
   });
 });
