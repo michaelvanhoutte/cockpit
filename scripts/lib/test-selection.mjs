@@ -10,6 +10,16 @@
 // still satisfies testing-strategy.md's "Definition of done for agents"
 // section (§6) is in ci.yml's own comment on this job.
 //
+// A path `isNonProduct` (scripts/lib/what-changed.mjs) already calls
+// non-product - `docs/`, `.claude/`, a root-level `*.md` - never forces
+// anything here either: it forces neither its own package nor, being outside
+// every package's directory, every package. Imported rather than duplicated,
+// so the two modules cannot drift into disagreeing about the same path
+// ("Stop a documentation edit forcing every package's tests to run in full",
+// issue 370) - before this, `docs/` alongside one real source change forced
+// every package into `full` for a diff only one of them had anything to do
+// with.
+//
 // A change nothing in the import graph can be trusted to attribute forces
 // `full`. Two different reasons force it, at two different scopes:
 //
@@ -45,6 +55,8 @@
 //
 
 import { basename } from 'node:path';
+
+import { isNonProduct } from './what-changed.mjs';
 
 /** A changed path no package's own directory covers - the lockfile, any package.json, a workflow, and anything else at that altitude. */
 function isOutsidePackages(path, packages) {
@@ -85,15 +97,17 @@ function forcesThisPackageFull(path, dir) {
 export function planTestRun({ event, mergeBase, changedFiles = [], packages }) {
   if (!packages) throw new Error('planTestRun needs the workspace package list (scripts/lib/workspace.mjs).');
 
+  const productFiles = changedFiles.filter((path) => !isNonProduct(path));
+
   const forceAll =
     event !== 'pull_request' ||
     !mergeBase ||
-    changedFiles.some((path) => isTsconfig(path) || isOutsidePackages(path, packages));
+    productFiles.some((path) => isTsconfig(path) || isOutsidePackages(path, packages));
 
   return {
     packages: packages.map((pkg) => ({
       ...pkg,
-      mode: forceAll || changedFiles.some((path) => forcesThisPackageFull(path, pkg.dir)) ? 'full' : 'changed',
+      mode: forceAll || productFiles.some((path) => forcesThisPackageFull(path, pkg.dir)) ? 'full' : 'changed',
     })),
   };
 }
