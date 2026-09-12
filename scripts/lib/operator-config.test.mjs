@@ -1,6 +1,6 @@
 //
 // Unit tests for where the backup commands get a token from, run by
-// `node --test` from the Scripts CI job, like the rest of scripts/lib.
+// `node --test` from the Scripts step, like the rest of scripts/lib.
 //
 // Nothing here touches the disk: `readConfig` takes its reader, so the cases
 // that matter - no file, a file that is not JSON, a file missing the

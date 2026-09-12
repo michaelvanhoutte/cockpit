@@ -28,7 +28,7 @@ pnpm dev
 - **Start at the point.** Delete "it is worth noting that", "the requirement is therefore twofold", "worth writing down, because".
 - **Cut what the reader can see.** Don't describe the code, the diff or the diagram that follows; say what it means.
 
-**Four of these are checked rather than reviewed**, over every Markdown file outside `poc/`: an issue number with no title named for it, a `§N` or `rule N` citation resolving to nothing the file offers, an unbalanced `**`, and a paragraph appearing near-verbatim in two places. `pnpm test:scripts` runs them, so does the Scripts job, and `scripts/lib/writing-rules.mjs` is where each one's reach is written down. The same run reports the counting words on the lines you touched — "three things", "both", "nine areas" — which is a prompt to check a claim, not a failure.
+**Four of these are checked rather than reviewed**, over every Markdown file outside `poc/`: an issue number with no title named for it, a `§N` or `rule N` citation resolving to nothing the file offers, an unbalanced `**`, and a paragraph appearing near-verbatim in two places. `pnpm test:scripts` runs them, so does the Scripts step of CI's `Checks` job, and `scripts/lib/writing-rules.mjs` is where each one's reach is written down. The same run reports the counting words on the lines you touched — "three things", "both", "nine areas" — which is a prompt to check a claim, not a failure.
 
 ## Starting an issue
 

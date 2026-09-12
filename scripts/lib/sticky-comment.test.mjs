@@ -1,6 +1,6 @@
 //
 // Unit tests for the one-comment-per-workflow behaviour, run by `node --test`
-// from the Scripts CI job.
+// from the Scripts step.
 //
 // No subprocess is ever started here: upsertSticky takes `gh` as a parameter,
 // so these assert the decisions (which comment, edit or post, whose marker)

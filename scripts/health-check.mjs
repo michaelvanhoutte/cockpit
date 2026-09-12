@@ -1,7 +1,7 @@
 //
 // The I/O around scripts/lib/health.mjs, for the deploy workflows' health step.
 // Everything that decides anything is in the module, which node --test covers
-// in the Scripts CI job; this fetches, prints, and sets an exit code, so there
+// in the Scripts step; this fetches, prints, and sets an exit code, so there
 // is nothing here for a test to hold.
 //
 // It asserts that a deployed environment is up and its data reachable.

@@ -1,5 +1,5 @@
 //
-// Unit tests for the bundle gate. Run by `node --test` from the Scripts CI job,
+// Unit tests for the bundle gate. Run by `node --test` from the Scripts step,
 // which installs nothing - so nothing here runs a build: the arithmetic is a
 // list of numbers, and the one part that reads a directory is given a temporary
 // one shaped like what Vite emits.

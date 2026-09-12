@@ -1,14 +1,15 @@
 //
-// The I/O around scripts/lib/what-changed.mjs, for the `changes` job in ci.yml.
-// Everything that decides anything - including every way the decision can fail -
-// is in the module, which node --test covers in the Scripts job. This supplies
-// the two readers, prints what it is told to, and writes one output.
+// The I/O around scripts/lib/what-changed.mjs, for the classifier step of
+// ci.yml's `checks` job. Everything that decides anything - including every
+// way the decision can fail - is in the module, which node --test covers in
+// the Scripts step. This supplies the two readers, prints what it is told
+// to, and writes one output.
 //
 // Usage: node scripts/what-changed.mjs   (on a runner, with GITHUB_OUTPUT set)
 //
-// The `changes` job runs the copy of this that the *base* commit carries, not
-// this branch's - see ci.yml for why - so an edit here reaches CI only once it
-// has merged.
+// The classifier step runs the copy of this that the *base* commit carries,
+// not this branch's - see ci.yml for why - so an edit here reaches CI only
+// once it has merged.
 //
 
 import { execFileSync } from 'node:child_process';

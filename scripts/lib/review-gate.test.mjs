@@ -1,6 +1,6 @@
 //
 // Unit tests for both reviews' gates, run by `node --test` from the
-// Scripts CI job — the same place scripts/lib/processes.test.mjs and
+// Scripts step — the same place scripts/lib/processes.test.mjs and
 // the other scripts/lib tests are asserted, and for the same reason: this is tooling
 // logic outside any package, and a silent change in it turns a check that is
 // supposed to block a merge into one that always agrees.
