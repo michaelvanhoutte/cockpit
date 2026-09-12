@@ -8,11 +8,14 @@ name: CodeQL
 # the two legs every time. An alert now surfaces within a week of merging
 # rather than before a pull request can merge - the cost that bought.
 #
-# Removing the pull-request trigger meant removing CodeQL's three contexts from
-# required_status_checks first: a required context nothing reports under sits
-# at *Expected* forever once nothing triggers it, which is the ordering note in
-# deployment.md's "Bootstrap runbook" applied in the direction this issue
-# needed rather than the direction that note was written for.
+# Removing the pull-request trigger needs CodeQL's three contexts out of the
+# *live* required_status_checks before this lands: a required context nothing
+# reports under sits at *Expected* forever once nothing triggers it, which is
+# the ordering note in deployment.md's "Bootstrap runbook" applied in the
+# direction this issue needed rather than the direction that note was written
+# for. The checked-in payload (branch-protection.json) drops those three
+# contexts in the same commit as this trigger change; applying that live is a
+# separate, by-hand step that still has to happen before this merges cleanly.
 #
 # Deliberately no path filters, on this workflow or on claude-code-review.yml.
 # A required status check whose *workflow* never triggers does not report green -

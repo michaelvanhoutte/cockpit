@@ -739,20 +739,25 @@ Then, by hand (no API, or deliberately not automated):
      it were listed — its `if:` skips it on every pull request, and a skipped
      job reports as passing.
 
-     **All names in this list are read off a real run** ("Analyse every pull request with
-     CodeQL, and let Dependabot report vulnerable dependencies", pull request 92),
-     never predicted, and that ordering is the point. GitHub matches these strings
-     with no idea whether anything reports under them, and a name nothing reports
-     under does not go red: it sits at *Expected — waiting for status to be
+     **Every name in this list is read off a real run**, never predicted, and
+     that ordering is the point. GitHub matches these strings with no idea
+     whether anything reports under them, and a name nothing reports under
+     does not go red: it sits at *Expected — waiting for status to be
      reported*, indefinitely. So when a check is added, renamed or removed the
      order is always: for an addition or a rename, merge the workflow, let it
      run, read the name off that run, apply this payload, then confirm on the
-     next pull request that all of it reports; for a removal, apply the payload
-     first, since a name still required after its workflow stops triggering on
-     pull requests is the same stuck-at-*Expected* failure arrived at from the
-     other direction. Issue 379 above is the first removal this repository has
-     made this way. Only the pull request that gets the ordering wrong can show
-     a context stuck at *Expected*, and by then it is holding the trunk.
+     next pull request that all of it reports; for a removal, apply the
+     payload first, since a name still required after its workflow stops
+     triggering on pull requests is the same stuck-at-*Expected* failure
+     arrived at from the other direction. Issue 378 (folding `Typecheck`,
+     `Lint`, `Build` and `Scripts` into `Checks`) removed contexts this way a
+     day before issue 379 above did the same to CodeQL's three; issue 379's own
+     pull request did not actually apply the payload first — its checked-in
+     file change and the live `required_status_checks` update shipped as
+     separate steps, the live one still pending as this paragraph was written,
+     which is the risk this note warns against rather than a demonstrated case
+     of avoiding it. Only the pull request that gets the ordering wrong can
+     show a context stuck at *Expected*, and by then it is holding the trunk.
 
      **The payload is what this file says; it is not what GitHub is enforcing.**
      Checking one in does not apply it, and the two drift silently. `E2E (F3)`

@@ -6,13 +6,9 @@ name: Claude Security Review
 # here, because they are prose that will grow and prose inside a YAML scalar
 # inside a shell quote is three layers of escaping.
 #
-# CodeQL (codeql.yml) is the mechanical half, but it no longer runs on pull
-# requests at all ("Decide whether CodeQL earns its run on every pull request
-# push, or moves to main and a schedule", issue 379) - only on merge to main
-# and on a weekly schedule. So this judgement half is the only check that sees
-# injection, taint and workflow misuse before a pull request merges; the
-# instructions file says so explicitly rather than assuming CodeQL already
-# covers the diff.
+# This is the judgement half. CodeQL (codeql.yml) is the mechanical half and
+# runs on the same pull requests; the instructions file says explicitly not to
+# spend this run re-deriving what CodeQL already reports.
 #
 # `pull_request`, never `pull_request_target`. That trigger runs the base
 # branch's workflow with repository secrets in scope while checking out code the
