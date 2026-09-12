@@ -398,7 +398,7 @@ describe('the mechanical checks', () => {
     // - a failure in either still lets the job carry on to Scripts next, with
     // `product_changed` unset and the gate's `!= 'false'` running everything
     // downstream. Every step after them (Scripts, install, Concepts, and the
-    // four gated steps) should NOT continue on error: a real failure in any of
+    // five gated steps) should NOT continue on error: a real failure in any of
     // those has to fail the job, not disappear the way a classifier hiccup is
     // meant to.
     const yaml = workflow('ci.yml');
