@@ -542,11 +542,12 @@ describe('the mechanical checks', () => {
     assert.deepEqual(needsOf(job(yaml, 'test-explorer')).sort(), ['test', 'checks'].sort(), "Test Explorer's dependency on Test and Checks went missing");
   });
 
-  it('leave CodeQL to run on every diff, its third context being nobody here to post', () => {
-    // `CodeQL (javascript-typescript)` and `CodeQL (actions)` are jobs and would
-    // skip safely. The third required context, `CodeQL`, is posted by GitHub
-    // Advanced Security when an analysis uploads results, and a required context
-    // nothing reports under waits forever - see the note at the top of codeql.yml.
+  it('leave CodeQL ungated by the classifier, which is moot now but shouldn\'t regress', () => {
+    // CodeQL no longer runs on a pull request at all ("Decide whether CodeQL
+    // earns its run on every pull request push, or moves to main and a
+    // schedule", issue 379), so this classifier has nothing to do with it -
+    // but the analysis should still wait for nothing and stay unconditional
+    // on its push and schedule triggers, the same invariant as before.
     const yaml = workflow('codeql.yml');
     assert.equal(jobIfAny(yaml, 'changes'), null, 'codeql.yml should not classify the diff at all');
     const analyze = job(yaml, 'analyze');

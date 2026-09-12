@@ -2,7 +2,7 @@
 
 Appended to the `/security-review` run in `.github/workflows/claude-security-review.yml`. A file rather than a string in the workflow, because prose inside a YAML scalar inside a shell quote is three layers of escaping.
 
-CodeQL already runs on every pull request and models injection, taint and workflow misuse. **Do not spend this run re-deriving what CodeQL finds.** What it cannot model is everything below: rules this project decided on in [docs/architecture.md](../docs/architecture.md), invisible to a scanner because breaking them looks like ordinary code.
+CodeQL models injection, taint and workflow misuse, but "Decide whether CodeQL earns its run on every pull request push, or moves to main and a schedule" (issue 379) moved it off the pull-request gate: it now analyses `main` on merge and on a weekly schedule, so an alert on this diff would not surface until after it merges, at the earliest. **This run is the only check that sees those classes of bug before a pull request merges — do not skip them on the assumption CodeQL already covers this diff.** What CodeQL cannot model at all is everything below: rules this project decided on in [docs/architecture.md](../docs/architecture.md), invisible to a scanner because breaking them looks like ordinary code.
 
 ## The ingress hardening template
 
@@ -51,7 +51,6 @@ A verdict of `NONE` means you looked and found nothing. It must never mean you r
 
 ## What not to report
 
-- Findings CodeQL already reports. This run is for what it cannot see.
 - Missing hardening in the abstract. Every finding names a file, a line, and what an attacker does with it.
 - Style, naming, structure, test coverage, or anything a reviewer would raise for quality reasons. `/code-review` runs on the same pull request and owns all of that.
 - Anything in `poc/`. It is outside the workspace, does not deploy, and is explicitly proof-of-concept code.

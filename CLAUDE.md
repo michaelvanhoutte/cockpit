@@ -104,7 +104,7 @@ gh pr ready <number> --undo
 gh pr ready <number>
 ```
 
-**Start the waiter after marking it ready, never before.** The two reviews are the only checks that fire on `ready_for_review` — `ci.yml` and `codeql.yml` name no `types`, so they run on the draft's pushes and not on the transition. A waiter started while the pull request is still a draft therefore sees a complete set of completed runs, with neither review among them, and reports a pass nobody reviewed.
+**Start the waiter after marking it ready, never before.** The two reviews are the only checks that fire on `ready_for_review` — `ci.yml` names no `types`, so it runs on the draft's pushes and not on the transition. A waiter started while the pull request is still a draft therefore sees a complete set of completed runs, with neither review among them, and reports a pass nobody reviewed.
 
 **Check `gh pr view N --json mergeable,mergeStateStatus` first, too.** A conflicted pull request gets no checks at all, so `check-runs` stays empty forever and the loop below has nothing to tell that apart from "nothing new yet" — it ran for close to two hours against a `CONFLICTING` pull request before anyone noticed, on "Show when each person last signed in, on the admin page" (pull request 358). `CONFLICTING` is the one case this file permits merging `main` in for.
 
