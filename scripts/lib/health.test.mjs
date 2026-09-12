@@ -1,6 +1,6 @@
 //
 // Unit tests for the post-deploy health assertion, run by `node --test` from
-// the Scripts CI job, like the rest of scripts/lib.
+// the Scripts step, like the rest of scripts/lib.
 //
 // Nothing here reaches a deployment. What is worth asserting is the reading -
 // which answers mean the deploy should stop, and which are worth asking again -

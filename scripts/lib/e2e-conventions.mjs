@@ -9,7 +9,7 @@
 // comment. This is the rule as something that fails.
 //
 // Here rather than in the suite: it is a read of source text, so it needs no
-// browser, no stack and no install, and the checkout-only Scripts job already
+// browser, no stack and no install, and the checkout-only Scripts step already
 // runs `node --test scripts/lib/*.test.mjs`.
 //
 

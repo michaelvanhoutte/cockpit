@@ -455,14 +455,16 @@ tools/test-explorer/package.json
 every ordinary build. The root gains `test:explorer`, `test:explorer:check` and
 `test:coverage` (`pnpm -r test:coverage`).
 
-CI (`.github/workflows/ci.yml`) gains two jobs. `Concepts` runs `test:explorer:check`
-alone, independent of everything else — it needs no coverage, so it stays fast rather
-than waiting on the suite. `Test Explorer` needs both `Concepts` and `Test`: `Test`
-now runs the suite instrumented (`test:coverage` in place of plain `test`) and uploads
+CI (`.github/workflows/ci.yml`) gains a `Concepts` step and a `Test Explorer` job.
+`Concepts` (a step of the `Checks` job since "Run the six small CI jobs as one, so a
+push stops paying six runner start-ups", issue 378) runs `test:explorer:check` alone,
+independent of everything else — it needs no coverage, so it stays fast rather than
+waiting on the suite. `Test Explorer` needs both `Checks` and `Test`: `Test` now runs
+the suite instrumented (`test:coverage` in place of plain `test`) and uploads
 `coverage-final.json` from every package that has one as an artifact, which `Test
 Explorer` downloads before running `test:explorer` and the uploads named under "Where
-the report is published" below. The jobs themselves carry the reasoning; it is not
-repeated here.
+the report is published" below. The job and step themselves carry the reasoning; it is
+not repeated here.
 
 An earlier draft ran the suite a second time inside `Test Explorer`, instrumented,
 rather than sharing `Test`'s run — accepted at the time because Actions jobs run in

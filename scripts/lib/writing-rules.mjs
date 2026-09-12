@@ -15,7 +15,7 @@
 //
 // Here rather than in a package's suite for the reason `e2e-conventions.mjs`
 // gives: it is a read of source text, so it needs no browser, no stack and no
-// install, and the checkout-only Scripts job already runs
+// install, and the checkout-only Scripts step already runs
 // `node --test scripts/lib/*.test.mjs`.
 //
 // **Markdown only, and not `poc/`.** The sample these rules come from is review
@@ -95,7 +95,7 @@ const NUMBERED_ITEM = /^\s{0,3}(\d+)[.)]\s/;
  * Every Markdown file under `root` that carries prose, as paths relative to it
  * and separated with `/` whatever the platform.
  *
- * A walk rather than `git ls-files`: the Scripts job is checkout-only and this
+ * A walk rather than `git ls-files`: the Scripts step is checkout-only and this
  * needs no process, and a file being untracked does not make its prose exempt.
  */
 export function markdownFiles(root, within = '') {

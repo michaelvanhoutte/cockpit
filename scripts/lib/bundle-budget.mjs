@@ -16,7 +16,7 @@
  * fetches out of the sum it exists to hold.
  *
  * Pure but for one directory walk, so all of it is tested by `node --test` with
- * no build and no install (the Scripts job in .github/workflows/ci.yml).
+ * no build and no install (the Scripts step of `checks` in .github/workflows/ci.yml).
  */
 
 import { readdirSync } from 'node:fs';
