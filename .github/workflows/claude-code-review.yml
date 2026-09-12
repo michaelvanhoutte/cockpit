@@ -26,7 +26,65 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Whether this diff touches anything for the review to look at - the same
+  # question ci.yml's own `changes` job answers, over the same classifier
+  # (scripts/lib/what-changed.mjs), asked again here because a skipped job
+  # satisfies a required status check the same way there does ("Skip the code
+  # review on a documentation-only pull request, as CI already skips its
+  # jobs", issue 371). Duplicated rather than shared - this repository has no
+  # reusable-workflow wiring, and the job is a dozen lines.
+  #
+  # Reads the *base* commit's own copy, never this branch's, for the reason
+  # ci.yml's `changes` job gives: a branch left to answer this about its own
+  # payload could talk itself out of being reviewed. Unlike ci.yml, this
+  # workflow only ever triggers on `pull_request`, so there is no push-to-main
+  # case to fall back to.
+  #
+  # Both steps are `continue-on-error`, and the gate below reads `!cancelled()`
+  # rather than the bare output - see ci.yml's `changes` job for why: the
+  # dangerous direction is a skip nobody meant, and a runner that never starts
+  # answers to neither `continue-on-error`.
+  #
+  # Guarded by the same fork/draft/bot check `claude-review` carries, unlike
+  # ci.yml's own `changes` job: those three already cost this workflow zero
+  # runner minutes, since `claude-review`'s job-level `if:` used to be enough
+  # on its own to never start one. Computing an answer `claude-review` would
+  # ignore regardless would spend a checkout re-introducing exactly the cost
+  # those guards exist to avoid.
+  changes:
+    name: What changed
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.draft == false
+      && github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      product_changed: ${{ steps.classify.outputs.product_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+      - name: Work out whether this diff touches the product
+        id: classify
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base="$RUNNER_TEMP/base-classifier"
+          mkdir -p "$base/lib"
+          if git show "$BASE_SHA:scripts/what-changed.mjs" > "$base/what-changed.mjs" &&
+             git show "$BASE_SHA:scripts/lib/what-changed.mjs" > "$base/lib/what-changed.mjs"; then
+            node "$base/what-changed.mjs"
+          else
+            echo "::warning::The base commit carries no classifier, so the review runs rather than trusting this branch's own."
+            echo "product_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   claude-review:
+    needs: changes
     # A fork's pull request gets a read-only token and no secrets, so this job
     # cannot run - and left to fail it would report red for a reason that has
     # nothing to do with the change, which is how a check stops being read.
@@ -57,10 +115,20 @@ jobs:
     # context does safely (see the mechanisms measured in docs/deployment.md);
     # adding `dependabot[bot]` to `allowed_bots` instead would spend a review
     # on diffs that are never more than a version bump.
+    #
+    # A documentation-only pull request is the fourth skip, decided by the
+    # `changes` job above rather than here. It reports the same way the other
+    # three do - the whole job, this assert step included, never runs, so
+    # there is nothing here that could misread the skip as a reviewer who
+    # looked and declined to speak. `!cancelled()` is what lets this guard run
+    # despite `changes` failing outright rather than merely answering "no
+    # output" - the same reasoning ci.yml's own gate gives.
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
+      !cancelled()
+      && github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.draft == false
       && github.event.pull_request.user.type != 'Bot'
+      && needs.changes.outputs.product_changed != 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: read
