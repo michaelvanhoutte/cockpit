@@ -3,7 +3,8 @@
 // What CLAUDE.md's Tests table calls the change on this branch - the
 // classifier scripts/lib/what-changed.mjs already answers for a CI diff
 // (`scripts/what-changed.mjs`), asked instead of a working tree, so a
-// session reads its answer rather than judging it by eye (issue 372).
+// session reads its answer rather than judging it by eye ("Scale a session's
+// own checks to what the change touches, as CI already does", issue 372).
 //
 // Usage: node scripts/local-changes.mjs
 //
@@ -28,18 +29,9 @@ import { spawnSync } from 'node:child_process';
 
 import { changeClass, pathsFromDiff, printable } from './lib/what-changed.mjs';
 import { testablePackages } from './lib/workspace.mjs';
-import { command } from './lib/processes.mjs';
+import { pnpmWorkspaceList } from './lib/processes.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-
-/** Every workspace package pnpm itself reports, parsed - scripts/ci-test.mjs's own reader, so a package cannot go stale in one classifier and not the other. */
-function pnpmWorkspaceList() {
-  const { file, args, options } = command(['-r', 'list', '--depth', '-1', '--json']);
-  const result = spawnSync(file, args, { cwd: root, encoding: 'utf8', ...options });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`pnpm -r list failed: ${(result.stderr ?? '').trim() || `exit ${result.status}`}`);
-  return JSON.parse(result.stdout);
-}
 
 /** Every path this branch has touched, committed or not - `null` where neither `origin/main` nor `main` could be diffed against. */
 function changedPaths() {
@@ -57,7 +49,7 @@ function fallback(reason) {
 
 let packages;
 try {
-  packages = testablePackages(pnpmWorkspaceList(), (pkgPath) => JSON.parse(readFileSync(join(pkgPath, 'package.json'), 'utf8')), root);
+  packages = testablePackages(pnpmWorkspaceList(root), (pkgPath) => JSON.parse(readFileSync(join(pkgPath, 'package.json'), 'utf8')), root);
 } catch (error) {
   fallback(`Could not read the workspace: ${error.message}.`);
   process.exit(0);

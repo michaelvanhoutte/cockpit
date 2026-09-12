@@ -32,8 +32,9 @@
 // suite need to run", but which of the three rows CLAUDE.md's Tests table
 // scales a session's own checks to. `scripts/local-changes.mjs` asks it of a
 // working tree the same way `scripts/what-changed.mjs` asks `classify` of a
-// CI diff, so a session reads the answer instead of judging it by eye (issue
-// 372).
+// CI diff, so a session reads the answer instead of judging it by eye
+// ("Scale a session's own checks to what the change touches, as CI already
+// does", issue 372).
 //
 
 /** Directory prefixes whose files no mechanical check reads. */

@@ -10,7 +10,7 @@
 // in one copy and not the other.
 //
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 export const isWindows = process.platform === 'win32';
 const pnpm = isWindows ? 'pnpm.cmd' : 'pnpm';
@@ -24,6 +24,22 @@ export const command = (args) =>
   isWindows
     ? { file: [pnpm, ...args].join(' '), args: [], options: { shell: true } }
     : { file: pnpm, args, options: {} };
+
+/**
+ * Every workspace package pnpm itself reports, parsed - `pnpm -r list --depth
+ * -1 --json`, run in `root`. Shared by scripts/ci-test.mjs and
+ * scripts/local-changes.mjs, which both need to turn that into
+ * scripts/lib/workspace.mjs's `testablePackages`: extracted rather than kept
+ * as each script's own copy, for the reason this file's own top comment gives
+ * about its other two shared pieces.
+ */
+export function pnpmWorkspaceList(root) {
+  const { file, args, options } = command(['-r', 'list', '--depth', '-1', '--json']);
+  const result = spawnSync(file, args, { cwd: root, encoding: 'utf8', ...options });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`pnpm -r list failed: ${(result.stderr ?? '').trim() || `exit ${result.status}`}`);
+  return JSON.parse(result.stdout);
+}
 
 const color = !process.env.NO_COLOR && process.stdout.isTTY;
 // ESC from its char code so the source carries no escape sequence of its own.
