@@ -14,7 +14,7 @@
 // sometimes an array and sometimes an object. All four are decisions over a
 // JSON document, all four shipped green, and none of them was covered by
 // anything, because inline bash cannot be run by a test. The same logic in a
-// module is asserted by node --test in the Scripts CI job, like the rest of
+// module is asserted by node --test in the Scripts step, like the rest of
 // scripts/lib.
 //
 // Two functions rather than one with a flag, because the two gates ask

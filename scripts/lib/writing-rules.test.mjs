@@ -360,8 +360,10 @@ describe("the repository's prose", () => {
   // Reported, never failed: whether "nine areas" is still nine is a fact about
   // the product, and a check that cries wolf is a check that gets skipped. On
   // the changed lines only, because the whole tree carries fourteen hundred of
-  // these and a list that long is not read. Where git cannot answer - the
-  // Scripts job checks out one commit deep - there is nothing to report.
+  // these and a list that long is not read. Where git cannot answer - a
+  // shallow local clone with no merge base, say - there is nothing to report.
+  // (In CI this always resolves: the Scripts step shares the `checks` job's
+  // own `fetch-depth: 0` checkout.)
   it('reports the counting words on the lines this change touches', () => {
     const changed = changedMarkdownLines();
     if (!changed) {

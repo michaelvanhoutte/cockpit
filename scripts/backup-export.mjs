@@ -1,7 +1,7 @@
 //
 // The I/O around scripts/lib/backup.mjs, for `pnpm backup:export`. Everything
 // that decides anything is in the module, which node --test covers in the
-// Scripts CI job; this fetches, writes files, prints and sets an exit code, so
+// Scripts step; this fetches, writes files, prints and sets an exit code, so
 // there is nothing here for a test to hold.
 //
 // Usage:

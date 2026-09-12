@@ -2,7 +2,7 @@
 // Post or update one comment on a pull request, identified by a marker.
 //
 // The decisions are in scripts/lib/sticky-comment.mjs, which node --test covers
-// in the Scripts CI job; this is the subprocess and the argument handling.
+// in the Scripts step; this is the subprocess and the argument handling.
 //
 // Usage: node scripts/sticky-comment.mjs <marker> <body>
 // Env:   GITHUB_REPOSITORY, PR_NUMBER, GH_TOKEN

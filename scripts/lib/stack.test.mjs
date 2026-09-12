@@ -1,6 +1,6 @@
 //
 // Unit tests for the decisions scripts/e2e-stack.mjs makes before it starts
-// anything. Run by `node --test` from the Scripts CI job.
+// anything. Run by `node --test` from the Scripts step.
 //
 // waitForApi takes its fetch, its clock and its timeout as options precisely so
 // these can prove which branch it takes without a Worker and without waiting a

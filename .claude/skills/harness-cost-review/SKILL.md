@@ -21,7 +21,7 @@ Read `required_status_checks.contexts` — that list is the whole scope; nothing
 
 Split what's left into two kinds, because they need different evidence:
 
-- **Mechanical** — Typecheck, Lint, Test, E2E (F3), Build, Scripts. Pass or fail is a deterministic fact about the code.
+- **Mechanical** — Checks, Test, E2E (F3). Pass or fail is a deterministic fact about the code.
 - **Judgement** — `claude-review`, Security review. Pass or fail is a model's call, and a required check here can be "working" at a low hit rate the way a smoke detector is — rarely firing is not by itself evidence of nothing to fire on.
 
 ### 2. Sample the pull requests both tracks read from

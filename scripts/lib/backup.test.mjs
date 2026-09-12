@@ -1,6 +1,6 @@
 //
 // Unit tests for what `pnpm backup:export` decides, run by `node --test` from
-// the Scripts CI job, like the rest of scripts/lib.
+// the Scripts step, like the rest of scripts/lib.
 //
 // Nothing here reaches an environment or the disk. What is worth asserting is
 // the ordering - that nothing appears where the backup was asked for until all
