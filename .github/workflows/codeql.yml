@@ -43,10 +43,12 @@ jobs:
   analyze:
     # This name is what the Security tab groups alerts under, once per matrix
     # leg: "CodeQL (javascript-typescript)" and "CodeQL (actions)". Neither is a
-    # required status check any more - issue 379 removed all three CodeQL
-    # contexts from required_status_checks when it took CodeQL off the
-    # pull-request gate - so renaming either the job or the matrix values loses
-    # continuity in the Security tab rather than blocking a merge.
+    # required status check any more - "Decide whether CodeQL earns its run on
+    # every pull request push, or moves to main and a schedule" (issue 379)
+    # removed all three CodeQL contexts from required_status_checks when it
+    # took CodeQL off the pull-request gate - so renaming either the job or the
+    # matrix values loses continuity in the Security tab rather than blocking a
+    # merge.
     #
     # These two say the analysis ran. They do not say it was clean: the check
     # that fails on a high-severity alert is a third one, named "CodeQL" and
