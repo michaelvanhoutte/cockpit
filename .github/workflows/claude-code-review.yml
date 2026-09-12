@@ -137,9 +137,8 @@ jobs:
           # given.
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # Every decision this makes is in scripts/lib/review-gate.mjs, asserted
-        # by node --test in the Scripts step of ci.yml's `Checks` job and shared
-        # with the security review's gate, which documents each one and the run
-        # that motivated it.
+        # by node --test in the Scripts job and shared with the security
+        # review's gate, which documents each one and the run that motivated it.
         # It was ~140 lines of bash here until "Give the code review the tested
         # gate the security review already uses" (issue 277) moved it, and the
         # four occasions this file's comments record of a blocked or declining
