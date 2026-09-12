@@ -1,60 +1,53 @@
 name: CodeQL
 
-# Static analysis on the same two events as ci.yml, for the same reason: the
-# merge commit on main is a tree that has never been analysed as such.
+# Analyses main on every merge and on a weekly schedule - never on a pull
+# request. "Decide whether CodeQL earns its run on every pull request push, or
+# moves to main and a schedule" (issue 379) measured 40 sampled runs on 10 to
+# 12 September 2026: every leg concluded success and no CodeQL alert had ever
+# held a pull request, against roughly 4 of a push's 39 billed minutes paid to
+# the two legs every time. An alert now surfaces within a week of merging
+# rather than before a pull request can merge - the cost that bought.
+#
+# Removing the pull-request trigger meant removing CodeQL's three contexts from
+# required_status_checks first: a required context nothing reports under sits
+# at *Expected* forever once nothing triggers it, which is the ordering note in
+# deployment.md's "Bootstrap runbook" applied in the direction this issue
+# needed rather than the direction that note was written for.
 #
 # Deliberately no path filters, on this workflow or on claude-code-review.yml.
 # A required status check whose *workflow* never triggers does not report green -
-# it does not report at all, and the pull request waits on it forever. At the
-# trigger level, "skip the analysis on documentation-only changes" and "block
-# every documentation-only pull request" are the same setting.
-#
-# **And no job-level `if:` either**, though "Skip the mechanical checks on a
-# pull request that touches nothing they cover" (issue 345) asked for one and
-# ci.yml's five mechanical jobs took it. Two of this workflow's three required
-# contexts are jobs and would skip safely; the third, `CodeQL`, is posted by
-# GitHub Advanced Security when an analysis uploads its results, and whether it
-# is posted at all when none does is not something this repository has measured.
-# A required context nothing reports under waits forever, so the wrong guess
-# blocks every documentation-only pull request permanently - the exact failure
-# the paragraph above exists to avoid, arrived at by another route. The two legs
-# cost 0.6-3.3 minutes against a `claude-review` on the same pull request that
-# takes 9-15, so skipping them would shorten nothing anybody waits for.
-# deployment.md's "Bootstrap runbook" carries the measurement.
+# it does not report at all, and a pull request that required one would wait on
+# it forever. Moot for the push and schedule triggers here, which nothing
+# gates, but the principle is why the trigger was removed rather than gated.
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  schedule:
+    # Weekly rather than more often: main's alerts are a backstop now that
+    # nothing analyses a pull request before it merges, and the cost this issue
+    # measured only argued for less frequent runs, not zero.
+    - cron: '0 3 * * 1'
 
 concurrency:
   group: codeql-${{ github.ref }}
-  # Cancel superseded pull request runs, never superseded runs on main.
-  #
-  # On a pull request this is free: branch protection evaluates its required
-  # checks against the head commit, so an analysis cancelled on a commit that is
-  # no longer the head cannot hold the merge, and paying for it twice buys
-  # nothing.
-  #
-  # On main it is not free. The default branch's analysis is the baseline every
-  # pull request's alerts are compared against, so cancelling one leaves the
-  # baseline standing at an older commit - and two merges landing close together
-  # is exactly when that happens.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Never cancel a run on main: its analysis is the baseline every future
+  # comparison reads against, so cancelling one leaves that baseline standing
+  # at an older commit. There is no pull request run left to cancel superseded
+  # copies of.
+  cancel-in-progress: false
 
 jobs:
   analyze:
-    # This name is what branch protection matches on, once per matrix leg:
-    # "CodeQL (javascript-typescript)" and "CodeQL (actions)", both verified
-    # against a real run rather than predicted. Renaming either the job or the
-    # matrix values silently stops the required check reporting, and a required
-    # check that never reports blocks every pull request. See the ordering note
-    # in deployment.md's "Bootstrap runbook".
+    # This name is what the Security tab groups alerts under, once per matrix
+    # leg: "CodeQL (javascript-typescript)" and "CodeQL (actions)". Neither is a
+    # required status check any more - issue 379 removed all three CodeQL
+    # contexts from required_status_checks when it took CodeQL off the
+    # pull-request gate - so renaming either the job or the matrix values loses
+    # continuity in the Security tab rather than blocking a merge.
     #
     # These two say the analysis ran. They do not say it was clean: the check
     # that fails on a high-severity alert is a third one, named "CodeQL" and
-    # posted by GitHub Advanced Security rather than by this workflow, and it is
-    # required alongside them for exactly that reason.
+    # posted by GitHub Advanced Security rather than by this workflow.
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
     permissions:
@@ -68,13 +61,6 @@ jobs:
       # the hard way is two failing legs whose error names neither this block
       # nor the visibility change that caused it.
       actions: read
-
-    # A pull request from a fork gets a read-only token whatever this block
-    # says, and all three CodeQL checks have been required on `main` since
-    # 2026-09-09 - so a fork that could not upload its results would be shut out
-    # of contributing entirely. It can upload; deployment.md's "Bootstrap
-    # runbook" carries the evidence, how strong it is, and the escape hatch if
-    # it ever stops being true.
 
     strategy:
       # One leg's failure must not cancel the other's: an infrastructure failure

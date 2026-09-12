@@ -718,63 +718,42 @@ Then, by hand (no API, or deliberately not automated):
      merging. It would force an "Update branch" click every time `main` moves, and
      the semantic conflict it guards against is exactly what staging catches; a
      bad merge reaches staging, never production.
-   - **`contexts`** — eleven names: six of `ci.yml`'s eleven jobs, three from
-     CodeQL, and the two Claude reviews, matched exactly. The five CI jobs left
-     out are the reports' and the classifier: Concepts and Test Explorer
-     deliberately do not gate; Publish and Stability *could not* gate anything if
-     they were listed — the `if:` on each skips it on every pull request, and a
-     skipped job reports as passing; and What changed only decides whether the
-     mechanical jobs do their work ("Skip the mechanical checks on a pull request
-     that touches nothing they cover", issue 345), so requiring it would gate on
-     the decision rather than on the checking.
+   - **`contexts`** — eight names: six of `ci.yml`'s eleven jobs and the two
+     Claude reviews, matched exactly. CodeQL held three of these — the matrix
+     legs `CodeQL (javascript-typescript)` and `CodeQL (actions)`, which said
+     only that the analysis *ran*, and `CodeQL` itself, posted by GitHub
+     Advanced Security to say it was clean — until "Decide whether CodeQL earns its run on every pull request push, or moves to main and a schedule" (issue 379)
+     removed all three: 40 runs sampled on 10 to 12 September 2026 found every
+     leg concluding success and no CodeQL alert ever holding a pull request,
+     against roughly 4 of a push's 39 billed minutes paid to the two legs every
+     time. CodeQL now analyses `main` on merge and on a weekly schedule instead
+     (codeql.yml carries the measurement and the current reasoning); an alert
+     surfaces within a week of merging rather than before a pull request can
+     merge.
 
-     The three are not interchangeable. `CodeQL (javascript-typescript)` and
-     `CodeQL (actions)` are the matrix legs and say only that the analysis *ran*.
-     The one that says it was **clean** is the third, named plainly `CodeQL` and
-     posted by GitHub Advanced Security — the check that goes red on an alert at or
-     above the failure threshold. Requiring the legs without it would gate on the
-     analysis having happened while letting a high-severity finding merge.
+     The five CI jobs left out of the eight are the reports' and the
+     classifier: Concepts and Test Explorer deliberately do not gate; Publish
+     and Stability *could not* gate anything if they were listed — the `if:` on
+     each skips it on every pull request, and a skipped job reports as passing;
+     and What changed only decides whether the mechanical jobs do their work
+     ("Skip the mechanical checks on a pull request that touches nothing they
+     cover", issue 345), so requiring it would gate on the decision rather than
+     on the checking.
 
-     **That split is why the documentation-only skip stops at `ci.yml`**, though
-     "Skip the mechanical checks on a pull request that touches nothing they
-     cover" (issue 345) asked for the two legs as well. They are jobs and would
-     report `skipped` by the mechanism measured below; the third is posted by a
-     service when an analysis uploads results, and whether it is posted at all
-     when none does has never been measured here — a required context nothing
-     reports under sits at *Expected* forever, so guessing wrong blocks every
-     documentation-only pull request permanently. The cost settled it rather than
-     the risk: across three ordinary pull requests sampled on 10 September 2026
-     the legs took 0.6–3.3 minutes each, against `claude-review` on the same head
-     at 9.0–14.9 and `Test Explorer` at 5.1–6.8. `claude-review` is ungated and
-     unaffected by ci.yml's own documentation-only skip, so it alone carries
-     the argument for the pull requests that skip actually decides — the legs
-     already finish inside its shadow there, shortening nothing anybody waits
-     for. `Test Explorer`'s figure describes an ordinary pull request only: on
-     the documentation-only ones this measurement is about, it skips too, for
-     free, once `Test` does (ci.yml's `test-explorer` job says why).
-
-     **All three names were read off a real run** ("Analyse every pull request with
+     **All names in this list are read off a real run** ("Analyse every pull request with
      CodeQL, and let Dependabot report vulnerable dependencies", pull request 92),
      never predicted, and that ordering is the point. GitHub matches these strings
      with no idea whether anything reports under them, and a name nothing reports
      under does not go red: it sits at *Expected — waiting for status to be
-     reported*, indefinitely. So when a check is added or renamed the order is
-     always: merge the workflow, let it run, read the name off that run, apply this
-     payload, then confirm on the next pull request that all of it reports. Only
-     that last pull request can show a context stuck at *Expected*, and by then it
-     is holding the trunk.
-
-     **Verify a fork's pull request before requiring a context, not after**, for
-     the same reason in a different shape: a fork gets a read-only token, so a
-     check it cannot pass blocks every outside contribution to a public
-     repository that allows forking. For CodeQL's three the answer is that they
-     pass — GitHub relaxed the code-scanning upload endpoint in May 2023 so a
-     fork may call it ([community discussion
-     54013](https://github.com/orgs/community/discussions/54013)). **That is
-     GitHub's documentation and not a fork run observed here**: nothing has
-     forked this repository and proving it needs a second account, so if one
-     ever does stall on those three, `enforce_admins: false` is what lets the
-     owner merge it anyway.
+     reported*, indefinitely. So when a check is added, renamed or removed the
+     order is always: for an addition or a rename, merge the workflow, let it
+     run, read the name off that run, apply this payload, then confirm on the
+     next pull request that all of it reports; for a removal, apply the payload
+     first, since a name still required after its workflow stops triggering on
+     pull requests is the same stuck-at-*Expected* failure arrived at from the
+     other direction. Issue 379 above is the first removal this repository has
+     made this way. Only the pull request that gets the ordering wrong can show
+     a context stuck at *Expected*, and by then it is holding the trunk.
 
      **The payload is what this file says; it is not what GitHub is enforcing.**
      Checking one in does not apply it, and the two drift silently. `E2E (F3)`
@@ -866,9 +845,9 @@ Then, by hand (no API, or deliberately not automated):
      lets a pull request grant its own review elevated behaviour before anyone has seen it.
      The assert scripts already read this correctly, as "not reviewed" rather than "passed";
      what changed is that a required context now blocks on it rather than reporting an
-     advisory red. This is the same shape as the CodeQL-fork case above, and the same
-     resolution: an admin merge, confirmed with the user first since it bypasses a check this
-     document just made required.
+     advisory red. This is the same shape as a required context a legitimate pull request
+     cannot pass through ordinary means, and the same resolution: an admin merge, confirmed
+     with the user first since it bypasses a check this document just made required.
    - **`required_linear_history: true`** — makes §1's squash-merge rule mechanical
      rather than remembered.
    - **`enforce_admins: false`** — keeps an admin escape hatch for emergencies,

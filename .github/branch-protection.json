@@ -8,9 +8,6 @@
       "E2E (F3)",
       "Build",
       "Scripts",
-      "CodeQL (javascript-typescript)",
-      "CodeQL (actions)",
-      "CodeQL",
       "claude-review",
       "Security review"
     ]

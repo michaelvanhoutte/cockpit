@@ -43,10 +43,11 @@ jobs:
   # Whether this diff touches anything the five mechanical jobs below cover.
   # Each of them skips when it does not, and a skipped job satisfies a required
   # status check (docs/deployment.md, "Bootstrap runbook"), so every context
-  # still reports — which a workflow-level `paths:` filter would not, and is why
-  # codeql.yml's own comment rules that out ("Skip the mechanical checks on a
-  # pull request that touches nothing they cover", issue 345). CodeQL is not
-  # gated on this at all; codeql.yml says why.
+  # still reports — which a workflow-level `paths:` filter would not. CodeQL is
+  # not gated on this at all: it no longer runs on a pull request in the first
+  # place ("Decide whether CodeQL earns its run on every pull request push, or
+  # moves to main and a schedule", issue 379), so there is no diff here for it
+  # to be gated on.
   #
   # The decision is scripts/lib/what-changed.mjs, asserted by node --test in the
   # `Scripts` job: `docs/`, `.claude/` and root-level `*.md` are the only paths
