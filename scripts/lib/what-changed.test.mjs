@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { classify, diffRange, isNonProduct, pathsFromDiff, printable, productChanged, productPaths } from './what-changed.mjs';
+import { changeClass, classify, diffRange, isNonProduct, pathsFromDiff, printable, productChanged, productPaths } from './what-changed.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const workflow = (name) => readFileSync(join(repo, '.github/workflows', name), 'utf8');
@@ -103,6 +103,40 @@ describe('productChanged', () => {
       assert.equal(productChanged(paths), empty || productPaths(paths).length > 0, `${JSON.stringify(paths)} is answered two ways`);
     }
   });
+});
+
+describe('changeClass', () => {
+  // The packages a working tree's own paths get attributed to - the same
+  // shape scripts/lib/workspace.mjs's testablePackages discovers, standing in
+  // for it the way this file's other describes stand in for a real diff.
+  const packages = [
+    { name: '@cockpit/api', dir: 'apps/api' },
+    { name: '@cockpit/web', dir: 'apps/web' },
+  ];
+
+  // A loop rather than a table helper: node:test has no `it.each`, the same
+  // reason backup.test.mjs and health.test.mjs give beside their own.
+  for (const { situation, paths, want } of [
+    {
+      situation: 'uncommitted and committed changes on a branch, all under docs/',
+      paths: ['docs/architecture.md', 'docs/deployment.md'],
+      want: { class: 'docs' },
+    },
+    {
+      situation: 'the same with one file under apps/web/src',
+      paths: ['docs/architecture.md', 'apps/web/src/main.tsx'],
+      want: { class: 'product' },
+    },
+    {
+      situation: "only deleted or changed files under a package's tests/",
+      paths: ['apps/api/tests/unit/commands.test.ts', 'apps/api/tests/integration/http/item-changes.test.ts'],
+      want: { class: 'tests', packages: ['@cockpit/api'] },
+    },
+  ]) {
+    it(`answers ${situation}`, () => {
+      assert.deepEqual(changeClass({ paths, packages }), want);
+    });
+  }
 });
 
 describe('diffRange', () => {
