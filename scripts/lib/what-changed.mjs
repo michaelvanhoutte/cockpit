@@ -266,12 +266,14 @@ export function changeClass({ paths, packages } = {}) {
  * only a runner ever walks.
  *
  * `packages` is called at all only where `changeClass` would actually need
- * it: never for an empty or docs-only `paths`, which `productPaths` alone
+ * it: never for a non-empty, docs-only `paths`, which `productPaths` alone
  * already answers - so a docs-only push, the cheapest row in CLAUDE.md's
- * Tests table, never pays for what discovering the workspace costs. Thrown
- * or not, `packages()` is asked the same question `changeClass` already
- * answers 'product' for a workspace it can't place: the safe direction on a
- * failure is the one that costs a run rather than a merge.
+ * Tests table, never pays for what discovering the workspace costs. An empty
+ * `paths` still calls it, since `changeClass` answers that 'product', not
+ * 'docs' (its own doc comment gives the reason), and this has to agree.
+ * Thrown or not, `packages()` is asked the same question `changeClass`
+ * already answers 'product' for a workspace it can't place: the safe
+ * direction on a failure is the one that costs a run rather than a merge.
  */
 export function localChangeAnswer(paths, packages) {
   const files = normalize(paths);

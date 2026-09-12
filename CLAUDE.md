@@ -70,7 +70,7 @@ The three tools named here come from the desktop app, so a terminal, scheduled o
 The two rules that get skipped most, restated here rather than referenced because this file is in context in every session and the skill is not:
 
 - **Test at the lowest level that can prove the behaviour**, and escalate only for what that level physically cannot verify. Never re-prove lower-level coverage higher up the pyramid.
-- **Nothing is "working" until the application has been started and the changed behaviour exercised.** Green unit and integration tests are not evidence that the app runs — start it with `pnpm dev` and drive the change in the browser. This is why that command has to stay one command.
+- **Nothing is "working" until the application has been started and the changed behaviour exercised** — except where Tests' scaling table drops the browser pass, for a documentation-only or tests-only change. Green unit and integration tests are not evidence that the app runs — start it with `pnpm dev` and drive the change in the browser. This is why that command has to stay one command.
 
 **Write that walk down in the pull request, since you have already driven it.** What to open, what to click, what should happen: recording the path costs nothing once the browser pass is done, and saves the next person rediscovering it. Four of the ten pull requests merged on 2 September 2026 waited over two hours between their last commit and their merge, two of them over five, on that pass being repeated by hand. Keep it to what a reader would not guess, and where a change has no product surface to drive, say that instead.
 
