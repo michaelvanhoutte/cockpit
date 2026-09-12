@@ -18,9 +18,13 @@ name: CodeQL
 # A required context nothing reports under waits forever, so the wrong guess
 # blocks every documentation-only pull request permanently - the exact failure
 # the paragraph above exists to avoid, arrived at by another route. The two legs
-# cost 0.6-3.3 minutes against a `claude-review` on the same pull request that
-# takes 9-15, so skipping them would shorten nothing anybody waits for.
-# deployment.md's "Bootstrap runbook" carries the measurement.
+# cost 0.6-3.3 minutes; `claude-review` used to dominate a documentation-only
+# pull request's runtime at 9-15 minutes, so skipping the legs there bought
+# nothing. "Skip the code review on a documentation-only pull request, as CI
+# already skips its jobs" (issue 371) has `claude-review` skip that same diff
+# now, so that comparison no longer holds and whether the two legs are still
+# worth leaving ungated is open again - not decided here.
+# deployment.md's "Bootstrap runbook" carries the measurement and the note.
 on:
   push:
     branches: [main]

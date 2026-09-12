@@ -19,6 +19,53 @@ import { classify, diffRange, isNonProduct, pathsFromDiff, printable, productCha
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const workflow = (name) => readFileSync(join(repo, '.github/workflows', name), 'utf8');
 
+/** The same, but `null` rather than a failure where there is no such job. */
+function jobIfAny(yaml, id) {
+  const lines = yaml.split('\n');
+  const start = lines.indexOf(`  ${id}:`);
+  if (start === -1) return null;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^ {2}\S/.test(line));
+  return rest.slice(0, end === -1 ? rest.length : end).join('\n');
+}
+
+/** One job's own lines, from its key down to whatever comes next at that indent. */
+function job(yaml, id) {
+  const block = jobIfAny(yaml, id);
+  assert.notEqual(block, null, `${id} is not a job here`);
+  return block;
+}
+
+/**
+ * The jobs a block declares it waits for, in any of the three shapes YAML
+ * allows. Matching `/needs: changes/` alone would read `needs: [changes, x]`
+ * as no dependency at all, so a job could gain the gate - or lose it - without
+ * either assertion below noticing. Shared by every describe below that reads a
+ * workflow file, rather than redeclared per block, once a second one needed it
+ * too.
+ */
+function needsOf(block) {
+  const declaration = block.match(/^ {4}needs:[^\S\n]*(.*)$/m);
+  if (!declaration) return [];
+  const value = declaration[1].trim();
+  if (value !== '') {
+    return value
+      .replace(/^\[/, '')
+      .replace(/\]$/, '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id !== '');
+  }
+  const following = block.slice(declaration.index + declaration[0].length).split('\n').slice(1);
+  const items = [];
+  for (const line of following) {
+    const item = line.match(/^ {6}- (.+)$/);
+    if (!item) break;
+    items.push(item[1].trim());
+  }
+  return items;
+}
+
 /** A commit the way GitHub writes one. */
 const sha = (char) => char.repeat(40);
 
@@ -258,23 +305,6 @@ describe('the mechanical checks', () => {
   const jobGate = "if: ${{ !cancelled() && needs.checks.outputs.product_changed != 'false' }}";
   const stepGate = "if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}";
 
-  /** One job's own lines, from its key down to whatever comes next at that indent. */
-  function job(yaml, id) {
-    const block = jobIfAny(yaml, id);
-    assert.notEqual(block, null, `${id} is not a job here`);
-    return block;
-  }
-
-  /** The same, but `null` rather than a failure where there is no such job. */
-  function jobIfAny(yaml, id) {
-    const lines = yaml.split('\n');
-    const start = lines.indexOf(`  ${id}:`);
-    if (start === -1) return null;
-    const rest = lines.slice(start + 1);
-    const end = rest.findIndex((line) => /^ {2}\S/.test(line));
-    return rest.slice(0, end === -1 ? rest.length : end).join('\n');
-  }
-
   /** One named step's own lines, from its `- name:` down to the next step at that indent. */
   function stepNamed(jobBlock, name) {
     const lines = jobBlock.split('\n');
@@ -283,34 +313,6 @@ describe('the mechanical checks', () => {
     const rest = lines.slice(start + 1);
     const end = rest.findIndex((line) => /^ {6}- /.test(line));
     return [lines[start], ...rest.slice(0, end === -1 ? rest.length : end)].join('\n');
-  }
-
-  /**
-   * The jobs a block declares it waits for, in any of the three shapes YAML
-   * allows. Matching `/needs: changes/` alone would read `needs: [changes, x]`
-   * as no dependency at all, so a job could gain the gate - or lose it - without
-   * either assertion below noticing.
-   */
-  function needsOf(block) {
-    const declaration = block.match(/^ {4}needs:[^\S\n]*(.*)$/m);
-    if (!declaration) return [];
-    const value = declaration[1].trim();
-    if (value !== '') {
-      return value
-        .replace(/^\[/, '')
-        .replace(/\]$/, '')
-        .split(',')
-        .map((id) => id.trim())
-        .filter((id) => id !== '');
-    }
-    const following = block.slice(declaration.index + declaration[0].length).split('\n').slice(1);
-    const items = [];
-    for (const line of following) {
-      const item = line.match(/^ {6}- (.+)$/);
-      if (!item) break;
-      items.push(item[1].trim());
-    }
-    return items;
   }
 
   it('reads a dependency in every shape a workflow file may write one', () => {
@@ -474,48 +476,8 @@ describe("the code review's own classifier", () => {
   // comment there for why this is a second copy rather than a shared one.
   // Unlike `checks`, this workflow never consolidated several small jobs
   // into one, so it stays a producer job (`changes`) and a consumer
-  // (`claude-review`) rather than gated steps of a single job.
-
-  /** The same, but `null` rather than a failure where there is no such job. */
-  function jobIfAny(yaml, id) {
-    const lines = yaml.split('\n');
-    const start = lines.indexOf(`  ${id}:`);
-    if (start === -1) return null;
-    const rest = lines.slice(start + 1);
-    const end = rest.findIndex((line) => /^ {2}\S/.test(line));
-    return rest.slice(0, end === -1 ? rest.length : end).join('\n');
-  }
-
-  /** One job's own lines, from its key down to whatever comes next at that indent. */
-  function job(yaml, id) {
-    const block = jobIfAny(yaml, id);
-    assert.notEqual(block, null, `${id} is not a job here`);
-    return block;
-  }
-
-  /** The jobs a block declares it waits for - see the same helper above for why. */
-  function needsOf(block) {
-    const declaration = block.match(/^ {4}needs:[^\S\n]*(.*)$/m);
-    if (!declaration) return [];
-    const value = declaration[1].trim();
-    if (value !== '') {
-      return value
-        .replace(/^\[/, '')
-        .replace(/\]$/, '')
-        .split(',')
-        .map((id) => id.trim())
-        .filter((id) => id !== '');
-    }
-    const following = block.slice(declaration.index + declaration[0].length).split('\n').slice(1);
-    const items = [];
-    for (const line of following) {
-      const item = line.match(/^ {6}- (.+)$/);
-      if (!item) break;
-      items.push(item[1].trim());
-    }
-    return items;
-  }
-
+  // (`claude-review`) rather than gated steps of a single job. `job`,
+  // `jobIfAny` and `needsOf` are shared module-scope helpers, above.
   const changes = () => job(workflow('claude-code-review.yml'), 'changes');
   const claudeReview = () => job(workflow('claude-code-review.yml'), 'claude-review');
 
