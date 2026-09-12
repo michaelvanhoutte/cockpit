@@ -1,7 +1,7 @@
 //
 // The I/O around scripts/lib/review-gate.mjs, for the security review's assert
 // step. Everything that decides anything is in the module, which node --test
-// covers in the Scripts CI job; this reads a file, prints, and sets an exit
+// covers in the Scripts step; this reads a file, prints, and sets an exit
 // code, so there is nothing here for a test to hold.
 //
 // Usage: node scripts/assert-security-review.mjs <execution-file> <conclusion>

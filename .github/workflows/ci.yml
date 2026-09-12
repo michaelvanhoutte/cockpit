@@ -18,8 +18,8 @@ name: CI
 #
 # The push-to-main trigger overlaps slightly with deploy-staging.yml, which
 # gates itself before deploying. That is deliberate: the merge commit on main
-# is a tree that has never been tested as such, and these four split jobs
-# attribute a failure faster than the same checks inlined into a deploy job.
+# is a tree that has never been tested as such, and the jobs below attribute
+# a failure faster than the same checks inlined into a deploy job.
 on:
   push:
     branches: [main]
@@ -40,62 +40,52 @@ permissions:
   contents: read
 
 jobs:
-  # Whether this diff touches anything the five mechanical jobs below cover.
-  # Each of them skips when it does not, and a skipped job satisfies a required
-  # status check (docs/deployment.md, "Bootstrap runbook"), so every context
-  # still reports — which a workflow-level `paths:` filter would not, and is why
-  # codeql.yml's own comment rules that out ("Skip the mechanical checks on a
-  # pull request that touches nothing they cover", issue 345). CodeQL is not
-  # gated on this at all; codeql.yml says why.
+  # Six jobs used to bill a runner start-up each for under a minute of real
+  # work — 5, 57, 26, 28, 27 and 8 seconds on pull request 362's last run for
+  # What changed, Typecheck, Lint, Build, Concepts and Scripts, six minutes of
+  # a 22-minute run for two of it ("Run the six small CI jobs as one, so a
+  # push stops paying six runner start-ups", issue 378). This job carries all
+  # six as steps instead, in the order below, so a push pays for one runner
+  # rather than six.
   #
-  # The decision is scripts/lib/what-changed.mjs, asserted by node --test in the
-  # `Scripts` job: `docs/`, `.claude/` and root-level `*.md` are the only paths
-  # that skip, and anything else runs everything.
+  # Only the last five steps — Typecheck, Lint, Verify the lint config, Build
+  # and the bundle budget — are gated on the classifier: a skipped *step*
+  # satisfies a required check exactly as a skipped job did, so a
+  # documentation-only pull request still runs Scripts and Concepts (which
+  # read the prose and the registry those five skip on) and reports this job
+  # green. The decision is
+  # scripts/lib/what-changed.mjs, asserted by the Scripts step itself:
+  # `docs/`, `.claude/` and root-level `*.md` are the only paths that skip,
+  # and anything else runs the lot.
   #
-  # `Concepts` and `Stability` carry no gate of their own either, left that way
-  # rather than decided: whether the reporting pipeline should skip too was
-  # out of scope there. One consequence follows
-  # from `Test Explorer` needing `Test` regardless: on a documentation-only
-  # push to `main`, `Test Explorer` (and `Publish` behind it) skips for free,
-  # while `Stability` — ungated, unrelated to `Test` — still runs and spends
-  # part of its rate-limited Actions-API budget on a report `Publish` will not
-  # deploy. Narrow and self-correcting on the next code merge, not fixed here.
+  # `Test` and `E2E (F3)` stay their own jobs — their cost is the work itself,
+  # not the start-up (issue 378's own "Out of scope") — and still read this
+  # job's `product_changed` output the mechanism `changes` published before.
+  # The timing is not the same: a `needs:` job unblocks only once the whole
+  # upstream job finishes, so `Test` and `E2E (F3)` now wait out this job's
+  # gated steps too, not only the few-second classifier `changes` used to be.
+  # Traded deliberately for the one-runner saving this issue asks for; the
+  # wall-clock floor is a different lever (issue 369).
+  # `Concepts`, `Test Explorer`, `Stability` and `Publish` still gate nothing
+  # of their own; `docs/architecture.md` §9.1 says why.
   #
   # This closes one gap in what a pull request's own head can influence — the
   # classifier's decision — and not the wider one: `pull_request` still builds
   # this very workflow file from the merge ref, so a branch with write access
-  # could edit `changes` itself, or drop `needs: changes` from a job below, and
-  # get the same five skips this guards against. Pinning the classifier closes
-  # the quiet route; it was never going to close the loud one, which every
-  # workflow file in this repository already trusts required checks over.
-  #
-  # Checkout-only and no install, for the reason `scripts` gives, so it costs
-  # the jobs that wait on it seconds rather than a minute. `fetch-depth: 0`
-  # because the range it diffs reaches back to the base commit, and the whole
-  # history is 8MB packed.
-  #
-  # **Both steps are `continue-on-error`**, so any failure inside either one
-  # leaves `product_changed` unwritten and the gate's `!= 'false'` runs
-  # everything - the dangerous direction is a skip nobody meant, since `needs`
-  # on a failed job skips the lot and a skip is what a required check accepts.
-  #
-  # That does not make the *job* unable to fail: "Set up job", the platform
-  # phase ahead of either step, answers to neither `continue-on-error`, and a
-  # runner that never starts reports this job `failure` with nothing of ours
-  # having run. The five gates below read `!cancelled()` for it, the same
-  # reason `pages` already does further down this file: GitHub's own
-  # expressions reference names it as the recommended way to run a job
-  # regardless of an upstream failure, and its cancellation reference says a
-  # job whose re-evaluated condition is still true is not itself cancelled -
-  # `!failure()` was tried first and is not this: `failure()` is true on
-  # exactly the case `success()` already tests for a `needs`-only job, so it
-  # changes nothing about the case it was meant to fix.
-  changes:
-    name: What changed
+  # could edit this job's `if:` conditions directly. Pinning the classifier
+  # closes the quiet route; it was never going to close the loud one, which
+  # every workflow file in this repository already trusts required checks
+  # over.
+  checks:
+    name: Checks
     runs-on: ubuntu-latest
     outputs:
       product_changed: ${{ steps.classify.outputs.product_changed }}
     steps:
+      # `fetch-depth: 0` because the classifier's diff reaches back to the
+      # base commit, and the whole history is 8MB packed. One checkout for
+      # every step below, so a step that used to run in its own job now reads
+      # this same tree instead of fetching its own.
       - uses: actions/checkout@v4
         continue-on-error: true
         with:
@@ -134,51 +124,94 @@ jobs:
             # having moved since. Either way, falling back to *this branch's
             # own copy* would be exactly the hole the base-commit extraction
             # above exists to close, so this fails open instead: no classifier
-            # runs, and the mechanical jobs do.
+            # runs, and the gated steps below do.
             echo "::warning::The base commit carries no classifier, so every check runs rather than trusting this branch's own."
             echo "product_changed=true" >> "$GITHUB_OUTPUT"
           fi
-
-  # Architecture §9.1 asks for the fast test tiers split one job per tier, so a
-  # misplaced test is visible. Today Cockpit is one service with one test file,
-  # and testing-strategy §2 is explicit that levels are roles rather than
-  # mandatory folders ("do not invent tests or empty folders just to populate
-  # the taxonomy"). So: real jobs only, split along the lines that exist now.
-  # The per-tier split lands with the tiers.
-  typecheck:
-    name: Typecheck
-    # Skipped on a documentation-only diff, and run on anything `changes` could
-    # not read — see there.
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      # **Both steps above are `continue-on-error`**, so a failure inside
+      # either one leaves `product_changed` unwritten and the gate's
+      # `!= 'false'` below still runs everything - the dangerous direction is
+      # a skip nobody meant.
+      #
+      # Reads the repository's own prose (readme.md's writing rules, via
+      # scripts/lib/writing-rules.mjs) and the scripts that decide whether a
+      # test run gets a fresh database, whether it is allowed to start at all,
+      # whether either Claude review reached a verdict, and whether a browser
+      # walk changes workspace the way that waits — worth asserting rather
+      # than trusting, and this job's own classifier is asserted here too, so
+      # a mistake in it cannot skip its own test. Ungated, deliberately: it is
+      # the only step with anything to say about the very paths the gate
+      # below skips on, and skipping it would take the prose gate off exactly
+      # the diffs it exists for. No install before it — these tests use only
+      # node:test and the standard library.
+      - name: Scripts
+        run: node --test scripts/lib/*.test.mjs
+      # `!cancelled()` from here down, on every step: a step's own `if:`
+      # replaces GitHub's implicit `success()` rather than joining it, so
+      # without this a Scripts failure - unrelated to install, Concepts,
+      # Typecheck, Lint or Build - would silently skip all of them, where five
+      # separate jobs used to let each report on its own regardless of the
+      # others. The five gated steps still skip on a documentation-only diff,
+      # same as before, via the second half of each condition.
       - uses: ./.github/actions/setup
-      - run: pnpm typecheck
-
-  # The lint layer ("Add the lint layer the code is already written against",
-  # issue 282): the React Hooks rules, no focused test reaching `main`, and the
-  # testing strategy's L1/F1 dependency table as restricted imports. Its own job
-  # for the reason every other one here is — a failure that names itself — and
-  # because it is the only check that fails on a `.only` somebody left in, which
-  # otherwise turns the `Test` job green over a suite that ran one test.
-  #
-  # Two steps: the rules against the repository, then the config against text.
-  # The second is what holds the `files` globs, which is where a lint config
-  # actually goes wrong: a rule scoped one folder too wide passes the first step
-  # for as long as nothing happens to break.
-  lint:
-    name: Lint
-    # Documentation-only diffs skip this; see the `changes` job.
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - run: pnpm lint
-      - run: pnpm test:lint
+        if: ${{ !cancelled() }}
+      # The cheap third of the report pipeline: fails on a feature area a test
+      # declares that concepts.json does not register, the only one of the
+      # three report-pipeline checks that fails for a reason somebody has to
+      # fix. Ungated and ahead of the five gated steps below, so it stays fast
+      # and reports on a documentation-only diff too, independent of whether
+      # anything downstream skips.
+      - name: Concepts
+        if: ${{ !cancelled() }}
+        run: pnpm test:explorer:check
+      # Architecture §9.1 asks for the fast tiers split one job per tier, so a
+      # misplaced test is visible; the five steps below are what is left once
+      # What changed, Concepts and Scripts move above them into this same job.
+      #
+      # Skipped on a documentation-only diff, and run on anything the
+      # classifier above could not read — see its own comment.
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
+        run: pnpm typecheck
+      # The lint layer ("Add the lint layer the code is already written against",
+      # issue 282): the React Hooks rules, no focused test reaching `main`, and the
+      # testing strategy's L1/F1 dependency table as restricted imports. Its own
+      # step for the reason every one here is — a failure that names itself — and
+      # because it is the only check that fails on a `.only` somebody left in, which
+      # otherwise turns `Test` green over a suite that ran one test.
+      #
+      # Two steps: the rules against the repository, then the config against text.
+      # The second is what holds the `files` globs, which is where a lint config
+      # actually goes wrong: a rule scoped one folder too wide passes the first step
+      # for as long as nothing happens to break.
+      - name: Lint
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
+        run: pnpm lint
+      - name: Verify the lint config
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
+        run: pnpm test:lint
+      - name: Build
+        id: build
+        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
+        run: pnpm build
+      # The bundle gate (docs/architecture.md, "Performance budgets"): what a
+      # cold open fetches stays under 200KB compressed, and so does any one
+      # chunk fetched later, charged separately. Its own step rather than
+      # part of Build because it measures what that step emitted, and gating
+      # it separately from the classifier's condition would build twice to
+      # see it.
+      #
+      # Gated on Build's own outcome, not `!cancelled()` and the classifier
+      # again: this step reads `apps/web/dist`, which only exists once Build
+      # has actually succeeded, so the same `!cancelled()` the other gated
+      # steps use would run this against a missing or stale build after a
+      # real Build failure - a second, misleading red step over the same
+      # compile error. `steps.build.outcome == 'success'` is false both when
+      # Build failed for real and when it was skipped on a documentation-only
+      # diff, so this needs no separate classifier check of its own.
+      - name: Bundle budget
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm bundle:budget
 
   # On a pull request this runs only the tests that depend on what changed
   # since the merge-base with `main` (scripts/ci-test.mjs, scripts/lib/test-selection.mjs,
@@ -210,9 +243,9 @@ jobs:
   # instead of re-running the suite.
   test:
     name: Test
-    # Documentation-only diffs skip this; see the `changes` job.
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
+    # Documentation-only diffs skip this; see the `checks` job.
+    needs: checks
+    if: ${{ !cancelled() && needs.checks.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -246,10 +279,10 @@ jobs:
   # in "Deferred, with reasons" (docs/deployment.md).
   e2e:
     name: E2E (F3)
-    # Documentation-only diffs skip this; see the `changes` job. The 7.7 minutes
+    # Documentation-only diffs skip this; see the `checks` job. The 7.7 minutes
     # this tier costs is most of that job's argument.
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
+    needs: checks
+    if: ${{ !cancelled() && needs.checks.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -288,86 +321,31 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  build:
-    name: Build
-    # Documentation-only diffs skip this; see the `changes` job.
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.product_changed != 'false' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - run: pnpm build
-      # The bundle gate (docs/architecture.md, "Performance budgets"): what a
-      # cold open fetches stays under 200KB compressed, and so does any one
-      # chunk fetched later, charged separately. Here rather than in its own job
-      # because it measures what the line above emitted, and a second job would
-      # have to build again to see it.
-      - run: pnpm bundle:budget
-
-  # **Ungated, though the issue behind the gate above listed it with the rest.**
-  # Its last test reads the repository's Markdown — the writing rules of
-  # CLAUDE.md — so it is the only check with anything to say about the very paths
-  # the others skip on, and skipping it would take the prose gate off exactly the
-  # pull requests it exists for. It is checkout-only and takes seconds, so gating
-  # it would save nothing worth that hole.
-  scripts:
-    name: Scripts
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # scripts/ is Node, and carries the logic that decides whether
-      # a test run gets a fresh database, whether it is allowed to start at all,
-      # whether either Claude review actually reached a verdict, and whether
-      # a browser walk changes workspace the way that waits — worth
-      # asserting rather than trusting. The review gate is the one with teeth: it is what turns a blocked or
-      # declining review red, and while the code review's half of it was inline
-      # bash in claude-code-review.yml it shipped green over a non-review four
-      # times. The last two are here because they read source text rather than
-      # running anything, so no other tier can check them and this job can: the
-      # walks' conventions, and the writing rules of CLAUDE.md that a script can
-      # decide, which were costing a review round each. The classifier the
-      # `changes` job above runs is asserted here too, which is why a mistake in
-      # it cannot skip its own test.
-      # No install step: these tests use only node:test and the standard
-      # library, so this job stays checkout-only and finishes in seconds.
-      - name: Verify the dev, test-stack, health-check, review-gate and what-changed scripts, the walks' conventions and the writing rules
-        run: node --test scripts/lib/*.test.mjs
-
-  # The cheap third of the report pipeline: fails on a feature area a test declares
-  # that concepts.json does not register, the only one of the three checks here that
-  # fails for a reason somebody has to fix. Its own job with no `needs`, so it stays
-  # fast and independent rather than waiting on `test`'s instrumented run — nothing
-  # about it requires coverage ("Run the suite once in CI, not once to gate and once
-  # to measure", issue 289).
-  test-explorer-check:
-    name: Concepts
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - run: pnpm test:explorer:check
-
   # Publishes which product concepts own which tests: as a downloadable
   # artifact on every run, and — from `main` only — as the page the `pages` job
   # below deploys. Does not gate: docs/test-explorer-spec.md's "CLI, scripts,
   # CI" (§8) deliberately stops short of failing the build on the report's
-  # content, only on concepts.json drift, which `test-explorer-check` guards.
+  # content, only on concepts.json drift, which the Concepts step of `checks`
+  # guards.
   #
-  # `needs: [test, test-explorer-check]` rather than running either itself: the
-  # coverage this job renders as "branches nothing takes" is `test`'s own
-  # instrumented run, downloaded as an artifact instead of collected again, and
-  # a red suite or a registry drift already kills the report the way it always
-  # has — this job simply never starts. On a documentation-only diff `test` is
+  # `needs: [test, checks]` rather than running either itself: the coverage
+  # this job renders as "branches nothing takes" is `test`'s own instrumented
+  # run, downloaded as an artifact instead of collected again, and a red
+  # suite or a registry drift already kills the report the way it always has
+  # — this job simply never starts. On a documentation-only diff `test` is
   # skipped rather than failed, and a skipped dependency is not a successful
   # one, so this job (and `pages` behind it) is skipped too, by the same
   # `needs` chain rather than a gate of its own — the second thing this
   # regains, along with the artifact hop, that a stale rewrite of this file
   # once dropped ("Skip the mechanical checks on a pull request that touches
-  # nothing they cover", issue 345).
+  # nothing they cover", issue 345). One consequence of `checks` now also
+  # carrying Typecheck, Lint and Build: a red one of those fails `checks`
+  # outright, which now takes the report down with it too, rather than
+  # leaving it to publish over an unrelated failure the way it used to when
+  # Concepts was its own job.
   test-explorer:
     name: Test Explorer
-    needs: [test, test-explorer-check]
+    needs: [test, checks]
     runs-on: ubuntu-latest
     # download-artifact reads this run's own artifacts through the Actions API,
     # which the workflow-level block withholds by default — the same reason
@@ -408,8 +386,8 @@ jobs:
   # down the page whose purpose is reporting suite failures, at the one moment it
   # is worth reading.
   #
-  # No install step, for the reason `scripts` gives — it reads the API with the
-  # standard library and has no dependencies to fetch.
+  # No install step, for the reason the Scripts step of `checks` gives — it
+  # reads the API with the standard library and has no dependencies to fetch.
   #
   # `main` only, and not because a branch's report would be published (the
   # `pages` job below is what decides that): a report costs hundreds of API

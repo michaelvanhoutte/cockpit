@@ -1,8 +1,9 @@
 //
-// Unit tests for the process plumbing, run by `node --test` from the Scripts CI
-// job — the same place the rest of scripts/lib is asserted, and for the
-// same reason: this is tooling logic outside any package, and a silent change
-// in it breaks something that is hard to trace back here.
+// Unit tests for the process plumbing, run by `node --test` from the Scripts
+// step of CI's `checks` job — the same place the rest of scripts/lib is
+// asserted, and for the same reason: this is tooling logic outside any
+// package, and a silent change in it breaks something that is hard to trace
+// back here.
 //
 // Fakes rather than real processes throughout. Every branch worth testing is a
 // decision about a child's state, not about a child actually running, and a
@@ -11,7 +12,7 @@
 //
 // Nothing here may depend on the operating system it runs on. Stopping a child
 // is the one thing this module does differently per platform, and the first
-// version of this file asserted only the POSIX answer — so the Scripts job was
+// version of this file asserted only the POSIX answer — so the Scripts step was
 // green on its Linux runner while every one of these was red on the machine
 // Cockpit is actually developed on. That is why stopPlan() takes the platform
 // instead of reading it, and why supervise() takes stopping as a parameter.

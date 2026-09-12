@@ -1,6 +1,6 @@
 //
 // Unit tests for what `pnpm guest:reset` decides, run by `node --test` from the
-// Scripts CI job, like the rest of scripts/lib. What the reset does to an
+// Scripts step, like the rest of scripts/lib. What the reset does to an
 // account is apps/api/tests/integration/accounts/guest-reset.test.ts's.
 //
 
