@@ -331,9 +331,17 @@ describe('the mechanical checks', () => {
       assert.ok(needsOf(block).includes('checks'), `ci.yml's ${id} job does not wait for what changed`);
       assert.ok(block.includes(jobGate), `ci.yml's ${id} job does not carry the gate: ${jobGate}`);
     }
-    for (const step of ['Typecheck', 'Lint', 'Verify the lint config', 'Build', 'Bundle budget']) {
+    for (const step of ['Typecheck', 'Lint', 'Verify the lint config', 'Build']) {
       assert.ok(stepNamed(checks, step).includes(stepGate), `checks' ${step} step does not carry the gate: ${stepGate}`);
     }
+    // Bundle budget reads `apps/web/dist`, so it is gated on Build's own
+    // outcome rather than the classifier a second time - `!= 'false'` would
+    // run it against a missing or stale build after a real Build failure.
+    assert.match(
+      stepNamed(checks, 'Bundle budget'),
+      /if: \$\{\{ !cancelled\(\) && steps\.build\.outcome == 'success' \}\}/,
+      "checks' Bundle budget step does not gate on Build's own outcome",
+    );
   });
 
   it('decide from the base commit, so a branch cannot rule on its own diff', () => {

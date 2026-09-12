@@ -1,7 +1,7 @@
 //
 // The I/O around scripts/lib/restore.mjs, for `pnpm backup:restore`. Everything
 // that decides anything is in the module, which node --test covers in the
-// Scripts CI job; this reads files, asks, confirms, prints and sets an exit
+// Scripts step; this reads files, asks, confirms, prints and sets an exit
 // code.
 //
 // Usage:

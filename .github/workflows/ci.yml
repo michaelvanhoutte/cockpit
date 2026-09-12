@@ -48,11 +48,12 @@ jobs:
   # six as steps instead, in the order below, so a push pays for one runner
   # rather than six.
   #
-  # Only the last four steps — Typecheck, Lint, Build and the bundle budget —
-  # are gated on the classifier: a skipped *step* satisfies a required check
-  # exactly as a skipped job did, so a documentation-only pull request still
-  # runs Scripts and Concepts (which read the prose and the registry those
-  # four skip on) and reports this job green. The decision is
+  # Only the last five steps — Typecheck, Lint, Verify the lint config, Build
+  # and the bundle budget — are gated on the classifier: a skipped *step*
+  # satisfies a required check exactly as a skipped job did, so a
+  # documentation-only pull request still runs Scripts and Concepts (which
+  # read the prose and the registry those five skip on) and reports this job
+  # green. The decision is
   # scripts/lib/what-changed.mjs, asserted by the Scripts step itself:
   # `docs/`, `.claude/` and root-level `*.md` are the only paths that skip,
   # and anything else runs the lot.
@@ -150,21 +151,21 @@ jobs:
       # without this a Scripts failure - unrelated to install, Concepts,
       # Typecheck, Lint or Build - would silently skip all of them, where five
       # separate jobs used to let each report on its own regardless of the
-      # others. The four gated steps still skip on a documentation-only diff,
+      # others. The five gated steps still skip on a documentation-only diff,
       # same as before, via the second half of each condition.
       - uses: ./.github/actions/setup
         if: ${{ !cancelled() }}
       # The cheap third of the report pipeline: fails on a feature area a test
       # declares that concepts.json does not register, the only one of the
       # three report-pipeline checks that fails for a reason somebody has to
-      # fix. Ungated and ahead of the four gated steps below, so it stays fast
+      # fix. Ungated and ahead of the five gated steps below, so it stays fast
       # and reports on a documentation-only diff too, independent of whether
       # anything downstream skips.
       - name: Concepts
         if: ${{ !cancelled() }}
         run: pnpm test:explorer:check
       # Architecture §9.1 asks for the fast tiers split one job per tier, so a
-      # misplaced test is visible; the four steps below are what is left once
+      # misplaced test is visible; the five steps below are what is left once
       # What changed, Concepts and Scripts move above them into this same job.
       #
       # Skipped on a documentation-only diff, and run on anything the
@@ -190,6 +191,7 @@ jobs:
         if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         run: pnpm test:lint
       - name: Build
+        id: build
         if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         run: pnpm build
       # The bundle gate (docs/architecture.md, "Performance budgets"): what a
@@ -198,8 +200,17 @@ jobs:
       # part of Build because it measures what that step emitted, and gating
       # it separately from the classifier's condition would build twice to
       # see it.
+      #
+      # Gated on Build's own outcome, not `!cancelled()` and the classifier
+      # again: this step reads `apps/web/dist`, which only exists once Build
+      # has actually succeeded, so the same `!cancelled()` the other gated
+      # steps use would run this against a missing or stale build after a
+      # real Build failure - a second, misleading red step over the same
+      # compile error. `steps.build.outcome == 'success'` is false both when
+      # Build failed for real and when it was skipped on a documentation-only
+      # diff, so this needs no separate classifier check of its own.
       - name: Bundle budget
-        if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: pnpm bundle:budget
 
   # On a pull request this runs only the tests that depend on what changed
