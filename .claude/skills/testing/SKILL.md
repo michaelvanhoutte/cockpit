@@ -157,6 +157,8 @@ Tests are for confidence, not for covering everything. Cut a case only when it h
 
 ## Definition of done - non-negotiable
 
+**This is the full definition, for a change that touches product code.** CLAUDE.md's Tests section carries a table scaling it down for a change confined to documentation or to tests alone — ask `node scripts/local-changes.mjs` rather than judging which row applies.
+
 Do not claim something works until **all** of these hold:
 
 1. **Fast tiers (L1, L2, F1, F2) run in full and pass.** No selection.

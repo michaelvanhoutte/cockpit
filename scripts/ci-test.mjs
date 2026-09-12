@@ -48,7 +48,7 @@ import { spawnSync } from 'node:child_process';
 
 import { planTestRun } from './lib/test-selection.mjs';
 import { testablePackages } from './lib/workspace.mjs';
-import { command, paint, start } from './lib/processes.mjs';
+import { paint, pnpmWorkspaceList, start } from './lib/processes.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -61,15 +61,6 @@ function capture(file, args) {
 }
 
 const git = (args) => capture('git', args);
-
-/** Every workspace package pnpm itself reports, parsed. Goes through command() for the same Windows .cmd handling `run`/`start` use. */
-function pnpmWorkspaceList() {
-  const { file, args, options } = command(['-r', 'list', '--depth', '-1', '--json']);
-  const result = spawnSync(file, args, { cwd: root, encoding: 'utf8', ...options });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`pnpm -r list failed: ${(result.stderr ?? '').trim() || `exit ${result.status}`}`);
-  return JSON.parse(result.stdout);
-}
 
 /**
  * `{ mergeBase, changedFiles }` for a pull_request event, or both empty where
@@ -94,7 +85,7 @@ function place(event) {
 
 let packages;
 try {
-  packages = testablePackages(pnpmWorkspaceList(), (pkgPath) => JSON.parse(readFileSync(join(pkgPath, 'package.json'), 'utf8')), root);
+  packages = testablePackages(pnpmWorkspaceList(root), (pkgPath) => JSON.parse(readFileSync(join(pkgPath, 'package.json'), 'utf8')), root);
 } catch (error) {
   console.error(paint('31', `\nCould not read the workspace: ${error.message}`));
   process.exit(1);
