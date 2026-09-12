@@ -9,12 +9,17 @@
 // Usage: node scripts/local-changes.mjs
 //
 // `git diff --merge-base <against>`, with no second ref, diffs the
-// merge-base against the working tree in one call - committed and
-// uncommitted changes both count, because the question is what this push is
+// merge-base against the working tree in one call - committed and staged or
+// unstaged changes all count, because the question is what this push is
 // about to be, not what has already landed. The same fallback
 // scripts/lib/writing-rules.test.mjs uses for the same reason: `origin/main`
 // where a fetch has kept it current, `main` where only the local branch
 // exists.
+//
+// `git diff` alone never lists a file nothing has `git add`ed yet, so
+// `git ls-files --others --exclude-standard` runs beside it - a new file a
+// session just wrote and has not staged is exactly the case the safe
+// direction below exists for.
 //
 // Anything this cannot read - no `main` to diff against, `pnpm -r list`
 // failing - answers 'product', the direction that costs a run rather than a
@@ -33,11 +38,19 @@ import { pnpmWorkspaceList } from './lib/processes.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Every path this branch has touched, committed or not - `null` where neither `origin/main` nor `main` could be diffed against. */
+/** Files in the working tree `git add` has never seen - `null` where the query itself failed. */
+function untrackedPaths() {
+  const result = spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8' });
+  return result.status === 0 ? pathsFromDiff(result.stdout) : null;
+}
+
+/** Every path this branch has touched, committed or not - `null` where the untracked list could not be read, or neither `origin/main` nor `main` could be diffed against. */
 function changedPaths() {
+  const untracked = untrackedPaths();
+  if (untracked === null) return null;
   for (const against of ['origin/main', 'main']) {
     const result = spawnSync('git', ['diff', '--name-only', '-z', '--no-renames', '--merge-base', against], { cwd: root, encoding: 'utf8' });
-    if (result.status === 0) return pathsFromDiff(result.stdout);
+    if (result.status === 0) return [...new Set([...pathsFromDiff(result.stdout), ...untracked])];
   }
   return null;
 }
