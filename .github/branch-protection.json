@@ -5,9 +5,6 @@
       "Checks",
       "Test",
       "E2E (F3)",
-      "CodeQL (javascript-typescript)",
-      "CodeQL (actions)",
-      "CodeQL",
       "claude-review",
       "Security review"
     ]

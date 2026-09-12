@@ -17,11 +17,11 @@ A check that blocks constantly is visible from inside a single pull request. A c
 cat .github/branch-protection.json
 ```
 
-Read `required_status_checks.contexts` — that list is the whole scope; nothing not on it is a candidate here, however slow or noisy. Cross-reference each context against `.github/workflows/*.yml` to find what produces it: a required context is a job's `name:` (or its job id, when the job declares none), not the workflow's own top-level `name:`. `CodeQL (javascript-typescript)` and `CodeQL (actions)` are one matrix job's two legs; the third required context, bare `CodeQL`, is posted by GitHub Advanced Security itself rather than by any workflow run in this repository, so it carries no data in the steps below — note it and move on.
+Read `required_status_checks.contexts` — that list is the whole scope; nothing not on it is a candidate here, however slow or noisy. Cross-reference each context against `.github/workflows/*.yml` to find what produces it: a required context is a job's `name:` (or its job id, when the job declares none), not the workflow's own top-level `name:`. CodeQL held three of these contexts until "Decide whether CodeQL earns its run on every pull request push, or moves to main and a schedule" (issue 379) removed it from the pull-request gate entirely — it is out of scope here now, not because it was measured and kept, but because nothing on `main`-only and weekly triggers is a pull request cost this process samples.
 
 Split what's left into two kinds, because they need different evidence:
 
-- **Mechanical** — Checks, Test, E2E (F3), the two CodeQL legs. Pass or fail is a deterministic fact about the code.
+- **Mechanical** — Checks, Test, E2E (F3). Pass or fail is a deterministic fact about the code.
 - **Judgement** — `claude-review`, Security review. Pass or fail is a model's call, and a required check here can be "working" at a low hit rate the way a smoke detector is — rarely firing is not by itself evidence of nothing to fire on.
 
 ### 2. Sample the pull requests both tracks read from

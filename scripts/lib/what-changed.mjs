@@ -9,9 +9,10 @@
 // mechanical checks on a pull request that touches nothing they cover" (issue
 // 345) is about.
 //
-// CodeQL's two legs are not gated on this, though the issue listed them:
-// codeql.yml says why, and deployment.md's "Bootstrap runbook" holds the
-// measurement behind it.
+// CodeQL was not gated on this, though the issue listed its two legs: it no
+// longer runs on a pull request at all ("Decide whether CodeQL earns its run
+// on every pull request push, or moves to main and a schedule", issue 379),
+// so this classifier has nothing to do with it any more.
 //
 // **An allowlist, so anything unrecognised runs everything.** A path counts as
 // non-product only by matching one of the three rules below, which is what keeps

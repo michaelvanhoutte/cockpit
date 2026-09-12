@@ -46,7 +46,10 @@ jobs:
   # a 22-minute run for two of it ("Run the six small CI jobs as one, so a
   # push stops paying six runner start-ups", issue 378). This job carries all
   # six as steps instead, in the order below, so a push pays for one runner
-  # rather than six.
+  # rather than six. CodeQL is not gated on any of this: it no longer runs on
+  # a pull request at all ("Decide whether CodeQL earns its run on every pull
+  # request push, or moves to main and a schedule", issue 379), so there is no
+  # diff here for it to be gated on.
   #
   # Only the last five steps — Typecheck, Lint, Verify the lint config, Build
   # and the bundle budget — are gated on the classifier: a skipped *step*
