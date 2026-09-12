@@ -27,7 +27,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-import { changeClass, pathsFromDiff, printable } from './lib/what-changed.mjs';
+import { changeClass, pathsFromDiff, printable, productPaths } from './lib/what-changed.mjs';
 import { testablePackages } from './lib/workspace.mjs';
 import { pnpmWorkspaceList } from './lib/processes.mjs';
 
@@ -43,8 +43,25 @@ function changedPaths() {
 }
 
 function fallback(reason) {
-  console.error(printable(`${reason} so this answers 'product changed'.`));
+  console.error(printable(`${reason} So this answers 'product changed'.`));
   console.log('product changed');
+}
+
+const paths = changedPaths();
+if (paths === null) {
+  fallback('Could not diff against origin/main or main.');
+  process.exit(0);
+}
+
+// The workspace's package list is only needed to tell 'tests' from
+// 'product' - never for 'docs', which productPaths alone already answers -
+// so a docs-only push, the cheapest row in CLAUDE.md's Tests table, never
+// pays for the `pnpm -r list` this otherwise costs on every invocation. An
+// empty diff is excluded on purpose: changeClass answers that 'product',
+// not 'docs' (its own doc comment gives the reason), and this has to agree.
+if (paths.length > 0 && productPaths(paths).length === 0) {
+  console.log('documentation only');
+  process.exit(0);
 }
 
 let packages;
@@ -55,14 +72,7 @@ try {
   process.exit(0);
 }
 
-const paths = changedPaths();
-if (paths === null) {
-  fallback('Could not diff against origin/main or main,');
-  process.exit(0);
-}
-
 const result = changeClass({ paths, packages });
 
-if (result.class === 'docs') console.log('documentation only');
-else if (result.class === 'tests') console.log(`tests only (${result.packages.join(', ')})`);
+if (result.class === 'tests') console.log(`tests only (${result.packages.join(', ')})`);
 else console.log('product changed');

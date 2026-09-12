@@ -201,19 +201,6 @@ function parseEvent(readFile, eventPath) {
   }
 }
 
-/** How many product paths a run log names before it starts counting instead. */
-const NAMED = 20;
-
-/**
- * The whole decision, and the lines the job should print beside it.
- *
- * `readFile` is handed `GITHUB_EVENT_PATH` and returns its text; `gitDiff` is
- * handed a range and returns `git diff --name-only -z` output. Either may throw,
- * and the reason both are arguments is that **every way this can fail has to say
- * "product changed"**: a skipped job satisfies a required status check
- * (docs/deployment.md, "Bootstrap runbook"), so a crash that read as
- * "documentation only" would wave an untested change through five green ticks.
- */
 /**
  * Whether `path` sits under `pkg`'s own `tests/` - never the repo root's
  * `tests/e2e/`, which belongs to no package (testing skill, "Where the test
@@ -270,6 +257,19 @@ export function changeClass({ paths, packages } = {}) {
   return { class: 'product' };
 }
 
+/** How many product paths a run log names before it starts counting instead. */
+const NAMED = 20;
+
+/**
+ * The whole decision, and the lines the job should print beside it.
+ *
+ * `readFile` is handed `GITHUB_EVENT_PATH` and returns its text; `gitDiff` is
+ * handed a range and returns `git diff --name-only -z` output. Either may throw,
+ * and the reason both are arguments is that **every way this can fail has to say
+ * "product changed"**: a skipped job satisfies a required status check
+ * (docs/deployment.md, "Bootstrap runbook"), so a crash that read as
+ * "documentation only" would wave an untested change through five green ticks.
+ */
 export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
   const range = diffRange({ eventName, event: parseEvent(readFile, eventPath) });
   if (range === null) {
