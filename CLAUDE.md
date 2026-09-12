@@ -45,6 +45,12 @@ gh issue view <number> --json state,title,assignees
 gh pr list --state all --search <number> --json number,title,state
 ```
 
+**Work with no issue number needs the same check, asked of the files.** "Remove the 120-layout row-cleanup test for its CI cost" (pull request 364) deleted a test another session was already deleting in "Delete a user, and the account they owned with them" (pull request 362), and found out after a review round, two rounds of fixes and three CI cycles, for a diff `main` already had. Ask again before marking ready rather than only at the start: the pull request that supersedes yours can be open, and not yet touching your file, when you begin.
+
+```bash
+gh pr list --state open --json number,title,files --jq '.[] | select(any(.files[]; .path == "<the file>")) | "\(.number) \(.title)"'
+```
+
 ## Working in parallel
 
 The three tools named here come from the desktop app, so a terminal, scheduled or remote session has none of them: take the fallback where a rule gives one, and skip the rule where it does not.
