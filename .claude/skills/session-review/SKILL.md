@@ -35,7 +35,7 @@ Where a surviving rule sharpens or replaces one already on the page — the way 
 
 ### 5. Open the pull request
 
-No product code — the diff is CLAUDE.md, skills, and docs only, and it gets no issue of its own: the corrections it packages already happened, this only writes them down. Branch fresh off an up-to-date `main`: the session's own work may still sit on a branch carrying product code, or may already be merged, and either way this diff doesn't belong there. Commit, then follow this repository's own pull request discipline from here — draft, `/code-review xhigh`, mark ready, wait for checks. The body names what changed and where, per step 4, and what was dropped, per step 3; nothing else.
+No product code — the diff is CLAUDE.md, skills, and docs only, and it gets no issue of its own: the corrections it packages already happened, this only writes them down. Branch fresh off an up-to-date `main`: the session's own work may still sit on a branch carrying product code, or may already be merged, and either way this diff doesn't belong there. Commit, then follow this repository's own pull request discipline from here — draft, `/code-review` at the level CLAUDE.md's Tests table caps a documentation-only diff to (no `/security-review`, same table), mark ready, wait for checks. The body names what changed and where, per step 4, and what was dropped, per step 3; nothing else.
 
 ## Output
 

@@ -91,6 +91,8 @@ Without rule 3 the pyramid has a silent failure mode: every level green against 
 
 ## 6. Definition of done for agents (non-negotiable)
 
+This is the full definition, for a change that touches product code. CLAUDE.md's Tests section carries a table scaling it down for a change confined to documentation or to tests alone.
+
 An agent may only claim that something works after **all** of the following:
 
 1. **The required tests have been run and pass.**
