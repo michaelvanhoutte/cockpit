@@ -2,16 +2,20 @@
 // Unit tests for planTestRun, run by `node --test` from the Scripts CI job -
 // the same place review-gate.test.mjs and the rest of scripts/lib are
 // asserted. Each case here is a row of the statement list from "Run only the
-// affected tests in CI's Test job on a pull request" (issue 346); the ones
-// that table marks "verified by hand" (the checkout step's fetch depth, and
-// Vitest's own dependency-graph walk) have no equivalent here on purpose -
-// there is nothing pure to assert about either.
+// affected tests in CI's Test job on a pull request" (issue 346) or "Stop a
+// documentation edit forcing every package's tests to run in full" (issue
+// 370); the ones issue 346's table marks "verified by hand" (the checkout
+// step's fetch depth, and Vitest's own dependency-graph walk) have no
+// equivalent here on purpose - there is nothing pure to assert about either.
 //
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
 import { planTestRun } from './test-selection.mjs';
+import { isNonProduct } from './what-changed.mjs';
 
 const MERGE_BASE = 'a1b2c3d';
 
@@ -135,5 +139,39 @@ describe('planTestRun', () => {
     // apps/web/src/vitest.config.ts is not that package's own config.
     const plan = forPR(['apps/api/migrations-notes.md', 'apps/web/src/vitest.config.ts']);
     for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'changed', pkg.dir);
+  });
+
+  it('runs every package selectively for a source change alongside a docs change, not full for the docs change alone', () => {
+    // Before this only counted product paths against every package's own
+    // directory, a docs/ path here - outside every package - forced every
+    // package into full for a diff only apps/api had anything to do with.
+    const plan = forPR(['apps/api/src/index.ts', 'docs/architecture.md']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'changed', pkg.dir);
+  });
+
+  it('runs every package selectively for a documentation-only pull request, which leaves nothing for any of them to run', () => {
+    const plan = forPR(['CLAUDE.md', 'docs/deployment.md', '.claude/skills/testing/SKILL.md']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'changed', pkg.dir);
+  });
+
+  it('still forces every package into full for a docs change alongside the lockfile', () => {
+    const plan = forPR(['docs/architecture.md', 'pnpm-lock.yaml']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'full', pkg.dir);
+  });
+
+  it('still forces every package into full for a docs change alongside a root tsconfig', () => {
+    const plan = forPR(['docs/architecture.md', 'tsconfig.json']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'full', pkg.dir);
+  });
+
+  it('shares its non-product path list with the what-changed classifier, so the two cannot drift apart', () => {
+    // Asserted against the source rather than by behaviour alone: importing
+    // isNonProduct here and calling it inline would pass even if
+    // test-selection.mjs itself carried its own separate copy of the same
+    // rule, exactly the drift issue 370 exists to rule out.
+    const path = fileURLToPath(new URL('./test-selection.mjs', import.meta.url));
+    const source = readFileSync(path, 'utf8');
+    assert.match(source, /import\s*\{\s*isNonProduct\s*\}\s*from\s*'\.\/what-changed\.mjs';/, 'test-selection.mjs should import isNonProduct rather than duplicate it');
+    assert.equal(typeof isNonProduct, 'function');
   });
 });
