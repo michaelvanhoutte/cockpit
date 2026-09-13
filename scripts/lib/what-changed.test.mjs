@@ -37,6 +37,28 @@ function job(yaml, id) {
 }
 
 /**
+ * A workflow's `on:` block, whole-line comments dropped. They are dropped
+ * because these files explain their own triggers at length, so a whole-file
+ * match for `pull_request` would answer on the prose rather than on the
+ * trigger. Dropped *before* the block's end is found, not after: a comment at
+ * column zero is ordinary YAML style and would otherwise end the block early,
+ * hiding whatever follows it from the assertions - which is the one way this
+ * could pass over a restored trigger rather than fail over prose. A comment
+ * trailing a trigger on its own line survives, so nothing here anchors on the
+ * end of a line.
+ */
+function triggersOf(yaml) {
+  const lines = yaml.split('\n');
+  const start = lines.indexOf('on:');
+  assert.notEqual(start, -1, 'this workflow declares no triggers at all');
+  const rest = lines.slice(start + 1).filter((line) => !/^\s*#/.test(line));
+  // A sequence item may sit at the key's own indent, so `- cron:` at column
+  // zero is still inside the block rather than the start of the next one.
+  const end = rest.findIndex((line) => /^[^\s-]/.test(line));
+  return rest.slice(0, end === -1 ? rest.length : end).join('\n');
+}
+
+/**
  * The jobs a block declares it waits for, in any of the three shapes YAML
  * allows. Matching `/needs: changes/` alone would read `needs: [changes, x]`
  * as no dependency at all, so a job could gain the gate - or lose it - without
@@ -553,6 +575,30 @@ describe('the mechanical checks', () => {
     const analyze = job(yaml, 'analyze');
     assert.deepEqual(needsOf(analyze), [], 'the analysis should wait for nothing');
     assert.doesNotMatch(analyze, /product_changed/, 'the analysis should not read the classifier');
+  });
+
+  it('keep CodeQL off the pull-request gate, out of branch protection, and on the schedule that replaced it', () => {
+    // The test above reads the jobs; nothing read the triggers, so a revert or
+    // a bad merge restoring `pull_request:` to this file - or dropping the
+    // weekly `schedule:` - passed every check ("Confirm the live
+    // branch-protection payload dropped CodeQL's three contexts, and cover
+    // codeql.yml's trigger with a test", issue 386). Restoring the trigger is
+    // not a harmless regression: CodeQL's three contexts are out of
+    // branch-protection.json, so the analysis would report on a pull request
+    // that nothing gates, at the cost the move measured. Dropping the schedule
+    // is the worse half - main would then be analysed only on merge, and
+    // nothing says so.
+    const on = triggersOf(workflow('codeql.yml'));
+    assert.doesNotMatch(on, /pull_request/, 'CodeQL should not trigger on a pull request');
+    assert.match(on, /^ {2}schedule:/m, 'the weekly analysis of main went missing');
+    assert.match(on, /^ *- cron: /m, 'the schedule names no cron');
+    assert.match(on, /^ {2}push:/m, 'CodeQL should still analyse every merge');
+    // The trigger and the payload are one decision, and only half of it lives
+    // in this workflow: put CodeQL's contexts back in branch-protection.json
+    // without restoring the trigger and every pull request waits on a name
+    // nothing reports under, which is what issue 386 was filed to clear.
+    const protection = readFileSync(join(repo, '.github/branch-protection.json'), 'utf8');
+    assert.doesNotMatch(protection, /CodeQL/, 'branch protection requires a context CodeQL no longer reports');
   });
 });
 
