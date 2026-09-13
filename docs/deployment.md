@@ -749,15 +749,14 @@ Then, by hand (no API, or deliberately not automated):
      next pull request that all of it reports; for a removal, apply the
      payload first, since a name still required after its workflow stops
      triggering on pull requests is the same stuck-at-*Expected* failure
-     arrived at from the other direction. Issue 378 (folding `Typecheck`,
-     `Lint`, `Build` and `Scripts` into `Checks`) removed contexts this way a
-     day before issue 379 above did the same to CodeQL's three; issue 379's own
-     pull request did not actually apply the payload first — its checked-in
-     file change and the live `required_status_checks` update shipped as
-     separate steps, the live one still pending as this paragraph was written,
-     which is the risk this note warns against rather than a demonstrated case
-     of avoiding it. Only the pull request that gets the ordering wrong can
-     show a context stuck at *Expected*, and by then it is holding the trunk.
+     arrived at from the other direction. Neither "Run the six small CI jobs as
+     one, so a push stops paying six runner start-ups" (issue 378), which folded
+     `Typecheck`, `Lint`, `Build` and `Scripts` into `Checks`, nor issue 379
+     above applied the payload before its workflow change landed: both changed
+     the checked-in file and left the live setting alone, and the paragraph
+     below has what that cost. Only the pull request that gets the ordering
+     wrong can show a context stuck at *Expected*, and by then it is holding the
+     trunk.
 
      **The payload is what this file says; it is not what GitHub is enforcing.**
      Checking one in does not apply it, and the two drift silently. `E2E (F3)`
@@ -765,8 +764,23 @@ Then, by hand (no API, or deliberately not automated):
      `main` went on enforcing four until 2026-09-09 — eleven days in which the
      browser tier reported on every pull request without gating any of them,
      measured twice in that window and applied only by "Require the checks the
-     payload already lists, so a red browser tier cannot merge" (issue 276). So
-     read the live setting whenever the answer matters:
+     payload already lists, so a red browser tier cannot merge" (issue 276).
+
+     It recurred on 2026-09-12, larger and in the direction that holds the
+     trunk: the two changes above each landed their workflow edit without the
+     live update, so `main` went on requiring `Typecheck`, `Build`, `Scripts`
+     and CodeQL's three — six names nothing posts under any more — and never
+     required `Checks`. Every pull request read `BLOCKED` whatever its checks
+     did; "Record how Cockpit learns the way you write" (pull request 396) was
+     merged with `--admin` a day later, and "Confirm the live branch-protection
+     payload dropped CodeQL's three contexts, and cover codeql.yml's trigger
+     with a test" (issue 386) applied the payload by hand. A third drift sat
+     under both, and is the reason the reviews were not among those eight
+     either: "Require the two Claude reviews, once it is known what a required
+     review would break" (issue 310, below) added them to the payload hours
+     after issue 276's application on 2026-09-09, so they too were required for
+     the first time on 2026-09-13. So read the live setting whenever the answer
+     matters:
 
      ```bash
      gh api repos/michaelvanhoutte/cockpit/branches/main/protection --jq '.required_status_checks.contexts'
