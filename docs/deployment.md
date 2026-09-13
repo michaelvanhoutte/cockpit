@@ -768,15 +768,17 @@ Then, by hand (no API, or deliberately not automated):
 
      It recurred on 2026-09-12, larger and in the direction that holds the
      trunk: the two changes above each landed their workflow edit without the
-     live update, so `main` went on requiring `Typecheck`, `Build`, `Scripts`
-     and CodeQL's three — six names nothing posts under any more — and never
-     required `Checks`. Every pull request read `BLOCKED` whatever its checks
-     did; "Record how Cockpit learns the way you write" (pull request 396) was
-     merged with `--admin` a day later, and "Confirm the live branch-protection
-     payload dropped CodeQL's three contexts, and cover codeql.yml's trigger
-     with a test" (issue 386) applied the payload by hand. A third drift sat
-     under both, and is the reason the reviews were not among those eight
-     either: "Require the two Claude reviews, once it is known what a required
+     live update. `main` went on requiring eight contexts — `Typecheck`,
+     `Test`, `Build`, `Scripts`, `E2E (F3)` and CodeQL's three — of which only
+     `Test` and `E2E (F3)` still report, while `Checks` and the two reviews were
+     required by nobody. (`Lint` folded into `Checks` alongside the other three
+     but had never been a required context, so it cost nothing.) Every pull
+     request read `BLOCKED` whatever its checks did; "Record how Cockpit learns
+     the way you write" (pull request 396) was merged with `--admin` a day
+     later, and "Confirm the live branch-protection payload dropped CodeQL's
+     three contexts, and cover codeql.yml's trigger with a test" (issue 386)
+     applied the payload by hand. The reviews' absence was a third and older
+     drift: "Require the two Claude reviews, once it is known what a required
      review would break" (issue 310, below) added them to the payload hours
      after issue 276's application on 2026-09-09, so they too were required for
      the first time on 2026-09-13. So read the live setting whenever the answer
