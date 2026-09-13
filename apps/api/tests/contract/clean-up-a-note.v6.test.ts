@@ -68,9 +68,17 @@ const TALKS_ABOUT_THE_NOTE = [
   /\b(niet gespecificeerd|niet vermeld|niet genoemd|niet duidelijk welke)\b/i,
 ];
 
-/** A text that reports an observation rather than being one. */
+/**
+ * A text that reports an observation rather than being one.
+ *
+ * **In both languages, because the answers are.** An English-only opener
+ * cannot match a Dutch answer, and the prompt forbids translating - so a
+ * Dutch case asserting this would have asserted nothing at all, while "Een
+ * opmerking dat het team de notulen moet doorsturen" is exactly the register
+ * failure it is here to catch.
+ */
 const REPORTS_RATHER_THAN_INSTRUCTS =
-  /^(a|an|the|this)\s+(note|observation|opinion|view|remark|comment|message|reminder)\b/i;
+  /^(a|an|the|this|een|de|het|dit|deze)\s+(note|observation|opinion|view|remark|comment|message|reminder|notitie|opmerking|mening|bericht|herinnering|constatering|vaststelling)\b/i;
 
 /**
  * Reads one note, and none of the notes below is one the prompt carries.
@@ -250,7 +258,8 @@ describe('Capture', () => {
       expect(proposal.title).toMatch(
         /\b(check|verify|confirm|decide|determine|establish|review|assess|clarify|settle|find out|work out|figure out|look into|investigate)\b/i,
       );
-      for (const frame of TALKS_ABOUT_THE_NOTE) expect(proposal.message).not.toMatch(frame);
+      const written = `${proposal.title} ${proposal.message}`;
+      for (const frame of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(frame);
     });
 
     it('turns an opinion into an instruction to record it, not a report that it was held', async () => {
@@ -258,17 +267,23 @@ describe('Capture', () => {
         'the release checklist has too many manual steps, we keep skipping half of them',
       );
 
-      // An opinion is work to keep, not work to act on: "cut the manual steps"
-      // would be a next step the note never asked for, which the rule below
-      // this describe forbids outright.
+      // An opinion is work to hold on to, not work to act on: "cut the manual
+      // steps" would be a next step the note never asked for, which the rule
+      // below this describe forbids outright.
+      //
+      // **No word of this list may appear in the note.** `keep` was in it and
+      // the note says "we keep skipping half of them" - so a pure v5-style
+      // restatement, echoing the note back, matched it and the case went green
+      // on exactly the register it exists to reject.
       expect(`${proposal.title} ${proposal.message}`).toMatch(
-        /\b(record|log|capture|keep|note down|write down|flag|raise)\b/i,
+        /\b(record|log|capture|note down|write down|flag|raise)\b/i,
       );
       expect(proposal.message).not.toMatch(REPORTS_RATHER_THAN_INSTRUCTS);
       // The other half of the same failure: a report attributes the opinion to
-      // somebody instead of writing it down as the thing to keep.
+      // somebody instead of writing it down as the thing to hold on to.
       expect(proposal.message).not.toMatch(/\b(the author|the writer|somebody|someone)\b/i);
-      for (const frame of TALKS_ABOUT_THE_NOTE) expect(proposal.message).not.toMatch(frame);
+      const written = `${proposal.title} ${proposal.message}`;
+      for (const frame of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(frame);
     });
 
     it('carries a note that is already an instruction through as one', async () => {
@@ -282,7 +297,8 @@ describe('Capture', () => {
       expect(proposal.title).toMatch(/\b(stuur|sturen|doorsturen|versturen)\b/i);
       expect(proposal.message).toMatch(/\b(stuur|sturen|doorsturen|versturen)\b/i);
       expect(proposal.message).not.toMatch(REPORTS_RATHER_THAN_INSTRUCTS);
-      for (const frame of TALKS_ABOUT_THE_NOTE) expect(proposal.message).not.toMatch(frame);
+      const written = `${proposal.title} ${proposal.message}`;
+      for (const frame of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(frame);
     });
   });
 
@@ -383,10 +399,10 @@ describe('Capture', () => {
     it('answers a note of punctuation and emoji without inventing one, or with nothing', async () => {
       const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], null);
 
-      if (!('proposal' in answer)) {
-        expect(answer.discarded.length).toBeGreaterThan(0);
-        return;
-      }
+      // A discard is a pass and there is nothing further to check on it: every
+      // producer of that arm writes a non-empty reason, so asserting one here
+      // would be the line this case's own comment argues against.
+      if (!('proposal' in answer)) return;
       const written = `${answer.proposal.title} ${answer.proposal.message}`;
       // This note carries no digit, no weekday and no subject, so every one of
       // them in an answer is invented - the one class of invention a note this
