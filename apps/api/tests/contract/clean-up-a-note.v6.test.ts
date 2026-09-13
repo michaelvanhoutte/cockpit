@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeAiService } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote } from '../../src/ai/prompts/clean-up-a-note.v5.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v6.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 
 /**
@@ -19,10 +19,14 @@ import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js'
  * fuller message", issue 296; "Offer the other readings when a captured note
  * says two things", issue 297), a model naming a panel for a note that fits
  * none of them ("Propose where a captured note belongs, without filing it
- * there", issue 298), and a model that goes on repeating a proposal a person
- * has already corrected once ("Learn where notes belong from where you
- * actually file them", issue 299) - and none of it is provable against a
- * fake, which answers whatever the test told it to.
+ * there", issue 298), a model that goes on repeating a proposal a person has
+ * already corrected once ("Learn where notes belong from where you actually
+ * file them", issue 299), and - measured against 29 notes with the texts
+ * their author would have written - a title at the storage cap naming the
+ * note rather than the work, and a hedge about unstated detail that not one
+ * of those 29 contains ("Propose a title that names the work, not the note",
+ * issue 391) - and none of it is provable against a fake, which answers
+ * whatever the test told it to.
  *
  * A failure here is the model or the prompt having drifted apart, and fixing it
  * is priority work. It is never fixed by running it again.
@@ -47,10 +51,32 @@ const MARKERS = {
 };
 
 /**
+ * Every way the two texts can talk about the note instead of doing the work -
+ * naming it, or announcing what it leaves unsaid.
+ *
+ * **One list for two rules, because a hedge is a sentence about the note.**
+ * `v5` instructed the model to write exactly these ("say that the note does
+ * not say which"); `v6` drops that instruction, and this is what says it
+ * stopped happening rather than merely stopped being asked for.
+ */
+const TALKS_ABOUT_THE_NOTE = [
+  /\b(the|this) note\b/i,
+  /\b(de|deze) notitie\b/i,
+  /\b(does|do)(n't| not) (say|specify|state|mention)\b/i,
+  /\b(unspecified|unstated|unnamed|not specified|not stated|not mentioned)\b/i,
+  /\bzegt niet\b/i,
+  /\b(niet gespecificeerd|niet vermeld|niet genoemd|niet duidelijk welke)\b/i,
+];
+
+/** A text that reports an observation rather than being one. */
+const REPORTS_RATHER_THAN_INSTRUCTS =
+  /^(a|an|the|this)\s+(note|observation|opinion|view|remark|comment|message|reminder)\b/i;
+
+/**
  * Reads one note, and none of the notes below is one the prompt carries.
  *
  * **That is the whole difference between testing the model and testing its
- * recall.** The prompt has five worked examples with their answers written
+ * recall.** The prompt has six worked examples with their answers written
  * out, so a case that reuses one of them can be passed by copying the example -
  * and the drift this tier exists to catch would sail through, since a note it
  * has been shown the answer to is not a note it had to decide anything about.
@@ -129,28 +155,202 @@ describe('Capture', () => {
   });
 
   /**
-   * The rule that outranks the rest. A note is a record of what somebody
-   * actually said, so a message that quietly supplies the missing name, day or
-   * number is worse than the clipped line it replaced.
+   * The length rule ("Propose a title that names the work, not the note",
+   * issue 391). `v5` gave the model one number, the 200-character storage cap,
+   * and got titles written towards it; the wanted titles run 17-55 characters
+   * from notes averaging 92 (docs/text-learning.md, "What is wrong today").
+   *
+   * **`TITLE_TARGET` is asserted as a ceiling because that is how the prompt
+   * states it.** "About 50" is not a testable instruction, so the prompt asks
+   * for 50 or fewer and this holds it to exactly that - the two move together
+   * or neither means anything.
+   *
+   * This replaces `v5`'s "a note gets a name of its own rather than being
+   * handed back": a note handed back unshortened is a title longer than the
+   * target, which the first case below fails on a tighter bound than "shorter
+   * than the note" ever did.
+   */
+  describe('a title names the work in as few words as it takes', () => {
+    it('shortens a note of about ninety characters to a title at or under the target', async () => {
+      const note =
+        "cleaning validation sign-off still open, need to know if last month's change control covers it";
+      // Under the storage cap, so handing it back whole would validate - which
+      // is what makes this failure invisible to every tier below.
+      expect(note.length).toBeLessThan(TITLE_LENGTH);
+
+      const proposal = await read(note);
+
+      expect(proposal.title.length).toBeLessThanOrEqual(TITLE_TARGET);
+      expect(proposal.title).not.toBe(note);
+      // This note carries more work than fits in a title, so the two texts are
+      // not the same words twice. Asserted here and not as a general rule:
+      // "Call Jan" is a correct answer to "call jan" under both fields.
+      expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
+      // The cases in this file are only evidence about the version they ran
+      // against, so the version is said out loud once.
+      expect(buildCleanUpANote([], [], [], null).version).toBe('v6');
+    });
+
+    it('does not pad a note that is already shorter than the target', async () => {
+      // Nothing here needs expanding - no abbreviation, no clipped sentence -
+      // so a title longer than the note itself has had words put into it,
+      // which the prompt forbids for a reason of its own.
+      const note = 'factuur 2231 nog goedkeuren';
+      expect(note.length).toBeLessThan(TITLE_TARGET);
+
+      const proposal = await read(note);
+
+      expect(proposal.title.length).toBeLessThanOrEqual(note.length);
+    });
+
+    /**
+     * **The cap is asserted by `read` throwing, not by a line below it.**
+     * `readProposal` refuses a title over `TITLE_LENGTH` or carrying a line
+     * break, so a model that blows the cap on a note this long reaches this
+     * case as a discarded proposal and a thrown error - and asserting the cap
+     * again underneath that would be a line that cannot fail. What is left to
+     * assert is the target, which a long note is where a model is likeliest
+     * to miss.
+     */
+    it('answers a note far longer than the cap with one usable line', async () => {
+      const note =
+        'klant belde over de levering van vorige week, die is maar half aangekomen en de rest zou nog ' +
+        'volgen, wil weten wanneer precies en of de factuur daarop aangepast wordt of dat we een ' +
+        'creditnota sturen voor het ontbrekende deel';
+      expect(note.length).toBeGreaterThan(TITLE_LENGTH);
+
+      const proposal = await read(note);
+
+      expect(proposal.title.length).toBeLessThanOrEqual(TITLE_TARGET);
+    });
+  });
+
+  /**
+   * The register rule ("Propose a title that names the work, not the note",
+   * issue 391). `v5` asked for "the note written out as prose", and got prose
+   * about the note; what was wanted is an instruction to do the thing.
+   *
+   * Each case asserts the failure it invites rather than the words a right
+   * answer uses, for the reason a sibling case in this file was already found
+   * to need: a title and a message are free-form prose in two languages, and
+   * pinning an assertion to one phrasing fails correct answers.
+   */
+  describe('a description says what to do about the note, not what the note said', () => {
+    it('turns a question into an instruction to go and answer it', async () => {
+      const proposal = await read(
+        'do we still need the separate onboarding checklist or can it fold into the handbook',
+      );
+
+      // The one case where the right answer's verb is genuinely constrained:
+      // an open question becomes work to settle it, whatever the wording.
+      // Asserted on the title and not on the two joined, because the title is
+      // where the register was measured wrong - a noun phrase naming the note
+      // rather than an imperative naming the work - and a message carrying the
+      // verb would otherwise cover for a title that does not.
+      expect(proposal.title).toMatch(
+        /\b(check|verify|confirm|decide|determine|establish|review|assess|clarify|settle|find out|work out|figure out|look into|investigate)\b/i,
+      );
+      for (const frame of TALKS_ABOUT_THE_NOTE) expect(proposal.message).not.toMatch(frame);
+    });
+
+    it('turns an opinion into an instruction to record it, not a report that it was held', async () => {
+      const proposal = await read(
+        'the release checklist has too many manual steps, we keep skipping half of them',
+      );
+
+      // An opinion is work to keep, not work to act on: "cut the manual steps"
+      // would be a next step the note never asked for, which the rule below
+      // this describe forbids outright.
+      expect(`${proposal.title} ${proposal.message}`).toMatch(
+        /\b(record|log|capture|keep|note down|write down|flag|raise)\b/i,
+      );
+      expect(proposal.message).not.toMatch(REPORTS_RATHER_THAN_INSTRUCTS);
+      // The other half of the same failure: a report attributes the opinion to
+      // somebody instead of writing it down as the thing to keep.
+      expect(proposal.message).not.toMatch(/\b(the author|the writer|somebody|someone)\b/i);
+      for (const frame of TALKS_ABOUT_THE_NOTE) expect(proposal.message).not.toMatch(frame);
+    });
+
+    it('carries a note that is already an instruction through as one', async () => {
+      const note = 'stuur de notulen van dinsdag door naar het hele team';
+
+      const proposal = await read(note);
+
+      // Still the same work, rather than a sentence about a note that asked
+      // for it - the verb the note came with survives, in the title as well as
+      // in the message, which is the register half of this rule.
+      expect(proposal.title).toMatch(/\b(stuur|sturen|doorsturen|versturen)\b/i);
+      expect(proposal.message).toMatch(/\b(stuur|sturen|doorsturen|versturen)\b/i);
+      expect(proposal.message).not.toMatch(REPORTS_RATHER_THAN_INSTRUCTS);
+      for (const frame of TALKS_ABOUT_THE_NOTE) expect(proposal.message).not.toMatch(frame);
+    });
+  });
+
+  /**
+   * The instruction that is gone ("Propose a title that names the work, not
+   * the note", issue 391). `v5` told the model to say that the note does not
+   * say which document, person or date it meant; across 29 notes with the
+   * texts their author would have written, not one does that.
+   *
+   * Each note below refers to something it never fixes, which is exactly what
+   * `v5` would have hedged about - and what the case under this one says must
+   * not be filled in instead.
+   */
+  describe('neither text points out what the note does not say', () => {
+    it.each([
+      { situation: 'a document it never identifies', note: 'document moet nog naar de klant voor vrijdag' },
+      { situation: 'a deadline it never fixes', note: 'dit moet af voor de audit' },
+      { situation: 'no actor at all', note: 'sign-off needed on the cleaning validation' },
+    ])('says nothing about the absence, for a note with $situation', async ({ note }) => {
+      const proposal = await read(note);
+      const written = `${proposal.title} ${proposal.message}`;
+
+      for (const hedge of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(hedge);
+    });
+  });
+
+  /**
+   * The rule that outranks the rest, and the guard on the one above it: a
+   * model told to stop announcing what a note leaves out is a model invited to
+   * fill it in instead. A note is a record of what somebody actually said, so
+   * a message that quietly supplies the missing name, day or number is worse
+   * than the clipped line it replaced.
    *
    * Checked as "nothing that was not there" rather than as "the right words",
    * because the second is a judgement and the first is not: every number in the
    * answer has to be one the note carried, and each note names the invention it
    * most invites.
+   *
+   * The first note is the one the describe above already read, deliberately:
+   * not hedging and not inventing are the two halves of one risk, and only the
+   * same note read for both says they hold together.
    */
   describe('nothing is added to a note that the note did not contain', () => {
     it.each([
       {
-        situation: 'a note that never says who or when',
-        note: 'sign-off needed on the cleaning validation, who owns it',
-        absent: [/monday|tuesday|wednesday|thursday|friday/i, /\bQA\b/, /manager/i],
+        situation: 'a note referring to a document it never names',
+        note: 'document moet nog naar de klant voor vrijdag',
+        absent: [/\b(offerte|contract|rapport|factuur|handleiding|bestek)\b/i, /€|\$|EUR/],
       },
       {
-        situation: 'a note that names a thing it never identifies',
-        note: 'terugbellen over de klacht, hij was er niet blij mee',
-        absent: [/\b(januari|februari|maart|april|juni|juli)\b/i, /€|\$|EUR/],
+        situation: 'a note too terse to carry a reason or a date',
+        note: 'terugbellen over de klacht',
+        absent: [
+          /\b(januari|februari|maart|april|juni|juli)\b/i,
+          /\b(maandag|dinsdag|woensdag|donderdag|vrijdag)\b/i,
+          /\b(omdat|zodat|because|so that)\b/i,
+          /€|\$|EUR/,
+        ],
       },
-    ])('invents no name, date or number for $situation', async ({ note, absent }) => {
+      {
+        // `v5` read this note under this same rule, and it is the note the
+        // hedge above most invites filling in: told not to say who is missing,
+        // a model can name one instead.
+        situation: 'a note that never says who or when',
+        note: 'sign-off needed on the cleaning validation',
+        absent: [/monday|tuesday|wednesday|thursday|friday/i, /\bQA\b/, /manager/i],
+      },
+    ])('invents no name, date, reason or number for $situation', async ({ note, absent }) => {
       const proposal = await read(note);
       const written = `${proposal.title} ${proposal.message}`;
 
@@ -166,37 +366,35 @@ describe('Capture', () => {
   });
 
   /**
-   * The failure that decided the model. A cheaper one was measured handing the
-   * captured note straight back as the title, unshortened, on half the notes it
-   * was given - which is the one thing this whole feature exists to stop.
+   * The floor under a shorter, sharper title: a note with almost nothing in it
+   * must not be answered by inventing something to name. Either branch is a
+   * pass, because `readProposal` discarding an unusable answer is the designed
+   * behaviour and the Item keeps the mechanical title capture wrote.
+   *
+   * `read` is deliberately not used - it throws on a discard, which is the
+   * outcome this case is here to allow.
+   *
+   * **The assertion is on what a proposal may contain, not that there is
+   * one.** Non-empty, inside the cap and single-line are all `answerSchema`'s
+   * doing, so asserting them here would be three lines that cannot fail; what
+   * can fail is the model answering an empty note with something it made up.
    */
-  describe('a note gets a name of its own rather than being handed back', () => {
-    /**
-     * **The note is deliberately short enough to be a legal title**, so handing
-     * it back would validate and nothing below this tier would notice. That is
-     * exactly the failure measured on a cheaper model: it returned the captured
-     * note as the title, unshortened, on half the notes it was given.
-     *
-     * **Asserted as a property and not as a ratio.** "Under half the length"
-     * was tried and is a tolerance rather than a rule - a perfectly good
-     * 86-character title for a 171-character note failed it - and a threshold
-     * picked to fit today's answer proves nothing about tomorrow's.
-     */
-    it('answers with a title that is not the note, and a message longer than it', async () => {
-      const note =
-        'sign-off needed on the cleaning validation, who owns it, and check whether the change ' +
-        'control from last month already covers it or whether we have to raise a new one first';
-      // A title this long is one the form would accept, which is what makes the
-      // failure invisible to every tier below.
-      expect(note.length).toBeLessThan(TITLE_LENGTH);
+  describe('a note carrying almost nothing produces something usable or nothing at all', () => {
+    it('answers a note of punctuation and emoji without inventing one, or with nothing', async () => {
+      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], null);
 
-      const proposal = await read(note);
-
-      expect(proposal.title).not.toBe(note);
-      expect(proposal.title.length).toBeLessThan(note.length);
-      // A name and a fuller text, rather than the same words twice.
-      expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
-      expect(buildCleanUpANote([], [], [], null).version).toBe('v5');
+      if (!('proposal' in answer)) {
+        expect(answer.discarded.length).toBeGreaterThan(0);
+        return;
+      }
+      const written = `${answer.proposal.title} ${answer.proposal.message}`;
+      // This note carries no digit, no weekday and no subject, so every one of
+      // them in an answer is invented - the one class of invention a note this
+      // empty lets a test check exhaustively.
+      expect(written).not.toMatch(/\d/);
+      expect(written).not.toMatch(
+        /\b(monday|tuesday|wednesday|thursday|friday|maandag|dinsdag|woensdag|donderdag|vrijdag)\b/i,
+      );
     });
   });
 
@@ -256,7 +454,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v5.ts`'s fifth example pairs "Compliance
+   * example (`clean-up-a-note.v6.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per

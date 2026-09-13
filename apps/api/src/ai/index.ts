@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v5.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v6.js';
 import { buildSummarizeFilingPatterns } from './prompts/summarize-filing-patterns.v1.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
 import { readSummary, type SummaryRead } from './routing-summary.js';

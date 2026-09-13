@@ -12,7 +12,7 @@ The other half of the same model call — which Panel a note belongs on — alre
 
 Measured against 29 notes with the title and description their author would have written:
 
-| | The prompt today | What was wanted |
+| | The prompt as measured (v5) | What was wanted |
 |---|---|---|
 | Title length | "at most 200 characters" | 17–55 characters, mean 31, from notes averaging 92 |
 | Title register | a noun phrase naming the note | an imperative naming the work — "Run only impacted CI tests" |
@@ -100,7 +100,7 @@ The cost is real and was accepted knowingly: a Personal note's full text is sent
 
 ## Build order
 
-1. **Prompt v6** — task register, a title target near 50 characters against the 200-character cap that stays a storage limit, and the hedge instruction dropped. Independent of everything below.
+1. ~~**Prompt v6** — task register, a title target near 50 characters against the 200-character cap that stays a storage limit, and the hedge instruction dropped.~~ **Shipped** ("Propose a title that names the work, not the note", issue 391); the target is asked for as a ceiling, since "about 50" is not something a test can hold a model to. Independent of everything below.
 2. **Remove the nightly half of issue 301** — the fan-out, the summary prompt and its contract test, `write_routing_summary`, the read-only summary. The Cron Trigger itself stays; it also resets the guest account.
 3. **The store, prompt v7 reading it, and a window to see it in** — the triple recorded at your first edit, the count and sample of what stood read from `items` beside it, both read back on every later note, and an account-scoped window showing the counts and every correction with a delete. The unit that makes any of this true. **Nothing may accumulate where you cannot see it**, which is the same refusal of a black box that shaped the rest of this; a throwaway design pass comes first, since a row here carries three texts and both a table and a stacked card are defensible for that.
 4. **Pinned examples** — add, edit, delete and paste a batch, onto the window step 3 put up rather than a second one.
