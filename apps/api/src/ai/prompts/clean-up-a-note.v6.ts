@@ -2,13 +2,43 @@ import { TITLE_LENGTH } from '@cockpit/shared';
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 5. `v4`
- * ("Learn where notes belong from where you actually file them", issue 299)
- * added the decision history and recent captures; this version adds one more
- * read, a Workspace's own correction of what the nightly summary said it
- * learned ("Show what the system learned, in a sentence you can correct",
- * issue 301) - "the correction is an input to the proposals like anything
- * else". Nothing about what is asked for changes; `schema` is untouched.
+ * The length a title is written towards, as against `TITLE_LENGTH`, which is
+ * what the form and the column will store. Measured: across 29 captured notes
+ * with the titles their author would have written, those titles run 17-55
+ * characters against notes averaging 92 (`docs/text-learning.md`, "What is
+ * wrong today"), while `v5` asked only for "at most 200" and answered near it.
+ *
+ * **Asked for as a ceiling and never as a floor**, which is the only form of
+ * it a test can hold the model to: "about 50" is not assertable, and half the
+ * measured titles sit well under it anyway. A note with less to say gets a
+ * shorter title, never one padded out to reach this.
+ */
+export const TITLE_TARGET = 50;
+
+/**
+ * What Cockpit asks Claude for when a note has been captured, version 6. `v5`
+ * ("Show what the system learned, in a sentence you can correct", issue 301)
+ * added the Workspace's own correction as one more read; this version changes
+ * what is asked for, for the first time since `v2`: the two texts are the work
+ * the note is asking for, written as instructions, rather than a noun phrase
+ * naming the note and the note itself restated as prose ("Propose a title that
+ * names the work, not the note", issue 391).
+ *
+ * Three changes, all measured against the same 29 notes:
+ *
+ * - the title is written towards `TITLE_TARGET` rather than at the storage cap
+ * - both texts are imperative - the work, not a label and not a report
+ * - the instruction to announce what the note leaves unsaid is gone, because
+ *   not one of the 29 wanted titles or descriptions does that
+ *
+ * **The rule that nothing may be added is unchanged and outranks the third
+ * change.** Dropping the hedge means saying less, never choosing a name, a
+ * date or a document the note never carried - and the contract tier asserts
+ * both halves, since a model told to stop hedging is a model invited to
+ * invent instead.
+ *
+ * Nothing else moves: language, the other readings, the Panel proposal and the
+ * shape of `schema` are `v5`'s.
  *
  * `correction` is `string | null` rather than defaulting to an empty string:
  * null is "nothing has ever been written here", a fact worth rendering
@@ -22,7 +52,7 @@ export function buildCleanUpANote(
   recentlyCaptured: readonly string[],
   correction: string | null,
 ): {
-  version: 'v5';
+  version: 'v6';
   model: string;
   effort: 'low';
   system: string;
@@ -34,20 +64,23 @@ export function buildCleanUpANote(
       : '(this account has no panels yet)';
 
   return {
-    version: 'v5',
+    version: 'v6',
 
     /**
-     * Unchanged from `v4`: nothing about reading one more thing before
-     * answering changes what the model has to be to answer the rest of this
-     * well, and the contract tests are what would notice if that stopped
-     * being true.
+     * Unchanged since `v1`, which measured a cheaper model handing the
+     * captured note straight back as the title, unshortened, on half the
+     * notes it was given - the one thing this whole feature exists to stop.
+     * Asking for a shorter, imperative title is a harder judgement than
+     * asking for a long one, not an easier one, so nothing here loosens with
+     * `v6`. The contract tests are what would notice if that stopped being
+     * true.
      */
     model: 'claude-opus-5',
     effort: 'low',
 
     system: `You are part of Cockpit, one person's inbox for their own work.
 
-Somebody has just captured a note by typing or dictating it in a hurry, on a phone or in a car. What arrives is clipped, abbreviated, half-typed, unpunctuated, and often mixes English and Dutch in one line. You write two texts for it: a title it can be found by, and a message that still makes sense to them in two weeks.
+Somebody has just captured a note by typing or dictating it in a hurry, on a phone or in a car. What arrives is clipped, abbreviated, half-typed, unpunctuated, and often mixes English and Dutch in one line. You write two texts for it: a title naming the work it is asking for, and a message saying what to do about it that still makes sense to them in two weeks.
 
 You may:
 - expand an abbreviation the note itself uses
@@ -55,11 +88,15 @@ You may:
 - finish a sentence the note leaves clipped
 - put a dictated run of words into a readable order
 
-You may not add anything the note does not contain. Not a fact, not a name, not a date, not a number, not a reason, and not a next step. Where the note refers to something it never states - a document, a person, a decision, a deadline - say that the note does not say which, rather than choosing one. If you are unsure whether something is in the note, it is not.
+You may not add anything the note does not contain. Not a fact, not a name, not a date, not a number, not a reason, and not a next step. Where the note refers to something it never states - a document, a person, a decision, a deadline - leave it exactly as the note left it: do not choose one, and do not say that the note never says which. Write what the note carries and stop there. If you are unsure whether something is in the note, it is not.
 
-The title is the shortest text that names this note and no other. One line, no line breaks, at most ${TITLE_LENGTH} characters, no trailing full stop, and never the whole note handed back unshortened.
+Neither text talks about the note. What lands in front of this person is a piece of their own work, not a report about something they typed, so never write "the note", "this note" or "de notitie" in either text.
 
-The message is the note written out as prose. It is not a summary, not a report about the note, and not a list of fields. Do not open it with "The note says" or "This note is about". Write no headings and no bullet points unless the note itself was a list.
+The title names the work in the fewest words that could only be this note. Write it as an instruction - "Run only the impacted CI tests", "Novy bellen over de afspraak" - not as a label. One line, no line breaks, no trailing full stop, and never the whole note handed back unshortened.
+
+Keep it to ${TITLE_TARGET} characters or fewer, and go well under that wherever the note carries less - a title is never padded out to reach a length. ${TITLE_LENGTH} characters is only what the form will store; it is not what to write towards.
+
+The message says what to do about the note, written out in full sentences so it makes sense again in two weeks. It is an instruction too: the work the note is asking for, spelled out from what the note carries and nothing more. Where the note records an opinion or an observation rather than asking for something, the instruction is to record it. It is not a summary, not a report, and not a list of fields. Write no headings and no bullet points unless the note itself was a list.
 
 Name the note's language first, in English, from the note alone - "English", "Dutch", or "English and Dutch" where the note genuinely mixes them. Then write the title and the message in that language. Never translate a note into another language, whatever language the examples below are in.
 
@@ -88,22 +125,29 @@ Examples.
 
 Note: part 11 audit trail q for validation protocol, who signs off eod
 language: English
-title: Part 11 audit trail question for the validation protocol
-message: A question about the Part 11 audit trail, for the validation protocol. Needs to be clear by end of day who signs off on it; the note does not say who that is.
+title: Clarify who signs off the Part 11 audit trail
+message: Find out who signs off on the Part 11 audit trail for the validation protocol, and have it clear by end of day.
 readings: []
 panel: (none of the panels offered clearly fit)
 
 Note: bellen novy ivm afspraak volgende week, niet voor 10u
 language: Dutch
 title: Novy bellen over de afspraak van volgende week
-message: Novy bellen in verband met de afspraak van volgende week. Niet voor 10 uur bellen. De notitie zegt niet welke afspraak het is.
+message: Novy bellen in verband met de afspraak van volgende week. Niet voor 10 uur bellen.
 readings: []
 panel: (none of the panels offered clearly fit)
 
 Note: check of de deploy erdoor is + mail naar Anna re invoice
 language: English and Dutch
 title: Deploy nakijken en Anna mailen over de factuur
-message: Nakijken of de deploy erdoor is. Daarna Anna mailen over de factuur; de notitie zegt niet welke factuur of wat erover gemaild moet worden.
+message: Nakijken of de deploy erdoor is en daarna Anna mailen over de factuur.
+readings: []
+panel: (none of the panels offered clearly fit)
+
+Note: standup is too long, half the room has nothing to say
+language: English
+title: Record that standup runs too long
+message: Record that standup is too long and that half the room has nothing to say.
 readings: []
 panel: (none of the panels offered clearly fit)
 
@@ -122,9 +166,11 @@ Note: part 11 audit trail q for validation protocol, who signs off eod
 panel: Compliance questions, because it's a compliance question - Part 11 and the validation protocol`,
 
     /**
-     * Unchanged from `v4`: history, the correction and recent captures are
-     * read material, not something the answer reports back, so nothing here
-     * names any of them.
+     * Unchanged in shape from `v5`: history, the correction and recent
+     * captures are read material, not something the answer reports back, so
+     * nothing here names any of them. `title` and `message` say what they now
+     * ask for; `TITLE_LENGTH` stays the cap, since the schema is what the
+     * Item's own two fields will accept and a target has no place in it.
      */
     schema: {
       type: 'object',
@@ -137,12 +183,12 @@ panel: Compliance questions, because it's a compliance question - Part 11 and th
         title: {
           type: 'string',
           description:
-            `The shortest single line that names this note and no other, at most ${TITLE_LENGTH} characters, in the language named above.`,
+            `The work this note is asking for, named as an instruction on one line that could only be this note - at most ${TITLE_TARGET} characters, and never more than ${TITLE_LENGTH}, in the language named above.`,
         },
         message: {
           type: 'string',
           description:
-            'The note written out as prose so it still makes sense in two weeks, adding nothing the note does not contain, in the language named above.',
+            'What to do about the note, written out so it still makes sense in two weeks, adding nothing the note does not contain and never saying what the note leaves unsaid, in the language named above.',
         },
         readings: {
           type: 'array',
@@ -197,7 +243,7 @@ panel: Compliance questions, because it's a compliance question - Part 11 and th
 }
 
 /**
- * Unchanged from `v4`'s own `renderHistory`.
+ * Unchanged since `v4`.
  */
 function renderHistory(history: readonly DecisionHistoryEntry[]): string {
   if (history.length === 0) return 'Decision history: (nothing filed yet)';
@@ -237,7 +283,7 @@ function renderCorrection(correction: string | null): string {
 }
 
 /**
- * Unchanged from `v4`'s own `renderRecentlyCaptured`.
+ * Unchanged since `v4`.
  */
 function renderRecentlyCaptured(recentlyCaptured: readonly string[]): string {
   if (recentlyCaptured.length === 0) {

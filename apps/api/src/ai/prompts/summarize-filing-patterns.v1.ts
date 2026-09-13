@@ -71,7 +71,7 @@ ${renderHistory(history)}`,
 
 /**
  * One line per entry, oldest first, each dated - the same rendering
- * `clean-up-a-note.v5.ts`'s own `renderHistory` uses, kept identical rather
+ * `clean-up-a-note.v6.ts`'s own `renderHistory` uses, kept identical rather
  * than shared: the two prompts are versioned independently, and a change to
  * one's rendering must not silently reach the other (architecture, "Prompts
  * are versioned files in the repository, reviewed like code").
