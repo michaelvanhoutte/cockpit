@@ -649,8 +649,8 @@ function TheShell() {
                 Manage types
               </DropdownMenu.Item>
               {/* Workspace-scoped, unlike Manage types above - the decision
-                  history a nightly job summarizes belongs to one Workspace
-                  (`docs/routing-learning.md` §13 decision 1), so this is
+                  history this sentence steers belongs to one Workspace
+                  (`docs/routing-learning.md`, "Open decisions"), so this is
                   offered only while one is open ("Show what the system
                   learned, in a sentence you can correct", issue 301). */}
               {params.workspaceId && (

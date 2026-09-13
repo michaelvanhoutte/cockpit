@@ -1,15 +1,19 @@
 import { z } from 'zod';
 
 /**
- * What a Workspace's own filing-pattern summary is made of ("Show what the
- * system learned, in a sentence you can correct", issue 301): a plain-English
- * summary a nightly job writes, and a correction a person writes over it.
+ * What a Workspace's own sentence about where its notes belong is made of
+ * ("Show what the system learned, in a sentence you can correct", issue 301).
  *
- * **Two independently-owned halves**, matching `schema.ts`'s
- * `workspaceRoutingSummary` table: the summary is the system's own account of
- * what it learned from the decision history, and the correction is the
- * person's own word against it — never the other way rewritten. Editing one
- * never touches the other.
+ * **One half, where there were two.** A nightly job wrote a generated summary
+ * beside this and nothing ever read it back, so it is gone ("Drop the nightly
+ * filing summary, keep the sentence you wrote", issue 392). What a person
+ * writes is the half that was always doing the work — it is read into every
+ * clean-up call for the Workspace, ranked above the decision history itself.
+ *
+ * **The columns behind the generated half are still there and simply unread**,
+ * per expand-then-contract; dropping them is its own step, once the
+ * account-scoped rules block replaces this table (`docs/text-learning.md`,
+ * "Build order").
  */
 
 /**
@@ -32,15 +36,12 @@ export const ROUTING_SUMMARY_CORRECTION_LIMIT = 2_000;
 export const routingSummaryCorrectionSchema = z.string().trim().max(ROUTING_SUMMARY_CORRECTION_LIMIT);
 
 /**
- * A Workspace's summary and correction, as the snapshot reads them back.
- * Absent (the whole object null) where no row exists yet — a Workspace with
- * no decision history and no correction ever written, which is every
- * Workspace's starting condition.
+ * A Workspace's correction, as the snapshot reads it back. Absent (the whole
+ * object null) where no row exists yet, which is every Workspace's starting
+ * condition — and, since the generated half stopped being written, the state
+ * of every Workspace nobody has written a sentence for.
  */
 export const routingSummarySchema = z.object({
-  /** Null until the first nightly run finds any decision history to summarize. */
-  summary: z.string().nullable(),
-  summaryGeneratedAt: z.iso.datetime().nullable(),
   /** Null until a person writes one, and null again once they clear it. */
   correction: z.string().nullable(),
   correctionSetAt: z.iso.datetime().nullable(),

@@ -365,33 +365,20 @@ export const setDescriptionSchema = commandEnvelopeSchema.extend({
 export type SetDescriptionCommand = z.infer<typeof setDescriptionSchema>;
 
 /**
- * set_routing_summary_correction — the whole correction sentence for one
- * Workspace's filing-pattern summary, as it now reads ("Show what the system
- * learned, in a sentence you can correct", issue 301). The empty string
- * clears it, the same idiom `set_description`'s `null` uses for "nothing
- * here" — empty rather than null because this field has no third state to
- * spend null on (`domain/routing-summary.ts`).
+ * set_routing_summary_correction — what one Workspace's own sentence about
+ * where its notes belong says, in the writer's words ("Show what the system
+ * learned, in a sentence you can correct", issue 301). It corrected a
+ * generated summary once; that summary is gone and this outlived it ("Drop
+ * the nightly filing summary, keep the sentence you wrote", issue 392), so it
+ * is now the only text on this table anything reads. The empty string clears
+ * it, the same idiom `set_description`'s `null` uses for "nothing here" —
+ * empty rather than null because this field has no third state to spend null
+ * on (`domain/routing-summary.ts`).
  */
 export const setRoutingSummaryCorrectionSchema = commandEnvelopeSchema.extend({
   correction: routingSummaryCorrectionSchema,
 });
 export type SetRoutingSummaryCorrectionCommand = z.infer<typeof setRoutingSummaryCorrectionSchema>;
-
-/**
- * write_routing_summary — the plain-English summary a nightly job wrote for
- * one Workspace's filing patterns, sent by that job rather than a client
- * ("Show what the system learned, in a sentence you can correct", issue 301;
- * architecture.md §4.4, "two commands carry no client and no route" — this is
- * a third). Only ever written where the job found decision history to
- * summarize and a usable answer came back; the job simply does not call this
- * otherwise, the same as `propose_item_texts`/`propose_item_panel` beside it.
- * Never touches `correction` — the two are independently owned
- * (`domain/routing-summary.ts`).
- */
-export const writeRoutingSummarySchema = commandEnvelopeSchema.extend({
-  summary: z.string().trim().min(1),
-});
-export type WriteRoutingSummaryCommand = z.infer<typeof writeRoutingSummarySchema>;
 
 /**
  * propose_item_texts — one command for both texts, sent by the enrichment job
@@ -478,7 +465,6 @@ export const commandSchemas = {
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
   set_routing_summary_correction: setRoutingSummaryCorrectionSchema,
-  write_routing_summary: writeRoutingSummarySchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
 } as const;
@@ -491,10 +477,7 @@ export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchem
  * the ones with no endpoint and no sender (architecture.md §4.4, "two commands
  * carry no client and no route").
  */
-export type SelfSentCommandName =
-  | 'propose_item_texts'
-  | 'propose_item_panel'
-  | 'write_routing_summary';
+export type SelfSentCommandName = 'propose_item_texts' | 'propose_item_panel';
 
 /** The commands a client sends, which is every command with an endpoint. */
 export type ClientCommandName = Exclude<CommandName, SelfSentCommandName>;

@@ -1,19 +1,22 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
 import { buildCleanUpANote } from './prompts/clean-up-a-note.v6.js';
-import { buildSummarizeFilingPatterns } from './prompts/summarize-filing-patterns.v1.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
-import { readSummary, type SummaryRead } from './routing-summary.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 
 export type { NoteTexts, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
-export type { SummaryRead } from './routing-summary.js';
 
 /**
  * The AI layer behind a project-owned interface (architecture, "AI layer"):
  * takes domain values, returns domain values, so everything around it stays
  * testable with the model faked. Enrichment runs on ingest, in jobs; nothing a
  * person waits for waits on a model call.
+ *
+ * **One method, and one again.** `summarizeFilingPatterns` was the second,
+ * and it wrote a paragraph nothing ever read back ("Drop the nightly filing
+ * summary, keep the sentence you wrote", issue 392). What learning there is
+ * happens inside the one call below, from the decision history and the
+ * correction it already reads.
  *
  * One method, because one thing asks: a captured note being cleaned up into a
  * title and a message ("Clean up a captured note into a clear title and a
@@ -40,9 +43,11 @@ export interface AiService {
    * captured there lately and not yet filed - the two inputs that let a
    * proposal learn from where notes actually get filed ("Learn where notes
    * belong from where you actually file them", issue 299) - and `correction`
-   * is the Workspace's own live correction of what the nightly summary said
-   * it learned, or null where none has been written ("Show what the system
-   * learned, in a sentence you can correct", issue 301).
+   * is the sentence this Workspace wrote about where its notes belong, or
+   * null where nobody has written one ("Show what the system learned, in a
+   * sentence you can correct", issue 301). It used to correct a generated
+   * summary; that summary is gone and this outlived it ("Drop the nightly
+   * filing summary, keep the sentence you wrote", issue 392).
    *
    * Answers a refusal rather than throwing for anything the model itself said:
    * an answer that will not parse or will not validate is a discarded proposal,
@@ -57,20 +62,6 @@ export interface AiService {
     recentlyCaptured: readonly string[],
     correction: string | null,
   ): Promise<ProposalRead>;
-
-  /**
-   * Reads a Workspace's whole decision history and writes a short,
-   * plain-English summary of the pattern in how notes get filed there
-   * ("Show what the system learned, in a sentence you can correct", issue
-   * 301) - what the nightly job (`jobs/enrichment.ts`'s `summarizeWorkspace`)
-   * writes onto `workspace_routing_summary` and a settings screen shows.
-   *
-   * Answers a refusal rather than throwing for anything the model itself
-   * said, the same as `cleanUpNote` above - the job simply leaves the
-   * Workspace's summary as it was rather than overwriting it with nothing
-   * useful. A call that *fails* throws, because that is worth retrying.
-   */
-  summarizeFilingPatterns(history: readonly DecisionHistoryEntry[]): Promise<SummaryRead>;
 }
 
 /**
@@ -151,28 +142,5 @@ export class ClaudeAiService implements AiService {
     if (answer.stop_reason === 'refusal') return { discarded: 'the model declined the note' };
     const text = answer.content.find((block) => block.type === 'text');
     return readProposal(text?.text, panels.map((panel) => panel.id));
-  }
-
-  async summarizeFilingPatterns(history: readonly DecisionHistoryEntry[]): Promise<SummaryRead> {
-    const prompt = buildSummarizeFilingPatterns(history);
-    const answer = await this.#client.messages.create({
-      model: prompt.model,
-      // A summary is a few sentences; the headroom is the same reasoning
-      // `cleanUpNote` above gives for its own budget.
-      max_tokens: 4_096,
-      system: prompt.system,
-      // There is no per-note user turn here, unlike `cleanUpNote` - the whole
-      // question is already in the system prompt's own history section, so
-      // the user turn just asks for it.
-      messages: [{ role: 'user', content: 'Summarize the filing pattern above.' }],
-      output_config: {
-        format: { type: 'json_schema', schema: prompt.schema },
-        effort: prompt.effort,
-      } as Anthropic.OutputConfig,
-    });
-
-    if (answer.stop_reason === 'refusal') return { discarded: 'the model declined to summarize' };
-    const text = answer.content.find((block) => block.type === 'text');
-    return readSummary(text?.text);
   }
 }

@@ -23,7 +23,7 @@ Model calls at personal volume cost cents per day, so the goal is not to minimis
 |---|---|---|
 | A note syncs in | proposes a routing, reading the full decision history | nobody |
 | The inbox is opened *(not built - a settle fires the equivalent instead, "The decision moments")* | refreshes proposals for everything not yet settled | me, but it runs behind the instant paint |
-| Nightly | rewrites the plain-English summary of my filing patterns | nobody |
+| ~~Nightly~~ *(removed — the summary it rewrote was read back by nothing, "Drop the nightly filing summary, keep the sentence you wrote", issue 392)* | rewrote the plain-English summary of my filing patterns | nobody |
 | I press "re-suggest" on one item | reclassifies that item on demand | me, by explicit request, spinner accepted |
 
 The last row is the one deliberate exception, and it exists so a stale proposal is never stuck — which is what makes the rest safe to run asynchronously.
@@ -57,17 +57,17 @@ Consequences:
 | 2. The note syncs | a proposed routing | model, background job | no | no |
 | 3. I open the inbox *(not built - see below)* | proposals refreshed for all unsettled items | model, background job | no | no |
 | 4. I triage an item | the routing settles; one history entry appended | **me** | **yes, permanently** | no |
-| 5. Nightly | plain-English summary of my patterns rewritten | model | routes nothing | no |
+| ~~5. Nightly~~ *(removed, issue 392)* | plain-English summary of my patterns rewritten | model | routes nothing | no |
 
 **Moment 1** stores the note locally and nothing else, because there may be no connectivity and the note must be safe within the capture budget. This is the existing capture outbox, unchanged.
 
-**Moment 2** is the first classification: the model reads the note, the panel definitions (already plain-English sentences), the nightly summary and the decision history, through the existing queue-based enrichment path.
+**Moment 2** is the first classification: the model reads the note, the panel definitions (already plain-English sentences), the sentence I wrote about where things belong and the decision history, through the existing queue-based enrichment path.
 
 **Moment 3** is what makes learning land. Between triage sessions lie hours or days, so proposals from moment 2 may predate corrections made since; on inbox open, everything unsettled is re-proposed against the current history. **Shipped instead: the same re-proposal fired by moment 4 itself** ("Re-propose the rest of the inbox the moment you file one", issue 300) — a settle already carries the history moment 3 would open the inbox to re-read, so it fires the refresh directly rather than waiting for the next open. The inbox-open trigger this row describes is not built.
 
 **Moment 4** is the only binding moment and the only source of learning. Accepting and overriding both settle the routing and both append to the history, and an override is the stronger signal because it records the rejected answer alongside the correct one.
 
-**Moment 5** keeps the model's input bounded as the history grows, and makes what the system learned *visible and editable*: the summary renders in settings as plain English ("notes about validation, audit trails and sign-off go to Compliance questions, even when they name a person") and I can correct it in a sentence. Same philosophy as plain-English panel rules — no black box, no rule wizard.
+**Moment 5 is gone, and the sentence I write outlived it** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392). It was built to keep the model's input bounded and to make what the system learned visible and editable; what shipped was a paragraph rewritten nightly, shown read-only, and fed into nothing, beside a correction that was already the highest-ranked input in the prompt. The correction is what stayed. Making it a rules block I own, and having Cockpit account for itself on demand rather than nightly, is `text-learning.md`'s "What Cockpit says about itself".
 
 ## 7. Moment 3 in slow motion
 
@@ -88,7 +88,7 @@ The inbox never waits for the refresh and the refresh never waits for the inbox:
 - The corpus is small. A history entry is a short note plus a destination, roughly 25 tokens, so a year of heavy use is on the order of 50,000 tokens. It is a stable append-only prefix, the ideal shape for prompt caching.
 - Reading everything is strictly better at the hard cases: notes sharing meaning but no words ("Part 11 audit trail" versus "validation protocol, who signs off"), panels defined by something other than topic ("urgent", "do at home"), and Dutch or mixed notes. Every similarity measure struggles with at least one; a model reading the panel definitions and the full history handles all three.
 
-The scaling ladder, if the history outgrows the prompt: **full history in the prompt** (now, nothing to build) → **nightly summary plus the most recent decisions** (a semantic compression written by a model that read everything, and inspectable) → **add retrieval**, which may never be reached.
+The scaling ladder, if the history outgrows the prompt: **full history in the prompt** (now, nothing to build) → **a generated summary plus the most recent decisions** (a semantic compression written by a model that read everything, and inspectable — built once and removed for being read by nothing, so rebuilding it means feeding it into the prompt this time, issue 392) → **add retrieval**, which may never be reached.
 
 ## 9. Part 2 (optional, measurement-gated): in-session carry-over
 
@@ -111,16 +111,16 @@ One non-obvious rule: when the filing was an *override*, the features behind the
 
 ## 11. Build order
 
-1. **Part 1**: decision history, proposed/settled states on associations, the classification job at moments 2 and 3, the re-suggest action, the settings screen showing the summary.
+1. **Part 1**: decision history, proposed/settled states on associations, the classification job at moments 2 and 3, the re-suggest action, the settings screen showing the summary. *Shipped, except that the summary half was removed again (issue 392); the screen keeps the sentence I write.*
 2. **Instrument** the two measurements.
 3. **Part 2** (carry-over), only if the numbers justify it.
-4. **The summary as prompt input**, only when history size demands it. The summary *screen* ships in step 1.
+4. **The summary as prompt input**, only when history size demands it. *Nothing to re-point: the summary was never made an input, which is why it was removed (issue 392).*
 
 ## 12. Consequences for the two codebases
 
 **task-creator.** The capture outbox transfers as the architecture's merge plan describes. The client-side refine-before-send path is retired: it is the late-and-synchronous pattern this document rejects and cannot work offline. Manual pickers survive with a changed meaning — a manual choice is a settled value and a history entry, not a hint to the enricher. The Notion destination retires with the stopgap, replacing its category vocabulary with Cockpit's panels and associations.
 
-**cockpit.** Part 1 needs the decision-history table; proposal state (origin, confidence, confirmed-at) on associations; a classification job on the existing enrichment queue; refresh-on-snapshot; the re-suggest command; and the nightly summary job with its settings screen. Part 2 adds an embedding per item, the client-side resemblance scan, and a group-filing command with group undo. All of it fits the existing shapes — commands, queue jobs, snapshot plus push invalidation — with no new infrastructure.
+**cockpit.** Part 1 needs the decision-history table; proposal state (origin, confidence, confirmed-at) on associations; a classification job on the existing enrichment queue; refresh-on-snapshot; the re-suggest command; and the nightly summary job with its settings screen (the job since removed, issue 392, the screen kept). Part 2 adds an embedding per item, the client-side resemblance scan, and a group-filing command with group undo. All of it fits the existing shapes — commands, queue jobs, snapshot plus push invalidation — with no new infrastructure.
 
 ## 13. Open decisions
 

@@ -115,12 +115,6 @@ export interface Account {
     excludeItemId: string,
   ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }>;
   /**
-   * One Workspace's whole decision history alone, oldest first - what the
-   * nightly summary job reads ("Show what the system learned, in a sentence
-   * you can correct", issue 301). Read by that job and by nothing else.
-   */
-  decisionHistory(workspaceId: string): Promise<DecisionHistoryEntry[]>;
-  /**
    * Every item in one Workspace's Inbox with a captured note - the rest of
    * the inbox a settled filing re-proposes ("Re-propose the rest of the
    * inbox the moment you file one", issue 300). Read by the enrichment job
@@ -169,7 +163,6 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
     routingContext: async (workspaceId, excludeItemId) =>
       unwrap(await store.routingContext(accountName, workspaceId, excludeItemId)),
-    decisionHistory: async (workspaceId) => unwrap(await store.decisionHistory(accountName, workspaceId)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),

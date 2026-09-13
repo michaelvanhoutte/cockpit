@@ -74,12 +74,6 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }>
   >;
   /**
-   * One Workspace's whole decision history alone, oldest first - what the
-   * nightly summary job reads ("Show what the system learned, in a sentence
-   * you can correct", issue 301). Read by that job and by nothing else.
-   */
-  decisionHistory(accountName: string, workspaceId: string): Awaitable<Answer<DecisionHistoryEntry[]>>;
-  /**
    * Every item in one workspace's Inbox with a captured note - what a
    * settled filing re-proposes the panel for ("Re-propose the rest of the
    * inbox the moment you file one", issue 300). Read by that job and by

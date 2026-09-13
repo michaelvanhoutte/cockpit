@@ -80,7 +80,12 @@ function resetByOperator(): Promise<Response> {
 /**
  * What Cron Triggers run. The controller is not read - there is one schedule
  * and nothing to dispatch on - so an empty stand-in is the whole of it, as in
- * routing-summary-cron.test.ts.
+ * ../http/nightly-tick.test.ts.
+ *
+ * **Putting this account back is now the whole of the night's work**, the
+ * filing summary it used to run beside having been dropped ("Drop the nightly
+ * filing summary, keep the sentence you wrote", issue 392) - so these cases
+ * are what says the schedule still earns its place.
  */
 function resetNightly(): Promise<void> {
   return handleScheduled({} as never, env);
@@ -325,6 +330,23 @@ describe('Accounts', () => {
       const [answer] = await Promise.all([resetByOperator(), resetNightly()]);
 
       expect(answer.status, await answer.text()).toBe(200);
+      expect(await held(GUEST_ACCOUNT_NAME)).toEqual(seeded);
+    });
+
+    /**
+     * The nightly run used to read the model key before doing anything, for
+     * the summaries it queued after this reset. That reading is gone with
+     * them, and an environment that can afford no model call at all still
+     * gets its demonstration back ("Drop the nightly filing summary, keep the
+     * sentence you wrote", issue 392).
+     */
+    it('puts it back in an environment that has nothing to pay a model with', async () => {
+      const { cookie, workspaces, seeded } = await openAsGuest();
+      await guestsUseIt(cookie, workspaces, seeded);
+      env.ANTHROPIC_API_KEY = '';
+
+      await resetNightly();
+
       expect(await held(GUEST_ACCOUNT_NAME)).toEqual(seeded);
     });
   });

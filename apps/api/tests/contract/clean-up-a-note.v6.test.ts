@@ -560,9 +560,9 @@ describe('Capture', () => {
   });
 
   /**
-   * The property `write_routing_summary`/`set_routing_summary_correction`
-   * exist for ("Show what the system learned, in a sentence you can
-   * correct", issue 301): a person's own written correction steers a
+   * The property `set_routing_summary_correction` exists for ("Show what the
+   * system learned, in a sentence you can correct", issue 301): a person's
+   * own written correction steers a
    * proposal, on its own, with no matching entry in the decision history at
    * all - the history in this case is empty, so a pass here cannot be the
    * history-following case above under another name.
