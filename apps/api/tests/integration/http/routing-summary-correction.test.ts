@@ -68,7 +68,13 @@ async function rowFor(accountName: string, workspaceId: string) {
   return rows[0] ?? null;
 }
 
-/** A summary already sitting on the row, written the way the nightly job writes one - directly, since it is Cockpit's own to send. */
+/**
+ * A summary left on the row by the nightly job that used to write one,
+ * inserted directly because nothing sends it any more ("Drop the nightly
+ * filing summary, keep the sentence you wrote", issue 392). Every Workspace
+ * summarized before that deploy still carries one, which is what the cases
+ * below are about: the columns stay, unread and unwritten.
+ */
 async function aStoredSummary(text: string, generatedAt = '2026-09-09T03:00:00.000Z'): Promise<void> {
   await inTheStore((sql) =>
     sql.exec(
@@ -108,7 +114,7 @@ describe('What Cockpit has learned', () => {
       });
     });
 
-    it('never touches the summary the nightly job wrote', async () => {
+    it('leaves a summary the nightly job left behind exactly as it found it', async () => {
       await aStoredSummary('You file compliance questions to Compliance questions.');
 
       expect((await setCorrection('Sign-off questions go to Laurens.')).status).toBe(200);
@@ -199,23 +205,24 @@ describe('What Cockpit has learned', () => {
       expect((await snapshot()).routingSummary).toBeNull();
     });
 
-    it('reads back a correction just written, with no summary alongside it', async () => {
+    it('reads back a correction just written, and nothing else', async () => {
       await setCorrection('Sign-off questions go to Laurens.');
 
-      expect((await snapshot()).routingSummary).toMatchObject({
-        summary: null,
+      // `toEqual`, not `toMatchObject`: what this case is about is the two
+      // fields that are *not* there, which a partial match cannot see.
+      expect((await snapshot()).routingSummary).toEqual({
         correction: 'Sign-off questions go to Laurens.',
+        correctionSetAt: AT,
       });
     });
 
-    it('reads back a summary the nightly job wrote, alongside a correction', async () => {
+    it('never reads back a summary still sitting on the row beside it', async () => {
       await aStoredSummary('You file compliance questions to Compliance questions.');
       await setCorrection('Sign-off questions go to Laurens.');
 
-      expect((await snapshot()).routingSummary).toMatchObject({
-        summary: 'You file compliance questions to Compliance questions.',
-        summaryGeneratedAt: '2026-09-09T03:00:00.000Z',
+      expect((await snapshot()).routingSummary).toEqual({
         correction: 'Sign-off questions go to Laurens.',
+        correctionSetAt: AT,
       });
     });
   });

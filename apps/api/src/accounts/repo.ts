@@ -781,19 +781,29 @@ export function recentlyCapturedUnfiled(
     .map((row) => row.capturedMessage!);
 }
 
+/**
+ * Named columns rather than the whole row, which is what keeps
+ * `summary`/`summary_generated_at` unread while they are still on the table -
+ * the generated half is gone and dropping its columns is a later step
+ * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392;
+ * `docs/text-learning.md`, "Build order").
+ */
 const routingSummaryColumns = {
-  summary: workspaceRoutingSummary.summary,
-  summaryGeneratedAt: workspaceRoutingSummary.summaryGeneratedAt,
   correction: workspaceRoutingSummary.correction,
   correctionSetAt: workspaceRoutingSummary.correctionSetAt,
 };
 
 /**
- * One Workspace's filing-pattern summary and correction ("Show what the
- * system learned, in a sentence you can correct", issue 301), or null where
- * no row exists yet - a Workspace with no decision history summarized and no
- * correction ever written, which is every Workspace's starting condition
- * (`schema.ts`'s own comment on `workspaceRoutingSummary`).
+ * One Workspace's own correction ("Show what the system learned, in a
+ * sentence you can correct", issue 301), or null where no row exists yet -
+ * a Workspace nobody has written a sentence for, which is every Workspace's
+ * starting condition (`schema.ts`'s own comment on
+ * `workspaceRoutingSummary`).
+ *
+ * **A row that holds only a summary reads back as a correction of null**, not
+ * as no row at all: the generated columns are still populated on Workspaces
+ * summarized before that half was removed, and this deliberately says nothing
+ * about them.
  */
 export function getRoutingSummary(
   db: AccountDb,

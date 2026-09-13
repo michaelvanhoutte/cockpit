@@ -188,18 +188,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   }
 
   /**
-   * One Workspace's whole decision history alone, oldest first - what the
-   * nightly summary job reads ("Show what the system learned, in a sentence
-   * you can correct", issue 301). Bare, unlike `routingContext` beside it:
-   * that job has no note of its own to exclude and reads neither recent
-   * captures nor the correction (`ai/prompts/summarize-filing-patterns.v1.ts`
-   * reads only the history).
-   */
-  decisionHistory(accountName: string, workspaceId: string): Answer<DecisionHistoryEntry[]> {
-    return this.#answer(accountName, (db) => decisionHistoryForWorkspace(db, accountName, workspaceId));
-  }
-
-  /**
    * Every item in one Workspace's Inbox with a captured note - the rest of
    * the inbox a settled filing re-proposes ("Re-propose the rest of the
    * inbox the moment you file one", issue 300).

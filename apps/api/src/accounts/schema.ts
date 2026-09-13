@@ -1009,41 +1009,38 @@ export const decisionHistory = sqliteTable(
 );
 
 /**
- * One row per Workspace: the plain-English summary of its filing patterns a
- * nightly job writes, and the sentence a person may correct it with ("Show
- * what the system learned, in a sentence you can correct", issue 301).
+ * One row per Workspace: the sentence a person writes about where its notes
+ * belong ("Show what the system learned, in a sentence you can correct", issue
+ * 301).
  *
- * **Two independently-owned halves of one row, not one text a person edits.**
- * `summary`/`summary_generated_at` are written only by the nightly job
- * (`jobs/enrichment.ts`'s `summarizeWorkspace`); `correction`/
- * `correction_set_at` are written only by the `set_routing_summary_correction`
- * command. Neither write ever touches the other's columns - the same
- * source-owned/app-owned split `items` already carries (architecture, "Schema
- * conventions"), here between "the system's own account of what it learned"
- * and "the person's own word against it". A generated summary a person had
- * hand-edited would be neither, and the next night's rewrite would have no
- * way to know which words were whose (issue 301, "Out of scope / open
- * questions").
+ * **`summary`/`summary_generated_at` are dead columns, not a second half.** A
+ * nightly job wrote them and nothing ever read them back, so that job is gone
+ * and nothing writes them any more ("Drop the nightly filing summary, keep the
+ * sentence you wrote", issue 392). They keep whatever they already hold -
+ * expand-then-contract, and dropping them is its own step, once the
+ * account-scoped rules block replaces this table (`docs/text-learning.md`,
+ * "Build order"). Nothing may start reading them in the meantime.
+ *
+ * `correction`/`correction_set_at` are written only by the
+ * `set_routing_summary_correction` command, and that write has never touched
+ * the other two columns.
  *
  * **`workspace_id` is the primary key, not a separate `id`.** There is
- * exactly one summary and one correction per Workspace, ever, so a row is
- * addressed by the Workspace it belongs to and there is nothing else it could
- * be keyed on.
+ * exactly one correction per Workspace, ever, so a row is addressed by the
+ * Workspace it belongs to and there is nothing else it could be keyed on.
  *
- * **The row does not exist until something is written.** A freshly made
- * Workspace has no decision history to summarize and nobody has corrected
- * anything yet, so there is no row to create in step with it - unlike
- * `workspaces` itself, which is a row from the moment it is made. Reads
- * treat a missing row exactly as they would an existing one with every
- * column null.
+ * **The row does not exist until something is written.** Nobody has written a
+ * sentence for a freshly made Workspace, so there is no row to create in step
+ * with it - unlike `workspaces` itself, which is a row from the moment it is
+ * made. Reads treat a missing row exactly as they would an existing one with
+ * every column null.
  *
- * **All four value columns are nullable.** `summary`/`summary_generated_at`
- * are null until the first nightly run finds any decision history to
- * summarize (a fresh Workspace, or one still empty). `correction`/
- * `correction_set_at` are null until a person writes one, and go back to null
- * when they clear it - there is no third state between "never set" and "set
- * to nothing" worth telling apart, the same choice `set_description` already
- * makes.
+ * **All four value columns are nullable.** `correction`/`correction_set_at`
+ * are null until a person writes one, and go back to null when they clear it -
+ * there is no third state between "never set" and "set to nothing" worth
+ * telling apart, the same choice `set_description` already makes. The other
+ * two are null on every Workspace never summarized before that job was
+ * removed, and on every Workspace made since.
  */
 export const workspaceRoutingSummary = sqliteTable(
   'workspace_routing_summary',

@@ -34,10 +34,14 @@ export const workspaceSnapshotSchema = z.object({
   /** Every Screen size of the account, narrowest first ("Give the account a list of screen sizes, before anything reads it", issue 262; architecture.md §4.4). Empty until "Draw a dashboard against the screen sizes its account has" (issue 263). */
   screenSizes: z.array(screenSizeSchema).default([]),
   /**
-   * This Workspace's own filing-pattern summary and correction ("Show what
+   * This Workspace's own sentence about where its notes belong ("Show what
    * the system learned, in a sentence you can correct", issue 301). Null
-   * where no row exists yet — a Workspace with no decision history and no
-   * correction ever written, which is every Workspace's starting condition.
+   * where no row exists yet, which is every Workspace nobody has written one
+   * for.
+   *
+   * **Narrower than it was**: the generated summary that used to ride along
+   * here is gone, along with the nightly job that wrote it ("Drop the nightly
+   * filing summary, keep the sentence you wrote", issue 392).
    */
   routingSummary: routingSummarySchema.nullable().default(null),
   generatedAt: z.iso.datetime(),

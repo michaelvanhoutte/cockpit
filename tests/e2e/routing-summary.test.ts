@@ -9,20 +9,18 @@ import { expect, expectNoSidewaysScroll, openInbox, press, test, uniqueTitle } f
  *
  * It is not re-proving the write rules, which
  * apps/api/tests/integration/http/routing-summary-correction.test.ts owns
- * against a real store, nor what a live model would say, which
- * apps/api/tests/contract/summarize-filing-patterns.v1.test.ts owns. One
- * walk for the capability, saying it works for a person.
+ * against a real store. One walk for the capability, saying it works for a
+ * person.
  *
- * **No decision history to summarize here.** Local dev and this suite run
- * with no `ANTHROPIC_API_KEY` (docs/testing-strategy.md, "A credential on
- * disk reaches every tier"), so the nightly job never runs and the summary
- * itself always reads as the empty state - which is exactly the state this
- * walk exercises, alongside the one thing that is genuinely interactive
- * here: writing and saving a correction.
+ * **There is one thing on this screen now.** A generated paragraph was drawn
+ * above the box and read back by nothing, and it is gone ("Drop the nightly
+ * filing summary, keep the sentence you wrote", issue 392) - so what is left
+ * to walk is the sentence a person writes, which was always the interactive
+ * half.
  */
 test.describe('Capture', () => {
   test.describe('what Cockpit has learned is read on a workspace settings screen, and corrected in a sentence', () => {
-    test('shows the empty state with nothing filed yet, and keeps a correction after closing and reopening', async ({
+    test('keeps what you wrote after closing and reopening the screen', async ({
       page,
       isMobile,
     }) => {
@@ -32,7 +30,6 @@ test.describe('Capture', () => {
       await press(page.getByRole('menuitem', { name: 'What Cockpit has learned' }), isMobile);
       await expect(page.getByRole('dialog', { name: 'What Cockpit has learned' })).toBeVisible();
       await expectNoSidewaysScroll(page);
-      await expect(page.getByText('Not enough has been filed here yet')).toBeVisible();
 
       // Unique per run, not a fixed sentence: the desktop and phone projects
       // share one database and one Workspace (support/app.ts, "The register

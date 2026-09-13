@@ -7,22 +7,25 @@ import { ManageWindow } from './ManageWindow';
 import { LoadFailure } from './LoadFailure';
 
 /**
- * Where a Workspace's own filing-pattern summary is read, and corrected in a
- * sentence ("Show what the system learned, in a sentence you can correct",
- * issue 301).
+ * Where a Workspace's own sentence about where its notes belong is written
+ * ("Show what the system learned, in a sentence you can correct", issue 301).
+ *
+ * **One text, where there were two.** A generated summary was drawn read-only
+ * above this box, rewritten nightly and read back by nothing, and it is gone
+ * ("Drop the nightly filing summary, keep the sentence you wrote", issue
+ * 392). What is left is the half that was always doing the work: a plain
+ * textarea, because it is the one thing on this screen a person actually
+ * writes, and what they write outranks every pattern read out of the
+ * decision history (`domain/routing-summary.ts` in `packages/shared`).
  *
  * **Per Workspace, not per account** - unlike `ManageTypes` beside it. The
- * decision history a nightly job summarizes is itself scoped to one
- * Workspace (`docs/routing-learning.md` §13 decision 1), and a summary
- * spanning several would say something about one Workspace's filing while
- * another Workspace's tab is open, crossing the privacy boundary a Workspace
- * otherwise draws (functional-definition.md, "Container hierarchy").
- *
- * **Two independently-owned texts, drawn differently.** The summary is read
- * only - it is the system's own account of what it learned, rewritten every
- * night - while the correction is a plain textarea, because it is the one
- * thing on this screen a person actually writes (`domain/routing-summary.ts`
- * in `packages/shared`).
+ * decision history this steers is itself scoped to one Workspace
+ * (`docs/routing-learning.md`, "Open decisions"), and a sentence spanning
+ * several would say something about one Workspace's filing while another
+ * Workspace's tab is open, crossing the privacy boundary a Workspace
+ * otherwise draws (functional-definition.md, "Container hierarchy"). Moving
+ * it to account scope is its own step (`docs/text-learning.md`, "Build
+ * order"), and is what will rename this screen.
  */
 export function RoutingSummaryWindow({
   workspaceId,
@@ -108,18 +111,6 @@ export function RoutingSummaryWindow({
       ) : (
         <div className="mt-3 flex flex-col gap-4 text-sm">
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-              Filing pattern
-            </h3>
-            {/* A generated summary is prose, not a form field - there is
-                nothing to edit here, only to read and, below, to correct. */}
-            <p className="mt-1 text-ink">
-              {routingSummary?.summary ??
-                'Not enough has been filed here yet for Cockpit to say anything about how you file things.'}
-            </p>
-          </div>
-
-          <div>
             <label
               htmlFor="routing-summary-correction"
               className="text-xs font-semibold uppercase tracking-wide text-ink-faint"
@@ -132,7 +123,7 @@ export function RoutingSummaryWindow({
               disabled={saving}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Say it in a sentence, if what's above isn't right."
+              placeholder="Say in a sentence where your notes should go, and Cockpit will follow it."
               className="mt-1 w-full resize-y rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
             />
             {overCap && (

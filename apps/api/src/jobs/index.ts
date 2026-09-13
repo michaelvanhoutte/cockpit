@@ -1,12 +1,10 @@
 import type { Message, MessageBatch, ScheduledController } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
-import { openAccount, registeredAccountNames, resetGuestAccount } from '../accounts/index.js';
+import { resetGuestAccount } from '../accounts/index.js';
 import {
   cleanUpACapturedNote,
-  enqueueSummarizeWorkspace,
   enrichmentJobSchema,
   reproposePanels,
-  summarizeWorkspace,
   type EnrichmentJob,
 } from './enrichment.js';
 
@@ -14,12 +12,10 @@ export {
   cleanUpACapturedNote,
   enqueueCleanUp,
   enqueueRepropose,
-  enqueueSummarizeWorkspace,
   enrichmentJobSchema,
   reproposePanels,
-  summarizeWorkspace,
 } from './enrichment.js';
-export type { EnrichmentJob, CleanUpJob, ReproposePanelsJob, SummarizeWorkspaceJob } from './enrichment.js';
+export type { EnrichmentJob, CleanUpJob, ReproposePanelsJob } from './enrichment.js';
 
 /**
  * Background jobs (architecture, "Background jobs"): plain functions calling
@@ -32,15 +28,15 @@ export type { EnrichmentJob, CleanUpJob, ReproposePanelsJob, SummarizeWorkspaceJ
  * watchdog (architecture, "Observability") dispatch from here too, added as
  * their own issues build them.
  *
- * **The guest account is put back first** ("Reset the guest account to its
- * seeded state", issue 356), so the summaries queued after it are of the
- * Workspaces the guest account will open on tomorrow rather than ones a guest
- * made today and the reset has just removed.
+ * **One job, where there were two.** Cron Triggers were wired for the nightly
+ * filing summary and that summary is gone ("Drop the nightly filing summary,
+ * keep the sentence you wrote", issue 392); the guest reset ("Reset the guest
+ * account to its seeded state", issue 356) is what keeps the schedule. So
+ * this tick now queues nothing at all, and is idempotent by doing less.
  */
 export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
   void controller;
   await resetTheGuestAccount(env);
-  await queueNightlySummaries(env);
 }
 
 /**
@@ -61,62 +57,6 @@ async function resetTheGuestAccount(env: Env): Promise<void> {
       }),
     );
   }
-}
-
-/**
- * The first thing Cron Triggers ran, with "Show what the system learned, in a
- * sentence you can correct" (issue 301).
- *
- * **Fans out rather than doing the work.** A scheduled handler has a tight
- * execution budget, and summarizing is a model call per Workspace across
- * every account this Cockpit knows - so this only enumerates accounts and
- * their Workspaces and puts one `summarize-workspace` message per Workspace
- * on the same enrichment queue `capture_item` already uses; the actual model
- * call happens in the consumer (`summarizeWorkspace`, `enrichment.ts`).
- *
- * **One account's failure costs only that account's run tonight.** Nothing
- * here waits on a model, so this loop itself cannot be rate-limited - what
- * can fail is a store this account's changes will not apply to, worth trying
- * again tomorrow rather than losing every account queued alongside it.
- * Accounts run concurrently rather than one at a time, for the same reason
- * `handleQueue`'s own comment gives for working a batch at once: every
- * account's own read and writes are independent, so nothing is gained by
- * making the register's next name wait on the one before it - and every
- * Workspace of one account fans out the same way, underneath it.
- *
- * **The key is checked once, before anything else.** An environment with no
- * `ANTHROPIC_API_KEY` would otherwise still open every account and list
- * every Workspace, on every scheduled tick, only for `enqueueSummarizeWorkspace`
- * to discard each one - real Durable Object wake-ups spent on a run that was
- * always going to queue nothing.
- */
-async function queueNightlySummaries(env: Env): Promise<void> {
-  if (!env.ANTHROPIC_API_KEY) return;
-
-  const accountNames = await registeredAccountNames(env);
-  // `Promise.all`, not `allSettled`: each account's own work is already
-  // wrapped in its own try/catch below, so none of these promises ever
-  // rejects - the isolation is the catch, not the combinator.
-  await Promise.all(
-    accountNames.map(async (accountName) => {
-      try {
-        const account = await openAccount(env, accountName);
-        const workspaces = await account.workspaces();
-        await Promise.all(
-          workspaces.map((workspace) => enqueueSummarizeWorkspace(env, accountName, workspace.id)),
-        );
-      } catch (error) {
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            message: `account ${accountName} was not queued for its nightly summaries: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          }),
-        );
-      }
-    }),
-  );
 }
 
 /**
@@ -241,8 +181,6 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return cleanUpACapturedNote(env, job);
     case 're-propose-panels':
       return reproposePanels(env, job);
-    case 'summarize-workspace':
-      return summarizeWorkspace(env, job);
   }
 }
 
@@ -252,8 +190,6 @@ function describe(job: EnrichmentJob): string {
     case 'clean-up-a-note':
       return `item ${job.itemId}`;
     case 're-propose-panels':
-      return `workspace ${job.workspaceId}`;
-    case 'summarize-workspace':
       return `workspace ${job.workspaceId}`;
   }
 }

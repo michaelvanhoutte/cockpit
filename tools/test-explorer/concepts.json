@@ -253,8 +253,6 @@
       "label": "What Cockpit has learned",
       "parent": "Workspaces",
       "sourcePatterns": [
-        "apps/api/src/ai/routing-summary.ts",
-        "apps/api/src/ai/prompts/summarize-filing-patterns.v1.ts",
         "packages/shared/src/domain/routing-summary.ts",
         "packages/shared/src/commands.ts",
         "apps/web/src/components/RoutingSummaryWindow.tsx",
