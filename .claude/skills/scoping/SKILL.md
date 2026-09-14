@@ -41,6 +41,8 @@ Resolve any term used inconsistently with those docs, and any unstated product d
 
 Use the `grilling` skill's round-based interview (mattpocock-skills): number each open question, give a recommended answer, work one round at a time until nothing about the scope is fuzzy. Skip only when the request is already small and unambiguous.
 
+**Open with the concrete scenario, not the column name or the doc citation.** A question framed first around implementation detail costs a round trip the same question would not have asked plainly: "Learn how you write from the titles you correct" (issue 394) opened with `items.unseen`, functional-definition.md's own undecided routing question, and an unbuilt-feature reference, came back "I don't understand your question," and only landed once restated as what the person would actually see - a title proposed a moment ago, still unread in the Inbox.
+
 Do not write to `CONTEXT.md` or `docs/adr/` — Cockpit's glossary and decisions live in `functional-definition.md`, `architecture.md` and the `*-options.md` docs. Record anything permanent there, in that document's own style.
 
 ### 4. Size it as a vertical slice
