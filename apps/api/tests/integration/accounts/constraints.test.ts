@@ -156,7 +156,7 @@ describe('Capture', () => {
                              'layout_rows', 'panel_placements', 'panel_items',
                              'items', 'item_types', 'screen_sizes',
                              'associations', 'commands', 'decision_history',
-                             'workspace_routing_summary')
+                             'workspace_routing_summary', 'text_corrections')
               ORDER BY name`,
           )
           .toArray(),
@@ -175,6 +175,7 @@ describe('Capture', () => {
         'panel_placements',
         'panels',
         'screen_sizes',
+        'text_corrections',
         'workspace_routing_summary',
         'workspaces',
       ]);
@@ -202,6 +203,7 @@ describe('Capture', () => {
           'panel_items',
           'decision_history',
           'workspace_routing_summary',
+          'text_corrections',
         ]) {
           for (const row of sql
             .exec<{ target: string }>(`SELECT "table" AS target FROM pragma_foreign_key_list(?)`, table)

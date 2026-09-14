@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeAiService } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v6.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v7.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
+import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
 
 /**
  * The contract tier: the real Claude API, the real prompt, no fake anywhere
@@ -21,12 +22,13 @@ import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js'
  * none of them ("Propose where a captured note belongs, without filing it
  * there", issue 298), a model that goes on repeating a proposal a person has
  * already corrected once ("Learn where notes belong from where you actually
- * file them", issue 299), and - measured against 29 notes with the texts
- * their author would have written - a title at the storage cap naming the
- * note rather than the work, and a hedge about unstated detail that not one
- * of those 29 contains ("Propose a title that names the work, not the note",
- * issue 391) - and none of it is provable against a fake, which answers
- * whatever the test told it to.
+ * file them", issue 299), a title at the storage cap naming the note rather
+ * than the work, and a hedge about unstated detail that not one of 29 measured
+ * notes contains ("Propose a title that names the work, not the note", issue
+ * 391), and a proposal that keeps to general style rather than this person's
+ * own vocabulary once a correction has shown it to it ("Learn how you write
+ * from the titles you correct", issue 394) - and none of it is provable
+ * against a fake, which answers whatever the test told it to.
  *
  * A failure here is the model or the prompt having drifted apart, and fixing it
  * is priority work. It is never fixed by running it again.
@@ -34,6 +36,8 @@ import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js'
 
 const key = process.env.ANTHROPIC_API_KEY ?? '';
 const reading = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined);
+
+const NO_STOOD: WhatStood = { proposedTotal: 0, correctedTotal: 0, sample: [] };
 
 /**
  * Words that exist in one of the two languages and not the other, so a text can
@@ -56,8 +60,8 @@ const MARKERS = {
  *
  * **One list for two rules, because a hedge is a sentence about the note.**
  * `v5` instructed the model to write exactly these ("say that the note does
- * not say which"); `v6` drops that instruction, and this is what says it
- * stopped happening rather than merely stopped being asked for.
+ * not say which"); `v6` dropped that instruction, and this is what says it
+ * stayed dropped.
  */
 const TALKS_ABOUT_THE_NOTE = [
   /\b(the|this) note\b/i,
@@ -89,11 +93,10 @@ const REPORTS_RATHER_THAN_INSTRUCTS =
  * and the drift this tier exists to catch would sail through, since a note it
  * has been shown the answer to is not a note it had to decide anything about.
  *
- * `panels` defaults to none, for every case that is not itself about routing:
- * a note being read for its title and message is not made more or less
- * ambiguous by what panels happen to exist. `history`, `recentlyCaptured` and
- * `correction` default to none for the same reason - nothing below is about
- * them unless a case names them.
+ * `panels` defaults to none, for every case that is not itself about routing;
+ * `history`, `recentlyCaptured` and `correction` default to none for the same
+ * reason; `corrections` and `stood` default to no evidence at all - nothing
+ * below is about any of them unless a case names them.
  */
 async function read(
   note: string,
@@ -101,8 +104,18 @@ async function read(
   history: readonly DecisionHistoryEntry[] = [],
   recentlyCaptured: readonly string[] = [],
   correction: string | null = null,
+  corrections: readonly TextCorrectionEntry[] = [],
+  stood: WhatStood = NO_STOOD,
 ) {
-  const answer = await reading.cleanUpNote(note, panels, history, recentlyCaptured, correction);
+  const answer = await reading.cleanUpNote(
+    note,
+    panels,
+    history,
+    recentlyCaptured,
+    correction,
+    corrections,
+    stood,
+  );
   // Said out loud, because a discarded answer is the one failure whose reason
   // is otherwise only in the logs of a scheduled run nobody was watching.
   if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
@@ -172,11 +185,6 @@ describe('Capture', () => {
    * states it.** "About 50" is not a testable instruction, so the prompt asks
    * for 50 or fewer and this holds it to exactly that - the two move together
    * or neither means anything.
-   *
-   * This replaces `v5`'s "a note gets a name of its own rather than being
-   * handed back": a note handed back unshortened is a title longer than the
-   * target, which the first case below fails on a tighter bound than "shorter
-   * than the note" ever did.
    */
   describe('a title names the work in as few words as it takes', () => {
     it('shortens a note of about ninety characters to a title at or under the target', async () => {
@@ -196,7 +204,7 @@ describe('Capture', () => {
       expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
       // The cases in this file are only evidence about the version they ran
       // against, so the version is said out loud once.
-      expect(buildCleanUpANote([], [], [], null).version).toBe('v6');
+      expect(buildCleanUpANote([], [], [], null, [], NO_STOOD).version).toBe('v7');
     });
 
     it('does not pad a note that is already shorter than the target', async () => {
@@ -397,7 +405,7 @@ describe('Capture', () => {
    */
   describe('a note carrying almost nothing produces something usable or nothing at all', () => {
     it('answers a note of punctuation and emoji without inventing one, or with nothing', async () => {
-      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], null);
+      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], null, [], NO_STOOD);
 
       // A discard is a pass and there is nothing further to check on it: every
       // producer of that arm writes a non-empty reason, so asserting one here
@@ -470,7 +478,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v6.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v7.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -581,6 +589,51 @@ describe('Capture', () => {
       const proposal = await read(LAURENS_SHAPED_NOTE, panels, [], [], correction);
 
       expect(proposal.panel?.panelId).toBe(panels[1]!.id);
+    });
+  });
+
+  /**
+   * The property this whole file's newest describe exists for ("Learn how you
+   * write from the titles you correct", issue 394): a correction shows the
+   * model this person's own vocabulary, not a rule stated in words - the same
+   * shape "a proposal follows a correction recorded in the decision history"
+   * above already proves for which Panel a note belongs on.
+   *
+   * `NOVY_SHAPED_NOTE` deliberately reuses the note's own subject (a person
+   * named Novy) rather than a fresh one, so a title that comes back with this
+   * account's own past spelling of that name is unambiguous evidence the
+   * correction was read, not a coincidence of the model's own judgement -
+   * nothing in the general prompt could otherwise motivate this exact
+   * spelling.
+   */
+  describe('a proposal uses the vocabulary this account has corrected into its titles before', () => {
+    it('spells a name the way this account has always corrected it to, not the way the note spells it', async () => {
+      const NOVY_SHAPED_NOTE = 'novi bellen over levering volgende week';
+      const corrections: TextCorrectionEntry[] = [
+        {
+          itemId: 'item-1',
+          capturedMessage: 'novi bellen over de afspraak maandag',
+          proposedTitle: 'Novi bellen over de afspraak maandag',
+          proposedDescription: null,
+          settledTitle: 'Novy bellen over de afspraak maandag',
+          settledDescription: null,
+          recordedAt: '2026-08-01T09:00:00.000Z',
+        },
+        {
+          itemId: 'item-2',
+          capturedMessage: 'novi mailen ivm factuur',
+          proposedTitle: 'Novi mailen in verband met de factuur',
+          proposedDescription: null,
+          settledTitle: 'Novy mailen in verband met de factuur',
+          settledDescription: null,
+          recordedAt: '2026-08-05T09:00:00.000Z',
+        },
+      ];
+
+      const proposal = await read(NOVY_SHAPED_NOTE, [], [], [], null, corrections);
+
+      expect(proposal.title).toMatch(/\bNovy\b/);
+      expect(proposal.title).not.toMatch(/\bNovi\b/i);
     });
   });
 });

@@ -1,5 +1,6 @@
 import { TITLE_LENGTH } from '@cockpit/shared';
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
+import type { TextCorrectionEntry, WhatStood } from '../../domain/text-corrections.js';
 
 /**
  * The length a title is written towards, as against `TITLE_LENGTH`, which is
@@ -16,43 +17,34 @@ import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
 export const TITLE_TARGET = 50;
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 6. `v5`
- * ("Show what the system learned, in a sentence you can correct", issue 301)
- * added the Workspace's own correction as one more read; this version changes
- * what is asked for, for the first time since `v2`: the two texts are the work
- * the note is asking for, written as instructions, rather than a noun phrase
- * naming the note and the note itself restated as prose ("Propose a title that
- * names the work, not the note", issue 391).
+ * What Cockpit asks Claude for when a note has been captured, version 7.
+ * `v6` ("Propose a title that names the work, not the note", issue 391)
+ * changed what is asked for; this version adds a new kind of evidence rather
+ * than changing the ask - what this account has actually corrected, and how
+ * many of its other proposals simply stood ("Learn how you write from the
+ * titles you correct", issue 394; `docs/text-learning.md`).
  *
- * Three changes, all measured against the same 29 notes:
+ * **The wanted titles use their author's own vocabulary, not the note's
+ * words - the one thing no general prompt rewrite could supply**
+ * (`docs/text-learning.md`, "What is wrong today"). `corrections` and `stood`
+ * are that evidence: every text this account has actually corrected, oldest
+ * first, and how many of the rest were simply accepted. Read per account,
+ * not per Workspace - how you write is a property of you, not of which
+ * Workspace a note landed in (`docs/text-learning.md`, "Scope: per
+ * account").
  *
- * - the title is written towards `TITLE_TARGET` rather than at the storage cap
- * - both texts are imperative - the work, not a label and not a report
- * - the instruction to announce what the note leaves unsaid is gone, because
- *   not one of the 29 wanted titles or descriptions does that
- *
- * **The rule that nothing may be added is unchanged and outranks the third
- * change.** Dropping the hedge means saying less, never choosing a name, a
- * date or a document the note never carried - and the contract tier asserts
- * both halves, since a model told to stop hedging is a model invited to
- * invent instead.
- *
- * Nothing else moves: language, the other readings, the Panel proposal and the
- * shape of `schema` are `v5`'s.
- *
- * `correction` is `string | null` rather than defaulting to an empty string:
- * null is "nothing has ever been written here", a fact worth rendering
- * differently from an empty section, the same way `history` and
- * `recentlyCaptured` each render their own "nothing yet" line rather than an
- * empty one.
+ * Nothing else moves: language, the other readings, the Panel proposal, the
+ * routing history and the shape of `schema` are `v6`'s.
  */
 export function buildCleanUpANote(
   panels: readonly { id: string; name: string }[],
   history: readonly DecisionHistoryEntry[],
   recentlyCaptured: readonly string[],
   correction: string | null,
+  corrections: readonly TextCorrectionEntry[],
+  stood: WhatStood,
 ): {
-  version: 'v6';
+  version: 'v7';
   model: string;
   effort: 'low';
   system: string;
@@ -64,7 +56,7 @@ export function buildCleanUpANote(
       : '(this account has no panels yet)';
 
   return {
-    version: 'v6',
+    version: 'v7',
 
     /**
      * Unchanged since `v1`, which measured a cheaper model handing the
@@ -72,7 +64,7 @@ export function buildCleanUpANote(
      * notes it was given - the one thing this whole feature exists to stop.
      * Asking for a shorter, imperative title is a harder judgement than
      * asking for a long one, not an easier one, so nothing here loosens with
-     * `v6`. The contract tests are what would notice if that stopped being
+     * `v7`. The contract tests are what would notice if that stopped being
      * true.
      */
     model: 'claude-opus-5',
@@ -99,6 +91,12 @@ Keep it to ${TITLE_TARGET} characters or fewer, and go well under that wherever 
 The message says what to do about the note, written out in full sentences so it makes sense again in two weeks. It is an instruction too: the work the note is asking for, spelled out from what the note carries and nothing more. Where the note records an opinion or an observation rather than asking for something, the instruction is to record it. It is not a summary, not a report, and not a list of fields. Write no headings and no bullet points unless the note itself was a list.
 
 Name the note's language first, in English, from the note alone - "English", "Dutch", or "English and Dutch" where the note genuinely mixes them. Then write the title and the message in that language. Never translate a note into another language, whatever language the examples below are in.
+
+You are also given this account's own record of the titles and messages you have proposed before, and how they were received - the strongest evidence of this person's own vocabulary and length available, and it outranks the general guidance above wherever the two disagree.
+
+${renderCorrections(corrections)}
+
+${renderWhatStood(stood)}
 
 Some notes genuinely say two things at once - "bel jan" is either call Jan, a person, or call in January, the month; "review pricing with sales monday" could put the review or the pricing on Monday. Where that is true, list the other readings: for each, a title and a message exactly as you would write your main answer, and a few words saying what that reading takes the note to mean.
 
@@ -166,11 +164,12 @@ Note: part 11 audit trail q for validation protocol, who signs off eod
 panel: Compliance questions, because it's a compliance question - Part 11 and the validation protocol`,
 
     /**
-     * Unchanged in shape from `v5`: history, the correction and recent
-     * captures are read material, not something the answer reports back, so
-     * nothing here names any of them. `title` and `message` say what they now
-     * ask for; `TITLE_LENGTH` stays the cap, since the schema is what the
-     * Item's own two fields will accept and a target has no place in it.
+     * Unchanged in shape from `v6`: history, the correction, the two texts of
+     * evidence above and recent captures are read material, not something the
+     * answer reports back, so nothing here names any of them. `title` and
+     * `message` say what they now ask for; `TITLE_LENGTH` stays the cap,
+     * since the schema is what the Item's own two fields will accept and a
+     * target has no place in it.
      */
     schema: {
       type: 'object',
@@ -292,4 +291,74 @@ function renderRecentlyCaptured(recentlyCaptured: readonly string[]): string {
 
   const lines = recentlyCaptured.map((note) => `- "${note}"`);
   return `Recently captured, not yet filed, most recent first:\n${lines.join('\n')}`;
+}
+
+/**
+ * The most recent `CORRECTIONS_LIMIT` corrections this account has ever made
+ * to a proposed title or description, oldest first - a wrong answer named
+ * beside the right one, so it is read as the stronger of the two kinds of
+ * evidence `docs/text-learning.md` describes ("What goes into the prompt").
+ *
+ * **Capped here, in the render, not at the query.** `textCorrectionsForAccount`
+ * (`repo.ts`) reads the whole table with no retrieval step, the same
+ * convention `decisionHistoryForWorkspace` follows - this is where volume is
+ * bounded, the same way `docs/text-learning.md`'s own "Open decisions"
+ * anticipates.
+ */
+const CORRECTIONS_LIMIT = 50;
+
+/**
+ * One rendered line for a correction, or `null` where the row's settled half
+ * currently reads identically to what was proposed - a title reverted back to
+ * Cockpit's own words after a detour, say. Skipped rather than shown as a
+ * dangling `"<note>" — ` with nothing after it: a row with nothing to show
+ * teaches nothing, the same reasoning `textCorrectionFor` (`domain/text-
+ * corrections.ts`) already refuses to record one for in the first place.
+ */
+function renderOneTextCorrection(entry: TextCorrectionEntry): string | null {
+  const changes: string[] = [];
+  if (entry.proposedTitle !== entry.settledTitle) {
+    changes.push(`title "${entry.proposedTitle}" became "${entry.settledTitle}"`);
+  }
+  if (entry.proposedDescription !== entry.settledDescription) {
+    changes.push(
+      `message "${entry.proposedDescription ?? '(nothing)'}" became "${entry.settledDescription ?? '(nothing)'}"`,
+    );
+  }
+  if (changes.length === 0) return null;
+  return `"${entry.capturedMessage}" — ${changes.join('; ')}`;
+}
+
+function renderCorrections(corrections: readonly TextCorrectionEntry[]): string {
+  const lines = corrections
+    .slice(-CORRECTIONS_LIMIT)
+    .map(renderOneTextCorrection)
+    .filter((line) => line !== null);
+
+  if (lines.length === 0) {
+    return 'Corrections: (nothing corrected yet - this account has no proposals to learn from)';
+  }
+
+  return `Corrections, oldest first:\n${lines.join('\n')}`;
+}
+
+/**
+ * How many proposed titles simply stood, beside how many were corrected, and
+ * a bounded sample of the ones that stood - the weaker of the two kinds of
+ * evidence `docs/text-learning.md` describes, present so a handful of
+ * corrections is never mistaken for systematic failure ("What goes into the
+ * prompt", "That ratio is the point of the fourth section").
+ */
+function renderWhatStood(stood: WhatStood): string {
+  if (stood.proposedTotal === 0) {
+    return 'What stood: (nothing proposed and seen yet)';
+  }
+
+  const ratio = `${stood.correctedTotal} of ${stood.proposedTotal} proposed titles were corrected; the rest stood unchanged.`;
+  if (stood.sample.length === 0) {
+    return `What stood: ${ratio}`;
+  }
+
+  const lines = stood.sample.map((title) => `- "${title}"`);
+  return `What stood: ${ratio} A sample of the titles nobody changed - weaker evidence than a correction, since it may mean good, tolerable, or simply not worth fixing:\n${lines.join('\n')}`;
 }

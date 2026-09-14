@@ -90,10 +90,11 @@
         "apps/web/src/components/ManageTypes.tsx",
         "apps/api/src/ai/index.ts",
         "apps/api/src/ai/note-texts.ts",
-        "apps/api/src/ai/prompts/clean-up-a-note.v6.ts",
+        "apps/api/src/ai/prompts/clean-up-a-note.v7.ts",
         "apps/api/src/jobs/index.ts",
         "apps/api/src/jobs/enrichment.ts",
-        "apps/api/src/domain/decision-history.ts"
+        "apps/api/src/domain/decision-history.ts",
+        "apps/api/src/domain/text-corrections.ts"
       ]
     },
     {
@@ -103,6 +104,7 @@
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
         "apps/api/src/domain/decision-history.ts",
+        "apps/api/src/domain/text-corrections.ts",
         "apps/api/src/accounts/command-service.ts",
         "apps/api/src/accounts/repo.ts",
         "packages/shared/src/commands.ts",

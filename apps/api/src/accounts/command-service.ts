@@ -15,6 +15,7 @@ import {
   panelPlacements,
   panels,
   screenSizes,
+  textCorrections,
   workspaceRoutingSummary,
   workspaces,
 } from './schema.js';
@@ -85,6 +86,7 @@ import {
 } from '../domain/item-types.js';
 import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import { decisionHistoryEntryFor } from '../domain/decision-history.js';
+import { textCorrectionFor } from '../domain/text-corrections.js';
 import {
   applyProposedPanel,
   applyProposedTexts,
@@ -1755,11 +1757,37 @@ export function runCommand<N extends CommandName>(
         db.insert(commands).values(commandRow).run();
         applied = false;
       } else {
+        // A correction only for the two texts, and only where Cockpit had
+        // actually proposed something to correct - an Item it never proposed
+        // for teaches nothing ("Learn how you write from the titles you
+        // correct", issue 394; `docs/text-learning.md`, "The rules").
+        const correction =
+          (name === 'set_title' || name === 'set_description') && existing.textsProposedAt !== null
+            ? textCorrectionFor(existing, updated, cmd.issuedAt)
+            : null;
         db.transaction((tx) => {
           tx.update(items)
             .set(updated)
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
+          if (correction) {
+            // Upserted on the Item, not appended: the proposal is frozen at
+            // the first edit and only the settled half moves after that
+            // (`docs/text-learning.md`, "The proposal is frozen at your first
+            // edit; your side stays live") - the columns left out of `set`
+            // below are exactly the ones that must never move again.
+            tx.insert(textCorrections)
+              .values(correction)
+              .onConflictDoUpdate({
+                target: textCorrections.itemId,
+                set: {
+                  settledTitle: correction.settledTitle,
+                  settledDescription: correction.settledDescription,
+                  updatedAt: correction.updatedAt,
+                },
+              })
+              .run();
+          }
           tx.insert(commands).values(commandRow).run();
         });
       }

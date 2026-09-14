@@ -12,6 +12,7 @@ import type {
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 /**
  * What one account's store answers to, as the Worker sees it across the
@@ -73,6 +74,16 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   ): Awaitable<
     Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }>
   >;
+  /**
+   * What a title or description proposal reads about how this account
+   * writes: every correction it has ever made, and how many of its other
+   * proposals simply stood ("Learn how you write from the titles you
+   * correct", issue 394). Per account, not per workspace. Read by the
+   * enrichment job and by nothing else, the same as `routingContext` above.
+   */
+  textLearningContext(
+    accountName: string,
+  ): Awaitable<Answer<{ corrections: TextCorrectionEntry[]; stood: WhatStood }>>;
   /**
    * Every item in one workspace's Inbox with a captured note - what a
    * settled filing re-proposes the panel for ("Re-propose the rest of the

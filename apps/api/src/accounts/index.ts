@@ -21,6 +21,7 @@ import { describeForeignRows, type AccountBackup } from './backup.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -115,6 +116,12 @@ export interface Account {
     excludeItemId: string,
   ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }>;
   /**
+   * What a title or description proposal reads about how this account
+   * writes ("Learn how you write from the titles you correct", issue 394).
+   * Read by the enrichment job and by nothing else.
+   */
+  textLearningContext(): Promise<{ corrections: TextCorrectionEntry[]; stood: WhatStood }>;
+  /**
    * Every item in one Workspace's Inbox with a captured note - the rest of
    * the inbox a settled filing re-proposes ("Re-propose the rest of the
    * inbox the moment you file one", issue 300). Read by the enrichment job
@@ -163,6 +170,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
     routingContext: async (workspaceId, excludeItemId) =>
       unwrap(await store.routingContext(accountName, workspaceId, excludeItemId)),
+    textLearningContext: async () => unwrap(await store.textLearningContext(accountName)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
