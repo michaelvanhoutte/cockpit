@@ -199,6 +199,11 @@ const api = start(
     'exec',
     'wrangler',
     'dev',
+    // The environment with no Workers AI binding, for the reason scripts/dev.mjs
+    // passes it: a local run cannot reach one, and a CI runner has no Cloudflare
+    // account to reach it with (apps/api/wrangler.jsonc).
+    '--env',
+    'local',
     '--port',
     String(API_PORT),
     '--persist-to',
@@ -237,6 +242,20 @@ const api = start(
      */
     '--var',
     'ANTHROPIC_API_KEY:',
+    /**
+     * **Set on purpose, where the key above is emptied on purpose**, and for
+     * the same reason read the other way round. Workers AI has no local
+     * simulator, so a walk that needed it would need Cloudflare credentials -
+     * which a CI runner does not have - and would be answered differently on
+     * every run. The stand-in counts words instead
+     * (apps/api/src/embeddings/index.ts): same answer every run, no network,
+     * and enough for a walk to reach a flagged row and follow it. *What* the
+     * real model flags is held one tier down against a faked binding
+     * (apps/api/tests/integration/http/duplicate-notes.test.ts) and against
+     * the real one nightly (apps/api/tests/contract/).
+     */
+    '--var',
+    'EMBEDDINGS_STAND_IN:true',
   ],
   'test api',
   '36',

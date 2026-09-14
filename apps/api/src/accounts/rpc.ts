@@ -95,6 +95,27 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
     workspaceId: string,
   ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]>>;
+  /**
+   * Writes what one Item means and pairs it against every other Item of the
+   * account that says the same thing ("Flag a captured note that says what
+   * another one already said", issue 407). Written by the job that reads a
+   * note and by nothing else.
+   *
+   * A plain answer rather than `missing`, for the reason `item` above answers
+   * null: the caller holds an id from minutes ago, and an Item dismissed and
+   * erased in the meantime is the ordinary case rather than a failure.
+   */
+  rememberWhatAnItemMeans(
+    accountName: string,
+    itemId: string,
+    model: string,
+    reading: number[],
+  ): Awaitable<Answer<'remembered' | 'no such item'>>;
+  /**
+   * Forgets what an Item means, and every pair built on it - for an Item whose
+   * two texts have been emptied and which now says nothing to compare.
+   */
+  forgetWhatAnItemMeans(accountName: string, itemId: string): Awaitable<Answer<null>>;
   changesSince(
     accountName: string,
     since: string,

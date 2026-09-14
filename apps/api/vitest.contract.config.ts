@@ -32,7 +32,7 @@ function fromDevVars(): Record<string, string> {
   }
   const found: Record<string, string> = {};
   for (const line of file.split(/\r?\n/)) {
-    const match = /^\s*(ANTHROPIC_[A-Z_]+)\s*=\s*(.*)$/.exec(line);
+    const match = /^\s*((?:ANTHROPIC|CLOUDFLARE)_[A-Z_]+)\s*=\s*(.*)$/.exec(line);
     if (match) found[match[1]!] = match[2]!.trim().replace(/^["']|["']$/g, '');
   }
   return found;
@@ -49,6 +49,12 @@ export default defineConfig({
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? onDisk.ANTHROPIC_API_KEY ?? '',
       ANTHROPIC_WORKSPACE_ID:
         process.env.ANTHROPIC_WORKSPACE_ID ?? onDisk.ANTHROPIC_WORKSPACE_ID ?? '',
+      // The account Workers AI is reached in, and a token for it - what reads
+      // meaning ("Flag a captured note that says what another one already
+      // said", issue 407). A deployment reaches the same model through a
+      // binding and needs neither; this tier has no Worker to hold one.
+      CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID ?? onDisk.CLOUDFLARE_ACCOUNT_ID ?? '',
+      CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN ?? onDisk.CLOUDFLARE_API_TOKEN ?? '',
     },
   },
 });

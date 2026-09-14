@@ -1,7 +1,7 @@
 import { and, desc, eq, gt } from 'drizzle-orm';
-import type { ServerEvent } from '@cockpit/shared';
+import { ACCOUNT_WIDE, type ServerEvent } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import { commands } from './schema.js';
+import { commands, itemMeanings, items } from './schema.js';
 
 /**
  * SSE invalidation source (architecture, "The read model", amended by
@@ -35,12 +35,43 @@ export function collectInvalidations(
   // several changes to one workspace answers for the last of them, which is
   // what a tab compares its own copy against.
   const newestPerWorkspace = new Map<string, string>();
-  for (const row of rows) {
-    const seen = newestPerWorkspace.get(row.workspaceId);
-    if (seen === undefined || row.receivedAt > seen) {
-      newestPerWorkspace.set(row.workspaceId, row.receivedAt);
-    }
-    if (row.receivedAt > cursor) cursor = row.receivedAt;
+  const sawChange = (workspaceId: string, at: string) => {
+    const seen = newestPerWorkspace.get(workspaceId);
+    if (seen === undefined || at > seen) newestPerWorkspace.set(workspaceId, at);
+    if (at > cursor) cursor = at;
+  };
+  for (const row of rows) sawChange(row.workspaceId, row.receivedAt);
+
+  /**
+   * **A note being read for what it means is a change nothing logs a command
+   * for**, and it moves what the Inbox draws: it is what makes a note say it
+   * may be repeating another ("Flag a captured note that says what another one
+   * already said", issue 407). So the readings are a second source of the same
+   * event, and without it a mark would sit unseen until the next thing somebody
+   * did happened to refresh the page.
+   *
+   * **Losing a reading is one of those changes too**, which is why forgetting
+   * one empties the row and stamps it rather than deleting it (`forgetMeaning`,
+   * repo.ts): a row that has gone is newer than nothing, so this query would
+   * pass straight over it and leave every tab drawing a mark the note no longer
+   * earns.
+   *
+   * A note nobody has said the Workspace of is drawn in every Workspace's
+   * Inbox, so its reading is a change to all of them - which is what
+   * `ACCOUNT_WIDE` says, exactly as a change to a Type does.
+   */
+  const read = db
+    .select({
+      workspaceId: items.workspaceId,
+      workspaceDecided: items.workspaceDecided,
+      readAt: itemMeanings.readAt,
+    })
+    .from(itemMeanings)
+    .innerJoin(items, eq(itemMeanings.itemId, items.id))
+    .where(and(eq(itemMeanings.tenantId, tenantId), gt(itemMeanings.readAt, since)))
+    .all();
+  for (const row of read) {
+    sawChange(row.workspaceDecided ? row.workspaceId : ACCOUNT_WIDE, row.readAt);
   }
 
   const events: ServerEvent[] = [...newestPerWorkspace].map(([workspaceId, at]) => ({

@@ -78,6 +78,14 @@ Nothing is corrupt: the change was applied under a name the code no longer uses,
 rm -rf apps/api/.wrangler/state/v3/do
 ```
 
+The same thing happens once, harmlessly, on the release that gave the local
+stacks a Wrangler environment of their own ("Flag a captured note that says what
+another one already said", issue 407): an account's store is kept under the
+Worker's name, which is now `cockpit-local`, so the first `pnpm dev` after it
+opens an account that starts as a new one. The register is untouched — you are
+still the same person, with the same sign-in — and the old directory beside it
+can be deleted.
+
 Never fix it by renaming the change back to what the store recorded; that trades one stale ledger for another.
 
 ### Taking a backup, and putting one back

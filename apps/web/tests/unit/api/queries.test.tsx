@@ -54,6 +54,12 @@ vi.mock('../../../src/itemForm', () => ({
       opened.item = undefined;
     },
   }),
+  // The form reaches for this to open a note it may be repeating ("Flag a
+  // captured note that says what another one already said", issue 407);
+  // nothing in this file draws one, so it only has to exist.
+  useOpenItem: () => (itemId: string) => {
+    opened.item = itemId;
+  },
 }));
 
 vi.mock('../../../src/description/RichDescription', () => ({
@@ -84,6 +90,7 @@ const snapshot: WorkspaceSnapshot = {
   associations: [],
   itemTypes: [],
     screenSizes: [],
+    duplicates: [],
   filings: [],
   routingSummary: null,
   generatedAt: '2026-08-31T10:00:00.000Z',

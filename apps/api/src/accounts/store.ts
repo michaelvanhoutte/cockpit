@@ -58,11 +58,13 @@ import {
 } from './command-service.js';
 import {
   decisionHistoryForWorkspace,
+  forgetMeaning,
   getItem,
   getRoutingSummary,
   getWorkspace,
   judgeableItemsForAccount,
   listAssociationsForWorkspace,
+  listDuplicatesInWorkspace,
   listItemTypes,
   listScreenSizes,
   listDashboards,
@@ -71,10 +73,14 @@ import {
   listOpenItems,
   listPanelsInWorkspace,
   listWorkspaces,
+  meaningsToCompareWith,
   recentlyCapturedUnfiled,
+  rememberMeaning,
+  replaceDuplicatesOf,
   textCorrectionsForAccount,
   unfiledItemsInWorkspace,
 } from './repo.js';
+import { pairOf, saidAgainBy } from '../domain/duplicates.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import {
   correctionStillVisible,
@@ -138,7 +144,72 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         itemTypes: listItemTypes(db, accountName),
         screenSizes: listScreenSizes(db, accountName),
         routingSummary: getRoutingSummary(db, accountName, workspaceId),
+        duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
       };
+    });
+  }
+
+  /**
+   * Writes what an Item means now, and works out which of this account's other
+   * Items say the same thing ("Flag a captured note that says what another one
+   * already said", issue 407).
+   *
+   * **The reading arrives, the pairing happens here.** Reading a note is a call
+   * to a model and belongs in a job (`jobs/enrichment.ts`); comparing one
+   * reading against every other is a query, and a query belongs where the rows
+   * are - which is also what keeps a thousand numbers per Item from crossing
+   * the binding more than once.
+   *
+   * **The write and the pairing are one transaction**, so an Item is never left
+   * carrying a meaning nothing has been compared against.
+   *
+   * Answers whether there was an Item to read, rather than `missing`: the job
+   * that calls this holds an id from minutes ago, and an Item dismissed and
+   * erased in the meantime is the ordinary case (`item` above answers null for
+   * the same reason).
+   */
+  rememberWhatAnItemMeans(
+    accountName: string,
+    itemId: string,
+    model: string,
+    reading: number[],
+  ): Answer<'remembered' | 'no such item'> {
+    return this.#answer(accountName, (db) => {
+      const item = getItem(db, accountName, itemId);
+      if (!item) return 'no such item' as const;
+
+      const at = new Date().toISOString();
+      db.transaction((tx) => {
+        rememberMeaning(tx, accountName, itemId, model, reading, at);
+        const same = saidAgainBy(reading, meaningsToCompareWith(tx, accountName, itemId, model));
+        replaceDuplicatesOf(
+          tx,
+          accountName,
+          itemId,
+          same.map((other) => ({ ...pairOf(itemId, other.itemId), howAlike: other.howAlike })),
+          at,
+        );
+      });
+      return 'remembered' as const;
+    });
+  }
+
+  /**
+   * Forgets what an Item means, and every pair built on it - for an Item whose
+   * two texts have been emptied, which now says nothing to compare.
+   *
+   * Its own method rather than a null reading handed to the one above, because
+   * it is a different thing happening: not "this is what it means now" but
+   * "there is nothing here to mean".
+   *
+   * **The forgetting is stamped with the time like a reading is**, which is
+   * what tells the tabs already drawing the mark to drop it (`forgetMeaning`,
+   * repo.ts).
+   */
+  forgetWhatAnItemMeans(accountName: string, itemId: string): Answer<null> {
+    return this.#answer(accountName, (db) => {
+      forgetMeaning(db, accountName, itemId, new Date().toISOString());
+      return null;
     });
   }
 

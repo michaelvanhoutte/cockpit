@@ -38,6 +38,34 @@
     }
   },
 
+  // Workers AI, which reads what a captured note *means* so that a note saying
+  // what another one already said can be flagged ("Flag a captured note that
+  // says what another one already said", issue 407). A binding rather than a
+  // key: no new secret to put in each environment, and no new vendor.
+  //
+  // **`ai` is NOT inheritable**, like `d1_databases`, `queues`, `vars` and
+  // `durable_objects` above - so staging declares its own below and `env.local`
+  // declares none, which is the whole of how the two local stacks manage
+  // without one. Workers AI has no local simulator and there is no third
+  // answer: a binding left as it is makes `wrangler dev` open an authenticated
+  // session against Cloudflare before it will start (measured with an invalid
+  // token: "the remote session could not be authenticated", exit 1), and one
+  // marked `remote: false` is refused outright ("AI bindings do not support
+  // local development"). So `pnpm dev` and the browser suite run an environment
+  // that has no binding at all and read meaning with the stand-in instead
+  // (`EMBEDDINGS_STAND_IN`, src/embeddings/index.ts) - the same trade
+  // `OIDC_ISSUER` records for signing in against Google. The test runner keeps
+  // this one and refuses to reach it (`remoteBindings: false`, vitest.config.ts).
+  //
+  // **`remote: true` is what that binding already was**, written out only to
+  // stop Wrangler warning about usage charges once per test file - fifty-eight
+  // lines of it on a run that never opens a connection at all. It says nothing
+  // a deploy reads.
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
+
   // No per-version preview URLs on either environment. Nothing here would get
   // them anyway - Cloudflare withholds them from a Worker that implements a
   // Durable Object, which is what took the preview environment with it
@@ -171,6 +199,12 @@
     "staging": {
       "name": "cockpit-staging",
       "preview_urls": false,
+      // Repeated because `ai` is not inheritable, for the reason the block
+      // above gives, and `remote: true` with it for the reason given there.
+      "ai": {
+        "binding": "AI",
+        "remote": true
+      },
       "durable_objects": {
         "bindings": [
           {
@@ -201,6 +235,57 @@
         "consumers": [
           {
             "queue": "cockpit-enrichment-staging",
+            "max_batch_size": 5,
+            "max_batch_timeout": 1,
+            "max_retries": 3
+          }
+        ]
+      }
+    },
+
+    // **Never deployed, and the only environment with no `ai` binding at all.**
+    // That absence is the point: `pnpm dev` and the browser suite both run
+    // `wrangler dev` against this, and Workers AI cannot be reached from a local
+    // run without a Cloudflare account - which a CI runner does not have and a
+    // contributor need not. They read meaning with the stand-in instead
+    // (`EMBEDDINGS_STAND_IN`, passed by scripts/dev.mjs and
+    // scripts/e2e-stack.mjs), so nothing about the feature is unreachable
+    // locally; what is unreachable is the model behind it, which is the
+    // contract tier's to exercise.
+    //
+    // Everything below is repeated because it is not inheritable, and is the
+    // top level's own - the same database and the same queue. What does move is
+    // an account's own store: Wrangler keeps one per Worker *name*, so a local
+    // run after this lands opens an account that starts as a new one (readme,
+    // "Resetting local data"). The register is untouched, and the browser suite
+    // rebuilds its whole state directory every run either way.
+    //
+    // `vars` is empty rather than copied: both scripts pass every one of them
+    // as `--var`, and a copy here would be a second place for them to drift.
+    "local": {
+      "name": "cockpit-local",
+      "vars": {},
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "ACCOUNT",
+            "class_name": "AccountStore"
+          }
+        ]
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "cockpit",
+          "database_id": "753ea386-68c0-422e-a237-da7a0c66c40c",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "queues": {
+        "producers": [{ "queue": "cockpit-enrichment", "binding": "ENRICHMENT" }],
+        "consumers": [
+          {
+            "queue": "cockpit-enrichment",
             "max_batch_size": 5,
             "max_batch_timeout": 1,
             "max_retries": 3

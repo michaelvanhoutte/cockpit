@@ -88,7 +88,12 @@ no commitlint hook to install and nothing for an agent to get wrong.
 | **staging** | every commit on `main` | `cockpit-staging` | `cockpit-staging` | yes | `cockpit-staging.vanhoutte-michael.workers.dev` |
 
 There is no third environment for the application; branches are deployed nowhere,
-per "No branch environments" (§4).
+per "No branch environments" (§4). A Wrangler environment named `local` does
+exist in `apps/api/wrangler.jsonc` and is deployed nowhere either: it is what
+`pnpm dev` and the browser suite run, and its only difference is that it has no
+Workers AI binding — which has no local simulator, so a local run that declared
+one would need a Cloudflare account to start at all ("Flag a captured note that
+says what another one already said", issue 407).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
 part of the app: it is where CI publishes the two reports from `main` — the test
 explorer at the root (`tools/test-explorer/README.md`) and the CI stability page at
@@ -427,10 +432,10 @@ CI needs, in GitHub:
 
 | Kind | Name | Value |
 |---|---|---|
-| Secret | `CLOUDFLARE_API_TOKEN` | scoped token, created in the Cloudflare dashboard |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | `091e6e85f8268ee838089d6fed968585` |
+| Secret | `CLOUDFLARE_API_TOKEN` | scoped token, created in the Cloudflare dashboard — deploys with it, and the nightly contract run reads what a note means with it, which is why Workers AI: Read is among its scopes |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | `091e6e85f8268ee838089d6fed968585` — the account the same run reaches that model in |
 | Secret | `CLAUDE_CODE_OAUTH_TOKEN` | stored by `/install-github-app`, run once from an interactive Claude Code session |
-| Secret | `ANTHROPIC_API_KEY` | the same key as above, for the nightly contract run (`.github/workflows/contract.yml`), which is the only place CI talks to the real model |
+| Secret | `ANTHROPIC_API_KEY` | the same key as above, for the nightly contract run (`.github/workflows/contract.yml`), which is the only place CI talks to a real model |
 | Secret | `ANTHROPIC_WORKSPACE_ID` | beside it, for the same reason it is set on the Worker |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | `vanhoutte-michael` |
 
@@ -538,10 +543,10 @@ own code. It is outside Cockpit's own gate (`PATHS_OUTSIDE_THE_GATE` in
 `apps/api/src/auth/gate.ts`), and anything ever put in front of the deployment
 has to be told to leave it alone.
 
-`/health` returns `{"ok":true,"register":true,"store":true,"ai":true}` and nothing
-else, so it discloses only whether each half answered — never *why* one did not,
-since the reason an update will not apply names tables and columns and this
-endpoint answers anyone. That reason goes to the logs.
+`/health` returns `{"ok":true,"register":true,"store":true,"ai":true,"embeddings":true}`
+and nothing else, so it discloses only whether each half answered — never *why*
+one did not, since the reason an update will not apply names tables and columns
+and this endpoint answers anyone. That reason goes to the logs.
 
 **`ai` is reported and is deliberately not part of `ok`.** It says whether this
 environment has an `ANTHROPIC_API_KEY` — never what it is, and nothing about it
@@ -552,6 +557,13 @@ clean a note up, which is the failure recorded for `CLAUDE_CODE_OAUTH_TOKEN` in
 "Secrets and access". Folding it into `ok` would instead make local development
 and the browser suite — which have no key and need none — report an unhealthy
 deployment and stop the e2e stack from ever starting.
+
+**`embeddings` says the same of a different capability, and is outside `ok` for
+the same reason.** It is whether this environment can read what a note *means*,
+and so whether it can flag one saying what another one already said ("Flag a
+captured note that says what another one already said", issue 407). Separate
+from `ai` because the two are separately configured — one is the `AI` binding,
+the other the Claude key — and an environment can have either, both or neither.
 
 `store` is checked against a store belonging to no account, addressed by a name
 the same request confirms is absent from the register. An unauthenticated endpoint
@@ -699,7 +711,11 @@ store holds no workspace already.
 Then, by hand (no API, or deliberately not automated):
 
 1. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
-   Settings: Read), stored as the `CLOUDFLARE_API_TOKEN` GitHub secret.
+   Settings: Read, Workers AI: Read), stored as the `CLOUDFLARE_API_TOKEN`
+   GitHub secret. The last scope is the nightly contract run's, not a deploy's:
+   it calls the model that reads what a note means by its own address, a tier
+   with no Worker having no binding to reach it through ("Flag a captured note
+   that says what another one already said", issue 407).
 2. **Branch protection** on `main`. The payload lives in
    [.github/branch-protection.json](../.github/branch-protection.json) rather than
    only in a dashboard, because configuration nobody can review or restore is not

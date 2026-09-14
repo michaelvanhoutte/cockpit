@@ -62,6 +62,7 @@ function aRow({
   selecting,
   routingProposal,
   onAcceptRouting,
+  mayBeADuplicate,
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
@@ -72,6 +73,7 @@ function aRow({
   selecting?: { picked: boolean; revealed: boolean; onPick: (withShift: boolean) => void };
   routingProposal?: { panelName: string; reason: string };
   onAcceptRouting?: () => void;
+  mayBeADuplicate?: boolean;
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
@@ -91,6 +93,7 @@ function aRow({
         {...(selecting ? { selecting } : {})}
         {...(routingProposal ? { routingProposal } : {})}
         {...(onAcceptRouting ? { onAcceptRouting } : {})}
+        {...(mayBeADuplicate === undefined ? {} : { mayBeADuplicate })}
       />
     </UndoWhatJustHappened>,
   );
@@ -500,6 +503,22 @@ describe('Item editing', () => {
       aRow({ item: anItem({ readings, textsSettledAt: settled }) });
 
       expect(screen.queryByLabelText('Reads more than one way') !== null).toBe(marked);
+    });
+
+    /**
+     * "Flag a captured note that says what another one already said" (issue
+     * 407): the row says a note may be repeating another and nothing about
+     * which one, exactly as the readings mark above says nothing about the
+     * readings. Whether it is repeating anything is the list's answer and not
+     * the row's - which is what this proves, by drawing both answers.
+     */
+    it.each([
+      { situation: 'an item that may be saying what another one already said', flagged: true },
+      { situation: 'an item that is saying something of its own', flagged: false },
+    ])('$situation', ({ flagged }) => {
+      aRow({ mayBeADuplicate: flagged });
+
+      expect(screen.queryByLabelText('Possible duplicate') !== null).toBe(flagged);
     });
   });
 

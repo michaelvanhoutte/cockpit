@@ -24,6 +24,18 @@ export default defineConfig({
      */
     exclude: [...configDefaults.exclude, 'tests/contract/**'],
     /**
+     * **Nothing in this suite may reach a model, and this is the half of that
+     * the bindings need.** `wrangler.jsonc` declares the Workers AI binding,
+     * which has no local simulator - so without this every file in the suite
+     * would open an authenticated session against Cloudflare before it ran, and
+     * a capture would spend real calls against the real service. `env.AI` is
+     * taken off `env` here, which is what makes `canReadMeaning` answer false
+     * and `enqueueReadingItsMeaning` queue nothing; the cases that want a
+     * reading put one back and fake it (tests/integration/http/duplicate-notes.test.ts),
+     * exactly as the cases that want a model set `ANTHROPIC_API_KEY` below.
+     */
+    setupFiles: ['./tests/no-model.ts'],
+    /**
      * **Not a tolerance on anything a case asserts - a guard against a hang,
      * set to what the work here legitimately takes.** An integration case makes
      * several real HTTP requests through a real Durable Object and empties six
@@ -60,6 +72,14 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
+      // No binding here talks to Cloudflare, and none may: the Workers AI
+      // binding this config declares is remote-only, so leaving this on makes
+      // the suite open an authenticated session before it runs - on a
+      // contributor's machine and on a CI runner alike - and bills whatever it
+      // then calls. Off, the binding is still declared and simply never
+      // reached; `setupFiles` above is what takes it off `env` so that nothing
+      // tries.
+      remoteBindings: false,
       // vitest-pool-workers' own module evaluator needs Node builtins inside
       // the worker runtime; this is test-only and does not affect the
       // deployed Worker's compatibility flags in wrangler.jsonc.
@@ -92,6 +112,16 @@ export default defineConfig({
            * set one on `env` for themselves and fake the network under it.
            */
           ANTHROPIC_API_KEY: '',
+          /**
+           * Empty for the same reason, and it is the other half of what
+           * `tests/no-model.ts` does: that file takes the `AI` binding off
+           * `env`, which a setup file has to because the runtime puts it there,
+           * while this is a value and a developer who has set it in `.dev.vars`
+           * to drive `pnpm dev` would otherwise have every capture in the suite
+           * queue a reading ("Flag a captured note that says what another one
+           * already said", issue 407).
+           */
+          EMBEDDINGS_STAND_IN: '',
           OIDC_ISSUER: 'https://issuer.test',
           /**
            * Set, as production sets it: an environment that offers guest

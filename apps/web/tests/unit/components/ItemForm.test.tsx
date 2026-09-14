@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 
 /**
@@ -15,8 +15,10 @@ import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 
 const held = vi.hoisted(() => ({
   items: [] as Item[],
+  duplicates: [] as PossibleDuplicate[],
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
+  open: vi.fn(),
   openItemId: 'item-1' as string | undefined,
 }));
 
@@ -26,6 +28,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('../../../src/itemForm', () => ({
   useItemForm: () => ({ openItemId: held.openItemId, close: held.close }),
+  useOpenItem: () => held.open,
 }));
 
 /**
@@ -73,9 +76,13 @@ vi.mock('../../../src/description/RichDescription', () => ({
 vi.mock('../../../src/api/queries', () => ({
   useSendCommand: () => held.send,
   snapshotQuery: (workspaceId: string) => ({
-    queryKey: ['snapshot', workspaceId, held.items],
+    queryKey: ['snapshot', workspaceId, held.items, held.duplicates],
     queryFn: (): Promise<WorkspaceSnapshot> =>
-      Promise.resolve({ items: held.items } as WorkspaceSnapshot),
+      Promise.resolve({
+        items: held.items,
+        filings: [],
+        duplicates: held.duplicates,
+      } as unknown as WorkspaceSnapshot),
   }),
 }));
 
@@ -112,8 +119,8 @@ function anItem(over: Partial<Item> = {}): Item {
   };
 }
 
-async function theForm(item: Item = anItem()) {
-  held.items = [item];
+async function theForm(item: Item = anItem(), alsoInTheInbox: Item[] = []) {
+  held.items = [item, ...alsoInTheInbox];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -145,6 +152,8 @@ beforeEach(() => {
   held.send.mockClear();
   held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
   held.close.mockClear();
+  held.open.mockClear();
+  held.duplicates = [];
   held.openItemId = 'item-1';
 });
 
@@ -552,6 +561,41 @@ describe('Item editing', () => {
       await theForm(anItem({ readings: READINGS, textsSettledAt: '2026-08-12T10:00:00.000Z' }));
 
       expect(screen.queryByText('Reads more than one way')).toBeNull();
+    });
+  });
+
+  /**
+   * "Flag a captured note that says what another one already said" (issue 407):
+   * the row says only that there may be one, and the form is where the other
+   * note is named and can be opened. Which notes are paired at all is the
+   * server's answer (apps/api/tests/integration/http/duplicate-notes.test.ts)
+   * and whether a pair is drawn is tests/unit/duplicates.test.ts; what is asked
+   * here is that the form draws what it is given and opens what it draws.
+   */
+  describe('the form says which note this one may be repeating, and opens it', () => {
+    const ANOTHER_NOTE = anItem({ id: 'item-2', title: 'Part 11 audit trail, for Novy' });
+    const A_THIRD_NOTE = anItem({ id: 'item-3', title: 'Novy and the audit trail' });
+
+    it('lists each one, and opens the one that is chosen', async () => {
+      held.duplicates = [
+        { itemId: 'item-1', otherItemId: ANOTHER_NOTE.id },
+        { itemId: A_THIRD_NOTE.id, otherItemId: 'item-1' },
+      ];
+      const user = await theForm(anItem(), [ANOTHER_NOTE, A_THIRD_NOTE]);
+
+      expect(screen.getByText('Possible duplicate of')).toBeVisible();
+      // Both of them, including the pair written the other way round - one pair
+      // is one pair whichever of the two you are looking at.
+      await user.click(screen.getByRole('button', { name: 'Part 11 audit trail, for Novy' }));
+
+      expect(held.open).toHaveBeenCalledWith(ANOTHER_NOTE.id);
+      expect(screen.getByRole('button', { name: 'Novy and the audit trail' })).toBeVisible();
+    });
+
+    it('says nothing where this note repeats none', async () => {
+      await theForm(anItem(), [ANOTHER_NOTE]);
+
+      expect(screen.queryByText('Possible duplicate of')).toBeNull();
     });
   });
 

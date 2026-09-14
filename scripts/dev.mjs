@@ -143,6 +143,13 @@ if (running.api) {
         'exec',
         'wrangler',
         'dev',
+        // The environment with no Workers AI binding, which is the only kind a
+        // local run can have: the binding has no local simulator and reaching
+        // the real one needs a Cloudflare account (apps/api/wrangler.jsonc).
+        // Everything else about it is the top level's own, so no local storage
+        // moves - and `EMBEDDINGS_STAND_IN` below is what reads meaning here.
+        '--env',
+        'local',
         '--port',
         String(ports.devApi),
         // What a deployed environment holds as secrets, and does not hold at
@@ -168,6 +175,16 @@ if (running.api) {
         // the only half there is (`pnpm dev:api`).
         '--var',
         `APP_ORIGIN:http://localhost:${running.web ? ports.devWeb : ports.devApi}`,
+        // Reads what a note means with a stand-in rather than with Workers AI,
+        // which has no local simulator and would make this command refuse to
+        // start on a machine that has never signed in to Cloudflare
+        // (apps/api/src/embeddings/index.ts, and the `ai` binding's own note in
+        // wrangler.jsonc). It counts words rather than reading meaning, so two
+        // notes flagged here are two notes sharing most of their words - what
+        // the real model flags is the contract tier's question. The same trade
+        // the stub issuer above is.
+        '--var',
+        'EMBEDDINGS_STAND_IN:true',
       ],
       'api',
       '36',
