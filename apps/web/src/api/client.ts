@@ -4,6 +4,7 @@ import {
   accountHoldingsSchema,
   itemTypeListSchema,
   registeredUserListSchema,
+  textLearningStatusSchema,
   userDeletedSchema,
   type AccountHoldings,
   signedInSchema,
@@ -20,6 +21,7 @@ import {
   type CommandResult,
   type ItemTypeList,
   type RegisteredUserList,
+  type TextLearningStatus,
   type UserAdded,
   type SignedIn,
   type WorkspaceList,
@@ -67,6 +69,17 @@ export async function fetchItemTypes(): Promise<ItemTypeList> {
   const res = await api.v1['item-types'].$get();
   if (!res.ok) throw refusal('types', res.status);
   return itemTypeListSchema.parse(await res.json());
+}
+
+/**
+ * What the account is told, and what it has written back ("Show what
+ * Cockpit is told, and say how you want it changed", issue 398), for the
+ * window that shows it.
+ */
+export async function fetchTextLearningStatus(): Promise<TextLearningStatus> {
+  const res = await api.v1['text-learning-rules'].$get();
+  if (!res.ok) throw refusal('text learning rules', res.status);
+  return textLearningStatusSchema.parse(await res.json());
 }
 
 /** Who Cockpit believes you are - and, when it refuses, that it believes you are nobody. */
@@ -300,6 +313,8 @@ const commandSenders = {
     api.v1.commands.set_routing_summary_correction.$post({ json: p }),
   set_duplicate_settled: (p: CommandPayload<'set_duplicate_settled'>) =>
     api.v1.commands.set_duplicate_settled.$post({ json: p }),
+  set_text_learning_rules: (p: CommandPayload<'set_text_learning_rules'>) =>
+    api.v1.commands.set_text_learning_rules.$post({ json: p }),
 } as const;
 
 /**

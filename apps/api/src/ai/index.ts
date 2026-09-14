@@ -57,6 +57,13 @@ export interface AiService {
    * issue 394; `docs/text-learning.md`). Per account, unlike the routing
    * inputs above.
    *
+   * `rules` is the account's own explicit rules for how a title and a
+   * message are written, in their own words, or null where none have been
+   * written ("Show what Cockpit is told, and say how you want it changed",
+   * issue 398). Per account, and read ahead of `corrections`/`stood` above -
+   * the top of the precedence `docs/text-learning.md`'s "What goes into the
+   * prompt" states.
+   *
    * Answers a refusal rather than throwing for anything the model itself said:
    * an answer that will not parse or will not validate is a discarded proposal,
    * which the Item survives by keeping the text capture wrote. A call that
@@ -71,6 +78,7 @@ export interface AiService {
     correction: string | null,
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood,
+    rules: string | null,
   ): Promise<ProposalRead>;
 }
 
@@ -119,8 +127,9 @@ export class ClaudeAiService implements AiService {
     correction: string | null,
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood,
+    rules: string | null,
   ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote(panels, history, recentlyCaptured, correction, corrections, stood);
+    const prompt = buildCleanUpANote(panels, history, recentlyCaptured, correction, corrections, stood, rules);
     const answer = await this.#client.messages.create({
       model: prompt.model,
       /**

@@ -81,7 +81,12 @@ vi.mock('../../../src/api/queries', () => ({
   // The types window the shell now draws over the workspace reads them
   // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
   itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
-  // The shell draws the account's two management windows over the workspace
+  textLearningStatusQuery: {
+    queryKey: ['textLearningStatus'],
+    queryFn: () =>
+      Promise.resolve({ rules: null, rulesSetAt: null, proposedTotal: 0, correctedTotal: 0 }),
+  },
+  // The shell draws the account's three management windows over the workspace
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.
   useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),

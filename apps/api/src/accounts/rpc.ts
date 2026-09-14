@@ -76,14 +76,19 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   >;
   /**
    * What a title or description proposal reads about how this account
-   * writes: every correction it has ever made, and how many of its other
-   * proposals simply stood ("Learn how you write from the titles you
-   * correct", issue 394). Per account, not per workspace. Read by the
-   * enrichment job and by nothing else, the same as `routingContext` above.
+   * writes: the rules it has written for itself, every correction it has
+   * ever made, and how many of its other proposals simply stood ("Learn how
+   * you write from the titles you correct", issue 394; "Show what Cockpit is
+   * told, and say how you want it changed", issue 398). Per account, not per
+   * workspace. Read by the enrichment job for the prompt, the same as
+   * `routingContext` above, and by the HTTP layer for the window that shows
+   * how it is doing.
    */
   textLearningContext(
     accountName: string,
-  ): Awaitable<Answer<{ corrections: TextCorrectionEntry[]; stood: WhatStood }>>;
+  ): Awaitable<
+    Answer<{ rules: string | null; rulesSetAt: string | null; corrections: TextCorrectionEntry[]; stood: WhatStood }>
+  >;
   /**
    * Every item in one workspace's Inbox with a captured note - what a
    * settled filing re-proposes the panel for ("Re-propose the rest of the

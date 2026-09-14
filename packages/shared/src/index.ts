@@ -6,6 +6,7 @@ export * from './domain/panel.js';
 export * from './domain/routing-summary.js';
 export * from './domain/screen-size.js';
 export * from './domain/starting.js';
+export * from './domain/text-learning-rules.js';
 export * from './domain/workspace-themes.js';
 export * from './commands.js';
 export * from './api/snapshot.js';

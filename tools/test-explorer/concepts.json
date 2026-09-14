@@ -270,6 +270,26 @@
       ]
     },
     {
+      "key": "What Cockpit is told",
+      "label": "What Cockpit is told",
+      "parent": "Capture",
+      "sourcePatterns": [
+        "packages/shared/src/domain/text-learning-rules.ts",
+        "packages/shared/src/commands.ts",
+        "apps/web/src/components/TextLearningRulesWindow.tsx",
+        "apps/web/src/pages/Layout.tsx",
+        "apps/api/src/accounts/schema.ts",
+        "apps/api/src/accounts/changes.ts",
+        "apps/api/src/accounts/command-service.ts",
+        "apps/api/src/accounts/repo.ts",
+        "apps/api/src/accounts/store.ts",
+        "apps/api/src/http/app.ts",
+        "apps/api/src/ai/index.ts",
+        "apps/api/src/ai/prompts/clean-up-a-note.v7.ts",
+        "apps/api/src/domain/text-corrections.ts"
+      ]
+    },
+    {
       "key": "Connector management",
       "label": "Connector management",
       "parent": "Workspaces",
