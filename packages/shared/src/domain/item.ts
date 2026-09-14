@@ -78,6 +78,8 @@ export const itemSchema = z.object({
   description: z.string().nullable(),
   /** When the title and description were taken over from Cockpit's own reading, and null while still Cockpit's to replace ("Clean up a captured note into a clear title and a fuller message", issue 296; architecture.md §4.4). */
   textsSettledAt: z.iso.datetime().nullable(),
+  /** When Cockpit proposed the two texts above, and null where nothing has - either enrichment has not run yet or never will. Tells a real proposal apart from the mechanical write `capture_item` makes to the same two columns ("Learn how you write from the titles you correct", issue 394; `docs/text-learning.md`). */
+  textsProposedAt: z.iso.datetime().nullable(),
   /** The other ways this note could genuinely be read, where Cockpit found any (issue 297; architecture.md §4.4). */
   readings: itemReadingSchema.array().nullable(),
   /** The Panel Cockpit thinks this note belongs on, proposed rather than filed ("Propose where a captured note belongs, without filing it there", issue 298; architecture.md §4.4). */

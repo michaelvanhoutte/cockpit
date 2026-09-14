@@ -287,6 +287,11 @@ describe('Capture', () => {
       expect(after.readings).toEqual(offered ? readings : null);
     });
 
+    it('stamps when it proposed the texts, unlike the mechanical write capture makes', () => {
+      expect(anItem().textsProposedAt).toBeNull();
+      expect(proposed(anItem())!.textsProposedAt).toBe(LATEST);
+    });
+
     it('offers nothing once the texts are already somebody\'s own', () => {
       const settled = titled(anItem(), LATER, 'Mine');
 

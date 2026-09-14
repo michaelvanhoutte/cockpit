@@ -92,6 +92,8 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_PROPOSED_PANEL,
     DECISION_HISTORY,
     WORKSPACE_ROUTING_SUMMARY,
+    ITEM_TEXTS_PROPOSED,
+    TEXT_CORRECTIONS,
     firstWorkspace(accountId),
     guestDemoSeed(accountId),
     ITEM_MEANINGS,
@@ -320,6 +322,95 @@ const WORKSPACE_ROUTING_SUMMARY: Change = {
 };
 
 /**
+ * When Cockpit proposed an Item's texts, so a real proposal can be told apart
+ * from the mechanical write `capture_item` makes to the same two columns
+ * ("Learn how you write from the titles you correct", issue 394;
+ * `docs/text-learning.md`, "What is stored") - the same shape
+ * `0021-item-texts-settled` is.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a column and writes to no row.
+ * - **Interrupted partway.** It cannot be: a change's statement and the record
+ *   that it ran commit together (up-to-date.ts), so a failure leaves no column
+ *   and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left no column. Nothing is written to any row, so a second run doubles
+ *   nothing.
+ * - **Data the new rules reject.** None. The column starts null on every row -
+ *   the honest answer for every Item captured before this ships, since
+ *   Cockpit does not know whether it proposed that Item's texts, and this
+ *   column says so by staying empty rather than guessing.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop,
+ *   in staging and in production alike.
+ * - **The windows it can be interrupted in.** Two, and both are safe because
+ *   this is additive. *Before it runs*, the code in front of it is the
+ *   previous release, which does not name the column. *After it runs, with
+ *   that release promoted back*, its reads name a subset of the columns that
+ *   exist, and its writes never reach this one - so the worst a rollback costs
+ *   is a proposal from after it going unrecorded as a proposal until the
+ *   release goes forward again.
+ */
+const ITEM_TEXTS_PROPOSED: Change = {
+  name: '0026-item-texts-proposed',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `texts_proposed_at` text' }],
+};
+
+/**
+ * The store a title or description proposal reads back ("Learn how you write
+ * from the titles you correct", issue 394) - see `schema.ts` for what each
+ * column carries and why.
+ *
+ * **A brand new table, created whole with its CHECKs**, the same shape
+ * `DECISION_HISTORY` above uses and for the same reason: a table created here
+ * can carry a CHECK from the start, unlike a column added to `items`, which
+ * cannot be rebuilt while other tables point at it under RESTRICT.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a table and writes to no existing row.
+ * - **Interrupted partway.** It cannot be: the statements and the record that
+ *   they ran commit together (`up-to-date.ts`), so a failure leaves neither
+ *   the table nor the index and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left nothing behind.
+ * - **Data the new rules reject.** None: the table starts empty, and nothing
+ *   sweeps past edits into it. History accumulates from this shipping
+ *   forward, the same precedent `DECISION_HISTORY` set.
+ * - **What each environment does.** The same thing everywhere: an account
+ *   applies its outstanding changes inside the first request that opens it.
+ */
+const TEXT_CORRECTIONS: Change = {
+  name: '0027-text-corrections',
+  statements: [
+    {
+      sql: `CREATE TABLE \`text_corrections\` (
+	\`item_id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`captured_message\` text NOT NULL,
+	\`proposed_title\` text NOT NULL,
+	\`proposed_description\` text,
+	\`settled_title\` text NOT NULL,
+	\`settled_description\` text,
+	\`recorded_at\` text NOT NULL,
+	\`updated_at\` text NOT NULL,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "text_corrections_recorded_at_is_timestamp" CHECK(recorded_at IS NULL OR (datetime(recorded_at) IS NOT NULL AND substr(recorded_at, 11, 1) = 'T' AND substr(recorded_at, -1) = 'Z' AND length(recorded_at) >= 20 AND date(recorded_at) = substr(recorded_at, 1, 10))),
+	CONSTRAINT "text_corrections_updated_at_is_timestamp" CHECK(updated_at IS NULL OR (datetime(updated_at) IS NOT NULL AND substr(updated_at, 11, 1) = 'T' AND substr(updated_at, -1) = 'Z' AND length(updated_at) >= 20 AND date(updated_at) = substr(updated_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `text_corrections_tenant_recorded` ON `text_corrections` (`tenant_id`,`recorded_at`)',
+    },
+  ],
+};
+
+/**
  * What each Item means, and which Items mean the same thing ("Flag a captured
  * note that says what another one already said", issue 407) - see `schema.ts`
  * for what each column carries and why.
@@ -357,7 +448,7 @@ const WORKSPACE_ROUTING_SUMMARY: Change = {
  *   forward again.
  */
 const ITEM_MEANINGS: Change = {
-  name: '0027-item-meanings',
+  name: '0028-item-meanings',
   statements: [
     {
       sql: `CREATE TABLE \`item_meanings\` (

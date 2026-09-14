@@ -26,7 +26,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v6.test.ts).
+ * (tests/contract/clean-up-a-note.v7.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -562,7 +562,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v6.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v7.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {
@@ -739,7 +739,7 @@ describe('Capture', () => {
    * into the same classification call as the decision history and recent
    * captures, as far as an integration test can reach into a call whose
    * actual routing is a live model's judgment call
-   * (tests/contract/clean-up-a-note.v6.test.ts proves the judgment itself).
+   * (tests/contract/clean-up-a-note.v7.test.ts proves the judgment itself).
    */
   describe('a proposal is asked with the workspace’s own correction, where one has been written', () => {
     async function setCorrection(correction: string): Promise<void> {
@@ -955,6 +955,105 @@ describe('Capture', () => {
       );
 
       expect(asked).toHaveLength(0);
+    });
+  });
+});
+
+/**
+ * "Learn how you write from the titles you correct" (issue 394): what this
+ * account has corrected before is read for every note it captures, whichever
+ * Workspace made the correction and whichever Workspace is reading it now -
+ * unlike the routing history above, which is read one Workspace at a time.
+ */
+describe('Triage', () => {
+  describe('a note is read against every correction this account has ever made, in any workspace', () => {
+    it('reaches a note captured in a different workspace', async () => {
+      await alsoWorkspaces();
+      const corrected = await captureANote();
+      await untilTheNoteHasBeenRead(corrected);
+      expect(
+        (
+          await postChange('set_title', {
+            commandId: nextId(),
+            issuedAt: '2026-09-09T10:00:02.000Z',
+            workspaceId: WORKSPACE_ID,
+            itemId: corrected,
+            title: 'My own way of saying it',
+          })
+        ).status,
+      ).toBe(200);
+
+      asked = [];
+      await captureANote({ workspaceId: 'ws-atlas', itemId: nextId() });
+      await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0), { timeout: 15_000, interval: 50 });
+
+      expect(asked[0]!.system).toContain('My own way of saying it');
+    });
+
+    it('never surfaces a correction made in another account', async () => {
+      const theirs = await captureANote(
+        { workspaceId: WORKSPACE_ID, typeId: taskTypeIn(OTHER_ACCOUNT_NAME) },
+        OTHER_USER_ID,
+      );
+      await vi.waitFor(
+        async () => {
+          expect((await textsOf(theirs, OTHER_ACCOUNT_NAME))?.title).toBe(A_READING.title);
+        },
+        { timeout: 15_000, interval: 50 },
+      );
+      expect(
+        (
+          await postChange(
+            'set_title',
+            {
+              commandId: nextId(),
+              issuedAt: '2026-09-09T10:00:02.000Z',
+              workspaceId: WORKSPACE_ID,
+              itemId: theirs,
+              title: 'Their own way of saying it',
+            },
+            OTHER_USER_ID,
+          )
+        ).status,
+      ).toBe(200);
+
+      asked = [];
+      await captureANote();
+      await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0), { timeout: 15_000, interval: 50 });
+
+      expect(asked[0]!.system).not.toContain('Their own way of saying it');
+    });
+
+    it('says so, rather than being empty, for an account with no corrections yet', async () => {
+      const itemId = await captureANote();
+
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('nothing corrected yet');
+    });
+
+    /**
+     * Whether a proposal counts as having "stood" turns on whether it has
+     * actually been acted on - filed, dismissed or completed - not on
+     * whether it merely exists ("Learn how you write from the titles you
+     * correct", issue 394; `docs/text-learning.md`, "The rules"). A proposal
+     * still sitting untouched in the Inbox counts in neither direction.
+     */
+    it('counts a filed proposal as having stood, and a still-unfiled one in neither direction', async () => {
+      const filedId = await captureANote({ itemId: nextId() });
+      await untilTheNoteHasBeenRead(filedId);
+      const panelId = await aPanel('Somewhere');
+      await moveOnto(filedId, panelId);
+
+      const untouchedId = await captureANote({ itemId: nextId() });
+      await untilTheNoteHasBeenRead(untouchedId);
+
+      asked = [];
+      await captureANote({ itemId: nextId() });
+      await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0), { timeout: 15_000, interval: 50 });
+
+      // Just the filed one counted, and it was never corrected.
+      expect(asked[0]!.system).toContain('0 of 1 proposed texts were corrected');
     });
   });
 });

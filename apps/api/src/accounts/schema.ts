@@ -762,6 +762,26 @@ export const items = sqliteTable(
      */
     textsSettledAt: text('texts_settled_at'),
     /**
+     * When Cockpit proposed the two texts above, and null while nothing has
+     * been - either enrichment has not run yet, or never will ("Learn how you
+     * write from the titles you correct", issue 394; `docs/text-learning.md`,
+     * "What is stored"). Tells a real proposal apart from the mechanical write
+     * `capture_item` makes to `title` and `description`, which is what lets a
+     * later correction be told apart from a title written by hand from the
+     * start.
+     *
+     * **Written once, by `applyProposedTexts` alone, and never cleared.**
+     * `capture_item` never touches it - the same asymmetry `proposed_panel_id`
+     * has with `applyProposedPanel` below - and `applyProposedTexts` itself
+     * already refuses once `texts_settled_at` is set, so this can only ever be
+     * written before that happens.
+     *
+     * Nullable and carries no CHECK, for the reason `texts_settled_at` above
+     * does: `items` cannot be rebuilt while `panel_items` and `associations`
+     * point at it under RESTRICT.
+     */
+    textsProposedAt: text('texts_proposed_at'),
+    /**
      * The other ways this note could genuinely be read, where Cockpit found
      * any ("Offer the other readings when a captured note says two things",
      * issue 297). Written together with `title` and `description`
@@ -1100,6 +1120,56 @@ export const itemDuplicates = sqliteTable(
     // round is the same pair.
     check('item_duplicates_is_one_unordered_pair', sql.raw('item_id < other_item_id')),
     check('item_duplicates_found_at_is_timestamp', isTimestamp('found_at')),
+  ],
+);
+
+/**
+ * One row per Item, recording the correction the moment you make it - the
+ * evidence a title or description proposal reads back ("Learn how you write
+ * from the titles you correct", issue 394; `docs/text-learning.md`, "What is
+ * stored").
+ *
+ * **Upserted on `item_id`, unlike `decision_history` above.** A filing is one
+ * act and its entry is never touched again; editing a text is not - a second
+ * edit refines the same correction rather than making a new one, so this
+ * table updates the settled half of an existing row instead of appending a
+ * second (`docs/text-learning.md`, "The proposal is frozen at your first
+ * edit; your side stays live").
+ *
+ * **The note and the proposal are copied onto the row, not joined from the
+ * Item.** A row has to outlive the Item it was about - a dismissed Item is
+ * tombstoned rather than erased, but a joined read would still lose its note
+ * from view the moment a query excludes it, the same way `decisionHistoryFor-
+ * Workspace` already does - and a pasted example, a later row kind this
+ * table's shape already allows for, would have no Item to join to at all.
+ *
+ * **Written only for a text Cockpit actually proposed.** `command-service.ts`
+ * writes a row only where `items.texts_proposed_at` is set - an Item hand-
+ * written from the start teaches nothing about a correction, because nothing
+ * was proposed to correct.
+ */
+export const textCorrections = sqliteTable(
+  'text_corrections',
+  {
+    itemId: text('item_id')
+      .primaryKey()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    tenantId: text('tenant_id').notNull(),
+    capturedMessage: text('captured_message').notNull(),
+    proposedTitle: text('proposed_title').notNull(),
+    proposedDescription: text('proposed_description'),
+    settledTitle: text('settled_title').notNull(),
+    settledDescription: text('settled_description'),
+    recordedAt: text('recorded_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    // Read whole, per account, oldest first ("no retrieval step" -
+    // `docs/text-learning.md`, quoting `docs/routing-learning.md`) - the one
+    // access pattern this table has.
+    index('text_corrections_tenant_recorded').on(t.tenantId, t.recordedAt),
+    check('text_corrections_recorded_at_is_timestamp', isTimestamp('recorded_at')),
+    check('text_corrections_updated_at_is_timestamp', isTimestamp('updated_at')),
   ],
 );
 

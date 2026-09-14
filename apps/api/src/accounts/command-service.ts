@@ -15,6 +15,7 @@ import {
   panelPlacements,
   panels,
   screenSizes,
+  textCorrections,
   workspaceRoutingSummary,
   workspaces,
 } from './schema.js';
@@ -85,6 +86,7 @@ import {
 } from '../domain/item-types.js';
 import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import { decisionHistoryEntryFor } from '../domain/decision-history.js';
+import { textCorrectionFor } from '../domain/text-corrections.js';
 import {
   applyProposedPanel,
   applyProposedTexts,
@@ -1755,11 +1757,52 @@ export function runCommand<N extends CommandName>(
         db.insert(commands).values(commandRow).run();
         applied = false;
       } else {
+        // A correction only for the two texts, and only where Cockpit had
+        // actually proposed something to correct - an Item it never proposed
+        // for teaches nothing ("Learn how you write from the titles you
+        // correct", issue 394; `docs/text-learning.md`, "The rules").
+        const correction =
+          (name === 'set_title' || name === 'set_description') && existing.textsProposedAt !== null
+            ? textCorrectionFor(existing, updated, cmd.issuedAt)
+            : null;
         db.transaction((tx) => {
           tx.update(items)
             .set(updated)
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
+          if (correction) {
+            if (existing.textsSettledAt === null) {
+              // The true first edit, and the only moment `existing.title`/
+              // `existing.description` are guaranteed to still be Cockpit's
+              // own proposal - so this is the only moment a row may be
+              // *created* from them (`docs/text-learning.md`, "The proposal
+              // is frozen at your first edit; your side stays live").
+              // `onConflictDoNothing` is a defensive no-op: nothing else can
+              // have written a row this early, since one is only ever
+              // created in this same branch.
+              tx.insert(textCorrections).values(correction).onConflictDoNothing().run();
+            } else {
+              // A later edit updates only the settled half of a row the true
+              // first edit already created - never inserts one. Without this
+              // split, an edit reachable only because an earlier one (e.g.
+              // clearing the title) settled the texts without itself
+              // recording anything would insert a row whose frozen
+              // `proposedTitle`/`proposedDescription` were read off values
+              // that had already drifted from what Cockpit actually
+              // proposed. A plain `UPDATE ... WHERE` simply touches nothing
+              // where the true first edit never created a row - which is the
+              // right outcome: a proposal this account can no longer verify
+              // is not one it should teach from.
+              tx.update(textCorrections)
+                .set({
+                  settledTitle: correction.settledTitle,
+                  settledDescription: correction.settledDescription,
+                  updatedAt: correction.updatedAt,
+                })
+                .where(and(eq(textCorrections.tenantId, tenantId), eq(textCorrections.itemId, correction.itemId)))
+                .run();
+            }
+          }
           tx.insert(commands).values(commandRow).run();
         });
       }

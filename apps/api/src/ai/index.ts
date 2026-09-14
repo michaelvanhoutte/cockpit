@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v6.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v7.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 export type { NoteTexts, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
 
@@ -49,6 +50,13 @@ export interface AiService {
    * summary; that summary is gone and this outlived it ("Drop the nightly
    * filing summary, keep the sentence you wrote", issue 392).
    *
+   * `corrections` is every text this account has ever corrected, oldest
+   * first, and `stood` is how many other proposals simply stood - the
+   * evidence that lets a proposal learn this person's own vocabulary rather
+   * than general style ("Learn how you write from the titles you correct",
+   * issue 394; `docs/text-learning.md`). Per account, unlike the routing
+   * inputs above.
+   *
    * Answers a refusal rather than throwing for anything the model itself said:
    * an answer that will not parse or will not validate is a discarded proposal,
    * which the Item survives by keeping the text capture wrote. A call that
@@ -61,6 +69,8 @@ export interface AiService {
     history: readonly DecisionHistoryEntry[],
     recentlyCaptured: readonly string[],
     correction: string | null,
+    corrections: readonly TextCorrectionEntry[],
+    stood: WhatStood,
   ): Promise<ProposalRead>;
 }
 
@@ -107,8 +117,10 @@ export class ClaudeAiService implements AiService {
     history: readonly DecisionHistoryEntry[],
     recentlyCaptured: readonly string[],
     correction: string | null,
+    corrections: readonly TextCorrectionEntry[],
+    stood: WhatStood,
   ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote(panels, history, recentlyCaptured, correction);
+    const prompt = buildCleanUpANote(panels, history, recentlyCaptured, correction, corrections, stood);
     const answer = await this.#client.messages.create({
       model: prompt.model,
       /**

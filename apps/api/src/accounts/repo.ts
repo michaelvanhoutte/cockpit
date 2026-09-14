@@ -18,6 +18,7 @@ import type {
 import type { AccountDb } from './client.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import {
   associations,
   commands,
@@ -33,6 +34,7 @@ import {
   panelPlacements,
   panels,
   screenSizes,
+  textCorrections,
   workspaceRoutingSummary,
   workspaces,
 } from './schema.js';
@@ -531,6 +533,7 @@ const itemColumns = {
   title: items.title,
   description: items.description,
   textsSettledAt: items.textsSettledAt,
+  textsProposedAt: items.textsProposedAt,
   readings: items.readings,
   proposedPanelId: items.proposedPanelId,
   proposedPanelReason: items.proposedPanelReason,
@@ -783,6 +786,98 @@ export function recentlyCapturedUnfiled(
     .limit(RECENTLY_CAPTURED_LIMIT)
     .all()
     .map((row) => row.capturedMessage!);
+}
+
+/**
+ * Every correction this account has ever made, oldest first - what a title or
+ * description proposal reads whole, with no retrieval step, the same
+ * convention `decisionHistoryForWorkspace` above follows ("Learn how you
+ * write from the titles you correct", issue 394). Per account rather than per
+ * Workspace, deliberately unlike that function (`docs/text-learning.md`,
+ * "Scope: per account").
+ *
+ * **Carries `itemId`, unlike the columns a prompt actually renders.** It is
+ * what `textLearningContext` (`store.ts`) derives its corrected-item set from
+ * instead of a second query over this same table - one read, two answers.
+ */
+export function textCorrectionsForAccount(db: AccountDb, tenantId: string): TextCorrectionEntry[] {
+  return db
+    .select({
+      itemId: textCorrections.itemId,
+      capturedMessage: textCorrections.capturedMessage,
+      proposedTitle: textCorrections.proposedTitle,
+      proposedDescription: textCorrections.proposedDescription,
+      settledTitle: textCorrections.settledTitle,
+      settledDescription: textCorrections.settledDescription,
+      recordedAt: textCorrections.recordedAt,
+    })
+    .from(textCorrections)
+    .where(eq(textCorrections.tenantId, tenantId))
+    .orderBy(asc(textCorrections.recordedAt))
+    .all();
+}
+
+/**
+ * Every Item this account has ever proposed texts for, with enough to tell
+ * whether it has actually been acted on - what `deriveWhatStood`
+ * (`domain/text-corrections.ts`) needs to tell what stood from what has not
+ * been judged at all ("Learn how you write from the titles you correct",
+ * issue 394).
+ *
+ * **Filtered to proposed Items in SQL**, unlike a plain "every open Item"
+ * read: an Item nothing has ever proposed for is never judgeable, so there is
+ * no reason to carry it across the Durable Object boundary only to be
+ * filtered out a line later.
+ *
+ * **`actedOn` is filed, dismissed or completed - not `items.unseen`.** That
+ * column names an unrelated, unbuilt feature (auto-routing that bypasses
+ * Inbox review, `docs/functional-definition.md` §5.1) and nothing in this
+ * codebase ever sets it, so it could never tell a fresh, unread proposal
+ * apart from one this person has actually seen. Filed, dismissed or completed
+ * are the closest things this product already records to "a person did
+ * something with this row" - a dismissed Item is included here rather than
+ * excluded, unlike `decisionHistoryForWorkspace`'s own exclusion of one,
+ * because dismissing it is itself the act of having looked.
+ */
+export function judgeableItemsForAccount(db: AccountDb, tenantId: string): JudgeableItem[] {
+  const filed = filedItemIds(db, tenantId);
+  return db
+    .select({
+      id: items.id,
+      title: items.title,
+      textsProposedAt: items.textsProposedAt,
+      textsSettledAt: items.textsSettledAt,
+      completedAt: items.completedAt,
+      deletedAt: items.deletedAt,
+    })
+    .from(items)
+    .where(and(eq(items.tenantId, tenantId), isNotNull(items.textsProposedAt)))
+    .all()
+    .map((row) => ({
+      id: row.id,
+      title: row.title,
+      textsProposedAt: row.textsProposedAt,
+      textsSettledAt: row.textsSettledAt,
+      actedOn: filed.has(row.id) || row.completedAt !== null || row.deletedAt !== null,
+    }));
+}
+
+/**
+ * Every Item id filed on a live Panel - the same join `isItemFiled` makes for
+ * one Item at a time, made once here for the whole account instead of once
+ * per row.
+ */
+function filedItemIds(db: AccountDb, tenantId: string): Set<string> {
+  return new Set(
+    db
+      .selectDistinct({ itemId: panelItems.itemId })
+      .from(panelItems)
+      .innerJoin(panels, eq(panelItems.panelId, panels.id))
+      .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+      .where(and(eq(panelItems.tenantId, tenantId), isNull(panels.deletedAt), isNull(dashboards.deletedAt)))
+      .all()
+      .map((row) => row.itemId),
+  );
 }
 
 /**

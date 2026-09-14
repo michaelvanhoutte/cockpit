@@ -267,6 +267,7 @@ describe('Capture', () => {
       title: '',
       description: null,
       textsSettledAt: null,
+      textsProposedAt: null,
       readings: null,
       proposedPanelId: null,
       proposedPanelReason: null,

@@ -43,6 +43,7 @@ function anItemOf(type: ItemType | null, at: number): Item {
     capturedMessage: null,
     description: null,
     textsSettledAt: null,
+    textsProposedAt: null,
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,

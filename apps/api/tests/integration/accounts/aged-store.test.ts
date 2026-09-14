@@ -291,7 +291,7 @@ const rowsFor: {
     params: (name) => [name, AT],
   },
   {
-    // The two tables `0027-item-meanings` creates, filled for the reason
+    // The two tables `0028-item-meanings` creates, filled for the reason
     // `decision_history` above is: whatever comes next has to meet a full one.
     // Two readings rather than one, because the pair below needs two items to
     // hang off.

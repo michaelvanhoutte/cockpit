@@ -57,6 +57,10 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     // it has read the note ("Clean up a captured note into a clear title and a
     // fuller message", issue 296). Editing either is what settles both.
     textsSettledAt: null,
+    // Nothing has been proposed yet either - this is the mechanical write
+    // capture makes, not a proposal ("Learn how you write from the titles you
+    // correct", issue 394; `docs/text-learning.md`).
+    textsProposedAt: null,
     // Nothing has been read yet, so there is nothing to offer an alternative
     // to ("Offer the other readings when a captured note says two things",
     // issue 297).
@@ -204,6 +208,13 @@ function settledBy(item: Item, issuedAt: string): Pick<Item, 'textsSettledAt'> {
  * proposal is not a change somebody made, so it does not move the clock other
  * people's changes are measured against; what a browser reads it back through
  * is the account's own change log, not this field.
+ *
+ * **Stamps `textsProposedAt`, unconditionally.** This is the only place that
+ * ever writes it - `captureItem`'s own mechanical write to `title` and
+ * `description` leaves it null - which is what lets a later correction be
+ * told apart from a title written by hand from the start ("Learn how you
+ * write from the titles you correct", issue 394; `docs/text-learning.md`,
+ * "What is stored").
  */
 export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): Item | null {
   if (item.textsSettledAt !== null) return null;
@@ -216,6 +227,7 @@ export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): It
     title: cmd.title,
     description: cmd.description,
     readings: cmd.readings.length > 0 ? cmd.readings : null,
+    textsProposedAt: cmd.issuedAt,
   };
 }
 

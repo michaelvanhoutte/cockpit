@@ -28,6 +28,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     capturedMessage: null,
     description: null,
     textsSettledAt: null,
+    textsProposedAt: null,
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,
