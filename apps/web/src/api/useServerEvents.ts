@@ -84,6 +84,11 @@ export function useServerEvents() {
         if (parsed.data.workspaceId === ACCOUNT_WIDE) {
           void queryClient.invalidateQueries({ queryKey: ['itemTypes'] });
           void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
+          // Rules are account-wide too ("Show what Cockpit is told, and say
+          // how you want it changed", issue 398) - without this, a rule
+          // saved in one tab reads as stale in another until its own
+          // `staleTime` lapses.
+          void queryClient.invalidateQueries({ queryKey: ['textLearningStatus'] });
         }
       });
 

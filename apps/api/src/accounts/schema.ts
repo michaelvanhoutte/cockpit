@@ -1236,6 +1236,38 @@ export const workspaceRoutingSummary = sqliteTable(
 );
 
 /**
+ * One row per account: the rules an account writes for how Cockpit writes a
+ * title and a message ("Show what Cockpit is told, and say how you want it
+ * changed", issue 398; `docs/text-learning.md`, "Where you see it, and
+ * change it").
+ *
+ * **`tenant_id` is the primary key, not a separate `id`.** There is exactly
+ * one rules box per account, ever, and inside one account's own store every
+ * row's `tenant_id` already reads the same value - the same shape
+ * `workspaceRoutingSummary` above takes for `workspace_id`, one level up the
+ * scope it is keyed on.
+ *
+ * **The row does not exist until something is written.** Nobody has written
+ * rules for a freshly made account, so there is no row to create it with -
+ * reads treat a missing row exactly as they would an existing one with every
+ * column null, the same convention `workspaceRoutingSummary` follows.
+ *
+ * **A different table from `workspace_routing_summary` above, not a
+ * migration of it** - why, in `packages/shared/src/domain/text-learning-
+ * rules.ts`. Nothing reads or writes across the two tables.
+ */
+export const accountTextRules = sqliteTable(
+  'account_text_rules',
+  {
+    tenantId: text('tenant_id').primaryKey(),
+    /** Null until the account writes one, and null again once it is cleared. */
+    rules: text('rules'),
+    rulesSetAt: text('rules_set_at'),
+  },
+  (t) => [check('account_text_rules_rules_set_at_is_timestamp', isTimestamp('rules_set_at'))],
+);
+
+/**
  * The command log (architecture, "Mutations are commands, not object PUTs"):
  * idempotency check for retries and the audit trail. command_id is the
  * client-generated ID; a replayed command is a no-op.

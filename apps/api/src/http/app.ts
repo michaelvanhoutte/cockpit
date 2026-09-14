@@ -12,6 +12,7 @@ import {
   registeredUserListSchema,
   setAccessSchema,
   signedInSchema,
+  textLearningStatusSchema,
   userAddedSchema,
   userChangedSchema,
   workspaceListSchema,
@@ -629,6 +630,24 @@ const itemTypesRoute = createRoute({
   },
 });
 
+/**
+ * What the account is told, and what it has written back ("Show what
+ * Cockpit is told, and say how you want it changed", issue 398) - its own
+ * route rather than a slice of the workspace snapshot, for the same reason
+ * `itemTypesRoute` above has one (`apps/web/src/api/queries.ts`,
+ * `textLearningStatusQuery`).
+ */
+const textLearningStatusRoute = createRoute({
+  method: 'get',
+  path: '/v1/text-learning-rules',
+  responses: {
+    200: {
+      description: "The account's own rules, and how its proposals are doing",
+      content: { 'application/json': { schema: textLearningStatusSchema } },
+    },
+  },
+});
+
 const snapshotRoute = createRoute({
   method: 'get',
   path: '/v1/workspaces/{workspaceId}/snapshot',
@@ -920,6 +939,20 @@ const routes = app
     const account = await openAccount(c.env, c.get('visitor').accountName);
     return c.json({ itemTypes: await account.itemTypes() }, 200);
   })
+  .openapi(textLearningStatusRoute, async (c) => {
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    // `corrections` and `stood.sample` are read by the prompt and left
+    // unread here - this window shows neither list (`docs/text-
+    // learning.md`'s two evidence lists are their own later step). The
+    // built-in guidance is not read back here either - it never changes at
+    // runtime, so the window imports `TEXT_LEARNING_GUIDANCE` from
+    // `@cockpit/shared` directly rather than round-tripping it.
+    const { rules, rulesSetAt, stood } = await account.textLearningContext();
+    return c.json(
+      { rules, rulesSetAt, proposedTotal: stood.proposedTotal, correctedTotal: stood.correctedTotal },
+      200,
+    );
+  })
   .openapi(snapshotRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -1054,6 +1087,9 @@ const routes = app
   )
   .openapi(commandRoute('set_routing_summary_correction'), async (c) =>
     c.json(await change(c, 'set_routing_summary_correction', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('set_text_learning_rules'), async (c) =>
+    c.json(await change(c, 'set_text_learning_rules', c.req.valid('json')), 200),
   )
   // --- signing in: two navigations, not two requests -------------------------
   /**

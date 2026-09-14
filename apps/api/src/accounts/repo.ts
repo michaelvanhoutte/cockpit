@@ -20,6 +20,7 @@ import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import {
+  accountTextRules,
   associations,
   commands,
   dashboards,
@@ -919,6 +920,26 @@ export function getRoutingSummary(
           eq(workspaceRoutingSummary.workspaceId, workspaceId),
         ),
       )
+      .get() ?? null
+  );
+}
+
+/**
+ * One account's own rules for how Cockpit writes a title and a message
+ * ("Show what Cockpit is told, and say how you want it changed", issue 398),
+ * or null where no row exists yet - every account's starting condition, the
+ * same convention `getRoutingSummary` above follows for the Workspace-scoped
+ * correction it reads.
+ */
+export function getTextLearningRules(
+  db: AccountDb,
+  tenantId: string,
+): { rules: string | null; rulesSetAt: string | null } | null {
+  return (
+    db
+      .select({ rules: accountTextRules.rules, rulesSetAt: accountTextRules.rulesSetAt })
+      .from(accountTextRules)
+      .where(eq(accountTextRules.tenantId, tenantId))
       .get() ?? null
   );
 }

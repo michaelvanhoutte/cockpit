@@ -106,6 +106,7 @@ async function read(
   correction: string | null = null,
   corrections: readonly TextCorrectionEntry[] = [],
   stood: WhatStood = NO_STOOD,
+  rules: string | null = null,
 ) {
   const answer = await reading.cleanUpNote(
     note,
@@ -115,6 +116,7 @@ async function read(
     correction,
     corrections,
     stood,
+    rules,
   );
   // Said out loud, because a discarded answer is the one failure whose reason
   // is otherwise only in the logs of a scheduled run nobody was watching.
@@ -405,7 +407,7 @@ describe('Capture', () => {
    */
   describe('a note carrying almost nothing produces something usable or nothing at all', () => {
     it('answers a note of punctuation and emoji without inventing one, or with nothing', async () => {
-      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], null, [], NO_STOOD);
+      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], null, [], NO_STOOD, null);
 
       // A discard is a pass and there is nothing further to check on it: every
       // producer of that arm writes a non-empty reason, so asserting one here

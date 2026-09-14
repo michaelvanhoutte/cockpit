@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations } from 'cloudflare:test';
-import type { CommandName, CommandPayload } from '@cockpit/shared';
+import { ACCOUNT_WIDE, type CommandName, type CommandPayload } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   DASHBOARD_ID,
@@ -1054,6 +1054,69 @@ describe('Triage', () => {
 
       // Just the filed one counted, and it was never corrected.
       expect(asked[0]!.system).toContain('0 of 1 proposed texts were corrected');
+    });
+  });
+
+  /**
+   * "Show what Cockpit is told, and say how you want it changed" (issue
+   * 398): the account's own rules for how a title and a message are written
+   * are read into the same call as the corrections evidence above -
+   * account-scoped, the same as that evidence and unlike the Workspace's own
+   * filing correction further up this file.
+   */
+  describe("a proposal is asked with the account's own rules, where some have been written", () => {
+    async function setRules(rules: string, userId?: string): Promise<void> {
+      const response = await postChange(
+        'set_text_learning_rules',
+        {
+          commandId: nextId(),
+          issuedAt: '2026-09-09T09:00:00.000Z',
+          workspaceId: ACCOUNT_WIDE,
+          rules,
+        },
+        userId,
+      );
+      expect(response.status).toBe(200);
+    }
+
+    it('says no rules have been written, for an account that has never written any', async () => {
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('has not written any rules');
+    });
+
+    it('carries a rule once one has been written', async () => {
+      await setRules('Never end a title with a question mark.');
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('Never end a title with a question mark.');
+    });
+
+    it('applies to a note captured in a different workspace than the one it was written from', async () => {
+      await alsoWorkspaces();
+      await setRules('Never end a title with a question mark.');
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote({ workspaceId: 'ws-personal', message: 'buy milk' });
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('Never end a title with a question mark.');
+    });
+
+    it('never surfaces rules written in another account', async () => {
+      await setRules('Their own way of writing it.', OTHER_USER_ID);
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).not.toContain('Their own way of writing it.');
     });
   });
 });

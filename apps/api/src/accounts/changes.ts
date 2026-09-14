@@ -94,9 +94,10 @@ export function accountChanges(accountId: string): readonly Change[] {
     WORKSPACE_ROUTING_SUMMARY,
     ITEM_TEXTS_PROPOSED,
     TEXT_CORRECTIONS,
+    ITEM_MEANINGS,
+    ACCOUNT_TEXT_RULES,
     firstWorkspace(accountId),
     guestDemoSeed(accountId),
-    ITEM_MEANINGS,
   ];
 }
 
@@ -483,6 +484,55 @@ const ITEM_MEANINGS: Change = {
     },
     {
       sql: 'CREATE INDEX `item_duplicates_tenant_other` ON `item_duplicates` (`tenant_id`,`other_item_id`)',
+    },
+  ],
+};
+
+/**
+ * The account-scoped box for the rules an account writes for how Cockpit
+ * writes a title and a message ("Show what Cockpit is told, and say how you
+ * want it changed", issue 398) - see `schema.ts` for what the column carries
+ * and why.
+ *
+ * **Numbered `0029`, not `0028`**, despite being written against the same
+ * base as `ITEM_MEANINGS` above: that change merged to `main` first, so its
+ * name is already shipped and cannot be touched, and a second, different
+ * `0028` name here would only be untidy in a way this file's own comment
+ * warns is not worth the risk of an edit - a *duplicate* name is the fault
+ * that actually breaks an account, not a shared number, but this one was
+ * still free to avoid before either shipped.
+ *
+ * **A brand new table, created whole with its CHECK**, the same shape
+ * `TEXT_CORRECTIONS` above uses and for the same reason: a table created here
+ * can carry a CHECK from the start, unlike a column added to an existing
+ * table.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a table and writes to no existing row.
+ * - **Interrupted partway.** It cannot be: the statement and the record that
+ *   it ran commit together (`up-to-date.ts`), so a failure leaves neither the
+ *   table nor the row and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished
+ *   one left nothing behind.
+ * - **Data the new rules reject.** None: the table starts empty, and nothing
+ *   sweeps past text into it. An account's rules exist only from the moment
+ *   it writes them.
+ * - **What each environment does.** The same thing everywhere: an account
+ *   applies its outstanding changes inside the first request that opens it.
+ */
+const ACCOUNT_TEXT_RULES: Change = {
+  name: '0029-account-text-rules',
+  statements: [
+    {
+      sql: `CREATE TABLE \`account_text_rules\` (
+	\`tenant_id\` text PRIMARY KEY NOT NULL,
+	\`rules\` text,
+	\`rules_set_at\` text,
+	CONSTRAINT "account_text_rules_rules_set_at_is_timestamp" CHECK(rules_set_at IS NULL OR (datetime(rules_set_at) IS NOT NULL AND substr(rules_set_at, 11, 1) = 'T' AND substr(rules_set_at, -1) = 'Z' AND length(rules_set_at) >= 20 AND date(rules_set_at) = substr(rules_set_at, 1, 10)))
+) STRICT`,
     },
   ],
 };
