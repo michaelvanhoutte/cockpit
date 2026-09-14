@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Filing, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { UndoWhatJustHappened } from '../../../src/undo';
 
@@ -16,6 +16,7 @@ import { UndoWhatJustHappened } from '../../../src/undo';
 
 const held = vi.hoisted(() => ({
   items: [] as Item[],
+  filings: [] as Filing[],
   duplicates: [] as PossibleDuplicate[],
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
@@ -77,11 +78,11 @@ vi.mock('../../../src/description/RichDescription', () => ({
 vi.mock('../../../src/api/queries', () => ({
   useSendCommand: () => held.send,
   snapshotQuery: (workspaceId: string) => ({
-    queryKey: ['snapshot', workspaceId, held.items, held.duplicates],
+    queryKey: ['snapshot', workspaceId, held.items, held.filings, held.duplicates],
     queryFn: (): Promise<WorkspaceSnapshot> =>
       Promise.resolve({
         items: held.items,
-        filings: [],
+        filings: held.filings,
         duplicates: held.duplicates,
       } as unknown as WorkspaceSnapshot),
   }),
@@ -159,6 +160,7 @@ beforeEach(() => {
   held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
   held.close.mockClear();
   held.open.mockClear();
+  held.filings = [];
   held.duplicates = [];
   held.openItemId = 'item-1';
 });
@@ -602,6 +604,25 @@ describe('Item editing', () => {
       await theForm(anItem(), [ANOTHER_NOTE]);
 
       expect(screen.queryByText('Possible duplicate of')).toBeNull();
+    });
+
+    /**
+     * Every other test in this describe block leaves both halves in the
+     * Inbox, which is the one case that predates issue 410 and tells
+     * nothing about the asymmetric rule it added - a filed item's own form
+     * showing what it repeats is a capability this test file has otherwise
+     * never exercised.
+     */
+    it('shows a note this one repeats even once both are filed', async () => {
+      held.filings = [
+        { panelId: 'pn-1', itemId: 'item-1', position: 0 },
+        { panelId: 'pn-1', itemId: ANOTHER_NOTE.id, position: 1 },
+      ];
+      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
+      await theForm(anItem(), [ANOTHER_NOTE]);
+
+      expect(screen.getByText('Possible duplicate of')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Part 11 audit trail, for Novy' })).toBeVisible();
     });
   });
 

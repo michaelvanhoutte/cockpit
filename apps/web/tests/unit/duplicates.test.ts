@@ -126,7 +126,7 @@ describe('Triage', () => {
       expect(possibleDuplicatesOf(THE_OTHER.id, ITEMS, filings, PAIRED)).toEqual([ONE]);
     });
 
-    it('drops the card\'s mark, and keeps the Inbox row\'s, the moment one of a filed pair is filed elsewhere', () => {
+    it('drops the card\'s mark, and keeps the Inbox row\'s, the moment one of a filed pair moves back to the Inbox', () => {
       const filings = [filedOn(ONE.id, 'pn-1'), filedOn(THE_OTHER.id, 'pn-1')];
       expect(itemsThatMayBeDuplicates(ITEMS, filings, PAIRED).has(ONE.id)).toBe(true);
 

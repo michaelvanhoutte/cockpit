@@ -1852,7 +1852,14 @@ describe('Panels', () => {
     const CARD_TWO = anItem('11111111-1111-7111-8111-000000000010', 'Filed note two');
     const PANEL_ID = 'pn-focus';
 
-    it('marks both cards when both are filed on different panels', async () => {
+    /**
+     * One wiring case is enough here: that a filed card's menu draws "Not a
+     * duplicate" at all is what this proves, and which panel each half
+     * landed on is a distinction `itemsThatMayBeDuplicates` itself already
+     * settles in `tests/unit/duplicates.test.ts` - re-proving it against the
+     * DOM a second time would be coverage duplicated upward.
+     */
+    it('marks a card when paired with another filed item', async () => {
       const OTHER_PANEL = 'pn-other';
       held.items = [CARD_ONE, CARD_TWO];
       held.filings = [
@@ -1865,27 +1872,6 @@ describe('Panels', () => {
         aPanel(PANEL_ID, TODAY.id, 'Focus'),
         aPanel(OTHER_PANEL, TODAY.id, 'Other'),
       ];
-
-      const user = await showList({
-        items: [CARD_ONE],
-        panelId: PANEL_ID,
-      });
-
-      const theRow = screen.getByRole('listitem');
-      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
-
-      expect(await screen.findByRole('menuitem', { name: 'Not a duplicate' })).toBeInTheDocument();
-    });
-
-    it('marks both cards when both are filed on the same panel', async () => {
-      held.items = [CARD_ONE, CARD_TWO];
-      held.filings = [
-        { panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 },
-        { panelId: PANEL_ID, itemId: CARD_TWO.id, position: 1 },
-      ];
-      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
-      held.dashboards = [TODAY];
-      held.panels = [aPanel(PANEL_ID, TODAY.id, 'Focus')];
 
       const user = await showList({
         items: [CARD_ONE],
@@ -1923,8 +1909,15 @@ describe('Panels', () => {
      * half of the pair does not answer that question. Asked of the Inbox's
      * own list rather than the card's, since that is a different `ItemList`
      * (`panelId: null`) from the one the card above is drawn in.
+     *
+     * Settled all the way through rather than just checked for presence:
+     * that the mark survives its partner being filed is a calculation
+     * `duplicates.test.ts` already proves; what only this test can prove is
+     * that the row's own "Not a duplicate" actually settles *this* pair -
+     * itself the Inbox item, its filed partner the other half - and not
+     * something `pairedWith` alone would have gotten wrong.
      */
-    it('keeps the mark on the Inbox row, even though its filed pair goes quiet', async () => {
+    it('settles from the Inbox row a pair whose other half is filed, offering it back', async () => {
       held.items = [CARD_ONE, CARD_TWO];
       held.filings = [{ panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 }];
       held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
@@ -1933,8 +1926,34 @@ describe('Panels', () => {
 
       const theRow = screen.getByRole('listitem');
       await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
 
-      expect(await screen.findByRole('menuitem', { name: 'Not a duplicate' })).toBeInTheDocument();
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: CARD_TWO.id,
+            otherItemId: CARD_ONE.id,
+            settled: true,
+          }),
+        }),
+      );
+
+      expect(await screen.findByRole('status')).toHaveTextContent('is not a duplicate');
+
+      held.send.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: CARD_TWO.id,
+            otherItemId: CARD_ONE.id,
+            settled: false,
+          }),
+        }),
+      );
     });
 
     it('can settle a duplicate pair from a card, offering the way back', async () => {

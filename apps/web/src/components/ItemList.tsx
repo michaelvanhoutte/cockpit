@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
 import {
@@ -287,16 +287,14 @@ export function ItemList({
   /**
    * Which of this workspace's Items may be saying what another one already
    * said ("Flag a captured note that says what another one already said", issue
-   * 407; extended in issue 410 to include filed Items). Worked out once for the
-   * whole list rather than per row - the same read either way. The function
-   * itself now correctly decides Inbox-vs-Inbox or filed-vs-filed pairs, so
-   * computing it unconditionally for both Inbox and Panel lists is correct and
-   * necessary.
+   * 407; extended in issue 410 to include filed Items). Every Panel's list needs
+   * this now, not just the Inbox's, so it is memoized on the snapshot rather
+   * than recomputed on every one of a dashboard's several `ItemList`s on every
+   * render.
    */
-  const flagged = itemsThatMayBeDuplicates(
-    data?.items ?? [],
-    data?.filings ?? [],
-    data?.duplicates ?? [],
+  const flagged = useMemo(
+    () => itemsThatMayBeDuplicates(data?.items ?? [], data?.filings ?? [], data?.duplicates ?? []),
+    [data?.items, data?.filings, data?.duplicates],
   );
 
   /**
@@ -345,9 +343,8 @@ export function ItemList({
    *
    * **`possibleDuplicatesOf`, not the raw pairs `data.duplicates` carries.**
    * The mark this menu entry is offered from is `mayBeADuplicate`, which comes
-   * from `itemsThatMayBeDuplicates` - both halves of a pair still in the Inbox.
-   * A pair whose other half has since been filed is a fact the server still
-   * holds but nothing on screen draws, and settling one the row never showed
+   * from `itemsThatMayBeDuplicates` - the same asymmetric rule, so this only
+   * ever settles a pair the row actually showed. Settling one it never drew
    * would be settling something nobody was ever asked about.
    */
   const settleNotADuplicateFor = (item: Item): (() => void) | undefined => {
