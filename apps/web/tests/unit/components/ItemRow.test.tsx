@@ -63,6 +63,7 @@ function aRow({
   routingProposal,
   onAcceptRouting,
   mayBeADuplicate,
+  onSettleNotADuplicate,
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
@@ -74,6 +75,7 @@ function aRow({
   routingProposal?: { panelName: string; reason: string };
   onAcceptRouting?: () => void;
   mayBeADuplicate?: boolean;
+  onSettleNotADuplicate?: () => void;
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
@@ -94,6 +96,7 @@ function aRow({
         {...(routingProposal ? { routingProposal } : {})}
         {...(onAcceptRouting ? { onAcceptRouting } : {})}
         {...(mayBeADuplicate === undefined ? {} : { mayBeADuplicate })}
+        {...(onSettleNotADuplicate ? { onSettleNotADuplicate } : {})}
       />
     </UndoWhatJustHappened>,
   );
@@ -519,6 +522,40 @@ describe('Item editing', () => {
       aRow({ mayBeADuplicate: flagged });
 
       expect(screen.queryByLabelText('Possible duplicate') !== null).toBe(flagged);
+    });
+
+    /**
+     * "Say a flagged pair is not a duplicate" (issue 408): the menu entry is
+     * the list's to offer, exactly as the mark is - a row with the mark but
+     * nothing handed down to settle offers no way to, rather than a way that
+     * does nothing.
+     */
+    it.each([
+      { situation: 'flagged, and given something to settle', flagged: true, given: true, shown: true },
+      { situation: 'flagged, but given nothing to settle', flagged: true, given: false, shown: false },
+      { situation: 'not flagged, though given something to settle', flagged: false, given: true, shown: false },
+    ])('offers "Not a duplicate" only when $situation', async ({ flagged, given, shown }) => {
+      const user = userEvent.setup();
+      aRow({
+        mayBeADuplicate: flagged,
+        ...(given ? { onSettleNotADuplicate: () => {} } : {}),
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+
+      expect(screen.queryByRole('menuitem', { name: 'Not a duplicate' }) !== null).toBe(shown);
+    });
+
+    it('settles by calling what the list handed down, not by sending anything itself', async () => {
+      const user = userEvent.setup();
+      const settle = vi.fn();
+      const { mutate, send } = aRow({ mayBeADuplicate: true, onSettleNotADuplicate: settle });
+
+      await choose(user, 'Not a duplicate');
+
+      expect(settle).toHaveBeenCalledTimes(1);
+      expect(mutate).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
     });
   });
 

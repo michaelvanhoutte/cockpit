@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, Filing, Item, Panel, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
+import type {
+  Dashboard,
+  Filing,
+  Item,
+  Panel,
+  PossibleDuplicate,
+  Workspace,
+  WorkspaceSnapshot,
+} from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { ItemList } from '../../../src/components/ItemList';
@@ -21,6 +29,7 @@ const held = vi.hoisted(() => ({
   filings: [] as Filing[],
   dashboards: [] as Dashboard[],
   panels: [] as Panel[],
+  duplicates: [] as PossibleDuplicate[],
   /** Every workspace of the account, which the picker offers as Inboxes. */
   workspaces: [] as Workspace[],
   mutate: vi.fn(),
@@ -83,7 +92,7 @@ vi.mock('../../../src/api/queries', async () => {
       associations: [],
       itemTypes: [],
     screenSizes: [],
-    duplicates: [],
+    duplicates: held.duplicates,
       filings: held.filings,
       routingSummary: null,
       generatedAt: '2026-08-31T09:00:00.000Z',
@@ -108,7 +117,7 @@ vi.mock('../../../src/api/queries', async () => {
         associations: [],
         itemTypes: [],
     screenSizes: [],
-    duplicates: [],
+    duplicates: held.duplicates,
         filings: held.filings,
         routingSummary: null,
         generatedAt: '2026-08-31T09:00:00.000Z',
@@ -304,6 +313,7 @@ beforeEach(() => {
     aPanel('p-reading', RESEARCH.id, 'To read'),
   ];
   held.workspaces = [aWorkspace('ws-work', 'Work'), aWorkspace('ws-home', 'Home')];
+  held.duplicates = [];
   held.error = null;
   held.variables = { payload: { itemId: BART.id } };
   held.refuses = null;
@@ -1694,5 +1704,64 @@ describe('Triage', () => {
       expect(nowOn('p-anna')).toEqual(was.anna);
       expect(screen.queryByText(/could not|changed while/)).not.toBeInTheDocument();
     });
+  });
+});
+
+/**
+ * "Say a flagged pair is not a duplicate" (issue 408): the row's menu offers
+ * a way to settle whatever the list resolved it to be paired with
+ * (`itemsThatMayBeDuplicates`, `pairedWith`) - which pair, and the command it
+ * sends, is this list's own answer; that a row draws the mark and the menu
+ * entry at all is `ItemRow.test.tsx`'s.
+ */
+describe('Say a flagged pair is not a duplicate', () => {
+  const OTHER = anItem('11111111-1111-7111-8111-000000000006', 'Another note about the same thing');
+
+  it('settles the pair from the row menu, and offers it back', async () => {
+    held.items = [BART, OTHER];
+    held.duplicates = [{ itemId: BART.id, otherItemId: OTHER.id }];
+    const user = await showList({ items: [BART, OTHER] });
+
+    const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
+    await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
+
+    expect(held.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'set_duplicate_settled',
+        payload: expect.objectContaining({
+          itemId: BART.id,
+          otherItemId: OTHER.id,
+          settled: true,
+        }),
+      }),
+    );
+
+    expect(await screen.findByRole('status')).toHaveTextContent('is not a duplicate');
+
+    held.send.mockClear();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(held.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'set_duplicate_settled',
+        payload: expect.objectContaining({
+          itemId: BART.id,
+          otherItemId: OTHER.id,
+          settled: false,
+        }),
+      }),
+    );
+  });
+
+  it('offers nothing where there is no pair to settle', async () => {
+    held.items = [BART, OTHER];
+    held.duplicates = [];
+    const user = await showList({ items: [BART, OTHER] });
+
+    const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
+    await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+
+    expect(screen.queryByRole('menuitem', { name: 'Not a duplicate' })).toBeNull();
   });
 });

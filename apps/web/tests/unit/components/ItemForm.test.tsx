@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
+import { UndoWhatJustHappened } from '../../../src/undo';
 
 /**
  * F1: the form's own behaviour and its wiring. What a saved text survives is a
@@ -119,14 +120,19 @@ function anItem(over: Partial<Item> = {}): Item {
   };
 }
 
-async function theForm(item: Item = anItem(), alsoInTheInbox: Item[] = []) {
+async function theForm(
+  item: Item = anItem(),
+  alsoInTheInbox: Item[] = [],
+  withUndo = false,
+) {
   held.items = [item, ...alsoInTheInbox];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const tree = (
     <QueryClientProvider client={client}>
       <ItemForm />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  render(withUndo ? <UndoWhatJustHappened>{tree}</UndoWhatJustHappened> : tree);
   await screen.findByLabelText('Title');
   await theEditorHasArrived();
   return userEvent.setup();
@@ -596,6 +602,75 @@ describe('Item editing', () => {
       await theForm(anItem(), [ANOTHER_NOTE]);
 
       expect(screen.queryByText('Possible duplicate of')).toBeNull();
+    });
+  });
+
+  /**
+   * "Say a flagged pair is not a duplicate" (issue 408): each linked note gets
+   * its own way to settle the pair it names, distinct from opening it - and
+   * settling offers the way back the same bar every other change does.
+   */
+  describe('settling a pair as not a duplicate', () => {
+    const ANOTHER_NOTE = anItem({ id: 'item-2', title: 'Part 11 audit trail, for Novy' });
+
+    it('settles the pair this link names, not the one this form is', async () => {
+      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
+      const user = await theForm(anItem(), [ANOTHER_NOTE]);
+
+      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+
+      expect(sent()).toContainEqual(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: 'item-1',
+            otherItemId: ANOTHER_NOTE.id,
+            settled: true,
+          }),
+        }),
+      );
+      // The link to the other note is untouched - settling is not opening it.
+      expect(held.open).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The bar itself is `UndoWhatJustHappened`'s own (`tests/unit/undo.test.tsx`);
+     * what is asked here is that settling from the form offers *this* change's
+     * inverse.
+     *
+     * **Found by text and clicked by `fireEvent`, not by role and `user.click`.**
+     * The form is a Radix `Dialog`, which marks every sibling outside itself
+     * `aria-hidden` while it is open - this bar included, since it is mounted
+     * above the router rather than inside the dialog. A real browser still
+     * lets a mouse reach it (`pointer-events-auto`, undo.tsx, proved by hand
+     * in the browser pass this issue's own definition of done requires), but
+     * `user.click` deliberately refuses to interact with anything under an
+     * `aria-hidden` ancestor - correctly, since a screen reader could not
+     * reach it either, which is the one part of this still open as a
+     * follow-up. `fireEvent` proves the wiring - that settling from the form
+     * offers this change's own inverse - without asserting reachability this
+     * tier cannot honestly claim either way.
+     */
+    it('offers the way back, which settles it false again', async () => {
+      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
+      const user = await theForm(anItem(), [ANOTHER_NOTE], true);
+
+      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+
+      const undo = await screen.findByText('Undo');
+      held.send.mockClear();
+      fireEvent.click(undo);
+
+      expect(sent()).toContainEqual(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: 'item-1',
+            otherItemId: ANOTHER_NOTE.id,
+            settled: false,
+          }),
+        }),
+      );
     });
   });
 

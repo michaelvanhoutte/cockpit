@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
+import { itemLabel, pairedWith, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
 import {
   snapshotQuery,
   useCommand,
@@ -331,6 +331,44 @@ export function ItemList({
     if (!routingProposalFor(item)) return undefined;
     const panelId = item.proposedPanelId!;
     return () => move(item, panelId, 0);
+  };
+
+  /**
+   * Settles every pair this row is currently flagged in as not a duplicate,
+   * in one go ("Say a flagged pair is not a duplicate", issue 408).
+   *
+   * **The row asks for all of it at once because it knows none of it** - which
+   * pair, or how many, waits until the form is opened, exactly as the mark
+   * itself does (`mayBeADuplicate`, ItemRow.tsx). The common case is one pair,
+   * so this is ordinarily indistinguishable from settling the one; where there
+   * is more than one, this is the quick way to clear the row, and the form is
+   * still where a single pair among several is settled on its own.
+   */
+  const settleNotADuplicateFor = (item: Item): (() => void) | undefined => {
+    const others = pairedWith(item.id, data?.duplicates ?? []);
+    if (others.length === 0) return undefined;
+    return () => {
+      const envelopeWith = (otherItemId: string, settled: boolean) => ({
+        name: 'set_duplicate_settled' as const,
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: item.id,
+          otherItemId,
+          settled,
+        },
+      });
+      Promise.all(others.map((otherId) => send(envelopeWith(otherId, true)))).then(() => {
+        offerToUndo({
+          what:
+            others.length === 1
+              ? `"${itemLabel(item)}" is not a duplicate`
+              : `"${itemLabel(item)}" is not a duplicate of ${others.length} notes`,
+          undo: () => Promise.all(others.map((otherId) => send(envelopeWith(otherId, false)))),
+        });
+      });
+    };
   };
 
   /** The order this panel would be in with the item at this place among its rows. */
@@ -861,6 +899,9 @@ export function ItemList({
                         routingProposal: routingProposalFor(item),
                         onAcceptRouting: acceptRoutingFor(item),
                         mayBeADuplicate: flagged.has(item.id),
+                        onSettleNotADuplicate: flagged.has(item.id)
+                          ? settleNotADuplicateFor(item)
+                          : undefined,
                       })}
                 />
               </Fragment>
