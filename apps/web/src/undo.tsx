@@ -172,14 +172,16 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // moves it off the home indicator: its own padding is what keeps the
           // way back reachable (styles.css, `--edge-bottom`).
           //
-          // **`pointer-events-auto` against the body's own lock.** A Radix
-          // `Dialog` sets `pointer-events: none` on `<body>` while it is open,
-          // which every descendant inherits - this bar included, since it is
-          // mounted above the router rather than inside whichever dialog is on
+          // **`pointer-events-auto` against the page's own lock.** Radix's
+          // modal primitives - `Dialog`, and `DropdownMenu` the same way -
+          // set `pointer-events: none` on `<body>` while one is open, which
+          // every descendant inherits - this bar included, since it is
+          // mounted above the router rather than inside whichever one is on
           // screen ("Say a flagged pair is not a duplicate", issue 408, first
-          // found an offer could be made from inside one). Without this, the
-          // bar is visible and its text is read, but the Undo button under a
-          // click does nothing at all - not refused, just inert.
+          // found an offer could be made from inside a `Dialog`). Without
+          // this, the bar is visible and its text is read, but the Undo
+          // button under a click does nothing at all - not refused, just
+          // inert.
           className="pointer-events-auto fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right))] pb-[calc(1rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))]"
         >
           <div className="flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">

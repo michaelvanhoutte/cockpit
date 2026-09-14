@@ -745,7 +745,7 @@ describe('Live updates', () => {
  * (apps/web/tests/unit/undo.test.tsx) - nothing here is about the bar, only
  * about what the command it sends does.
  */
-describe('Settling', () => {
+describe('Triage', () => {
   describe('a pair you have said is not a duplicate is never offered again', () => {
     it('is gone from both Items the moment it is settled', async () => {
       const [one, other] = await twoNotesSayingTheSameThing();
@@ -830,6 +830,28 @@ describe('Settling', () => {
       expect(answer).toMatchObject({ status: 'missing' });
 
       expect(await rowsIn('duplicate_settlements', OTHER_ACCOUNT_NAME)).toEqual([]);
+      expect(await duplicatesIn()).toEqual([pair(one, other)]);
+    });
+  });
+
+  describe('a settling naming a Workspace neither Item belongs to is refused', () => {
+    it('finds no such item, and leaves the pair standing', async () => {
+      await alsoWorkspaces();
+      const [one, other] = await twoNotesSayingTheSameThing();
+
+      const answer = await postChange('set_duplicate_settled', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T11:00:00.000Z',
+        // Both notes were captured into WORKSPACE_ID - this names a real
+        // Workspace of the same account, just not one either Item is in.
+        workspaceId: 'ws-atlas',
+        itemId: one,
+        otherItemId: other,
+        settled: true,
+      });
+      expect(answer.status).toBe(404);
+
+      expect(await rowsIn('duplicate_settlements')).toEqual([]);
       expect(await duplicatesIn()).toEqual([pair(one, other)]);
     });
   });

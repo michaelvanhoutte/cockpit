@@ -633,6 +633,17 @@ describe('Item editing', () => {
       expect(held.open).not.toHaveBeenCalled();
     });
 
+    it('says so, and offers no undo, where settling is refused', async () => {
+      held.duplicates = [{ itemId: 'item-1', otherItemId: ANOTHER_NOTE.id }];
+      held.send.mockRejectedValueOnce(new Error('That did not reach the server. Try again.'));
+      const user = await theForm(anItem(), [ANOTHER_NOTE]);
+
+      await user.click(screen.getByRole('button', { name: 'Not a duplicate' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('That did not reach the server');
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
     /**
      * The bar itself is `UndoWhatJustHappened`'s own (`tests/unit/undo.test.tsx`);
      * what is asked here is that settling from the form offers *this* change's

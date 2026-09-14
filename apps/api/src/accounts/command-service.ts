@@ -1734,6 +1734,15 @@ export function runCommand<N extends CommandName>(
       const one = getItem(db, tenantId, cmd.itemId);
       const other = getItem(db, tenantId, cmd.otherItemId);
       if (!one || !other) throw new ItemNotFoundError(!one ? cmd.itemId : cmd.otherItemId);
+      // The same reach `move_item_to_panel` above checks for one Item, here
+      // for two: a decided Item belongs to the Workspace it names, and a pair
+      // is only ever drawn where both halves could be - so a settle naming a
+      // Workspace either decided Item does not belong to could not have come
+      // from anything this pair was actually offered in.
+      const strayed = [one, other].find(
+        (side) => side.workspaceDecided && side.workspaceId !== cmd.workspaceId,
+      );
+      if (strayed) throw new ItemNotFoundError(strayed.id);
       // A pair drawn in every Workspace either Item belongs to no Workspace
       // yet is the same reach `associate` above answers for one Item - here
       // for two, so either being undecided is enough.

@@ -329,7 +329,15 @@ export function useLatestSnapshot(): (workspaceId: string) => Promise<WorkspaceS
  */
 function everyWorkspaceCanSee(args: CommandArgs): boolean {
   if (args.name === 'capture_item') return args.payload.workspaceDecided === false;
-  return args.name === 'move_item_to_panel' || args.name === 'add_item_to_panel';
+  return (
+    args.name === 'move_item_to_panel' ||
+    args.name === 'add_item_to_panel' ||
+    // A settled pair's own payload carries neither Item's decided state
+    // (`set_duplicate_settled`, packages/shared/src/commands.ts), unlike a
+    // capture naming its own - so this follows the move/add above rather
+    // than trying to be precise about it.
+    args.name === 'set_duplicate_settled'
+  );
 }
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {

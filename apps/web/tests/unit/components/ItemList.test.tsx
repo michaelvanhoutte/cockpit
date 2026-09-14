@@ -1714,54 +1714,129 @@ describe('Triage', () => {
  * sends, is this list's own answer; that a row draws the mark and the menu
  * entry at all is `ItemRow.test.tsx`'s.
  */
-describe('Say a flagged pair is not a duplicate', () => {
-  const OTHER = anItem('11111111-1111-7111-8111-000000000006', 'Another note about the same thing');
+describe('Triage', () => {
+  describe('a flagged pair can be settled as not a duplicate', () => {
+    const OTHER = anItem('11111111-1111-7111-8111-000000000006', 'Another note about the same thing');
 
-  it('settles the pair from the row menu, and offers it back', async () => {
-    held.items = [BART, OTHER];
-    held.duplicates = [{ itemId: BART.id, otherItemId: OTHER.id }];
-    const user = await showList({ items: [BART, OTHER] });
+    it('settles the pair from the row menu, and offers it back', async () => {
+      held.items = [BART, OTHER];
+      held.duplicates = [{ itemId: BART.id, otherItemId: OTHER.id }];
+      const user = await showList({ items: [BART, OTHER] });
 
-    const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
-    await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
+      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
 
-    expect(held.send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'set_duplicate_settled',
-        payload: expect.objectContaining({
-          itemId: BART.id,
-          otherItemId: OTHER.id,
-          settled: true,
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: BART.id,
+            otherItemId: OTHER.id,
+            settled: true,
+          }),
         }),
-      }),
-    );
+      );
 
-    expect(await screen.findByRole('status')).toHaveTextContent('is not a duplicate');
+      expect(await screen.findByRole('status')).toHaveTextContent('is not a duplicate');
 
-    held.send.mockClear();
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
+      held.send.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
 
-    expect(held.send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'set_duplicate_settled',
-        payload: expect.objectContaining({
-          itemId: BART.id,
-          otherItemId: OTHER.id,
-          settled: false,
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: BART.id,
+            otherItemId: OTHER.id,
+            settled: false,
+          }),
         }),
-      }),
-    );
-  });
+      );
+    });
 
-  it('offers nothing where there is no pair to settle', async () => {
-    held.items = [BART, OTHER];
-    held.duplicates = [];
-    const user = await showList({ items: [BART, OTHER] });
+    /**
+     * A pair the row's own mark was never drawn from must not be settled by
+     * it either. `data.duplicates` can name a pair whose other half has
+     * since been filed - `itemsThatMayBeDuplicates` leaves such a pair out
+     * of the mark, so `pairedWith` alone (every raw pair, unfiltered) is the
+     * wrong read for what this menu entry may act on.
+     */
+    it('settles only the pair the row is actually flagged for, not one whose other half was filed', async () => {
+      const FILED = anItem('11111111-1111-7111-8111-000000000007', 'A third note, already filed');
+      held.items = [BART, OTHER, FILED];
+      held.filings = [{ panelId: 'p-falcon', itemId: FILED.id, position: 0 }];
+      held.duplicates = [
+        { itemId: BART.id, otherItemId: OTHER.id },
+        { itemId: BART.id, otherItemId: FILED.id },
+      ];
+      const user = await showList({ items: [BART, OTHER, FILED] });
 
-    const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
-    await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
 
-    expect(screen.queryByRole('menuitem', { name: 'Not a duplicate' })).toBeNull();
+      expect(held.send).toHaveBeenCalledTimes(1);
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ itemId: BART.id, otherItemId: OTHER.id }),
+        }),
+      );
+      expect(held.send).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ otherItemId: FILED.id }),
+        }),
+      );
+    });
+
+    /**
+     * Several pairs are independent commands, so one being refused must not
+     * cost the way back for the ones that landed - `Promise.allSettled`
+     * rather than `Promise.all` is what this proves.
+     */
+    it('offers the way back for the pairs that settled, when one of several is refused', async () => {
+      const THIRD = anItem('11111111-1111-7111-8111-000000000008', 'A third note saying the same thing');
+      held.items = [BART, OTHER, THIRD];
+      held.duplicates = [
+        { itemId: BART.id, otherItemId: OTHER.id },
+        { itemId: BART.id, otherItemId: THIRD.id },
+      ];
+      held.send.mockImplementation((args: unknown) => {
+        const otherItemId = (args as { payload: { otherItemId: string } }).payload.otherItemId;
+        return otherItemId === THIRD.id
+          ? Promise.reject(new Error('That did not reach the server. Try again.'))
+          : Promise.resolve();
+      });
+      const user = await showList({ items: [BART, OTHER, THIRD] });
+
+      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
+
+      expect(await screen.findByRole('status')).toHaveTextContent('is not a duplicate');
+
+      held.send.mockClear();
+      held.send.mockImplementation(() => Promise.resolve());
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      // Only the pair that actually settled is put back.
+      expect(held.send).toHaveBeenCalledTimes(1);
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ otherItemId: OTHER.id, settled: false }),
+        }),
+      );
+    });
+
+    it('offers nothing where there is no pair to settle', async () => {
+      held.items = [BART, OTHER];
+      held.duplicates = [];
+      const user = await showList({ items: [BART, OTHER] });
+
+      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+
+      expect(screen.queryByRole('menuitem', { name: 'Not a duplicate' })).toBeNull();
+    });
   });
 });

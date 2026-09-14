@@ -191,7 +191,7 @@ describe('Panels', () => {
   });
 });
 
-describe('Duplicates', () => {
+describe('Triage', () => {
   describe('settling a pair as not a duplicate ("Say a flagged pair is not a duplicate", issue 408)', () => {
     const envelope = {
       commandId: uuidv7(),

@@ -120,7 +120,7 @@ function TheForm({
    * 408). About the pair rather than about `itemId` alone, so it reads the
    * same whichever of the two Items' forms it was pressed from.
    */
-  const settleNotADuplicate = (otherId: string, other: Item) => {
+  const settleNotADuplicate = async (otherId: string, other: Item) => {
     const envelope = () => ({
       commandId: uuidv7(),
       issuedAt: new Date().toISOString(),
@@ -128,13 +128,16 @@ function TheForm({
       itemId,
       otherItemId: otherId,
     });
-    send({ name: 'set_duplicate_settled', payload: { ...envelope(), settled: true } }).then(() => {
+    try {
+      await send({ name: 'set_duplicate_settled', payload: { ...envelope(), settled: true } });
       offerToUndo({
         what: `"${itemLabel(other)}" is not a duplicate`,
         undo: () =>
           send({ name: 'set_duplicate_settled', payload: { ...envelope(), settled: false } }),
       });
-    });
+    } catch (failure) {
+      setRefusal(failure instanceof Error ? failure.message : 'That could not be settled');
+    }
   };
 
   // A callback ref rather than an object one: Radix's `Content` mounts behind
@@ -568,7 +571,7 @@ function TheForm({
                           <button
                             type="button"
                             disabled={saving}
-                            onClick={() => settleNotADuplicate(other.id, other)}
+                            onClick={() => void settleNotADuplicate(other.id, other)}
                             title="Not a duplicate"
                             aria-label="Not a duplicate"
                             className="rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"

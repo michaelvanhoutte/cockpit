@@ -1189,11 +1189,12 @@ function thisWorkspaceCouldActOn(
 }
 
 /**
- * A pair somebody has settled as not a duplicate ("Say a flagged pair is not
- * a duplicate", issue 408) - the `notExists` clause `listDuplicatesInWorkspace`
- * below excludes.
+ * A pair nobody has settled as not a duplicate ("Say a flagged pair is not a
+ * duplicate", issue 408) - named for what it returns, since a `notExists`
+ * reads backwards otherwise: `listDuplicatesInWorkspace` below keeps a row
+ * only where this is true.
  */
-function settledAsNotADuplicate(db: AccountDb, tenantId: string) {
+function notSettledAsNotADuplicate(db: AccountDb, tenantId: string) {
   return notExists(
     db
       .select({ one: sql`1` })
@@ -1238,7 +1239,7 @@ export function listDuplicatesInWorkspace(
         eq(itemDuplicates.tenantId, tenantId),
         thisWorkspaceCouldActOn(one, tenantId, workspaceId),
         thisWorkspaceCouldActOn(other, tenantId, workspaceId),
-        settledAsNotADuplicate(db, tenantId),
+        notSettledAsNotADuplicate(db, tenantId),
       ),
     )
     .orderBy(itemDuplicates.itemId, itemDuplicates.otherItemId)
