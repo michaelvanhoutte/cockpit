@@ -293,6 +293,82 @@ describe('Triage', () => {
     });
 
     /**
+     * The same rule again, for finishing with an Item and dismissing one -
+     * both reversible, and neither re-reads anything on its own
+     * (`applySetDone`, `applySetDismissed`, domain/items.ts), so a candidate
+     * excluded here on either state would be lost the moment the other side
+     * of the pair was next edited, the same way excluding another Workspace
+     * once was.
+     */
+    it.each([
+      {
+        situation: 'finished with',
+        change: (itemId: string) =>
+          postChange('set_done', {
+            commandId: nextId(),
+            issuedAt: '2026-09-09T11:00:00.000Z',
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            done: true,
+          }),
+        back: (itemId: string) =>
+          postChange('set_done', {
+            commandId: nextId(),
+            issuedAt: '2026-09-09T11:10:00.000Z',
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            done: false,
+          }),
+      },
+      {
+        situation: 'dismissed',
+        change: (itemId: string) =>
+          postChange('set_dismissed', {
+            commandId: nextId(),
+            issuedAt: '2026-09-09T11:00:00.000Z',
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            dismissed: true,
+          }),
+        back: (itemId: string) =>
+          postChange('set_dismissed', {
+            commandId: nextId(),
+            issuedAt: '2026-09-09T11:10:00.000Z',
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            dismissed: false,
+          }),
+      },
+    ])(
+      'keeps the pair when one note is $situation and brought back, across an edit to the other',
+      async ({ change, back }) => {
+        const [one, other] = await twoNotesSayingTheSameThing();
+
+        expect((await change(one)).status).toBe(200);
+        expect(await duplicatesIn()).toEqual([]);
+
+        const renamed = await postChange('set_title', {
+          commandId: nextId(),
+          issuedAt: '2026-09-09T11:05:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: other,
+          title: THE_SAME_AGAIN,
+        });
+        expect(renamed.status).toBe(200);
+        await handleQueue(
+          batchOf({ kind: 'read-what-a-note-means', accountName: ACCOUNT_NAME, itemId: other }),
+          env,
+        );
+        // The pair still exists, stored, though neither workspace draws it yet.
+        expect(await rowsIn('item_duplicates')).toEqual(storedAs([pair(one, other)]));
+
+        expect((await back(one)).status).toBe(200);
+        // Drawn again the moment it is asked for - nothing was recomputed.
+        expect(await duplicatesIn()).toEqual([pair(one, other)]);
+      },
+    );
+
+    /**
      * An Item nobody has said the Workspace of is drawn in every Workspace's
      * Inbox at once ("Capture something before you know which workspace it
      * belongs to", issue 165), so it is a duplicate candidate in all of them -

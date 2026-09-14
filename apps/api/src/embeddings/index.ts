@@ -97,7 +97,8 @@ export class WorkersAiEmbeddingService implements EmbeddingService {
  *
  * `bge-m3` takes 8192 tokens, and a note that long is a note whose first
  * paragraphs are what it is about - so the tail is dropped rather than the
- * whole note refused ("A very long note | read", issue 407). Characters rather
+ * whole note refused ("Flag a captured note that says what another one
+ * already said", issue 407). Characters rather
  * than tokens because nothing here tokenizes, and four characters to a token is
  * the ratio that keeps a Dutch or English note comfortably inside the window.
  */

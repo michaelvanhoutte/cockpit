@@ -1126,15 +1126,20 @@ export function listDuplicatesInWorkspace(
 
 /**
  * Every other Item's reading this one could be a duplicate of: read by the same
- * model, and still there to act on.
+ * model.
  *
- * **Every Item of the account, whatever Workspace it is in.** A pair is a fact
- * about two notes and the Workspace a pair is *offered* in is asked freshly
- * when it is read back (`listDuplicatesInWorkspace` above), so narrowing here
- * as well would be the same rule kept in two places - and the one kept here
- * would be the lossy one: `replaceDuplicatesOf` clears every pair this Item is
- * in before writing the ones it finds, so a candidate left out here takes an
- * existing pair with it and nothing ever recomputes it back.
+ * **Every Item of the account, whatever Workspace or state it is in - open,
+ * finished with, dismissed, all of it.** A pair is a fact about two notes, and
+ * whether it is *offered* is asked freshly when it is read back
+ * (`listDuplicatesInWorkspace` above), so narrowing here as well would be the
+ * same rule kept in two places - and the one kept here would be the lossy one:
+ * `replaceDuplicatesOf` clears every pair this Item is in before writing the
+ * ones it finds, so a candidate left out here takes an existing pair with it
+ * and nothing recomputes it back. Finishing with an Item and dismissing one are
+ * both reversible (`applySetDone`, `applySetDismissed`, domain/items.ts) and
+ * neither re-reads anything on its own, so excluding either state here would
+ * lose a pair the moment the *other* side of it was next edited - the same way
+ * excluding another Workspace here once did.
  */
 export function meaningsToCompareWith(
   db: InTheStore,
@@ -1145,13 +1150,11 @@ export function meaningsToCompareWith(
   return db
     .select({ itemId: itemMeanings.itemId, reading: itemMeanings.reading })
     .from(itemMeanings)
-    .innerJoin(items, eq(itemMeanings.itemId, items.id))
     .where(
       and(
         eq(itemMeanings.tenantId, tenantId),
         eq(itemMeanings.model, model),
         ne(itemMeanings.itemId, itemId),
-        couldStillBeActedOn(items, tenantId),
       ),
     )
     .all();
