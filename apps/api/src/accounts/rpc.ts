@@ -100,6 +100,11 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     model: string,
     reading: number[],
   ): Awaitable<Answer<'remembered' | 'no such item'>>;
+  /**
+   * Forgets what an Item means, and every pair built on it - for an Item whose
+   * two texts have been emptied and which now says nothing to compare.
+   */
+  forgetWhatAnItemMeans(accountName: string, itemId: string): Awaitable<Answer<null>>;
   changesSince(
     accountName: string,
     since: string,

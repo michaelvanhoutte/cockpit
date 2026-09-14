@@ -58,6 +58,7 @@ import {
 } from './command-service.js';
 import {
   decisionHistoryForWorkspace,
+  forgetMeaning,
   getItem,
   getRoutingSummary,
   getWorkspace,
@@ -182,6 +183,21 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         );
       });
       return 'remembered' as const;
+    });
+  }
+
+  /**
+   * Forgets what an Item means, and every pair built on it - for an Item whose
+   * two texts have been emptied, which now says nothing to compare.
+   *
+   * Its own method rather than a null reading handed to the one above, because
+   * it is a different thing happening: not "this is what it means now" but
+   * "there is nothing here to mean".
+   */
+  forgetWhatAnItemMeans(accountName: string, itemId: string): Answer<null> {
+    return this.#answer(accountName, (db) => {
+      forgetMeaning(db, accountName, itemId);
+      return null;
     });
   }
 

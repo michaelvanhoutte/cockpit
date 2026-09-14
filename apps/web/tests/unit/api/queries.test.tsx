@@ -54,6 +54,12 @@ vi.mock('../../../src/itemForm', () => ({
       opened.item = undefined;
     },
   }),
+  // The form reaches for this to open a note it may be repeating ("Flag a
+  // captured note that says what another one already said", issue 407);
+  // nothing in this file draws one, so it only has to exist.
+  useOpenItem: () => (itemId: string) => {
+    opened.item = itemId;
+  },
 }));
 
 vi.mock('../../../src/description/RichDescription', () => ({

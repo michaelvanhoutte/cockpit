@@ -73,10 +73,12 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
       // No binding here talks to Cloudflare, and none may: the Workers AI
-      // binding is remote-only, so leaving this on makes the suite refuse to
-      // start without credentials - on a contributor's machine and on a CI
-      // runner alike - and bills whatever it then calls. See `setupFiles`
-      // above, which is what takes the binding itself off `env`.
+      // binding this config declares is remote-only, so leaving this on makes
+      // the suite open an authenticated session before it runs - on a
+      // contributor's machine and on a CI runner alike - and bills whatever it
+      // then calls. Off, the binding is still declared and simply never
+      // reached; `setupFiles` above is what takes it off `env` so that nothing
+      // tries.
       remoteBindings: false,
       // vitest-pool-workers' own module evaluator needs Node builtins inside
       // the worker runtime; this is test-only and does not affect the

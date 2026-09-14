@@ -1,8 +1,9 @@
 name: Contract
 
-# The tier that talks to the real Claude API (docs/testing-strategy.md, "Third
-# parties"): everything below it runs against a fake, and this is what says the
-# fake still resembles the thing. Scheduled rather than per pull request,
+# The tier that talks to the real models - Claude, and the Workers AI model that
+# reads what a note means (docs/testing-strategy.md, "Third parties"):
+# everything below it runs against a fake, and this is what says the fake still
+# resembles the thing. Scheduled rather than per pull request,
 # because every run spends real money and the model is not deterministic - a
 # tier that ran on every push would be a bill and a flake in front of every
 # merge.
@@ -30,10 +31,13 @@ jobs:
       - uses: ./.github/actions/setup
       # A missing secret presents as a workflow that goes green having done
       # nothing, which is the failure docs/deployment.md records for
-      # `CLAUDE_CODE_OAUTH_TOKEN`. The suite itself refuses to run without a key
-      # (tests/contract/clean-up-a-note.v5.test.ts), so this only names the
-      # secrets; it does not print them.
+      # `CLAUDE_CODE_OAUTH_TOKEN`. Each suite itself refuses to run without its
+      # own credential (tests/contract/), so this only names the secrets; it
+      # does not print them. The Cloudflare pair is the same pair the deploy
+      # workflows already use, and is what reads what a note means.
       - run: pnpm --filter @cockpit/api test:contract
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

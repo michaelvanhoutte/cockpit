@@ -569,8 +569,13 @@ export async function readWhatANoteMeans(env: Env, job: ReadWhatItMeansJob): Pro
   const said = whatAnItemSays(item);
   // An Item whose Title and Description are empty or only whitespace has
   // nothing to mean. Asking anyway spends a call to be told so, and would pair
-  // every such Item with every other.
-  if (!said) return say(job.itemId, 'nothing was read: the item has nothing written on it');
+  // every such Item with every other - so nothing is read, and whatever it
+  // meant while it still said something is forgotten along with the marks built
+  // on it, rather than left standing over words nobody can see any more.
+  if (!said) {
+    await account.forgetWhatAnItemMeans(job.itemId);
+    return say(job.itemId, 'nothing was read: the item has nothing written on it');
+  }
 
   const reading = await embeddings.readMeaning(asFarAsItReads(said));
   const remembered = await account.rememberWhatAnItemMeans(job.itemId, EMBEDDING_MODEL, reading);

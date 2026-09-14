@@ -25,6 +25,7 @@ interface Verdict {
   register: boolean;
   store: boolean;
   ai: boolean;
+  embeddings: boolean;
 }
 
 async function health(): Promise<Verdict> {
@@ -47,8 +48,10 @@ beforeEach(async () => {
   await startFromEmpty();
   // The suite runs with no key (vitest.config.ts), and the two cases that care
   // set one for themselves - so it is put back here rather than left wherever
-  // the last case left it.
+  // the last case left it. The same for what reads meaning, which the suite
+  // runs without (tests/no-model.ts).
   env.ANTHROPIC_API_KEY = '';
+  env.EMBEDDINGS_STAND_IN = '';
 });
 
 describe('Accounts', () => {
@@ -56,7 +59,13 @@ describe('Accounts', () => {
     it('is healthy when the register answers and the updates apply', async () => {
       await seedRegister();
 
-      expect(await health()).toEqual({ ok: true, register: true, store: true, ai: false });
+      expect(await health()).toEqual({
+        ok: true,
+        register: true,
+        store: true,
+        ai: false,
+        embeddings: false,
+      });
     });
 
     it('is not healthy when an update cannot be applied', async () => {
@@ -75,7 +84,13 @@ describe('Accounts', () => {
       // the register breaks every case after it too.
       await env.DB.prepare('ALTER TABLE tenants RENAME TO tenants_out_of_reach').run();
       try {
-        expect(await health()).toEqual({ ok: false, register: false, store: false, ai: false });
+        expect(await health()).toEqual({
+          ok: false,
+          register: false,
+          store: false,
+          ai: false,
+          embeddings: false,
+        });
       } finally {
         await env.DB.prepare('ALTER TABLE tenants_out_of_reach RENAME TO tenants').run();
       }
@@ -93,7 +108,13 @@ describe('Accounts', () => {
       // `register` is asserted here too, not only `ok`: it is documented as
       // "answered, and does not contain the name below", and leaving it out is
       // what let it report true for the one state it is meant to deny.
-      expect(await health()).toEqual({ ok: false, register: false, store: false, ai: false });
+      expect(await health()).toEqual({
+        ok: false,
+        register: false,
+        store: false,
+        ai: false,
+        embeddings: false,
+      });
       expect(await tablesIn(PROBE_NAME)).toEqual([]);
     });
 
@@ -130,6 +151,31 @@ describe('Accounts', () => {
       // **And the deployment is healthy either way**, which is the point: a
       // Cockpit that cannot clean up a note still takes every note it is given.
       expect(verdict.ok).toBe(true);
+    });
+  });
+
+  /**
+   * The other half of the same question, about a separately configured
+   * capability ("Flag a captured note that says what another one already said",
+   * issue 407). Integration for the reason the block above is: the field has to
+   * survive the route's own response schema, which drops anything it does not
+   * name.
+   */
+  describe('a deployment says whether it can tell a note from one it already has', () => {
+    it.each([
+      { situation: 'nothing was ever set up to read what a note means', standIn: '', reads: false },
+      { situation: 'something was set up to read what a note means', standIn: 'true', reads: true },
+    ])('$situation', async ({ standIn, reads }) => {
+      await seedRegister();
+      env.EMBEDDINGS_STAND_IN = standIn;
+
+      const verdict = await health();
+
+      expect(verdict.embeddings).toBe(reads);
+      // Healthy either way, and separately from the key above: an environment
+      // that flags nothing still takes every note it is given.
+      expect(verdict.ok).toBe(true);
+      expect(verdict.ai).toBe(false);
     });
   });
 });

@@ -134,6 +134,11 @@ export interface Account {
     model: string,
     reading: number[],
   ): Promise<'remembered' | 'no such item'>;
+  /**
+   * Forgets what an Item means, and every pair built on it - for an Item whose
+   * two texts have been emptied and which now says nothing to compare.
+   */
+  forgetWhatAnItemMeans(itemId: string): Promise<null>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
@@ -178,6 +183,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     rememberWhatAnItemMeans: async (itemId, model, reading) =>
       unwrap(await store.rememberWhatAnItemMeans(accountName, itemId, model, reading)),
+    forgetWhatAnItemMeans: async (itemId) =>
+      unwrap(await store.forgetWhatAnItemMeans(accountName, itemId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

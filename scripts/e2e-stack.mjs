@@ -199,6 +199,11 @@ const api = start(
     'exec',
     'wrangler',
     'dev',
+    // The environment with no Workers AI binding, for the reason scripts/dev.mjs
+    // passes it: a local run cannot reach one, and a CI runner has no Cloudflare
+    // account to reach it with (apps/api/wrangler.jsonc).
+    '--env',
+    'local',
     '--port',
     String(API_PORT),
     '--persist-to',

@@ -1184,20 +1184,29 @@ export function rememberMeaning(
 }
 
 /**
- * Replaces every pair one Item is in with the ones it is in now.
+ * Forgets what an Item means, and every pair that was built on it - for an
+ * Item whose two texts have been emptied, which now says nothing to compare.
  *
- * **Both halves of the delete, because a pair is stored one way round.** The
- * Item being re-read is the smaller id in some of its pairs and the larger in
- * others, so a delete naming only `item_id` would leave half of what it meant
- * to clear - which is how an edited note keeps a mark it no longer earns.
+ * **Not just "stop reading it".** Leaving the row would leave the Item flagged
+ * against notes it no longer resembles, on the strength of words nobody can see
+ * any more.
  */
-export function replaceDuplicatesOf(
-  db: InTheStore,
-  tenantId: string,
-  itemId: string,
-  pairs: readonly { itemId: string; otherItemId: string; howAlike: number }[],
-  at: string,
-): void {
+export function forgetMeaning(db: InTheStore, tenantId: string, itemId: string): void {
+  forgetDuplicatesOf(db, tenantId, itemId);
+  db.delete(itemMeanings)
+    .where(and(eq(itemMeanings.tenantId, tenantId), eq(itemMeanings.itemId, itemId)))
+    .run();
+}
+
+/**
+ * Clears every pair one Item is in.
+ *
+ * **Both halves, because a pair is stored one way round.** The Item is the
+ * smaller id in some of its pairs and the larger in others, so a delete naming
+ * only `item_id` would leave half of what it meant to clear - which is how an
+ * edited note keeps a mark it no longer earns.
+ */
+function forgetDuplicatesOf(db: InTheStore, tenantId: string, itemId: string): void {
   db.delete(itemDuplicates)
     .where(
       and(
@@ -1206,6 +1215,17 @@ export function replaceDuplicatesOf(
       ),
     )
     .run();
+}
+
+/** Replaces every pair one Item is in with the ones it is in now. */
+export function replaceDuplicatesOf(
+  db: InTheStore,
+  tenantId: string,
+  itemId: string,
+  pairs: readonly { itemId: string; otherItemId: string; howAlike: number }[],
+  at: string,
+): void {
+  forgetDuplicatesOf(db, tenantId, itemId);
   for (const pair of pairs) {
     db.insert(itemDuplicates)
       .values({ tenantId, ...pair, foundAt: at })

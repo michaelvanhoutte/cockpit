@@ -143,6 +143,13 @@ if (running.api) {
         'exec',
         'wrangler',
         'dev',
+        // The environment with no Workers AI binding, which is the only kind a
+        // local run can have: the binding has no local simulator and reaching
+        // the real one needs a Cloudflare account (apps/api/wrangler.jsonc).
+        // Everything else about it is the top level's own, so no local storage
+        // moves - and `EMBEDDINGS_STAND_IN` below is what reads meaning here.
+        '--env',
+        'local',
         '--port',
         String(ports.devApi),
         // What a deployed environment holds as secrets, and does not hold at
