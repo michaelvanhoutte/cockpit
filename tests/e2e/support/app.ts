@@ -953,10 +953,19 @@ export async function dragItemOnto(
  * something into it - the command is sent, the snapshot re-read, and only then
  * is the list redrawn. A bare `expect(await itemsOn(...))` measures the list as
  * it was before any of that and fails while the product is working.
+ *
+ * **Three levels, not two**, to land on the title's own span rather than the
+ * row it shares with whichever marks sit beside it (`ItemRow.tsx`) - "Possible
+ * duplicate" among them since filed cards can carry it too ("Flag a duplicate
+ * between two cards on dashboards", issue 410). Two levels read the whole
+ * wrapper's text, mark and all, which made a panel's own titles depend on
+ * which of them happened to be flagged.
  */
 export async function itemsOn(page: Page, panel: string): Promise<string[]> {
   return page
     .getByRole('region', { name: panel })
     .getByRole('listitem')
-    .evaluateAll((rows) => rows.map((row) => row.querySelector('span > span')?.textContent ?? ''));
+    .evaluateAll((rows) =>
+      rows.map((row) => row.querySelector('span > span > span')?.textContent ?? ''),
+    );
 }
