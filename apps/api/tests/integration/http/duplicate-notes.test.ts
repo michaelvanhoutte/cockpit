@@ -167,6 +167,9 @@ afterEach(() => {
   Reflect.deleteProperty(env as unknown as Record<string, unknown>, 'AI');
   env.EMBEDDINGS_STAND_IN = '';
   env.ANTHROPIC_API_KEY = '';
+  // One case puts a model on the network (`theModelProposes`); every other case
+  // in this file would otherwise inherit it.
+  vi.unstubAllGlobals();
 });
 
 describe('Triage', () => {
