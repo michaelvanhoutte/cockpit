@@ -61,6 +61,7 @@ import {
   getItem,
   getRoutingSummary,
   getWorkspace,
+  judgeableItemsForAccount,
   listAssociationsForWorkspace,
   listItemTypes,
   listScreenSizes,
@@ -71,9 +72,16 @@ import {
   listPanelsInWorkspace,
   listWorkspaces,
   recentlyCapturedUnfiled,
+  textCorrectionsForAccount,
   unfiledItemsInWorkspace,
 } from './repo.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import {
+  correctionStillVisible,
+  deriveWhatStood,
+  type TextCorrectionEntry,
+  type WhatStood,
+} from '../domain/text-corrections.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
 
 /**
@@ -185,6 +193,28 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       recentlyCaptured: recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
       correction: getRoutingSummary(db, accountName, workspaceId)?.correction ?? null,
     }));
+  }
+
+  /**
+   * What a title or description proposal reads about how this account
+   * writes: every correction it has ever made, and how many of its other
+   * proposals simply stood ("Learn how you write from the titles you
+   * correct", issue 394; `docs/text-learning.md`, "What goes into the
+   * prompt"). Per account rather than per Workspace, deliberately unlike
+   * `routingContext` above (`docs/text-learning.md`, "Scope: per account").
+   */
+  textLearningContext(accountName: string): Answer<{ corrections: TextCorrectionEntry[]; stood: WhatStood }> {
+    return this.#answer(accountName, (db) => {
+      const corrections = textCorrectionsForAccount(db, accountName);
+      // The same test `renderOneTextCorrection` renders by, so a correction
+      // later edited back to Cockpit's own words counts nowhere rather than
+      // disagreeing between the two ("Learn how you write from the titles
+      // you correct", issue 394).
+      const correctedItemIds = new Set(
+        corrections.filter(correctionStillVisible).map((entry) => entry.itemId),
+      );
+      return { corrections, stood: deriveWhatStood(judgeableItemsForAccount(db, accountName), correctedItemIds) };
+    });
   }
 
   /**

@@ -130,6 +130,7 @@ function anItem(id: string, title: string): Item {
     capturedMessage: null,
     description: null,
     textsSettledAt: null,
+    textsProposedAt: null,
     readings: null,
     proposedPanelId: null,
     proposedPanelReason: null,

@@ -28,6 +28,13 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * `v8` because an Item gained `textsProposedAt`, when Cockpit proposed its two
+ * texts ("Learn how you write from the titles you correct", issue 394).
+ * Nothing reads it from a restored snapshot yet, which is exactly why this
+ * moves now rather than with the release that does: by then the stale copy is
+ * already in browsers, and a restored Item would answer `undefined` where the
+ * type says a timestamp or `null`.
+ *
  * `v7` because a snapshot gained the account's screen sizes and a layout gained
  * the one it is for ("Give the account a list of screen sizes, before anything
  * reads it", issue 262). Nothing reads either field yet, which is exactly why
@@ -66,7 +73,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v7';
+export const CACHE_BUSTER = 'v8';
 
 /**
  * What is worth keeping on disk, which is everything the app paints itself from
