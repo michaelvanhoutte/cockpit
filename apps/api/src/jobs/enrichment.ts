@@ -567,23 +567,25 @@ export async function readWhatANoteMeans(env: Env, job: ReadWhatItMeansJob): Pro
   // meantime costs no call at all.
   const item = await account.item(job.itemId);
   if (!item) return say(job.itemId, 'nothing was read: no such item in this account');
-  // A note is dismissed rather than erased, so it is still here to be read -
-  // and reading it would spend a call on a note nothing can draw a mark on
-  // (`listDuplicatesInWorkspace`, accounts/repo.ts, leaves it out either way).
-  // One finished with is the same case by the same rule.
-  if (!couldStillBeActedOn(item)) {
-    return say(job.itemId, 'nothing was read: the item is finished with or dismissed');
-  }
 
   const said = whatAnItemSays(item);
   // An Item whose Title and Description are empty or only whitespace has
   // nothing to mean. Asking anyway spends a call to be told so, and would pair
   // every such Item with every other - so nothing is read, and whatever it
   // meant while it still said something is forgotten along with the marks built
-  // on it, rather than left standing over words nobody can see any more.
+  // on it, rather than left standing over words nobody can see any more. This
+  // runs before the dismissed/finished check below: a note emptied and then
+  // dismissed or completed before this job ran must still lose its stale mark.
   if (!said) {
     await account.forgetWhatAnItemMeans(job.itemId);
     return say(job.itemId, 'nothing was read: the item has nothing written on it');
+  }
+  // A note is dismissed rather than erased, so it is still here to be read -
+  // and reading it would spend a call on a note nothing can draw a mark on
+  // (`listDuplicatesInWorkspace`, accounts/repo.ts, leaves it out either way).
+  // One finished with is the same case by the same rule.
+  if (!couldStillBeActedOn(item)) {
+    return say(job.itemId, 'nothing was read: the item is finished with or dismissed');
   }
 
   const reading = await embeddings.readMeaning(asFarAsItReads(said));

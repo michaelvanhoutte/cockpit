@@ -544,6 +544,56 @@ describe('Triage', () => {
     });
 
     /**
+     * Emptying and dismissing a note both happened before the reading this
+     * left queued was ever delivered, so the job meets a note that is both at
+     * once. Forgetting has to win regardless: a note nobody can read is the
+     * one case this suite already tests for, and being dismissed too must not
+     * be a reason to skip it and leave the stale mark standing.
+     */
+    it('forgets the meaning of a note that was emptied and then dismissed before its reading arrived', async () => {
+      const [one, other] = await twoNotesSayingTheSameThing();
+      const readSoFar = read.length;
+
+      // Neither change is asked to wait for a reading - there is no key to
+      // read with, so nothing this suite has not already delivered by hand
+      // runs on its own.
+      Reflect.deleteProperty(env as unknown as Record<string, unknown>, 'AI');
+
+      const emptied = await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T11:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId: other,
+        title: '   ',
+      });
+      expect(emptied.status).toBe(200);
+
+      const dismissed = await postChange('set_dismissed', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T11:05:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId: other,
+        dismissed: true,
+      });
+      expect(dismissed.status).toBe(200);
+
+      // Delivered by hand, as the reading queued before either change - the
+      // note it meets is empty and dismissed both.
+      somethingCanReadMeaning();
+      await handleQueue(
+        batchOf({ kind: 'read-what-a-note-means', accountName: ACCOUNT_NAME, itemId: other }),
+        env,
+      );
+
+      expect(read).toHaveLength(readSoFar);
+      expect(await rowsIn('item_meanings')).toEqual([
+        { item_id: one, reading: '[1,0]' },
+        { item_id: other, reading: '[]' },
+      ]);
+      expect(await rowsIn('item_duplicates')).toEqual([]);
+    });
+
+    /**
      * A reading that *fails* is worth trying again, unlike every decision
      * above, so it throws out of the job and the queue is left to redeliver it
      * - which is the opposite of the note being quietly left unread for ever.
