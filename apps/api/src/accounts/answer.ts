@@ -6,6 +6,7 @@ import type {
   ItemType,
   Layout,
   Panel,
+  PossibleDuplicate,
   RoutingSummary,
   ScreenSize,
   Workspace,
@@ -45,6 +46,12 @@ export interface AccountSnapshot {
    * where no row exists yet.
    */
   routingSummary: RoutingSummary | null;
+  /**
+   * Which of the Items above say the same thing as which ("Flag a captured
+   * note that says what another one already said", issue 407) - both halves of
+   * every pair are Items this snapshot already carries.
+   */
+  duplicates: PossibleDuplicate[];
   /** POC (own-event refetch): the newest change this snapshot is built on. */
   upTo: string | undefined;
 }

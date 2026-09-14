@@ -290,6 +290,26 @@ const rowsFor: {
           VALUES ('dh-before', ?, 'ws-before', 'it-before', 'pn-before', ?)`,
     params: (name) => [name, AT],
   },
+  {
+    // The two tables `0027-item-meanings` creates, filled for the reason
+    // `decision_history` above is: whatever comes next has to meet a full one.
+    // Two readings rather than one, because the pair below needs two items to
+    // hang off.
+    table: 'item_meanings',
+    sql: `INSERT INTO item_meanings (item_id, tenant_id, model, reading, read_at)
+          VALUES ('it-before', ?, 'a-model', '[1,0]', ?),
+                 ('it-done-before', ?, 'a-model', '[1,0]', ?)`,
+    params: (name) => [name, AT, name, AT],
+  },
+  {
+    // Smaller id first, which is what `item_duplicates_is_one_unordered_pair`
+    // refuses to let a row break - so this row is also what would fail were
+    // that CHECK ever written the other way round.
+    table: 'item_duplicates',
+    sql: `INSERT INTO item_duplicates (tenant_id, item_id, other_item_id, how_alike, found_at)
+          VALUES (?, 'it-before', 'it-done-before', 0.99, ?)`,
+    params: (name) => [name, AT],
+  },
 ];
 
 /**

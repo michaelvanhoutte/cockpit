@@ -8,14 +8,28 @@ import {
 } from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
 import type { RoutingCandidate } from '../ai/index.js';
+import {
+  asFarAsItReads,
+  canReadMeaning,
+  embeddingsFor,
+  EMBEDDING_MODEL,
+} from '../embeddings/index.js';
+import { whatAnItemSays } from '../domain/duplicates.js';
 
 /**
- * Two jobs on the account's own classification: reading a captured note and
+ * Three jobs on the account's own classification: reading a captured note and
  * proposing what to call it, what it said, and which Panel it belongs on
  * ("Clean up a captured note into a clear title and a fuller message", issue
- * 296), and re-reading only that last part for everything still unsettled
- * once a filing elsewhere changes what a proposal should be ("Re-propose the
- * rest of the inbox the moment you file one", issue 300).
+ * 296), re-reading only that last part for everything still unsettled once a
+ * filing elsewhere changes what a proposal should be ("Re-propose the rest of
+ * the inbox the moment you file one", issue 300), and reading an Item's two
+ * texts for what they *mean* so that one saying what another one already said
+ * can be flagged ("Flag a captured note that says what another one already
+ * said", issue 407).
+ *
+ * **The third is gated on its own configuration, not on the first two's.** The
+ * Claude key and the AI binding are separately set and separately absent, and
+ * an environment that cannot clean a note up must still flag duplicates.
  *
  * There were three. The nightly `summarize-workspace` wrote a paragraph
  * nothing read back, and is gone ("Drop the nightly filing summary, keep the
@@ -44,7 +58,7 @@ import type { RoutingCandidate } from '../ai/index.js';
  * is what a message from before a deploy is refused by rather than
  * misinterpreted.
  */
-export type EnrichmentJob = CleanUpJob | ReproposePanelsJob;
+export type EnrichmentJob = CleanUpJob | ReproposePanelsJob | ReadWhatItMeansJob;
 
 export interface CleanUpJob {
   kind: 'clean-up-a-note';
@@ -74,9 +88,36 @@ export interface ReproposePanelsJob {
  * previous version of this Worker and has been sitting on a queue, so it is
  * parsed like a request body rather than cast.
  */
+/**
+ * Asks for one Item's two texts to be read for what they *mean*, so that an
+ * Item saying what another one already said can be flagged ("Flag a captured
+ * note that says what another one already said", issue 407).
+ *
+ * **An Item, and not the texts themselves** - the same shape and the same
+ * reason as `CleanUpJob` above: the texts are re-read inside the job, so an
+ * Item edited again while this sat on the queue is read as it now stands rather
+ * than as it was.
+ *
+ * **Its own kind rather than a second half of `CleanUpJob`.** The two are
+ * gated on different configuration and fired at different moments: cleaning up
+ * happens once, on capture, and only where there is a Claude key; reading for
+ * meaning happens again every time the two texts change, and only where there
+ * is something to read meaning with.
+ */
+export interface ReadWhatItMeansJob {
+  kind: 'read-what-a-note-means';
+  accountName: string;
+  itemId: string;
+}
+
 export const enrichmentJobSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('clean-up-a-note'),
+    accountName: z.string().min(1),
+    itemId: z.uuid(),
+  }),
+  z.object({
+    kind: z.literal('read-what-a-note-means'),
     accountName: z.string().min(1),
     itemId: z.uuid(),
   }),
@@ -230,6 +271,12 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     // deployment can be watched for it (issue 296, "The language rule needs a
     // structural answer").
     say(job.itemId, `proposed in ${read.proposal.language}`);
+    // The two texts have just been replaced, so whatever was worked out about
+    // what this Item means is about words nobody can see any more ("Flag a
+    // captured note that says what another one already said", issue 407). The
+    // same re-read an edit fires, from the other of the two things that rewrite
+    // an Item's texts.
+    await enqueueReadingItsMeaning(env, job.accountName, job.itemId);
   } catch (error) {
     // The item went between the read above and this write. The same
     // not-worth-retrying case as above, arriving by the other door.
@@ -445,6 +492,94 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       );
     }
   }
+}
+
+/**
+ * Asks for an Item's two texts to be read for what they mean, without making
+ * whoever wrote them wait for it ("Flag a captured note that says what another
+ * one already said", issue 407).
+ *
+ * **Gated on being able to read meaning at all, and on nothing else.**
+ * `enqueueCleanUp` above returns early without a Claude key; an environment
+ * that cannot clean a note up must still flag duplicates, so this asks
+ * `canReadMeaning` instead - which is the AI binding, separately configured
+ * and separately absent.
+ *
+ * **A queue that will not take the message loses the flagging, not the note**,
+ * exactly as above: capture may never fail for a reason the person capturing
+ * cannot act on, and an edit that saved must not report a failure because a
+ * follow-up could not be queued.
+ */
+export async function enqueueReadingItsMeaning(
+  env: Env,
+  accountName: string,
+  itemId: string,
+): Promise<void> {
+  if (!canReadMeaning(env)) return;
+
+  const job: EnrichmentJob = { kind: 'read-what-a-note-means', accountName, itemId };
+  try {
+    await env.ENRICHMENT.send(job);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `item ${itemId} was not queued to be read for what it means: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
+}
+
+/**
+ * Reads one Item's two texts for what they mean, and has the account work out
+ * which of its other Items say the same thing ("Flag a captured note that says
+ * what another one already said", issue 407).
+ *
+ * **A decision is a return and a failure is a throw**, the same split
+ * `cleanUpACapturedNote` above makes and for the same reason: an Item nobody
+ * can read must not be delivered for ever, and a model call that failed must
+ * be. So an environment with nothing to read meaning with, an Item that has
+ * gone, an account no longer in the register and a note with nothing in it all
+ * end here quietly; only the call itself is left to throw.
+ */
+export async function readWhatANoteMeans(env: Env, job: ReadWhatItMeansJob): Promise<void> {
+  const embeddings = embeddingsFor(env);
+  if (!embeddings) {
+    return say(job.itemId, 'nothing was read: this environment cannot read what a note means');
+  }
+
+  let account;
+  try {
+    account = await openAccount(env, job.accountName);
+  } catch (error) {
+    if (error instanceof AccountNotInRegisterError) {
+      return say(job.itemId, 'nothing was read: the account is no longer in the register');
+    }
+    throw error;
+  }
+
+  // Read fresh rather than carried on the message, so an Item edited again
+  // while this waited is read as it now stands - and one dismissed and erased
+  // costs no call at all.
+  const item = await account.item(job.itemId);
+  if (!item) return say(job.itemId, 'nothing was read: no such item in this account');
+
+  const said = whatAnItemSays(item);
+  // An Item whose Title and Description are empty or only whitespace has
+  // nothing to mean. Asking anyway spends a call to be told so, and would pair
+  // every such Item with every other.
+  if (!said) return say(job.itemId, 'nothing was read: the item has nothing written on it');
+
+  const reading = await embeddings.readMeaning(asFarAsItReads(said));
+  const remembered = await account.rememberWhatAnItemMeans(job.itemId, EMBEDDING_MODEL, reading);
+  say(
+    job.itemId,
+    remembered === 'remembered'
+      ? 'read, and compared against the rest of the account'
+      : 'nothing was written: the item went while it was being read',
+  );
 }
 
 /** One line in the logs, saying which item and what happened to it. */

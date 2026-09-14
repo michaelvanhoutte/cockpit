@@ -84,6 +84,7 @@ const snapshot: WorkspaceSnapshot = {
   associations: [],
   itemTypes: [],
     screenSizes: [],
+    duplicates: [],
   filings: [],
   routingSummary: null,
   generatedAt: '2026-08-31T10:00:00.000Z',

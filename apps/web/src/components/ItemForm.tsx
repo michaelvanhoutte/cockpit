@@ -5,7 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { TITLE_LENGTH, itemHasOpenReadings, itemLabel, uuidv7, type Item } from '@cockpit/shared';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
-import { useItemForm } from '../itemForm';
+import { possibleDuplicatesOf } from '../duplicates';
+import { useItemForm, useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 
@@ -96,7 +97,20 @@ function TheForm({
 }) {
   const { data, isLoading } = useQuery(snapshotQuery(workspaceId));
   const send = useSendCommand();
+  const openItem = useOpenItem();
   const item = data?.items.find((candidate) => candidate.id === itemId);
+  /**
+   * The notes this one may be saying again ("Flag a captured note that says
+   * what another one already said", issue 407) - worked out from the same
+   * snapshot the row's own mark is, so the form and the row can never disagree
+   * about whether there is anything to show.
+   */
+  const saidAgain = possibleDuplicatesOf(
+    itemId,
+    data?.items ?? [],
+    data?.filings ?? [],
+    data?.duplicates ?? [],
+  );
 
   // A callback ref rather than an object one: Radix's `Content` mounts behind
   // its own exit-animation machinery (`Presence`), so the node an object ref
@@ -490,6 +504,37 @@ function TheForm({
                         >
                           <span className="block font-medium text-ink">{reading.title}</span>
                           <span className="block text-xs text-ink-faint">{reading.meaning}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* The notes this one may be saying again, each opening its own
+                    form ("Flag a captured note that says what another one
+                    already said", issue 407). Offered rather than acted on, the
+                    way a proposed Panel is: nothing here merges, files or
+                    deletes anything, and the two notes go on being two notes
+                    until somebody decides otherwise. */}
+                {saidAgain.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                      Possible duplicate of
+                    </p>
+                    <div className="mt-1 flex flex-col gap-1.5">
+                      {saidAgain.map((other) => (
+                        <button
+                          key={other.id}
+                          type="button"
+                          disabled={saving}
+                          // Opening the other one is a change of address, so the
+                          // back button comes back here (`useOpenItem`,
+                          // src/itemForm.tsx) - which is what makes this a link
+                          // between two notes rather than a jump out of one.
+                          onClick={() => openItem(other.id)}
+                          className="rounded-md border border-black/10 px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                        >
+                          <span className="block font-medium text-ink">{itemLabel(other)}</span>
                         </button>
                       ))}
                     </div>

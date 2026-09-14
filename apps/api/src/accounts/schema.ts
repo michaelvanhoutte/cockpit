@@ -3,6 +3,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -1005,6 +1006,100 @@ export const decisionHistory = sqliteTable(
     // retrieval step") - the one access pattern this table has.
     index('decision_history_tenant_workspace_decided').on(t.tenantId, t.workspaceId, t.decidedAt),
     check('decision_history_decided_at_is_timestamp', isTimestamp('decided_at')),
+  ],
+);
+
+/**
+ * What one Item means, as a vector ("Flag a captured note that says what
+ * another one already said", issue 407).
+ *
+ * **A table of its own rather than a column on `items`.** A reading is a
+ * thousand numbers and every read of an Item would carry it - into the
+ * snapshot, into a backup, into the copy a browser keeps - for something the
+ * screen only ever needs as a mark and a link. Here, nothing but the job that
+ * writes it and the query that pairs it ever touches one.
+ *
+ * **One row per Item, replaced rather than added to.** An Item has one current
+ * meaning, which is the meaning of the two texts it shows right now - so
+ * editing its Title writes over this row rather than making a second
+ * (`rememberWhatAnItemMeans`, store.ts). There is no history here to keep: an
+ * old reading is a reading of words nobody can see any more.
+ *
+ * **`model` is what stops two spaces being compared.** Vectors from two
+ * different models are not comparable at all, so the pairing query only ever
+ * compares rows naming the same model - which is also what makes changing the
+ * model a matter of re-reading rather than of a migration.
+ *
+ * `reading` is JSON in a text column, the same choice `items.readings` records:
+ * it is read back whole with the row and nothing ever queries into one.
+ */
+export const itemMeanings = sqliteTable(
+  'item_meanings',
+  {
+    itemId: text('item_id')
+      .primaryKey()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    tenantId: text('tenant_id').notNull(),
+    model: text('model').notNull(),
+    reading: text('reading', { mode: 'json' }).$type<number[]>().notNull(),
+    readAt: text('read_at').notNull(),
+  },
+  (t) => [
+    // Read per account and per item, which is the one access pattern this
+    // table has - scoped to the tenant so a routing bug returns nothing rather
+    // than another account's reading (architecture, "`tenant_id` stays on
+    // every row").
+    index('item_meanings_tenant_item').on(t.tenantId, t.itemId),
+    check('item_meanings_read_at_is_timestamp', isTimestamp('read_at')),
+  ],
+);
+
+/**
+ * Two Items that say the same thing ("Flag a captured note that says what
+ * another one already said", issue 407).
+ *
+ * **One row per pair, never two.** `item_id` is always the smaller of the two
+ * ids and the CHECK below is what holds it - so the pair is the same row
+ * whichever of the two was read last, opening either Item finds it, and reading
+ * the same note twice adds nothing. The alternative, a row per direction, makes
+ * "is this one flagged" two queries and lets the two halves disagree.
+ *
+ * **Whether a pair is *drawn* is not decided here.** A pair is written between
+ * any two Items whose readings are close enough; a filed Item is nothing's
+ * duplicate yet, and that is a rule about what the Inbox shows rather than
+ * about what is true (`possibleDuplicatesOf`, apps/web/src/duplicates.ts) -
+ * which is what lets filing and unfiling an Item change the marks without
+ * touching a row here.
+ *
+ * `how_alike` is kept though nothing reads it back today: it is the one number
+ * that would say whether the cut-off is placed right, and it costs a column.
+ */
+export const itemDuplicates = sqliteTable(
+  'item_duplicates',
+  {
+    tenantId: text('tenant_id').notNull(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    otherItemId: text('other_item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    howAlike: real('how_alike').notNull(),
+    foundAt: text('found_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.itemId, t.otherItemId] }),
+    // Two indexes, for the reason `panel_items` has two: a pair is looked up
+    // from either of its Items, and a key that leads with the first cannot
+    // serve a lookup by the second.
+    index('item_duplicates_tenant_item').on(t.tenantId, t.itemId),
+    index('item_duplicates_tenant_other').on(t.tenantId, t.otherItemId),
+    // True by definition rather than a rule the product tunes, which is what a
+    // CHECK is for (architecture, "The database is the second lock"): a pair of
+    // one Item with itself is not a pair, and the same two Items the other way
+    // round is the same pair.
+    check('item_duplicates_is_one_unordered_pair', sql.raw('item_id < other_item_id')),
+    check('item_duplicates_found_at_is_timestamp', isTimestamp('found_at')),
   ],
 );
 

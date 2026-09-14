@@ -4,6 +4,7 @@ import { resetGuestAccount } from '../accounts/index.js';
 import {
   cleanUpACapturedNote,
   enrichmentJobSchema,
+  readWhatANoteMeans,
   reproposePanels,
   type EnrichmentJob,
 } from './enrichment.js';
@@ -11,11 +12,18 @@ import {
 export {
   cleanUpACapturedNote,
   enqueueCleanUp,
+  enqueueReadingItsMeaning,
   enqueueRepropose,
   enrichmentJobSchema,
+  readWhatANoteMeans,
   reproposePanels,
 } from './enrichment.js';
-export type { EnrichmentJob, CleanUpJob, ReproposePanelsJob } from './enrichment.js';
+export type {
+  EnrichmentJob,
+  CleanUpJob,
+  ReadWhatItMeansJob,
+  ReproposePanelsJob,
+} from './enrichment.js';
 
 /**
  * Background jobs (architecture, "Background jobs"): plain functions calling
@@ -181,6 +189,8 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return cleanUpACapturedNote(env, job);
     case 're-propose-panels':
       return reproposePanels(env, job);
+    case 'read-what-a-note-means':
+      return readWhatANoteMeans(env, job);
   }
 }
 
@@ -188,6 +198,7 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
 function describe(job: EnrichmentJob): string {
   switch (job.kind) {
     case 'clean-up-a-note':
+    case 'read-what-a-note-means':
       return `item ${job.itemId}`;
     case 're-propose-panels':
       return `workspace ${job.workspaceId}`;

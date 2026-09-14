@@ -1,5 +1,6 @@
 import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
+import type { Column } from 'drizzle-orm';
 import type {
   Association,
   Dashboard,
@@ -9,6 +10,7 @@ import type {
   Layout,
   LayoutRow,
   Panel,
+  PossibleDuplicate,
   RoutingSummary,
   ScreenSize,
   Workspace,
@@ -21,6 +23,8 @@ import {
   commands,
   dashboards,
   decisionHistory,
+  itemDuplicates,
+  itemMeanings,
   items,
   itemTypes,
   layoutRows,
@@ -1025,4 +1029,190 @@ export function lastItemTypePosition(db: AccountDb, tenantId: string): number | 
 /** One live type, or null - what a capture naming a type is checked against. */
 export function getItemType(db: AccountDb, tenantId: string, typeId: string): ItemType | null {
   return listItemTypes(db, tenantId).find((type) => type.id === typeId) ?? null;
+}
+
+// --- what Items mean, and which of them say the same thing (issue 407) -------
+
+/**
+ * The database, or one of its transactions - what `db.transaction` hands its
+ * callback, which is not the database itself.
+ *
+ * Only the four below take it. Everything above this line is either read
+ * outside a transaction or written by `command-service.ts`, which has its own
+ * name for the same type; these are the reads and writes a single store
+ * operation does together (`rememberWhatAnItemMeans`, store.ts).
+ */
+type InTheStore = AccountDb | Parameters<Parameters<AccountDb['transaction']>[0]>[0];
+
+/**
+ * Whether an Item is one somebody could still act on, and one this Workspace
+ * draws - the whole of what makes another Item eligible to be offered as a
+ * duplicate ("Flag a captured note that says what another one already said",
+ * issue 407).
+ *
+ * Four complementary conditions, and forgetting any one of them offers
+ * something that is not there any more: an Item finished with, one dismissed
+ * (which is what deleting one does - functional definition, "Delete/Dismiss"),
+ * one of another account, and one of another Workspace. The Workspace half is
+ * `listOpenItems`' own, repeated rather than shared because this asks it of a
+ * join alias: an Item belonging to no Workspace is drawn in every Workspace's
+ * Inbox, so it is eligible in all of them.
+ */
+function couldStillBeActedOn(
+  // The columns rather than the table, because both callers below are aliases
+  // of `items` and an alias is a different type from the table it aliases.
+  item: Pick<
+    Record<'tenantId' | 'workspaceId' | 'workspaceDecided' | 'completedAt' | 'deletedAt', Column>,
+    'tenantId' | 'workspaceId' | 'workspaceDecided' | 'completedAt' | 'deletedAt'
+  >,
+  tenantId: string,
+  workspaceId: string,
+) {
+  return and(
+    eq(item.tenantId, tenantId),
+    or(eq(item.workspaceId, workspaceId), eq(item.workspaceDecided, false)),
+    isNull(item.completedAt),
+    isNull(item.deletedAt),
+  );
+}
+
+/**
+ * Every pair of Items in one Workspace that say the same thing - both halves of
+ * which the Workspace can still draw and act on.
+ *
+ * **Filtered here rather than when the pair is written**, which is what makes
+ * dismissing an Item and bringing it back change the marks without touching a
+ * row: the pair is a fact about two notes, and whether it is *offered* is a
+ * question asked freshly of the state they are in.
+ */
+export function listDuplicatesInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): PossibleDuplicate[] {
+  const one = alias(items, 'duplicate_one');
+  const other = alias(items, 'duplicate_other');
+  return db
+    .select({ itemId: itemDuplicates.itemId, otherItemId: itemDuplicates.otherItemId })
+    .from(itemDuplicates)
+    .innerJoin(one, eq(itemDuplicates.itemId, one.id))
+    .innerJoin(other, eq(itemDuplicates.otherItemId, other.id))
+    .where(
+      and(
+        eq(itemDuplicates.tenantId, tenantId),
+        couldStillBeActedOn(one, tenantId, workspaceId),
+        couldStillBeActedOn(other, tenantId, workspaceId),
+      ),
+    )
+    .orderBy(itemDuplicates.itemId, itemDuplicates.otherItemId)
+    .all();
+}
+
+/** What one Item currently means, or null where nothing has read it yet. */
+export function getMeaning(
+  db: InTheStore,
+  tenantId: string,
+  itemId: string,
+): { model: string; reading: number[] } | null {
+  return (
+    db
+      .select({ model: itemMeanings.model, reading: itemMeanings.reading })
+      .from(itemMeanings)
+      .where(and(eq(itemMeanings.tenantId, tenantId), eq(itemMeanings.itemId, itemId)))
+      .get() ?? null
+  );
+}
+
+/**
+ * Every other Item's reading this one could be a duplicate of: read by the same
+ * model, in a Workspace that draws them both, and still there to act on.
+ *
+ * **An Item belonging to no Workspace compares against everything.** It is
+ * drawn in every Workspace's Inbox at once ("Capture something before you know
+ * which workspace it belongs to", issue 165), so every Item of the account is a
+ * candidate for it - and the Workspace a pair is actually *offered* in is
+ * decided when it is read back, by `listDuplicatesInWorkspace` above.
+ */
+export function meaningsToCompareWith(
+  db: InTheStore,
+  tenantId: string,
+  item: { id: string; workspaceId: string; workspaceDecided: boolean },
+  model: string,
+): { itemId: string; reading: number[] }[] {
+  return db
+    .select({ itemId: itemMeanings.itemId, reading: itemMeanings.reading })
+    .from(itemMeanings)
+    .innerJoin(items, eq(itemMeanings.itemId, items.id))
+    .where(
+      and(
+        eq(itemMeanings.tenantId, tenantId),
+        eq(itemMeanings.model, model),
+        ne(itemMeanings.itemId, item.id),
+        eq(items.tenantId, tenantId),
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
+        item.workspaceDecided
+          ? or(eq(items.workspaceId, item.workspaceId), eq(items.workspaceDecided, false))
+          : undefined,
+      ),
+    )
+    .all();
+}
+
+/**
+ * Writes what an Item means now, over whatever it meant before.
+ *
+ * One row per Item, replaced rather than appended to: an Item has one current
+ * meaning, which is the meaning of the two texts it shows (`itemMeanings`,
+ * schema.ts).
+ */
+export function rememberMeaning(
+  db: InTheStore,
+  tenantId: string,
+  itemId: string,
+  model: string,
+  reading: number[],
+  at: string,
+): void {
+  db.insert(itemMeanings)
+    .values({ itemId, tenantId, model, reading, readAt: at })
+    .onConflictDoUpdate({
+      target: itemMeanings.itemId,
+      set: { model, reading, readAt: at },
+    })
+    .run();
+}
+
+/**
+ * Replaces every pair one Item is in with the ones it is in now.
+ *
+ * **Both halves of the delete, because a pair is stored one way round.** The
+ * Item being re-read is the smaller id in some of its pairs and the larger in
+ * others, so a delete naming only `item_id` would leave half of what it meant
+ * to clear - which is how an edited note keeps a mark it no longer earns.
+ */
+export function replaceDuplicatesOf(
+  db: InTheStore,
+  tenantId: string,
+  itemId: string,
+  pairs: readonly { itemId: string; otherItemId: string; howAlike: number }[],
+  at: string,
+): void {
+  db.delete(itemDuplicates)
+    .where(
+      and(
+        eq(itemDuplicates.tenantId, tenantId),
+        or(eq(itemDuplicates.itemId, itemId), eq(itemDuplicates.otherItemId, itemId)),
+      ),
+    )
+    .run();
+  for (const pair of pairs) {
+    db.insert(itemDuplicates)
+      .values({ tenantId, ...pair, foundAt: at })
+      // The same pair from the other side, written by a read of the other Item
+      // that has not been cleared yet. Nothing about it differs, so the one
+      // already there stands.
+      .onConflictDoNothing()
+      .run();
+  }
 }

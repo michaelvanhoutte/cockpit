@@ -24,6 +24,18 @@ export default defineConfig({
      */
     exclude: [...configDefaults.exclude, 'tests/contract/**'],
     /**
+     * **Nothing in this suite may reach a model, and this is the half of that
+     * the bindings need.** `wrangler.jsonc` declares the Workers AI binding,
+     * which has no local simulator - so without this every file in the suite
+     * would open an authenticated session against Cloudflare before it ran, and
+     * a capture would spend real calls against the real service. `env.AI` is
+     * taken off `env` here, which is what makes `canReadMeaning` answer false
+     * and `enqueueReadingItsMeaning` queue nothing; the cases that want a
+     * reading put one back and fake it (tests/integration/http/duplicate-notes.test.ts),
+     * exactly as the cases that want a model set `ANTHROPIC_API_KEY` below.
+     */
+    setupFiles: ['./tests/no-model.ts'],
+    /**
      * **Not a tolerance on anything a case asserts - a guard against a hang,
      * set to what the work here legitimately takes.** An integration case makes
      * several real HTTP requests through a real Durable Object and empties six
@@ -60,6 +72,12 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
+      // No binding here talks to Cloudflare, and none may: the Workers AI
+      // binding is remote-only, so leaving this on makes the suite refuse to
+      // start without credentials - on a contributor's machine and on a CI
+      // runner alike - and bills whatever it then calls. See `setupFiles`
+      // above, which is what takes the binding itself off `env`.
+      remoteBindings: false,
       // vitest-pool-workers' own module evaluator needs Node builtins inside
       // the worker runtime; this is test-only and does not affect the
       // deployed Worker's compatibility flags in wrangler.jsonc.

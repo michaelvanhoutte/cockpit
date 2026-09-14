@@ -94,6 +94,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     WORKSPACE_ROUTING_SUMMARY,
     firstWorkspace(accountId),
     guestDemoSeed(accountId),
+    ITEM_MEANINGS,
   ];
 }
 
@@ -314,6 +315,83 @@ const WORKSPACE_ROUTING_SUMMARY: Change = {
     },
     {
       sql: 'CREATE INDEX `workspace_routing_summary_tenant_workspace` ON `workspace_routing_summary` (`tenant_id`,`workspace_id`)',
+    },
+  ],
+};
+
+/**
+ * What each Item means, and which Items mean the same thing ("Flag a captured
+ * note that says what another one already said", issue 407) - see `schema.ts`
+ * for what each column carries and why.
+ *
+ * **Two brand new tables, created whole with their CHECKs** - the same shape
+ * `DECISION_HISTORY` and `WORKSPACE_ROUTING_SUMMARY` above use, and for the
+ * reason this file gives for both: a table created here carries its CHECKs from
+ * the start, unlike a column added to `items`, which cannot be rebuilt while
+ * other tables point at it under RESTRICT. `item_duplicates_is_one_unordered_pair`
+ * is the one that matters - it is what makes a pair one row rather than two.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It creates two tables and writes to no existing row.
+ * - **Interrupted partway.** It cannot be: the statements and the record that
+ *   they ran commit together (up-to-date.ts), so a failure leaves neither table
+ *   and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left nothing behind.
+ * - **Data the new rules reject.** None: both tables start empty. Every Item
+ *   captured before this shipped therefore has no reading and takes part in
+ *   nothing, which is deliberate and is its own issue ("Read the notes that
+ *   were captured before this shipped", issue 409) - the same precedent issue
+ *   296 set for title cleanup.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop, in
+ *   staging and in production alike.
+ * - **The windows it can be interrupted in.** Two, and both are safe because
+ *   this is additive. *Before it runs*, the code in front of it is the previous
+ *   release, which names neither table. *After it runs, with that release
+ *   promoted back*, its reads name neither table either - so the worst a
+ *   rollback costs is a set of readings nobody looks at until the release goes
+ *   forward again.
+ */
+const ITEM_MEANINGS: Change = {
+  name: '0027-item-meanings',
+  statements: [
+    {
+      sql: `CREATE TABLE \`item_meanings\` (
+	\`item_id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`model\` text NOT NULL,
+	\`reading\` text NOT NULL,
+	\`read_at\` text NOT NULL,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "item_meanings_read_at_is_timestamp" CHECK(read_at IS NULL OR (datetime(read_at) IS NOT NULL AND substr(read_at, 11, 1) = 'T' AND substr(read_at, -1) = 'Z' AND length(read_at) >= 20 AND date(read_at) = substr(read_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `item_meanings_tenant_item` ON `item_meanings` (`tenant_id`,`item_id`)',
+    },
+    {
+      sql: `CREATE TABLE \`item_duplicates\` (
+	\`tenant_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`other_item_id\` text NOT NULL,
+	\`how_alike\` real NOT NULL,
+	\`found_at\` text NOT NULL,
+	PRIMARY KEY(\`item_id\`, \`other_item_id\`),
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`other_item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "item_duplicates_is_one_unordered_pair" CHECK(item_id < other_item_id),
+	CONSTRAINT "item_duplicates_found_at_is_timestamp" CHECK(found_at IS NULL OR (datetime(found_at) IS NOT NULL AND substr(found_at, 11, 1) = 'T' AND substr(found_at, -1) = 'Z' AND length(found_at) >= 20 AND date(found_at) = substr(found_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `item_duplicates_tenant_item` ON `item_duplicates` (`tenant_id`,`item_id`)',
+    },
+    {
+      sql: 'CREATE INDEX `item_duplicates_tenant_other` ON `item_duplicates` (`tenant_id`,`other_item_id`)',
     },
   ],
 };

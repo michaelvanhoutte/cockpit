@@ -123,6 +123,17 @@ export interface Account {
   unfiledItemsInWorkspace(
     workspaceId: string,
   ): Promise<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]>;
+  /**
+   * Writes what one Item means, and pairs it against every other Item of the
+   * account that says the same thing ("Flag a captured note that says what
+   * another one already said", issue 407). Written by the job that reads a note
+   * and by nothing else.
+   */
+  rememberWhatAnItemMeans(
+    itemId: string,
+    model: string,
+    reading: number[],
+  ): Promise<'remembered' | 'no such item'>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
@@ -165,6 +176,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.routingContext(accountName, workspaceId, excludeItemId)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
+    rememberWhatAnItemMeans: async (itemId, model, reading) =>
+      unwrap(await store.rememberWhatAnItemMeans(accountName, itemId, model, reading)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

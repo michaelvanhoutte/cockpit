@@ -538,10 +538,10 @@ own code. It is outside Cockpit's own gate (`PATHS_OUTSIDE_THE_GATE` in
 `apps/api/src/auth/gate.ts`), and anything ever put in front of the deployment
 has to be told to leave it alone.
 
-`/health` returns `{"ok":true,"register":true,"store":true,"ai":true}` and nothing
-else, so it discloses only whether each half answered — never *why* one did not,
-since the reason an update will not apply names tables and columns and this
-endpoint answers anyone. That reason goes to the logs.
+`/health` returns `{"ok":true,"register":true,"store":true,"ai":true,"embeddings":true}`
+and nothing else, so it discloses only whether each half answered — never *why*
+one did not, since the reason an update will not apply names tables and columns
+and this endpoint answers anyone. That reason goes to the logs.
 
 **`ai` is reported and is deliberately not part of `ok`.** It says whether this
 environment has an `ANTHROPIC_API_KEY` — never what it is, and nothing about it
@@ -552,6 +552,13 @@ clean a note up, which is the failure recorded for `CLAUDE_CODE_OAUTH_TOKEN` in
 "Secrets and access". Folding it into `ok` would instead make local development
 and the browser suite — which have no key and need none — report an unhealthy
 deployment and stop the e2e stack from ever starting.
+
+**`embeddings` says the same of a different capability, and is outside `ok` for
+the same reason.** It is whether this environment can read what a note *means*,
+and so whether it can flag one saying what another one already said ("Flag a
+captured note that says what another one already said", issue 407). Separate
+from `ai` because the two are separately configured — one is the `AI` binding,
+the other the Claude key — and an environment can have either, both or neither.
 
 `store` is checked against a store belonging to no account, addressed by a name
 the same request confirms is absent from the register. An unauthenticated endpoint

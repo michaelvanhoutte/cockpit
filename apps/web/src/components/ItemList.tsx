@@ -9,6 +9,7 @@ import {
   workspacesQuery,
 } from '../api/queries';
 import { CommandRefused } from '../api/client';
+import { mayBeADuplicate } from '../duplicates';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
 import {
   filedOrderOnPanel,
@@ -837,10 +838,18 @@ export function ItemList({
                       }
                     : // A proposal is only ever drawn in the Inbox: it is what a
                       // filed Item's routing already answered, and there is
-                      // nothing left here for one to be a proposal *for*.
+                      // nothing left here for one to be a proposal *for*. A
+                      // possible duplicate is the same shape of thing for the
+                      // same reason - a filed Item is nothing's duplicate yet.
                       {
                         routingProposal: routingProposalFor(item),
                         onAcceptRouting: acceptRoutingFor(item),
+                        mayBeADuplicate: mayBeADuplicate(
+                          item.id,
+                          data?.items ?? [],
+                          data?.filings ?? [],
+                          data?.duplicates ?? [],
+                        ),
                       })}
                 />
               </Fragment>

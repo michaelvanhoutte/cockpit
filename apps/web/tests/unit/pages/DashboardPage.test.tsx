@@ -46,6 +46,7 @@ function asItWasStoredBefore(): WorkspaceSnapshot {
     associations: [],
     itemTypes: [],
     screenSizes: [],
+    duplicates: [],
     filings: [],
     generatedAt: '2026-09-02T09:00:00.000Z',
   } as unknown as WorkspaceSnapshot;

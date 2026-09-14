@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
+import { canReadMeaning } from '../embeddings/index.js';
 
 /**
  * What `/health` is able to say about an account's data without opening
@@ -50,16 +51,29 @@ export interface Health {
    * `/health` answers anybody at all.
    */
   ai: boolean;
+  /**
+   * Whether this environment can read what a note *means*, and so whether it
+   * can flag one saying what another one already said ("Flag a captured note
+   * that says what another one already said", issue 407).
+   *
+   * **Its own field, and deliberately not `ai` above.** That one means "there
+   * is a key to clean a note up with"; this one means "there is a binding to
+   * read meaning with". They are separately configured and separately absent,
+   * and an environment that can do one and not the other has to be able to say
+   * which. Not part of the verdict, for the reason `ai` is not.
+   */
+  embeddings: boolean;
   /** Why not, when something said no. */
   failure?: string;
 }
 
 export async function checkHealth(env: Env): Promise<Health> {
   const register = await checkRegister(env.DB);
-  // Configuration rather than a probe, so it is answered whichever way the two
-  // below go: an environment that cannot reach its data still has to be able
-  // to say whether somebody remembered to put the key in.
+  // Configuration rather than a probe, so they are answered whichever way the
+  // two below go: an environment that cannot reach its data still has to be
+  // able to say whether somebody remembered to put the key in.
   const ai = Boolean(env.ANTHROPIC_API_KEY);
+  const embeddings = canReadMeaning(env);
 
   // Each field says only what was actually established, which is the point of
   // the whole change. `register` is false for both of its failures - the
@@ -68,9 +82,11 @@ export async function checkHealth(env: Env): Promise<Health> {
   // those is a misconfiguration that has to be loud rather than shaded. `store`
   // is false because nothing looked, not because a store said no. Which of the
   // three it was is in `failure`, and so in the logs.
-  if (register.failure) return { register: false, store: false, ai, failure: register.failure };
+  if (register.failure) {
+    return { register: false, store: false, ai, embeddings, failure: register.failure };
+  }
 
-  return { register: true, ai, ...(await checkStore(env)) };
+  return { register: true, ai, embeddings, ...(await checkStore(env)) };
 }
 
 /**
