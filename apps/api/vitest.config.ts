@@ -112,6 +112,16 @@ export default defineConfig({
            * set one on `env` for themselves and fake the network under it.
            */
           ANTHROPIC_API_KEY: '',
+          /**
+           * Empty for the same reason, and it is the other half of what
+           * `tests/no-model.ts` does: that file takes the `AI` binding off
+           * `env`, which a setup file has to because the runtime puts it there,
+           * while this is a value and a developer who has set it in `.dev.vars`
+           * to drive `pnpm dev` would otherwise have every capture in the suite
+           * queue a reading ("Flag a captured note that says what another one
+           * already said", issue 407).
+           */
+          EMBEDDINGS_STAND_IN: '',
           OIDC_ISSUER: 'https://issuer.test',
           /**
            * Set, as production sets it: an environment that offers guest

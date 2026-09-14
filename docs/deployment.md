@@ -432,10 +432,10 @@ CI needs, in GitHub:
 
 | Kind | Name | Value |
 |---|---|---|
-| Secret | `CLOUDFLARE_API_TOKEN` | scoped token, created in the Cloudflare dashboard |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | `091e6e85f8268ee838089d6fed968585` |
+| Secret | `CLOUDFLARE_API_TOKEN` | scoped token, created in the Cloudflare dashboard — deploys with it, and the nightly contract run reads what a note means with it, which is why Workers AI: Read is among its scopes |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | `091e6e85f8268ee838089d6fed968585` — the account the same run reaches that model in |
 | Secret | `CLAUDE_CODE_OAUTH_TOKEN` | stored by `/install-github-app`, run once from an interactive Claude Code session |
-| Secret | `ANTHROPIC_API_KEY` | the same key as above, for the nightly contract run (`.github/workflows/contract.yml`), which is the only place CI talks to the real model |
+| Secret | `ANTHROPIC_API_KEY` | the same key as above, for the nightly contract run (`.github/workflows/contract.yml`), which is the only place CI talks to a real model |
 | Secret | `ANTHROPIC_WORKSPACE_ID` | beside it, for the same reason it is set on the Worker |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | `vanhoutte-michael` |
 
@@ -711,7 +711,11 @@ store holds no workspace already.
 Then, by hand (no API, or deliberately not automated):
 
 1. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
-   Settings: Read), stored as the `CLOUDFLARE_API_TOKEN` GitHub secret.
+   Settings: Read, Workers AI: Read), stored as the `CLOUDFLARE_API_TOKEN`
+   GitHub secret. The last scope is the nightly contract run's, not a deploy's:
+   it calls the model that reads what a note means by its own address, a tier
+   with no Worker having no binding to reach it through ("Flag a captured note
+   that says what another one already said", issue 407).
 2. **Branch protection** on `main`. The payload lives in
    [.github/branch-protection.json](../.github/branch-protection.json) rather than
    only in a dashboard, because configuration nobody can review or restore is not

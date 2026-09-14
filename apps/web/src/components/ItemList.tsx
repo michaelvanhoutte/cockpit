@@ -35,6 +35,9 @@ import { MoveOrAddQuestion } from './MoveOrAddQuestion';
 import { MoveToPicker } from './MoveToPicker';
 import { SelectionBar } from './SelectionBar';
 
+/** What a Panel's list has flagged as a possible duplicate: never anything. */
+const NOTHING_FLAGGED: ReadonlySet<string> = new Set<string>();
+
 /**
  * A list of items, in the Inbox or on a panel, and the one way to move one out
  * of it ("Panels hold the items filed into them, and the Inbox holds the rest",
@@ -288,13 +291,14 @@ export function ItemList({
    * Which of this workspace's Items may be saying what another one already
    * said ("Flag a captured note that says what another one already said", issue
    * 407) - worked out once for the whole list rather than per row, the same
-   * read either way.
+   * read either way, and only where a row would draw the mark: a Panel's list
+   * never does, and a Dashboard of ten would otherwise walk the same three
+   * arrays ten times for an answer nothing asks it for.
    */
-  const flagged = itemsThatMayBeDuplicates(
-    data?.items ?? [],
-    data?.filings ?? [],
-    data?.duplicates ?? [],
-  );
+  const flagged =
+    panelId === null
+      ? itemsThatMayBeDuplicates(data?.items ?? [], data?.filings ?? [], data?.duplicates ?? [])
+      : NOTHING_FLAGGED;
 
   /**
    * The proposal an Item's row draws as a chip, resolved to the Panel's live

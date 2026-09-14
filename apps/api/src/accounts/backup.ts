@@ -41,9 +41,10 @@ export interface AccountBackup {
 /**
  * SQLite hands back exactly four kinds of value, one of which is an
  * `ArrayBuffer` - which JSON has no way to write and a backup would therefore
- * lose. Nothing can produce one here: every table is STRICT with `text` and
- * `integer` columns only (architecture, "The database is the second lock"), and
- * STRICT is precisely the guarantee that a blob cannot be stored in either. So
+ * lose. Nothing can produce one here: every table is STRICT with `text`,
+ * `integer` and `real` columns only (architecture, "The database is the second
+ * lock"), and STRICT is precisely the guarantee that a blob cannot be stored in
+ * any of them - a `real` round-trips through JSON as the double it already is. So
  * a row round-trips through JSON exactly, and it is the schema that makes that
  * true rather than luck - a `blob` column added later would break it, and would
  * have to bring its own encoding.

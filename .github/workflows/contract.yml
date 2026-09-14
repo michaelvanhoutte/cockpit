@@ -34,7 +34,9 @@ jobs:
       # `CLAUDE_CODE_OAUTH_TOKEN`. Each suite itself refuses to run without its
       # own credential (tests/contract/), so this only names the secrets; it
       # does not print them. The Cloudflare pair is the same pair the deploy
-      # workflows already use, and is what reads what a note means.
+      # workflows already use, and is what reads what a note means - which needs
+      # Workers AI: Read on that token beside the scopes a deploy needs
+      # (docs/deployment.md, "Bootstrap runbook").
       - run: pnpm --filter @cockpit/api test:contract
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
