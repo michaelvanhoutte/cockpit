@@ -76,7 +76,12 @@ import {
   unfiledItemsInWorkspace,
 } from './repo.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
-import { deriveWhatStood, type TextCorrectionEntry, type WhatStood } from '../domain/text-corrections.js';
+import {
+  correctionStillVisible,
+  deriveWhatStood,
+  type TextCorrectionEntry,
+  type WhatStood,
+} from '../domain/text-corrections.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
 
 /**
@@ -201,7 +206,13 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   textLearningContext(accountName: string): Answer<{ corrections: TextCorrectionEntry[]; stood: WhatStood }> {
     return this.#answer(accountName, (db) => {
       const corrections = textCorrectionsForAccount(db, accountName);
-      const correctedItemIds = new Set(corrections.map((entry) => entry.itemId));
+      // The same test `renderOneTextCorrection` renders by, so a correction
+      // later edited back to Cockpit's own words counts nowhere rather than
+      // disagreeing between the two ("Learn how you write from the titles
+      // you correct", issue 394).
+      const correctedItemIds = new Set(
+        corrections.filter(correctionStillVisible).map((entry) => entry.itemId),
+      );
       return { corrections, stood: deriveWhatStood(judgeableItemsForAccount(db, accountName), correctedItemIds) };
     });
   }

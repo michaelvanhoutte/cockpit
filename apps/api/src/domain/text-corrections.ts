@@ -36,6 +36,20 @@ export interface TextCorrectionEntry {
 }
 
 /**
+ * Whether a correction row still shows a real difference from what was
+ * proposed - false for a row whose settled half was edited back to exactly
+ * Cockpit's own words, which a later edit can leave behind (`command-
+ * service.ts`'s `UPDATE` branch rewrites the settled half and never deletes
+ * or resets the row). The one definition both `renderOneTextCorrection`
+ * (`clean-up-a-note.v7.ts`, which reader-facing text) and the corrected-item
+ * set (`store.ts`, which the "what stood" ratio counts by) read, so the two
+ * can never disagree about the same row again.
+ */
+export function correctionStillVisible(entry: TextCorrectionEntry): boolean {
+  return entry.proposedTitle !== entry.settledTitle || entry.proposedDescription !== entry.settledDescription;
+}
+
+/**
  * The row an edit to a still-proposed text writes, or `null` where there is
  * nothing worth recording.
  *
@@ -105,6 +119,17 @@ export interface JudgeableItem {
    * §5.1 - and is never set true by anything in this codebase).
    */
   actedOn: boolean;
+  /**
+   * When this Item's texts were taken over from Cockpit, whether or not that
+   * edit left a `text_corrections` row - the one fact `correctedItemIds`
+   * alone cannot tell apart from "never edited at all". Clearing a title to
+   * nothing settles both texts (`items.ts`, `settledBy`) without recording
+   * anything, and a later edit on that same Item can never create the row
+   * either (`command-service.ts`) - so a text this genuinely was edited, but
+   * left no trace of what changed, must be excluded rather than defaulted
+   * into "stood".
+   */
+  textsSettledAt: string | null;
 }
 
 /** What a proposal reads about the texts nobody corrected. */
@@ -138,11 +163,20 @@ const STOOD_SAMPLE_LIMIT = 10;
  * `renderCorrections` (`clean-up-a-note.v7.ts`, which reads every correction
  * unconditionally) while being excluded from this ratio, reading as two
  * sections that disagree about the same Item.
+ *
+ * **An Item that was edited but left no row is excluded outright, never
+ * defaulted into "stood".** `textsSettledAt` set with no entry in
+ * `correctedItemIds` means an edit happened whose outcome this store could
+ * not record - a title cleared to nothing, most concretely - and "nobody
+ * changed it" would be the opposite of what actually happened.
  */
 export function deriveWhatStood(items: readonly JudgeableItem[], correctedItemIds: ReadonlySet<string>): WhatStood {
-  const judged = items.filter(
-    (item) => item.textsProposedAt !== null && (item.actedOn || correctedItemIds.has(item.id)),
-  );
+  const judged = items.filter((item) => {
+    if (item.textsProposedAt === null) return false;
+    if (correctedItemIds.has(item.id)) return true;
+    if (item.textsSettledAt !== null) return false;
+    return item.actedOn;
+  });
   const stood = judged.filter((item) => !correctedItemIds.has(item.id));
   const sample = [...stood]
     .sort((a, b) => (a.textsProposedAt === b.textsProposedAt ? 0 : a.textsProposedAt! < b.textsProposedAt! ? 1 : -1))

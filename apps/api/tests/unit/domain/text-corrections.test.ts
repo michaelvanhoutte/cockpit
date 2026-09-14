@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { deriveWhatStood, textCorrectionFor, type JudgeableItem } from '../../../src/domain/text-corrections.js';
+import {
+  correctionStillVisible,
+  deriveWhatStood,
+  textCorrectionFor,
+  type JudgeableItem,
+  type TextCorrectionEntry,
+} from '../../../src/domain/text-corrections.js';
 
 const AN_ITEM = {
   id: 'item-1',
@@ -71,6 +77,7 @@ describe('Capture', () => {
         title: 'a title',
         textsProposedAt: '2026-09-09T10:00:00.000Z',
         actedOn: true,
+        textsSettledAt: null,
         ...overrides,
       };
     }
@@ -119,6 +126,23 @@ describe('Capture', () => {
       expect(stood.correctedTotal).toBe(0);
     });
 
+    /**
+     * Clearing a title settles both texts without leaving a row behind
+     * (`textCorrectionFor`'s own empty-title guard), and no later edit on
+     * that Item can create one either (`command-service.ts`). Once filed,
+     * dismissed or completed, such an Item has no row and `actedOn` alone
+     * would default it into "stood" - the opposite of what happened, since
+     * it was genuinely edited.
+     */
+    it('excludes an Item that was edited but left no correction row, even once acted on', () => {
+      const items = [judgeable({ textsSettledAt: '2026-09-09T10:00:01.000Z', actedOn: true })];
+
+      const stood = deriveWhatStood(items, new Set());
+
+      expect(stood.proposedTotal).toBe(0);
+      expect(stood.correctedTotal).toBe(0);
+    });
+
     it('keeps the sample bounded, however many texts stood', () => {
       const items = Array.from({ length: 2000 }, (_, i) => judgeable({ id: `item-${i}`, title: `title ${i}` }));
       const corrected = new Set(Array.from({ length: 500 }, (_, i) => `item-${i}`));
@@ -128,6 +152,40 @@ describe('Capture', () => {
       expect(stood.proposedTotal).toBe(2000);
       expect(stood.correctedTotal).toBe(500);
       expect(stood.sample.length).toBeLessThanOrEqual(10);
+    });
+  });
+
+  describe('Whether a correction row still shows a real difference from what was proposed', () => {
+    const A_CORRECTION: TextCorrectionEntry = {
+      itemId: 'item-1',
+      capturedMessage: 'Reply to Bart',
+      proposedTitle: 'Reply to Bart with the numbers',
+      proposedDescription: 'The message Cockpit wrote.',
+      settledTitle: 'Mail Bart the numbers',
+      settledDescription: 'The message Cockpit wrote.',
+      recordedAt: '2026-09-09T10:00:00.000Z',
+    };
+
+    it('is true where the title differs from what was proposed', () => {
+      expect(correctionStillVisible(A_CORRECTION)).toBe(true);
+    });
+
+    /**
+     * A later edit can settle a text back to exactly what Cockpit proposed -
+     * reverting a detour, say - and `command-service.ts`'s `UPDATE` branch
+     * rewrites the settled half without deleting or resetting the row. Such
+     * a row teaches nothing any more, and both `renderOneTextCorrection`
+     * (`clean-up-a-note.v7.ts`) and the corrected-item set (`store.ts`) read
+     * this same function to agree that it counts nowhere.
+     */
+    it('is false where the settled half was edited back to exactly what was proposed', () => {
+      const reverted: TextCorrectionEntry = {
+        ...A_CORRECTION,
+        settledTitle: A_CORRECTION.proposedTitle,
+        settledDescription: A_CORRECTION.proposedDescription,
+      };
+
+      expect(correctionStillVisible(reverted)).toBe(false);
     });
   });
 });

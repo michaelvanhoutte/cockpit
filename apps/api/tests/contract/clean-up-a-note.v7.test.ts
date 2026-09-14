@@ -636,4 +636,44 @@ describe('Capture', () => {
       expect(proposal.title).not.toMatch(/\bNovi\b/i);
     });
   });
+
+  /**
+   * The corrections section outranks the general guidance "on vocabulary and
+   * length", stated in exactly those words for the reason this case exists:
+   * an earlier version said corrections outrank the guidance with no scope
+   * limit, which read as licensing the language rule and the no-invention
+   * rule to bend too - the same failure `v5`'s translation regression
+   * measured at roughly one English note in three (this file's first
+   * describe block). Dutch-worded corrections are the sharpest test of
+   * exactly that: nothing about them should read as permission to answer an
+   * English note in Dutch.
+   */
+  describe('a correction never licenses breaking the language rule or inventing detail', () => {
+    it('answers an English note in English, even with Dutch-worded corrections on record', async () => {
+      const corrections: TextCorrectionEntry[] = [
+        {
+          itemId: 'item-1',
+          capturedMessage: 'bel novy over de afspraak',
+          proposedTitle: 'Call Novy about the appointment',
+          proposedDescription: null,
+          settledTitle: 'Novy bellen over de afspraak',
+          settledDescription: null,
+          recordedAt: '2026-08-01T09:00:00.000Z',
+        },
+      ];
+
+      const proposal = await read(
+        'cal invite for the CAPA review, need the deviation nr first',
+        [],
+        [],
+        [],
+        null,
+        corrections,
+      );
+
+      expect(proposal.language).toContain('English');
+      expect(proposal.title).not.toMatch(MARKERS.Dutch);
+      expect(proposal.message).not.toMatch(MARKERS.Dutch);
+    });
+  });
 });

@@ -842,6 +842,7 @@ export function judgeableItemsForAccount(db: AccountDb, tenantId: string): Judge
       id: items.id,
       title: items.title,
       textsProposedAt: items.textsProposedAt,
+      textsSettledAt: items.textsSettledAt,
       completedAt: items.completedAt,
       deletedAt: items.deletedAt,
     })
@@ -852,6 +853,7 @@ export function judgeableItemsForAccount(db: AccountDb, tenantId: string): Judge
       id: row.id,
       title: row.title,
       textsProposedAt: row.textsProposedAt,
+      textsSettledAt: row.textsSettledAt,
       actedOn: filed.has(row.id) || row.completedAt !== null || row.deletedAt !== null,
     }));
 }

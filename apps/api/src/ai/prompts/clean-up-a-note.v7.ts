@@ -1,6 +1,6 @@
 import { TITLE_LENGTH } from '@cockpit/shared';
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
-import type { TextCorrectionEntry, WhatStood } from '../../domain/text-corrections.js';
+import { correctionStillVisible, type TextCorrectionEntry, type WhatStood } from '../../domain/text-corrections.js';
 
 /**
  * The length a title is written towards, as against `TITLE_LENGTH`, which is
@@ -92,7 +92,7 @@ The message says what to do about the note, written out in full sentences so it 
 
 Name the note's language first, in English, from the note alone - "English", "Dutch", or "English and Dutch" where the note genuinely mixes them. Then write the title and the message in that language. Never translate a note into another language, whatever language the examples below are in.
 
-You are also given this account's own record of the titles and messages you have proposed before, and how they were received - the strongest evidence of this person's own vocabulary and length available, and it outranks the general guidance above wherever the two disagree.
+You are also given this account's own record of the titles and messages you have proposed before, and how they were received - the strongest evidence of this person's own vocabulary and length available, and it outranks the general guidance above on vocabulary and length wherever the two disagree. It never overrides the language rule above, and never licenses adding anything the note itself does not contain.
 
 ${renderCorrections(corrections)}
 
@@ -314,8 +314,13 @@ const CORRECTIONS_LIMIT = 50;
  * dangling `"<note>" — ` with nothing after it: a row with nothing to show
  * teaches nothing, the same reasoning `textCorrectionFor` (`domain/text-
  * corrections.ts`) already refuses to record one for in the first place.
+ *
+ * **`correctionStillVisible` gates the same rows the "what stood" ratio
+ * counts by** (`store.ts`) - one definition, so a reverted correction reads
+ * "nothing corrected" in both places rather than disagreeing between them.
  */
 function renderOneTextCorrection(entry: TextCorrectionEntry): string | null {
+  if (!correctionStillVisible(entry)) return null;
   const changes: string[] = [];
   if (entry.proposedTitle !== entry.settledTitle) {
     changes.push(`title "${entry.proposedTitle}" became "${entry.settledTitle}"`);
@@ -325,7 +330,6 @@ function renderOneTextCorrection(entry: TextCorrectionEntry): string | null {
       `message "${entry.proposedDescription ?? '(nothing)'}" became "${entry.settledDescription ?? '(nothing)'}"`,
     );
   }
-  if (changes.length === 0) return null;
   return `"${entry.capturedMessage}" — ${changes.join('; ')}`;
 }
 
