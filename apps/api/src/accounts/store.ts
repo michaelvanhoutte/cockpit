@@ -60,6 +60,7 @@ import {
   decisionHistoryForWorkspace,
   getItem,
   getRoutingSummary,
+  getTextLearningRules,
   getWorkspace,
   judgeableItemsForAccount,
   listAssociationsForWorkspace,
@@ -197,13 +198,24 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
 
   /**
    * What a title or description proposal reads about how this account
-   * writes: every correction it has ever made, and how many of its other
-   * proposals simply stood ("Learn how you write from the titles you
-   * correct", issue 394; `docs/text-learning.md`, "What goes into the
-   * prompt"). Per account rather than per Workspace, deliberately unlike
-   * `routingContext` above (`docs/text-learning.md`, "Scope: per account").
+   * writes: the rules it has written for itself, every correction it has
+   * ever made, and how many of its other proposals simply stood ("Learn how
+   * you write from the titles you correct", issue 394; "Show what Cockpit is
+   * told, and say how you want it changed", issue 398; `docs/text-
+   * learning.md`, "What goes into the prompt"). Per account rather than per
+   * Workspace, deliberately unlike `routingContext` above (`docs/text-
+   * learning.md`, "Scope: per account").
+   *
+   * **Read by the enrichment job for the prompt, and by the HTTP layer for
+   * the window that shows how it is doing** - the second reader picks
+   * `rules`, `rulesSetAt`, `stood.proposedTotal` and `stood.correctedTotal`
+   * back out and leaves `corrections`/`stood.sample` unread, since that
+   * window shows neither list (`docs/text-learning.md`'s two evidence lists
+   * are their own later step).
    */
-  textLearningContext(accountName: string): Answer<{ corrections: TextCorrectionEntry[]; stood: WhatStood }> {
+  textLearningContext(
+    accountName: string,
+  ): Answer<{ rules: string | null; rulesSetAt: string | null; corrections: TextCorrectionEntry[]; stood: WhatStood }> {
     return this.#answer(accountName, (db) => {
       const corrections = textCorrectionsForAccount(db, accountName);
       // The same test `renderOneTextCorrection` renders by, so a correction
@@ -213,7 +225,13 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       const correctedItemIds = new Set(
         corrections.filter(correctionStillVisible).map((entry) => entry.itemId),
       );
-      return { corrections, stood: deriveWhatStood(judgeableItemsForAccount(db, accountName), correctedItemIds) };
+      const rules = getTextLearningRules(db, accountName);
+      return {
+        rules: rules?.rules ?? null,
+        rulesSetAt: rules?.rulesSetAt ?? null,
+        corrections,
+        stood: deriveWhatStood(judgeableItemsForAccount(db, accountName), correctedItemIds),
+      };
     });
   }
 

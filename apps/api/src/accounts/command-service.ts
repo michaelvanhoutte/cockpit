@@ -2,6 +2,7 @@ import { and, eq, exists, notExists, sql } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
+  accountTextRules,
   associations,
   commands,
   dashboards,
@@ -1717,6 +1718,35 @@ export function runCommand<N extends CommandName>(
           .onConflictDoUpdate({
             target: workspaceRoutingSummary.workspaceId,
             set: { correction, correctionSetAt: correction === null ? null : cmd.issuedAt },
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_text_learning_rules': {
+      const cmd = payload as CommandPayload<'set_text_learning_rules'>;
+      // The empty string is what clears it - there is no third state between
+      // "never written" and "written as nothing"
+      // (`domain/text-learning-rules.ts`).
+      const rules = cmd.rules === '' ? null : cmd.rules;
+      db.transaction((tx) => {
+        // Upserted, because the row may not exist yet - an account nobody
+        // has written rules for, which is every account's starting condition
+        // (`schema.ts`'s own comment on `accountTextRules`). Account-scoped,
+        // unlike `set_routing_summary_correction` above, so there is no
+        // Workspace to check: `cmd.workspaceId` is `ACCOUNT_WIDE`, the same
+        // convention `create_item_type` and its siblings use, and is never
+        // read here.
+        tx.insert(accountTextRules)
+          .values({
+            tenantId,
+            rules,
+            rulesSetAt: rules === null ? null : cmd.issuedAt,
+          })
+          .onConflictDoUpdate({
+            target: accountTextRules.tenantId,
+            set: { rules, rulesSetAt: rules === null ? null : cmd.issuedAt },
           })
           .run();
         tx.insert(commands).values(commandRow).run();

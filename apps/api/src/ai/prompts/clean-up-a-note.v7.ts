@@ -1,20 +1,43 @@
-import { TITLE_LENGTH } from '@cockpit/shared';
+import {
+  GUIDANCE_LANGUAGE_ANSWER as LANGUAGE_ANSWER,
+  GUIDANCE_MESSAGE_PURPOSE as MESSAGE_PURPOSE,
+  GUIDANCE_NEVER_TRANSLATE as NEVER_TRANSLATE,
+  GUIDANCE_NO_HEDGE as NO_HEDGE,
+  GUIDANCE_NO_INVENTION as NO_INVENTION,
+  GUIDANCE_NO_TALKING_ABOUT_THE_NOTE as NO_TALKING_ABOUT_THE_NOTE,
+  GUIDANCE_TITLE_LENGTH_TARGET as TITLE_LENGTH_TARGET_LINE,
+  GUIDANCE_TITLE_NAMES_THE_WORK as TITLE_NAMES_THE_WORK,
+  textLearningRatioSentence,
+  TITLE_LENGTH,
+  TITLE_TARGET,
+} from '@cockpit/shared';
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
 import { correctionStillVisible, type TextCorrectionEntry, type WhatStood } from '../../domain/text-corrections.js';
 
 /**
- * The length a title is written towards, as against `TITLE_LENGTH`, which is
- * what the form and the column will store. Measured: across 29 captured notes
- * with the titles their author would have written, those titles run 17-55
- * characters against notes averaging 92 (`docs/text-learning.md`, "What is
- * wrong today"), while `v5` asked only for "at most 200" and answered near it.
+ * Re-exported rather than defined here since `v6` ("Propose a title that
+ * names the work, not the note", issue 391) - the value now lives in
+ * `packages/shared` so the window that shows "what Cockpit is told" (`docs/
+ * text-learning.md`, "Where you see it, and change it") can build the same
+ * length-target sentence `GUIDANCE_TITLE_LENGTH_TARGET` carries without
+ * risking a second number that drifts from this one.
  *
  * **Asked for as a ceiling and never as a floor**, which is the only form of
  * it a test can hold the model to: "about 50" is not assertable, and half the
  * measured titles sit well under it anyway. A note with less to say gets a
  * shorter title, never one padded out to reach this.
  */
-export const TITLE_TARGET = 50;
+export { TITLE_TARGET };
+
+/**
+ * Each guidance sentence below is imported by name from `packages/shared`
+ * and interpolated at the exact spot it already occupied in the system
+ * prompt, aliased to a shorter local name for readability - never read out
+ * of the array by position, which is what makes "the lines shown are the
+ * ones the prompt actually carries" (this issue's own test case) true by
+ * construction, and what stops a reorder of the shared list from silently
+ * rebinding a sentence to the wrong prompt slot.
+ */
 
 /**
  * What Cockpit asks Claude for when a note has been captured, version 7.
@@ -35,6 +58,13 @@ export const TITLE_TARGET = 50;
  *
  * Nothing else moves: language, the other readings, the Panel proposal, the
  * routing history and the shape of `schema` are `v6`'s.
+ *
+ * **`rules` is new since `v7` shipped** ("Show what Cockpit is told, and say
+ * how you want it changed", issue 398): an account's own explicit rules for
+ * how a title and a message are written, in their own words, rendered ahead
+ * of `corrections` and `stood` - the top of the precedence `docs/text-
+ * learning.md`'s "What goes into the prompt" states, since a rule is an
+ * instruction rather than evidence to weigh.
  */
 export function buildCleanUpANote(
   panels: readonly { id: string; name: string }[],
@@ -43,6 +73,7 @@ export function buildCleanUpANote(
   correction: string | null,
   corrections: readonly TextCorrectionEntry[],
   stood: WhatStood,
+  rules: string | null = null,
 ): {
   version: 'v7';
   model: string;
@@ -80,19 +111,21 @@ You may:
 - finish a sentence the note leaves clipped
 - put a dictated run of words into a readable order
 
-You may not add anything the note does not contain. Not a fact, not a name, not a date, not a number, not a reason, and not a next step. Where the note refers to something it never states - a document, a person, a decision, a deadline - leave it exactly as the note left it: do not choose one, and do not say that the note never says which. Write what the note carries and stop there. If you are unsure whether something is in the note, it is not.
+${renderTextLearningRules(rules)}
 
-Neither text talks about the note. What lands in front of this person is a piece of their own work, not a report about something they typed, so never write "the note", "this note" or "de notitie" in either text.
+${NO_INVENTION} Not a fact, not a name, not a date, not a number, not a reason, and not a next step. ${NO_HEDGE} Write what the note carries and stop there. If you are unsure whether something is in the note, it is not.
 
-The title names the work in the fewest words that could only be this note. Write it as an instruction - "Run only the impacted CI tests", "Novy bellen over de afspraak" - not as a label. One line, no line breaks, no trailing full stop, and never the whole note handed back unshortened.
+${NO_TALKING_ABOUT_THE_NOTE} What lands in front of this person is a piece of their own work, not a report about something they typed, so never write "the note", "this note" or "de notitie" in either text.
 
-Keep it to ${TITLE_TARGET} characters or fewer, and go well under that wherever the note carries less - a title is never padded out to reach a length. ${TITLE_LENGTH} characters is only what the form will store; it is not what to write towards.
+${TITLE_NAMES_THE_WORK} Write it as an instruction - "Run only the impacted CI tests", "Novy bellen over de afspraak" - not as a label. One line, no line breaks, no trailing full stop, and never the whole note handed back unshortened.
 
-The message says what to do about the note, written out in full sentences so it makes sense again in two weeks. It is an instruction too: the work the note is asking for, spelled out from what the note carries and nothing more. Where the note records an opinion or an observation rather than asking for something, the instruction is to record it. It is not a summary, not a report, and not a list of fields. Write no headings and no bullet points unless the note itself was a list.
+${TITLE_LENGTH_TARGET_LINE} ${TITLE_LENGTH} characters is only what the form will store; it is not what to write towards.
 
-Name the note's language first, in English, from the note alone - "English", "Dutch", or "English and Dutch" where the note genuinely mixes them. Then write the title and the message in that language. Never translate a note into another language, whatever language the examples below are in.
+${MESSAGE_PURPOSE} It is an instruction too: the work the note is asking for, spelled out from what the note carries and nothing more. Where the note records an opinion or an observation rather than asking for something, the instruction is to record it. It is not a summary, not a report, and not a list of fields. Write no headings and no bullet points unless the note itself was a list.
 
-You are also given this account's own record of the titles and messages you have proposed before, and how they were received - the strongest evidence of this person's own vocabulary and length available, and it outranks the general guidance above on vocabulary and length wherever the two disagree. It never overrides the language rule above, and never licenses adding anything the note itself does not contain.
+Name the note's language first, in English, from the note alone - "English", "Dutch", or "English and Dutch" where the note genuinely mixes them. ${LANGUAGE_ANSWER} ${NEVER_TRANSLATE}
+
+You are also given this account's own record of the titles and messages you have proposed before, and how they were received - the strongest evidence of this person's own vocabulary and length available, and it outranks the built-in guidance above on vocabulary and length wherever the two disagree. It never overrides the language rule above, never licenses adding anything the note itself does not contain, and never outranks this account's own rules at the top of this prompt, which come ahead of it too.
 
 ${renderCorrections(corrections)}
 
@@ -263,6 +296,30 @@ function renderHistory(history: readonly DecisionHistoryEntry[]): string {
 }
 
 /**
+ * The account's own rules for how a title and a message are written, or a
+ * line saying none have been written yet - every account's starting
+ * condition ("Show what Cockpit is told, and say how you want it changed",
+ * issue 398).
+ *
+ * **Rendered before the built-in guidance that follows it, not after.** A
+ * rule contradicting that guidance has to read as overriding it, which only
+ * holds if it is read first - the guidance itself is never removed or
+ * shortened for having one, since disagreeing with a sentence still there is
+ * how a person's own rule is meant to work. It is also read before the
+ * account's own record of corrections and what stood, and before the
+ * examples at the end of this prompt - the top of the precedence `docs/
+ * text-learning.md`'s "What goes into the prompt" states for this section.
+ * Account-scoped, unlike `renderCorrection` below, which is the Workspace's
+ * own sentence about filing rather than writing.
+ */
+function renderTextLearningRules(rules: string | null): string {
+  if (rules === null) {
+    return 'This person has not written any rules for how their titles and messages should be written.';
+  }
+  return `This person has written the following rule(s) for how their titles and messages should be written - the most direct signal available in this whole prompt, ahead of the guidance above, the examples below, and every correction or pattern that follows: "${rules}"`;
+}
+
+/**
  * The correction section, or a line saying none has been written - most
  * Workspaces have none yet, either because nobody has corrected the nightly
  * summary or because there is no summary yet to correct ("Show what the
@@ -369,7 +426,9 @@ function renderWhatStood(stood: WhatStood): string {
     return 'What stood: (nothing proposed and seen yet)';
   }
 
-  const ratio = `${stood.correctedTotal} of ${stood.proposedTotal} proposed texts were corrected; the rest stood unchanged.`;
+  // Shared with the window's own "how it is doing" line (`packages/shared`),
+  // so the two can never say the same ratio two different ways.
+  const ratio = textLearningRatioSentence(stood.proposedTotal, stood.correctedTotal);
   if (stood.sample.length === 0) {
     return `What stood: ${ratio}`;
   }

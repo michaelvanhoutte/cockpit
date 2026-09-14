@@ -15,6 +15,7 @@ import { ManageTypes } from '../components/ManageTypes';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
 import { NameQuestion } from '../components/NameQuestion';
 import { RoutingSummaryWindow } from '../components/RoutingSummaryWindow';
+import { TextLearningRulesWindow } from '../components/TextLearningRulesWindow';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { OpensItemForms } from '../itemForm';
@@ -335,7 +336,7 @@ function TheShell() {
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'types' | 'routingSummary' | null>(null);
+  const [managing, setManaging] = useState<'types' | 'routingSummary' | 'textLearning' | null>(null);
   const settingsMenu = useRef<HTMLButtonElement>(null);
   /**
    * That the entry just chosen opens a window, so the menu closing must not
@@ -648,6 +649,20 @@ function TheShell() {
               >
                 Manage types
               </DropdownMenu.Item>
+              {/* Account-scoped, like Manage types above and unlike "What
+                  Cockpit has learned" below - how somebody writes is not a
+                  property of which Workspace a note landed in ("Show what
+                  Cockpit is told, and say how you want it changed", issue
+                  398; `docs/text-learning.md`, "Scope: per account"). */}
+              <DropdownMenu.Item
+                className={menuItemClass}
+                onSelect={() => {
+                  opening.current = true;
+                  setManaging('textLearning');
+                }}
+              >
+                What Cockpit is told
+              </DropdownMenu.Item>
               {/* Workspace-scoped, unlike Manage types above - the decision
                   history this sentence steers belongs to one Workspace
                   (`docs/routing-learning.md`, "Open decisions"), so this is
@@ -875,6 +890,16 @@ function TheShell() {
           shell is the one thing that is always drawn inside a workspace. */}
       <ManageTypes
         open={managing === 'types'}
+        onClose={() => setManaging(null)}
+        returnFocusTo={settingsMenu.current}
+      />
+
+      {/* What Cockpit is told, and the account's own rules for how it should
+          write ("Show what Cockpit is told, and say how you want it
+          changed", issue 398) - account-scoped, the same reason Manage
+          types is drawn here rather than in a page. */}
+      <TextLearningRulesWindow
+        open={managing === 'textLearning'}
         onClose={() => setManaging(null)}
         returnFocusTo={settingsMenu.current}
       />

@@ -117,10 +117,16 @@ export interface Account {
   ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }>;
   /**
    * What a title or description proposal reads about how this account
-   * writes ("Learn how you write from the titles you correct", issue 394).
-   * Read by the enrichment job and by nothing else.
+   * writes, and what the window that shows how it is doing reads back
+   * ("Learn how you write from the titles you correct", issue 394; "Show
+   * what Cockpit is told, and say how you want it changed", issue 398).
    */
-  textLearningContext(): Promise<{ corrections: TextCorrectionEntry[]; stood: WhatStood }>;
+  textLearningContext(): Promise<{
+    rules: string | null;
+    rulesSetAt: string | null;
+    corrections: TextCorrectionEntry[];
+    stood: WhatStood;
+  }>;
   /**
    * Every item in one Workspace's Inbox with a captured note - the rest of
    * the inbox a settled filing re-proposes ("Re-propose the rest of the

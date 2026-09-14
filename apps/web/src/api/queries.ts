@@ -17,6 +17,7 @@ import {
   fetchMe,
   fetchRegisteredUsers,
   fetchSnapshot,
+  fetchTextLearningStatus,
   fetchWorkspaces,
   sendCommand,
   setAccess,
@@ -53,6 +54,20 @@ export const workspacesQuery = queryOptions({
 export const itemTypesQuery = queryOptions({
   queryKey: ['itemTypes'],
   queryFn: fetchItemTypes,
+  staleTime: 60_000,
+});
+
+/**
+ * What Cockpit is told, and what the account has written back ("Show what
+ * Cockpit is told, and say how you want it changed", issue 398).
+ *
+ * Its own query rather than a slice of a snapshot, for the same reason
+ * `itemTypesQuery` above has one: the window that reads this is outside any
+ * workspace.
+ */
+export const textLearningStatusQuery = queryOptions({
+  queryKey: ['textLearningStatus'],
+  queryFn: fetchTextLearningStatus,
   staleTime: 60_000,
 });
 
@@ -333,6 +348,12 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
 }
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
+  if (args.name === 'set_text_learning_rules') {
+    // Its own query, outside any workspace snapshot - the same reason
+    // `itemTypesQuery` above is a slice of nothing.
+    return queryClient.invalidateQueries({ queryKey: ['textLearningStatus'] });
+  }
+
   if (args.name === 'delete_workspace') {
     // Dropped, not re-read. There is nothing to revalidate: the snapshot of a
     // deleted workspace is a 404 for good, so invalidating it would fetch one

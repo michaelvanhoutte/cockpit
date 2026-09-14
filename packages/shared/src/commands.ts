@@ -17,6 +17,7 @@ import {
   rowInputSchema,
 } from './domain/panel.js';
 import { routingSummaryCorrectionSchema } from './domain/routing-summary.js';
+import { textLearningRulesSchema } from './domain/text-learning-rules.js';
 import { MAX_SCREEN_WIDTH, MIN_SCREEN_WIDTH, screenSizeNameSchema } from './domain/screen-size.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
@@ -381,6 +382,20 @@ export const setRoutingSummaryCorrectionSchema = commandEnvelopeSchema.extend({
 export type SetRoutingSummaryCorrectionCommand = z.infer<typeof setRoutingSummaryCorrectionSchema>;
 
 /**
+ * set_text_learning_rules — the account's own rules for how Cockpit writes a
+ * title and a message, in the writer's own words ("Show what Cockpit is
+ * told, and say how you want it changed", issue 398). Account-scoped, unlike
+ * `set_routing_summary_correction` above — `workspaceId` on the envelope is
+ * `ACCOUNT_WIDE`, the same convention `create_item_type` and its siblings
+ * use. The empty string clears it, the same idiom `set_routing_summary_correction`
+ * uses for the same reason (`domain/text-learning-rules.ts`).
+ */
+export const setTextLearningRulesSchema = commandEnvelopeSchema.extend({
+  rules: textLearningRulesSchema,
+});
+export type SetTextLearningRulesCommand = z.infer<typeof setTextLearningRulesSchema>;
+
+/**
  * propose_item_texts — one command for both texts, sent by the enrichment job
  * rather than a client ("Clean up a captured note into a clear title and a
  * fuller message", issue 296; architecture.md §4.4, "two commands carry no
@@ -465,6 +480,7 @@ export const commandSchemas = {
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
   set_routing_summary_correction: setRoutingSummaryCorrectionSchema,
+  set_text_learning_rules: setTextLearningRulesSchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
 } as const;

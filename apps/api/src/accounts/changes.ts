@@ -94,6 +94,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     WORKSPACE_ROUTING_SUMMARY,
     ITEM_TEXTS_PROPOSED,
     TEXT_CORRECTIONS,
+    ACCOUNT_TEXT_RULES,
     firstWorkspace(accountId),
     guestDemoSeed(accountId),
   ];
@@ -405,6 +406,47 @@ const TEXT_CORRECTIONS: Change = {
     },
     {
       sql: 'CREATE INDEX `text_corrections_tenant_recorded` ON `text_corrections` (`tenant_id`,`recorded_at`)',
+    },
+  ],
+};
+
+/**
+ * The account-scoped box for the rules an account writes for how Cockpit
+ * writes a title and a message ("Show what Cockpit is told, and say how you
+ * want it changed", issue 398) - see `schema.ts` for what the column carries
+ * and why.
+ *
+ * **A brand new table, created whole with its CHECK**, the same shape
+ * `TEXT_CORRECTIONS` above uses and for the same reason: a table created here
+ * can carry a CHECK from the start, unlike a column added to an existing
+ * table.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a table and writes to no existing row.
+ * - **Interrupted partway.** It cannot be: the statement and the record that
+ *   it ran commit together (`up-to-date.ts`), so a failure leaves neither the
+ *   table nor the row and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished
+ *   one left nothing behind.
+ * - **Data the new rules reject.** None: the table starts empty, and nothing
+ *   sweeps past text into it. An account's rules exist only from the moment
+ *   it writes them.
+ * - **What each environment does.** The same thing everywhere: an account
+ *   applies its outstanding changes inside the first request that opens it.
+ */
+const ACCOUNT_TEXT_RULES: Change = {
+  name: '0028-account-text-rules',
+  statements: [
+    {
+      sql: `CREATE TABLE \`account_text_rules\` (
+	\`tenant_id\` text PRIMARY KEY NOT NULL,
+	\`rules\` text,
+	\`rules_set_at\` text,
+	CONSTRAINT "account_text_rules_rules_set_at_is_timestamp" CHECK(rules_set_at IS NULL OR (datetime(rules_set_at) IS NOT NULL AND substr(rules_set_at, 11, 1) = 'T' AND substr(rules_set_at, -1) = 'Z' AND length(rules_set_at) >= 20 AND date(rules_set_at) = substr(rules_set_at, 1, 10)))
+) STRICT`,
     },
   ],
 };

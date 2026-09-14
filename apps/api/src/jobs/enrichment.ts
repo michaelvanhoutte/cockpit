@@ -205,7 +205,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // property of which Workspace a note landed in ("Learn how you write from
   // the titles you correct", issue 394; `docs/text-learning.md`, "Scope: per
   // account").
-  const { corrections, stood } = await account.textLearningContext();
+  const { rules, corrections, stood } = await account.textLearningContext();
 
   const read = await ai.cleanUpNote(
     item.capturedMessage,
@@ -215,6 +215,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     correction,
     corrections,
     stood,
+    rules,
   );
   if (!('proposal' in read)) return say(job.itemId, `nothing was proposed: ${read.discarded}`);
 
@@ -418,7 +419,7 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
   // way `panels`, `history` and `recentlyCaptured` each do ("Learn how you
   // write from the titles you correct", issue 394; `docs/text-learning.md`,
   // "Scope: per account").
-  const { corrections, stood } = await account.textLearningContext();
+  const { rules, corrections, stood } = await account.textLearningContext();
 
   for (const candidate of candidates) {
     try {
@@ -440,6 +441,7 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
         correction,
         corrections,
         stood,
+        rules,
       );
       if (!('proposal' in read)) {
         say(candidate.id, `nothing was refreshed: ${read.discarded}`);
