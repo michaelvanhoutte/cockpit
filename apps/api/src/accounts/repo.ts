@@ -19,6 +19,7 @@ import type { AccountDb } from './client.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
+import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import {
   accountTextRules,
   associations,
@@ -35,6 +36,7 @@ import {
   panelItems,
   panelPlacements,
   panels,
+  pinnedTextExamples,
   screenSizes,
   textCorrections,
   workspaceRoutingSummary,
@@ -817,6 +819,44 @@ export function textCorrectionsForAccount(db: AccountDb, tenantId: string): Text
     .where(eq(textCorrections.tenantId, tenantId))
     .orderBy(asc(textCorrections.recordedAt))
     .all();
+}
+
+/** The columns a pinned example is read by, named for the reason `workspaceColumns` above is: shared between the list and the single-row reads so the two can never drift on which columns they carry. */
+const pinnedExampleColumns = {
+  id: pinnedTextExamples.id,
+  note: pinnedTextExamples.note,
+  title: pinnedTextExamples.title,
+  description: pinnedTextExamples.description,
+  createdAt: pinnedTextExamples.createdAt,
+  updatedAt: pinnedTextExamples.updatedAt,
+};
+
+/**
+ * Every pinned example this account has ever added, oldest first - the same
+ * "read whole, no retrieval step" convention `textCorrectionsForAccount`
+ * above follows ("Pin an example of how you want a note written", issue
+ * 397).
+ */
+export function pinnedExamplesForAccount(db: AccountDb, tenantId: string): PinnedExampleEntry[] {
+  return db
+    .select(pinnedExampleColumns)
+    .from(pinnedTextExamples)
+    .where(eq(pinnedTextExamples.tenantId, tenantId))
+    .orderBy(asc(pinnedTextExamples.createdAt))
+    .all();
+}
+
+/** One pinned example, or `undefined` where the id names none - what `command-service.ts` checks before an edit or a delete. */
+export function getPinnedExample(
+  db: AccountDb,
+  tenantId: string,
+  exampleId: string,
+): PinnedExampleEntry | undefined {
+  return db
+    .select(pinnedExampleColumns)
+    .from(pinnedTextExamples)
+    .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, exampleId)))
+    .get();
 }
 
 /**

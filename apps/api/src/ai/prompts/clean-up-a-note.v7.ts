@@ -12,6 +12,7 @@ import {
   TITLE_TARGET,
 } from '@cockpit/shared';
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
+import type { PinnedExampleEntry } from '../../domain/pinned-text-examples.js';
 import { correctionStillVisible, type TextCorrectionEntry, type WhatStood } from '../../domain/text-corrections.js';
 
 /**
@@ -74,6 +75,7 @@ export function buildCleanUpANote(
   corrections: readonly TextCorrectionEntry[],
   stood: WhatStood,
   rules: string | null = null,
+  pinnedExamples: readonly PinnedExampleEntry[] = [],
 ): {
   version: 'v7';
   model: string;
@@ -125,7 +127,9 @@ ${MESSAGE_PURPOSE} It is an instruction too: the work the note is asking for, sp
 
 Name the note's language first, in English, from the note alone - "English", "Dutch", or "English and Dutch" where the note genuinely mixes them. ${LANGUAGE_ANSWER} ${NEVER_TRANSLATE}
 
-You are also given this account's own record of the titles and messages you have proposed before, and how they were received - the strongest evidence of this person's own vocabulary and length available, and it outranks the built-in guidance above on vocabulary and length wherever the two disagree. It never overrides the language rule above, never licenses adding anything the note itself does not contain, and never outranks this account's own rules at the top of this prompt, which come ahead of it too.
+You are also given this account's own evidence of how it writes: examples chosen deliberately, and a record of the titles and messages you have proposed before and how they were received - together the strongest evidence of this person's own vocabulary and length available, and it outranks the built-in guidance above on vocabulary and length wherever the two disagree. It never overrides the language rule above, never licenses adding anything the note itself does not contain, and never outranks this account's own rules at the top of this prompt, which come ahead of it too.
+
+${renderPinnedExamples(pinnedExamples)}
 
 ${renderCorrections(corrections)}
 
@@ -317,6 +321,43 @@ function renderTextLearningRules(rules: string | null): string {
     return 'This person has not written any rules for how their titles and messages should be written.';
   }
   return `This person has written the following rule(s) for how their titles and messages should be written - the most direct signal available in this whole prompt, ahead of the guidance above, the examples below, and every correction or pattern that follows: "${rules}"`;
+}
+
+/**
+ * One rendered line for a pinned example: the note, and the title and
+ * message chosen for it - a direct worked example, unlike a correction,
+ * which names a wrong answer as well as a right one ("Pin an example of how
+ * you want a note written", issue 397).
+ */
+function renderOnePinnedExample(example: PinnedExampleEntry): string {
+  const parts = [`title: "${example.title}"`];
+  if (example.description !== null) parts.push(`message: "${example.description}"`);
+  return `"${example.note}" — ${parts.join('; ')}`;
+}
+
+/**
+ * The account's own pinned examples, or a line saying none have been added
+ * yet - every account's starting condition ("Pin an example of how you want
+ * a note written", issue 397).
+ *
+ * **Rendered ahead of `renderCorrections`/`renderWhatStood`, after
+ * `renderTextLearningRules`** - the precedence `docs/text-learning.md`'s
+ * "What goes into the prompt" states: a rule you wrote outranks every
+ * example, and an example you chose outranks a correction that merely
+ * happened.
+ *
+ * **Never capped.** Unlike `CORRECTIONS_LIMIT`/`STOOD_SAMPLE_LIMIT` below,
+ * every pinned row is rendered whatever the account's volume of ordinary
+ * corrections grows to - a pinned row was chosen, and `docs/text-
+ * learning.md`'s own "Open decisions" recommends keeping every one of them
+ * for exactly that reason.
+ */
+function renderPinnedExamples(pinnedExamples: readonly PinnedExampleEntry[]): string {
+  if (pinnedExamples.length === 0) {
+    return 'Pinned examples: (nothing pinned yet)';
+  }
+  const lines = pinnedExamples.map(renderOnePinnedExample);
+  return `Pinned examples - chosen deliberately, the strongest evidence of vocabulary available in this prompt after this person's own rules above, ahead of the corrections and what-stood evidence that follow:\n${lines.join('\n')}`;
 }
 
 /**

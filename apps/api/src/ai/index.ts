@@ -4,6 +4,7 @@ import { buildCleanUpANote } from './prompts/clean-up-a-note.v7.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
+import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 
 export type { NoteTexts, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
 
@@ -64,6 +65,12 @@ export interface AiService {
    * the top of the precedence `docs/text-learning.md`'s "What goes into the
    * prompt" states.
    *
+   * `pinnedExamples` is every worked example this account has added by hand
+   * - deliberate, chosen evidence rather than a correction that merely
+   * happened ("Pin an example of how you want a note written", issue 397).
+   * Read after `rules` and ahead of `corrections`/`stood`, the same
+   * precedence order.
+   *
    * Answers a refusal rather than throwing for anything the model itself said:
    * an answer that will not parse or will not validate is a discarded proposal,
    * which the Item survives by keeping the text capture wrote. A call that
@@ -79,6 +86,7 @@ export interface AiService {
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood,
     rules: string | null,
+    pinnedExamples: readonly PinnedExampleEntry[],
   ): Promise<ProposalRead>;
 }
 
@@ -128,8 +136,18 @@ export class ClaudeAiService implements AiService {
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood,
     rules: string | null,
+    pinnedExamples: readonly PinnedExampleEntry[],
   ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote(panels, history, recentlyCaptured, correction, corrections, stood, rules);
+    const prompt = buildCleanUpANote(
+      panels,
+      history,
+      recentlyCaptured,
+      correction,
+      corrections,
+      stood,
+      rules,
+      pinnedExamples,
+    );
     const answer = await this.#client.messages.create({
       model: prompt.model,
       /**

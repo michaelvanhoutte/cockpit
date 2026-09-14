@@ -129,7 +129,7 @@ Both of the above have shipped. What is left, named rather than numbered so that
 |---|---|---|
 | **The store** | The triple recorded at your first edit, the count and sample of what stood read from `items` beside it, prompt v7 reading both. Headless — it changes what titles say, and puts up no screen. | prompt v6 |
 | **The window** | Where every input becomes visible: Cockpit's own guidance in plain English, your rules in a box that overrides it, and how it is doing. The account-scoped rules replace the Workspace correction, which is read by nothing afterwards. | the store, and the nightly half removed |
-| **Pinned examples** | Add, edit, delete and paste a batch, onto that same window. | the window |
+| **Pinned examples** | Add, edit and delete, onto that same window. Batch-paste was dropped from scope during "Pin an example of how you want a note written" (issue 397) — each example is added and edited one at a time. | the window |
 | **The evidence** | What it got right and what you corrected, as two lists on the same window — the sample of what stood, and the pairs with Cockpit's version struck through. | the window |
 | **Re-read the Inbox** | Correcting a text re-proposes everything still unfiled, as "Re-propose the rest of the inbox the moment you file one" (issue 300) already does for Panels. | the store |
 | **Try again** | A fresh suggestion now, the rejected one recorded — and what gets a tolerated-but-wrong title out of the sample that stood. | the store |

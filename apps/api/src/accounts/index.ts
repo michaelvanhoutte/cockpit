@@ -21,6 +21,7 @@ import { describeForeignRows, type AccountBackup } from './backup.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 export type { AccountSnapshot } from './answer.js';
@@ -126,6 +127,7 @@ export interface Account {
     rulesSetAt: string | null;
     corrections: TextCorrectionEntry[];
     stood: WhatStood;
+    pinnedExamples: PinnedExampleEntry[];
   }>;
   /**
    * Every item in one Workspace's Inbox with a captured note - the rest of

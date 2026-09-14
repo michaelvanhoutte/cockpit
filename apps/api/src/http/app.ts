@@ -947,9 +947,18 @@ const routes = app
     // built-in guidance is not read back here either - it never changes at
     // runtime, so the window imports `TEXT_LEARNING_GUIDANCE` from
     // `@cockpit/shared` directly rather than round-tripping it.
-    const { rules, rulesSetAt, stood } = await account.textLearningContext();
+    // `pinnedExamples` is read back, unlike those two - this window is
+    // exactly where they are shown ("Pin an example of how you want a note
+    // written", issue 397).
+    const { rules, rulesSetAt, stood, pinnedExamples } = await account.textLearningContext();
     return c.json(
-      { rules, rulesSetAt, proposedTotal: stood.proposedTotal, correctedTotal: stood.correctedTotal },
+      {
+        rules,
+        rulesSetAt,
+        proposedTotal: stood.proposedTotal,
+        correctedTotal: stood.correctedTotal,
+        pinnedExamples,
+      },
       200,
     );
   })
@@ -1093,6 +1102,15 @@ const routes = app
   )
   .openapi(commandRoute('set_text_learning_rules'), async (c) =>
     c.json(await change(c, 'set_text_learning_rules', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('pin_text_example'), async (c) =>
+    c.json(await change(c, 'pin_text_example', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('edit_pinned_example'), async (c) =>
+    c.json(await change(c, 'edit_pinned_example', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('delete_pinned_example'), async (c) =>
+    c.json(await change(c, 'delete_pinned_example', c.req.valid('json')), 200),
   )
   // --- signing in: two navigations, not two requests -------------------------
   /**

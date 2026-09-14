@@ -16,6 +16,11 @@ import {
   panelTextSchema,
   rowInputSchema,
 } from './domain/panel.js';
+import {
+  pinnedExampleDescriptionSchema,
+  pinnedExampleNoteSchema,
+  pinnedExampleTitleSchema,
+} from './domain/pinned-text-examples.js';
 import { routingSummaryCorrectionSchema } from './domain/routing-summary.js';
 import { textLearningRulesSchema } from './domain/text-learning-rules.js';
 import { MAX_SCREEN_WIDTH, MIN_SCREEN_WIDTH, screenSizeNameSchema } from './domain/screen-size.js';
@@ -396,6 +401,41 @@ export const setTextLearningRulesSchema = commandEnvelopeSchema.extend({
 export type SetTextLearningRulesCommand = z.infer<typeof setTextLearningRulesSchema>;
 
 /**
+ * pin_text_example — a worked example of a note and the title and message
+ * chosen for it, added by hand rather than corrected after the fact ("Pin an
+ * example of how you want a note written", issue 397). Account-scoped, the
+ * same convention `set_text_learning_rules` above uses.
+ *
+ * **One command for all three fields**, the same shape `set_workspace_theme`
+ * takes for its four colours: a note, its title and its message are one
+ * example rather than three independently-settleable facts, unlike an
+ * Item's title and description, which stay two commands because either can
+ * be corrected on its own, days apart.
+ */
+export const pinTextExampleSchema = commandEnvelopeSchema.extend({
+  exampleId: z.uuid(),
+  note: pinnedExampleNoteSchema,
+  title: pinnedExampleTitleSchema,
+  description: pinnedExampleDescriptionSchema,
+});
+export type PinTextExampleCommand = z.infer<typeof pinTextExampleSchema>;
+
+/** edit_pinned_example — replaces all three fields of an example already pinned. */
+export const editPinnedExampleSchema = commandEnvelopeSchema.extend({
+  exampleId: z.string().min(1),
+  note: pinnedExampleNoteSchema,
+  title: pinnedExampleTitleSchema,
+  description: pinnedExampleDescriptionSchema,
+});
+export type EditPinnedExampleCommand = z.infer<typeof editPinnedExampleSchema>;
+
+/** delete_pinned_example — gone for good, the same as deleting a correction ("See what it got right, and what you corrected", issue 412): nothing else references a pinned example, so there is no tombstone to keep a foreign key satisfied. */
+export const deletePinnedExampleSchema = commandEnvelopeSchema.extend({
+  exampleId: z.string().min(1),
+});
+export type DeletePinnedExampleCommand = z.infer<typeof deletePinnedExampleSchema>;
+
+/**
  * propose_item_texts — one command for both texts, sent by the enrichment job
  * rather than a client ("Clean up a captured note into a clear title and a
  * fuller message", issue 296; architecture.md §4.4, "two commands carry no
@@ -505,6 +545,9 @@ export const commandSchemas = {
   set_description: setDescriptionSchema,
   set_routing_summary_correction: setRoutingSummaryCorrectionSchema,
   set_text_learning_rules: setTextLearningRulesSchema,
+  pin_text_example: pinTextExampleSchema,
+  edit_pinned_example: editPinnedExampleSchema,
+  delete_pinned_example: deletePinnedExampleSchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
   set_duplicate_settled: setDuplicateSettledSchema,

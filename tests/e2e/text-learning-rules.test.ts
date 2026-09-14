@@ -52,4 +52,52 @@ test.describe('Capture', () => {
       await expectNoSidewaysScroll(page);
     });
   });
+
+  /**
+   * "Pin an example of how you want a note written" (issue 397). One walk
+   * for add, edit and delete together - they are the same window and the
+   * same controls, and the write rules behind each are proved a tier down
+   * (apps/api/tests/integration/http/pinned-examples.test.ts). Persisting
+   * across a reopen is not walked separately: it is the same read the add
+   * step already exercises, the same reasoning that cuts it from the
+   * statement list.
+   */
+  test.describe('a pinned example is added, edited and deleted on the same screen', () => {
+    test('each change is visible on the window that made it', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+
+      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'What Cockpit is told' }), isMobile);
+      await expect(page.getByRole('dialog', { name: 'What Cockpit is told' })).toBeVisible();
+
+      const note = uniqueTitle('bel novy ivm afspraak');
+      const title = uniqueTitle('Novy bellen over de afspraak');
+
+      await press(page.getByRole('button', { name: 'Add example' }), isMobile);
+      const addForm = page.getByRole('dialog', { name: 'Add example' });
+      await addForm.getByLabel('The captured note this example is for').fill(note);
+      await addForm.getByLabel('The title you would have written for this note').fill(title);
+      await press(addForm.getByRole('button', { name: 'Save' }), isMobile);
+      await expect(addForm).not.toBeVisible();
+      await expect(page.getByText(title)).toBeVisible();
+      await expectNoSidewaysScroll(page);
+
+      const editedTitle = `${title} (edited)`;
+      await press(page.getByRole('button', { name: `Actions for the example "${title}"` }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Edit…' }), isMobile);
+      const editForm = page.getByRole('dialog', { name: `Edit ${title}` });
+      const titleBox = editForm.getByLabel('The title you would have written for this note');
+      await titleBox.fill(editedTitle);
+      await press(editForm.getByRole('button', { name: 'Save' }), isMobile);
+      await expect(editForm).not.toBeVisible();
+      await expect(page.getByText(editedTitle)).toBeVisible();
+
+      await press(page.getByRole('button', { name: `Actions for the example "${editedTitle}"` }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Delete' }), isMobile);
+      await press(page.getByRole('button', { name: `Yes, delete the example "${editedTitle}"` }), isMobile);
+      // Scoped to the row's own control rather than a bare text match, which
+      // would still match the delete question's own heading while it closes.
+      await expect(page.getByRole('button', { name: `Actions for the example "${editedTitle}"` })).not.toBeVisible();
+    });
+  });
 });

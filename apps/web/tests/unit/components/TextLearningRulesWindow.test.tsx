@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TEXT_LEARNING_GUIDANCE } from '@cockpit/shared';
 import { TextLearningRulesWindow } from '../../../src/components/TextLearningRulesWindow';
@@ -27,6 +28,7 @@ const held = vi.hoisted(() => ({
     rulesSetAt: null as string | null,
     proposedTotal: 0,
     correctedTotal: 0,
+    pinnedExamples: [] as { id: string; note: string; title: string; description: string | null }[],
   },
 }));
 
@@ -39,13 +41,15 @@ vi.mock('../../../src/api/queries', () => ({
 }));
 
 function showWindow() {
-  vi.mocked(useSendCommand).mockReturnValue(vi.fn().mockResolvedValue(undefined));
+  const send = vi.fn().mockResolvedValue(undefined);
+  vi.mocked(useSendCommand).mockReturnValue(send);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  render(
     <QueryClientProvider client={client}>
       <TextLearningRulesWindow open onClose={() => {}} />
     </QueryClientProvider>,
   );
+  return { send };
 }
 
 describe('What Cockpit is told', () => {
@@ -128,6 +132,147 @@ describe('What Cockpit is told', () => {
       expect(
         await screen.findByText('3 of 10 proposed texts were corrected; the rest stood unchanged.'),
       ).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * "Pin an example of how you want a note written" (issue 397): add, edit
+   * and delete land on this same window. Whether a pinned example actually
+   * reaches or leaves the prompt is proved a tier down
+   * (apps/api/tests/unit/ai/prompts/clean-up-a-note.v7.test.ts) - this is
+   * only what the window draws and sends.
+   */
+  describe('pinned examples', () => {
+    const EXAMPLE = {
+      id: 'example-1',
+      note: 'bel novy ivm afspraak',
+      title: 'Novy bellen over de afspraak',
+      description: 'Novy bellen in verband met de afspraak.',
+    };
+
+    it('says nothing has been pinned yet, rather than drawing an empty list', async () => {
+      held.status = { ...held.status, pinnedExamples: [] };
+
+      showWindow();
+
+      expect(await screen.findByText('Nothing pinned yet.', { exact: false })).toBeInTheDocument();
+    });
+
+    it("draws each pinned example's title and note", async () => {
+      held.status = { ...held.status, pinnedExamples: [EXAMPLE] };
+
+      showWindow();
+
+      expect(await screen.findByText(EXAMPLE.title)).toBeInTheDocument();
+      expect(screen.getByText(EXAMPLE.note)).toBeInTheDocument();
+    });
+
+    it('sends what was typed on the add form, once Save is pressed', async () => {
+      held.status = { ...held.status, pinnedExamples: [] };
+      const user = userEvent.setup();
+      const { send } = showWindow();
+
+      await user.click(await screen.findByRole('button', { name: 'Add example' }));
+      const dialog = within(await screen.findByRole('dialog'));
+      await user.type(dialog.getByLabelText('The captured note this example is for'), EXAMPLE.note);
+      await user.type(dialog.getByLabelText('The title you would have written for this note'), EXAMPLE.title);
+      await user.click(dialog.getByRole('button', { name: 'Save' }));
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'pin_text_example',
+          payload: expect.objectContaining({ note: EXAMPLE.note, title: EXAMPLE.title }),
+        }),
+      );
+    });
+
+    it("edits a pinned example from its own row's menu", async () => {
+      held.status = { ...held.status, pinnedExamples: [EXAMPLE] };
+      const user = userEvent.setup();
+      const { send } = showWindow();
+
+      await user.click(await screen.findByRole('button', { name: `Actions for the example "${EXAMPLE.title}"` }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Edit…' }));
+      const dialog = within(await screen.findByRole('dialog'));
+      const titleBox = dialog.getByLabelText('The title you would have written for this note');
+      await user.clear(titleBox);
+      await user.type(titleBox, 'Novy mailen over de afspraak');
+      await user.click(dialog.getByRole('button', { name: 'Save' }));
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'edit_pinned_example',
+          payload: expect.objectContaining({ exampleId: EXAMPLE.id, title: 'Novy mailen over de afspraak' }),
+        }),
+      );
+    });
+
+    it("deletes a pinned example from its own row's menu, after the question is answered", async () => {
+      held.status = { ...held.status, pinnedExamples: [EXAMPLE] };
+      const user = userEvent.setup();
+      const { send } = showWindow();
+
+      await user.click(await screen.findByRole('button', { name: `Actions for the example "${EXAMPLE.title}"` }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+      const dialog = within(await screen.findByRole('alertdialog'));
+      await user.click(dialog.getByRole('button', { name: `Yes, delete the example "${EXAMPLE.title}"` }));
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'delete_pinned_example',
+          payload: expect.objectContaining({ exampleId: EXAMPLE.id }),
+        }),
+      );
+    });
+
+    /**
+     * The window stays mounted between openings (`pages/Layout.tsx` only
+     * toggles `open`) - the same reason the rules box resets its own draft on
+     * reopen. A half-typed "Add example" draft has to be forgotten the same
+     * way, otherwise reopening the window pops the same draft back open,
+     * pre-filled, with nothing ever sent.
+     *
+     * **Closed by re-rendering with `open={false}`, not by pressing Done.**
+     * The add-example dialog is its own modal `Dialog.Root`, on top of the
+     * window's - its overlay blocks the window's own Done button while it is
+     * open, the same way it would in a real browser. What can genuinely leave
+     * `exampleForm` set while the window itself closes is `pages/Layout.tsx`
+     * switching `managing` to something else - an external change to `open`,
+     * exactly what `rerender` drives here.
+     */
+    it('forgets a half-typed add-example draft once the window is closed and reopened', async () => {
+      held.status = { ...held.status, pinnedExamples: [] };
+      const user = userEvent.setup();
+      vi.mocked(useSendCommand).mockReturnValue(vi.fn().mockResolvedValue(undefined));
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const onClose = vi.fn();
+
+      const { rerender } = render(
+        <QueryClientProvider client={client}>
+          <TextLearningRulesWindow open onClose={onClose} />
+        </QueryClientProvider>,
+      );
+
+      await user.click(await screen.findByRole('button', { name: 'Add example' }));
+      const dialog = within(await screen.findByRole('dialog'));
+      await user.type(dialog.getByLabelText('The captured note this example is for'), 'an abandoned note');
+
+      rerender(
+        <QueryClientProvider client={client}>
+          <TextLearningRulesWindow open={false} onClose={onClose} />
+        </QueryClientProvider>,
+      );
+      rerender(
+        <QueryClientProvider client={client}>
+          <TextLearningRulesWindow open onClose={onClose} />
+        </QueryClientProvider>,
+      );
+
+      expect(await screen.findByText('Nothing pinned yet.', { exact: false })).toBeInTheDocument();
+      // The window itself is a dialog too, so this checks for the
+      // add-example one specifically, by the name its abandoned draft would
+      // have reopened with.
+      expect(screen.queryByRole('dialog', { name: 'Add example' })).not.toBeInTheDocument();
     });
   });
 });

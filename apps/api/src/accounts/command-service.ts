@@ -15,6 +15,7 @@ import {
   panelItems,
   panelPlacements,
   panels,
+  pinnedTextExamples,
   screenSizes,
   textCorrections,
   workspaceRoutingSummary,
@@ -27,6 +28,7 @@ import {
   getItemType,
   getLayout,
   getPanel,
+  getPinnedExample,
   getScreenSize,
   getWorkspace,
   isItemFiled,
@@ -90,6 +92,7 @@ import {
 import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import { decisionHistoryEntryFor } from '../domain/decision-history.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
+import { pinnedExampleFieldsFrom } from '../domain/pinned-text-examples.js';
 import {
   applyProposedPanel,
   applyProposedTexts,
@@ -128,6 +131,14 @@ export class ItemTypeOrderStaleError extends Error {
   constructor() {
     super('the types changed while they were being put in order');
     this.name = 'ItemTypeOrderStaleError';
+  }
+}
+
+/** "Pin an example of how you want a note written" (issue 397) - an edit or a delete naming an example already gone, most likely to another tab's delete winning the race. */
+export class PinnedExampleNotFoundError extends Error {
+  constructor(exampleId: string) {
+    super(`pinned example ${exampleId} not found`);
+    this.name = 'PinnedExampleNotFoundError';
   }
 }
 
@@ -1779,6 +1790,51 @@ export function runCommand<N extends CommandName>(
             target: accountTextRules.tenantId,
             set: { rules, rulesSetAt: rules === null ? null : cmd.issuedAt },
           })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'pin_text_example': {
+      const cmd = payload as CommandPayload<'pin_text_example'>;
+      db.transaction((tx) => {
+        tx.insert(pinnedTextExamples)
+          .values({
+            id: cmd.exampleId,
+            tenantId,
+            ...pinnedExampleFieldsFrom(cmd),
+            createdAt: cmd.issuedAt,
+            updatedAt: cmd.issuedAt,
+          })
+          // Bare, like `create_item_type`'s: the one conflict this can hit
+          // is the id itself, which only means a replay of the same pin -
+          // the request has already been granted.
+          .onConflictDoNothing()
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'edit_pinned_example': {
+      const cmd = payload as CommandPayload<'edit_pinned_example'>;
+      if (!getPinnedExample(db, tenantId, cmd.exampleId)) throw new PinnedExampleNotFoundError(cmd.exampleId);
+      db.transaction((tx) => {
+        tx.update(pinnedTextExamples)
+          .set({ ...pinnedExampleFieldsFrom(cmd), updatedAt: cmd.issuedAt })
+          .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, cmd.exampleId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_pinned_example': {
+      const cmd = payload as CommandPayload<'delete_pinned_example'>;
+      if (!getPinnedExample(db, tenantId, cmd.exampleId)) throw new PinnedExampleNotFoundError(cmd.exampleId);
+      db.transaction((tx) => {
+        // Hard-deleted, not tombstoned - see `schema.ts`'s own comment on
+        // `pinnedTextExamples` for why nothing here needs a `deletedAt`.
+        tx.delete(pinnedTextExamples)
+          .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, cmd.exampleId)))
           .run();
         tx.insert(commands).values(commandRow).run();
       });
