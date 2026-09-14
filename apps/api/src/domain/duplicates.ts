@@ -30,6 +30,24 @@ import type { Item } from '@cockpit/shared';
 export const SAYS_THE_SAME_THING = 0.88;
 
 /**
+ * Whether an Item is one somebody could still act on: not finished with, and
+ * not dismissed (which is what deleting one does - functional definition,
+ * "Delete/Dismiss").
+ *
+ * **The same rule the store asks of a row** (`couldStillBeActedOn`,
+ * accounts/repo.ts), asked here of an Item in hand - so a note that has gone
+ * between being queued for reading and the reading arriving costs no call to
+ * the model, and writes no pair that nothing could ever draw.
+ *
+ * A note brought back is read again the next time its texts change, which is
+ * what queues a reading at all; "Read the notes that were captured before this
+ * shipped" (issue 409) is where the rest of that gap is answered.
+ */
+export function couldStillBeActedOn(item: Pick<Item, 'completedAt' | 'deletedAt'>): boolean {
+  return item.completedAt === null && item.deletedAt === null;
+}
+
+/**
  * The two texts an Item shows, as one text to read - its Title and its
  * Description, which are the texts Cockpit proposed where it proposed any and
  * the ones capture wrote where it did not (`applyProposedTexts`,

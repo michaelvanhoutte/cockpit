@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations } from 'cloudflare:test';
-import type { CommandName, CommandPayload, PossibleDuplicate } from '@cockpit/shared';
+import type { CommandName, CommandPayload, PossibleDuplicate, ServerEvent } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   OTHER_USER_ID,
@@ -12,6 +12,7 @@ import {
   seedRegister,
   signInAs,
   startFromEmpty,
+  storeNamed,
 } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
@@ -139,6 +140,40 @@ async function untilTheWorkspaceShows(pairs: PossibleDuplicate[]): Promise<void>
   );
 }
 
+/** Waits for exactly these notes to have been paired, whoever is drawing them. */
+async function untilTheseNotesArePaired(pairs: PossibleDuplicate[]): Promise<void> {
+  await vi.waitFor(
+    async () => {
+      expect(await rowsIn('item_duplicates')).toEqual(storedAs(pairs));
+    },
+    { timeout: 15_000, interval: 50 },
+  );
+}
+
+/**
+ * How current a tab's copy of the Workspace is - what the snapshot it just read
+ * is stamped with, and what it would ask for changes since.
+ */
+async function howCurrentTheWorkspaceIs(): Promise<string> {
+  const response = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+  expect(response.status).toBe(200);
+  const { upTo } = (await response.json()) as { upTo?: string };
+  expect(upTo).toBeDefined();
+  return upTo!;
+}
+
+/**
+ * What the account would tell an open tab has changed since then - asked of the
+ * store rather than through `/v1/events`, the same way and for the same reason
+ * tests/integration/accounts/liveness.test.ts asks it: the endpoint's own job is
+ * to hold a connection open and poll.
+ */
+async function changesSince(since: string): Promise<{ events: ServerEvent[] }> {
+  const answer = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, since);
+  expect(answer).toMatchObject({ status: 'ok' });
+  return (answer as { status: 'ok'; value: { events: ServerEvent[] } }).value;
+}
+
 /** A pair as the store keeps it: the smaller id first, whichever was read last. */
 function pair(one: string, other: string): PossibleDuplicate {
   return one < other ? { itemId: one, otherItemId: other } : { itemId: other, otherItemId: one };
@@ -220,6 +255,44 @@ describe('Triage', () => {
     });
 
     /**
+     * The other half of the rule above: leaving a pair out is a decision about
+     * what to *draw*, so it is taken when the pair is looked at and never by
+     * dropping the pair. `replaceDuplicatesOf` clears every pair an Item is in
+     * before writing the ones its new reading finds, so a note left out of that
+     * comparison takes an existing pair with it and nothing brings it back.
+     */
+    it('keeps the pair when the two notes belong to different workspaces, across an edit to either', async () => {
+      await alsoWorkspaces();
+      const here = await captureANote(A_NOTE);
+      const there = await captureANote(THE_SAME_AGAIN, {
+        workspaceId: 'ws-atlas',
+        itemId: nextId(),
+      });
+      await untilTheseNotesArePaired([pair(here, there)]);
+
+      // Neither workspace offers it, because neither draws both notes.
+      expect(await duplicatesIn()).toEqual([]);
+      expect(await duplicatesIn('ws-atlas')).toEqual([]);
+
+      const renamed = await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T11:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId: here,
+        title: THE_SAME_AGAIN,
+      });
+      expect(renamed.status).toBe(200);
+      // Driven to the end rather than waited out, so this is not passing on the
+      // re-reading not having got there yet.
+      await handleQueue(
+        batchOf({ kind: 'read-what-a-note-means', accountName: ACCOUNT_NAME, itemId: here }),
+        env,
+      );
+
+      expect(await rowsIn('item_duplicates')).toEqual(storedAs([pair(here, there)]));
+    });
+
+    /**
      * An Item nobody has said the Workspace of is drawn in every Workspace's
      * Inbox at once ("Capture something before you know which workspace it
      * belongs to", issue 165), so it is a duplicate candidate in all of them -
@@ -267,12 +340,7 @@ describe('Triage', () => {
 
       // One row, not one per direction - which is what makes the pair the same
       // thing found from either Item.
-      expect(await rowsIn('item_duplicates')).toEqual([
-        {
-          item_id: pair(sameCapture.itemId, other).itemId,
-          other_item_id: pair(sameCapture.itemId, other).otherItemId,
-        },
-      ]);
+      expect(await rowsIn('item_duplicates')).toEqual(storedAs([pair(sameCapture.itemId, other)]));
 
       // The very same capture sent again - an offline client retrying - is a
       // replay: nothing is written, so nothing is read again and no second pair
@@ -400,6 +468,53 @@ describe('Triage', () => {
     });
   });
 
+  describe('a note you have finished with or dismissed is not read at all', () => {
+    it.each([
+      {
+        situation: 'dismissed, which is what deleting one does',
+        dealWith: (itemId: string) =>
+          postChange('set_dismissed', {
+            commandId: nextId(),
+            issuedAt: '2026-09-09T11:00:00.000Z',
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            dismissed: true,
+          }),
+      },
+      {
+        situation: 'finished with',
+        dealWith: (itemId: string) =>
+          postChange('set_done', {
+            commandId: nextId(),
+            issuedAt: '2026-09-09T11:00:00.000Z',
+            workspaceId: WORKSPACE_ID,
+            itemId,
+            done: true,
+          }),
+      },
+    ])('reads nothing for a note that has since been $situation', async ({ dealWith }) => {
+      // Captured where nothing could read it, so the only reading this note is
+      // ever offered is the one delivered below - a reading asked for before
+      // the change and arriving after it, which is the ordinary case for
+      // anything that waits on a queue.
+      Reflect.deleteProperty(env as unknown as Record<string, unknown>, 'AI');
+      const itemId = await captureANote(A_NOTE);
+      somethingCanReadMeaning();
+
+      expect((await dealWith(itemId)).status).toBe(200);
+      await handleQueue(
+        batchOf({ kind: 'read-what-a-note-means', accountName: ACCOUNT_NAME, itemId }),
+        env,
+      );
+
+      // Nothing was spent on it, and nothing was written that no workspace
+      // could ever draw a mark from.
+      expect(read).toEqual([]);
+      expect(await rowsIn('item_meanings')).toEqual([]);
+      expect(await rowsIn('item_duplicates')).toEqual([]);
+    });
+  });
+
   describe('a note nobody can read is not flagged, and does not stop the ones that can', () => {
     it('reads nothing for a note with nothing written on it', async () => {
       const [one, other] = await twoNotesSayingTheSameThing();
@@ -420,7 +535,12 @@ describe('Triage', () => {
       // nobody can see any more.
       await untilTheWorkspaceShows([]);
       expect(read).toHaveLength(readSoFar);
-      expect(await rowsIn('item_meanings')).toEqual([{ item_id: one }]);
+      expect(await rowsIn('item_meanings')).toEqual([
+        { item_id: one, reading: '[1,0]' },
+        // The emptied note keeps its place and says nothing: the meaning is
+        // gone, and the row is what the workspace is told the change on.
+        { item_id: other, reading: '[]' },
+      ]);
     });
 
     /**
@@ -457,6 +577,37 @@ describe('Triage', () => {
   });
 });
 
+describe('Live updates', () => {
+  describe('a tab is told when a note stops saying what another one already said', () => {
+    /**
+     * Dropping the mark happens in the reading that follows the edit rather
+     * than in the edit itself, so the copy a tab holds the moment the edit
+     * lands still carries the mark. Being told once about the edit is therefore
+     * not enough - and it is all a tab gets if the forgetting leaves nothing
+     * behind for the workspace to be spoken for by.
+     */
+    it('speaks for the workspace when the mark is dropped, not only when the note was edited', async () => {
+      const [, other] = await twoNotesSayingTheSameThing();
+
+      const emptied = await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T11:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId: other,
+        title: '   ',
+      });
+      expect(emptied.status).toBe(200);
+
+      const asTheTabHasIt = await howCurrentTheWorkspaceIs();
+      await untilTheWorkspaceShows([]);
+
+      expect((await changesSince(asTheTabHasIt)).events).toContainEqual(
+        expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: WORKSPACE_ID }),
+      );
+    });
+  });
+});
+
 /**
  * A model that proposes the same two texts for whatever note it is given -
  * faked at the network boundary, the way tests/integration/http/note-cleanup.test.ts
@@ -489,17 +640,26 @@ function theModelProposes(title: string): void {
   });
 }
 
-/** Rows of one of the two tables this work adds, read straight out of the account's store. */
+/**
+ * Rows of one of the two tables this work adds, read straight out of the
+ * account's store - `reading` among them, because a note that has been emptied
+ * keeps its place and says nothing rather than losing it.
+ */
 async function rowsIn(table: 'item_meanings' | 'item_duplicates'): Promise<unknown[]> {
   return inStoreAsItIs(ACCOUNT_NAME, (sql) =>
     sql
       .exec(
         table === 'item_meanings'
-          ? 'SELECT item_id FROM item_meanings ORDER BY item_id'
+          ? 'SELECT item_id, reading FROM item_meanings ORDER BY item_id'
           : 'SELECT item_id, other_item_id FROM item_duplicates ORDER BY item_id, other_item_id',
       )
       .toArray(),
   );
+}
+
+/** The pairs the store holds, in the shape `rowsIn` reads them back in. */
+function storedAs(pairs: readonly PossibleDuplicate[]): unknown[] {
+  return pairs.map((one) => ({ item_id: one.itemId, other_item_id: one.otherItemId }));
 }
 
 /** What each of these Items was captured as, which nothing here may have changed. */

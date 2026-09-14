@@ -173,7 +173,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       const at = new Date().toISOString();
       db.transaction((tx) => {
         rememberMeaning(tx, accountName, itemId, model, reading, at);
-        const same = saidAgainBy(reading, meaningsToCompareWith(tx, accountName, item, model));
+        const same = saidAgainBy(reading, meaningsToCompareWith(tx, accountName, itemId, model));
         replaceDuplicatesOf(
           tx,
           accountName,
@@ -193,10 +193,14 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    * Its own method rather than a null reading handed to the one above, because
    * it is a different thing happening: not "this is what it means now" but
    * "there is nothing here to mean".
+   *
+   * **The forgetting is stamped with the time like a reading is**, which is
+   * what tells the tabs already drawing the mark to drop it (`forgetMeaning`,
+   * repo.ts).
    */
   forgetWhatAnItemMeans(accountName: string, itemId: string): Answer<null> {
     return this.#answer(accountName, (db) => {
-      forgetMeaning(db, accountName, itemId);
+      forgetMeaning(db, accountName, itemId, new Date().toISOString());
       return null;
     });
   }

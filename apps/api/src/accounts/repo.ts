@@ -1045,22 +1045,40 @@ export function getItemType(db: AccountDb, tenantId: string, typeId: string): It
 type InTheStore = AccountDb | Parameters<Parameters<AccountDb['transaction']>[0]>[0];
 
 /**
- * Whether an Item is one somebody could still act on, and one this Workspace
- * draws - the whole of what makes another Item eligible to be offered as a
- * duplicate ("Flag a captured note that says what another one already said",
- * issue 407).
+ * Whether an Item is one somebody could still act on at all ("Flag a captured
+ * note that says what another one already said", issue 407).
  *
- * Four complementary conditions, and forgetting any one of them offers
+ * Three complementary conditions, and forgetting any one of them acts on
  * something that is not there any more: an Item finished with, one dismissed
  * (which is what deleting one does - functional definition, "Delete/Dismiss"),
- * one of another account, and one of another Workspace. The Workspace half is
- * `listOpenItems`' own, repeated rather than shared because this asks it of a
- * join alias: an Item belonging to no Workspace is drawn in every Workspace's
- * Inbox, so it is eligible in all of them.
+ * and one of another account.
+ *
+ * **It says nothing about Workspaces**, which is what lets the two callers
+ * differ: one is asking which Items are worth comparing at all, the other which
+ * of the pairs that came out of that a Workspace may draw.
  */
 function couldStillBeActedOn(
-  // The columns rather than the table, because both callers below are aliases
-  // of `items` and an alias is a different type from the table it aliases.
+  // The columns rather than the table, because two of the three callers below
+  // are aliases of `items` and an alias is a different type from the table it
+  // aliases.
+  item: Pick<
+    Record<'tenantId' | 'completedAt' | 'deletedAt', Column>,
+    'tenantId' | 'completedAt' | 'deletedAt'
+  >,
+  tenantId: string,
+) {
+  return and(eq(item.tenantId, tenantId), isNull(item.completedAt), isNull(item.deletedAt));
+}
+
+/**
+ * The above, and one this Workspace draws - the whole of what makes a pair
+ * eligible to be offered in one Workspace.
+ *
+ * The Workspace half is `listOpenItems`' own, repeated rather than shared
+ * because this asks it of a join alias: an Item belonging to no Workspace is
+ * drawn in every Workspace's Inbox, so it is eligible in all of them.
+ */
+function thisWorkspaceCouldActOn(
   item: Pick<
     Record<'tenantId' | 'workspaceId' | 'workspaceDecided' | 'completedAt' | 'deletedAt', Column>,
     'tenantId' | 'workspaceId' | 'workspaceDecided' | 'completedAt' | 'deletedAt'
@@ -1069,10 +1087,8 @@ function couldStillBeActedOn(
   workspaceId: string,
 ) {
   return and(
-    eq(item.tenantId, tenantId),
+    couldStillBeActedOn(item, tenantId),
     or(eq(item.workspaceId, workspaceId), eq(item.workspaceDecided, false)),
-    isNull(item.completedAt),
-    isNull(item.deletedAt),
   );
 }
 
@@ -1100,43 +1116,30 @@ export function listDuplicatesInWorkspace(
     .where(
       and(
         eq(itemDuplicates.tenantId, tenantId),
-        couldStillBeActedOn(one, tenantId, workspaceId),
-        couldStillBeActedOn(other, tenantId, workspaceId),
+        thisWorkspaceCouldActOn(one, tenantId, workspaceId),
+        thisWorkspaceCouldActOn(other, tenantId, workspaceId),
       ),
     )
     .orderBy(itemDuplicates.itemId, itemDuplicates.otherItemId)
     .all();
 }
 
-/** What one Item currently means, or null where nothing has read it yet. */
-export function getMeaning(
-  db: InTheStore,
-  tenantId: string,
-  itemId: string,
-): { model: string; reading: number[] } | null {
-  return (
-    db
-      .select({ model: itemMeanings.model, reading: itemMeanings.reading })
-      .from(itemMeanings)
-      .where(and(eq(itemMeanings.tenantId, tenantId), eq(itemMeanings.itemId, itemId)))
-      .get() ?? null
-  );
-}
-
 /**
  * Every other Item's reading this one could be a duplicate of: read by the same
- * model, in a Workspace that draws them both, and still there to act on.
+ * model, and still there to act on.
  *
- * **An Item belonging to no Workspace compares against everything.** It is
- * drawn in every Workspace's Inbox at once ("Capture something before you know
- * which workspace it belongs to", issue 165), so every Item of the account is a
- * candidate for it - and the Workspace a pair is actually *offered* in is
- * decided when it is read back, by `listDuplicatesInWorkspace` above.
+ * **Every Item of the account, whatever Workspace it is in.** A pair is a fact
+ * about two notes and the Workspace a pair is *offered* in is asked freshly
+ * when it is read back (`listDuplicatesInWorkspace` above), so narrowing here
+ * as well would be the same rule kept in two places - and the one kept here
+ * would be the lossy one: `replaceDuplicatesOf` clears every pair this Item is
+ * in before writing the ones it finds, so a candidate left out here takes an
+ * existing pair with it and nothing ever recomputes it back.
  */
 export function meaningsToCompareWith(
   db: InTheStore,
   tenantId: string,
-  item: { id: string; workspaceId: string; workspaceDecided: boolean },
+  itemId: string,
   model: string,
 ): { itemId: string; reading: number[] }[] {
   return db
@@ -1147,13 +1150,8 @@ export function meaningsToCompareWith(
       and(
         eq(itemMeanings.tenantId, tenantId),
         eq(itemMeanings.model, model),
-        ne(itemMeanings.itemId, item.id),
-        eq(items.tenantId, tenantId),
-        isNull(items.completedAt),
-        isNull(items.deletedAt),
-        item.workspaceDecided
-          ? or(eq(items.workspaceId, item.workspaceId), eq(items.workspaceDecided, false))
-          : undefined,
+        ne(itemMeanings.itemId, itemId),
+        couldStillBeActedOn(items, tenantId),
       ),
     )
     .all();
@@ -1187,13 +1185,29 @@ export function rememberMeaning(
  * Forgets what an Item means, and every pair that was built on it - for an
  * Item whose two texts have been emptied, which now says nothing to compare.
  *
- * **Not just "stop reading it".** Leaving the row would leave the Item flagged
- * against notes it no longer resembles, on the strength of words nobody can see
- * any more.
+ * **Not just "stop reading it".** Leaving the reading would leave the Item
+ * flagged against notes it no longer resembles, on the strength of words nobody
+ * can see any more.
+ *
+ * **The row stays, emptied and stamped with the time, rather than being
+ * removed** - a tombstone, the same shape a dismissed Item itself has
+ * (architecture, "Tombstones, not deletes"). A tab is told a Workspace has
+ * changed by a row being *newer* than the copy it holds
+ * (`collectInvalidations`, events.ts), and a row that has gone is newer than
+ * nothing: deleting this one would drop the mark on the server and leave every
+ * open tab still drawing it until something unrelated made it read again. An
+ * emptied reading is also inert by construction rather than by a filter -
+ * `howAlike` answers zero for one of no length (domain/duplicates.ts) - and the
+ * next reading of this Item writes straight over it (`rememberMeaning` above).
+ *
+ * Nothing is written where the Item never had a meaning at all, which is also
+ * the only case that needs no telling: a pair is only ever written between two
+ * Items that both had a reading.
  */
-export function forgetMeaning(db: InTheStore, tenantId: string, itemId: string): void {
+export function forgetMeaning(db: InTheStore, tenantId: string, itemId: string, at: string): void {
   forgetDuplicatesOf(db, tenantId, itemId);
-  db.delete(itemMeanings)
+  db.update(itemMeanings)
+    .set({ reading: [], readAt: at })
     .where(and(eq(itemMeanings.tenantId, tenantId), eq(itemMeanings.itemId, itemId)))
     .run();
 }
@@ -1229,9 +1243,12 @@ export function replaceDuplicatesOf(
   for (const pair of pairs) {
     db.insert(itemDuplicates)
       .values({ tenantId, ...pair, foundAt: at })
-      // The same pair from the other side, written by a read of the other Item
-      // that has not been cleared yet. Nothing about it differs, so the one
-      // already there stands.
+      // The primary key is the pair alone, so a row another account had written
+      // under the same two ids would collide rather than be cleared by the
+      // delete above, which is scoped to this one. Nothing about such a row is
+      // this account's to overwrite, so the one already there stands - which is
+      // also why nothing here can happen in the ordinary case: every pair this
+      // writes names `itemId`, and every pair naming it has just gone.
       .onConflictDoNothing()
       .run();
   }

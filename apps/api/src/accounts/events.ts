@@ -50,6 +50,12 @@ export function collectInvalidations(
    * event, and without it a mark would sit unseen until the next thing somebody
    * did happened to refresh the page.
    *
+   * **Losing a reading is one of those changes too**, which is why forgetting
+   * one empties the row and stamps it rather than deleting it (`forgetMeaning`,
+   * repo.ts): a row that has gone is newer than nothing, so this query would
+   * pass straight over it and leave every tab drawing a mark the note no longer
+   * earns.
+   *
    * A note nobody has said the Workspace of is drawn in every Workspace's
    * Inbox, so its reading is a change to all of them - which is what
    * `ACCOUNT_WIDE` says, exactly as a change to a Type does.

@@ -14,7 +14,7 @@ import {
   embeddingsFor,
   EMBEDDING_MODEL,
 } from '../embeddings/index.js';
-import { whatAnItemSays } from '../domain/duplicates.js';
+import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
 
 /**
  * Three jobs on the account's own classification: reading a captured note and
@@ -542,8 +542,9 @@ export async function enqueueReadingItsMeaning(
  * `cleanUpACapturedNote` above makes and for the same reason: an Item nobody
  * can read must not be delivered for ever, and a model call that failed must
  * be. So an environment with nothing to read meaning with, an Item that has
- * gone, an account no longer in the register and a note with nothing in it all
- * end here quietly; only the call itself is left to throw.
+ * gone, one finished with or dismissed since it was queued, an account no
+ * longer in the register and a note with nothing in it all end here quietly;
+ * only the call itself is left to throw.
  */
 export async function readWhatANoteMeans(env: Env, job: ReadWhatItMeansJob): Promise<void> {
   const embeddings = embeddingsFor(env);
@@ -562,10 +563,17 @@ export async function readWhatANoteMeans(env: Env, job: ReadWhatItMeansJob): Pro
   }
 
   // Read fresh rather than carried on the message, so an Item edited again
-  // while this waited is read as it now stands - and one dismissed and erased
-  // costs no call at all.
+  // while this waited is read as it now stands - and one dealt with in the
+  // meantime costs no call at all.
   const item = await account.item(job.itemId);
   if (!item) return say(job.itemId, 'nothing was read: no such item in this account');
+  // A note is dismissed rather than erased, so it is still here to be read -
+  // and reading it would spend a call on a note nothing can draw a mark on
+  // (`listDuplicatesInWorkspace`, accounts/repo.ts, leaves it out either way).
+  // One finished with is the same case by the same rule.
+  if (!couldStillBeActedOn(item)) {
+    return say(job.itemId, 'nothing was read: the item is finished with or dismissed');
+  }
 
   const said = whatAnItemSays(item);
   // An Item whose Title and Description are empty or only whitespace has
