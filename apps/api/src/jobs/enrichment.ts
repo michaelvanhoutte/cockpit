@@ -247,7 +247,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   if (!('proposal' in read)) return say(job.itemId, `nothing was proposed: ${read.discarded}`);
 
   try {
-    await account.applyChange('propose_item_texts', {
+    const written = await account.applyChange('propose_item_texts', {
       commandId: crypto.randomUUID(),
       issuedAt: new Date().toISOString(),
       // The Workspace the Item is in, which is the envelope's and not a
@@ -275,8 +275,9 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     // what this Item means is about words nobody can see any more ("Flag a
     // captured note that says what another one already said", issue 407). The
     // same re-read an edit fires, from the other of the two things that rewrite
-    // an Item's texts.
-    await enqueueReadingItsMeaning(env, job.accountName, job.itemId);
+    // an Item's texts - and only where the write actually landed, so a
+    // redelivered job whose proposal the store refused costs no second reading.
+    if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, job.itemId);
   } catch (error) {
     // The item went between the read above and this write. The same
     // not-worth-retrying case as above, arriving by the other door.
