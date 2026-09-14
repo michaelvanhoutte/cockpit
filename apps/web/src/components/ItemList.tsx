@@ -9,7 +9,7 @@ import {
   workspacesQuery,
 } from '../api/queries';
 import { CommandRefused } from '../api/client';
-import { mayBeADuplicate } from '../duplicates';
+import { itemsThatMayBeDuplicates } from '../duplicates';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
 import {
   filedOrderOnPanel,
@@ -283,6 +283,18 @@ export function ItemList({
       },
     );
   };
+
+  /**
+   * Which of this workspace's Items may be saying what another one already
+   * said ("Flag a captured note that says what another one already said", issue
+   * 407) - worked out once for the whole list rather than per row, the same
+   * read either way.
+   */
+  const flagged = itemsThatMayBeDuplicates(
+    data?.items ?? [],
+    data?.filings ?? [],
+    data?.duplicates ?? [],
+  );
 
   /**
    * The proposal an Item's row draws as a chip, resolved to the Panel's live
@@ -844,12 +856,7 @@ export function ItemList({
                       {
                         routingProposal: routingProposalFor(item),
                         onAcceptRouting: acceptRoutingFor(item),
-                        mayBeADuplicate: mayBeADuplicate(
-                          item.id,
-                          data?.items ?? [],
-                          data?.filings ?? [],
-                          data?.duplicates ?? [],
-                        ),
+                        mayBeADuplicate: flagged.has(item.id),
                       })}
                 />
               </Fragment>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Filing, Item, PossibleDuplicate } from '@cockpit/shared';
-import { mayBeADuplicate, possibleDuplicatesOf } from '../../src/duplicates';
+import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../../src/duplicates';
 
 /**
  * F1: a drawing rule over the snapshot, so no database is needed to ask it.
@@ -56,16 +56,18 @@ describe('Triage', () => {
       { situation: 'one of them is filed', filings: [filedOn(THE_OTHER.id)], marked: false },
       { situation: 'both are filed', filings: [filedOn(ONE.id), filedOn(THE_OTHER.id)], marked: false },
     ])('$situation', ({ filings, marked }) => {
+      const flagged = itemsThatMayBeDuplicates(ITEMS, filings, PAIRED);
       for (const item of ITEMS) {
-        expect(mayBeADuplicate(item.id, ITEMS, filings, PAIRED)).toBe(marked);
+        expect(flagged.has(item.id)).toBe(marked);
       }
     });
 
     it('marks them again once the filed one is back in the inbox', () => {
-      const filed = [filedOn(THE_OTHER.id)];
-      expect(mayBeADuplicate(ONE.id, ITEMS, filed, PAIRED)).toBe(false);
+      expect(itemsThatMayBeDuplicates(ITEMS, [filedOn(THE_OTHER.id)], PAIRED).has(ONE.id)).toBe(
+        false,
+      );
 
-      expect(mayBeADuplicate(ONE.id, ITEMS, [], PAIRED)).toBe(true);
+      expect(itemsThatMayBeDuplicates(ITEMS, [], PAIRED).has(ONE.id)).toBe(true);
     });
 
     it('names the other one, from either of the two', () => {
@@ -86,7 +88,7 @@ describe('Triage', () => {
       { situation: 'the other one is not in this snapshot at all', items: [ONE] },
     ])('offers nothing when $situation', ({ items }) => {
       expect(possibleDuplicatesOf(ONE.id, items, [], PAIRED)).toEqual([]);
-      expect(mayBeADuplicate(ONE.id, items, [], PAIRED)).toBe(false);
+      expect(itemsThatMayBeDuplicates(items, [], PAIRED).has(ONE.id)).toBe(false);
     });
 
     it('offers nothing where nothing was paired', () => {

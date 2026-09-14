@@ -35,12 +35,25 @@ export function possibleDuplicatesOf(
     .filter((item): item is Item => item !== undefined);
 }
 
-/** Whether a row should say this Item may be saying what another one already said. */
-export function mayBeADuplicate(
-  itemId: string,
+/**
+ * Which Items a list should mark as possibly saying what another one already
+ * said - both halves of every pair the Inbox still holds.
+ *
+ * A set worked out once for the whole list rather than a question asked per
+ * row, because the answer is the same read of the same two arrays either way
+ * and a list of a hundred rows would otherwise do it a hundred times.
+ */
+export function itemsThatMayBeDuplicates(
   items: readonly Item[],
   filings: readonly Filing[],
   duplicates: readonly PossibleDuplicate[],
-): boolean {
-  return possibleDuplicatesOf(itemId, items, filings, duplicates).length > 0;
+): Set<string> {
+  const inbox = new Set(itemsInTheInbox(items, filings).map((item) => item.id));
+  const flagged = new Set<string>();
+  for (const pair of duplicates) {
+    if (!inbox.has(pair.itemId) || !inbox.has(pair.otherItemId)) continue;
+    flagged.add(pair.itemId);
+    flagged.add(pair.otherItemId);
+  }
+  return flagged;
 }
