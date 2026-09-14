@@ -1061,6 +1061,53 @@ export function unfiledItemsInWorkspace(
     }));
 }
 
+/**
+ * Every item in the whole account with a captured note whose texts nobody has
+ * settled - the rest of the inbox a correction re-proposes texts for
+ * ("Re-read the rest of the inbox the moment you fix a title", issue 399).
+ *
+ * **The whole account, not one Workspace.** How this person writes is a
+ * property of the account, not of the Workspace a note happens to sit in
+ * (`docs/text-learning.md`, "Scope: per account") - unlike
+ * `unfiledItemsInWorkspace` beside it, which is scoped because *where* a note
+ * belongs is a Workspace question.
+ *
+ * **`texts_settled_at IS NULL` is the one filter `unfiledItemsInWorkspace`
+ * does not need.** A settled Item is exactly the one this correction just
+ * came from, or one a person already took over by hand - either way not a
+ * candidate for a fresh proposal, and this filter is what keeps both out
+ * without naming the correcting Item specially.
+ */
+export function itemsWithUnsettledTexts(
+  db: AccountDb,
+  tenantId: string,
+): { id: string; workspaceId: string; capturedMessage: string }[] {
+  return db
+    .select({
+      id: items.id,
+      workspaceId: items.workspaceId,
+      capturedMessage: items.capturedMessage,
+    })
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
+        isNotNull(items.capturedMessage),
+        isNull(items.textsSettledAt),
+        notFiledOnALivePanel(db, tenantId),
+      ),
+    )
+    .orderBy(desc(items.createdAt))
+    .all()
+    .map((row) => ({
+      id: row.id,
+      workspaceId: row.workspaceId,
+      capturedMessage: row.capturedMessage!,
+    }));
+}
+
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {
   return db.select().from(commands).where(eq(commands.commandId, commandId)).all().length > 0;
 }

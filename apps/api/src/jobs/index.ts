@@ -6,6 +6,7 @@ import {
   enrichmentJobSchema,
   readWhatANoteMeans,
   reproposePanels,
+  reproposeTexts,
   type EnrichmentJob,
 } from './enrichment.js';
 
@@ -14,15 +15,18 @@ export {
   enqueueCleanUp,
   enqueueReadingItsMeaning,
   enqueueRepropose,
+  enqueueReproposeTexts,
   enrichmentJobSchema,
   readWhatANoteMeans,
   reproposePanels,
+  reproposeTexts,
 } from './enrichment.js';
 export type {
   EnrichmentJob,
   CleanUpJob,
   ReadWhatItMeansJob,
   ReproposePanelsJob,
+  ReproposeTextsJob,
 } from './enrichment.js';
 
 /**
@@ -87,16 +91,19 @@ async function resetTheGuestAccount(env: Env): Promise<void> {
  * message still decides its own outcome inside its own callback, which is what
  * keeps the acknowledgement per message rather than per batch.
  *
- * **A `re-propose-panels` message is deduplicated against its own batch
- * first.** Filing several items in quick succession queues one of these per
- * settle, but a refresh reads whatever is unsettled *when it runs* - so two
- * for the same account and Workspace landing in the same batch would redo
- * the identical read and write it twice for nothing new ("Re-propose the
- * rest of the inbox the moment you file one", issue 300, "several at once
- * should fire one refresh, not one per item"). `max_batch_timeout` is one
- * second (wrangler.jsonc) precisely so a burst of filings has a real chance
- * of landing in one batch; a second burst outside that window still gets its
- * own refresh, which is the honest limit rather than a bug.
+ * **A `re-propose-panels` or `re-propose-texts` message is deduplicated
+ * against its own batch first.** Filing several items, or correcting several
+ * titles, in quick succession queues one of these per settle or correction,
+ * but a refresh reads whatever is unsettled *when it runs* - so two for the
+ * same account (and, for panels, the same Workspace) landing in the same
+ * batch would redo the identical read and write it twice for nothing new
+ * ("Re-propose the rest of the inbox the moment you file one", issue 300,
+ * "several at once should fire one refresh, not one per item"; "Re-read the
+ * rest of the inbox the moment you fix a title", issue 399, which accepts
+ * the same property rather than debouncing it). `max_batch_timeout` is one
+ * second (wrangler.jsonc) precisely so a burst has a real chance of landing
+ * in one batch; a second burst outside that window still gets its own
+ * refresh, which is the honest limit rather than a bug.
  */
 export async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
   const messages = dedupeReproposals(batch.messages);
@@ -104,33 +111,45 @@ export async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promi
 }
 
 /**
- * Keeps the first `re-propose-panels` message per account-and-Workspace in
- * this batch, acknowledging the rest unread rather than letting them queue a
- * second, redundant refresh - every other kind passes through untouched.
- * Reads `message.body` loosely, ahead of `enrichmentJobSchema`'s own parse in
+ * Keeps the first `re-propose-panels` message per account-and-Workspace, and
+ * the first `re-propose-texts` message per account, in this batch -
+ * acknowledging the rest unread rather than letting them queue a second,
+ * redundant refresh. Every other kind passes through untouched. Reads
+ * `message.body` loosely, ahead of `enrichmentJobSchema`'s own parse in
  * `workThrough`: a body this cannot make sense of is simply not deduplicated,
  * and reaches the real parse exactly as it would have otherwise.
  */
 export function dedupeReproposals(messages: readonly Message<unknown>[]): Message<unknown>[] {
-  const seen = new Set<string>();
+  const seenPanels = new Set<string>();
+  const seenTexts = new Set<string>();
   return messages.filter((message) => {
     const body = message.body;
-    if (
-      typeof body !== 'object' ||
-      body === null ||
-      (body as Record<string, unknown>).kind !== 're-propose-panels'
-    ) {
+    if (typeof body !== 'object' || body === null) return true;
+    const kind = (body as Record<string, unknown>).kind;
+
+    if (kind === 're-propose-panels') {
+      const { accountName, workspaceId } = body as Record<string, unknown>;
+      if (typeof accountName !== 'string' || typeof workspaceId !== 'string') return true;
+      const key = `${accountName}:${workspaceId}`;
+      if (seenPanels.has(key)) {
+        message.ack();
+        return false;
+      }
+      seenPanels.add(key);
       return true;
     }
-    const { accountName, workspaceId } = body as Record<string, unknown>;
-    if (typeof accountName !== 'string' || typeof workspaceId !== 'string') return true;
 
-    const key = `${accountName}:${workspaceId}`;
-    if (seen.has(key)) {
-      message.ack();
-      return false;
+    if (kind === 're-propose-texts') {
+      const { accountName } = body as Record<string, unknown>;
+      if (typeof accountName !== 'string') return true;
+      if (seenTexts.has(accountName)) {
+        message.ack();
+        return false;
+      }
+      seenTexts.add(accountName);
+      return true;
     }
-    seen.add(key);
+
     return true;
   });
 }
@@ -191,6 +210,8 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return reproposePanels(env, job);
     case 'read-what-a-note-means':
       return readWhatANoteMeans(env, job);
+    case 're-propose-texts':
+      return reproposeTexts(env, job);
   }
 }
 
@@ -202,5 +223,7 @@ function describe(job: EnrichmentJob): string {
       return `item ${job.itemId}`;
     case 're-propose-panels':
       return `workspace ${job.workspaceId}`;
+    case 're-propose-texts':
+      return `account ${job.accountName}`;
   }
 }

@@ -48,7 +48,7 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
-import { enqueueCleanUp, enqueueReadingItsMeaning, enqueueRepropose } from '../jobs/index.js';
+import { enqueueCleanUp, enqueueReadingItsMeaning, enqueueRepropose, enqueueReproposeTexts } from '../jobs/index.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -750,17 +750,27 @@ async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'a
  * `set_title` and `set_description` - the two changes that replace what an Item
  * says, and so the two that make whatever was worked out about its meaning
  * wrong ("Flag a captured note that says what another one already said", issue
- * 407).
+ * 407) and, where they correct what Cockpit proposed, the two that teach how
+ * this account writes ("Learn how you write from the titles you correct",
+ * issue 394).
  *
  * **The form showing the duplicates is where a stale answer would show up
  * first**, which is why the re-read is fired from the edit rather than left to
  * anything later: a person renames a note to something they already have, and
  * the mark has to follow.
  *
+ * **Reads `result.recordedCorrection` rather than asking first, separately,
+ * whether the Item had a proposal to correct** - the same reasoning
+ * `changeThatMightSettleARouting` above gives for `result.settledRouting`:
+ * one call decided it atomically, so this reads the fact off that call rather
+ * than racing whatever else touches the same Item ("Re-read the rest of the
+ * inbox the moment you fix a title", issue 399).
+ *
  * **Only where the write landed.** A replay and a change made against an older
  * version both answer `applied: false` and queue nothing, so neither buys a
  * second reading of a note nobody changed. `waitUntil` for the reason capture's
- * own job is: nobody pressing Save is waiting to be told about a duplicate.
+ * own job is: nobody pressing Save is waiting to be told about a duplicate or
+ * for the rest of their Inbox to be re-read.
  */
 async function changeThatRewritesTheTexts<N extends 'set_title' | 'set_description'>(
   c: Context<AppEnv>,
@@ -771,6 +781,9 @@ async function changeThatRewritesTheTexts<N extends 'set_title' | 'set_descripti
   const result = await change(c, name, payload);
   if (result.applied) {
     c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, payload.itemId));
+  }
+  if (result.recordedCorrection) {
+    c.executionCtx.waitUntil(enqueueReproposeTexts(c.env, accountName));
   }
   return result;
 }

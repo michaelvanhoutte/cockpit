@@ -106,6 +106,15 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     workspaceId: string,
   ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]>>;
   /**
+   * Every item in the whole account with a captured note whose texts nobody
+   * has settled - what a correction re-proposes texts for ("Re-read the rest
+   * of the inbox the moment you fix a title", issue 399). Read by that job
+   * and by nothing else, the same as `unfiledItemsInWorkspace` above.
+   */
+  itemsWithUnsettledTexts(
+    accountName: string,
+  ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string }[]>>;
+  /**
    * Writes what one Item means and pairs it against every other Item of the
    * account that says the same thing ("Flag a captured note that says what
    * another one already said", issue 407). Written by the job that reads a

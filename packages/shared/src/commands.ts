@@ -576,12 +576,22 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName>;
  * you actually file them", issue 299), surfaced here so a caller that needs
  * to know can read it off this one call rather than asking again, separately
  * and racily, before it ("Re-propose the rest of the inbox the moment you
- * file one", issue 300). Absent, not `false`, everywhere else - every other
- * command answers `applied` alone, exactly as before this existed.
+ * file one", issue 300).
+ *
+ * `recordedCorrection` is `true` only for `set_title`/`set_description`, and
+ * only where the write recorded or updated a `text_corrections` row - the
+ * same fact `command-service.ts` computes once, atomically, to decide whether
+ * to write that row, surfaced here for the same reason and by the same
+ * pattern as `settledRouting` above ("Re-read the rest of the inbox the
+ * moment you fix a title", issue 399).
+ *
+ * Both absent, not `false`, everywhere else - every other command answers
+ * `applied` alone, exactly as before either existed.
  */
 export const commandResultSchema = z.object({
   ok: z.literal(true),
   applied: z.boolean(),
   settledRouting: z.boolean().optional(),
+  recordedCorrection: z.boolean().optional(),
 });
 export type CommandResult = z.infer<typeof commandResultSchema>;

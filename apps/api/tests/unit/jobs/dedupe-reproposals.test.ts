@@ -4,10 +4,12 @@ import { dedupeReproposals } from '../../../src/jobs/index.js';
 
 /**
  * Unit level: whether a batch of queue messages collapses several
- * `re-propose-panels` jobs for the same account and Workspace into one is a
- * pure decision over the messages' own bodies - no queue, no store, no model
+ * `re-propose-panels` jobs for the same account and Workspace, or several
+ * `re-propose-texts` jobs for the same account, into one is a pure decision
+ * over the messages' own bodies - no queue, no store, no model
  * ("Re-propose the rest of the inbox the moment you file one", issue 300,
- * "several at once should fire one refresh, not one per item").
+ * "several at once should fire one refresh, not one per item"; "Re-read the
+ * rest of the inbox the moment you fix a title", issue 399).
  */
 
 type FakeMessage = Message<unknown> & { acked: boolean };
@@ -33,6 +35,11 @@ const rePropose = (accountName: string, workspaceId: string) => ({
   kind: 're-propose-panels',
   accountName,
   workspaceId,
+});
+
+const reReadTexts = (accountName: string) => ({
+  kind: 're-propose-texts',
+  accountName,
 });
 
 describe('Triage', () => {
@@ -79,6 +86,46 @@ describe('Triage', () => {
     it('leaves a malformed re-propose-panels body alone, for the real parse to refuse', () => {
       const malformed = messageOf({ kind: 're-propose-panels', accountName: 'tenant-default', workspaceId: 42 });
       const another = messageOf({ kind: 're-propose-panels', accountName: 'tenant-default', workspaceId: 42 });
+
+      const kept = dedupeReproposals([malformed, another]);
+
+      expect(kept).toEqual([malformed, another]);
+    });
+  });
+
+  describe('several corrections queued for the same account start one re-read, not one per correction', () => {
+    it('keeps the first re-propose-texts message and acknowledges a later duplicate unread', () => {
+      const first = messageOf(reReadTexts('tenant-default'));
+      const second = messageOf(reReadTexts('tenant-default'));
+
+      const kept = dedupeReproposals([first, second]);
+
+      expect(kept).toEqual([first]);
+      expect(second.acked).toBe(true);
+      expect(first.acked).toBe(false);
+    });
+
+    it('keeps every message once several are queued for different accounts', () => {
+      const forTenantA = messageOf(reReadTexts('tenant-a'));
+      const forTenantB = messageOf(reReadTexts('tenant-b'));
+
+      const kept = dedupeReproposals([forTenantA, forTenantB]);
+
+      expect(kept).toEqual([forTenantA, forTenantB]);
+    });
+
+    it('does not collapse a re-propose-texts message against a re-propose-panels one for the same account', () => {
+      const panels = messageOf(rePropose('tenant-default', 'ws-1'));
+      const texts = messageOf(reReadTexts('tenant-default'));
+
+      const kept = dedupeReproposals([panels, texts]);
+
+      expect(kept).toEqual([panels, texts]);
+    });
+
+    it('leaves a malformed re-propose-texts body alone, for the real parse to refuse', () => {
+      const malformed = messageOf({ kind: 're-propose-texts', accountName: 42 });
+      const another = messageOf({ kind: 're-propose-texts', accountName: 42 });
 
       const kept = dedupeReproposals([malformed, another]);
 

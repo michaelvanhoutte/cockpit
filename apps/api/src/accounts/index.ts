@@ -139,6 +139,14 @@ export interface Account {
     workspaceId: string,
   ): Promise<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]>;
   /**
+   * Every item in the whole account with a captured note whose texts nobody
+   * has settled - what a correction re-proposes texts for ("Re-read the rest
+   * of the inbox the moment you fix a title", issue 399). Read by the
+   * enrichment job and by nothing else, the same as `unfiledItemsInWorkspace`
+   * above.
+   */
+  itemsWithUnsettledTexts(): Promise<{ id: string; workspaceId: string; capturedMessage: string }[]>;
+  /**
    * Writes what one Item means, and pairs it against every other Item of the
    * account that says the same thing ("Flag a captured note that says what
    * another one already said", issue 407). Written by the job that reads a note
@@ -197,6 +205,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     textLearningContext: async () => unwrap(await store.textLearningContext(accountName)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
+    itemsWithUnsettledTexts: async () => unwrap(await store.itemsWithUnsettledTexts(accountName)),
     rememberWhatAnItemMeans: async (itemId, model, reading) =>
       unwrap(await store.rememberWhatAnItemMeans(accountName, itemId, model, reading)),
     forgetWhatAnItemMeans: async (itemId) =>
