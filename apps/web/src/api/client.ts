@@ -313,6 +313,12 @@ const commandSenders = {
     api.v1.commands.set_routing_summary_correction.$post({ json: p }),
   set_text_learning_rules: (p: CommandPayload<'set_text_learning_rules'>) =>
     api.v1.commands.set_text_learning_rules.$post({ json: p }),
+  pin_text_example: (p: CommandPayload<'pin_text_example'>) =>
+    api.v1.commands.pin_text_example.$post({ json: p }),
+  edit_pinned_example: (p: CommandPayload<'edit_pinned_example'>) =>
+    api.v1.commands.edit_pinned_example.$post({ json: p }),
+  delete_pinned_example: (p: CommandPayload<'delete_pinned_example'>) =>
+    api.v1.commands.delete_pinned_example.$post({ json: p }),
 } as const;
 
 /**

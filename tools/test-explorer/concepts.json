@@ -275,6 +275,7 @@
       "parent": "Capture",
       "sourcePatterns": [
         "packages/shared/src/domain/text-learning-rules.ts",
+        "packages/shared/src/domain/pinned-text-examples.ts",
         "packages/shared/src/commands.ts",
         "apps/web/src/components/TextLearningRulesWindow.tsx",
         "apps/web/src/pages/Layout.tsx",
@@ -286,7 +287,8 @@
         "apps/api/src/http/app.ts",
         "apps/api/src/ai/index.ts",
         "apps/api/src/ai/prompts/clean-up-a-note.v7.ts",
-        "apps/api/src/domain/text-corrections.ts"
+        "apps/api/src/domain/text-corrections.ts",
+        "apps/api/src/domain/pinned-text-examples.ts"
       ]
     },
     {

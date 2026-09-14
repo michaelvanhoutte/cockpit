@@ -348,9 +348,19 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
 }
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
-  if (args.name === 'set_text_learning_rules') {
+  if (
+    args.name === 'set_text_learning_rules' ||
+    args.name === 'pin_text_example' ||
+    args.name === 'edit_pinned_example' ||
+    args.name === 'delete_pinned_example'
+  ) {
     // Its own query, outside any workspace snapshot - the same reason
-    // `itemTypesQuery` above is a slice of nothing.
+    // `itemTypesQuery` above is a slice of nothing. Without this, a pinned
+    // example just added, edited or deleted reads as stale until the SSE
+    // echo catches up ("Pin an example of how you want a note written",
+    // issue 397) - up to `LONGEST_WAIT_MS` behind a dropped connection, and
+    // long enough that a second press of Delete on a row already gone comes
+    // back a `PinnedExampleNotFoundError` the person reads as a bug.
     return queryClient.invalidateQueries({ queryKey: ['textLearningStatus'] });
   }
 

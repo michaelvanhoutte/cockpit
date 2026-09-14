@@ -48,6 +48,7 @@ import {
   PanelNameTakenError,
   PanelNotFoundError,
   PanelOrderStaleError,
+  PinnedExampleNotFoundError,
   ScreenSizeNameTakenError,
   ScreenSizeNotFoundError,
   UnknownThemeError,
@@ -75,6 +76,7 @@ import {
   listPanelsInWorkspace,
   listWorkspaces,
   meaningsToCompareWith,
+  pinnedExamplesForAccount,
   recentlyCapturedUnfiled,
   rememberMeaning,
   replaceDuplicatesOf,
@@ -83,6 +85,7 @@ import {
 } from './repo.js';
 import { pairOf, saidAgainBy } from '../domain/duplicates.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import {
   correctionStillVisible,
   deriveWhatStood,
@@ -279,14 +282,23 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    *
    * **Read by the enrichment job for the prompt, and by the HTTP layer for
    * the window that shows how it is doing** - the second reader picks
-   * `rules`, `rulesSetAt`, `stood.proposedTotal` and `stood.correctedTotal`
-   * back out and leaves `corrections`/`stood.sample` unread, since that
-   * window shows neither list (`docs/text-learning.md`'s two evidence lists
-   * are their own later step).
+   * `rules`, `rulesSetAt`, `stood.proposedTotal`, `stood.correctedTotal` and
+   * `pinnedExamples` back out and leaves `corrections`/`stood.sample`
+   * unread, since that window shows neither list (`docs/text-learning.md`'s
+   * two evidence lists are their own later step).
+   *
+   * **`pinnedExamples` rides along on this same read** ("Pin an example of
+   * how you want a note written", issue 397) - the enrichment job needs it
+   * beside `rules`/`corrections`/`stood` for the very same prompt call, and
+   * the window needs it beside the same three for the very same screen.
    */
-  textLearningContext(
-    accountName: string,
-  ): Answer<{ rules: string | null; rulesSetAt: string | null; corrections: TextCorrectionEntry[]; stood: WhatStood }> {
+  textLearningContext(accountName: string): Answer<{
+    rules: string | null;
+    rulesSetAt: string | null;
+    corrections: TextCorrectionEntry[];
+    stood: WhatStood;
+    pinnedExamples: PinnedExampleEntry[];
+  }> {
     return this.#answer(accountName, (db) => {
       const corrections = textCorrectionsForAccount(db, accountName);
       // The same test `renderOneTextCorrection` renders by, so a correction
@@ -302,6 +314,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         rulesSetAt: rules?.rulesSetAt ?? null,
         corrections,
         stood: deriveWhatStood(judgeableItemsForAccount(db, accountName), correctedItemIds),
+        pinnedExamples: pinnedExamplesForAccount(db, accountName),
       };
     });
   }
@@ -605,7 +618,8 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof DashboardNotFoundError ||
         error instanceof PanelNotFoundError ||
         error instanceof LayoutNotFoundError ||
-        error instanceof ScreenSizeNotFoundError
+        error instanceof ScreenSizeNotFoundError ||
+        error instanceof PinnedExampleNotFoundError
       ) {
         return { status: 'missing', what: error.message };
       }

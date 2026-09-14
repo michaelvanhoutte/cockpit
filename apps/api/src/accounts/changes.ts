@@ -96,6 +96,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     TEXT_CORRECTIONS,
     ITEM_MEANINGS,
     ACCOUNT_TEXT_RULES,
+    PINNED_TEXT_EXAMPLES,
     firstWorkspace(accountId),
     guestDemoSeed(accountId),
   ];
@@ -533,6 +534,54 @@ const ACCOUNT_TEXT_RULES: Change = {
 	\`rules_set_at\` text,
 	CONSTRAINT "account_text_rules_rules_set_at_is_timestamp" CHECK(rules_set_at IS NULL OR (datetime(rules_set_at) IS NOT NULL AND substr(rules_set_at, 11, 1) = 'T' AND substr(rules_set_at, -1) = 'Z' AND length(rules_set_at) >= 20 AND date(rules_set_at) = substr(rules_set_at, 1, 10)))
 ) STRICT`,
+    },
+  ],
+};
+
+/**
+ * The account's own pinned examples of how a note should be written ("Pin
+ * an example of how you want a note written", issue 397) - see `schema.ts`
+ * for what each column carries and why.
+ *
+ * **A brand new table, created whole with its CHECKs**, the same shape
+ * `TEXT_CORRECTIONS` and `ACCOUNT_TEXT_RULES` above use and for the same
+ * reason: a table created here can carry a CHECK from the start, unlike a
+ * column added to an existing table.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that
+ * cannot put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md,
+ *   "Deployed data is real"). It adds a table and writes to no existing row.
+ * - **Interrupted partway.** It cannot be: the statements and the record
+ *   that they ran commit together (`up-to-date.ts`), so a failure leaves
+ *   neither the table nor the index and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished
+ *   one left nothing behind.
+ * - **Data the new rules reject.** None: the table starts empty, and
+ *   nothing sweeps past existing text into it. An account's pinned examples
+ *   exist only from the moment it adds one.
+ * - **What each environment does.** The same thing everywhere: an account
+ *   applies its outstanding changes inside the first request that opens it.
+ */
+const PINNED_TEXT_EXAMPLES: Change = {
+  name: '0030-pinned-text-examples',
+  statements: [
+    {
+      sql: `CREATE TABLE \`pinned_text_examples\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`note\` text NOT NULL,
+	\`title\` text NOT NULL,
+	\`description\` text,
+	\`created_at\` text NOT NULL,
+	\`updated_at\` text NOT NULL,
+	CONSTRAINT "pinned_text_examples_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))),
+	CONSTRAINT "pinned_text_examples_updated_at_is_timestamp" CHECK(updated_at IS NULL OR (datetime(updated_at) IS NOT NULL AND substr(updated_at, 11, 1) = 'T' AND substr(updated_at, -1) = 'Z' AND length(updated_at) >= 20 AND date(updated_at) = substr(updated_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `pinned_text_examples_tenant_created` ON `pinned_text_examples` (`tenant_id`,`created_at`)',
     },
   ],
 };

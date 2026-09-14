@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { pinnedExampleSchema } from './pinned-text-examples.js';
 
 /**
  * The account-scoped box an account writes its own rules for how Cockpit
@@ -112,10 +113,17 @@ export function textLearningRatioSentence(proposedTotal: number, correctedTotal:
 }
 
 /**
- * What the window reads: the box itself, and the ratio the prompt reads
- * beside it ("How it is doing" - `docs/text-learning.md`, "The rules"). The
- * built-in guidance is not part of this - it never changes at runtime, so it
- * ships as `TEXT_LEARNING_GUIDANCE` above rather than a round trip.
+ * What the window reads: the box itself, the ratio the prompt reads beside
+ * it ("How it is doing" - `docs/text-learning.md`, "The rules"), and the
+ * account's own pinned examples ("Pin an example of how you want a note
+ * written", issue 397). The built-in guidance is not part of this - it
+ * never changes at runtime, so it ships as `TEXT_LEARNING_GUIDANCE` above
+ * rather than a round trip.
+ *
+ * **`pinnedExamples` rides along on this same read rather than its own
+ * route.** Unlike `itemTypesRoute`, which several pages read, a pinned
+ * example is meaningful only on this one window - the same reason `rules`
+ * itself has no route of its own.
  */
 export const textLearningStatusSchema = z.object({
   /** Null until the account writes one, and null again once it is cleared. */
@@ -123,5 +131,6 @@ export const textLearningStatusSchema = z.object({
   rulesSetAt: z.iso.datetime().nullable(),
   proposedTotal: z.number().int().nonnegative(),
   correctedTotal: z.number().int().nonnegative(),
+  pinnedExamples: z.array(pinnedExampleSchema),
 });
 export type TextLearningStatus = z.infer<typeof textLearningStatusSchema>;

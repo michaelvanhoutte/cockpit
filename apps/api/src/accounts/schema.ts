@@ -1140,8 +1140,13 @@ export const itemDuplicates = sqliteTable(
  * Item.** A row has to outlive the Item it was about - a dismissed Item is
  * tombstoned rather than erased, but a joined read would still lose its note
  * from view the moment a query excludes it, the same way `decisionHistoryFor-
- * Workspace` already does - and a pasted example, a later row kind this
- * table's shape already allows for, would have no Item to join to at all.
+ * Workspace` already does.
+ *
+ * **Holds only the "Edited" kind, not "Pinned" or "Rejected".** `item_id` is
+ * `NOT NULL` and restricted to an Item that still exists, which a pinned
+ * example - added or pasted with no Item behind it at all - cannot satisfy;
+ * see `pinnedTextExamples` below for that kind's own table ("Pin an example
+ * of how you want a note written", issue 397).
  *
  * **Written only for a text Cockpit actually proposed.** `command-service.ts`
  * writes a row only where `items.texts_proposed_at` is set - an Item hand-
@@ -1265,6 +1270,50 @@ export const accountTextRules = sqliteTable(
     rulesSetAt: text('rules_set_at'),
   },
   (t) => [check('account_text_rules_rules_set_at_is_timestamp', isTimestamp('rules_set_at'))],
+);
+
+/**
+ * A worked example of a note and the title and message chosen for it, added
+ * by hand rather than corrected after the fact ("Pin an example of how you
+ * want a note written", issue 397; `docs/text-learning.md`, "What is
+ * stored" - the "Pinned" kind).
+ *
+ * **Its own table, not a `kind` column on `textCorrections` above.** That
+ * table's primary key is the Item it corrected, `NOT NULL` and restricted
+ * to one that still exists - a pinned example has no Item behind it, most
+ * concretely the 29 examples this issue exists to let in. Reworking that
+ * table's key shape to make room for a row with no Item is a larger,
+ * riskier change than this issue's own failure modes ask for.
+ *
+ * **`id` is a separate primary key, not `tenant_id`**, unlike
+ * `accountTextRules` above: an account has many pinned examples, not one.
+ *
+ * **Hard-deleted, never tombstoned** - unlike `itemTypes`, `workspaces` and
+ * their siblings, nothing else references a pinned example's id under a
+ * restricting foreign key, so there is no key to keep satisfied by keeping
+ * the row. The same choice "See what it got right, and what you corrected"
+ * (issue 412) makes for deleting a correction, the sibling kind of evidence
+ * row: gone is gone.
+ */
+export const pinnedTextExamples = sqliteTable(
+  'pinned_text_examples',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    note: text('note').notNull(),
+    title: text('title').notNull(),
+    description: text('description'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    // Read whole, per account, oldest first - the same access pattern
+    // `textCorrections` above has, and for the same reason: no retrieval
+    // step (`docs/text-learning.md`, quoting `docs/routing-learning.md`).
+    index('pinned_text_examples_tenant_created').on(t.tenantId, t.createdAt),
+    check('pinned_text_examples_created_at_is_timestamp', isTimestamp('created_at')),
+    check('pinned_text_examples_updated_at_is_timestamp', isTimestamp('updated_at')),
+  ],
 );
 
 /**

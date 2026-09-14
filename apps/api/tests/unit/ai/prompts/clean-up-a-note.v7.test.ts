@@ -1,6 +1,7 @@
 import { TEXT_LEARNING_GUIDANCE } from '@cockpit/shared';
 import { describe, expect, it } from 'vitest';
 import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v7.js';
+import type { PinnedExampleEntry } from '../../../../src/domain/pinned-text-examples.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
 /**
@@ -18,8 +19,21 @@ function systemFor(
   corrections: readonly TextCorrectionEntry[],
   stood: WhatStood,
   rules: string | null = null,
+  pinnedExamples: readonly PinnedExampleEntry[] = [],
 ): string {
-  return buildCleanUpANote([], [], [], null, corrections, stood, rules).system;
+  return buildCleanUpANote([], [], [], null, corrections, stood, rules, pinnedExamples).system;
+}
+
+function anExample(overrides: Partial<PinnedExampleEntry> = {}): PinnedExampleEntry {
+  return {
+    id: 'example-1',
+    note: 'bel novy ivm afspraak',
+    title: 'Novy bellen over de afspraak',
+    description: 'Novy bellen in verband met de afspraak.',
+    createdAt: '2026-09-14T10:00:00.000Z',
+    updatedAt: '2026-09-14T10:00:00.000Z',
+    ...overrides,
+  };
 }
 
 describe('Capture', () => {
@@ -147,6 +161,83 @@ describe('Capture', () => {
       expect(ruleAt).toBeLessThan(stoodAt);
       // Not removed, only read after: every guidance line is still there.
       for (const line of TEXT_LEARNING_GUIDANCE) expect(system).toContain(line);
+    });
+  });
+
+  /**
+   * "Pin an example of how you want a note written" (issue 397): a worked
+   * example the account chose deliberately, rendered after this account's
+   * own rules and ahead of the corrections and what-stood evidence that
+   * merely happened.
+   */
+  describe("What Cockpit reads as this account's own pinned examples", () => {
+    it('says none have been pinned yet, rather than being empty', () => {
+      expect(systemFor([], NO_STOOD)).toContain('nothing pinned yet');
+    });
+
+    it("renders a pinned example's note, title and message", () => {
+      const example = anExample();
+      const system = systemFor([], NO_STOOD, null, [example]);
+      expect(system).toContain(example.note);
+      expect(system).toContain(example.title);
+      expect(system).toContain(example.description!);
+    });
+
+    /**
+     * The precedence `docs/text-learning.md`'s "What goes into the prompt"
+     * states: a rule you wrote outranks every example, and an example you
+     * chose outranks a correction that merely happened - so a pinned
+     * example and an automatic correction disagreeing is read as the
+     * pinned one, not averaged or overwritten.
+     */
+    it('renders above the corrections and what-stood evidence, after this account’s own rules', () => {
+      const example = anExample();
+      const correction: TextCorrectionEntry = {
+        itemId: 'item-1',
+        capturedMessage: 'bel novy',
+        proposedTitle: 'Call Novy',
+        proposedDescription: null,
+        settledTitle: 'Novy bellen',
+        settledDescription: null,
+        recordedAt: '2026-09-09T10:00:00.000Z',
+      };
+      const stood: WhatStood = { proposedTotal: 5, correctedTotal: 1, sample: ['A title that stood'] };
+      const rule = 'Titles are never a question.';
+
+      const system = systemFor([correction], stood, rule, [example]);
+
+      const ruleAt = system.indexOf(rule);
+      const pinnedAt = system.indexOf(example.note);
+      const correctionsHeadingAt = system.indexOf('Corrections, oldest first');
+      const stoodAt = system.indexOf('A title that stood');
+
+      expect(pinnedAt).toBeGreaterThan(-1);
+      expect(ruleAt).toBeLessThan(pinnedAt);
+      expect(pinnedAt).toBeLessThan(correctionsHeadingAt);
+      expect(pinnedAt).toBeLessThan(stoodAt);
+    });
+
+    /**
+     * `CORRECTIONS_LIMIT` caps the corrections window and
+     * `STOOD_SAMPLE_LIMIT` caps the sample of what stood - neither applies
+     * here. A pinned row was chosen, not merely observed, and `docs/text-
+     * learning.md`'s own "Open decisions" recommends keeping every one.
+     */
+    it('renders every pinned example, however many corrections push the volume up', () => {
+      const examples = Array.from({ length: 15 }, (_, i) => anExample({ id: `example-${i}`, note: `note ${i}` }));
+      const corrections = Array.from({ length: 60 }, (_, i) => ({
+        itemId: `item-${i}`,
+        capturedMessage: `correction ${i}`,
+        proposedTitle: 'Proposed',
+        proposedDescription: null,
+        settledTitle: `Settled ${i}`,
+        settledDescription: null,
+        recordedAt: `2026-02-${String((i % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
+      }));
+
+      const system = systemFor(corrections, NO_STOOD, null, examples);
+
+      for (const example of examples) expect(system).toContain(example.note);
     });
   });
 

@@ -12,6 +12,7 @@ import type {
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 /**
@@ -84,10 +85,14 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * `routingContext` above, and by the HTTP layer for the window that shows
    * how it is doing.
    */
-  textLearningContext(
-    accountName: string,
-  ): Awaitable<
-    Answer<{ rules: string | null; rulesSetAt: string | null; corrections: TextCorrectionEntry[]; stood: WhatStood }>
+  textLearningContext(accountName: string): Awaitable<
+    Answer<{
+      rules: string | null;
+      rulesSetAt: string | null;
+      corrections: TextCorrectionEntry[];
+      stood: WhatStood;
+      pinnedExamples: PinnedExampleEntry[];
+    }>
   >;
   /**
    * Every item in one workspace's Inbox with a captured note - what a
