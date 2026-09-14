@@ -41,6 +41,41 @@ describe('Capture', () => {
       expect(system).toContain('Novy bellen');
     });
 
+    /**
+     * `CORRECTIONS_LIMIT` caps the window a prompt renders - filtered before
+     * it is capped, not after, so a reverted row inside the trailing window
+     * cannot take a slot from an older, still-visible correction. Capping
+     * first could otherwise empty the whole section while `store.ts`'s
+     * corrected count (built from the full, uncapped list) still reports a
+     * nonzero total - the exact "two sections disagree" failure the shared
+     * `correctionStillVisible` check exists to prevent.
+     */
+    it('lets an older, still-visible correction through a trailing window of reverted ones', () => {
+      const visible: TextCorrectionEntry = {
+        itemId: 'item-old',
+        capturedMessage: 'an older note',
+        proposedTitle: 'Old proposal',
+        proposedDescription: null,
+        settledTitle: 'Corrected long ago',
+        settledDescription: null,
+        recordedAt: '2026-01-01T00:00:00.000Z',
+      };
+      const reverted = (i: number): TextCorrectionEntry => ({
+        itemId: `item-${i}`,
+        capturedMessage: `note ${i}`,
+        proposedTitle: 'Same as settled',
+        proposedDescription: null,
+        settledTitle: 'Same as settled',
+        settledDescription: null,
+        recordedAt: `2026-02-${String((i % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
+      });
+      const corrections = [visible, ...Array.from({ length: 60 }, (_, i) => reverted(i))];
+
+      const system = systemFor(corrections, NO_STOOD);
+
+      expect(system).toContain('Corrected long ago');
+    });
+
     it('says nothing proposed and seen yet, when nothing has been judged', () => {
       expect(systemFor([], NO_STOOD)).toContain('nothing proposed and seen yet');
     });

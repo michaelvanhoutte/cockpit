@@ -334,10 +334,16 @@ function renderOneTextCorrection(entry: TextCorrectionEntry): string | null {
 }
 
 function renderCorrections(corrections: readonly TextCorrectionEntry[]): string {
+  // Filtered before capped: a reverted row inside the trailing window would
+  // otherwise take a slot from an older, still-visible correction, and could
+  // empty the window entirely while `correctedItemIds` (`store.ts`, built
+  // from the full, uncapped list) still reports a nonzero corrected count -
+  // the same "two sections disagree" failure `renderOneTextCorrection`'s own
+  // comment names.
   const lines = corrections
-    .slice(-CORRECTIONS_LIMIT)
     .map(renderOneTextCorrection)
-    .filter((line) => line !== null);
+    .filter((line) => line !== null)
+    .slice(-CORRECTIONS_LIMIT);
 
   if (lines.length === 0) {
     return 'Corrections: (nothing corrected yet - this account has no proposals to learn from)';
