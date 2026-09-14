@@ -1758,19 +1758,24 @@ describe('Triage', () => {
     /**
      * A pair the row's own mark was never drawn from must not be settled by
      * it either. `data.duplicates` can name a pair whose other half has
-     * since been filed - `itemsThatMayBeDuplicates` leaves such a pair out
-     * of the mark, so `pairedWith` alone (every raw pair, unfiltered) is the
-     * wrong read for what this menu entry may act on.
+     * since been finished with - `itemsThatMayBeDuplicates` leaves such a
+     * pair out of the mark, so `pairedWith` alone (every raw pair,
+     * unfiltered) is the wrong read for what this menu entry may act on.
+     *
+     * **A filed other half is a different case since issue 410**, and no
+     * longer excluded here: an Inbox row goes on being told about a pair
+     * whatever the other half's own state is, filed included - see
+     * `tests/unit/duplicates.test.ts` for that rule on its own.
      */
-    it('settles only the pair the row is actually flagged for, not one whose other half was filed', async () => {
-      const FILED = anItem('11111111-1111-7111-8111-000000000007', 'A third note, already filed');
-      held.items = [BART, OTHER, FILED];
-      held.filings = [{ panelId: 'p-falcon', itemId: FILED.id, position: 0 }];
+    it('settles only the pair the row is actually flagged for, not one whose other half is finished with', async () => {
+      const DONE = anItem('11111111-1111-7111-8111-000000000007', 'A third note, already done');
+      DONE.completedAt = '2026-08-31T09:00:00.000Z';
+      held.items = [BART, OTHER, DONE];
       held.duplicates = [
         { itemId: BART.id, otherItemId: OTHER.id },
-        { itemId: BART.id, otherItemId: FILED.id },
+        { itemId: BART.id, otherItemId: DONE.id },
       ];
-      const user = await showList({ items: [BART, OTHER, FILED] });
+      const user = await showList({ items: [BART, OTHER, DONE] });
 
       const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
       await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
@@ -1784,7 +1789,7 @@ describe('Triage', () => {
       );
       expect(held.send).not.toHaveBeenCalledWith(
         expect.objectContaining({
-          payload: expect.objectContaining({ otherItemId: FILED.id }),
+          payload: expect.objectContaining({ otherItemId: DONE.id }),
         }),
       );
     });
@@ -1837,6 +1842,166 @@ describe('Triage', () => {
       await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
 
       expect(screen.queryByRole('menuitem', { name: 'Not a duplicate' })).toBeNull();
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a card shows the possible duplicate mark when paired with another filed item', () => {
+    const CARD_ONE = anItem('11111111-1111-7111-8111-000000000009', 'Filed note one');
+    const CARD_TWO = anItem('11111111-1111-7111-8111-000000000010', 'Filed note two');
+    const PANEL_ID = 'pn-focus';
+
+    /**
+     * One wiring case is enough here: that a filed card's menu draws "Not a
+     * duplicate" at all is what this proves, and which panel each half
+     * landed on is a distinction `itemsThatMayBeDuplicates` itself already
+     * settles in `tests/unit/duplicates.test.ts` - re-proving it against the
+     * DOM a second time would be coverage duplicated upward.
+     */
+    it('marks a card when paired with another filed item', async () => {
+      const OTHER_PANEL = 'pn-other';
+      held.items = [CARD_ONE, CARD_TWO];
+      held.filings = [
+        { panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 },
+        { panelId: OTHER_PANEL, itemId: CARD_TWO.id, position: 0 },
+      ];
+      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
+      held.dashboards = [TODAY];
+      held.panels = [
+        aPanel(PANEL_ID, TODAY.id, 'Focus'),
+        aPanel(OTHER_PANEL, TODAY.id, 'Other'),
+      ];
+
+      const user = await showList({
+        items: [CARD_ONE],
+        panelId: PANEL_ID,
+      });
+
+      const theRow = screen.getByRole('listitem');
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Not a duplicate' })).toBeInTheDocument();
+    });
+
+    it('does not mark a card when its pair is in the inbox', async () => {
+      held.items = [CARD_ONE, CARD_TWO];
+      held.filings = [{ panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 }];
+      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
+      held.dashboards = [TODAY];
+      held.panels = [aPanel(PANEL_ID, TODAY.id, 'Focus')];
+
+      const user = await showList({
+        items: [CARD_ONE],
+        panelId: PANEL_ID,
+      });
+
+      const theRow = screen.getByRole('listitem');
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+
+      expect(screen.queryByRole('menuitem', { name: 'Not a duplicate' })).toBeNull();
+    });
+
+    /**
+     * The rule is not symmetric (issue 410's own text): a filed card asking
+     * about an Inbox note stays quiet, but the Inbox row itself goes on
+     * being told - it is still waiting to be triaged, and filing the other
+     * half of the pair does not answer that question. Asked of the Inbox's
+     * own list rather than the card's, since that is a different `ItemList`
+     * (`panelId: null`) from the one the card above is drawn in.
+     *
+     * Settled all the way through rather than just checked for presence:
+     * that the mark survives its partner being filed is a calculation
+     * `duplicates.test.ts` already proves; what only this test can prove is
+     * that the row's own "Not a duplicate" actually settles *this* pair -
+     * itself the Inbox item, its filed partner the other half - and not
+     * something `pairedWith` alone would have gotten wrong.
+     */
+    it('settles from the Inbox row a pair whose other half is filed, offering it back', async () => {
+      held.items = [CARD_ONE, CARD_TWO];
+      held.filings = [{ panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 }];
+      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
+
+      const user = await showList({ items: [CARD_TWO] });
+
+      const theRow = screen.getByRole('listitem');
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: CARD_TWO.id,
+            otherItemId: CARD_ONE.id,
+            settled: true,
+          }),
+        }),
+      );
+
+      expect(await screen.findByRole('status')).toHaveTextContent('is not a duplicate');
+
+      held.send.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: CARD_TWO.id,
+            otherItemId: CARD_ONE.id,
+            settled: false,
+          }),
+        }),
+      );
+    });
+
+    it('can settle a duplicate pair from a card, offering the way back', async () => {
+      held.items = [CARD_ONE, CARD_TWO];
+      held.filings = [
+        { panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 },
+        { panelId: PANEL_ID, itemId: CARD_TWO.id, position: 1 },
+      ];
+      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
+      held.dashboards = [TODAY];
+      held.panels = [aPanel(PANEL_ID, TODAY.id, 'Focus')];
+
+      const user = await showList({
+        items: [CARD_ONE, CARD_TWO],
+        panelId: PANEL_ID,
+      });
+
+      const rows = screen.getAllByRole('listitem');
+      const theCardRow = rows.find((li) => li.textContent?.includes('Filed note one'))!;
+      await user.click(within(theCardRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: CARD_ONE.id,
+            otherItemId: CARD_TWO.id,
+            settled: true,
+          }),
+        }),
+      );
+
+      expect(await screen.findByRole('status')).toHaveTextContent('is not a duplicate');
+
+      held.send.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: CARD_ONE.id,
+            otherItemId: CARD_TWO.id,
+            settled: false,
+          }),
+        }),
+      );
     });
   });
 });

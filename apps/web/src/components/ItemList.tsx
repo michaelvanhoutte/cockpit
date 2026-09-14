@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
 import {
@@ -34,9 +34,6 @@ import { typeOf } from '../itemTypes';
 import { MoveOrAddQuestion } from './MoveOrAddQuestion';
 import { MoveToPicker } from './MoveToPicker';
 import { SelectionBar } from './SelectionBar';
-
-/** What a Panel's list has flagged as a possible duplicate: never anything. */
-const NOTHING_FLAGGED: ReadonlySet<string> = new Set<string>();
 
 /**
  * A list of items, in the Inbox or on a panel, and the one way to move one out
@@ -290,15 +287,15 @@ export function ItemList({
   /**
    * Which of this workspace's Items may be saying what another one already
    * said ("Flag a captured note that says what another one already said", issue
-   * 407) - worked out once for the whole list rather than per row, the same
-   * read either way, and only where a row would draw the mark: a Panel's list
-   * never does, and a Dashboard of ten would otherwise walk the same three
-   * arrays ten times for an answer nothing asks it for.
+   * 407; extended in issue 410 to include filed Items). Every Panel's list needs
+   * this now, not just the Inbox's, so it is memoized on the snapshot rather
+   * than recomputed on every one of a dashboard's several `ItemList`s on every
+   * render.
    */
-  const flagged =
-    panelId === null
-      ? itemsThatMayBeDuplicates(data?.items ?? [], data?.filings ?? [], data?.duplicates ?? [])
-      : NOTHING_FLAGGED;
+  const flagged = useMemo(
+    () => itemsThatMayBeDuplicates(data?.items ?? [], data?.filings ?? [], data?.duplicates ?? []),
+    [data?.items, data?.filings, data?.duplicates],
+  );
 
   /**
    * The proposal an Item's row draws as a chip, resolved to the Panel's live
@@ -346,9 +343,8 @@ export function ItemList({
    *
    * **`possibleDuplicatesOf`, not the raw pairs `data.duplicates` carries.**
    * The mark this menu entry is offered from is `mayBeADuplicate`, which comes
-   * from `itemsThatMayBeDuplicates` - both halves of a pair still in the Inbox.
-   * A pair whose other half has since been filed is a fact the server still
-   * holds but nothing on screen draws, and settling one the row never showed
+   * from `itemsThatMayBeDuplicates` - the same asymmetric rule, so this only
+   * ever settles a pair the row actually showed. Settling one it never drew
    * would be settling something nobody was ever asked about.
    */
   const settleNotADuplicateFor = (item: Item): (() => void) | undefined => {
@@ -898,6 +894,10 @@ export function ItemList({
                   // picker makes with this workspace's Inbox chosen - the row
                   // decides whether to offer it at all.
                   onMoveHere={() => move(item, null, 0, workspaceId)}
+                  mayBeADuplicate={flagged.has(item.id)}
+                  onSettleNotADuplicate={flagged.has(item.id)
+                    ? settleNotADuplicateFor(item)
+                    : undefined}
                   {...(panelId
                     ? {
                         ordering: {
@@ -912,18 +912,12 @@ export function ItemList({
                         },
                         onRemoveFromHere: () => removeFromHere(item, panelId),
                       }
-                    : // A proposal is only ever drawn in the Inbox: it is what a
-                      // filed Item's routing already answered, and there is
-                      // nothing left here for one to be a proposal *for*. A
-                      // possible duplicate is the same shape of thing for the
-                      // same reason - a filed Item is nothing's duplicate yet.
-                      {
+                    : {
+                        // A proposal is only ever drawn in the Inbox: it is what a
+                        // filed Item's routing already answered, and there is
+                        // nothing left here for one to be a proposal *for*.
                         routingProposal: routingProposalFor(item),
                         onAcceptRouting: acceptRoutingFor(item),
-                        mayBeADuplicate: flagged.has(item.id),
-                        onSettleNotADuplicate: flagged.has(item.id)
-                          ? settleNotADuplicateFor(item)
-                          : undefined,
                       })}
                 />
               </Fragment>
