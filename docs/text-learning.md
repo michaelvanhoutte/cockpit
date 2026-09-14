@@ -84,6 +84,27 @@ Five sections, in a stated order of precedence:
 
 The prompt's own built-in examples stay. They teach the language rule, the other-readings rule and the Panel rule, which style evidence does not, and they rank below your rules on style so that "my examples are being ignored" has one place to look.
 
+## Where you see it, and change it
+
+> **Every input that shapes a title is visible on one screen, and the ones you own are editable there.**
+
+| What shapes a title | How you see it | Yours to change |
+|---|---|---|
+| Cockpit's own guidance | in plain English, read-only | no — you override it below instead |
+| Your rules | a box you write | yes |
+| Pinned examples | a list you add to | yes |
+| Titles that stood | a count, and a sample of them | **Try again** reopens one |
+| Titles you corrected | the pairs, Cockpit's struck through | delete a row that teaches the wrong thing |
+| Titles you rejected | beside the corrections | |
+
+**The guidance is read-only because some of its lines are load-bearing** — the shape of the answer, the language rule, the refusal to invent a fact — and editing those breaks the feature rather than restyling it. Nothing is lost by reading rather than writing it: your rules already outrank it, so anything you disagree with you contradict in your own words. What *is* lost by hiding it is the point of the rules box, which would otherwise argue with something unreadable.
+
+**Showing what stood is a control rather than decoration.** Nobody scrolls back through hundreds of accepted titles, so one you tolerated rather than liked stays a weak positive forever. A sample of them on a screen already open is where that gets noticed, which is the cost named under "The rules" being paid off.
+
+**A screen that shows only what was recorded is a log, and a log with a delete button is not a control.** That is what this was first scoped as, and seeing it on screen is what killed it ("Try the corrections window on screen before building it", issue 393). Delete earns little on its own besides: a correction row reads its settled half live from the Item, so a row teaching the wrong thing is usually fixed by re-editing that Item's title, and delete is left for the note that should never have been evidence at all.
+
+**So the window ships when it first has a control on it**, not when there is first something to log — see the build order below.
+
 ## What Cockpit says about itself
 
 A per-Item reason explains one decision and never says what rule is being followed; reading forty of them still does not. So Cockpit's account of what it has learned is written **for the whole account, on demand, when you open the screen** — and stored nowhere.
@@ -102,15 +123,20 @@ The cost is real and was accepted knowingly: a Personal note's full text is sent
 
 1. ~~**Prompt v6** — task register, a title target near 50 characters against the 200-character cap that stays a storage limit, and the hedge instruction dropped.~~ **Shipped** ("Propose a title that names the work, not the note", issue 391); the target is asked for as a ceiling, since "about 50" is not something a test can hold a model to. Independent of everything below.
 2. ~~**Remove the nightly half of issue 301** — the fan-out, the summary prompt and its contract test, `write_routing_summary`, the read-only summary. The Cron Trigger itself stays; it also resets the guest account.~~ **Shipped** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392); `summary`/`summary_generated_at` keep what they hold and are read by nothing, which is what step 8 below drops.
-3. **The store, prompt v7 reading it, and a window to see it in** — the triple recorded at your first edit, the count and sample of what stood read from `items` beside it, both read back on every later note, and an account-scoped window showing the counts and every correction with a delete. The unit that makes any of this true. **Nothing may accumulate where you cannot see it**, which is the same refusal of a black box that shaped the rest of this; a throwaway design pass comes first, since a row here carries three texts and both a table and a stacked card are defensible for that.
-4. **Pinned examples** — add, edit, delete and paste a batch, onto the window step 3 put up rather than a second one.
-5. **The rules block** — `set_routing_summary_correction` re-pointed from Workspace to account and widened to cover writing.
-6. **Re-propose the rest of the unfiled inbox** the moment you edit one, as "Re-propose the rest of the inbox the moment you file one" (issue 300) already does for Panels.
-7. **Try again** on a suggestion — a fresh one now, the rejected one recorded.
-8. **Drop `workspace_routing_summary`**, once steps 2 and 5 are live. Expand-then-contract; `pnpm backup:export` first.
-9. **Cockpit's account of what it learned**, with promote-into-your-rules.
+Both of the above have shipped. What is left, named rather than numbered so that citing one cannot rot into a wrong number:
 
-Steps 1 and 2 are independent of each other: the clean-up prompt reads the correction and has never read the summary.
+| Step | What it does | After |
+|---|---|---|
+| **The store** | The triple recorded at your first edit, the count and sample of what stood read from `items` beside it, prompt v7 reading both. Headless — it changes what titles say, and puts up no screen. | prompt v6 |
+| **The window** | Where every input becomes visible: Cockpit's own guidance in plain English, your rules in a box that overrides it, and how it is doing. The account-scoped rules replace the Workspace correction, which is read by nothing afterwards. | the store, and the nightly half removed |
+| **Pinned examples** | Add, edit, delete and paste a batch, onto that same window. | the window |
+| **The evidence** | What it got right and what you corrected, as two lists on the same window — the sample of what stood, and the pairs with Cockpit's version struck through. | the window |
+| **Re-read the Inbox** | Correcting a text re-proposes everything still unfiled, as "Re-propose the rest of the inbox the moment you file one" (issue 300) already does for Panels. | the store |
+| **Try again** | A fresh suggestion now, the rejected one recorded — and what gets a tolerated-but-wrong title out of the sample that stood. | the store |
+| **Drop `workspace_routing_summary`** | Expand-then-contract, `pnpm backup:export` first, and only once the two steps that stopped reading it are live rather than merged. | the nightly half removed, the window |
+| **Cockpit's account of itself** | Generated when you open the window, stored nowhere, promoted into your rules a line at a time. | the window |
+
+**The window arrives with the rules box rather than before it.** It was first scoped onto the store, so that nothing would accumulate unseen — but a screen with nothing to act on does not get opened, so it answered neither question. One step later it carries a control, and the store is unobservable for exactly that long.
 
 ## Open decisions
 
