@@ -53,23 +53,12 @@ function filedOn(itemId: string, panelId = 'pn-1'): Filing {
 }
 
 describe('Triage', () => {
-  describe('until an item is filed its duplicates are everything else in the workspace, and a filed item is nothing\'s duplicate yet', () => {
+  describe('an item in the inbox is marked for a pair whatever the other half\'s own state is', () => {
     it.each([
-      { situation: 'both are in the inbox', filings: [], marked: true },
-      { situation: 'one of them is filed', filings: [filedOn(THE_OTHER.id)], marked: false },
-    ])('$situation', ({ filings, marked }) => {
-      const flagged = itemsThatMayBeDuplicates(ITEMS, filings, PAIRED);
-      for (const item of ITEMS) {
-        expect(flagged.has(item.id)).toBe(marked);
-      }
-    });
-
-    it('marks them again once the filed one is back in the inbox', () => {
-      expect(itemsThatMayBeDuplicates(ITEMS, [filedOn(THE_OTHER.id)], PAIRED).has(ONE.id)).toBe(
-        false,
-      );
-
-      expect(itemsThatMayBeDuplicates(ITEMS, [], PAIRED).has(ONE.id)).toBe(true);
+      { situation: 'both are in the inbox', filings: [] },
+      { situation: 'the other one is filed', filings: [filedOn(THE_OTHER.id)] },
+    ])('marks $situation', ({ filings }) => {
+      expect(itemsThatMayBeDuplicates(ITEMS, filings, PAIRED).has(ONE.id)).toBe(true);
     });
 
     it('names the other one, from either of the two', () => {
@@ -103,23 +92,15 @@ describe('Triage', () => {
       {
         situation: 'both filed on different panels',
         filings: [filedOn(ONE.id, 'pn-1'), filedOn(THE_OTHER.id, 'pn-2')],
-        marked: true,
       },
       {
         situation: 'both filed on the same panel',
         filings: [filedOn(ONE.id, 'pn-1'), filedOn(THE_OTHER.id, 'pn-1')],
-        marked: true,
       },
-      {
-        situation: 'one filed one in inbox',
-        filings: [filedOn(ONE.id)],
-        marked: false,
-      },
-    ])('$situation: pair marked $marked', ({ filings, marked }) => {
+    ])('marks both, $situation', ({ filings }) => {
       const flagged = itemsThatMayBeDuplicates(ITEMS, filings, PAIRED);
-      for (const item of ITEMS) {
-        expect(flagged.has(item.id)).toBe(marked);
-      }
+      expect(flagged.has(ONE.id)).toBe(true);
+      expect(flagged.has(THE_OTHER.id)).toBe(true);
     });
 
     it('returns the filed duplicates from possibleDuplicatesOf', () => {
@@ -128,23 +109,37 @@ describe('Triage', () => {
       expect(possibleDuplicatesOf(THE_OTHER.id, ITEMS, filings, PAIRED)).toEqual([ONE]);
     });
 
-    it('names nothing when one filed item is paired with an inbox item', () => {
+    /**
+     * The rule is not symmetric ("Flag a duplicate between two cards on
+     * dashboards", issue 410): the still-Inbox half is still waiting to be
+     * triaged, so it goes on being told - it is only the *filed* card that
+     * goes quiet, because it has settled onto a Panel and a still-untriaged
+     * note is not the company its own screen means to show.
+     */
+    it('marks only the one still in the Inbox, where the other has been filed', () => {
       const filings = [filedOn(ONE.id, 'pn-1')];
+      const flagged = itemsThatMayBeDuplicates(ITEMS, filings, PAIRED);
+      expect(flagged.has(ONE.id)).toBe(false);
+      expect(flagged.has(THE_OTHER.id)).toBe(true);
+
       expect(possibleDuplicatesOf(ONE.id, ITEMS, filings, PAIRED)).toEqual([]);
-      expect(possibleDuplicatesOf(THE_OTHER.id, ITEMS, filings, PAIRED)).toEqual([]);
+      expect(possibleDuplicatesOf(THE_OTHER.id, ITEMS, filings, PAIRED)).toEqual([ONE]);
     });
 
-    it('brings back the mark when a filed item is moved back to the inbox', () => {
+    it('drops the card\'s mark, and keeps the Inbox row\'s, the moment one of a filed pair is filed elsewhere', () => {
       const filings = [filedOn(ONE.id, 'pn-1'), filedOn(THE_OTHER.id, 'pn-1')];
       expect(itemsThatMayBeDuplicates(ITEMS, filings, PAIRED).has(ONE.id)).toBe(true);
 
-      // Move THE_OTHER back to inbox
-      expect(itemsThatMayBeDuplicates(ITEMS, [filedOn(ONE.id, 'pn-1')], PAIRED).has(ONE.id)).toBe(
-        false,
-      );
+      // THE_OTHER moves back to the Inbox: ONE is now filed against an Inbox
+      // Item, so its own card goes quiet - THE_OTHER's Inbox row does not.
+      const afterMove = itemsThatMayBeDuplicates(ITEMS, [filedOn(ONE.id, 'pn-1')], PAIRED);
+      expect(afterMove.has(ONE.id)).toBe(false);
+      expect(afterMove.has(THE_OTHER.id)).toBe(true);
+    });
 
-      // Move ONE back to inbox
+    it('marks both again once both are back in the Inbox', () => {
       expect(itemsThatMayBeDuplicates(ITEMS, [], PAIRED).has(ONE.id)).toBe(true);
+      expect(itemsThatMayBeDuplicates(ITEMS, [], PAIRED).has(THE_OTHER.id)).toBe(true);
     });
   });
 });

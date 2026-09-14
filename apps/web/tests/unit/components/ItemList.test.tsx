@@ -1758,19 +1758,24 @@ describe('Triage', () => {
     /**
      * A pair the row's own mark was never drawn from must not be settled by
      * it either. `data.duplicates` can name a pair whose other half has
-     * since been filed - `itemsThatMayBeDuplicates` leaves such a pair out
-     * of the mark, so `pairedWith` alone (every raw pair, unfiltered) is the
-     * wrong read for what this menu entry may act on.
+     * since been finished with - `itemsThatMayBeDuplicates` leaves such a
+     * pair out of the mark, so `pairedWith` alone (every raw pair,
+     * unfiltered) is the wrong read for what this menu entry may act on.
+     *
+     * **A filed other half is a different case since issue 410**, and no
+     * longer excluded here: an Inbox row goes on being told about a pair
+     * whatever the other half's own state is, filed included - see
+     * `tests/unit/duplicates.test.ts` for that rule on its own.
      */
-    it('settles only the pair the row is actually flagged for, not one whose other half was filed', async () => {
-      const FILED = anItem('11111111-1111-7111-8111-000000000007', 'A third note, already filed');
-      held.items = [BART, OTHER, FILED];
-      held.filings = [{ panelId: 'p-falcon', itemId: FILED.id, position: 0 }];
+    it('settles only the pair the row is actually flagged for, not one whose other half is finished with', async () => {
+      const DONE = anItem('11111111-1111-7111-8111-000000000007', 'A third note, already done');
+      DONE.completedAt = '2026-08-31T09:00:00.000Z';
+      held.items = [BART, OTHER, DONE];
       held.duplicates = [
         { itemId: BART.id, otherItemId: OTHER.id },
-        { itemId: BART.id, otherItemId: FILED.id },
+        { itemId: BART.id, otherItemId: DONE.id },
       ];
-      const user = await showList({ items: [BART, OTHER, FILED] });
+      const user = await showList({ items: [BART, OTHER, DONE] });
 
       const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes('Reply to Bart'))!;
       await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
@@ -1784,7 +1789,7 @@ describe('Triage', () => {
       );
       expect(held.send).not.toHaveBeenCalledWith(
         expect.objectContaining({
-          payload: expect.objectContaining({ otherItemId: FILED.id }),
+          payload: expect.objectContaining({ otherItemId: DONE.id }),
         }),
       );
     });
@@ -1909,6 +1914,27 @@ describe('Panels', () => {
       await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
 
       expect(screen.queryByRole('menuitem', { name: 'Not a duplicate' })).toBeNull();
+    });
+
+    /**
+     * The rule is not symmetric (issue 410's own text): a filed card asking
+     * about an Inbox note stays quiet, but the Inbox row itself goes on
+     * being told - it is still waiting to be triaged, and filing the other
+     * half of the pair does not answer that question. Asked of the Inbox's
+     * own list rather than the card's, since that is a different `ItemList`
+     * (`panelId: null`) from the one the card above is drawn in.
+     */
+    it('keeps the mark on the Inbox row, even though its filed pair goes quiet', async () => {
+      held.items = [CARD_ONE, CARD_TWO];
+      held.filings = [{ panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 }];
+      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
+
+      const user = await showList({ items: [CARD_TWO] });
+
+      const theRow = screen.getByRole('listitem');
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Not a duplicate' })).toBeInTheDocument();
     });
 
     it('can settle a duplicate pair from a card, offering the way back', async () => {
