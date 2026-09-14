@@ -171,7 +171,18 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // Laid over the window rather than in the page, so nothing above it
           // moves it off the home indicator: its own padding is what keeps the
           // way back reachable (styles.css, `--edge-bottom`).
-          className="fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right))] pb-[calc(1rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))]"
+          //
+          // **`pointer-events-auto` against the page's own lock.** Radix's
+          // modal primitives - `Dialog`, and `DropdownMenu` the same way -
+          // set `pointer-events: none` on `<body>` while one is open, which
+          // every descendant inherits - this bar included, since it is
+          // mounted above the router rather than inside whichever one is on
+          // screen ("Say a flagged pair is not a duplicate", issue 408, first
+          // found an offer could be made from inside a `Dialog`). Without
+          // this, the bar is visible and its text is read, but the Undo
+          // button under a click does nothing at all - not refused, just
+          // inert.
+          className="pointer-events-auto fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right))] pb-[calc(1rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))]"
         >
           <div className="flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
             <span className="min-w-0 flex-1 truncate">{failure ?? held.what}</span>
@@ -179,7 +190,10 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
               type="button"
               disabled={undoing}
               onClick={() => void putItBack()}
-              className="shrink-0 rounded px-2 py-1 font-medium text-accent-soft hover:bg-white/10 disabled:opacity-50"
+              // `pointer-events-auto` again, rather than relying on it
+              // inheriting from the bar's own container above: this is the
+              // element a click actually has to land on.
+              className="pointer-events-auto shrink-0 rounded px-2 py-1 font-medium text-accent-soft hover:bg-white/10 disabled:opacity-50"
             >
               Undo
             </button>

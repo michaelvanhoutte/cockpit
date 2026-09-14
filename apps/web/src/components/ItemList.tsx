@@ -9,7 +9,7 @@ import {
   workspacesQuery,
 } from '../api/queries';
 import { CommandRefused } from '../api/client';
-import { itemsThatMayBeDuplicates } from '../duplicates';
+import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
 import {
   filedOrderOnPanel,
@@ -331,6 +331,66 @@ export function ItemList({
     if (!routingProposalFor(item)) return undefined;
     const panelId = item.proposedPanelId!;
     return () => move(item, panelId, 0);
+  };
+
+  /**
+   * Settles every pair this row is currently flagged in as not a duplicate,
+   * in one go ("Say a flagged pair is not a duplicate", issue 408).
+   *
+   * **The row asks for all of it at once because it knows none of it** - which
+   * pair, or how many, waits until the form is opened, exactly as the mark
+   * itself does (`mayBeADuplicate`, ItemRow.tsx). The common case is one pair,
+   * so this is ordinarily indistinguishable from settling the one; where there
+   * is more than one, this is the quick way to clear the row, and the form is
+   * still where a single pair among several is settled on its own.
+   *
+   * **`possibleDuplicatesOf`, not the raw pairs `data.duplicates` carries.**
+   * The mark this menu entry is offered from is `mayBeADuplicate`, which comes
+   * from `itemsThatMayBeDuplicates` - both halves of a pair still in the Inbox.
+   * A pair whose other half has since been filed is a fact the server still
+   * holds but nothing on screen draws, and settling one the row never showed
+   * would be settling something nobody was ever asked about.
+   */
+  const settleNotADuplicateFor = (item: Item): (() => void) | undefined => {
+    const others = possibleDuplicatesOf(
+      item.id,
+      data?.items ?? [],
+      data?.filings ?? [],
+      data?.duplicates ?? [],
+    ).map((other) => other.id);
+    if (others.length === 0) return undefined;
+    return () => {
+      const envelopeWith = (otherItemId: string, settled: boolean) => ({
+        name: 'set_duplicate_settled' as const,
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: item.id,
+          otherItemId,
+          settled,
+        },
+      });
+      // `allSettled`, not `all`: several pairs are independent commands, and
+      // one being refused (the other note dismissed a moment earlier) must
+      // not cost the offer to undo the ones that landed.
+      Promise.allSettled(others.map((otherId) => send(envelopeWith(otherId, true)))).then(
+        (results) => {
+          const landed = others.filter((_, at) => results[at]!.status === 'fulfilled');
+          for (const result of results) {
+            if (result.status === 'rejected') console.error(result.reason);
+          }
+          if (landed.length === 0) return;
+          offerToUndo({
+            what:
+              landed.length === 1
+                ? `"${itemLabel(item)}" is not a duplicate`
+                : `"${itemLabel(item)}" is not a duplicate of ${landed.length} notes`,
+            undo: () => Promise.all(landed.map((otherId) => send(envelopeWith(otherId, false)))),
+          });
+        },
+      );
+    };
   };
 
   /** The order this panel would be in with the item at this place among its rows. */
@@ -861,6 +921,9 @@ export function ItemList({
                         routingProposal: routingProposalFor(item),
                         onAcceptRouting: acceptRoutingFor(item),
                         mayBeADuplicate: flagged.has(item.id),
+                        onSettleNotADuplicate: flagged.has(item.id)
+                          ? settleNotADuplicateFor(item)
+                          : undefined,
                       })}
                 />
               </Fragment>

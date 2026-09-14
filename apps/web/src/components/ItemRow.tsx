@@ -30,6 +30,7 @@ export function ItemRow({
   routingProposal,
   onAcceptRouting,
   mayBeADuplicate,
+  onSettleNotADuplicate,
   selecting,
 }: {
   item: Item;
@@ -120,6 +121,14 @@ export function ItemRow({
    * the row is not given.
    */
   mayBeADuplicate?: boolean | undefined;
+  /**
+   * Settles every pair this row is currently flagged in as not a duplicate
+   * ("Say a flagged pair is not a duplicate", issue 408) - offered in the menu
+   * only where `mayBeADuplicate` is, and undefined for the same reason
+   * `onAcceptRouting` can be: the list already knows there is nothing to
+   * settle.
+   */
+  onSettleNotADuplicate?: (() => void) | undefined;
   /**
    * Picking this row out to be acted on with others ("Select several items, and
    * file them all in one go", issue 169), and whether it is picked.
@@ -680,6 +689,11 @@ export function ItemRow({
                   onMove={() => ordering.onMove(1)}
                 />
               </>
+            )}
+            {mayBeADuplicate && onSettleNotADuplicate && (
+              <DropdownMenu.Item className={menuItemClass} onSelect={onSettleNotADuplicate}>
+                Not a duplicate
+              </DropdownMenu.Item>
             )}
             <DropdownMenu.Item className={menuItemClass} onSelect={markDone}>
               Mark done

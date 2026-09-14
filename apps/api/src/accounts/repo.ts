@@ -25,6 +25,7 @@ import {
   commands,
   dashboards,
   decisionHistory,
+  duplicateSettlements,
   itemDuplicates,
   itemMeanings,
   items,
@@ -1209,13 +1210,38 @@ function thisWorkspaceCouldActOn(
 }
 
 /**
+ * A pair nobody has settled as not a duplicate ("Say a flagged pair is not a
+ * duplicate", issue 408) - named for what it returns, since a `notExists`
+ * reads backwards otherwise: `listDuplicatesInWorkspace` below keeps a row
+ * only where this is true.
+ */
+function notSettledAsNotADuplicate(db: AccountDb, tenantId: string) {
+  return notExists(
+    db
+      .select({ one: sql`1` })
+      .from(duplicateSettlements)
+      .where(
+        and(
+          eq(duplicateSettlements.tenantId, tenantId),
+          eq(duplicateSettlements.itemId, itemDuplicates.itemId),
+          eq(duplicateSettlements.otherItemId, itemDuplicates.otherItemId),
+        ),
+      ),
+  );
+}
+
+/**
  * Every pair of Items in one Workspace that say the same thing - both halves of
- * which the Workspace can still draw and act on.
+ * which the Workspace can still draw and act on, and which nobody has settled
+ * as not a duplicate.
  *
  * **Filtered here rather than when the pair is written**, which is what makes
  * dismissing an Item and bringing it back change the marks without touching a
  * row: the pair is a fact about two notes, and whether it is *offered* is a
- * question asked freshly of the state they are in.
+ * question asked freshly of the state they are in - settling is the same rule
+ * once more, asked of a table `replaceDuplicatesOf` never touches, which is
+ * what makes a settling outlast the pair being recomputed
+ * (`duplicateSettlements`, schema.ts).
  */
 export function listDuplicatesInWorkspace(
   db: AccountDb,
@@ -1234,10 +1260,45 @@ export function listDuplicatesInWorkspace(
         eq(itemDuplicates.tenantId, tenantId),
         thisWorkspaceCouldActOn(one, tenantId, workspaceId),
         thisWorkspaceCouldActOn(other, tenantId, workspaceId),
+        notSettledAsNotADuplicate(db, tenantId),
       ),
     )
     .orderBy(itemDuplicates.itemId, itemDuplicates.otherItemId)
     .all();
+}
+
+/**
+ * Settles a pair as not a duplicate, or takes that back - the write behind
+ * "Say a flagged pair is not a duplicate" (issue 408).
+ *
+ * **Idempotent on the pair, not on the command.** The same settling sent
+ * twice writes the same row twice over (`onConflictDoNothing`), and an
+ * unsettle naming a pair nobody had settled deletes nothing - both are the
+ * ordinary case for a retried or redelivered command, not a fault.
+ */
+export function settleDuplicate(
+  db: InTheStore,
+  tenantId: string,
+  pair: { itemId: string; otherItemId: string },
+  settled: boolean,
+  at: string,
+): void {
+  if (settled) {
+    db.insert(duplicateSettlements)
+      .values({ tenantId, ...pair, settledAt: at })
+      .onConflictDoNothing()
+      .run();
+  } else {
+    db.delete(duplicateSettlements)
+      .where(
+        and(
+          eq(duplicateSettlements.tenantId, tenantId),
+          eq(duplicateSettlements.itemId, pair.itemId),
+          eq(duplicateSettlements.otherItemId, pair.otherItemId),
+        ),
+      )
+      .run();
+  }
 }
 
 /**

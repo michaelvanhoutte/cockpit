@@ -1124,6 +1124,45 @@ export const itemDuplicates = sqliteTable(
 );
 
 /**
+ * A pair somebody has said is not a duplicate ("Say a flagged pair is not a
+ * duplicate", issue 408) - checked wherever `item_duplicates` is drawn, never
+ * where it is written.
+ *
+ * **Its own table rather than a column on `item_duplicates`.** A re-read
+ * deletes and rewrites every row `item_duplicates` holds for the Item it is
+ * about (`replaceDuplicatesOf`, repo.ts) - a column here would be lost the
+ * moment either half of the pair was next edited, which is exactly the
+ * failure `docs/routing-learning.md`'s rule ("Cockpit may replace what it
+ * proposed and never what you settled") exists to rule out. A table nothing
+ * in the recompute path touches is what makes the settling outlast it.
+ *
+ * **The same unordered-pair shape as `item_duplicates`, and for the same
+ * reason**: one row settles the pair whichever of the two Items it is asked
+ * from, and the CHECK below is what a writer never has to get right by
+ * convention alone.
+ */
+export const duplicateSettlements = sqliteTable(
+  'duplicate_settlements',
+  {
+    tenantId: text('tenant_id').notNull(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    otherItemId: text('other_item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    settledAt: text('settled_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.itemId, t.otherItemId] }),
+    index('duplicate_settlements_tenant_item').on(t.tenantId, t.itemId),
+    index('duplicate_settlements_tenant_other').on(t.tenantId, t.otherItemId),
+    check('duplicate_settlements_is_one_unordered_pair', sql.raw('item_id < other_item_id')),
+    check('duplicate_settlements_settled_at_is_timestamp', isTimestamp('settled_at')),
+  ],
+);
+
+/**
  * One row per Item, recording the correction the moment you make it - the
  * evidence a title or description proposal reads back ("Learn how you write
  * from the titles you correct", issue 394; `docs/text-learning.md`, "What is

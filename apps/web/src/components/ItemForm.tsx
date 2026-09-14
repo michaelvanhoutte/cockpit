@@ -7,6 +7,7 @@ import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries'
 import { DescriptionBox } from './DescriptionBox';
 import { possibleDuplicatesOf } from '../duplicates';
 import { useItemForm, useOpenItem } from '../itemForm';
+import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 
@@ -97,6 +98,7 @@ function TheForm({
 }) {
   const { data, isLoading } = useQuery(snapshotQuery(workspaceId));
   const send = useSendCommand();
+  const offerToUndo = useUndo();
   const openItem = useOpenItem();
   const item = data?.items.find((candidate) => candidate.id === itemId);
   /**
@@ -111,6 +113,32 @@ function TheForm({
     data?.filings ?? [],
     data?.duplicates ?? [],
   );
+
+  /**
+   * Settles one pair as not a duplicate, or - from the bar the settling
+   * offers - takes that back ("Say a flagged pair is not a duplicate", issue
+   * 408). About the pair rather than about `itemId` alone, so it reads the
+   * same whichever of the two Items' forms it was pressed from.
+   */
+  const settleNotADuplicate = async (otherId: string, other: Item) => {
+    const envelope = () => ({
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId,
+      itemId,
+      otherItemId: otherId,
+    });
+    try {
+      await send({ name: 'set_duplicate_settled', payload: { ...envelope(), settled: true } });
+      offerToUndo({
+        what: `"${itemLabel(other)}" is not a duplicate`,
+        undo: () =>
+          send({ name: 'set_duplicate_settled', payload: { ...envelope(), settled: false } }),
+      });
+    } catch (failure) {
+      setRefusal(failure instanceof Error ? failure.message : 'That could not be settled');
+    }
+  };
 
   // A callback ref rather than an object one: Radix's `Content` mounts behind
   // its own exit-animation machinery (`Presence`), so the node an object ref
@@ -523,19 +551,34 @@ function TheForm({
                     </p>
                     <div className="mt-1 flex flex-col gap-1.5">
                       {saidAgain.map((other) => (
-                        <button
-                          key={other.id}
-                          type="button"
-                          disabled={saving}
-                          // Opening the other one is a change of address, so the
-                          // back button comes back here (`useOpenItem`,
-                          // src/itemForm.tsx) - which is what makes this a link
-                          // between two notes rather than a jump out of one.
-                          onClick={() => openItem(other.id)}
-                          className="rounded-md border border-black/10 px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
-                        >
-                          <span className="block font-medium text-ink">{itemLabel(other)}</span>
-                        </button>
+                        <div key={other.id} className="flex items-stretch gap-1.5">
+                          <button
+                            type="button"
+                            disabled={saving}
+                            // Opening the other one is a change of address, so the
+                            // back button comes back here (`useOpenItem`,
+                            // src/itemForm.tsx) - which is what makes this a link
+                            // between two notes rather than a jump out of one.
+                            onClick={() => openItem(other.id)}
+                            className="flex-1 rounded-md border border-black/10 px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                          >
+                            <span className="block font-medium text-ink">{itemLabel(other)}</span>
+                          </button>
+                          {/* About this pair, not about either note ("Say a
+                              flagged pair is not a duplicate", issue 408) - it
+                              is the settling that is offered undo, not a change
+                              to what is drawn here. */}
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void settleNotADuplicate(other.id, other)}
+                            title="Not a duplicate"
+                            aria-label="Not a duplicate"
+                            className="rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       ))}
                     </div>
                   </div>
