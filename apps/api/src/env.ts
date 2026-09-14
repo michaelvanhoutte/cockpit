@@ -1,4 +1,4 @@
-import type { D1Database, DurableObjectNamespace, Queue } from '@cloudflare/workers-types';
+import type { Ai, D1Database, DurableObjectNamespace, Queue } from '@cloudflare/workers-types';
 import type { AccountStoreRpc } from './accounts/rpc.js';
 import type { EnrichmentJob } from './jobs/enrichment.js';
 
@@ -21,6 +21,29 @@ export interface Env {
    * production's messages.
    */
   ENRICHMENT: Queue<EnrichmentJob>;
+  /**
+   * Workers AI, which reads what a note means so that one saying what another
+   * one already said can be flagged ("Flag a captured note that says what
+   * another one already said", issue 407).
+   *
+   * Optional in the type, and gated on nothing else: an environment without it
+   * flags nothing and goes on taking every note, and `/health` reports the
+   * fact. It is deliberately separate from `ANTHROPIC_API_KEY` below - an
+   * environment that cannot clean a note up must still be able to flag a
+   * duplicate.
+   */
+  AI?: Ai;
+  /**
+   * Reads meaning with a stand-in rather than with a model - words counted into
+   * buckets, which is enough to drive the feature and nothing like enough to
+   * prove what it flags (`src/embeddings/index.ts`).
+   *
+   * Set by the two local stacks and by nothing else (scripts/dev.mjs,
+   * scripts/e2e-stack.mjs), because Workers AI has no local simulator and both
+   * have to run without a Cloudflare account. Compared to the literal `'true'`
+   * for the reason `GUEST_SIGN_IN` below is.
+   */
+  EMBEDDINGS_STAND_IN?: string;
   /** The application Google knows this Cockpit as, and the secret that proves it. */
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;

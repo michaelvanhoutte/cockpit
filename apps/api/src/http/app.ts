@@ -48,7 +48,7 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
-import { enqueueCleanUp, enqueueRepropose } from '../jobs/index.js';
+import { enqueueCleanUp, enqueueReadingItsMeaning, enqueueRepropose } from '../jobs/index.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -298,6 +298,13 @@ for (const prefix of MOVED_OPERATOR_PREFIXES) {
  * development and the browser suite - which have no key and need none - report
  * an unhealthy deployment and stop the e2e stack from ever starting.
  *
+ * **`embeddings` is the same thing said about a different capability**: whether
+ * there is a binding to read what a note *means* with, and so whether this
+ * environment can flag one saying what another one already said ("Flag a
+ * captured note that says what another one already said", issue 407). Separate
+ * from `ai` because the two are separately configured - an environment can
+ * have either, both or neither - and outside `ok` for the same reason.
+ *
  * **Whether there is a key, never what it is.** This endpoint answers anybody
  * at all (docs/deployment.md, "`/health` answers without a sign-in").
  */
@@ -307,7 +314,7 @@ const healthRoute = createRoute({
   responses: {
     200: {
       description:
-        'Whether the register and an account store can both be reached, and whether this environment can enrich anything',
+        'Whether the register and an account store can both be reached, whether this environment can enrich anything, and whether it can read what a note means',
       content: {
         'application/json': {
           schema: z.object({
@@ -315,6 +322,7 @@ const healthRoute = createRoute({
             register: z.boolean(),
             store: z.boolean(),
             ai: z.boolean(),
+            embeddings: z.boolean(),
           }),
         },
       },
@@ -739,6 +747,35 @@ async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'a
 }
 
 /**
+ * `set_title` and `set_description` - the two changes that replace what an Item
+ * says, and so the two that make whatever was worked out about its meaning
+ * wrong ("Flag a captured note that says what another one already said", issue
+ * 407).
+ *
+ * **The form showing the duplicates is where a stale answer would show up
+ * first**, which is why the re-read is fired from the edit rather than left to
+ * anything later: a person renames a note to something they already have, and
+ * the mark has to follow.
+ *
+ * **Only where the write landed.** A replay and a change made against an older
+ * version both answer `applied: false` and queue nothing, so neither buys a
+ * second reading of a note nobody changed. `waitUntil` for the reason capture's
+ * own job is: nobody pressing Save is waiting to be told about a duplicate.
+ */
+async function changeThatRewritesTheTexts<N extends 'set_title' | 'set_description'>(
+  c: Context<AppEnv>,
+  name: N,
+  payload: CommandPayload<N>,
+): Promise<CommandResult> {
+  const accountName = c.get('visitor').accountName;
+  const result = await change(c, name, payload);
+  if (result.applied) {
+    c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, payload.itemId));
+  }
+  return result;
+}
+
+/**
  * Whether an error raised while streaming changes is worth reporting.
  *
  * A browser closing its tab is how a stream ends, not a failure: the loop is
@@ -886,13 +923,13 @@ const routes = app
     return c.json(holdings, 200);
   })
   .openapi(healthRoute, async (c) => {
-    const { register, store, ai, failure } = await checkHealth(c.env);
+    const { register, store, ai, embeddings, failure } = await checkHealth(c.env);
     // The reason goes to the logs and not into the body: this endpoint answers
     // anyone at all, and why a change would not apply names tables and columns.
     if (failure) {
       console.error(JSON.stringify({ level: 'error', message: `unhealthy: ${failure}` }));
     }
-    return c.json({ ok: register && store, register, store, ai }, 200);
+    return c.json({ ok: register && store, register, store, ai, embeddings }, 200);
   })
   .openapi(workspacesRoute, async (c) => {
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -994,9 +1031,14 @@ const routes = app
     // already written and already carries its mechanical title, so the send
     // outlives the response rather than delaying it.
     if (result.applied) {
-      c.executionCtx.waitUntil(
-        enqueueCleanUp(c.env, c.get('visitor').accountName, captured.itemId),
-      );
+      const accountName = c.get('visitor').accountName;
+      c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, captured.itemId));
+      // The two texts this capture just wrote are what a duplicate is looked
+      // for against ("Flag a captured note that says what another one already
+      // said", issue 407) - so a note is compared against the Inbox as soon as
+      // it lands, whether or not this environment can also clean it up. Where
+      // it can, the cleanup's own rewrite queues a second read of its own.
+      c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, captured.itemId));
     }
     return c.json(result, 200);
   })
@@ -1037,9 +1079,11 @@ const routes = app
   .openapi(commandRoute('associate'), async (c) => c.json(await change(c, 'associate', c.req.valid('json')), 200))
   .openapi(commandRoute('set_next_action'), async (c) => c.json(await change(c, 'set_next_action', c.req.valid('json')), 200))
   .openapi(commandRoute('set_priority'), async (c) => c.json(await change(c, 'set_priority', c.req.valid('json')), 200))
-  .openapi(commandRoute('set_title'), async (c) => c.json(await change(c, 'set_title', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_title'), async (c) =>
+    c.json(await changeThatRewritesTheTexts(c, 'set_title', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_description'), async (c) =>
-    c.json(await change(c, 'set_description', c.req.valid('json')), 200),
+    c.json(await changeThatRewritesTheTexts(c, 'set_description', c.req.valid('json')), 200),
   )
   .openapi(commandRoute('set_routing_summary_correction'), async (c) =>
     c.json(await change(c, 'set_routing_summary_correction', c.req.valid('json')), 200),

@@ -29,6 +29,7 @@ export function ItemRow({
   onMoveHere,
   routingProposal,
   onAcceptRouting,
+  mayBeADuplicate,
   selecting,
 }: {
   item: Item;
@@ -108,6 +109,17 @@ export function ItemRow({
    * its order and are undone by the same bar.
    */
   onAcceptRouting?: (() => void) | undefined;
+  /**
+   * That this note may be saying what another one already said ("Flag a
+   * captured note that says what another one already said", issue 407) - and
+   * nothing about which, which waits until the form is opened, exactly as the
+   * readings mark above does.
+   *
+   * Worked out by the list rather than read off the Item: a pair is a fact
+   * about two Items, and whether it is offered depends on what is filed, which
+   * the row is not given.
+   */
+  mayBeADuplicate?: boolean | undefined;
   /**
    * Picking this row out to be acted on with others ("Select several items, and
    * file them all in one go", issue 169), and whether it is picked.
@@ -517,6 +529,21 @@ export function ItemRow({
                 role="img"
               >
                 ⁇
+              </span>
+            )}
+            {/* That this note may be saying what another one already said, and
+                nothing about which - the other note waits until the form is
+                opened, for the reason the readings mark above does: a row is a
+                row, and what it might be repeating is a link rather than a
+                word. */}
+            {mayBeADuplicate && (
+              <span
+                className="shrink-0 text-ink-faint"
+                title="Possible duplicate"
+                aria-label="Possible duplicate"
+                role="img"
+              >
+                ⧉
               </span>
             )}
           </span>

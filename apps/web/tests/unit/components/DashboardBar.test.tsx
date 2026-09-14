@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, Layout, Panel, ScreenSize, WorkspaceSnapshot } from '@cockpit/shared';
+import type {
+  Dashboard,
+  Layout,
+  Panel,
+  PossibleDuplicate,
+  ScreenSize,
+  WorkspaceSnapshot,
+} from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
@@ -21,6 +28,7 @@ const held = vi.hoisted(() => ({
   panels: [] as Panel[],
   layouts: [] as Layout[],
   screenSizes: [] as ScreenSize[],
+  duplicates: [] as PossibleDuplicate[],
   /**
    * Which dashboard the address names, so the stand-in `Link` below can mark
    * that tab the way the router marks it. Without it no tab is ever current
@@ -96,6 +104,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         associations: [],
         itemTypes: [],
         screenSizes: held.screenSizes,
+        duplicates: held.duplicates,
         filings: [],
         routingSummary: null,
         generatedAt: '2026-09-01T09:00:00.000Z',

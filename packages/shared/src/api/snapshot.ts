@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { possibleDuplicateSchema } from '../domain/duplicate.js';
 import {
   associationSchema,
   dashboardSchema,
@@ -44,6 +45,22 @@ export const workspaceSnapshotSchema = z.object({
    * filing summary, keep the sentence you wrote", issue 392).
    */
   routingSummary: routingSummarySchema.nullable().default(null),
+  /**
+   * Which of the Items above say the same thing as which ("Flag a captured
+   * note that says what another one already said", issue 407) - the pairs
+   * themselves, never the vectors behind them.
+   *
+   * **Only pairs both of whose Items are in `items` above.** The store leaves
+   * out everything a person could no longer act on and everything belonging to
+   * another Workspace, so a pair here always names two rows this snapshot
+   * already carries. Which of them are actually *marked* is a step further -
+   * a filed Item is nothing's duplicate yet (`possibleDuplicatesOf`,
+   * apps/web/src/duplicates.ts).
+   *
+   * Defaulted for the reason `screenSizes` above is: a stored copy taken
+   * before this field existed is an app with nothing flagged, not a broken one.
+   */
+  duplicates: z.array(possibleDuplicateSchema).default([]),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as
