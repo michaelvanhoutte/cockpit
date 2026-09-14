@@ -1840,3 +1840,123 @@ describe('Triage', () => {
     });
   });
 });
+
+describe('Panels', () => {
+  describe('a card shows the possible duplicate mark when paired with another filed item', () => {
+    const CARD_ONE = anItem('11111111-1111-7111-8111-000000000009', 'Filed note one');
+    const CARD_TWO = anItem('11111111-1111-7111-8111-000000000010', 'Filed note two');
+    const PANEL_ID = 'pn-focus';
+
+    it('marks both cards when both are filed on different panels', async () => {
+      const OTHER_PANEL = 'pn-other';
+      held.items = [CARD_ONE, CARD_TWO];
+      held.filings = [
+        { panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 },
+        { panelId: OTHER_PANEL, itemId: CARD_TWO.id, position: 0 },
+      ];
+      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
+      held.dashboards = [TODAY];
+      held.panels = [
+        aPanel(PANEL_ID, TODAY.id, 'Focus'),
+        aPanel(OTHER_PANEL, TODAY.id, 'Other'),
+      ];
+
+      const user = await showList({
+        items: [CARD_ONE],
+        panelId: PANEL_ID,
+      });
+
+      const theRow = screen.getByRole('listitem');
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Not a duplicate' })).toBeInTheDocument();
+    });
+
+    it('marks both cards when both are filed on the same panel', async () => {
+      held.items = [CARD_ONE, CARD_TWO];
+      held.filings = [
+        { panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 },
+        { panelId: PANEL_ID, itemId: CARD_TWO.id, position: 1 },
+      ];
+      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
+      held.dashboards = [TODAY];
+      held.panels = [aPanel(PANEL_ID, TODAY.id, 'Focus')];
+
+      const user = await showList({
+        items: [CARD_ONE],
+        panelId: PANEL_ID,
+      });
+
+      const theRow = screen.getByRole('listitem');
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Not a duplicate' })).toBeInTheDocument();
+    });
+
+    it('does not mark a card when its pair is in the inbox', async () => {
+      held.items = [CARD_ONE, CARD_TWO];
+      held.filings = [{ panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 }];
+      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
+      held.dashboards = [TODAY];
+      held.panels = [aPanel(PANEL_ID, TODAY.id, 'Focus')];
+
+      const user = await showList({
+        items: [CARD_ONE],
+        panelId: PANEL_ID,
+      });
+
+      const theRow = screen.getByRole('listitem');
+      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
+
+      expect(screen.queryByRole('menuitem', { name: 'Not a duplicate' })).toBeNull();
+    });
+
+    it('can settle a duplicate pair from a card, offering the way back', async () => {
+      held.items = [CARD_ONE, CARD_TWO];
+      held.filings = [
+        { panelId: PANEL_ID, itemId: CARD_ONE.id, position: 0 },
+        { panelId: PANEL_ID, itemId: CARD_TWO.id, position: 1 },
+      ];
+      held.duplicates = [{ itemId: CARD_ONE.id, otherItemId: CARD_TWO.id }];
+      held.dashboards = [TODAY];
+      held.panels = [aPanel(PANEL_ID, TODAY.id, 'Focus')];
+
+      const user = await showList({
+        items: [CARD_ONE, CARD_TWO],
+        panelId: PANEL_ID,
+      });
+
+      const rows = screen.getAllByRole('listitem');
+      const theCardRow = rows.find((li) => li.textContent?.includes('Filed note one'))!;
+      await user.click(within(theCardRow).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Not a duplicate' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: CARD_ONE.id,
+            otherItemId: CARD_TWO.id,
+            settled: true,
+          }),
+        }),
+      );
+
+      expect(await screen.findByRole('status')).toHaveTextContent('is not a duplicate');
+
+      held.send.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_duplicate_settled',
+          payload: expect.objectContaining({
+            itemId: CARD_ONE.id,
+            otherItemId: CARD_TWO.id,
+            settled: false,
+          }),
+        }),
+      );
+    });
+  });
+});

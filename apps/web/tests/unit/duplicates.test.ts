@@ -48,14 +48,15 @@ const THE_OTHER = anItem('item-other');
 const ITEMS = [ONE, THE_OTHER];
 const PAIRED: PossibleDuplicate[] = [{ itemId: ONE.id, otherItemId: THE_OTHER.id }];
 
-const filedOn = (itemId: string): Filing => ({ panelId: 'pn-1', itemId, position: 0 });
+function filedOn(itemId: string, panelId = 'pn-1'): Filing {
+  return { panelId, itemId, position: 0 };
+}
 
 describe('Triage', () => {
-  describe('until an item is filed its duplicates are everything else in the workspace, and a filed item is nothing’s duplicate yet', () => {
+  describe('until an item is filed its duplicates are everything else in the workspace, and a filed item is nothing\'s duplicate yet', () => {
     it.each([
       { situation: 'both are in the inbox', filings: [], marked: true },
       { situation: 'one of them is filed', filings: [filedOn(THE_OTHER.id)], marked: false },
-      { situation: 'both are filed', filings: [filedOn(ONE.id), filedOn(THE_OTHER.id)], marked: false },
     ])('$situation', ({ filings, marked }) => {
       const flagged = itemsThatMayBeDuplicates(ITEMS, filings, PAIRED);
       for (const item of ITEMS) {
@@ -94,6 +95,56 @@ describe('Triage', () => {
 
     it('offers nothing where nothing was paired', () => {
       expect(possibleDuplicatesOf(ONE.id, ITEMS, [], [])).toEqual([]);
+    });
+  });
+
+  describe('a filed item flags another filed item the same way an inbox item does', () => {
+    it.each([
+      {
+        situation: 'both filed on different panels',
+        filings: [filedOn(ONE.id, 'pn-1'), filedOn(THE_OTHER.id, 'pn-2')],
+        marked: true,
+      },
+      {
+        situation: 'both filed on the same panel',
+        filings: [filedOn(ONE.id, 'pn-1'), filedOn(THE_OTHER.id, 'pn-1')],
+        marked: true,
+      },
+      {
+        situation: 'one filed one in inbox',
+        filings: [filedOn(ONE.id)],
+        marked: false,
+      },
+    ])('$situation: pair marked $marked', ({ filings, marked }) => {
+      const flagged = itemsThatMayBeDuplicates(ITEMS, filings, PAIRED);
+      for (const item of ITEMS) {
+        expect(flagged.has(item.id)).toBe(marked);
+      }
+    });
+
+    it('returns the filed duplicates from possibleDuplicatesOf', () => {
+      const filings = [filedOn(ONE.id, 'pn-1'), filedOn(THE_OTHER.id, 'pn-2')];
+      expect(possibleDuplicatesOf(ONE.id, ITEMS, filings, PAIRED)).toEqual([THE_OTHER]);
+      expect(possibleDuplicatesOf(THE_OTHER.id, ITEMS, filings, PAIRED)).toEqual([ONE]);
+    });
+
+    it('names nothing when one filed item is paired with an inbox item', () => {
+      const filings = [filedOn(ONE.id, 'pn-1')];
+      expect(possibleDuplicatesOf(ONE.id, ITEMS, filings, PAIRED)).toEqual([]);
+      expect(possibleDuplicatesOf(THE_OTHER.id, ITEMS, filings, PAIRED)).toEqual([]);
+    });
+
+    it('brings back the mark when a filed item is moved back to the inbox', () => {
+      const filings = [filedOn(ONE.id, 'pn-1'), filedOn(THE_OTHER.id, 'pn-1')];
+      expect(itemsThatMayBeDuplicates(ITEMS, filings, PAIRED).has(ONE.id)).toBe(true);
+
+      // Move THE_OTHER back to inbox
+      expect(itemsThatMayBeDuplicates(ITEMS, [filedOn(ONE.id, 'pn-1')], PAIRED).has(ONE.id)).toBe(
+        false,
+      );
+
+      // Move ONE back to inbox
+      expect(itemsThatMayBeDuplicates(ITEMS, [], PAIRED).has(ONE.id)).toBe(true);
     });
   });
 });
