@@ -3,6 +3,7 @@ import { env, applyD1Migrations } from 'cloudflare:test';
 import type { CommandName, CommandPayload, PossibleDuplicate, ServerEvent } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
+  OTHER_ACCOUNT_NAME,
   OTHER_USER_ID,
   TASK_TYPE_ID,
   WORKSPACE_ID,
@@ -735,6 +736,118 @@ describe('Live updates', () => {
 });
 
 /**
+ * "Say a flagged pair is not a duplicate" (issue 408).
+ *
+ * L2 for the same reason `duplicate-notes.test.ts`'s own header comment gives:
+ * which pairs a settling reaches is a filter over a real store, and surviving
+ * a re-read is a property only a real recompute (`replaceDuplicatesOf`,
+ * accounts/repo.ts) can prove. The undo bar itself is F1
+ * (apps/web/tests/unit/undo.test.tsx) - nothing here is about the bar, only
+ * about what the command it sends does.
+ */
+describe('Settling', () => {
+  describe('a pair you have said is not a duplicate is never offered again', () => {
+    it('is gone from both Items the moment it is settled', async () => {
+      const [one, other] = await twoNotesSayingTheSameThing();
+
+      expect((await settle(one, other, true)).status).toBe(200);
+
+      expect(await duplicatesIn()).toEqual([]);
+    });
+
+    it('stays gone once either Item is re-read after an edit', async () => {
+      const [one, other] = await twoNotesSayingTheSameThing();
+      expect((await settle(one, other, true)).status).toBe(200);
+
+      const renamed = await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T11:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId: other,
+        title: THE_SAME_AGAIN,
+      });
+      expect(renamed.status).toBe(200);
+      await handleQueue(
+        batchOf({ kind: 'read-what-a-note-means', accountName: ACCOUNT_NAME, itemId: other }),
+        env,
+      );
+
+      // The re-read finds the same match again - `replaceDuplicatesOf` rewrote
+      // `item_duplicates` from scratch - but the settling was never in that
+      // table, so it is untouched and still excludes the pair from being drawn.
+      expect(await rowsIn('item_duplicates')).toEqual(storedAs([pair(one, other)]));
+      expect(await duplicatesIn()).toEqual([]);
+    });
+  });
+
+  describe('settling one pair says nothing about an item’s other duplicates', () => {
+    it('leaves a third item’s pair with either half offered', async () => {
+      const a = await captureANote(A_NOTE);
+      const b = await captureANote(THE_SAME_AGAIN);
+      const c = await captureANote('the audit trail question for novy, on part 11');
+      await untilTheWorkspaceShows([pair(a, b), pair(a, c), pair(b, c)]);
+
+      expect((await settle(a, b, true)).status).toBe(200);
+
+      const left = await duplicatesIn();
+      expect(left).toContainEqual(pair(a, c));
+      expect(left).toContainEqual(pair(b, c));
+      expect(left).not.toContainEqual(pair(a, b));
+    });
+  });
+
+  describe('the same settling sent twice settles one pair', () => {
+    it('writes one row whichever of the two the second command names first', async () => {
+      const [one, other] = await twoNotesSayingTheSameThing();
+
+      expect((await settle(one, other, true)).status).toBe(200);
+      // The pair the other way round, which is the same pair.
+      expect((await settle(other, one, true)).status).toBe(200);
+
+      expect(await rowsIn('duplicate_settlements')).toEqual(storedAs([pair(one, other)]));
+    });
+  });
+
+  describe('one account never settles another’s pair', () => {
+    it('finds no such item, and leaves the pair standing', async () => {
+      const [one, other] = await twoNotesSayingTheSameThing();
+
+      // Every query is scoped to the tenant it is asked of (accounts/repo.ts,
+      // `getItem`), so the other account's store answers this the same way
+      // it would answer for any id it has never seen: neither item is there.
+      const answer = await storeNamed(OTHER_ACCOUNT_NAME).applyChange(
+        OTHER_ACCOUNT_NAME,
+        'set_duplicate_settled',
+        {
+          commandId: nextId(),
+          issuedAt: '2026-09-09T11:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: one,
+          otherItemId: other,
+          settled: true,
+        },
+      );
+      expect(answer).toMatchObject({ status: 'missing' });
+
+      expect(await rowsIn('duplicate_settlements', OTHER_ACCOUNT_NAME)).toEqual([]);
+      expect(await duplicatesIn()).toEqual([pair(one, other)]);
+    });
+  });
+
+  describe('undoing a settling brings the pair back', () => {
+    it('is offered again once settled false is sent', async () => {
+      const [one, other] = await twoNotesSayingTheSameThing();
+      expect((await settle(one, other, true)).status).toBe(200);
+      expect(await duplicatesIn()).toEqual([]);
+
+      expect((await settle(one, other, false)).status).toBe(200);
+
+      expect(await duplicatesIn()).toEqual([pair(one, other)]);
+    });
+  });
+});
+
+/**
  * A model that proposes the same two texts for whatever note it is given -
  * faked at the network boundary, the way tests/integration/http/note-cleanup.test.ts
  * fakes it, because the case above is about what happens *after* a proposal
@@ -767,20 +880,38 @@ function theModelProposes(title: string): void {
 }
 
 /**
- * Rows of one of the two tables this work adds, read straight out of the
- * account's store - `reading` among them, because a note that has been emptied
- * keeps its place and says nothing rather than losing it.
+ * Rows of one of the three tables this work and "Say a flagged pair is not a
+ * duplicate" (issue 408) add, read straight out of the named account's store -
+ * `reading` among `item_meanings`' columns, because a note that has been
+ * emptied keeps its place and says nothing rather than losing it.
  */
-async function rowsIn(table: 'item_meanings' | 'item_duplicates'): Promise<unknown[]> {
-  return inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+async function rowsIn(
+  table: 'item_meanings' | 'item_duplicates' | 'duplicate_settlements',
+  accountName: string = ACCOUNT_NAME,
+): Promise<unknown[]> {
+  return inStoreAsItIs(accountName, (sql) =>
     sql
       .exec(
         table === 'item_meanings'
           ? 'SELECT item_id, reading FROM item_meanings ORDER BY item_id'
-          : 'SELECT item_id, other_item_id FROM item_duplicates ORDER BY item_id, other_item_id',
+          : table === 'item_duplicates'
+            ? 'SELECT item_id, other_item_id FROM item_duplicates ORDER BY item_id, other_item_id'
+            : 'SELECT item_id, other_item_id FROM duplicate_settlements ORDER BY item_id, other_item_id',
       )
       .toArray(),
   );
+}
+
+/** Settles, or unsettles, one pair as not a duplicate ("Say a flagged pair is not a duplicate", issue 408). */
+async function settle(itemId: string, otherItemId: string, settled: boolean) {
+  return postChange('set_duplicate_settled', {
+    commandId: nextId(),
+    issuedAt: '2026-09-09T11:00:00.000Z',
+    workspaceId: WORKSPACE_ID,
+    itemId,
+    otherItemId,
+    settled,
+  });
 }
 
 /** The pairs the store holds, in the shape `rowsIn` reads them back in. */

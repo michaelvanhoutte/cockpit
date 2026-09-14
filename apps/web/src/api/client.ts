@@ -298,6 +298,8 @@ const commandSenders = {
     api.v1.commands.set_description.$post({ json: p }),
   set_routing_summary_correction: (p: CommandPayload<'set_routing_summary_correction'>) =>
     api.v1.commands.set_routing_summary_correction.$post({ json: p }),
+  set_duplicate_settled: (p: CommandPayload<'set_duplicate_settled'>) =>
+    api.v1.commands.set_duplicate_settled.$post({ json: p }),
 } as const;
 
 /**

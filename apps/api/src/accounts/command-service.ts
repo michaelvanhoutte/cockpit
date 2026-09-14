@@ -41,7 +41,9 @@ import {
   listPlacements,
   listScreenSizes,
   listWorkspaces,
+  settleDuplicate,
 } from './repo.js';
+import { pairOf } from '../domain/duplicates.js';
 import {
   ACCOUNT_WIDE,
   DEFAULT_SCREEN_SIZE_NAME,
@@ -1719,6 +1721,26 @@ export function runCommand<N extends CommandName>(
             set: { correction, correctionSetAt: correction === null ? null : cmd.issuedAt },
           })
           .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_duplicate_settled': {
+      const cmd = payload as CommandPayload<'set_duplicate_settled'>;
+      // Both items, because a pair is a fact about two of them and either one
+      // may be the one this command was sent from (`ItemForm.tsx`'s "Not a
+      // duplicate" next to the *other* Item's link, the row's own menu about
+      // itself).
+      const one = getItem(db, tenantId, cmd.itemId);
+      const other = getItem(db, tenantId, cmd.otherItemId);
+      if (!one || !other) throw new ItemNotFoundError(!one ? cmd.itemId : cmd.otherItemId);
+      // A pair drawn in every Workspace either Item belongs to no Workspace
+      // yet is the same reach `associate` above answers for one Item - here
+      // for two, so either being undecided is enough.
+      if (!one.workspaceDecided || !other.workspaceDecided) everyWorkspaceSees(commandRow);
+
+      db.transaction((tx) => {
+        settleDuplicate(tx, tenantId, pairOf(cmd.itemId, cmd.otherItemId), cmd.settled, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
