@@ -128,13 +128,21 @@ const STOOD_SAMPLE_LIMIT = 10;
  * ("Learn how you write from the titles you correct", issue 394;
  * `docs/text-learning.md`, "The rules").
  *
- * **An Item counts only once it has been proposed to and acted on.** One
- * Cockpit never proposed for teaches nothing about a correction, and one
- * still sitting untouched in the Inbox has not been judged at all - both are
- * counted in neither direction.
+ * **An Item counts only once it has been proposed to and either acted on or
+ * corrected.** One Cockpit never proposed for teaches nothing, and one still
+ * sitting untouched in the Inbox has not been judged at all - both are
+ * counted in neither direction. A correction counts regardless of `actedOn`:
+ * editing a proposed text is itself the act of having looked at it, the same
+ * reasoning `actedOn`'s own filed-or-dismissed proxy rests on - without this,
+ * an Item corrected while still sitting unfiled would be listed in
+ * `renderCorrections` (`clean-up-a-note.v7.ts`, which reads every correction
+ * unconditionally) while being excluded from this ratio, reading as two
+ * sections that disagree about the same Item.
  */
 export function deriveWhatStood(items: readonly JudgeableItem[], correctedItemIds: ReadonlySet<string>): WhatStood {
-  const judged = items.filter((item) => item.textsProposedAt !== null && item.actedOn);
+  const judged = items.filter(
+    (item) => item.textsProposedAt !== null && (item.actedOn || correctedItemIds.has(item.id)),
+  );
   const stood = judged.filter((item) => !correctedItemIds.has(item.id));
   const sample = [...stood]
     .sort((a, b) => (a.textsProposedAt === b.textsProposedAt ? 0 : a.textsProposedAt! < b.textsProposedAt! ? 1 : -1))

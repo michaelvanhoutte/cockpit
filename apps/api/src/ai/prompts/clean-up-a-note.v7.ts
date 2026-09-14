@@ -343,18 +343,23 @@ function renderCorrections(corrections: readonly TextCorrectionEntry[]): string 
 }
 
 /**
- * How many proposed titles simply stood, beside how many were corrected, and
+ * How many proposed texts simply stood, beside how many were corrected, and
  * a bounded sample of the ones that stood - the weaker of the two kinds of
  * evidence `docs/text-learning.md` describes, present so a handful of
  * corrections is never mistaken for systematic failure ("What goes into the
  * prompt", "That ratio is the point of the fourth section").
+ *
+ * **"Texts", not "titles"**: a row counts as corrected the moment either the
+ * title or the description was edited (`correctedItemIds`, `store.ts`), so a
+ * line claiming "titles" specifically would overclaim for an account whose
+ * only edits were to descriptions.
  */
 function renderWhatStood(stood: WhatStood): string {
   if (stood.proposedTotal === 0) {
     return 'What stood: (nothing proposed and seen yet)';
   }
 
-  const ratio = `${stood.correctedTotal} of ${stood.proposedTotal} proposed titles were corrected; the rest stood unchanged.`;
+  const ratio = `${stood.correctedTotal} of ${stood.proposedTotal} proposed texts were corrected; the rest stood unchanged.`;
   if (stood.sample.length === 0) {
     return `What stood: ${ratio}`;
   }

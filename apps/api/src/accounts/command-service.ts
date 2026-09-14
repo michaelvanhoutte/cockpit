@@ -1771,22 +1771,37 @@ export function runCommand<N extends CommandName>(
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
           if (correction) {
-            // Upserted on the Item, not appended: the proposal is frozen at
-            // the first edit and only the settled half moves after that
-            // (`docs/text-learning.md`, "The proposal is frozen at your first
-            // edit; your side stays live") - the columns left out of `set`
-            // below are exactly the ones that must never move again.
-            tx.insert(textCorrections)
-              .values(correction)
-              .onConflictDoUpdate({
-                target: textCorrections.itemId,
-                set: {
+            if (existing.textsSettledAt === null) {
+              // The true first edit, and the only moment `existing.title`/
+              // `existing.description` are guaranteed to still be Cockpit's
+              // own proposal - so this is the only moment a row may be
+              // *created* from them (`docs/text-learning.md`, "The proposal
+              // is frozen at your first edit; your side stays live").
+              // `onConflictDoNothing` is a defensive no-op: nothing else can
+              // have written a row this early, since one is only ever
+              // created in this same branch.
+              tx.insert(textCorrections).values(correction).onConflictDoNothing().run();
+            } else {
+              // A later edit updates only the settled half of a row the true
+              // first edit already created - never inserts one. Without this
+              // split, an edit reachable only because an earlier one (e.g.
+              // clearing the title) settled the texts without itself
+              // recording anything would insert a row whose frozen
+              // `proposedTitle`/`proposedDescription` were read off values
+              // that had already drifted from what Cockpit actually
+              // proposed. A plain `UPDATE ... WHERE` simply touches nothing
+              // where the true first edit never created a row - which is the
+              // right outcome: a proposal this account can no longer verify
+              // is not one it should teach from.
+              tx.update(textCorrections)
+                .set({
                   settledTitle: correction.settledTitle,
                   settledDescription: correction.settledDescription,
                   updatedAt: correction.updatedAt,
-                },
-              })
-              .run();
+                })
+                .where(and(eq(textCorrections.tenantId, tenantId), eq(textCorrections.itemId, correction.itemId)))
+                .run();
+            }
           }
           tx.insert(commands).values(commandRow).run();
         });

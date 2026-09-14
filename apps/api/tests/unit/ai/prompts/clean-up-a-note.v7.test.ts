@@ -50,7 +50,7 @@ describe('Capture', () => {
 
       const system = systemFor([], stood);
 
-      expect(system).toContain('2 of 10 proposed titles were corrected');
+      expect(system).toContain('2 of 10 proposed texts were corrected');
       expect(system).toContain('A title that stood');
     });
   });

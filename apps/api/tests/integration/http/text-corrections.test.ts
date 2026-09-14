@@ -205,5 +205,26 @@ describe('Triage', () => {
 
       expect(await correctionsFor(itemId)).toHaveLength(1);
     });
+
+    /**
+     * Clearing the title is the true first edit, and settles both texts
+     * without recording anything (the case above). A later edit to either
+     * text is therefore not the first edit any more, and `existing.title` no
+     * longer reads as Cockpit's own proposal - it reads as the empty string
+     * the first edit left behind. Recording a row from it would freeze a
+     * proposal Cockpit never actually made ("title '' became '...'"), which
+     * is worse than recording nothing.
+     */
+    it('never creates a row from a later edit, once the true first edit cleared the title without recording one', async () => {
+      const itemId = await anItem('Reply to Bart');
+      await propose(itemId, 'Reply to Bart with the numbers', 'The message Cockpit wrote.');
+      expect((await setTitle(itemId, '')).status).toBe(200);
+
+      expect((await setDescription(itemId, 'A different message.', '2026-09-09T10:00:02.000Z')).status).toBe(200);
+      expect(await correctionsFor(itemId)).toHaveLength(0);
+
+      expect((await setTitle(itemId, 'Mail Bart the numbers', '2026-09-09T10:00:03.000Z')).status).toBe(200);
+      expect(await correctionsFor(itemId)).toHaveLength(0);
+    });
   });
 });

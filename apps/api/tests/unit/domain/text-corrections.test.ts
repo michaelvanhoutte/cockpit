@@ -94,6 +94,22 @@ describe('Capture', () => {
       expect(stood.correctedTotal).toBe(0);
     });
 
+    /**
+     * Editing a proposed text is itself the act of having looked at it, the
+     * same reasoning `actedOn`'s own filed-or-dismissed proxy rests on -
+     * without this, a correction on an Item still sitting unfiled would be
+     * excluded here while `renderCorrections` (the prompt) lists it anyway,
+     * reading as two sections that disagree about the same Item.
+     */
+    it('counts a corrected Item even though nothing else has acted on it', () => {
+      const items = [judgeable({ actedOn: false })];
+
+      const stood = deriveWhatStood(items, new Set(['item-1']));
+
+      expect(stood.proposedTotal).toBe(1);
+      expect(stood.correctedTotal).toBe(1);
+    });
+
     it('counts an Item whose texts were never proposed in neither direction', () => {
       const items = [judgeable({ textsProposedAt: null })];
 

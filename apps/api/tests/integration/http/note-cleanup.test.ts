@@ -1053,7 +1053,7 @@ describe('Triage', () => {
       await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0), { timeout: 15_000, interval: 50 });
 
       // Just the filed one counted, and it was never corrected.
-      expect(asked[0]!.system).toContain('0 of 1 proposed titles were corrected');
+      expect(asked[0]!.system).toContain('0 of 1 proposed texts were corrected');
     });
   });
 });
