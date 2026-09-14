@@ -39,6 +39,20 @@ const titleBox = (page: Page) => form(page).getByRole('textbox', { name: 'Title'
 const THE_SAME_THING = 'Ask Novy whether the part 11 audit trail covers our validation protocol';
 
 /**
+ * A pair of shared words nothing else in this file, this run or an earlier
+ * one shares - generated fresh rather than a fixed phrase, for the same
+ * reason `somethingElse` above is: this account accumulates across both
+ * projects and every earlier run of this same file, and a fixed phrase used
+ * by the settling walk below would flag a note against those leftovers too
+ * on the word-overlap the local stack reads meaning with
+ * (`EMBEDDINGS_STAND_IN`) - so the pair just settled would still read as
+ * flagged, against something the walk never touched.
+ */
+function aPairOfWordsNothingElseShares(): string {
+  return `Renew the ${crypto.randomUUID()} support contract for the ${crypto.randomUUID()} line`;
+}
+
+/**
  * A note with nothing in common with the pair above - and nothing in common
  * with the other project's copy of itself either, which is why almost every
  * word of it is a fresh tag.
@@ -88,6 +102,47 @@ test.describe('Triage', () => {
       // of address rather than something only this tab knows.
       await page.goBack();
       await expect(titleBox(page)).toHaveValue(one);
+    });
+  });
+});
+
+/**
+ * F3, because settling is a real click on a real menu entry against a real
+ * server, and an offer to undo it is a thing that appears, is pressed, and
+ * goes - the same reach `triage.test.ts`'s own undo walk names. What sends
+ * the command and what the store does with it are settled without a browser
+ * (`apps/web/tests/unit/components/ItemList.test.tsx`,
+ * `apps/api/tests/integration/http/duplicate-notes.test.ts`); what is only
+ * true here is that the mark actually leaves the row, and comes back.
+ */
+test.describe('Triage', () => {
+  test.describe('a flagged pair can be settled as not a duplicate', () => {
+    test('drops the mark from the row, and offers it back', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+      const sharedWords = aPairOfWordsNothingElseShares();
+      const one = uniqueTitle(sharedWords);
+      const again = uniqueTitle(sharedWords);
+      await capture(page, one, isMobile);
+      await capture(page, again, isMobile);
+
+      await expect(itemRow(page, one).getByLabel('Possible duplicate')).toBeVisible();
+      await expect(itemRow(page, again).getByLabel('Possible duplicate')).toBeVisible();
+
+      await press(itemRow(page, one).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Not a duplicate' }), isMobile);
+
+      await expect(itemRow(page, one).getByLabel('Possible duplicate')).toHaveCount(0);
+      // Both halves lose the mark - it is a fact about the pair, not about
+      // whichever row the settling was pressed from.
+      await expect(itemRow(page, again).getByLabel('Possible duplicate')).toHaveCount(0);
+
+      const offer = page.getByRole('status');
+      await expect(offer).toContainText('is not a duplicate');
+      await press(offer.getByRole('button', { name: 'Undo' }), isMobile);
+
+      await expect(itemRow(page, one).getByLabel('Possible duplicate')).toBeVisible();
+      await expect(itemRow(page, again).getByLabel('Possible duplicate')).toBeVisible();
+      await expect(offer).toHaveCount(0);
     });
   });
 });

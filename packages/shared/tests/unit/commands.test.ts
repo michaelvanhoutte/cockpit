@@ -4,6 +4,7 @@ import {
   captureItemSchema,
   moveItemToPanelSchema,
   proposeItemTextsSchema,
+  setDuplicateSettledSchema,
 } from '../../src/commands.js';
 
 describe('Capture', () => {
@@ -186,6 +187,42 @@ describe('Panels', () => {
       { situation: 'a move to the Inbox with no order', move: { ...envelope, panelId: null, order: [] } },
     ])('accepts $situation', ({ move }) => {
       expect(moveItemToPanelSchema.safeParse(move).success).toBe(true);
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('settling a pair as not a duplicate ("Say a flagged pair is not a duplicate", issue 408)', () => {
+    const envelope = {
+      commandId: uuidv7(),
+      issuedAt: '2026-09-09T10:00:00.000Z',
+      workspaceId: 'ws-work',
+    };
+    const item = uuidv7();
+    const other = uuidv7();
+
+    it('refuses a pair naming the same item twice', () => {
+      const settled = setDuplicateSettledSchema.safeParse({
+        ...envelope,
+        itemId: item,
+        otherItemId: item,
+        settled: true,
+      });
+
+      expect(settled.success).toBe(false);
+    });
+
+    it('accepts two different items, settled and taken back alike', () => {
+      for (const settled of [true, false]) {
+        expect(
+          setDuplicateSettledSchema.safeParse({
+            ...envelope,
+            itemId: item,
+            otherItemId: other,
+            settled,
+          }).success,
+        ).toBe(true);
+      }
     });
   });
 });

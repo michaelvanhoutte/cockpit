@@ -479,6 +479,30 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
 /**
+ * set_duplicate_settled — a flagged pair settled as not a duplicate, or that
+ * settling taken back ("Say a flagged pair is not a duplicate", issue 408;
+ * `docs/routing-learning.md`, "Cockpit may replace what it proposed and never
+ * what you settled" - the same rule, applied here to a pair instead of a
+ * filing).
+ *
+ * The two ids in whichever order they are sent - the pair is unordered, the
+ * same way `PossibleDuplicate` itself is (`domain/duplicate.ts`) - and a flag
+ * rather than a pair of commands each way, the same choice `set_dismissed`
+ * makes: undoing is sending this again with `settled: false`.
+ */
+export const setDuplicateSettledSchema = commandEnvelopeSchema
+  .extend({
+    itemId: z.uuid(),
+    otherItemId: z.uuid(),
+    settled: z.boolean(),
+  })
+  .refine((cmd) => cmd.itemId !== cmd.otherItemId, {
+    message: 'a pair needs two different items',
+    path: ['otherItemId'],
+  });
+export type SetDuplicateSettledCommand = z.infer<typeof setDuplicateSettledSchema>;
+
+/**
  * The command registry: name → payload schema. The API mounts one POST route
  * per entry; the client gets a typed sender per entry. Adding a command means
  * adding it here and writing its domain handler; no other wiring.
@@ -526,6 +550,7 @@ export const commandSchemas = {
   delete_pinned_example: deletePinnedExampleSchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
+  set_duplicate_settled: setDuplicateSettledSchema,
 } as const;
 
 export type CommandName = keyof typeof commandSchemas;

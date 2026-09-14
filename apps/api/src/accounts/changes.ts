@@ -96,9 +96,10 @@ export function accountChanges(accountId: string): readonly Change[] {
     TEXT_CORRECTIONS,
     ITEM_MEANINGS,
     ACCOUNT_TEXT_RULES,
-    PINNED_TEXT_EXAMPLES,
     firstWorkspace(accountId),
     guestDemoSeed(accountId),
+    DUPLICATE_SETTLEMENTS,
+    PINNED_TEXT_EXAMPLES,
   ];
 }
 
@@ -539,9 +540,77 @@ const ACCOUNT_TEXT_RULES: Change = {
 };
 
 /**
+ * A pair somebody has said is not a duplicate ("Say a flagged pair is not a
+ * duplicate", issue 408) - see `schema.ts` for what each column carries and
+ * why.
+ *
+ * **Numbered `0030`**, for the same reason `ACCOUNT_TEXT_RULES` above is
+ * `0029` rather than `0028`: that number was free when this change was
+ * written and taken by `ACCOUNT_TEXT_RULES` merging to `main` first.
+ *
+ * **A brand new table, created whole with its CHECKs**, the same shape
+ * `ITEM_MEANINGS` above uses and for the same reason: a table created here
+ * carries its CHECKs from the start, unlike a column added to `items` or to
+ * `item_duplicates`, which cannot be rebuilt while other tables point at them
+ * under RESTRICT.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It creates one table and writes to no existing row.
+ * - **Interrupted partway.** It cannot be: the statements and the record that
+ *   they ran commit together (up-to-date.ts), so a failure leaves neither the
+ *   table nor its indexes and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left nothing behind.
+ * - **Data the new rules reject.** None: the table starts empty, and nothing
+ *   sweeps a settling into it after the fact - it is only ever written by the
+ *   command that settles a pair, from this release forward.
+ * - **What each environment does.** The same thing: an account applies its
+ *   outstanding changes inside the first request that opens it, on a laptop,
+ *   in staging and in production alike.
+ * - **The windows it can be interrupted in.** Two, and both are safe because
+ *   this is additive. *Before it runs*, the code in front of it is the
+ *   previous release, which names neither the table nor the command. *After
+ *   it runs, with that release promoted back*, its reads name neither either
+ *   - so the worst a rollback costs is a settling nobody reads until the
+ *   release goes forward again.
+ */
+const DUPLICATE_SETTLEMENTS: Change = {
+  name: '0030-duplicate-settlements',
+  statements: [
+    {
+      sql: `CREATE TABLE \`duplicate_settlements\` (
+	\`tenant_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`other_item_id\` text NOT NULL,
+	\`settled_at\` text NOT NULL,
+	PRIMARY KEY(\`item_id\`, \`other_item_id\`),
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`other_item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "duplicate_settlements_is_one_unordered_pair" CHECK(item_id < other_item_id),
+	CONSTRAINT "duplicate_settlements_settled_at_is_timestamp" CHECK(settled_at IS NULL OR (datetime(settled_at) IS NOT NULL AND substr(settled_at, 11, 1) = 'T' AND substr(settled_at, -1) = 'Z' AND length(settled_at) >= 20 AND date(settled_at) = substr(settled_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `duplicate_settlements_tenant_item` ON `duplicate_settlements` (`tenant_id`,`item_id`)',
+    },
+    {
+      sql: 'CREATE INDEX `duplicate_settlements_tenant_other` ON `duplicate_settlements` (`tenant_id`,`other_item_id`)',
+    },
+  ],
+};
+
+/**
  * The account's own pinned examples of how a note should be written ("Pin
  * an example of how you want a note written", issue 397) - see `schema.ts`
  * for what each column carries and why.
+ *
+ * **Numbered `0031`, not `0030`**, for the same reason `ACCOUNT_TEXT_RULES`
+ * above is `0029` rather than `0028`: `0030` was free when this change was
+ * first written and taken by `DUPLICATE_SETTLEMENTS` above merging to
+ * `main` first.
  *
  * **A brand new table, created whole with its CHECKs**, the same shape
  * `TEXT_CORRECTIONS` and `ACCOUNT_TEXT_RULES` above use and for the same
@@ -565,7 +634,7 @@ const ACCOUNT_TEXT_RULES: Change = {
  *   applies its outstanding changes inside the first request that opens it.
  */
 const PINNED_TEXT_EXAMPLES: Change = {
-  name: '0030-pinned-text-examples',
+  name: '0031-pinned-text-examples',
   statements: [
     {
       sql: `CREATE TABLE \`pinned_text_examples\` (

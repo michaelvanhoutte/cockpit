@@ -310,6 +310,15 @@ const rowsFor: {
           VALUES (?, 'it-before', 'it-done-before', 0.99, ?)`,
     params: (name) => [name, AT],
   },
+  {
+    // The table `0029-duplicate-settlements` creates, filled for the reason
+    // every table above is. The same pair `item_duplicates` above names,
+    // which is the ordinary case: a settling is about a pair that was drawn.
+    table: 'duplicate_settlements',
+    sql: `INSERT INTO duplicate_settlements (tenant_id, item_id, other_item_id, settled_at)
+          VALUES (?, 'it-before', 'it-done-before', ?)`,
+    params: (name) => [name, AT],
+  },
 ];
 
 /**
