@@ -56,8 +56,14 @@
   // (`EMBEDDINGS_STAND_IN`, src/embeddings/index.ts) - the same trade
   // `OIDC_ISSUER` records for signing in against Google. The test runner keeps
   // this one and refuses to reach it (`remoteBindings: false`, vitest.config.ts).
+  //
+  // **`remote: true` is what that binding already was**, written out only to
+  // stop Wrangler warning about usage charges once per test file - fifty-eight
+  // lines of it on a run that never opens a connection at all. It says nothing
+  // a deploy reads.
   "ai": {
-    "binding": "AI"
+    "binding": "AI",
+    "remote": true
   },
 
   // No per-version preview URLs on either environment. Nothing here would get
@@ -194,9 +200,10 @@
       "name": "cockpit-staging",
       "preview_urls": false,
       // Repeated because `ai` is not inheritable, for the reason the block
-      // above gives.
+      // above gives, and `remote: true` with it for the reason given there.
       "ai": {
-        "binding": "AI"
+        "binding": "AI",
+        "remote": true
       },
       "durable_objects": {
         "bindings": [
