@@ -87,6 +87,9 @@ describe('Triage', () => {
       { situation: 'the same meaning in Dutch', marked: true },
       { situation: 'an unrelated note', marked: false },
     ])('$situation', ({ situation, marked }) => {
+      // Asked first, so a run with no credential is red on every case rather
+      // than passing the ones whose answer happens to be "no".
+      expect(howAlikeThey[situation], 'nothing was read').toBeTypeOf('number');
       expect(howAlikeThey[situation]! >= SAYS_THE_SAME_THING).toBe(marked);
     });
 
