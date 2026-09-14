@@ -37,7 +37,19 @@ const titleBox = (page: Page) => form(page).getByRole('textbox', { name: 'Title'
  * the same words reading as two different ones.
  */
 const THE_SAME_THING = 'Ask Novy whether the part 11 audit trail covers our validation protocol';
-const SOMETHING_ELSE = 'Buy milk and bread on my way home from work';
+
+/**
+ * A note with nothing in common with the pair above - and nothing in common
+ * with the other project's copy of itself either, which is why almost every
+ * word of it is a fresh tag.
+ *
+ * **The two projects share one account**, `desktop` running before `phone`
+ * against storage rebuilt once per run (scripts/e2e-stack.mjs). So a note that
+ * differs only in a short tag really is the same note twice by the time the
+ * second project captures it, and would be flagged - correctly, and fatally for
+ * a case asking that it is not.
+ */
+const somethingElse = () => `Shopping list for ${crypto.randomUUID()} and ${crypto.randomUUID()}`;
 
 test.describe('Triage', () => {
   test.describe('going from a flagged note to the one it repeats, and back', () => {
@@ -48,7 +60,7 @@ test.describe('Triage', () => {
       await openInbox(page, isMobile);
       const one = uniqueTitle(THE_SAME_THING);
       const again = uniqueTitle(THE_SAME_THING);
-      const unrelated = uniqueTitle(SOMETHING_ELSE);
+      const unrelated = somethingElse();
       await capture(page, one, isMobile);
       await capture(page, again, isMobile);
       await capture(page, unrelated, isMobile);

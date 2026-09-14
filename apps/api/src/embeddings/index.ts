@@ -76,16 +76,14 @@ const embeddingAnswerSchema = z.object({
 
 /** The Workers AI implementation. Constructed by `embeddingsFor` and nowhere else. */
 export class WorkersAiEmbeddingService implements EmbeddingService {
-  readonly #ai: Env['AI'];
+  readonly #ai: NonNullable<Env['AI']>;
 
   constructor(ai: NonNullable<Env['AI']>) {
     this.#ai = ai;
   }
 
   async readMeaning(text: string): Promise<number[]> {
-    const answer = await (
-      this.#ai as unknown as { run: (model: string, input: unknown) => Promise<unknown> }
-    ).run(EMBEDDING_MODEL, { text: [text] });
+    const answer = await this.#ai.run(EMBEDDING_MODEL, { text: [text] });
     const read = embeddingAnswerSchema.safeParse(answer);
     if (!read.success) {
       throw new Error(`${EMBEDDING_MODEL} answered with something that is not a reading`);

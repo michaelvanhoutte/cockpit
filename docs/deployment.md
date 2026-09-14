@@ -88,7 +88,12 @@ no commitlint hook to install and nothing for an agent to get wrong.
 | **staging** | every commit on `main` | `cockpit-staging` | `cockpit-staging` | yes | `cockpit-staging.vanhoutte-michael.workers.dev` |
 
 There is no third environment for the application; branches are deployed nowhere,
-per "No branch environments" (§4).
+per "No branch environments" (§4). A Wrangler environment named `local` does
+exist in `apps/api/wrangler.jsonc` and is deployed nowhere either: it is what
+`pnpm dev` and the browser suite run, and its only difference is that it has no
+Workers AI binding — which has no local simulator, so a local run that declared
+one would need a Cloudflare account to start at all ("Flag a captured note that
+says what another one already said", issue 407).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
 part of the app: it is where CI publishes the two reports from `main` — the test
 explorer at the root (`tools/test-explorer/README.md`) and the CI stability page at

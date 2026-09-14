@@ -247,8 +247,12 @@
     // contract tier's to exercise.
     //
     // Everything below is repeated because it is not inheritable, and is the
-    // top level's own - the same database, the same queue and the same Durable
-    // Object class a local run has always used, so no local storage moves.
+    // top level's own - the same database and the same queue. What does move is
+    // an account's own store: Wrangler keeps one per Worker *name*, so a local
+    // run after this lands opens an account that starts as a new one (readme,
+    // "Resetting local data"). The register is untouched, and the browser suite
+    // rebuilds its whole state directory every run either way.
+    //
     // `vars` is empty rather than copied: both scripts pass every one of them
     // as `--var`, and a copy here would be a second place for them to drift.
     "local": {
