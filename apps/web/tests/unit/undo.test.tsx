@@ -93,6 +93,22 @@ describe('Triage', () => {
       expect(bar()).toBeNull();
     });
 
+    /**
+     * The bar is mounted above the router, so a change offered from inside a
+     * Radix `Dialog` ("Say a flagged pair is not a duplicate", issue 408) is
+     * offered from outside it - and a Radix `Dialog` sets `pointer-events:
+     * none` on the page while it is open, which every descendant inherits
+     * unless it says otherwise. Without `pointer-events-auto` here, the bar
+     * is drawn and its text is read, but a click on Undo does nothing at all.
+     */
+    it('stays clickable under a page-wide pointer-events lock', async () => {
+      show([{ label: 'Dismiss', what: 'x', undo: () => Promise.resolve() }]);
+      await press('Dismiss');
+
+      expect(bar()).toHaveClass('pointer-events-auto');
+      expect(screen.getByRole('button', { name: 'Undo' })).toHaveClass('pointer-events-auto');
+    });
+
     it.each([
       { situation: 'after it has been taken', take: true },
       { situation: 'after a second change replaces it', take: false },
