@@ -12,6 +12,7 @@ import {
   openDashboard,
   press,
   signIn,
+  tapRow,
   test,
   uniqueTitle,
 } from './support/app';
@@ -20,21 +21,25 @@ import {
  * F3: the walk that says picking several rows out of the Inbox and filing them
  * together works for a person ("Select several items, and file them all in one
  * go", issue 169; "Start a selection with a long press, so a phone can do it
- * too", issue 170).
+ * too", issue 170; "Pick a row by ctrl/shift-click instead of aiming for a
+ * checkbox, and suspend single-row actions while a selection is held", issue
+ * 438).
  *
- * What a click on a tick means is proved in apps/web/tests/unit/selection.test.ts,
- * what counts as holding still in apps/web/tests/unit/hold.test.ts, the orders a
- * filing of several carries in apps/web/tests/unit/filing.test.ts, and what
- * choosing a panel sends in apps/web/tests/unit/components/ItemList.test.tsx.
- * **What is only true in a browser is the tick appearing at all** - it is
- * revealed by CSS, and jsdom has no hover - and that three rows really do leave
- * one list and arrive on another together.
+ * What a click on a row *means* is proved in
+ * apps/web/tests/unit/components/ItemRow.test.tsx, which rows a shift-click's
+ * span covers is apps/web/tests/unit/selection.test.ts's, what counts as
+ * holding still is apps/web/tests/unit/hold.test.ts's, the orders a filing of
+ * several carries is apps/web/tests/unit/filing.test.ts's, and what choosing a
+ * panel sends is apps/web/tests/unit/components/ItemList.test.tsx's. **What is
+ * only true in a browser** is that a real ctrl/cmd- or shift-click on a real
+ * row reaches the row as the modifier it is, that a real touch reaches it as a
+ * `touch` pointer, and that three rows really do leave one list and arrive on
+ * another together.
  *
- * **Both projects, by different doors.** A tick is revealed by hovering, which
- * a finger cannot do, so a phone starts a selection by resting on a row
- * instead. From the first row on the two are the same gesture: every row shows
- * its tick and the rest are taps. The range stays desktop-only, because a
- * shift-click is not something a phone can make.
+ * **Both projects, by different doors.** From the first row on the two are the
+ * same gesture: a long press starts a selection on either, and every later
+ * pick is a ctrl/cmd-click on desktop or a tap on a phone. The range stays
+ * desktop-only, because a shift-click is not something a phone can make.
  */
 
 /** An empty dashboard of this walk's own, with one panel on it. */
@@ -72,26 +77,35 @@ async function goToTheDashboard(page: Page, dashboard: string, isMobile: boolean
   await expect(page.getByRole('heading', { name: dashboard, level: 2 })).toBeVisible();
 }
 
-/** The tick at the head of a row, which is what picks it out. */
-function tickOn(page: Page, title: string) {
-  return itemRow(page, title).getByRole('checkbox');
-}
-
 /**
  * The first row picked, by whichever door this device has: a finger rests on
- * the row, a pointer hovers it and clicks the tick that appears.
+ * the row to start a selection, a pointer ctrl/cmd-clicks it - from anywhere on
+ * the row, since the checkbox that used to carry this is gone.
  */
 async function startSelecting(page: Page, title: string, isMobile: boolean): Promise<void> {
   if (isMobile) {
     await holdRow(page, title);
     return;
   }
-  await itemRow(page, title).hover();
-  // Asserted here rather than left to the click: Playwright only needs the tick
-  // to be reachable, so a tick that stayed invisible would still be clicked and
-  // the walk would pass while nobody could see what they were aiming at.
-  await expect(tickOn(page, title)).toHaveCSS('opacity', '1');
-  await tickOn(page, title).click();
+  await itemRow(page, title).click({ modifiers: ['ControlOrMeta'] });
+}
+
+/**
+ * A later row added to a selection already held: a tap on a phone, which is
+ * what it has instead of a ctrl/cmd-click; a ctrl/cmd-click on a pointer,
+ * unless `withShift` reaches back across the rows between.
+ */
+async function addToSelection(
+  page: Page,
+  title: string,
+  isMobile: boolean,
+  withShift = false,
+): Promise<void> {
+  if (isMobile) {
+    await tapRow(page, title);
+    return;
+  }
+  await itemRow(page, title).click({ modifiers: withShift ? ['Shift'] : ['ControlOrMeta'] });
 }
 
 test.describe('Selection', () => {
@@ -107,25 +121,14 @@ test.describe('Selection', () => {
       await goToTheInbox(page, isMobile);
       for (const title of [first, second, third]) await capture(page, title, isMobile);
 
-      // **The half that only exists in a browser.** At rest the tick is there
-      // to be reached by Tab and invisible; what brings it out is hovering the
-      // row - the whole reason the column is not a column of ticks - and on a
-      // phone, where nothing hovers, resting on the row instead.
-      await expect(tickOn(page, first)).toHaveCSS('opacity', '0');
-      // And out of the way of anything aimed at the row. A tick nobody can see
-      // still catches what lands on it, which was eating the start of a swipe
-      // in the leading pixels of every row - which is the very gesture a finger
-      // uses to reach this feature at all.
-      await expect(tickOn(page, first)).toHaveCSS('pointer-events', 'none');
       await startSelecting(page, first, isMobile);
-      await expect(tickOn(page, first)).toBeChecked();
+      await expect(inbox(page).getByText('1 selected')).toBeVisible();
 
-      // Once one row is picked, every row shows its tick untouched.
-      await expect(tickOn(page, third)).toHaveCSS('opacity', '1');
       // A range is a shift-click, which a phone cannot make; there, each row is
       // one more tap.
-      if (isMobile) await tickOn(page, second).click();
-      await tickOn(page, third).click(isMobile ? {} : { modifiers: ['Shift'] });
+      await addToSelection(page, second, isMobile);
+      await expect(inbox(page).getByText('2 selected')).toBeVisible();
+      await addToSelection(page, third, isMobile, true);
       await expect(inbox(page).getByText('3 selected')).toBeVisible();
 
       await page.getByRole('button', { name: 'Move to…' }).click();
@@ -170,7 +173,7 @@ test.describe('Selection', () => {
       for (const title of titles) await capture(page, title, isMobile);
 
       await startSelecting(page, titles[0]!, isMobile);
-      await tickOn(page, titles[1]!).click();
+      await addToSelection(page, titles[1]!, isMobile);
       await page.getByRole('button', { name: 'Move to…' }).click();
       const picker = page.getByRole('dialog');
       await picker.getByRole('button', { name: panel, exact: true }).click();
@@ -178,11 +181,65 @@ test.describe('Selection', () => {
 
       const onThePanel = page.getByRole('region', { name: panel });
       await expect(onThePanel.getByText(titles[0]!)).toBeVisible();
-      await onThePanel.getByText(titles[0]!).hover();
-      await onThePanel.getByRole('checkbox').first().click();
+      await startSelecting(page, titles[0]!, false);
 
       await expect(onThePanel.getByText('1 selected')).toBeInViewport();
       await expect(onThePanel.getByRole('button', { name: 'Move to…' })).toBeInViewport();
+    });
+  });
+
+  test.describe('a selection suspends what a row would otherwise do on its own', () => {
+    // Desktop only: the case is a plain click on a mouse specifically, which is
+    // what ending a selection is - a phone has no such click, a tap while
+    // selecting extends it instead, already proved above.
+    test('a plain click while a selection is held clears it and opens that row', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'a plain click ending a selection is a mouse-only gesture');
+
+      const first = uniqueTitle('Reply to Bart');
+      const second = uniqueTitle('Renew the domain');
+      await signIn(page, ADA, isMobile);
+      await goToTheInbox(page, isMobile);
+      for (const title of [first, second]) await capture(page, title, isMobile);
+
+      await startSelecting(page, first, isMobile);
+      await expect(inbox(page).getByText('1 selected')).toBeVisible();
+
+      await itemRow(page, second).click();
+
+      await expect(inbox(page).getByText('1 selected')).toHaveCount(0);
+      await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Title' })).toHaveValue(
+        second,
+      );
+    });
+
+    test('a picked row’s own menu does not open while a selection is held', async ({
+      page,
+      isMobile,
+    }) => {
+      const title = uniqueTitle('Reply to Bart');
+      await signIn(page, ADA, isMobile);
+      await goToTheInbox(page, isMobile);
+      await capture(page, title, isMobile);
+
+      await startSelecting(page, title, isMobile);
+      await expect(inbox(page).getByText('1 selected')).toBeVisible();
+
+      const menu = itemRow(page, title).getByRole('button', { name: 'Item actions' });
+      await expect(menu).toBeDisabled();
+      // Pressed, not merely found disabled: a disabled button can still be
+      // pressed in a browser, and what matters is that pressing it opens
+      // nothing, not that the attribute is there (found in review - this
+      // assertion passed even before the press was added, since nothing had
+      // opened a menu for it to find). `force` because it is `aria-disabled`
+      // rather than natively `disabled` - reachable on purpose, so Playwright's
+      // own actionability check refuses the press unless told the control is
+      // meant to be pressed anyway.
+      if (isMobile) await menu.tap({ force: true });
+      else await menu.click({ force: true });
+      await expect(page.getByRole('menuitem', { name: 'Mark done' })).toHaveCount(0);
     });
   });
 });

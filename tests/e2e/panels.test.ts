@@ -844,13 +844,12 @@ test.describe('Panels', () => {
       // item leaves its own Undo bar up at the foot of the screen
       // (`undo.tsx`), and eight of them in a row never leaves a moment for it
       // to clear before the next item's own row needs clicking - one filing
-      // of all eight leaves one bar, once, after everything has landed. The
-      // Inbox shows its ties on hover; the whole point of this feature is
-      // that this device can hover.
-      const tick = (title: string) => itemRow(page, title).getByRole('checkbox');
-      await itemRow(page, items[0]!).hover();
-      await tick(items[0]!).click();
-      await tick(items[items.length - 1]!).click({ modifiers: ['Shift'] });
+      // of all eight leaves one bar, once, after everything has landed. A
+      // ctrl-click starts it and a shift-click reaches the rest ("Pick a row
+      // by ctrl/shift-click instead of aiming for a checkbox, and suspend
+      // single-row actions while a selection is held", issue 438).
+      await itemRow(page, items[0]!).click({ modifiers: ['ControlOrMeta'] });
+      await itemRow(page, items[items.length - 1]!).click({ modifiers: ['Shift'] });
       await page.getByRole('button', { name: 'Move to…' }).click();
       const picker = page.getByRole('dialog');
       await expect(picker).toBeVisible();
