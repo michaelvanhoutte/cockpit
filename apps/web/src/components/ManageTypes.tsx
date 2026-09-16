@@ -10,7 +10,7 @@ import {
   useSendCommand,
   workspacesQuery,
 } from '../api/queries';
-import { movedBy, movedTo } from '../reorder';
+import { movedTo } from '../reorder';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
@@ -396,10 +396,9 @@ export function ManageTypes({
               }`}
             >
               <div className="flex items-center gap-3">
-                {/* The grip, and deliberately not a button, for the reason the
-                    workspaces page states: a drag is a pointer gesture with no
-                    keyboard behaviour to offer, and Move up and Move down in
-                    the menu are what a keyboard and a phone get instead. */}
+                {/* The grip, and deliberately not a button: a drag is a
+                    pointer gesture, so it draws as one rather than as a
+                    control. */}
                 <span
                   aria-hidden="true"
                   title={`Drag to reorder ${type.name}`}
@@ -432,19 +431,6 @@ export function ManageTypes({
                     {
                       label: 'Edit…',
                       onSelect: (openedFrom) => startEditing(type, openedFrom),
-                    },
-                    {
-                      label: 'Move up',
-                      keepsFocus: true,
-                      unavailable: index === 0 ? 'It is already the first' : undefined,
-                      onSelect: () => move(type.id, movedBy(order, type.id, -1)),
-                    },
-                    {
-                      label: 'Move down',
-                      keepsFocus: true,
-                      unavailable:
-                        index === shown.length - 1 ? 'It is already the last' : undefined,
-                      onSelect: () => move(type.id, movedBy(order, type.id, 1)),
                     },
                     {
                       label: 'Delete',

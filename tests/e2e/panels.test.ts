@@ -208,8 +208,8 @@ async function expectLayouts(page: Page, made: number, isMobile: boolean): Promi
 }
 
 test.describe('Panels', () => {
-  test.describe('a panel you add is one you can rename, move and delete on the dashboard itself', () => {
-    test('puts it on the dashboard and keeps it there through all three', async ({
+  test.describe('a panel you add is one you can rename and delete on the dashboard itself', () => {
+    test('puts it on the dashboard and keeps it there through both', async ({
       page,
       isMobile,
     }) => {
@@ -231,23 +231,6 @@ test.describe('Panels', () => {
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('region', { name: renamed })).toBeVisible();
 
-      // Moving, by the entry the screen makes true: the panels are side by side
-      // on a laptop and stacked on a phone, so the direction is named for what
-      // the person is actually looking at.
-      // Waited on the server's answer as well as on the board, which is the
-      // difference between a walk that acts on what the app has drawn and one
-      // that acts on what it has kept: the move sends a layout, the board
-      // redraws when the answer lands, and a redraw that arrives between
-      // opening the next menu and pressing an entry in it takes the menu with
-      // it. That is what failed this walk under load in CI while the same
-      // commit passed beside it.
-      const moved = answerTo(page, 'save_layout');
-      await choosePanelAction(page, reading, isMobile ? 'Move up' : 'Move left', isMobile);
-      expect((await moved).status()).toBe(200);
-      await expect
-        .poll(() => panelsOnScreen(page))
-        .toEqual([reading, renamed]);
-
       await choosePanelAction(page, reading, 'Delete', isMobile);
       await expect(
         page.getByText(`Delete ${reading}? It goes from every layout of this dashboard.`),
@@ -264,6 +247,10 @@ test.describe('Panels', () => {
       page,
       isMobile,
     }) => {
+      // Desktop only: arranging a dashboard is a pointer gesture, and this
+      // walk needs a real change in the arrangement to prove a layout is
+      // per-screen rather than shared - there is no other way to make one.
+      test.skip(isMobile, 'arranging a dashboard is a pointer gesture');
       await ownDashboard(page, isMobile);
       const first = uniqueTitle('Project Falcon');
       const second = uniqueTitle('To read');
@@ -274,12 +261,15 @@ test.describe('Panels', () => {
 
       // Arranged on the screen it is on now, which stores the dashboard's
       // first layout and names it for that screen. Nothing is asked.
-      //
-      // The *second* panel, because what a move is called now depends on the
-      // panel's own row rather than on the screen: this one shares a row on a
-      // desktop, where the board fits two across, so it has somewhere to go
-      // left. On a phone every row holds one and every move is up or down.
-      await choosePanelAction(page, second, isMobile ? 'Move up' : 'Move left', isMobile);
+      const moved = answerTo(page, 'save_layout');
+      const firstBox = (await page.getByRole('region', { name: first }).boundingBox())!;
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: second }).locator('header'))),
+      );
+      await page.mouse.down();
+      await page.mouse.move(firstBox.x + 4, firstBox.y + firstBox.height / 2, { steps: 8 });
+      await page.mouse.up();
+      expect((await moved).status()).toBe(200);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
       // Waited for by name rather than by a pause: the layout is what the next
       // half of this walk changes *from*, and pressing again before it landed
@@ -316,15 +306,21 @@ test.describe('Panels', () => {
       await expect(layoutControl(page)).toHaveText(new RegExp(named));
 
       // Two layouts now, one per screen, and a change made here goes into the
-      // one on screen without asking.
-      //
-      // *Move up* on both projects, and not because of the screen: what a move
-      // is called follows the panel's own row now, and this panel has a row to
-      // itself in either arrangement - the desktop put two on the first line
-      // and this one on the second, the phone put every panel on a line of its
-      // own. A screen-width guess is what this used to make, and a wider screen
-      // does not turn a row of one into a row of two.
-      await choosePanelAction(page, third, 'Move up', isMobile);
+      // one on screen without asking - moving the third panel onto a line of
+      // its own ahead of the other two.
+      const movedAgain = answerTo(page, 'save_layout');
+      const topSeam = page.locator('main [data-testid="row-seam"]').first();
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: third }).locator('header'))),
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: second }).locator('header'))),
+        { steps: 4 },
+      );
+      await page.mouse.move(...(await centreOf(topSeam)), { steps: 4 });
+      await page.mouse.up();
+      expect((await movedAgain).status()).toBe(200);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
       await expectLayouts(page, 2, isMobile);
       await expectNoSidewaysScroll(page);
@@ -436,8 +432,13 @@ test.describe('Panels', () => {
 
       // Recorded as this screen's layout, so narrowing squeezes it rather than
       // arranging the panels afresh for the screen they are now on - which is
-      // how a panel ends up narrower than any screen would have made it.
-      await choosePanelAction(page, reading, 'Move left', isMobile);
+      // how a panel ends up narrower than any screen would have made it. Named
+      // by hand rather than arranged, since nothing here cares what the layout
+      // holds - only that one exists for this screen.
+      await press(layoutControl(page), isMobile);
+      await press(page.getByRole('menuitem', { name: 'New screen size…' }), isMobile);
+      await page.getByLabel('Name of the new screen size').fill(uniqueTitle('Wide'));
+      await page.getByLabel('Name of the new screen size').press('Enter');
       await expectLayouts(page, 1, isMobile);
 
       await page.setViewportSize({ width: 420, height: 800 });

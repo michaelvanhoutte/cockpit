@@ -17,12 +17,9 @@ import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThing
  * it does not have yet ("Panel configuration: connections and free-text
  * description", issue 35).
  *
- * **Moving is in the menu as well as under the pointer.** Dragging the header
- * onto another panel joins that panel's row, and into the gap between two rows
- * takes a row of its own; that gesture exists for neither a keyboard nor a
- * phone - the browser's own drag-and-drop is a mouse protocol - so the panel's
- * own menu carries the same path a step at a time, which is also what makes it
- * provable below the browser tier. **A panel has no size of its own**: it fills
+ * **Moving is under the pointer.** Dragging the header onto another panel
+ * joins that panel's row, and into the gap between two rows takes a row of
+ * its own. **A panel has no size of its own**: it fills
  * its share of its row, and the row is what carries a height - so both are set
  * by dragging the lines the *row* is drawn with, and neither is a control on
  * the panel (`PanelBoard`, `RowSeam` and `ColumnLine`).
@@ -44,16 +41,6 @@ export interface PanelCardProps {
   workspaceId: string;
   /** What is filed on this panel, in order. */
   items: readonly Item[];
-  /** "Move left" while it shares its row, "Move up" while it has the row to itself. */
-  sideBySide: boolean;
-  /**
-   * Whether there is anywhere left to move it, which with rows is not a
-   * question about its place in one: a panel at the end of its row still has
-   * somewhere to go - a line of its own below it - so the only panel with
-   * nowhere left is the first cell of the first row, or the last of the last.
-   */
-  first: boolean;
-  last: boolean;
   /** True while this panel is the one being renamed, which happens in its own header. */
   renaming: string | null;
   onRenamingChange: (name: string) => void;
@@ -61,7 +48,6 @@ export interface PanelCardProps {
   onRename: () => void;
   onStopRenaming: () => void;
   onDelete: (openedFrom: HTMLElement | null) => void;
-  onMove: (places: number) => void;
   /**
    * Lock a panel of text's prose, or hand it back. Never called for a panel of
    * items, which is not offered the choice.
@@ -105,16 +91,12 @@ export function PanelCard({
   workspaceId,
   items,
   nothingFiledYet,
-  sideBySide,
-  first,
-  last,
   renaming,
   onRenamingChange,
   onStartRenaming,
   onRename,
   onStopRenaming,
   onDelete,
-  onMove,
   onReadOnlyChange,
   onFormatChange,
   lifted,
@@ -203,7 +185,6 @@ export function PanelCard({
                       },
                     ]
                   : []),
-                ...movesFor({ first, last, sideBySide }, onMove),
                 { label: 'Delete', destructive: true, onSelect: onDelete },
               ]
         }
@@ -239,7 +220,7 @@ export function PanelCard({
             // **And only for a press that really landed in this header.** A
             // chosen menu entry is drawn in a portal on the body, but a React
             // event bubbles through the component tree rather than the DOM
-            // one - so choosing Move left arrives here, nowhere near the
+            // one - so choosing Delete arrives here, nowhere near the
             // header, and the `preventDefault` below took the press away from
             // the menu. The menu then sat open over a modal overlay with
             // nothing else on the page reachable. `contains` is what tells
@@ -432,46 +413,4 @@ export function PanelCard({
 
     </section>
   );
-}
-
-/**
- * Moving, in the words the screen makes true. Panels flow left to right and
- * wrap, so on a screen only one panel wide they are stacked and "Move left"
- * would name a direction nothing goes in.
- *
- * The ends are said out loud rather than silently doing nothing: an entry that
- * can be chosen and changes nothing is indistinguishable from one that is
- * broken. It also keeps a no-op out of the board, where a change that moves
- * nothing would still record a layout for this screen out of a gesture that
- * did not arrange anything.
- *
- * `keepsFocus`, because these open nothing and are the entries most likely to
- * be chosen several times in a row - dropping the focus to the top of the page
- * between two presses of "Move left" is losing your place in the dashboard.
- */
-function movesFor(
-  where: { first: boolean; last: boolean; sideBySide: boolean },
-  onMove: (places: number) => void,
-) {
-  return [
-    {
-      label: where.sideBySide ? 'Move left' : 'Move up',
-      places: -1,
-      unavailable: where.first
-        ? `This panel is already ${where.sideBySide ? 'first' : 'at the top'}`
-        : undefined,
-    },
-    {
-      label: where.sideBySide ? 'Move right' : 'Move down',
-      places: 1,
-      unavailable: where.last
-        ? `This panel is already ${where.sideBySide ? 'last' : 'at the bottom'}`
-        : undefined,
-    },
-  ].map(({ label, places, unavailable }) => ({
-    label,
-    unavailable,
-    keepsFocus: true,
-    onSelect: () => onMove(places),
-  }));
 }

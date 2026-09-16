@@ -34,7 +34,6 @@ export function ItemRow({
   itemType,
   workspaceId,
   onMoveTo,
-  ordering,
   onAddTo,
   onOpen,
   onRemoveFromHere,
@@ -65,16 +64,6 @@ export function ItemRow({
    * because one dialog per row would be a dozen dialogs in an Inbox of a dozen.
    */
   onMoveTo?: (openedFrom: HTMLElement | null) => void;
-  /**
-   * Where this row sits in a list that has an order, and how to move it a step
-   * ("Drag an item into a panel, and drop it where you want it", issue 141).
-   *
-   * Absent in the Inbox, which is by age and has no order to change. Present
-   * on a panel, where it is what a keyboard and a phone have instead of the
-   * drag - the Ordering rule the Glossary binds: dragging one and moving it a
-   * step from its own menu are the same move.
-   */
-  ordering?: { at: number; of: number; onMove: (places: number) => void };
   /**
    * Asked to show this item on a second panel as well, and to stop showing it
    * on this one ("Ask whether to move an item to a panel or add it to one",
@@ -420,9 +409,7 @@ export function ItemRow({
       //
       // *Inside this row at all*: the menu's entries are drawn in a portal on
       // the body, so a double press on one reaches this handler while sitting
-      // nowhere near the `li` in the DOM. `contains` is what tells them apart -
-      // and it is not hypothetical, because an unavailable **Move up** keeps
-      // the menu open under the second press (`MoveAStep`).
+      // nowhere near the `li` in the DOM. `contains` is what tells them apart.
       //
       // *And not on a control of the row's own*: the menu's three dots is a
       // button inside the `li`, so containment alone would let a double press
@@ -711,22 +698,6 @@ export function ItemRow({
                 Remove from this panel
               </DropdownMenu.Item>
             )}
-            {ordering && (
-              <>
-                <MoveAStep
-                  label="Move up"
-                  unavailable={ordering.at === 0 ? 'This is already the first' : undefined}
-                  onMove={() => ordering.onMove(-1)}
-                />
-                <MoveAStep
-                  label="Move down"
-                  unavailable={
-                    ordering.at === ordering.of - 1 ? 'This is already the last' : undefined
-                  }
-                  onMove={() => ordering.onMove(1)}
-                />
-              </>
-            )}
             {mayBeADuplicate && onSettleNotADuplicate && (
               <DropdownMenu.Item className={menuItemClass} onSelect={onSettleNotADuplicate}>
                 Not a duplicate
@@ -861,42 +832,3 @@ function Gone() {
   );
 }
 
-/**
- * One step up or down the list it is in.
- *
- * The ends are said out loud rather than silently doing nothing, exactly as a
- * panel's moves are: an entry that can be chosen and changes nothing is
- * indistinguishable from one that is broken. `aria-disabled` rather than
- * `disabled` for the reason `RowMenu` carries - Radix takes a disabled entry
- * out of the roving focus, so a keyboard never reaches it at all.
- */
-function MoveAStep({
-  label,
-  unavailable,
-  onMove,
-}: {
-  label: string;
-  unavailable?: string | undefined;
-  onMove: () => void;
-}) {
-  return (
-    <DropdownMenu.Item
-      {...(unavailable ? { 'aria-disabled': true, 'aria-label': `${label}: ${unavailable}` } : {})}
-      className={
-        unavailable
-          ? `${menuItemClass} text-ink-faint data-[highlighted]:bg-black/5 data-[highlighted]:text-ink-faint`
-          : menuItemClass
-      }
-      onSelect={(event) => {
-        if (unavailable) {
-          event.preventDefault();
-          return;
-        }
-        onMove();
-      }}
-    >
-      {label}
-      {unavailable && <span className="block text-xs">{unavailable}</span>}
-    </DropdownMenu.Item>
-  );
-}
