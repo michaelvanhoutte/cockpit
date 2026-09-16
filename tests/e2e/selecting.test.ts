@@ -192,10 +192,13 @@ test.describe('Selection', () => {
     // Desktop only: the case is a plain click on a mouse specifically, which is
     // what ending a selection is - a phone has no such click, a tap while
     // selecting extends it instead, already proved above.
-    test('a plain click while a selection is held clears it and opens that row', async ({
+    test('a plain click while a selection is held clears it, without opening the row it landed on', async ({
       page,
       isMobile,
     }) => {
+      // A plain click no longer opens a row on its own ("Require a
+      // double-click to open a row again, now that a plain click opens it",
+      // issue 456) - a double-click still does.
       test.skip(isMobile, 'a plain click ending a selection is a mouse-only gesture');
 
       const first = uniqueTitle('Reply to Bart');
@@ -210,6 +213,10 @@ test.describe('Selection', () => {
       await itemRow(page, second).click();
 
       await expect(inbox(page).getByText('1 selected')).toHaveCount(0);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+
+      await itemRow(page, second).dblclick();
+
       await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Title' })).toHaveValue(
         second,
       );

@@ -1055,13 +1055,16 @@ describe('Selection', () => {
   /**
    * A click anywhere on the row, not only a checkbox ("Pick a row by
    * ctrl/shift-click instead of aiming for a checkbox, and suspend single-row
-   * actions while a selection is held", issue 438).
+   * actions while a selection is held", issue 438), and never opening it
+   * itself ("Require a double-click to open a row again, now that a plain
+   * click opens it", issue 456) - opening is a double-click's or the menu's
+   * own Open.
    *
    * Which rows a shift-click's span covers is still `afterClicking`'s, proved
    * in `selection.test.ts` - what is asked here is which call the row's click
-   * handler makes, and when it opens the row instead.
+   * handler makes, and when it ends a selection instead.
    */
-  describe('a click anywhere on the row picks it, or opens it, depending on how and when', () => {
+  describe('a click anywhere on the row picks it, or ends a selection, but never opens it', () => {
     it('picks an unpicked row alone on a ctrl-click, nothing yet selected', () => {
       const onPick = vi.fn();
       aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
@@ -1098,7 +1101,10 @@ describe('Selection', () => {
       expect(onPick).toHaveBeenCalledWith(true);
     });
 
-    it('opens the row on a plain mouse click, nothing yet selected', () => {
+    it('opens nothing on a plain mouse click, nothing yet selected', () => {
+      // A plain click only ends a selection; opening is a double-click's or
+      // the menu's own Open ("Require a double-click to open a row again, now
+      // that a plain click opens it", issue 456).
       const onOpen = vi.fn();
       const onPick = vi.fn();
       const onEndSelection = vi.fn();
@@ -1106,12 +1112,12 @@ describe('Selection', () => {
 
       fireEvent.click(screen.getByRole('listitem'));
 
-      expect(onOpen).toHaveBeenCalledTimes(1);
+      expect(onOpen).not.toHaveBeenCalled();
       expect(onPick).not.toHaveBeenCalled();
       expect(onEndSelection).not.toHaveBeenCalled();
     });
 
-    it('clears the whole selection and opens the row on a plain mouse click, while one is held', () => {
+    it('clears the whole selection on a plain mouse click, while one is held, without opening the row', () => {
       const onOpen = vi.fn();
       const onEndSelection = vi.fn();
       aRow({
@@ -1122,10 +1128,10 @@ describe('Selection', () => {
       fireEvent.click(screen.getByRole('listitem'));
 
       expect(onEndSelection).toHaveBeenCalledTimes(1);
-      expect(onOpen).toHaveBeenCalledTimes(1);
+      expect(onOpen).not.toHaveBeenCalled();
     });
 
-    it('opens the row on a plain touch tap, nothing yet selected', () => {
+    it('opens nothing on a plain touch tap, nothing yet selected', () => {
       const onOpen = vi.fn();
       const onPick = vi.fn();
       aRow({ onOpen, selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
@@ -1134,7 +1140,7 @@ describe('Selection', () => {
       fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
       fireEvent.click(row);
 
-      expect(onOpen).toHaveBeenCalledTimes(1);
+      expect(onOpen).not.toHaveBeenCalled();
       expect(onPick).not.toHaveBeenCalled();
     });
 
