@@ -146,15 +146,18 @@ export function ItemRow({
    * Picking this row out to be acted on with others ("Select several items, and
    * file them all in one go", issue 169), and whether it is picked.
    *
-   * `revealed` is the list saying it already has a selection, which is what
-   * puts a tick on every row rather than only on the one under the pointer.
-   * Hovering does the same thing in CSS, because a hover is not a state this
-   * row is in - it is where the pointer happens to be.
+   * `revealed` is the list saying it already has a selection - which is what a
+   * plain click on a row now means instead of opening it, and what suspends
+   * this row's own menu and swipe ("Pick a row by ctrl/shift-click instead of
+   * aiming for a checkbox, and suspend single-row actions while a selection is
+   * held", issue 438).
    */
   selecting?: {
     picked: boolean;
     revealed: boolean;
     onPick: (withShift: boolean) => void;
+    /** Everything a selection put on screen, gone - what ending one does. */
+    onEndSelection: () => void;
   };
 }) {
   const command = useCommand();
@@ -166,6 +169,23 @@ export function ItemRow({
   const trigger = useRef<HTMLButtonElement>(null);
   /** True while the entry just chosen is opening something that wants the focus. */
   const opening = useRef(false);
+  /**
+   * Whether this row's own menu is open, controlled rather than left to Radix
+   * ("Pick a row by ctrl/shift-click instead of aiming for a checkbox, and
+   * suspend single-row actions while a selection is held", issue 438) -
+   * disabling the trigger only keeps a *new* menu from opening, so a menu
+   * already open when a selection starts elsewhere needs something to close
+   * it, and the trigger's own `aria-disabled` says nothing about opening at
+   * all (found in review).
+   */
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Synced rather than left to spring back: forcing `open` shut below closes
+  // the menu on screen without this, but leaves `menuOpen` itself still true -
+  // so the moment the selection that suspended it ends, `open` reads that
+  // stale `true` again and the menu reopens on its own, having asked nobody.
+  useEffect(() => {
+    if (selecting?.revealed) setMenuOpen(false);
+  }, [selecting?.revealed]);
 
   const envelope = () => ({
     commandId: uuidv7(),
@@ -304,6 +324,14 @@ export function ItemRow({
    * unbroken touch, which is the thing `swipe.ts` refuses to let a mouse do.
    */
   const held = useRef(false);
+  /**
+   * Which kind of pointer last pressed down on this row, read back when a
+   * click follows - a click carries no `pointerType` of its own, and a plain
+   * tap means something different from a plain click ("Pick a row by
+   * ctrl/shift-click instead of aiming for a checkbox, and suspend
+   * single-row actions while a selection is held", issue 438).
+   */
+  const lastPointerType = useRef<string>('mouse');
   const letGo = () => {
     if (holding.current) clearTimeout(holding.current);
     holding.current = null;
@@ -327,7 +355,16 @@ export function ItemRow({
    */
   const swipe = {
     onPointerDown: (event: React.PointerEvent) => {
-      if (event.pointerType !== 'touch') return;
+      lastPointerType.current = event.pointerType;
+      if (event.pointerType !== 'touch') {
+        // A mouse never holds, so nothing below is its concern - except this
+        // reset, which the touch-only one further down never reaches for a
+        // mouse press. Without it, a long-press's `held` stayed stuck, and a
+        // later mouse click on the same row was silently swallowed until some
+        // other touch happened to land on it (found in review).
+        held.current = false;
+        return;
+      }
       // A touch that starts on a control belongs to that control. The menu
       // opens on pointerdown and the same event bubbles up here, so without
       // this, tapping the three dots both opened the menu and began a swipe -
@@ -337,14 +374,13 @@ export function ItemRow({
       // is not a gesture across it.
       if ((event.target as Element).closest('button, input')) return;
       // One finger swipes; a second one landing on the row is ignored rather
-      // than taken for the first.
+      // than taken for the first - and must not reset `held` out from under
+      // it: a second finger touching down after the first's hold has already
+      // fired must not un-stick the click-suppression that hold just earned
+      // (found in review, alongside the mouse case above).
       if (from.current) return;
       from.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY };
       setGone(0);
-      // Every guard above is the hold's as much as the swipe's, which is why it
-      // starts here rather than in a handler of its own: a mouse does not hold,
-      // a touch on the menu belongs to the menu, and a second finger is not
-      // the first one still resting.
       held.current = false;
       if (selecting) {
         holding.current = setTimeout(() => {
@@ -370,6 +406,11 @@ export function ItemRow({
       // Gone somewhere, so it is no longer resting - whether it went on to mean
       // a swipe or nothing at all.
       if (!stillHolding(dx, dy)) letGo();
+      // A selection already held has no swipe to promise - the release below
+      // will not file or dismiss it, only toggle it, so the row has nothing to
+      // slide toward ("...suspend single-row actions while a selection is
+      // held", issue 438).
+      if (selecting?.revealed) return;
       setGone(howFarItHasGone(dx, dy));
     },
     onPointerUp: (event: React.PointerEvent) => {
@@ -381,6 +422,13 @@ export function ItemRow({
       // A gesture that has already picked the row out is finished, whatever the
       // finger did afterwards.
       if (held.current) return;
+      // The swipe is suspended while a selection is held ("Pick a row by
+      // ctrl/shift-click instead of aiming for a checkbox, and suspend
+      // single-row actions while a selection is held", issue 438). A plain tap
+      // still toggles the row, but that is the `onClick` below's to decide,
+      // once - deciding it here as well would toggle it twice, since a tap
+      // this short also earns the row a click.
+      if (selecting?.revealed) return;
       const meant = whatTheSwipeMeant(event.clientX - start.x, event.clientY - start.y);
       if (meant === 'dismiss') dismiss();
       // The same picker the menu's Move to… opens, so filing is one gesture on
@@ -412,6 +460,42 @@ export function ItemRow({
       // this gesture is - and the reason there is no drag on touch at all,
       // where the same movement is a swipe.
       draggable
+      // Picks the row out, from anywhere on it, or opens it - which a plain
+      // click means depends on whether a selection is already held and, on a
+      // plain click, on mouse versus touch ("Pick a row by ctrl/shift-click
+      // instead of aiming for a checkbox, and suspend single-row actions while
+      // a selection is held", issue 438).
+      //
+      // *Guarded exactly as the double-click below is*: a portal-rendered menu
+      // entry reaches this through the React tree rather than the DOM one, and
+      // the menu's own trigger and the routing chip are controls of the row's
+      // own rather than the row itself.
+      //
+      // *Held, not merely clicked*: the finger that just picked this row out
+      // with a long press is still the one the browser turns into this click,
+      // and `held` is what tells that click apart from a fresh one - without
+      // it, the row it had just picked out was toggled straight back off.
+      onClick={(event) => {
+        if (!selecting) return;
+        const hit = event.target as Node;
+        if (!event.currentTarget.contains(hit)) return;
+        if ((hit as Element).closest?.('button')) return;
+        if (held.current) return;
+        if (event.shiftKey || event.ctrlKey || event.metaKey) {
+          selecting.onPick(event.shiftKey);
+          return;
+        }
+        // Touch has no ctrl key, so a plain tap is what it has instead, once a
+        // selection is already held.
+        if (lastPointerType.current === 'touch' && selecting.revealed) {
+          selecting.onPick(false);
+          return;
+        }
+        // Ending a selection is what a plain click does on a mouse; a no-op
+        // where there was nothing to end.
+        if (selecting.revealed) selecting.onEndSelection();
+        onOpen?.();
+      }}
       // A double-click opens the form. Not a single click: a row is dragged,
       // swiped and dropped on, and every one of those begins with a press.
       //
@@ -467,39 +551,6 @@ export function ItemRow({
         className="flex items-center gap-1.5 px-4 py-2"
         style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
       >
-        {/* Picking the row out to be acted on with others. Always in the markup
-            and hidden by CSS rather than drawn only on hover: a tick that is not
-            there cannot be reached by Tab, and the keyboard is the one way in
-            that neither a pointer nor a finger provides. Shown for good once the
-            list has a selection, because a column of ticks with one filled and
-            the rest invisible reads as a row that is somehow different. */}
-        {selecting && (
-          <input
-            type="checkbox"
-            checked={selecting.picked}
-            aria-label={`Select “${itemLabel(item)}”`}
-            // `onClick` rather than `onChange`, because whether shift was held is
-            // what tells a range from a single pick and only the click carries it.
-            onClick={(event) => {
-              event.stopPropagation();
-              selecting.onPick(event.shiftKey);
-            }}
-            // React wants one on a checked box; the click above is what acts.
-            onChange={() => {}}
-            // **Invisible means untouchable, not merely unseen.** An opacity of
-            // zero still takes its place in the row and still catches what lands
-            // on it, so a tick nobody can see was eating the start of a swipe in
-            // the leading sixteen pixels of every row - on a device that could
-            // not select anything anyway. It goes back to being a target when it
-            // is drawn: hovered, focused, or once the list has a selection. Tab
-            // still reaches it either way, because focus is not a pointer.
-            className={`size-4 shrink-0 accent-accent ${
-              selecting.picked || selecting.revealed
-                ? ''
-                : 'pointer-events-none opacity-0 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100'
-            }`}
-          />
-        )}
         {/* What kind of thing it is, before anything is read. Decorative on
             purpose: the word it stands for is on the line below, so announcing
             the colour as well would say the type twice. An item with no type has
@@ -647,8 +698,18 @@ export function ItemRow({
           </span>
         )}
 
-        <DropdownMenu.Root>
-          <MenuTrigger label="Item actions" ref={trigger} />
+        <DropdownMenu.Root
+          // Closed outright while a selection is held, whether or not it was
+          // already open - the trigger's own `disabled` only refuses a new
+          // open, and a menu already open when a selection starts elsewhere
+          // would otherwise stay fully actionable (found in review).
+          open={selecting?.revealed ? false : menuOpen}
+          onOpenChange={(next) => {
+            if (selecting?.revealed) return;
+            setMenuOpen(next);
+          }}
+        >
+          <MenuTrigger label="Item actions" ref={trigger} disabled={selecting?.revealed} />
           <MenuContent
             onCloseAutoFocus={(event) => {
               // Choosing Move to… opens the picker, which takes the focus itself;

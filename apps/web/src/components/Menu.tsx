@@ -27,6 +27,7 @@ export function MenuTrigger({
   label,
   className,
   onChrome = false,
+  disabled = false,
   ref,
 }: {
   label: string;
@@ -42,6 +43,21 @@ export function MenuTrigger({
    * their order in the generated stylesheet rather than by the call site.
    */
   onChrome?: boolean;
+  /**
+   * Unavailable while a row's menu has to step aside for something else on the
+   * row ("Pick a row by ctrl/shift-click instead of aiming for a checkbox, and
+   * suspend single-row actions while a selection is held", issue 438) - a
+   * selection suspends every row's own menu, so acting on one row while
+   * several are picked cannot happen through it.
+   *
+   * `aria-disabled` rather than native `disabled`, the same reason `RowMenu`'s
+   * own entries carry below and `MoveAStep` restates: native `disabled` takes
+   * a control out of Tab order with no explanation, where this stays reachable
+   * and dimmed. Refusing to *open* while unavailable is the caller's, since
+   * that also has to close a menu already open when a selection starts
+   * elsewhere - `aria-disabled` alone tells nobody that.
+   */
+  disabled?: boolean | undefined;
   /** Held where something has to put the focus back on this control afterwards. */
   ref?: React.Ref<HTMLButtonElement>;
 }) {
@@ -52,10 +68,11 @@ export function MenuTrigger({
     <DropdownMenu.Trigger
       ref={ref}
       aria-label={label}
+      {...(disabled ? { 'aria-disabled': true } : {})}
       // 36px, comfortably past the 24px minimum target size and reachable with
       // a thumb, in a bar whose other controls are smaller than that: the
       // control is what has to be hittable, not the text beside it.
-      className={`inline-flex size-9 shrink-0 items-center justify-center rounded-md focus-visible:outline-2 ${colors}${className ? ` ${className}` : ''}`}
+      className={`inline-flex size-9 shrink-0 items-center justify-center rounded-md focus-visible:outline-2 ${colors}${disabled ? ' opacity-40' : ''}${className ? ` ${className}` : ''}`}
     >
       <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden="true">
         <circle cx="8" cy="3.2" r="1.5" />

@@ -883,6 +883,7 @@ export function ItemList({
                     picked: selection.picked.has(item.id),
                     revealed: picked.length > 0,
                     onPick: (withShift) => pick(item, withShift),
+                    onEndSelection: stopSelecting,
                   }}
                   onMoveTo={(from) => {
                     openedFrom.current = from;
