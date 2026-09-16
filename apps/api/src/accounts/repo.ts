@@ -690,23 +690,40 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
 }
 
 /**
- * The account's whole decision history for one workspace, oldest first
- * ("Learn where notes belong from where you actually file them", issue 299) -
- * what a routing proposal reads whole, with no retrieval step
- * (`docs/routing-learning.md`, "What the model reads").
+ * The most `DECISION_HISTORY_LIMIT` recent settled decisions for one
+ * workspace whose chosen Panel still exists, oldest first - what a routing
+ * proposal reads, with no retrieval step (`docs/routing-learning.md`, "What
+ * the model reads").
  *
  * Two joins to `panels`, aliased apart: the proposed Panel and the chosen one
  * are two different rows of the same table, sometimes the same row (an
- * accept) and sometimes not (an override). Both resolve even for a Panel
- * since tombstoned - the whole reason `decision_history` references `panels`
- * rather than copying its name at write time (schema.ts).
+ * accept) and sometimes not (an override). The proposed side still resolves
+ * even for a Panel since tombstoned - `decision_history` references `panels`
+ * rather than copying its name at write time (schema.ts) - but the chosen
+ * side is filtered live, both the Panel and its Dashboard: a decision against
+ * a Panel that has since been deleted, directly or by its Dashboard going
+ * with it (`delete_dashboard` tombstones the Dashboard alone and leaves its
+ * Panels' own `deletedAt` untouched - `notFiledOnALivePanel`, `isItemFiled`
+ * and `listPanelsInWorkspace` above all join `dashboards` for the same
+ * reason), is excluded outright, however recent - which is what ties a
+ * proposal's relevance to a project you are still working: delete its Panel,
+ * or the Dashboard it sits on, and its influence on future proposals goes
+ * with it (issue 450).
  *
  * **A dismissed Item's entry is left out**, unlike a tombstoned Panel's -
  * `items.deletedAt` is the one dismissal a person actually asked for
  * (`set_dismissed`), and its whole point is that the note stops being acted
  * on; a decision history that went on handing its captured text to every
  * future classification call would not have honoured that.
+ *
+ * **Capped in the query, not in the render** - unlike `CORRECTIONS_LIMIT`
+ * (`ai/prompts/clean-up-a-note.v7.ts`), which caps a list already read whole.
+ * Ordered by `decidedAt` descending to take the most recent
+ * `DECISION_HISTORY_LIMIT` and then reversed, so the query does the
+ * narrowing and the caller still gets oldest first.
  */
+const DECISION_HISTORY_LIMIT = 50;
+
 export function decisionHistoryForWorkspace(
   db: AccountDb,
   tenantId: string,
@@ -732,16 +749,27 @@ export function decisionHistoryForWorkspace(
     .from(decisionHistory)
     .innerJoin(items, eq(decisionHistory.itemId, items.id))
     .innerJoin(chosenPanels, eq(decisionHistory.chosenPanelId, chosenPanels.id))
+    .innerJoin(dashboards, eq(chosenPanels.dashboardId, dashboards.id))
     .leftJoin(proposedPanels, eq(decisionHistory.proposedPanelId, proposedPanels.id))
     .where(
       and(
         eq(decisionHistory.tenantId, tenantId),
         eq(decisionHistory.workspaceId, workspaceId),
         isNull(items.deletedAt),
+        isNull(chosenPanels.deletedAt),
+        isNull(dashboards.deletedAt),
       ),
     )
-    .orderBy(asc(decisionHistory.decidedAt))
-    .all();
+    // `id` breaks a tie in `decidedAt` deterministically rather than leaving
+    // which side of the cap a tied row lands on to the query planner - and
+    // does it correctly, not just consistently: `id` is the writing
+    // command's own uuidv7 (`decisionHistoryEntryFor`, `domain/decision-
+    // history.ts`), which orders by the same instant at finer resolution
+    // than `decidedAt`'s millisecond ISO string ever carries.
+    .orderBy(desc(decisionHistory.decidedAt), desc(decisionHistory.id))
+    .limit(DECISION_HISTORY_LIMIT)
+    .all()
+    .reverse();
 }
 
 /**
@@ -794,11 +822,12 @@ export function recentlyCapturedUnfiled(
 
 /**
  * Every correction this account has ever made, oldest first - what a title or
- * description proposal reads whole, with no retrieval step, the same
- * convention `decisionHistoryForWorkspace` above follows ("Learn how you
- * write from the titles you correct", issue 394). Per account rather than per
- * Workspace, deliberately unlike that function (`docs/text-learning.md`,
- * "Scope: per account").
+ * description proposal reads whole, with no retrieval step ("Learn how you
+ * write from the titles you correct", issue 394), capped only in the render
+ * (`CORRECTIONS_LIMIT`, `ai/prompts/clean-up-a-note.v7.ts`) rather than here -
+ * unlike `decisionHistoryForWorkspace` above, which caps in the query itself
+ * (issue 450). Per account rather than per Workspace, deliberately unlike
+ * that function (`docs/text-learning.md`, "Scope: per account").
  *
  * **Carries `itemId`, unlike the columns a prompt actually renders.** It is
  * what `textLearningContext` (`store.ts`) derives its corrected-item set from

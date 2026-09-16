@@ -734,59 +734,207 @@ describe('Capture', () => {
   });
 
   /**
-   * "Show what the system learned, in a sentence you can correct" (issue
-   * 301): the correction a person writes over the nightly summary is read
-   * into the same classification call as the decision history and recent
-   * captures, as far as an integration test can reach into a call whose
-   * actual routing is a live model's judgment call
-   * (tests/contract/clean-up-a-note.v7.test.ts proves the judgment itself).
+   * "Cap the routing prompt to the last 50 decisions on panels that still
+   * exist, and drop the correction override" (issue 450): the Workspace's own
+   * correction (`set_routing_summary_correction`) is no longer read into this
+   * call at all, whether or not one has been written - as far as an
+   * integration test can reach into a call whose actual routing is a live
+   * model's judgment call (tests/contract/clean-up-a-note.v7.test.ts proves
+   * the judgment itself).
    */
-  describe('a proposal is asked with the workspace’s own correction, where one has been written', () => {
-    async function setCorrection(correction: string): Promise<void> {
-      const response = await postChange('set_routing_summary_correction', {
-        commandId: nextId(),
-        issuedAt: '2026-09-09T09:00:00.000Z',
-        workspaceId: WORKSPACE_ID,
-        correction,
+  it('never asks with a workspace correction, even once one has been written', async () => {
+    const response = await postChange('set_routing_summary_correction', {
+      commandId: nextId(),
+      issuedAt: '2026-09-09T09:00:00.000Z',
+      workspaceId: WORKSPACE_ID,
+      correction: 'Sign-off and audit-trail questions go to Laurens, not Compliance questions.',
+    });
+    expect(response.status).toBe(200);
+    theModelIs({ says: A_READING });
+
+    const itemId = await captureANote();
+    await untilTheNoteHasBeenRead(itemId);
+
+    expect(asked[0]!.system).not.toContain('Laurens, not Compliance questions');
+    expect(asked[0]!.system).not.toContain('written a correction');
+  });
+
+  /**
+   * "Cap the routing prompt to the last 50 decisions on panels that still
+   * exist, and drop the correction override" (issue 450): the volume cap, the
+   * Panel-existence filter and the Dashboard-existence filter it implies, all
+   * read through `decisionHistoryForWorkspace` (`repo.ts`), which is what an
+   * integration test can reach - the render itself is `note-cleanup.test.ts`'s
+   * sibling describe above.
+   *
+   * Written by row rather than through `move_item_to_panel`, for the same
+   * reason `alsoWorkspaces` (`seed.ts`) writes its fixtures directly: a real
+   * filing would enqueue a read for every one of many decisions and race the
+   * fake model against the one capture each case is actually about. What is
+   * under test is the query's cap and its filters, not the write path, which
+   * `decision-history.test.ts` already covers.
+   */
+  describe('the decision history a proposal reads is bounded by volume and by the panel still existing', () => {
+    async function aSettledDecision(panelId: string, decidedAt: string, title: string): Promise<void> {
+      const itemId = nextId();
+      await inStoreAsItIs(ACCOUNT_NAME, (sql) => {
+        sql.exec(
+          `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen, created_at, updated_at)
+           VALUES (?, ?, ?, 'internal', ?, 'to_process', 0, ?, ?)`,
+          itemId,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          title,
+          decidedAt,
+          decidedAt,
+        );
+        sql.exec(
+          `INSERT INTO decision_history (id, tenant_id, workspace_id, item_id, chosen_panel_id, decided_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          nextId(),
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          itemId,
+          panelId,
+          decidedAt,
+        );
       });
-      expect(response.status).toBe(200);
     }
 
-    it('says no correction has been written, for a workspace that has never had one', async () => {
+    /** Strictly increasing across the range every case below uses (n <= 59). */
+    function decidedAt(n: number): string {
+      return `2026-09-01T00:00:${String(n).padStart(2, '0')}.000Z`;
+    }
+
+    function label(n: number): string {
+      return `decision-${String(n).padStart(2, '0')}`;
+    }
+
+    /**
+     * One round trip for the whole batch, the same convention `alsoWorkspaces`
+     * (`seed.ts`) already uses for a multi-row fixture - `aSettledDecision`
+     * above is for the ad-hoc one-or-two-row cases below, where a round trip
+     * each costs nothing worth batching for.
+     */
+    async function settledDecisions(panelId: string, count: number, from = 1): Promise<void> {
+      await inStoreAsItIs(ACCOUNT_NAME, (sql) => {
+        for (let n = from; n < from + count; n += 1) {
+          const itemId = nextId();
+          const at = decidedAt(n);
+          sql.exec(
+            `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen, created_at, updated_at)
+             VALUES (?, ?, ?, 'internal', ?, 'to_process', 0, ?, ?)`,
+            itemId,
+            ACCOUNT_NAME,
+            WORKSPACE_ID,
+            label(n),
+            at,
+            at,
+          );
+          sql.exec(
+            `INSERT INTO decision_history (id, tenant_id, workspace_id, item_id, chosen_panel_id, decided_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            nextId(),
+            ACCOUNT_NAME,
+            WORKSPACE_ID,
+            itemId,
+            panelId,
+            at,
+          );
+        }
+      });
+    }
+
+    it.each([
+      { situation: 'fewer than fifty qualifying decisions exist', count: 3, droppedThrough: 0 },
+      { situation: 'exactly fifty qualifying decisions exist', count: 50, droppedThrough: 0 },
+      { situation: 'more than fifty qualifying decisions exist', count: 55, droppedThrough: 5 },
+    ])('keeps the most recent fifty and drops the rest, when $situation', async ({ count, droppedThrough }) => {
+      const panel = await aPanel('Compliance questions');
+      await settledDecisions(panel, count);
       theModelIs({ says: A_READING });
 
       const itemId = await captureANote();
       await untilTheNoteHasBeenRead(itemId);
 
-      expect(asked[0]!.system).toContain('has not written a correction');
+      for (let n = 1; n <= droppedThrough; n += 1) {
+        expect(asked[0]!.system).not.toContain(`"${label(n)}"`);
+      }
+      for (let n = droppedThrough + 1; n <= count; n += 1) {
+        expect(asked[0]!.system).toContain(`"${label(n)}"`);
+      }
     });
 
-    it('carries a correction once one has been written', async () => {
-      await setCorrection('Sign-off and audit-trail questions go to Laurens, not Compliance questions.');
+    /**
+     * Two decisions can share a `decidedAt` to the millisecond - a client
+     * clock's own resolution, or a replayed/near-simultaneous command - and
+     * only matters once a cap makes inclusion, not merely display order,
+     * depend on breaking the tie. `id` is the writing command's own uuidv7
+     * (`decisionHistoryEntryFor`, `domain/decision-history.ts`), so ordering
+     * by it second is a real answer to "which was truly more recent", not an
+     * arbitrary one.
+     */
+    it('breaks a tie in decidedAt by which decision was actually written more recently', async () => {
+      const panel = await aPanel('Compliance questions');
+      await aSettledDecision(panel, decidedAt(1), 'tied-dropped');
+      await aSettledDecision(panel, decidedAt(1), 'tied-kept');
+      await settledDecisions(panel, 49, 2); // decidedAt(2..50): all strictly newer, guaranteed to survive
       theModelIs({ says: A_READING });
 
       const itemId = await captureANote();
       await untilTheNoteHasBeenRead(itemId);
 
-      expect(asked[0]!.system).toContain(
-        'Sign-off and audit-trail questions go to Laurens, not Compliance questions.',
-      );
+      expect(asked[0]!.system).toContain('"tied-kept"');
+      expect(asked[0]!.system).not.toContain('"tied-dropped"');
     });
 
-    it('never carries a correction written in another workspace', async () => {
-      await alsoWorkspaces();
-      await setCorrection('Sign-off and audit-trail questions go to Laurens, not Compliance questions.');
+    it('excludes a decision outright once its panel has been deleted, however recent', async () => {
+      const live = await aPanel('Laurens');
+      const gone = await aPanel('Compliance questions');
+      await aSettledDecision(live, decidedAt(1), 'still-live-panel');
+      await aSettledDecision(gone, decidedAt(2), 'now-deleted-panel');
+      const deleted = await postChange('delete_panel', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:03.000Z',
+        workspaceId: WORKSPACE_ID,
+        panelId: gone,
+      });
+      expect(deleted.status).toBe(200);
       theModelIs({ says: A_READING });
 
-      const itemId = await captureANote({ workspaceId: 'ws-personal', message: 'buy milk' });
-      await vi.waitFor(
-        async () => {
-          expect((await textsOf(itemId))?.title).toBe(A_READING.title);
-        },
-        { timeout: 15_000, interval: 50 },
-      );
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
 
-      expect(asked[0]!.system).toContain('has not written a correction');
+      expect(asked[0]!.system).toContain('"still-live-panel"');
+      expect(asked[0]!.system).not.toContain('"now-deleted-panel"');
+    });
+
+    /**
+     * `delete_dashboard` tombstones the Dashboard alone and leaves its
+     * Panels' own `deletedAt` untouched (`command-service.ts`) - so a Panel
+     * whose Dashboard is gone is exactly as unreachable as a deleted Panel,
+     * and the query has to check both (`repo.ts`'s own join on `dashboards`).
+     */
+    it('excludes a decision outright once its panel’s dashboard has been deleted, however recent', async () => {
+      const secondDashboard = await aDashboard();
+      const gone = await aPanelOn(secondDashboard, 'Compliance questions');
+      const live = await aPanel('Laurens');
+      await aSettledDecision(live, decidedAt(1), 'still-live-dashboard');
+      await aSettledDecision(gone, decidedAt(2), 'now-deleted-dashboard');
+      const deleted = await postChange('delete_dashboard', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:04.000Z',
+        workspaceId: WORKSPACE_ID,
+        dashboardId: secondDashboard,
+      });
+      expect(deleted.status).toBe(200);
+      theModelIs({ says: A_READING });
+
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect(asked[0]!.system).toContain('"still-live-dashboard"');
+      expect(asked[0]!.system).not.toContain('"now-deleted-dashboard"');
     });
   });
 

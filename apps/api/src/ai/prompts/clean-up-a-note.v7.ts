@@ -71,7 +71,6 @@ export function buildCleanUpANote(
   panels: readonly { id: string; name: string }[],
   history: readonly DecisionHistoryEntry[],
   recentlyCaptured: readonly string[],
-  correction: string | null,
   corrections: readonly TextCorrectionEntry[],
   stood: WhatStood,
   rules: string | null = null,
@@ -146,11 +145,9 @@ You are also given the panels this account has already set up - buckets it files
 Panels:
 ${panelList}
 
-You are also given this account's own decision history: every note filed so far, oldest first, with what you proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for weeks and a habit from a year ago can still hold. Where an entry shows you proposed one panel and they filed it on another, that correction outweighs an entry where they simply accepted what you proposed - it names a wrong answer as well as a right one, so read it as the stronger signal.
+You are also given this account's own decision history: its most recent settled filings, oldest first, with what you proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones still say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for a while and an older habit can still hold. Where an entry shows you proposed one panel and they filed it on another, that correction outweighs an entry where they simply accepted what you proposed - it names a wrong answer as well as a right one, so read it as the stronger signal.
 
 ${renderHistory(history)}
-
-${renderCorrection(correction)}
 
 You are also given what else has been captured in this workspace recently and not yet filed - separate from the history above, because none of it has been decided yet. It is still evidence: what somebody is writing notes about right now, before any of it has a destination. Weigh it alongside the history, never above it - an actual past decision is a stronger signal than a guess at a pattern in still-unfiled notes.
 
@@ -201,12 +198,12 @@ Note: part 11 audit trail q for validation protocol, who signs off eod
 panel: Compliance questions, because it's a compliance question - Part 11 and the validation protocol`,
 
     /**
-     * Unchanged in shape from `v6`: history, the correction, the two texts of
-     * evidence above and recent captures are read material, not something the
-     * answer reports back, so nothing here names any of them. `title` and
-     * `message` say what they now ask for; `TITLE_LENGTH` stays the cap,
-     * since the schema is what the Item's own two fields will accept and a
-     * target has no place in it.
+     * Unchanged in shape from `v6`: history, the two texts of evidence above
+     * and recent captures are read material, not something the answer
+     * reports back, so nothing here names any of them. `title` and `message`
+     * say what they now ask for; `TITLE_LENGTH` stays the cap, since the
+     * schema is what the Item's own two fields will accept and a target has
+     * no place in it.
      */
     schema: {
       type: 'object',
@@ -313,8 +310,6 @@ function renderHistory(history: readonly DecisionHistoryEntry[]): string {
  * account's own record of corrections and what stood, and before the
  * examples at the end of this prompt - the top of the precedence `docs/
  * text-learning.md`'s "What goes into the prompt" states for this section.
- * Account-scoped, unlike `renderCorrection` below, which is the Workspace's
- * own sentence about filing rather than writing.
  */
 function renderTextLearningRules(rules: string | null): string {
   if (rules === null) {
@@ -358,25 +353,6 @@ function renderPinnedExamples(pinnedExamples: readonly PinnedExampleEntry[]): st
   }
   const lines = pinnedExamples.map(renderOnePinnedExample);
   return `Pinned examples - chosen deliberately, the strongest evidence of vocabulary available in this prompt after this person's own rules above, ahead of the corrections and what-stood evidence that follow:\n${lines.join('\n')}`;
-}
-
-/**
- * The correction section, or a line saying none has been written - most
- * Workspaces have none yet, either because nobody has corrected the nightly
- * summary or because there is no summary yet to correct ("Show what the
- * system learned, in a sentence you can correct", issue 301).
- *
- * **Framed as outranking the history above it, not merely joining it.** A
- * correction is a person overriding what the system inferred on its own, in
- * their own words, which is a stronger and more direct signal than any
- * pattern read out of the history - the same reason an override entry in the
- * history itself outranks an accept.
- */
-function renderCorrection(correction: string | null): string {
-  if (correction === null) {
-    return 'This person has not written a correction to what Cockpit has learned.';
-  }
-  return `This person has written the following correction to what Cockpit has learned about their filing patterns - treat it as the most direct signal available, ahead of any pattern read out of the history above: "${correction}"`;
 }
 
 /**

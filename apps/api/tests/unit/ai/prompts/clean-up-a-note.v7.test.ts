@@ -21,7 +21,7 @@ function systemFor(
   rules: string | null = null,
   pinnedExamples: readonly PinnedExampleEntry[] = [],
 ): string {
-  return buildCleanUpANote([], [], [], null, corrections, stood, rules, pinnedExamples).system;
+  return buildCleanUpANote([], [], [], corrections, stood, rules, pinnedExamples).system;
 }
 
 function anExample(overrides: Partial<PinnedExampleEntry> = {}): PinnedExampleEntry {

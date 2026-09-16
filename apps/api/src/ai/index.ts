@@ -17,8 +17,8 @@ export type { NoteTexts, ProposalRead, ReadingCandidate, RoutingCandidate } from
  * **One method, and one again.** `summarizeFilingPatterns` was the second,
  * and it wrote a paragraph nothing ever read back ("Drop the nightly filing
  * summary, keep the sentence you wrote", issue 392). What learning there is
- * happens inside the one call below, from the decision history and the
- * correction it already reads.
+ * happens inside the one call below, from the decision history it already
+ * reads.
  *
  * One method, because one thing asks: a captured note being cleaned up into a
  * title and a message ("Clean up a captured note into a clear title and a
@@ -40,16 +40,14 @@ export interface AiService {
    * `panel.panelId` is allowed to be, structurally, is that list and nothing
    * else (`buildCleanUpANote`'s schema `enum`).
    *
-   * `history` is the account's whole decision history for this note's
-   * workspace, oldest first, `recentlyCaptured` is what else has been
-   * captured there lately and not yet filed - the two inputs that let a
-   * proposal learn from where notes actually get filed ("Learn where notes
-   * belong from where you actually file them", issue 299) - and `correction`
-   * is the sentence this Workspace wrote about where its notes belong, or
-   * null where nobody has written one ("Show what the system learned, in a
-   * sentence you can correct", issue 301). It used to correct a generated
-   * summary; that summary is gone and this outlived it ("Drop the nightly
-   * filing summary, keep the sentence you wrote", issue 392).
+   * `history` is the most recent 50 settled decisions for this note's
+   * workspace whose chosen Panel still exists, oldest first, and
+   * `recentlyCaptured` is what else has been captured there lately and not
+   * yet filed - the two inputs that let a proposal learn from where notes
+   * actually get filed ("Learn where notes belong from where you actually
+   * file them", issue 299; "Cap the routing prompt to the last 50 decisions
+   * on panels that still exist, and drop the correction override", issue
+   * 450).
    *
    * `corrections` is every text this account has ever corrected, oldest
    * first, and `stood` is how many other proposals simply stood - the
@@ -82,7 +80,6 @@ export interface AiService {
     panels: readonly { id: string; name: string }[],
     history: readonly DecisionHistoryEntry[],
     recentlyCaptured: readonly string[],
-    correction: string | null,
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood,
     rules: string | null,
@@ -132,7 +129,6 @@ export class ClaudeAiService implements AiService {
     panels: readonly { id: string; name: string }[],
     history: readonly DecisionHistoryEntry[],
     recentlyCaptured: readonly string[],
-    correction: string | null,
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood,
     rules: string | null,
@@ -142,7 +138,6 @@ export class ClaudeAiService implements AiService {
       panels,
       history,
       recentlyCaptured,
-      correction,
       corrections,
       stood,
       rules,

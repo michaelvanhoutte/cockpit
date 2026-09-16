@@ -95,16 +95,15 @@ const REPORTS_RATHER_THAN_INSTRUCTS =
  * has been shown the answer to is not a note it had to decide anything about.
  *
  * `panels` defaults to none, for every case that is not itself about routing;
- * `history`, `recentlyCaptured` and `correction` default to none for the same
- * reason; `corrections` and `stood` default to no evidence at all - nothing
- * below is about any of them unless a case names them.
+ * `history` and `recentlyCaptured` default to none for the same reason;
+ * `corrections` and `stood` default to no evidence at all - nothing below is
+ * about any of them unless a case names them.
  */
 async function read(
   note: string,
   panels: readonly { id: string; name: string }[] = [],
   history: readonly DecisionHistoryEntry[] = [],
   recentlyCaptured: readonly string[] = [],
-  correction: string | null = null,
   corrections: readonly TextCorrectionEntry[] = [],
   stood: WhatStood = NO_STOOD,
   rules: string | null = null,
@@ -115,7 +114,6 @@ async function read(
     panels,
     history,
     recentlyCaptured,
-    correction,
     corrections,
     stood,
     rules,
@@ -209,7 +207,7 @@ describe('Capture', () => {
       expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
       // The cases in this file are only evidence about the version they ran
       // against, so the version is said out loud once.
-      expect(buildCleanUpANote([], [], [], null, [], NO_STOOD).version).toBe('v7');
+      expect(buildCleanUpANote([], [], [], [], NO_STOOD).version).toBe('v7');
     });
 
     it('does not pad a note that is already shorter than the target', async () => {
@@ -410,7 +408,7 @@ describe('Capture', () => {
    */
   describe('a note carrying almost nothing produces something usable or nothing at all', () => {
     it('answers a note of punctuation and emoji without inventing one, or with nothing', async () => {
-      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], null, [], NO_STOOD, null, []);
+      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], [], NO_STOOD, null, []);
 
       // A discard is a pass and there is nothing further to check on it: every
       // producer of that arm writes a non-empty reason, so asserting one here
@@ -573,31 +571,6 @@ describe('Capture', () => {
   });
 
   /**
-   * The property `set_routing_summary_correction` exists for ("Show what the
-   * system learned, in a sentence you can correct", issue 301): a person's
-   * own written correction steers a
-   * proposal, on its own, with no matching entry in the decision history at
-   * all - the history in this case is empty, so a pass here cannot be the
-   * history-following case above under another name.
-   */
-  describe('a proposal follows a Workspace-level correction, with no matching history entry', () => {
-    const panels = [
-      { id: '018f0000-0000-7000-8000-000000000005', name: 'Compliance questions' },
-      { id: '018f0000-0000-7000-8000-000000000006', name: 'Laurens' },
-    ];
-    const LAURENS_SHAPED_NOTE = 'sign-off needed before we can close this out, who owns it';
-
-    it('proposes the panel the correction names, with an empty history', async () => {
-      const correction =
-        'Sign-off and audit-trail questions that do not name a specific person go to Laurens, not Compliance questions.';
-
-      const proposal = await read(LAURENS_SHAPED_NOTE, panels, [], [], correction);
-
-      expect(proposal.panel?.panelId).toBe(panels[1]!.id);
-    });
-  });
-
-  /**
    * The property this whole file's newest describe exists for ("Learn how you
    * write from the titles you correct", issue 394): a correction shows the
    * model this person's own vocabulary, not a rule stated in words - the same
@@ -635,7 +608,7 @@ describe('Capture', () => {
         },
       ];
 
-      const proposal = await read(NOVY_SHAPED_NOTE, [], [], [], null, corrections);
+      const proposal = await read(NOVY_SHAPED_NOTE, [], [], [], corrections);
 
       expect(proposal.title).toMatch(/\bNovy\b/);
       expect(proposal.title).not.toMatch(/\bNovi\b/i);
@@ -672,7 +645,7 @@ describe('Capture', () => {
         },
       ];
 
-      const proposal = await read(NOVY_SHAPED_NOTE, [], [], [], null, [], NO_STOOD, null, pinnedExamples);
+      const proposal = await read(NOVY_SHAPED_NOTE, [], [], [], [], NO_STOOD, null, pinnedExamples);
 
       expect(proposal.title).toMatch(/\bNovy\b/);
       expect(proposal.title).not.toMatch(/\bNovi\b/i);
@@ -709,7 +682,6 @@ describe('Capture', () => {
         [],
         [],
         [],
-        null,
         corrections,
       );
 
