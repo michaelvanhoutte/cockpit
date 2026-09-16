@@ -128,6 +128,30 @@ async function choose(user: ReturnType<typeof userEvent.setup>, row: string, ent
   await user.click(await screen.findByRole('menuitem', { name: entry }));
 }
 
+/**
+ * Lays the list out, because jsdom does not: `dragTo` (`ManageTypes.tsx`) reads
+ * each row's bottom edge off `getBoundingClientRect`, which jsdom always
+ * answers with zeroes. Each row is given a 40-pixel-tall slot instead, the
+ * same stand-in `WorkspaceTabs.test.tsx`'s `layOutTabs` uses for tabs.
+ */
+function layOutTypeRows() {
+  const rows = [...document.querySelectorAll('[title^="Drag to reorder "]')].map(
+    (grip) => grip.closest('li')!,
+  );
+  rows.forEach((row, index) => {
+    row.getBoundingClientRect = () => ({ bottom: (index + 1) * 40 }) as DOMRect;
+  });
+}
+
+/** Drags a type's grip far enough down the list to land at `toIndex`, and drops it there. */
+async function dragType(name: string, toIndex: number) {
+  const grip = await screen.findByTitle(`Drag to reorder ${name}`);
+  fireEvent.pointerDown(grip, { button: 0, pointerId: 1 });
+  layOutTypeRows();
+  fireEvent.pointerMove(grip, { pointerId: 1, clientY: toIndex * 40 + 20 });
+  fireEvent.pointerUp(grip, { pointerId: 1 });
+}
+
 /** The types as the page is currently showing them, top to bottom. */
 const asShown = () =>
   screen
@@ -394,49 +418,28 @@ describe('Capture', () => {
     });
   });
 
-  describe('the types are in the order you put them in, and the two ways are one move', () => {
-    it.each([
-      { situation: 'moved up from the menu', row: 'Thought', entry: 'Move up', order: ['type-thought', 'type-action', 'type-question'] },
-      { situation: 'moved down from the menu', row: 'Thought', entry: 'Move down', order: ['type-action', 'type-question', 'type-thought'] },
-    ])('$situation', async ({ row, entry, order }) => {
-      const user = userEvent.setup();
+  describe('the types are in the order you drag them into', () => {
+    it('sends the new order a drag lands on', async () => {
       const { mutate } = showWindow();
 
-      await choose(user, row, entry);
+      await dragType('Thought', 0);
 
       expect(mutate.mock.calls[0]![0]).toMatchObject({
         name: 'reorder_item_types',
-        payload: { typeId: 'type-thought', typeIds: order },
+        payload: { typeId: 'type-thought', typeIds: ['type-thought', 'type-action', 'type-question'] },
       });
     });
 
-    it.each([
-      { situation: 'the first row', row: 'Action', entry: 'Move up', says: 'It is already the first' },
-      { situation: 'the last row', row: 'Question', entry: 'Move down', says: 'It is already the last' },
-    ])('says why it cannot move from $situation, rather than going quiet', async ({ row, entry, says }) => {
-      const user = userEvent.setup();
-      const { mutate } = showWindow();
-
-      await user.click(await screen.findByRole('button', { name: `Actions for ${row}` }));
-      const stuck = await screen.findByRole('menuitem', { name: `${entry}: ${says}` });
-
-      expect(stuck).toBeVisible();
-      await user.click(stuck);
-      expect(mutate).not.toHaveBeenCalled();
-    });
-
     it('shows the move before the server agrees', async () => {
-      const user = userEvent.setup();
       showWindow();
 
-      await choose(user, 'Thought', 'Move up');
+      await dragType('Thought', 0);
 
       // The list is painted moved, without a second answer having arrived.
       expect(asShown()).toEqual(['Thought', 'Action', 'Question']);
     });
 
     it('puts the row back and says why when the move is refused', async () => {
-      const user = userEvent.setup();
       showWindow({
         succeeds: false,
         error: new CommandRefused(409, 'the types changed while they were being put in order'),
@@ -446,7 +449,7 @@ describe('Capture', () => {
         } as unknown as CommandArgs,
       });
 
-      await choose(user, 'Thought', 'Move up');
+      await dragType('Thought', 0);
 
       expect(asShown()).toEqual(['Action', 'Thought', 'Question']);
       expect(

@@ -900,11 +900,6 @@ export function ItemList({
                     : undefined}
                   {...(panelId
                     ? {
-                        ordering: {
-                          at,
-                          of: items.length,
-                          onMove: (places: number) => reorder(item, panelId, at + places),
-                        },
                         onAddTo: (from: HTMLElement | null) => {
                           openedFrom.current = from;
                           command.reset();
@@ -1077,9 +1072,8 @@ function whatMoved(moved: readonly Item[], asked: number, target: string): strin
  * The line showing where a dragged row would land.
  *
  * A row of the same list rather than something laid over it, because a list
- * holds rows - and `aria-hidden` because it says nothing a pointer user cannot
- * see and there is no drag for anyone else: Move up and Move down in the row's
- * own menu are what a keyboard has instead.
+ * holds rows - and `aria-hidden` because it says nothing a pointer user
+ * cannot already see, and there is no drag for anyone else to see it with.
  */
 function Landing() {
   return <li aria-hidden="true" className="h-0.5 list-none bg-accent" />;

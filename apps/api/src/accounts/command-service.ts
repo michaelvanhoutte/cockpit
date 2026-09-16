@@ -76,6 +76,7 @@ import {
   arrangementRows,
   firstPanelFor,
   panelFromCommand,
+  panelNameForMove,
   panelNamed,
   panelsNotOn,
 } from '../domain/panels.js';
@@ -266,6 +267,23 @@ export class PanelNameTakenError extends Error {
   constructor(name: string) {
     super(`a panel called ${name} is already on this dashboard`);
     this.name = 'PanelNameTakenError';
+  }
+}
+
+/**
+ * A panel asked to move to the dashboard it is already on ("Move a panel to
+ * another dashboard, from its menu or by dragging it onto a tab", issue 439).
+ *
+ * A 400 rather than a 404 or a 409: both the panel and the dashboard are
+ * exactly what the request says, and what is wrong is that moving there is
+ * not a move at all. The picker never offers it and a drag onto the tab
+ * already open is read as no drop, so a person only reaches this through a
+ * stale client.
+ */
+export class PanelAlreadyOnDashboardError extends Error {
+  constructor(panelName: string, dashboardName: string) {
+    super(`${panelName} is already on ${dashboardName}`);
+    this.name = 'PanelAlreadyOnDashboardError';
   }
 }
 
@@ -463,6 +481,124 @@ function everyWorkspaceSees(commandRow: { workspaceId: string }): void {
  * callback, which is not the database itself.
  */
 type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
+
+/**
+ * Every layout of a dashboard, with a fresh placement for one panel appended
+ * to each - a row of its own, under everything already there.
+ *
+ * Read before the transaction that writes it (`add_panel`,
+ * `move_panel_to_dashboard`), because the caller's own copy of the
+ * dashboard's layouts can be stale - the same reason a new workspace's colour
+ * is picked here rather than sent.
+ */
+function appendedAcrossLayouts(
+  db: AccountDb,
+  tenantId: string,
+  dashboardId: string,
+  panelId: string,
+) {
+  return listLayoutIds(db, tenantId, dashboardId).map((layoutId) =>
+    appendedPlacement(tenantId, layoutId, panelId, listLayoutRows(db, tenantId, layoutId)),
+  );
+}
+
+/** Writes what `appendedAcrossLayouts` computed: the row first, since the placement points at it. */
+function insertAppended(
+  tx: InATransaction,
+  appended: ReturnType<typeof appendedAcrossLayouts>,
+): void {
+  for (const { row, placement } of appended) {
+    tx.insert(layoutRows)
+      .values(row)
+      .onConflictDoNothing({ target: [layoutRows.layoutId, layoutRows.rowIndex] })
+      .run();
+    tx.insert(panelPlacements)
+      .values(placement)
+      .onConflictDoNothing({ target: [panelPlacements.layoutId, panelPlacements.panelId] })
+      .run();
+  }
+}
+
+/**
+ * Takes a panel out of every layout of the dashboard it is on: its placement
+ * in each, and any row that placement leaves holding nothing.
+ *
+ * Shared by `delete_panel`, which tombstones the panel once this has run, and
+ * `move_panel_to_dashboard`, which gives it a new dashboard instead - both
+ * leave the same hole in the dashboard being left.
+ */
+function removedFromItsLayouts(
+  tx: InATransaction,
+  tenantId: string,
+  dashboardId: string,
+  panelId: string,
+): void {
+  // Out of every layout of the dashboard, in one statement: a layout is a
+  // list of where the panels are, and one naming a panel nobody can see
+  // would be a hole no gesture could fill. Deleted rather than
+  // tombstoned, like the layouts they belong to - the reason is on
+  // `panelPlacements` in schema.ts.
+  tx.delete(panelPlacements)
+    .where(and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.panelId, panelId)))
+    .run();
+  // And any row that was holding only this panel, in the same statement
+  // and the same transaction: a row is the panels across it, so one with
+  // none left is not an emptier arrangement but a line nothing draws.
+  // The screen drops such a row anyway (repo.ts, `rowsOf`), because a
+  // browser can be holding a copy from before this delete - but a state
+  // the store can be left in is a state somebody has to explain later,
+  // and this one need not exist at all.
+  //
+  // Bounded to this dashboard's layouts, which are the only ones this
+  // delete touched. Emptied by tenant it would be a sweep: deleting a
+  // panel on one dashboard would quietly rewrite the arrangements of
+  // every other, and whatever it found to remove there would be somebody
+  // else's problem to explain.
+  //
+  // A join rather than the ids read out and bound in: a dashboard's
+  // layouts are uncapped, and an `IN` list as long as them is a statement
+  // whose parameter count grows with the data - past a hundred of them
+  // every delete on that dashboard would throw, for good (architecture,
+  // "No statement's parameter count grows with the data", which names a
+  // workspace that stopped painting at a hundred layouts as one of the
+  // instances it was written for).
+  tx.delete(layoutRows)
+    .where(
+      and(
+        eq(layoutRows.tenantId, tenantId),
+        // Both halves carry `tenant_id` like every other query here does
+        // (architecture, "One store per account, and `tenant_id` stays").
+        // A store holds one account, so nothing else could match today -
+        // which is the reason to write it rather than to leave it out:
+        // the column is only ever a lock if it is always turned.
+        exists(
+          tx
+            .select({ one: sql`1` })
+            .from(layouts)
+            .where(
+              and(
+                eq(layouts.tenantId, tenantId),
+                eq(layouts.id, layoutRows.layoutId),
+                eq(layouts.dashboardId, dashboardId),
+              ),
+            ),
+        ),
+        notExists(
+          tx
+            .select({ one: sql`1` })
+            .from(panelPlacements)
+            .where(
+              and(
+                eq(panelPlacements.tenantId, tenantId),
+                eq(panelPlacements.layoutId, layoutRows.layoutId),
+                eq(panelPlacements.rowIndex, layoutRows.rowIndex),
+              ),
+            ),
+        ),
+      ),
+    )
+    .run();
+}
 
 /** Writes where an item belongs, once somebody has said ("An item gets its workspace…"). */
 function settleWorkspace(
@@ -705,13 +841,8 @@ export function runCommand<N extends CommandName>(
       if (alreadyCalledThat) throw new PanelNameTakenError(alreadyCalledThat.name);
       // Every layout of the dashboard gets the new panel, appended, so that
       // adding one on a laptop does not leave it missing from the phone layout
-      // until somebody rearranges that too. Read here rather than sent by the
-      // client because the client's copy of the layouts can be stale - the same
-      // reason a new workspace's colour is picked here.
-      const layoutIds = listLayoutIds(db, tenantId, dashboard.id);
-      const appended = layoutIds.map((layoutId) =>
-        appendedPlacement(tenantId, layoutId, cmd.panelId, listLayoutRows(db, tenantId, layoutId)),
-      );
+      // until somebody rearranges that too.
+      const appended = appendedAcrossLayouts(db, tenantId, dashboard.id, cmd.panelId);
       db.transaction((tx) => {
         // Named at the primary key for the reason a workspace's insert is: a
         // replayed add whose request id was lost carries the same panel id, so
@@ -722,20 +853,7 @@ export function runCommand<N extends CommandName>(
           .values(panelFromCommand(cmd, tenantId))
           .onConflictDoNothing({ target: panels.id })
           .run();
-        for (const { row, placement } of appended) {
-          // The row first: the placement points at it, and a row of its own is
-          // what a panel added to an existing layout gets (`appendedPlacement`).
-          tx.insert(layoutRows)
-            .values(row)
-            .onConflictDoNothing({ target: [layoutRows.layoutId, layoutRows.rowIndex] })
-            .run();
-          tx.insert(panelPlacements)
-            .values(placement)
-            .onConflictDoNothing({
-              target: [panelPlacements.layoutId, panelPlacements.panelId],
-            })
-            .run();
-        }
+        insertAppended(tx, appended);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -830,75 +948,50 @@ export function runCommand<N extends CommandName>(
       // workspace with no dashboard has no view; a dashboard with no panels is
       // a dashboard you can put one on.
       db.transaction((tx) => {
-        // Out of every layout of the dashboard, in one statement: a layout is a
-        // list of where the panels are, and one naming a panel nobody can see
-        // would be a hole no gesture could fill. Deleted rather than
-        // tombstoned, like the layouts they belong to - the reason is on
-        // `panelPlacements` in schema.ts.
-        tx.delete(panelPlacements)
-          .where(and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.panelId, cmd.panelId)))
-          .run();
-        // And any row that was holding only this panel, in the same statement
-        // and the same transaction: a row is the panels across it, so one with
-        // none left is not an emptier arrangement but a line nothing draws.
-        // The screen drops such a row anyway (repo.ts, `rowsOf`), because a
-        // browser can be holding a copy from before this delete - but a state
-        // the store can be left in is a state somebody has to explain later,
-        // and this one need not exist at all.
-        //
-        // Bounded to this dashboard's layouts, which are the only ones this
-        // delete touched. Emptied by tenant it would be a sweep: deleting a
-        // panel on one dashboard would quietly rewrite the arrangements of
-        // every other, and whatever it found to remove there would be somebody
-        // else's problem to explain.
-        //
-        // A join rather than the ids read out and bound in: a dashboard's
-        // layouts are uncapped, and an `IN` list as long as them is a statement
-        // whose parameter count grows with the data - past a hundred of them
-        // every delete on that dashboard would throw, for good (architecture,
-        // "No statement's parameter count grows with the data", which names a
-        // workspace that stopped painting at a hundred layouts as one of the
-        // instances it was written for).
-        tx.delete(layoutRows)
-          .where(
-            and(
-              eq(layoutRows.tenantId, tenantId),
-              // Both halves carry `tenant_id` like every other query here does
-              // (architecture, "One store per account, and `tenant_id` stays").
-              // A store holds one account, so nothing else could match today -
-              // which is the reason to write it rather than to leave it out:
-              // the column is only ever a lock if it is always turned.
-              exists(
-                tx
-                  .select({ one: sql`1` })
-                  .from(layouts)
-                  .where(
-                    and(
-                      eq(layouts.tenantId, tenantId),
-                      eq(layouts.id, layoutRows.layoutId),
-                      eq(layouts.dashboardId, going.dashboardId),
-                    ),
-                  ),
-              ),
-              notExists(
-                tx
-                  .select({ one: sql`1` })
-                  .from(panelPlacements)
-                  .where(
-                    and(
-                      eq(panelPlacements.tenantId, tenantId),
-                      eq(panelPlacements.layoutId, layoutRows.layoutId),
-                      eq(panelPlacements.rowIndex, layoutRows.rowIndex),
-                    ),
-                  ),
-              ),
-            ),
-          )
-          .run();
+        removedFromItsLayouts(tx, tenantId, going.dashboardId, cmd.panelId);
         tx.update(panels)
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    /**
+     * move_panel_to_dashboard - a panel taken off the dashboard it was on and
+     * given to another of the same workspace ("Move a panel to another
+     * dashboard, from its menu or by dragging it onto a tab", issue 439).
+     *
+     * Its own dashboard is refused rather than a no-op move (`target.id ===
+     * panel.dashboardId`), and a name already taken on the target is renamed
+     * rather than refused: unlike adding or renaming a panel, the person
+     * moving one is not the one who typed this name and has nothing to
+     * retype it into. Everything else about the panel - its items and their
+     * order, its kind, text, format and read-only state - is untouched: this
+     * changes `dashboardId` and, only where it collided, the name.
+     */
+    case 'move_panel_to_dashboard': {
+      const cmd = payload as CommandPayload<'move_panel_to_dashboard'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      const target = dashboardTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.dashboardId);
+      if (target.id === panel.dashboardId) {
+        throw new PanelAlreadyOnDashboardError(panel.name, target.name);
+      }
+      const name = panelNameForMove(listPanels(db, tenantId, target.id), panel.name);
+      // Every layout of the target gets it, appended - the same reason
+      // `add_panel` does: added on a laptop, it must not stay missing from
+      // the phone layout until somebody rearranges that too.
+      const appended = appendedAcrossLayouts(db, tenantId, target.id, cmd.panelId);
+      db.transaction((tx) => {
+        // Out of every layout of the dashboard it left, and any row that was
+        // holding only this panel - `delete_panel`'s own cleanup, scoped to
+        // the dashboard being left rather than the one being tombstoned.
+        removedFromItsLayouts(tx, tenantId, panel.dashboardId, cmd.panelId);
+        tx.update(panels)
+          .set({ dashboardId: target.id, name, foldedName: foldName(name) })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        insertAppended(tx, appended);
         tx.insert(commands).values(commandRow).run();
       });
       break;

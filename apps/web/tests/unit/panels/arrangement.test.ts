@@ -7,7 +7,6 @@ import {
   layoutLabel,
   layoutToDraw,
   movedBeside,
-  movedBy,
   movedToOwnRow,
   nearestLayout,
   sharesOf,
@@ -417,79 +416,6 @@ describe('Layouts', () => {
       expect(movedToOwnRow(three, 'b', 1)).toEqual(three);
     });
   });
-
-  describe('moving from the panel’s own menu is the move a drag makes, without a pointer', () => {
-    it.each([
-      {
-        situation: 'left along its row',
-        rows: [[['a', 'b']], [['c']]],
-        panelId: 'b',
-        places: -1,
-        order: [['b', 'a'], ['c']],
-      },
-      {
-        situation: 'right along its row',
-        rows: [[['a', 'b']], [['c']]],
-        panelId: 'a',
-        places: 1,
-        order: [['b', 'a'], ['c']],
-      },
-      {
-        situation: 'left off the front of its row, onto a line above',
-        rows: [[['a', 'b']]],
-        panelId: 'a',
-        places: -1,
-        order: [['a'], ['b']],
-      },
-      {
-        situation: 'right off the end of its row, onto a line below',
-        rows: [[['a', 'b']]],
-        panelId: 'b',
-        places: 1,
-        order: [['a'], ['b']],
-      },
-      {
-        situation: 'up, from a row it already has to itself',
-        rows: [[['a']], [['b']]],
-        panelId: 'b',
-        places: -1,
-        order: [['b'], ['a']],
-      },
-      {
-        situation: 'down, from a row it already has to itself',
-        rows: [[['a']], [['b']]],
-        panelId: 'a',
-        places: 1,
-        order: [['b'], ['a']],
-      },
-      {
-        situation: 'up from the very top, which is nowhere',
-        rows: [[['a']], [['b']]],
-        panelId: 'a',
-        places: -1,
-        order: [['a'], ['b']],
-      },
-      {
-        situation: 'down from the very bottom, which is nowhere',
-        rows: [[['a']], [['b']]],
-        panelId: 'b',
-        places: 1,
-        order: [['a'], ['b']],
-      },
-      {
-        situation: 'a panel that is not there',
-        rows: [[['a']]],
-        panelId: 'nobody',
-        places: 1,
-        order: [['a']],
-      },
-    ])('$situation', ({ rows, panelId, places, order }) => {
-      const arrangement = rows.map(([ids]) => aRow(ids!.map((id) => cell(id, 12))));
-
-      expect(idsOf(movedBy(arrangement, panelId, places))).toEqual(order);
-    });
-  });
-
 
   describe('a layout is known by the screen size it is drawn for', () => {
     it('is known by its screen size’s current name', () => {

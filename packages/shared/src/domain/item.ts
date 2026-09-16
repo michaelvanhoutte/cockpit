@@ -171,6 +171,8 @@ export type Association = z.infer<typeof associationSchema>;
  * `dashboardNameSchema`, `panelNameSchema`, `itemTypeNameSchema` and
  * `screenSizeNameSchema` — only where uniqueness is scoped differs between them.
  */
+export const NAME_MAX_LENGTH = 60;
+
 /**
  * Whether `text` is a single line — refused rather than cleaned up
  * (architecture.md §4.4). The one predicate `workspaceNameSchema` below and
@@ -187,7 +189,7 @@ export const workspaceNameSchema = z
   .string()
   .trim()
   .min(1)
-  .max(60)
+  .max(NAME_MAX_LENGTH)
   .refine(isSingleLine, { message: 'a name is a single line, without tabs or line breaks' });
 
 export const workspaceSchema = z.object({

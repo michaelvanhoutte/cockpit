@@ -139,6 +139,22 @@ export const deletePanelSchema = commandEnvelopeSchema.extend({
 });
 export type DeletePanelCommand = z.infer<typeof deletePanelSchema>;
 
+/**
+ * move_panel_to_dashboard — a Panel taken off the dashboard it was made on and
+ * given to another of the same workspace, placement and all ("Move a panel to
+ * another dashboard, from its menu or by dragging it onto a tab", issue 439;
+ * architecture.md §4.4).
+ *
+ * `dashboardId` names the *target* - the source is the panel's own, read off
+ * the row rather than sent, so a stale client cannot move a panel from
+ * somewhere it no longer is.
+ */
+export const movePanelToDashboardSchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+  dashboardId: z.string(),
+});
+export type MovePanelToDashboardCommand = z.infer<typeof movePanelToDashboardSchema>;
+
 /** set_panel_text — the whole text of a Panel of text, as it now reads (architecture.md §4.4). */
 export const setPanelTextSchema = commandEnvelopeSchema.extend({
   panelId: z.uuid(),
@@ -554,6 +570,7 @@ export const commandSchemas = {
   add_panel: addPanelSchema,
   rename_panel: renamePanelSchema,
   delete_panel: deletePanelSchema,
+  move_panel_to_dashboard: movePanelToDashboardSchema,
   set_panel_text: setPanelTextSchema,
   set_panel_read_only: setPanelReadOnlySchema,
   set_panel_format: setPanelFormatSchema,

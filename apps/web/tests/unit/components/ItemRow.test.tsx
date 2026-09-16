@@ -56,7 +56,6 @@ function aRow({
   settles = false,
   onMoveTo,
   onOpen,
-  ordering,
   onMoveHere,
   item = anItem(),
   selecting,
@@ -68,7 +67,6 @@ function aRow({
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
   onOpen?: () => void;
-  ordering?: { at: number; of: number; onMove: (places: number) => void };
   onMoveHere?: () => void;
   item?: Item;
   selecting?: { picked: boolean; revealed: boolean; onPick: (withShift: boolean) => void };
@@ -90,7 +88,6 @@ function aRow({
         workspaceId="ws-work"
         {...(onMoveTo ? { onMoveTo } : {})}
         {...(onOpen ? { onOpen } : {})}
-        {...(ordering ? { ordering } : {})}
         {...(onMoveHere ? { onMoveHere } : {})}
         {...(selecting ? { selecting } : {})}
         {...(routingProposal ? { routingProposal } : {})}
@@ -727,15 +724,14 @@ describe('Item editing', () => {
     });
 
     // The menu's entries are drawn in a portal on the body, so a double press
-    // on one reaches the row's handler from outside the row. Reachable: an
-    // unavailable Move up keeps the menu open under the second press.
+    // on one reaches the row's handler from outside the row.
     it('leaves the form shut when the double-click was on an entry in the open menu', async () => {
       const user = userEvent.setup();
       const onOpen = vi.fn();
-      aRow({ onOpen, ordering: { at: 0, of: 2, onMove: vi.fn() } });
+      aRow({ onOpen });
 
       await user.click(screen.getByLabelText('Item actions'));
-      fireEvent.doubleClick(await screen.findByRole('menuitem', { name: /Move up/ }));
+      fireEvent.doubleClick(await screen.findByRole('menuitem', { name: 'Mark done' }));
 
       expect(onOpen).not.toHaveBeenCalled();
     });
