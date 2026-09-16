@@ -568,6 +568,45 @@ describe('Panels', () => {
       // default five seconds on requests alone.
     }, 30_000);
   });
+
+  /**
+   * A panel's own "+ Add an item" row ("Create an item on a panel, filed
+   * there directly", issue 449) is `capture_item` followed by
+   * `add_item_to_panel` from the client - there is no single command that
+   * does both. What is proved here is the property that chaining depends on:
+   * a filing refused after the capture already landed leaves the item found,
+   * in the Inbox, rather than lost between the two requests.
+   */
+  describe('creating an item straight onto a panel is capture, then a filing', () => {
+    it('lands the new item on the panel, at the top, once both commands land', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const already = await anItem('Renew the domain');
+      await move(already, falcon, [already]);
+
+      const arriving = await anItem('Reply to Bart');
+      expect((await addTo(arriving, falcon, [arriving, already])).status).toBe(200);
+
+      expect(await inOrderOn(falcon)).toEqual(['Reply to Bart', 'Renew the domain']);
+      expect(await filedOn(arriving)).toEqual(['Falcon']);
+    });
+
+    it('leaves the captured item in the Inbox, not lost, when the filing after it is refused', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      // Deleted between the two calls, the way another tab could - the
+      // panel's own gap this issue's "never lost" test case is about.
+      await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: falcon });
+
+      const arriving = await anItem('Reply to Bart');
+      const refused = await addTo(arriving, falcon, [arriving]);
+
+      expect(refused.status).toBe(404);
+      // The capture already landed - the item exists, filed nowhere, which
+      // is the Inbox.
+      expect(await filedOn(arriving)).toEqual([]);
+    });
+  });
 });
 
 /**
