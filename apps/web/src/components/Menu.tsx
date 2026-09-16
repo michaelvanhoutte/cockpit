@@ -114,7 +114,13 @@ function menuButtonClassName(
   // 36px, comfortably past the 24px minimum target size and reachable with a
   // thumb, in a bar whose other controls are smaller than that: the control
   // is what has to be hittable, not the text beside it.
-  return `inline-flex size-9 shrink-0 items-center justify-center rounded-md focus-visible:outline-2 ${colors}${className ? ` ${className}` : ''}`;
+  //
+  // The ring is drawn inward (a negative offset), the same reason a Panel's
+  // own header draws its own inward (`PanelCard.tsx`): `SurfaceMenuButton`
+  // sits flush with a Panel's edge once its `-mr-2` cancels the header's own
+  // `@max-[200px]:px-2`, and an outward ring there would be clipped by the
+  // page's scroll container (found in review).
+  return `inline-flex size-9 shrink-0 items-center justify-center rounded-md focus-visible:outline-2 focus-visible:-outline-offset-2 ${colors}${className ? ` ${className}` : ''}`;
 }
 
 /** The vertical triplet itself - see `MenuTrigger`'s doc comment for why this glyph. */
