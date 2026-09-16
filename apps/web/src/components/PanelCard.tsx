@@ -389,6 +389,17 @@ export function PanelCard({
         </header>
       </SurfaceMenu>
 
+      {/* A fixed row rather than the well's own first row: `ItemList`'s empty
+          state fills the well exactly (`min-h-full`, "tall enough to be
+          dropped on"), and a sibling inside that same scrolling box would
+          always read as more content than the well holds, meaning the well
+          would show a scrollbar it does not need - reachable at any height,
+          not only when a panel is dragged to its floor ("A Panel doesn't
+          shrink or scroll to fit a shorter dashboard row", issue 432). Kept
+          outside it instead, this row costs the well nothing and stays
+          reachable without scrolling down a long list to find it. */}
+      {!text && <PanelAddItemForm workspaceId={workspaceId} panelId={panel.id} />}
+
       {/* No padding of its own: a row carries its own, so a list inside a panel
           reads exactly as it does in the Inbox.
 
@@ -414,16 +425,13 @@ export function PanelCard({
         {text ? (
           <PanelText panel={panel} workspaceId={workspaceId} />
         ) : (
-          <>
-            <PanelAddItemForm workspaceId={workspaceId} panelId={panel.id} />
-            <ItemList
-              workspaceId={workspaceId}
-              items={items}
-              openDashboardId={panel.dashboardId}
-              panelId={panel.id}
-              emptyMessage={nothingFiledYet ? NOTHING_FILED_HERE_YET_AND_HOW : NOTHING_FILED_HERE}
-            />
-          </>
+          <ItemList
+            workspaceId={workspaceId}
+            items={items}
+            openDashboardId={panel.dashboardId}
+            panelId={panel.id}
+            emptyMessage={nothingFiledYet ? NOTHING_FILED_HERE_YET_AND_HOW : NOTHING_FILED_HERE}
+          />
         )}
       </div>
 
