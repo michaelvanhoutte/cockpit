@@ -93,7 +93,7 @@ What each of these earns in local review — `/code-review`'s level, and whether
 | `documentation only` | `low` | none |
 | `tests only (…)`, or the unit's recommended model is `haiku` | `medium` | none |
 | `product changed` | `high` | none |
-| `product changed (stored data)` | `xhigh` | none, unless also security |
+| `product changed (stored data)` | `xhigh` | none |
 | `product changed (security)`, with or without stored data | `high`, or `xhigh` with stored data | as its own agent |
 
 This reverses "Small changes take hours: bring a pull request back to its 25-minute floor" (issue 377), which left the local level flat regardless of what a change touched.

@@ -1,16 +1,19 @@
 //
 // The I/O around scripts/lib/what-changed.mjs, for the classifier step of
-// ci.yml's `checks` job and claude-security-review.yml's own `changes` job.
-// Everything that decides anything - including every way the decision can
-// fail - is in the module, which node --test covers in the Scripts step.
-// This supplies the two readers, prints what it is told to, and writes both
-// outputs.
+// ci.yml's `checks` job, claude-code-review.yml's own `changes` job, and
+// claude-security-review.yml's own `changes` job. Everything that decides
+// anything - including every way the decision can fail - is in the module,
+// which node --test covers in the Scripts step. This supplies the two
+// readers, prints what it is told to, and writes both outputs.
 //
 // Usage: node scripts/what-changed.mjs   (on a runner, with GITHUB_OUTPUT set)
 //
-// Both classifier steps run the copy of this that the *base* commit carries,
-// not this branch's - see ci.yml for why - so an edit here reaches CI only
-// once it has merged.
+// Every classifier step but one runs the copy of this that the *base* commit
+// carries, not this branch's - see ci.yml for why - so an edit here reaches
+// CI only once it has merged. The one exception is ci.yml's own `checks` job
+// on a push to `main`, which runs this branch's copy directly: `main` is
+// already the trusted branch at that point, so there is no other branch's
+// diff for it to talk itself out of being reviewed on.
 //
 
 import { execFileSync } from 'node:child_process';
@@ -39,11 +42,15 @@ if (process.env.GITHUB_OUTPUT) {
 }
 
 if (process.env.GITHUB_STEP_SUMMARY) {
+  // Says nothing about `security` here: this script's summary is shared by
+  // ci.yml's `checks` job and claude-code-review.yml's `changes` job too,
+  // neither of which runs the security review - a security-specific line
+  // printed into either of their job summaries would claim something about a
+  // job that never runs there. claude-security-review.yml's own skip is
+  // legible from its Checks tab entry going straight to "skipped", the same
+  // way claude-code-review.yml's documentation-only skip already is.
   const summary = changed
     ? 'This diff touches the product, so every mechanical check runs.'
     : 'This diff touches only `docs/`, `.claude/` and root-level Markdown, so the mechanical checks skip. Each still reports, as skipped.';
-  const securityLine = security
-    ? 'It touches a security path, so the security review runs.'
-    : 'It touches no security path, so the security review reports not applicable.';
-  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## What changed\n\n${summary} ${securityLine}\n`);
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## What changed\n\n${summary}\n`);
 }

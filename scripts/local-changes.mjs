@@ -62,7 +62,7 @@ function packages() {
   try {
     return testablePackages(pnpmWorkspaceList(root), (pkgPath) => JSON.parse(readFileSync(join(pkgPath, 'package.json'), 'utf8')), root);
   } catch (error) {
-    console.error(printable(`Could not read the workspace: ${error.message}. So this answers 'product changed'.`));
+    console.error(printable(`Could not read the workspace: ${error.message}. So this answers 'product changed (security, stored data)'.`));
     throw error;
   }
 }

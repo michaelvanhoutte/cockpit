@@ -263,7 +263,10 @@ const BACKUP_RESTORE_GUEST_RESET = [
 
 /**
  * Paths Review findings' table calls security: sign-in and the register
- * (`auth/`), the web session, a connector, the CI workflows and the branch
+ * (`auth/`), the web session, a connector, the gate composition and the
+ * Google OIDC and ingress-webhook routes it mounts (`http/app.ts` - "there
+ * is no perimeter to fall back on" for this app's auth model,
+ * .github/security-review-instructions.md), the CI workflows and the branch
  * protection payload they feed, the security review's own instructions, and
  * Wrangler's configuration - each a way a change could grant, keep or check
  * access wrongly without touching a migration or a schema.
@@ -273,6 +276,7 @@ const SECURITY_PATHS = [
   'apps/web/src/session/',
   'apps/api/src/connectors/',
   'apps/api/src/accounts/register.ts',
+  'apps/api/src/http/app.ts',
   '.github/workflows/',
   '.github/branch-protection.json',
   '.github/security-review-instructions.md',
@@ -283,15 +287,18 @@ const SECURITY_PATHS = [
 /**
  * Paths Review findings' table calls stored data: the migrations, both
  * schema files (`accounts/schema.ts` for the account's own tables,
- * `db/schema.ts` for the Durable Object's), and the account store's change
- * list - each a way a change could read or write the rows already on
- * production and staging wrongly, per "Deployed data is real".
+ * `db/schema.ts` for the Durable Object's), the account store's change list,
+ * and the account store itself (`accounts/store.ts` - the Durable Object
+ * every read and write against a production or staging account's rows
+ * actually runs through) - each a way a change could read or write those
+ * rows wrongly, per "Deployed data is real".
  */
 const STORED_DATA_PATHS = [
   'apps/api/migrations/',
   'apps/api/src/accounts/schema.ts',
   'apps/api/src/db/schema.ts',
   'apps/api/src/accounts/changes.ts',
+  'apps/api/src/accounts/store.ts',
   ...BACKUP_RESTORE_GUEST_RESET,
 ];
 

@@ -278,7 +278,7 @@ describe('isSecurityPath and isStoredDataPath', () => {
     assert.equal(isSecurityPath('apps/api/src/accounts/register.ts'), true);
     assert.equal(isSecurityPath('apps/api/src/accounts/new-user.ts'), false);
     assert.equal(isStoredDataPath('apps/api/src/accounts/schema.ts'), true);
-    assert.equal(isStoredDataPath('apps/api/src/accounts/store.ts'), false);
+    assert.equal(isStoredDataPath('apps/api/src/accounts/probe.ts'), false);
   });
 
   it('carry backup, restore and the guest reset on both lists', () => {
@@ -286,6 +286,15 @@ describe('isSecurityPath and isStoredDataPath', () => {
       assert.equal(isSecurityPath(path), true, `${path} should be a security path`);
       assert.equal(isStoredDataPath(path), true, `${path} should be a stored-data path`);
     }
+  });
+
+  it('calls the sign-in gate composition security, and the account store stored data', () => {
+    // Found by /security-review on this very issue: the allowlists above
+    // originally named auth/, the register and the schema files but missed
+    // the two files that actually run every request and every row through
+    // them.
+    assert.equal(isSecurityPath('apps/api/src/http/app.ts'), true, 'the gate composition, the OIDC callback and the ingress dispatcher all live here');
+    assert.equal(isStoredDataPath('apps/api/src/accounts/store.ts'), true, "the Durable Object every account's rows are actually read and written through");
   });
 });
 
