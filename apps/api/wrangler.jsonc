@@ -113,6 +113,26 @@
     }
   ],
 
+  // Where an Item's attachments' bytes live ("Attach a file to an item",
+  // issue 441); the account's own store carries only their metadata. One
+  // bucket for every account, the same way one D1 database above is every
+  // account's register - keys are already account- and item-scoped
+  // (`apps/api/src/domain/attachments.ts`), so there is nothing a second
+  // bucket per account would buy.
+  //
+  // **`r2_buckets` is NOT inheritable**, like `d1_databases` above, so
+  // staging and `env.local` each repeat it below. **Not yet created on the
+  // real account** - `wrangler r2 bucket create cockpit-attachments` has to
+  // run before the first deploy that names it, the same way a queue would
+  // fail a deploy naming it before `wrangler queues create` ran; recorded as
+  // a pending step of its own (docs/deployment.md, "Bootstrap runbook").
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "cockpit-attachments"
+    }
+  ],
+
   // Signing in (docs/architecture.md, "App login: hand-rolled Google OIDC + own
   // sessions"). Two things and not three: `GOOGLE_CLIENT_SECRET` is a secret,
   // so it lives in the platform's secret store and is set per environment by
@@ -221,6 +241,16 @@
           "migrations_dir": "migrations"
         }
       ],
+      // Its own bucket, for the reason it has its own database: `r2_buckets`
+      // is not inheritable, and a shared name would let staging write into
+      // production's attachments. Also not yet created - see the top level's
+      // own comment.
+      "r2_buckets": [
+        {
+          "binding": "ATTACHMENTS",
+          "bucket_name": "cockpit-attachments-staging"
+        }
+      ],
       // Its own Google client rather than production's, so a secret that leaks
       // from one environment cannot sign anybody in to the other.
       "vars": {
@@ -279,6 +309,17 @@
           "database_name": "cockpit",
           "database_id": "753ea386-68c0-422e-a237-da7a0c66c40c",
           "migrations_dir": "migrations"
+        }
+      ],
+      // R2 has a full local simulator (unlike `ai` above), so this reaches a
+      // real bucket - just a local one, the same way `d1_databases` above
+      // reuses production's own id for a database that is actually a local
+      // SQLite file. The name never has to resolve against the real
+      // Cloudflare account for a local run to work.
+      "r2_buckets": [
+        {
+          "binding": "ATTACHMENTS",
+          "bucket_name": "cockpit-attachments"
         }
       ],
       "queues": {

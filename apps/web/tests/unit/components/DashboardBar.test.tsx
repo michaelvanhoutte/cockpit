@@ -102,6 +102,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         panels: held.panels,
         layouts: held.layouts,
         associations: [],
+        attachments: [],
         itemTypes: [],
         screenSizes: held.screenSizes,
         duplicates: held.duplicates,

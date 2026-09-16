@@ -404,7 +404,7 @@ And `pnpm guest:reset` puts the shared guest account back to its demonstration n
 pnpm guest:reset --env production
 ```
 
-**It can reach the guest account and nothing else**: it names no account, it refuses where the guest's id belongs to a real person — somebody added under the name "Guest" before adding stopped handing it out — and a store holding any other account's rows refuses before anything is dropped. The reset is one transaction, so one that fails leaves the account as it was. It asks for no confirmation, unlike a restore, because what it removes is promised to nobody; an environment with no guest account — staging — answers that it has none.
+**It can reach the guest account and nothing else**: it names no account, it refuses where the guest's id belongs to a real person — somebody added under the name "Guest" before adding stopped handing it out — and a store holding any other account's rows refuses before anything is dropped. **The rows are one transaction, so one that fails leaves the account as it was.** What is left over is R2 ("Attach a file to an item", issue 441): the guest's attached files are deleted best-effort, awaited after that transaction commits rather than inside it, since R2 cannot be part of a Durable Object's own transaction — a failure there is logged and swallowed rather than reported, so a reset can succeed with the rows fully reset while a rare R2 object from that day is left behind. It asks for no confirmation, unlike a restore, because what it removes is promised to nobody; an environment with no guest account — staging — answers that it has none.
 
 And `pnpm duplicates:backfill` reads the notes that were already in the Inbox when duplicate flagging shipped, so that a duplicate can be caught among them rather than only among notes captured since ("Give every item already there a vector", issue 409):
 
@@ -668,6 +668,18 @@ wrangler d1 execute cockpit-staging --remote --yes --env staging --file=./seed.s
 # 3. the two Workers.
 wrangler deploy --env=""
 wrangler deploy --env staging
+```
+
+**Not yet executed: two R2 buckets, for "Attach a file to an item" (issue 441).**
+Unlike everything above, this step has not been run against the real account -
+`apps/api/wrangler.jsonc` names both buckets already, and a deploy naming a
+bucket that does not exist fails, the same as it would for a queue (see this
+file's own comment above `queues` there). Run before the next deploy that
+carries this change:
+
+```bash
+wrangler r2 bucket create cockpit-attachments
+wrangler r2 bucket create cockpit-attachments-staging
 ```
 
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy

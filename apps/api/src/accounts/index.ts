@@ -20,6 +20,7 @@ import {
 import { describeForeignRows, type AccountBackup } from './backup.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
+import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
@@ -95,6 +96,19 @@ export interface Account {
    * browser holds the whole workspace and has no reason to ask for one row.
    */
   item(itemId: string): Promise<Item | null>;
+  /**
+   * One attachment by its id, with the R2 key its bytes are stored under -
+   * what the download route reads ("Attach a file to an item", issue 441).
+   * Null where this account holds no such attachment, the same as `item`
+   * above answers for an item.
+   */
+  attachmentForDownload(attachmentId: string): Promise<AttachmentForDownload | null>;
+  /**
+   * Whether this account already has an attachment by this id - what the
+   * upload route checks before it ever writes to R2 ("Attach a file to an
+   * item", issue 441).
+   */
+  attachmentExists(attachmentId: string): Promise<boolean>;
   /**
    * Every live Panel of one Workspace that takes items - what a routing
    * proposal may choose from ("Propose where a captured note belongs, without
@@ -217,6 +231,10 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     itemTypes: async () => unwrap(await store.itemTypes(accountName)),
     snapshot: async (workspaceId) => unwrap(await store.snapshot(accountName, workspaceId)),
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),
+    attachmentForDownload: async (attachmentId) =>
+      unwrap(await store.attachmentForDownload(accountName, attachmentId)),
+    attachmentExists: async (attachmentId) =>
+      unwrap(await store.attachmentExists(accountName, attachmentId)),
     panelsThatTakeItems: async (workspaceId) =>
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
     routingContext: async (workspaceId, excludeItemId) =>

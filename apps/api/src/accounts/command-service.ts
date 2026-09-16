@@ -4,6 +4,7 @@ import type { AccountDb } from './client.js';
 import {
   accountTextRules,
   associations,
+  attachments,
   commands,
   dashboards,
   DEAD_STATUS_VALUE,
@@ -23,6 +24,7 @@ import {
 } from './schema.js';
 import {
   commandAlreadyApplied,
+  getAttachment,
   getDashboard,
   getItem,
   getItemType,
@@ -47,6 +49,7 @@ import {
   settleDuplicate,
   textCorrectionExistsFor,
 } from './repo.js';
+import { attachmentFromCommand } from '../domain/attachments.js';
 import { pairOf } from '../domain/duplicates.js';
 import {
   ACCOUNT_WIDE,
@@ -148,6 +151,25 @@ export class ItemNotFoundError extends Error {
   constructor(itemId: string) {
     super(`item ${itemId} not found`);
     this.name = 'ItemNotFoundError';
+  }
+}
+
+/**
+ * `add_attachment` naming an `attachmentId` this account already has, for an
+ * upload that is not the same one replayed ("Attach a file to an item",
+ * issue 441). `commandAlreadyApplied` already covers a genuine retry - the
+ * same `commandId` sent twice never reaches `runCommand`'s switch at all -
+ * so this is a *different* `commandId` reusing an old `attachmentId`, which
+ * `attachmentId`s being client-generated makes possible: naming a different
+ * item, or naming the same item with a different filename, size or type.
+ * Refused rather than silently accepted, so R2 (already written by the
+ * upload route by the time this runs) and the row describing it can never
+ * disagree about which upload actually happened.
+ */
+export class AttachmentIdTakenError extends Error {
+  constructor(attachmentId: string) {
+    super(`attachment ${attachmentId} already names a different upload`);
+    this.name = 'AttachmentIdTakenError';
   }
 }
 
@@ -1936,6 +1958,75 @@ export function runCommand<N extends CommandName>(
         // `pinnedTextExamples` for why nothing here needs a `deletedAt`.
         tx.delete(pinnedTextExamples)
           .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, cmd.exampleId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'add_attachment': {
+      const cmd = payload as CommandPayload<'add_attachment'>;
+      // Written by the upload route once a file's bytes have already
+      // streamed to R2 (`addAttachmentSchema`'s own comment,
+      // `@cockpit/shared`), so a missing item here means it was dismissed in
+      // the moment between the route's own pre-check and this write -
+      // narrow, and left as an orphaned R2 object rather than something
+      // this build tries to clean up (issue 441, "Out of scope"). Checked
+      // the same way the route's own pre-check does (`item.deletedAt`
+      // included, `app.ts`) - an Item is tombstoned, not hard-deleted, so
+      // `getItem` alone would otherwise let this race land a file on an
+      // Item nothing can reach it through again (`getAttachmentForDownload`
+      // excludes a deleted Item's attachments outright).
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item || item.deletedAt) throw new ItemNotFoundError(cmd.itemId);
+      // Its attachments are read in every workspace the item is drawn in
+      // (`listAttachmentsInWorkspace`, repo.ts), so for one that belongs to
+      // none that is all of them - the same rule `associate` above carries.
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
+
+      const row = attachmentFromCommand(cmd, tenantId);
+      const existing = getAttachment(db, tenantId, cmd.attachmentId);
+      // A retried upload sharing the same attachmentId (a client that never
+      // saw this call's response and tried the whole upload again) lands on
+      // a row already there rather than a conflict - but only where it is
+      // genuinely the same upload. `attachmentId` is client-generated, so a
+      // *different* commandId naming one an account already has is refused
+      // rather than silently accepted: R2 has already been written by the
+      // time this runs, and a mismatched row here would leave it describing
+      // an upload that never happened.
+      if (
+        existing &&
+        (existing.itemId !== row.itemId ||
+          existing.filename !== row.filename ||
+          existing.size !== row.size ||
+          existing.contentType !== row.contentType)
+      ) {
+        throw new AttachmentIdTakenError(cmd.attachmentId);
+      }
+      db.transaction((tx) => {
+        if (!existing) tx.insert(attachments).values(row).run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'remove_attachment': {
+      const cmd = payload as CommandPayload<'remove_attachment'>;
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item) throw new ItemNotFoundError(cmd.itemId);
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        // One row, deleted if it is still there - not refused if it is
+        // not: a retried removal (a different commandId naming an
+        // attachment this account already removed) is exactly the
+        // "idempotent - no error, no second effect" issue 441 asks for,
+        // the same shape `remove_item_from_panel` above already takes.
+        tx.delete(attachments)
+          .where(
+            and(
+              eq(attachments.tenantId, tenantId),
+              eq(attachments.id, cmd.attachmentId),
+              eq(attachments.itemId, cmd.itemId),
+            ),
+          )
           .run();
         tx.insert(commands).values(commandRow).run();
       });

@@ -1,5 +1,10 @@
 import { z } from 'zod';
 import {
+  attachmentContentTypeSchema,
+  attachmentFilenameSchema,
+  MAX_ATTACHMENT_SIZE,
+} from './domain/attachment.js';
+import {
   associationKindSchema,
   dashboardNameSchema,
   itemDescriptionSchema,
@@ -387,6 +392,36 @@ export const setDescriptionSchema = commandEnvelopeSchema.extend({
 export type SetDescriptionCommand = z.infer<typeof setDescriptionSchema>;
 
 /**
+ * add_attachment ("Attach a file to an item", issue 441). **Written by the
+ * upload route after a file's bytes have already streamed to R2, never
+ * posted as JSON by a client itself** (`apps/api/src/http/app.ts`, the
+ * attachments upload route) - there is no way to carry a file's bytes in a
+ * JSON command payload, so this is the one command a browser triggers
+ * without ever sending this shape over the wire. `size`/`contentType` are
+ * what the upload route itself measured and validated, never what the
+ * browser merely claimed.
+ */
+export const addAttachmentSchema = commandEnvelopeSchema.extend({
+  attachmentId: z.uuid(),
+  itemId: z.uuid(),
+  filename: attachmentFilenameSchema,
+  size: z.number().int().positive().max(MAX_ATTACHMENT_SIZE),
+  contentType: attachmentContentTypeSchema,
+});
+export type AddAttachmentCommand = z.infer<typeof addAttachmentSchema>;
+
+/**
+ * remove_attachment - the reference only; the file itself is left in R2
+ * (issue 441, "tombstone-not-delete stance", chosen specifically so this
+ * build has no state it can destroy).
+ */
+export const removeAttachmentSchema = commandEnvelopeSchema.extend({
+  attachmentId: z.uuid(),
+  itemId: z.uuid(),
+});
+export type RemoveAttachmentCommand = z.infer<typeof removeAttachmentSchema>;
+
+/**
  * set_routing_summary_correction — what one Workspace's own sentence about
  * where its notes belong says, in the writer's words ("Show what the system
  * learned, in a sentence you can correct", issue 301). It corrected a
@@ -560,6 +595,8 @@ export const commandSchemas = {
   set_priority: setPrioritySchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
+  add_attachment: addAttachmentSchema,
+  remove_attachment: removeAttachmentSchema,
   set_routing_summary_correction: setRoutingSummaryCorrectionSchema,
   set_text_learning_rules: setTextLearningRulesSchema,
   pin_text_example: pinTextExampleSchema,
@@ -580,8 +617,15 @@ export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchem
  */
 export type SelfSentCommandName = 'propose_item_texts' | 'propose_item_panel';
 
-/** The commands a client sends, which is every command with an endpoint. */
-export type ClientCommandName = Exclude<CommandName, SelfSentCommandName>;
+/**
+ * The commands a client sends, which is every command with a generic JSON
+ * endpoint. `add_attachment` is excluded alongside the two self-sent
+ * commands above for a different reason: a client does trigger it, but
+ * never by posting this payload as JSON - the upload route builds it itself
+ * once a file's bytes have already streamed to R2 (see `addAttachmentSchema`
+ * above).
+ */
+export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_attachment'>;
 
 /**
  * What every command endpoint returns. `applied: false` = idempotent replay.

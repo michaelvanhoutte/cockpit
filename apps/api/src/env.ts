@@ -1,4 +1,10 @@
-import type { Ai, D1Database, DurableObjectNamespace, Queue } from '@cloudflare/workers-types';
+import type {
+  Ai,
+  D1Database,
+  DurableObjectNamespace,
+  Queue,
+  R2Bucket,
+} from '@cloudflare/workers-types';
 import type { AccountStoreRpc } from './accounts/rpc.js';
 import type { EnrichmentJob } from './jobs/enrichment.js';
 
@@ -21,6 +27,20 @@ export interface Env {
    * production's messages.
    */
   ENRICHMENT: Queue<EnrichmentJob>;
+  /**
+   * The bytes of every attachment an Item holds ("Attach a file to an item",
+   * issue 441) - the account's own store carries the metadata (filename,
+   * size, type) and never the bytes themselves. Unlike `ACCOUNT`, this names
+   * one bucket rather than a per-account namespace: R2 keys are already
+   * account- and item-scoped (`apps/api/src/domain/attachments.ts`), so one
+   * bucket is every account's, the same way one D1 database is every
+   * account's register.
+   *
+   * R2 has a full local simulator, unlike Workers AI, so this is bound for
+   * real on every stack - `pnpm dev`, the browser suite and CI alike - with
+   * nothing to stand in for it.
+   */
+  ATTACHMENTS: R2Bucket;
   /**
    * Workers AI, which reads what a note means so that one saying what another
    * one already said can be flagged ("Flag a captured note that says what

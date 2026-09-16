@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
 import { capture, expect, itemRow, openInbox, press, test, uniqueTitle } from './support/app';
 
 /** Opens one row's form the way both devices can: from the row's own menu. */
@@ -203,6 +204,119 @@ test.describe('Item editing', () => {
       // that alone, whether or not the clear actually landed.
       await expect(priorityBox(page)).toHaveCount(0);
       await expect(itemRow(page, thought).getByLabel('High priority')).toHaveCount(0);
+    });
+  });
+
+  /**
+   * F3, because storing a file, refusing an oversized or disallowed one, and
+   * serving it back are proved against a real R2 bucket and a real database
+   * in apps/api/tests/integration/http/attachments.test.ts, and what the
+   * form draws from a snapshot it is handed is proved without a browser in
+   * apps/web/tests/unit/components/ItemForm.test.tsx ("Attach a file to an
+   * item", issue 441). Neither can say a real `<input type="file">`, a real
+   * drop and a real click on a chip actually add, refuse and open a file.
+   */
+  test.describe('the files attached to an item', () => {
+    /** A minimal, valid 1x1 PNG - small enough to embed, real enough to decode. */
+    const A_PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    function attachmentInput(page: Page) {
+      return form(page).locator('input[type="file"]');
+    }
+
+    function uploadResponse(page: Page) {
+      return page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          /\/v1\/items\/[^/]+\/attachments$/.test(new URL(response.url()).pathname),
+      );
+    }
+
+    test('adds one by button, drawn as a chip, and opens the real file from a click on it', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Scanned receipt');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      const uploaded = uploadResponse(page);
+      await attachmentInput(page).setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: A_PNG });
+      expect((await uploaded).status()).toBe(201);
+
+      // A thumbnail for an image, per the issue's own chip rule.
+      await expect(form(page).getByRole('img', { name: 'receipt.png' })).toBeVisible();
+
+      const [popup] = await Promise.all([
+        page.waitForEvent('popup'),
+        press(form(page).getByRole('link', { name: /receipt\.png/ }), isMobile),
+      ]);
+      await expect(popup).toHaveURL(/\/v1\/attachments\//);
+      expect(await popup.locator('img').first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1);
+      await popup.close();
+    });
+
+    test('refuses a file over the size cap, and a kind not on the allowlist, naming why', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Rejected files');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      await attachmentInput(page).setInputFiles({
+        name: 'notes.txt',
+        mimeType: 'text/plain',
+        buffer: Buffer.from('just words'),
+      });
+      await expect(form(page).getByRole('alert')).toHaveText(/not a kind of file Cockpit accepts/);
+      // A chip, not any text on the form: the refusal itself names the file,
+      // which `getByText` would otherwise also match.
+      await expect(form(page).getByRole('link', { name: 'notes.txt' })).toHaveCount(0);
+
+      await attachmentInput(page).setInputFiles({
+        name: 'huge.png',
+        mimeType: 'image/png',
+        buffer: Buffer.alloc(MAX_ATTACHMENT_SIZE + 1),
+      });
+      await expect(form(page).getByRole('alert')).toHaveText(/over the/);
+      await expect(form(page).getByRole('link', { name: 'huge.png' })).toHaveCount(0);
+    });
+
+    test('removing one takes it off the item for good, and a second Save does not bring it back', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Attached and removed');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      const uploaded = uploadResponse(page);
+      await attachmentInput(page).setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: A_PNG });
+      await uploaded;
+      await expect(form(page).getByText('receipt.png')).toBeVisible();
+
+      const removed = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname === '/v1/commands/remove_attachment',
+      );
+      await press(form(page).getByRole('button', { name: 'Remove receipt.png' }), isMobile);
+      expect((await removed).status()).toBe(200);
+      await expect(form(page).getByText('receipt.png')).toHaveCount(0);
+
+      // Removal is sent the moment it happens, not batched into Save - so a
+      // Save pressed afterwards, with nothing else changed, has nothing to
+      // resurrect (issue 441's own UI test case).
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await openItem(page, thought, isMobile);
+      await expect(form(page).getByText('receipt.png')).toHaveCount(0);
     });
   });
 

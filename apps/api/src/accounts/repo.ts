@@ -3,6 +3,7 @@ import { and, asc, desc, eq, exists, gt, isNotNull, isNull, max, ne, notExists, 
 import type { Column } from 'drizzle-orm';
 import type {
   Association,
+  Attachment,
   Dashboard,
   Filing,
   Item,
@@ -16,6 +17,7 @@ import type {
   Workspace,
 } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
+import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
@@ -23,6 +25,7 @@ import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import {
   accountTextRules,
   associations,
+  attachments,
   commands,
   dashboards,
   decisionHistory,
@@ -621,6 +624,109 @@ export function listAssociationsForWorkspace(
       ),
     )
     .all();
+}
+
+/**
+ * Every file attached to an Item of one Workspace ("Attach a file to an
+ * item", issue 441) - metadata only, the same columns `attachmentSchema`
+ * (`@cockpit/shared`) reads back and never the bytes, which live in R2.
+ *
+ * The same join and the same `or` `listAssociationsForWorkspace` above
+ * carries, for the same reason: an Item belonging to no workspace yet is
+ * drawn in every workspace's Inbox, so its attachments ride along with it.
+ *
+ * **Unlike that one, this excludes a dismissed Item's own** - deliberately,
+ * where the other reads it as an existing gap rather than a convention to
+ * copy: `listOpenItems` (the `items` this same snapshot carries) already
+ * excludes a dismissed Item, and an attachment naming one absent from
+ * `items` is a dangling reference nothing downstream expects.
+ */
+export function listAttachmentsInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): Attachment[] {
+  return db
+    .select({
+      id: attachments.id,
+      tenantId: attachments.tenantId,
+      itemId: attachments.itemId,
+      filename: attachments.filename,
+      size: attachments.size,
+      contentType: attachments.contentType,
+      createdAt: attachments.createdAt,
+    })
+    .from(attachments)
+    .innerJoin(items, eq(attachments.itemId, items.id))
+    .where(
+      and(
+        eq(attachments.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.deletedAt),
+      ),
+    )
+    .all();
+}
+
+/**
+ * What the attachment download route reads (`apps/api/src/http/app.ts`): the
+ * one attachment by its id, alongside `r2Key` (never sent to a client) and
+ * server-internal enough that this has no wire schema of its own.
+ *
+ * Excludes an attachment of a deleted item - the same exclusion the
+ * workspace read above now carries too - the download route's own test case
+ * (issue 441): "an attachment id that doesn't exist, or belongs to a deleted
+ * item - a 404, not a 500."
+ */
+export function getAttachmentForDownload(
+  db: AccountDb,
+  tenantId: string,
+  attachmentId: string,
+): AttachmentForDownload | null {
+  return (
+    db
+      .select({
+        id: attachments.id,
+        itemId: attachments.itemId,
+        r2Key: attachments.r2Key,
+        filename: attachments.filename,
+        contentType: attachments.contentType,
+      })
+      .from(attachments)
+      .innerJoin(items, eq(attachments.itemId, items.id))
+      .where(
+        and(
+          eq(attachments.tenantId, tenantId),
+          eq(attachments.id, attachmentId),
+          isNull(items.deletedAt),
+        ),
+      )
+      .get() ?? null
+  );
+}
+
+/**
+ * One attachment by its id, whole - what `add_attachment` reads to tell a
+ * genuine retry (the same file, replayed) from a different upload that
+ * happens to reuse the id ("Attach a file to an item", issue 441).
+ */
+export function getAttachment(db: AccountDb, tenantId: string, attachmentId: string): AttachmentRow | null {
+  return (
+    db
+      .select({
+        id: attachments.id,
+        tenantId: attachments.tenantId,
+        itemId: attachments.itemId,
+        r2Key: attachments.r2Key,
+        filename: attachments.filename,
+        size: attachments.size,
+        contentType: attachments.contentType,
+        createdAt: attachments.createdAt,
+      })
+      .from(attachments)
+      .where(and(eq(attachments.tenantId, tenantId), eq(attachments.id, attachmentId)))
+      .get() ?? null
+  );
 }
 
 /**
