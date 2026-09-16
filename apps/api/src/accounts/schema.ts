@@ -1362,6 +1362,55 @@ export const pinnedTextExamples = sqliteTable(
 );
 
 /**
+ * A file attached to an Item - metadata only ("Attach a file to an item",
+ * issue 441). The bytes live in R2 under `r2Key`
+ * (`apps/api/src/domain/attachments.ts`); nothing here ever holds them, and
+ * the account's own store is not a second copy.
+ *
+ * **Hard-deleted, never tombstoned** - the same choice `pinnedTextExamples`
+ * above makes and for the same reason: nothing else references an
+ * attachment's id under a restricting foreign key. Removing an attachment
+ * removes this row and nothing else; the R2 object it named is left in
+ * place - the tombstone-not-delete stance this build was scoped to have no
+ * state it can destroy (issue 441, "Out of scope").
+ *
+ * **No CHECK on `content_type`.** The allowlist (`attachmentContentTypeSchema`,
+ * `@cockpit/shared`) is a set the product may extend, the same category this
+ * file's own header puts panel kinds and item statuses in - guarded by Zod
+ * alone, because a CHECK here would cost rebuilding this table (and
+ * everything under RESTRICT beneath it) the day that allowlist grows by one
+ * entry.
+ *
+ * **`size > 0` is the one CHECK this table gets**, because a stored file
+ * having positive size is true by definition; the 25MB cap itself is a
+ * product number enforced by `addAttachmentSchema` on the way in, the same
+ * split `MIN_ROW_HEIGHT`/`MAX_ROW_HEIGHT` take for a Layout row.
+ */
+export const attachments = sqliteTable(
+  'attachments',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    r2Key: text('r2_key').notNull(),
+    filename: text('filename').notNull(),
+    size: integer('size').notNull(),
+    contentType: text('content_type').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    // What `listAttachmentsInWorkspace` reads by (repo.ts) - every
+    // attachment of one item, joined the same way `listAssociationsForWorkspace`
+    // joins its own.
+    index('attachments_tenant_item').on(t.tenantId, t.itemId),
+    check('attachments_size_is_positive', sql.raw('size > 0')),
+    check('attachments_created_at_is_timestamp', isTimestamp('created_at')),
+  ],
+);
+
+/**
  * One attempt Cockpit made to rewrite a captured item's title and description,
  * from the moment it was queued through to its outcome ("See the history of
  * what Cockpit proposed for the Inbox's items", issue 444).

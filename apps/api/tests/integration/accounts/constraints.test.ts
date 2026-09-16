@@ -106,6 +106,27 @@ async function linkItem(overrides: Record<string, unknown> = {}): Promise<void> 
   });
 }
 
+async function attachFile(overrides: Record<string, unknown> = {}): Promise<void> {
+  const row = {
+    id: nextId(),
+    tenant_id: ACCOUNT_NAME,
+    item_id: 'placeholder',
+    r2_key: 'placeholder-key',
+    filename: 'photo.png',
+    size: 100,
+    content_type: 'image/png',
+    created_at: AT,
+    ...overrides,
+  };
+  const columns = Object.keys(row);
+  await inTheStore((sql) => {
+    sql.exec(
+      `INSERT INTO attachments (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+      ...Object.values(row),
+    );
+  });
+}
+
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
@@ -342,6 +363,40 @@ describe('Associations', () => {
       const itemId = nextId();
       await fileItem({ id: itemId });
       await expect(linkItem({ item_id: itemId, kind: 'sandwich' })).rejects.toThrow();
+    });
+  });
+});
+
+describe('Item editing', () => {
+  describe('an attachment always points at an item that exists', () => {
+    it('is stored when the item was captured', async () => {
+      const itemId = nextId();
+      await fileItem({ id: itemId });
+      await expect(attachFile({ item_id: itemId })).resolves.toBeUndefined();
+    });
+
+    it('is refused when the item was never captured', async () => {
+      await expect(attachFile({ item_id: nextId() })).rejects.toThrow();
+    });
+  });
+
+  describe('a stored file always has a positive size', () => {
+    it('is stored at a positive size', async () => {
+      const itemId = nextId();
+      await fileItem({ id: itemId });
+      await expect(attachFile({ item_id: itemId, size: 1 })).resolves.toBeUndefined();
+    });
+
+    it('is refused at zero', async () => {
+      const itemId = nextId();
+      await fileItem({ id: itemId });
+      await expect(attachFile({ item_id: itemId, size: 0 })).rejects.toThrow();
+    });
+
+    it('is refused negative', async () => {
+      const itemId = nextId();
+      await fileItem({ id: itemId });
+      await expect(attachFile({ item_id: itemId, size: -1 })).rejects.toThrow();
     });
   });
 });

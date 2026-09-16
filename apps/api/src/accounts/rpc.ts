@@ -11,6 +11,7 @@ import type {
 } from '@cockpit/shared';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
+import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
@@ -50,6 +51,22 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * filters on the account - is the ordinary case and not a failure to report.
    */
   item(accountName: string, itemId: string): Awaitable<Answer<Item | null>>;
+  /**
+   * One attachment by its id, with the R2 key its bytes are stored under -
+   * what the download route reads ("Attach a file to an item", issue 441).
+   * Null rather than `missing`, for the same reason `item` above answers
+   * null: the download route answers 404 either way.
+   */
+  attachmentForDownload(
+    accountName: string,
+    attachmentId: string,
+  ): Awaitable<Answer<AttachmentForDownload | null>>;
+  /**
+   * Whether this account already has an attachment by this id, checked by
+   * the upload route before it ever writes to R2 ("Attach a file to an
+   * item", issue 441) - see `store.ts`'s own comment on why.
+   */
+  attachmentExists(accountName: string, attachmentId: string): Awaitable<Answer<boolean>>;
   /**
    * Every live Panel that takes items, in one Workspace - what a routing
    * proposal may choose from ("Propose where a captured note belongs, without

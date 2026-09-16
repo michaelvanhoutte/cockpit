@@ -101,6 +101,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     DUPLICATE_SETTLEMENTS,
     PINNED_TEXT_EXAMPLES,
     ITEMS_TENANT_ID,
+    ATTACHMENTS,
     REWRITE_HISTORY,
   ];
 }
@@ -690,6 +691,53 @@ const ITEMS_TENANT_ID: Change = {
 };
 
 /**
+ * The account's own attachments on its Items ("Attach a file to an item",
+ * issue 441) - see `schema.ts` for what each column carries and why.
+ *
+ * **A brand new table, created whole with its one CHECK**, the same shape
+ * `PINNED_TEXT_EXAMPLES` above uses and for the same reason.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that
+ * cannot put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md,
+ *   "Deployed data is real"). It adds a table and writes to no existing row.
+ * - **Interrupted partway.** It cannot be: the statements and the record
+ *   that they ran commit together (`up-to-date.ts`), so a failure leaves
+ *   neither the table nor the index and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished
+ *   one left nothing behind.
+ * - **Data the new rules reject.** None: the table starts empty, and
+ *   nothing sweeps past existing Items into it. An account's attachments
+ *   exist only from the moment it adds one.
+ * - **What each environment does.** The same thing everywhere: an account
+ *   applies its outstanding changes inside the first request that opens it.
+ */
+const ATTACHMENTS: Change = {
+  name: '0033-attachments',
+  statements: [
+    {
+      sql: `CREATE TABLE \`attachments\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`r2_key\` text NOT NULL,
+	\`filename\` text NOT NULL,
+	\`size\` integer NOT NULL,
+	\`content_type\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "attachments_size_is_positive" CHECK(size > 0),
+	CONSTRAINT "attachments_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `attachments_tenant_item` ON `attachments` (`tenant_id`,`item_id`)',
+    },
+  ],
+};
+
+/**
  * The append-only rewrite history a rewrite-history table reads whole per
  * item, or per workspace most recent first ("See the history of what Cockpit
  * proposed for the Inbox's items", issue 444) - see `schema.ts` for what each
@@ -716,7 +764,7 @@ const ITEMS_TENANT_ID: Change = {
  *   applies its outstanding changes inside the first request that opens it.
  */
 const REWRITE_HISTORY: Change = {
-  name: '0033-rewrite-history',
+  name: '0034-rewrite-history',
   statements: [
     {
       sql: `CREATE TABLE \`rewrite_history\` (

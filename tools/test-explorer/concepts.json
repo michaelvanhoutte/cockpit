@@ -227,7 +227,14 @@
         "packages/shared/src/domain/item.ts",
         "packages/shared/src/commands.ts",
         "apps/api/src/domain/items.ts",
-        "apps/web/src/components/ItemRow.tsx"
+        "apps/web/src/components/ItemRow.tsx",
+        "packages/shared/src/domain/attachment.ts",
+        "apps/api/src/domain/attachments.ts",
+        "apps/api/src/accounts/schema.ts",
+        "apps/api/src/accounts/changes.ts",
+        "apps/api/src/accounts/command-service.ts",
+        "apps/api/src/accounts/repo.ts",
+        "apps/api/src/http/app.ts"
       ]
     },
     {

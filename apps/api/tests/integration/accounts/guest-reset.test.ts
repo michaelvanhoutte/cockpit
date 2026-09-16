@@ -178,6 +178,39 @@ describe('Accounts', () => {
     });
   });
 
+  describe('putting the guest account back leaves no file a guest attached behind it', () => {
+    it.each(WAYS)('deletes it from storage too, when $situation', async ({ reset }) => {
+      const { cookie, workspaces, seeded } = await openAsGuest();
+      const itemId = nextId();
+      await send('capture_item', cookie, {
+        workspaceId: workspaces[0]!.id,
+        itemId,
+        message: 'A guest attached a file',
+        typeId: taskTypeIn(GUEST_ACCOUNT_NAME),
+      });
+      const attachmentId = nextId();
+      const key = `${GUEST_ACCOUNT_NAME}/${itemId}/${attachmentId}`;
+      await env.ATTACHMENTS.put(key, new Uint8Array([1, 2, 3]));
+      await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => {
+        sql.exec(
+          `INSERT INTO attachments (id, tenant_id, item_id, r2_key, filename, size, content_type, created_at)
+           VALUES (?, ?, ?, ?, 'receipt.png', 3, 'image/png', ?)`,
+          attachmentId,
+          GUEST_ACCOUNT_NAME,
+          itemId,
+          key,
+          AT,
+        );
+      });
+      expect(await env.ATTACHMENTS.get(key), 'arranged, not yet reset').not.toBeNull();
+
+      await reset();
+
+      expect(await held(GUEST_ACCOUNT_NAME)).toEqual(seeded);
+      expect(await env.ATTACHMENTS.get(key)).toBeNull();
+    });
+  });
+
   describe('putting the guest account back touches nothing but the guest account', () => {
     it('leaves every other account, and who can sign in, exactly as they were', async () => {
       await send('capture_item', await signInAs(USER_ID), {

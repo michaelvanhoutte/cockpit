@@ -3,11 +3,14 @@ import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
   accountHoldingsSchema,
+  addAttachmentSchema,
   addUserSchema,
+  attachmentContentTypeSchema,
   changeUserSchema,
   userDeletedSchema,
   commandResultSchema,
   commandSchemas,
+  MAX_ATTACHMENT_SIZE,
   itemTypeListSchema,
   registeredUserListSchema,
   rewriteHistoryResponseSchema,
@@ -18,6 +21,7 @@ import {
   userChangedSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
+  type ClientCommandName,
   type CommandName,
   type CommandPayload,
   type CommandResult,
@@ -49,6 +53,7 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
+import { attachmentR2Key } from '../domain/attachments.js';
 import {
   CannotReadMeaningError,
   enqueueCleanUp,
@@ -707,7 +712,11 @@ const rewriteHistoryForItemRoute = createRoute({
 
 // --- changes ("Mutations are commands"): one POST endpoint per change --------
 
-function commandRoute<N extends CommandName>(name: N, extra?: { conflict: string }) {
+// `ClientCommandName`, not `CommandName`: a command with no generic JSON
+// endpoint (`add_attachment`, `packages/shared/src/commands.ts`) must not be
+// wired onto this route at all, or it would accept a client-claimed
+// `size`/`contentType` the upload route exists specifically to not trust.
+function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: string }) {
   return createRoute({
     method: 'post',
     path: `/v1/commands/${name}`,
@@ -1181,6 +1190,9 @@ const routes = app
   .openapi(commandRoute('set_description'), async (c) =>
     c.json(await changeThatRewritesTheTexts(c, 'set_description', c.req.valid('json')), 200),
   )
+  .openapi(commandRoute('remove_attachment'), async (c) =>
+    c.json(await change(c, 'remove_attachment', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_routing_summary_correction'), async (c) =>
     c.json(await change(c, 'set_routing_summary_correction', c.req.valid('json')), 200),
   )
@@ -1199,6 +1211,154 @@ const routes = app
   .openapi(commandRoute('delete_pinned_example'), async (c) =>
     c.json(await change(c, 'delete_pinned_example', c.req.valid('json')), 200),
   )
+  // --- attachments ("Attach a file to an item", issue 441): outside the
+  // OpenAPI/JSON contract, the same as the ingress and operator routes below
+  // - a file's bytes cannot ride in a `commandRoute`'s JSON body, and a
+  // download answers with the bytes themselves rather than JSON.
+  .post('/v1/items/:itemId/attachments', async (c) => {
+    const itemId = c.req.param('itemId');
+
+    // Both refused from headers alone, before anything reads the body - the
+    // upload's own two refusal test cases (issue 441): "refused before the
+    // upload route reads a byte of the body", "nothing written" either way.
+    const contentType = attachmentContentTypeSchema.safeParse(c.req.header('content-type'));
+    if (!contentType.success) {
+      return c.json({ error: 'that kind of file is not one Cockpit accepts' }, 400);
+    }
+    const declaredSize = Number(c.req.header('content-length'));
+    if (!Number.isInteger(declaredSize) || declaredSize <= 0 || declaredSize > MAX_ATTACHMENT_SIZE) {
+      return c.json({ error: `an attachment may be at most ${MAX_ATTACHMENT_SIZE} bytes` }, 413);
+    }
+
+    // `decodeURIComponent` throws on a malformed escape rather than
+    // answering false, so a bad header is caught here - the ordinary refusal
+    // path below, not the app-wide 500 an uncaught `URIError` would fall
+    // into.
+    const filenameHeader = c.req.header('x-filename');
+    let filename: string | undefined;
+    try {
+      filename = filenameHeader === undefined ? undefined : decodeURIComponent(filenameHeader);
+    } catch {
+      return c.json({ error: 'the filename was not a validly encoded header value' }, 400);
+    }
+
+    const parsedCommand = addAttachmentSchema.safeParse({
+      commandId: c.req.header('x-command-id'),
+      issuedAt: c.req.header('x-issued-at'),
+      workspaceId: c.req.header('x-workspace-id'),
+      attachmentId: c.req.header('x-attachment-id'),
+      itemId,
+      filename,
+      size: declaredSize,
+      contentType: contentType.data,
+    });
+    if (!parsedCommand.success) {
+      return c.json({ error: 'validation failed', issues: parsedCommand.error.issues }, 400);
+    }
+
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    // Checked before R2 is touched, the same as the two refusals above -
+    // narrower than a transaction can make it (`command-service.ts`'s own
+    // comment on `add_attachment`), but it is what keeps the ordinary case
+    // (an item deleted from another tab) from ever reaching R2 at all.
+    const item = await account.item(itemId);
+    if (!item || item.deletedAt) return c.json({ error: `item ${itemId} not found` }, 404);
+
+    // Checked before R2 is ever touched, not only before it: an id reusing
+    // an existing attachment's must never let a second upload's bytes reach
+    // the object the existing row already names, whether that reuse turns
+    // out to be a genuine replay or a refusal - `add_attachment`'s own
+    // handler (`command-service.ts`) is where that distinction is made, and
+    // it is only safe to make *after* nothing has been overwritten to reach
+    // it. A fresh id skips straight to the upload below. Whether it exists
+    // is asked of the account's own row, not of R2 directly: an orphaned R2
+    // object with no row naming it (the accepted cost of a race the route's
+    // own item pre-check narrows but cannot close) must not be mistaken for
+    // one, or a fresh upload reusing that key would record a new row
+    // pointing at bytes nobody just uploaded.
+    if (await account.attachmentExists(parsedCommand.data.attachmentId)) {
+      // Checked against R2's own measured size, not the stored row's - a
+      // reused id naming a genuinely different upload has to be caught
+      // *here*, from what this new request itself declares, or forcing
+      // `cmd.size` to whatever is already stored would make `command-
+      // service.ts`'s own size comparison compare that stored value with
+      // itself: always equal, never catching anything. A size R2 confirms
+      // agrees with what was just declared is the one case safe to accept
+      // as a replay; `command-service.ts` still checks filename/contentType
+      // on top of this, for the same reason. A declared size can disagree
+      // for two reasons this route cannot tell apart - a genuinely
+      // different file, or the very first upload landing short of what it
+      // declared - and since this branch never reads a body to settle it
+      // either way, both are refused alike; a short original's id stays
+      // refused for good, and a real retry needs a fresh one.
+      const existingObject = await c.env.ATTACHMENTS.head(
+        attachmentR2Key(accountName, itemId, parsedCommand.data.attachmentId),
+      );
+      if (existingObject && existingObject.size !== parsedCommand.data.size) {
+        return c.json(
+          { error: `attachment ${parsedCommand.data.attachmentId} already names a different upload` },
+          409,
+        );
+      }
+      const cmd = { ...parsedCommand.data, size: existingObject?.size ?? parsedCommand.data.size };
+      return c.json(await account.applyChange('add_attachment', cmd), 201);
+    }
+
+    const body = c.req.raw.body;
+    if (!body) return c.json({ error: 'nothing was uploaded' }, 400);
+    // Streamed straight into R2, never buffered here (issue 441) - `body` is
+    // the request's own `ReadableStream`, piped through rather than read.
+    //
+    // The `any` is not a style choice: `apps/web` also compiles this file (to
+    // infer `AppType` for the typed client), and its own tsconfig carries the
+    // DOM lib alongside `@cloudflare/workers-types` - two ambient
+    // declarations of `ReadableStream` that Cloudflare's own types docs say
+    // not to mix, and do not merge cleanly where they are. `body` is a real
+    // `ReadableStream` either way; only its *type* disagrees with itself
+    // depending on which of the two compiles this file.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above
+    const object = await c.env.ATTACHMENTS.put(
+      attachmentR2Key(accountName, itemId, parsedCommand.data.attachmentId),
+      body as any,
+      { httpMetadata: { contentType: parsedCommand.data.contentType } },
+    );
+    // R2's own account of what it actually stored, not the `Content-Length`
+    // the client claimed - a dropped connection or a truncating proxy must
+    // not leave this row disagreeing with the object it names.
+    const cmd = { ...parsedCommand.data, size: object.size };
+
+    return c.json(await account.applyChange('add_attachment', cmd), 201);
+  })
+  .get('/v1/attachments/:attachmentId', async (c) => {
+    const attachmentId = c.req.param('attachmentId');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    // Authenticated and workspace-scoped by construction, not by a check
+    // named here: `openAccount` resolves the signed-in visitor's own account,
+    // and a different account's Durable Object is a different SQLite
+    // database entirely, so there is no id this request could name that
+    // reaches somebody else's attachment.
+    const attachment = await account.attachmentForDownload(attachmentId);
+    if (!attachment) return c.json({ error: `attachment ${attachmentId} not found` }, 404);
+
+    const object = await c.env.ATTACHMENTS.get(attachment.r2Key);
+    if (!object) return c.json({ error: `attachment ${attachmentId} not found` }, 404);
+
+    // The same DOM-lib-vs-workers-types conflict the upload route's own
+    // comment explains - `unknown` bridges this one cleanly, unlike the
+    // upload route's `.put()` call, whose own parameter type needed `any`
+    // instead: the two sides of that conflict don't fail identically.
+    return new Response(object.body as unknown as ReadableStream, {
+      status: 200,
+      headers: {
+        // The stored, allowlisted type - never a passthrough of whatever the
+        // upload claimed (issue 441's own download test case), even though
+        // `add_attachment`'s own write already made the two agree.
+        'Content-Type': attachment.contentType,
+        'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
+      },
+    });
+  })
   // --- signing in: two navigations, not two requests -------------------------
   /**
    * Sends the browser to Google to be asked who it is, keeping what it has to

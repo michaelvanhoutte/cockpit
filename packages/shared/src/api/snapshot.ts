@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { attachmentSchema } from '../domain/attachment.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
 import {
   associationSchema,
@@ -30,6 +31,14 @@ export const workspaceSnapshotSchema = z.object({
   /** Which Items are filed on which of those Panels, and in what order ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36; architecture.md §4.4). */
   filings: z.array(filingSchema),
   associations: z.array(associationSchema),
+  /**
+   * Every file attached to an Item of this Workspace ("Attach a file to an
+   * item", issue 441) - metadata only, never the bytes, which live in R2.
+   * Defaulted for the reason `screenSizes` below is: a stored copy taken
+   * before this field existed is an app with nothing attached, not a broken
+   * one.
+   */
+  attachments: z.array(attachmentSchema).default([]),
   /** Every live Type of the account, in the order they are offered in ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). */
   itemTypes: z.array(itemTypeSchema),
   /** Every Screen size of the account, narrowest first ("Give the account a list of screen sizes, before anything reads it", issue 262; architecture.md §4.4). Empty until "Draw a dashboard against the screen sizes its account has" (issue 263). */
