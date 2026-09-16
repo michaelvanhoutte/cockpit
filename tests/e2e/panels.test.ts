@@ -1,11 +1,15 @@
 import { type Locator, type Page, type Response } from '@playwright/test';
+import { MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type { CommandName } from '@cockpit/shared';
 import {
   ADA,
+  capture,
   choosePanelAction,
   dashboardBar,
   expect,
   expectNoSidewaysScroll,
+  itemRow,
+  itemsOn,
   press,
   signIn,
   test,
@@ -718,6 +722,159 @@ test.describe('Panels', () => {
       await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
       await expect.poll(async () => (await row.boundingBox())!.height).toBe(wasTall + 120);
       await expect.poll(() => shareOfTheRow(page, first, second)).toBeCloseTo(2, 1);
+      await expectNoSidewaysScroll(page);
+      await expectTheDashboardFits(page);
+    });
+  });
+
+  /**
+   * "A Panel doesn't shrink or scroll to fit a shorter dashboard row" (issue
+   * 432). Containment is real flex/grid layout math - whether a panel's own
+   * box, and the well inside it, actually stay inside the row drawn around
+   * them - which jsdom cannot compute at all. What the gestures themselves
+   * mean is already settled above and in
+   * apps/web/tests/unit/panels/arrangement.test.ts; what is only true here is
+   * that nothing spills.
+   */
+  test.describe('a Panel never shows more than its row gives it', () => {
+    // Sizing a row is a pointer gesture, for the reason the drag above is.
+    test.skip(({ isMobile }) => !!isMobile, 'sizing a row is a pointer gesture');
+
+    test('shrinks and scrolls a panel to fit a row dragged short, and shows everything again once the row is let back', async ({
+      page,
+      isMobile,
+    }) => {
+      await ownDashboard(page, isMobile);
+      const busy = uniqueTitle('Project Falcon');
+      const bare = uniqueTitle('To read');
+      await addPanel(page, busy, isMobile);
+      await addPanel(page, bare, isMobile);
+      // Two fit across a desktop board, so both land on one row without a
+      // drag - the row this walk goes on to shrink.
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[busy, bare]]);
+
+      // Enough items that the row's own natural height is well past the
+      // floor a drag can shrink it to - otherwise shrinking it would prove
+      // nothing.
+      const items = Array.from({ length: 8 }, (_, at) => uniqueTitle(`Item ${at}`));
+      for (const title of items) await capture(page, title, isMobile);
+
+      // Filed as one selected range rather than one at a time ("Select
+      // several items, and file them all in one go", issue 169): a move per
+      // item leaves its own Undo bar up at the foot of the screen
+      // (`undo.tsx`), and eight of them in a row never leaves a moment for it
+      // to clear before the next item's own row needs clicking - one filing
+      // of all eight leaves one bar, once, after everything has landed. The
+      // Inbox shows its ties on hover; the whole point of this feature is
+      // that this device can hover.
+      const tick = (title: string) => itemRow(page, title).getByRole('checkbox');
+      await itemRow(page, items[0]!).hover();
+      await tick(items[0]!).click();
+      await tick(items[items.length - 1]!).click({ modifiers: ['Shift'] });
+      await page.getByRole('button', { name: 'Move to…' }).click();
+      const picker = page.getByRole('dialog');
+      await expect(picker).toBeVisible();
+      await picker.getByRole('button', { name: busy, exact: true }).click();
+      await expect(picker).toHaveCount(0);
+      // Filing several keeps the Inbox's own order, oldest first - unlike
+      // filing one at a time, which lands each on top of the one before - so
+      // the last item captured is the last on the panel too.
+      await expect.poll(() => itemsOn(page, busy)).toEqual(items);
+
+      const row = page.locator('main [style*="grid-template-columns"]').first();
+      const busyWell = page.getByRole('region', { name: busy }).locator('.well');
+      const bareWell = page.getByRole('region', { name: bare }).locator('.well');
+      expect(
+        (await row.boundingBox())!.height,
+        'eight items should already need more than the floor',
+      ).toBeGreaterThan(MIN_ROW_HEIGHT);
+
+      // Dragged far past the floor rather than to it exactly, so the result
+      // does not depend on how tall this checkout's items happen to measure:
+      // `withRowHeight` clamps whatever the pointer says.
+      let saved = answerTo(page, 'save_layout');
+      const under = page.getByTestId('row-line').first();
+      let [lineX, lineY] = await centreOf(under);
+      await page.mouse.move(lineX, lineY);
+      await page.mouse.down();
+      await page.mouse.move(lineX, lineY - 1000, { steps: 8 });
+      await page.mouse.up();
+      expect((await saved).status()).toBe(200);
+      await expect.poll(async () => (await row.boundingBox())!.height).toBe(MIN_ROW_HEIGHT);
+
+      // Neither panel's own box reaches past the row around it - the claim
+      // the issue makes, and the one no arithmetic below this tier can check.
+      let rowBox = (await row.boundingBox())!;
+      const busyBox = (await page.getByRole('region', { name: busy }).boundingBox())!;
+      const bareBox = (await page.getByRole('region', { name: bare }).boundingBox())!;
+      expect(
+        busyBox.y + busyBox.height,
+        'the busy panel spills past its row',
+      ).toBeLessThanOrEqual(rowBox.y + rowBox.height + 2);
+      expect(
+        bareBox.y + bareBox.height,
+        'the bare panel spills past its row',
+      ).toBeLessThanOrEqual(rowBox.y + rowBox.height + 2);
+
+      // The busy panel is clipped rather than merely squeezed - there is
+      // more in it than the well now shows, and it is reachable by scroll
+      // rather than lost. Filing several keeps the Inbox's own order, so the
+      // last item captured is the last on the panel - the one a scroll has
+      // to reach.
+      expect(await busyWell.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+      const lastOnThePanel = page.getByRole('region', { name: busy }).getByText(items.at(-1)!);
+      await busyWell.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      const scrolledWellBox = (await busyWell.boundingBox())!;
+      const lastBox = (await lastOnThePanel.boundingBox())!;
+      expect(
+        lastBox.y,
+        'scrolling the well should bring the last item into it',
+      ).toBeGreaterThanOrEqual(scrolledWellBox.y - 2);
+      expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(
+        scrolledWellBox.y + scrolledWellBox.height + 2,
+      );
+
+      // The bare panel has nothing to clip, so it shows nothing to scroll - a
+      // scrollbar here would be its own kind of wrong, drawn over a well with
+      // nothing hidden in it.
+      expect(await bareWell.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+
+      // Double-clicked back to fit its content: the busy panel's well holds
+      // everything again, with nothing left to scroll to.
+      saved = answerTo(page, 'save_layout');
+      await under.dblclick();
+      expect((await saved).status()).toBe(200);
+      const atFit = MIN_ROW_HEIGHT;
+      await expect.poll(async () => (await row.boundingBox())!.height).toBeGreaterThan(atFit);
+      expect(await busyWell.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+
+      // Dragged taller than either panel needs, which still works the way it
+      // always has: both wells fill the row exactly, with nothing left over.
+      const fitHeight = (await row.boundingBox())!.height;
+      saved = answerTo(page, 'save_layout');
+      [lineX, lineY] = await centreOf(under);
+      await page.mouse.move(lineX, lineY);
+      await page.mouse.down();
+      await page.mouse.move(lineX, lineY + 300, { steps: 8 });
+      await page.mouse.up();
+      expect((await saved).status()).toBe(200);
+      await expect.poll(async () => (await row.boundingBox())!.height).toBeGreaterThan(fitHeight);
+
+      rowBox = (await row.boundingBox())!;
+      const grownBusyWellBox = (await busyWell.boundingBox())!;
+      const grownBareWellBox = (await bareWell.boundingBox())!;
+      expect(
+        Math.abs(grownBusyWellBox.y + grownBusyWellBox.height - (rowBox.y + rowBox.height)),
+        'the busy well should fill the taller row',
+      ).toBeLessThanOrEqual(2);
+      expect(
+        Math.abs(grownBareWellBox.y + grownBareWellBox.height - (rowBox.y + rowBox.height)),
+        'the bare well should fill the taller row',
+      ).toBeLessThanOrEqual(2);
+      expect(await busyWell.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
     });
