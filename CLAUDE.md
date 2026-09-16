@@ -146,6 +146,7 @@ Anything it prints is a rule you are already working under and have not read.
 |---|---|
 | `docs/functional-definition.md` | purpose, problems, decisions and non-functional requirements, plus a map to the rest |
 | `docs/product/*.md` | what the product is, one file per area |
+| `docs/design-system.md` | how it looks |
 | `docs/architecture.md` | how it is built |
 | `docs/testing-strategy.md` | what counts as proof it works |
 | `docs/deployment.md` | where it runs and how it gets there |
