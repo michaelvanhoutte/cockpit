@@ -488,8 +488,8 @@ export function ItemRow({
         // A no-op where there was nothing to end.
         if (selecting.revealed) selecting.onEndSelection();
       }}
-      // A double-click opens the form - the only way a mouse has, since a
-      // plain click no longer does (issue 456).
+      // A double-click also opens the form, alongside the menu's own Open,
+      // since a plain click no longer does (issue 456).
       //
       // **Only when the row itself was double-clicked**, which is two different
       // questions because a React event bubbles through the component tree
@@ -661,9 +661,9 @@ export function ItemRow({
             {/* Cockpit's own proposal, not yet taken - a click is the whole of
                 accepting it, and `title` is where "in your own terms rather
                 than the model's" lives, the reason written for this hover and
-                nothing else. Stops the click reaching the row underneath it,
-                which would otherwise end a selection already held (issue
-                438) on this click alone. */}
+                nothing else. `stopPropagation` here is belt-and-suspenders:
+                the row's own `closest('button')` guard already refuses any
+                click landing inside a button, chip included. */}
             {routingProposal && onAcceptRouting && (
               <button
                 type="button"
