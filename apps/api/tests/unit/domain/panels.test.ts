@@ -112,6 +112,26 @@ describe('Panels', () => {
         ),
       ).toBe('Reading list (3)');
     });
+
+    it('keeps every character of a title that merely ends in a parenthesised number', () => {
+      // `Sprint (2026)` is a real title, not this function's own earlier
+      // suffix - stripping it unconditionally would collide again with the
+      // number torn off, landing on `Sprint (2)` and losing the year outright.
+      // Trusted as a suffix only where the name under it is itself already on
+      // the target (found in review).
+      expect(panelNameForMove([named('other', 'Sprint (2026)')], 'Sprint (2026)')).toBe(
+        'Sprint (2026) (2)',
+      );
+    });
+
+    it('reserves room for the suffix rather than growing past the cap every other panel name obeys', () => {
+      // Nothing upstream validates this name's length the way `add_panel`/
+      // `rename_panel` do, since the mover never types it (found in review).
+      const atTheCap = 'x'.repeat(60);
+      const result = panelNameForMove([named('other', atTheCap)], atTheCap);
+      expect(result.length).toBeLessThanOrEqual(60);
+      expect(result).toBe(`${'x'.repeat(54)} (2)`);
+    });
   });
 
   describe('a panel holds either the items filed into it or the text written in it', () => {

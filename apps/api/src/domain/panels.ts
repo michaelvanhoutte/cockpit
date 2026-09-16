@@ -1,4 +1,4 @@
-import { DEFAULT_CELL_SPAN, FIRST_PANEL_NAME } from '@cockpit/shared';
+import { DEFAULT_CELL_SPAN, FIRST_PANEL_NAME, NAME_MAX_LENGTH } from '@cockpit/shared';
 import type { AddPanelCommand, Panel, RowInput, SaveLayoutCommand } from '@cockpit/shared';
 import { foldName, namedTheSame } from './names.js';
 
@@ -83,19 +83,32 @@ export function panelNamed(
  * dashboard that already has both `Reading list` and `Reading list (2)` lands
  * on `Reading list (3)` rather than colliding with the one already there.
  *
- * **A number the incoming name already carries is climbed past, not kept.**
- * Without stripping it first, the panel above would have landed on
- * `Reading list (2) (2)` - its own suffix from an earlier move, with a second
- * one piled on rather than the same sequence continued. A panel bounced
- * between two dashboards that keep colliding stays `Name (2)`, `Name (3)`…
- * rather than growing a suffix per trip.
+ * **A number the incoming name already carries is climbed past, not kept -
+ * but only where it is plausibly this function's own, earlier suffix.**
+ * `Reading list (2)` colliding again strips to `Reading list`, checks that
+ * *that* is itself on the target, and climbs to `Reading list (3)` rather
+ * than piling on `Reading list (2) (2)`. A title that merely ends in a
+ * parenthesised number for its own reasons - `Sprint (2026)` - keeps every
+ * character of it: stripping is only trusted where the number in front of it
+ * is a real title already sitting on the target, found in review.
+ *
+ * **Capped the same as any other panel name** (`NAME_MAX_LENGTH`), which
+ * nothing sends this one to be validated against: unlike `add_panel` and
+ * `rename_panel`, the mover never types this name, so nothing upstream of
+ * this function checks its length. Room is reserved for the suffix rather
+ * than appended past the cap, found in review.
  */
 export function panelNameForMove(target: readonly Panel[], name: string): string {
   if (!panelNamed(target, name)) return name;
-  const base = name.replace(/ \(\d+\)$/, '');
+  const stripped = name.replace(/ \(\d+\)$/, '');
+  const base = panelNamed(target, stripped) ? stripped : name;
+  // Six characters is room for " (2)" through " (999)" - more collisions on
+  // one dashboard than a workspace could plausibly reach.
+  const room = NAME_MAX_LENGTH - 6;
+  const fitted = base.length > room ? base.slice(0, room) : base;
   let n = 2;
-  while (panelNamed(target, `${base} (${n})`)) n += 1;
-  return `${base} (${n})`;
+  while (panelNamed(target, `${fitted} (${n})`)) n += 1;
+  return `${fitted} (${n})`;
 }
 
 export interface PanelRow extends Panel {
