@@ -799,6 +799,44 @@ describe('Triage', () => {
       expect(container.querySelector('li span[aria-hidden="true"]')).toBeNull();
     });
   });
+
+  /**
+   * "Show and edit an item's priority" (issue 433): the level is not echoed
+   * in words anywhere else on the row, unlike the type name above, so the
+   * mark carries its own title/aria-label rather than being decorative.
+   */
+  describe('a row shows its priority', () => {
+    it.each([
+      { situation: 'high priority', priority: 'high' as const, named: 'High priority' },
+      { situation: 'normal priority', priority: 'normal' as const, named: 'Normal priority' },
+      { situation: 'low priority', priority: 'low' as const, named: 'Low priority' },
+    ])('draws a named mark for $situation', ({ priority, named }) => {
+      aRow({ item: anItem({ priority }) });
+
+      expect(screen.getByLabelText(named)).toBeInTheDocument();
+      expect(screen.getByTitle(named)).toBeInTheDocument();
+    });
+
+    it('draws no mark for an item with no priority', () => {
+      aRow({ item: anItem({ priority: null }) });
+
+      expect(screen.queryByLabelText('High priority')).toBeNull();
+      expect(screen.queryByLabelText('Normal priority')).toBeNull();
+      expect(screen.queryByLabelText('Low priority')).toBeNull();
+    });
+
+    // A level this build does not recognise - reachable from a tab left open
+    // across a deploy that adds one, since a value read out of the cache is
+    // never re-validated the way a fresh fetch is. Skipped rather than
+    // crashing the row, the same as an item type nobody can resolve.
+    it('draws no mark, rather than crashing, for a priority this build does not recognise', () => {
+      expect(() =>
+        aRow({ item: anItem({ priority: 'urgent' as unknown as Item['priority'] }) }),
+      ).not.toThrow();
+
+      expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
+    });
+  });
 });
 
 describe('Capture', () => {

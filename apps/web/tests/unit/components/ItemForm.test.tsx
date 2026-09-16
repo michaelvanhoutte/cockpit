@@ -172,41 +172,64 @@ describe('Item editing', () => {
     it.each([
       {
         situation: 'the title edited and nothing else',
-        draft: { title: 'Part 12', description: '' },
+        draft: { title: 'Part 12', description: '', priority: null },
         asks: { title: 'Part 12' },
       },
       {
         situation: 'the description written and nothing else',
-        draft: { title: 'Part 11', description: 'Tolerances' },
+        draft: { title: 'Part 11', description: 'Tolerances', priority: null },
         asks: { description: 'Tolerances' },
       },
       {
         situation: 'both',
-        draft: { title: 'Part 12', description: 'Tolerances' },
+        draft: { title: 'Part 12', description: 'Tolerances', priority: null },
         asks: { title: 'Part 12', description: 'Tolerances' },
       },
-      { situation: 'neither', draft: { title: 'Part 11', description: '' }, asks: {} },
+      {
+        situation: 'neither',
+        draft: { title: 'Part 11', description: '', priority: null },
+        asks: {},
+      },
       // Adding a space to the end of a title is not a change to the title: the
       // space would not be stored either.
       {
         situation: 'a title with a space added to the end',
-        draft: { title: 'Part 11 ', description: '' },
+        draft: { title: 'Part 11 ', description: '', priority: null },
         asks: {},
       },
       // Emptied is cleared, and there is no third state to send.
       {
         situation: 'a description emptied',
-        stored: { title: 'Part 11', description: 'Tolerances' },
-        draft: { title: 'Part 11', description: '   ' },
+        stored: { title: 'Part 11', description: 'Tolerances', priority: null },
+        draft: { title: 'Part 11', description: '   ', priority: null },
         asks: { description: null },
       },
       {
         situation: 'a description that was never there and is still empty',
-        draft: { title: 'Part 11', description: '' },
+        draft: { title: 'Part 11', description: '', priority: null },
+        asks: {},
+      },
+      {
+        situation: 'the priority changed and nothing else',
+        draft: { title: 'Part 11', description: '', priority: 'high' as const },
+        asks: { priority: 'high' },
+      },
+      {
+        situation: 'the priority cleared to none',
+        stored: { title: 'Part 11', description: '', priority: 'low' as const },
+        draft: { title: 'Part 11', description: '', priority: null },
+        asks: { priority: null },
+      },
+      {
+        situation: 'a priority left as it was',
+        stored: { title: 'Part 11', description: '', priority: 'normal' as const },
+        draft: { title: 'Part 11', description: '', priority: 'normal' as const },
         asks: {},
       },
     ])('$situation', ({ stored, draft, asks }) => {
-      expect(whatChanged(stored ?? { title: 'Part 11', description: '' }, draft)).toEqual(asks);
+      expect(
+        whatChanged(stored ?? { title: 'Part 11', description: '', priority: null }, draft),
+      ).toEqual(asks);
     });
 
     it('sends a change for each box that moved, and closes', async () => {
@@ -264,6 +287,61 @@ describe('Item editing', () => {
 
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
       expect(held.send).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * "Show and edit an item's priority" (issue 433): a third field beside
+   * title and description, sent only on Save and only when it moved - the
+   * same rule the boxes above already follow.
+   */
+  describe('priority is edited from the form', () => {
+    const priorityBox = () => screen.getByLabelText('Priority');
+
+    it('opens with the item’s own priority selected', async () => {
+      await theForm(anItem({ priority: 'high' }));
+
+      expect(priorityBox()).toHaveValue('high');
+    });
+
+    it('opens with none selected for an item with no priority', async () => {
+      await theForm(anItem({ priority: null }));
+
+      expect(priorityBox()).toHaveValue('');
+    });
+
+    it('sends set_priority alone when only the priority changed', async () => {
+      const user = await theForm(anItem({ priority: null }));
+
+      await user.selectOptions(priorityBox(), 'high');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_priority']);
+      expect(sent()[0]).toMatchObject({ payload: { priority: 'high' } });
+    });
+
+    it('sends set_priority alongside whichever other fields changed', async () => {
+      const user = await theForm(anItem({ priority: null }));
+
+      await user.clear(titleBox());
+      await user.type(titleBox(), 'Part 12');
+      await user.selectOptions(priorityBox(), 'low');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_priority']);
+    });
+
+    it('sends set_priority with null for “None” on an item that has a priority', async () => {
+      const user = await theForm(anItem({ priority: 'normal' }));
+
+      await user.selectOptions(priorityBox(), 'None');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_priority']);
+      expect(sent()[0]).toMatchObject({ payload: { priority: null } });
     });
   });
 

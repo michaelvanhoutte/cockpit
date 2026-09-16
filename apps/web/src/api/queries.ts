@@ -235,12 +235,12 @@ const CHANGES_THE_TYPES = new Set<ClientCommandName>([
  * refused. Removing one is here for the same reason from the other end: it
  * changes the order the next filing will send.
  *
- * The two texts are here because what is built on them is a *read*: the form
- * closes on Save and the item can be opened again at once, and a form fills its
- * boxes from the copy the cache holds and never refills them
- * (`ItemForm.tsx`) - so a form reopened inside the re-read opens on the text as
- * it was before the save, and stays on it. The browser walk lost that race in
- * CI with the re-read out for 215ms.
+ * The three fields the item form edits are here because what is built on them
+ * is a *read*: the form closes on Save and the item can be opened again at
+ * once, and a form fills its boxes from the copy the cache holds and never
+ * refills them (`ItemForm.tsx`) - so a form reopened inside the re-read opens
+ * on the value as it was before the save, and stays on it. The browser walk
+ * lost that race in CI with the re-read out for 215ms.
  *
  * **Only these.** Making every change wait is the same fix and it was tried
  * first; it broke adding a dashboard, whose own success handler navigates to
@@ -257,6 +257,7 @@ const NOT_DONE_UNTIL_READ_BACK = new Set<ClientCommandName>([
   'remove_item_from_panel',
   'set_title',
   'set_description',
+  'set_priority',
 ]);
 
 /**

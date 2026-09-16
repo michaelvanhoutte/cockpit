@@ -522,6 +522,72 @@ function anItem(over: Partial<Item> = {}): Item {
 }
 
 describe('Item editing', () => {
+  describe('a priority change is not finished until the workspace has been read back', () => {
+    // The same race as the text fields below, for the same reason ("Show and
+    // edit an item's priority", issue 433): the form fills its priority box
+    // from the cache and never refills it, so `set_priority` needs the same
+    // wait `set_title`/`set_description` already get.
+    it('waits for the re-read before set_priority is finished', async () => {
+      let letTheRereadFinish!: () => void;
+      reads.mockReset();
+      reads.mockResolvedValueOnce(snapshot).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            letTheRereadFinish = () => resolve(snapshot);
+          }),
+      );
+      sends.mockResolvedValue({ ok: true, applied: true });
+
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const done: { yet: boolean } = { yet: false };
+
+      function DoIt() {
+        const { data } = useQuery(snapshotQuery('ws-work'));
+        const command = useCommand();
+        return data ? (
+          <button
+            type="button"
+            onClick={() =>
+              command.mutate(
+                {
+                  name: 'set_priority',
+                  payload: {
+                    commandId: 'c5',
+                    issuedAt: AT,
+                    workspaceId: 'ws-work',
+                    itemId: 'i-bart',
+                    priority: 'high',
+                  },
+                },
+                { onSuccess: () => void (done.yet = true) },
+              )
+            }
+          >
+            do it
+          </button>
+        ) : (
+          <p>still loading</p>
+        );
+      }
+
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(
+        <QueryClientProvider client={client}>
+          <DoIt />
+        </QueryClientProvider>,
+      );
+      await user.click(await screen.findByRole('button', { name: 'do it' }));
+      // The server has taken the change and the re-read is still out, which is
+      // the window this rule is about.
+      await waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
+
+      expect(done.yet).toBe(false);
+      letTheRereadFinish();
+
+      await waitFor(() => expect(done.yet).toBe(true));
+    });
+  });
+
   describe('an item opened again holds the text it was last saved with', () => {
     /**
      * **The bug this is here for.** A form fills its boxes from the copy the
