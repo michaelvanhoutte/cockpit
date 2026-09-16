@@ -70,16 +70,30 @@ export function MenuTrigger({
  * open) - so it reads its ancestor's state instead, through Tailwind's
  * `group-*` variant, which needs that ancestor to carry the literal class
  * `group` (`PanelCard.tsx`'s header does).
+ *
+ * **Every `data-[state=open]:...`/`group-data-[state=open]:...` utility is
+ * written out whole, in every branch, rather than built by interpolating the
+ * variant prefix in** (found in review). Tailwind's scanner greps source
+ * text for a complete class name; it does not evaluate the template
+ * literal, so `` `${open}:bg-accent-tint` `` never appears as one and no
+ * utility is generated for it - silently, since nothing here fails to
+ * compile or render, the class attribute just carries a string with no
+ * matching CSS rule. The four-branch, fully-literal form costs repetition;
+ * the alternative costs a highlight nobody sees.
  */
 function menuButtonClassName(
   onChrome: boolean,
   className?: string,
   ownState: 'self' | 'ancestor' = 'self',
 ) {
-  const open = ownState === 'self' ? 'data-[state=open]' : 'group-data-[state=open]';
-  const colors = onChrome
-    ? `text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink focus-visible:outline-chrome-ink-soft ${open}:bg-white/10 ${open}:text-chrome-ink`
-    : `text-ink-faint hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-accent ${open}:bg-accent-tint ${open}:text-accent-deep`;
+  const colors =
+    ownState === 'self'
+      ? onChrome
+        ? 'text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/10 data-[state=open]:text-chrome-ink'
+        : 'text-ink-faint hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-accent data-[state=open]:bg-accent-tint data-[state=open]:text-accent-deep'
+      : onChrome
+        ? 'text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink focus-visible:outline-chrome-ink-soft group-data-[state=open]:bg-white/10 group-data-[state=open]:text-chrome-ink'
+        : 'text-ink-faint hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-accent group-data-[state=open]:bg-accent-tint group-data-[state=open]:text-accent-deep';
   // 36px, comfortably past the 24px minimum target size and reachable with a
   // thumb, in a bar whose other controls are smaller than that: the control
   // is what has to be hittable, not the text beside it.
