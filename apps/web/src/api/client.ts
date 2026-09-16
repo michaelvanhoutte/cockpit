@@ -309,6 +309,8 @@ const commandSenders = {
   set_title: (p: CommandPayload<'set_title'>) => api.v1.commands.set_title.$post({ json: p }),
   set_description: (p: CommandPayload<'set_description'>) =>
     api.v1.commands.set_description.$post({ json: p }),
+  remove_attachment: (p: CommandPayload<'remove_attachment'>) =>
+    api.v1.commands.remove_attachment.$post({ json: p }),
   set_routing_summary_correction: (p: CommandPayload<'set_routing_summary_correction'>) =>
     api.v1.commands.set_routing_summary_correction.$post({ json: p }),
   set_duplicate_settled: (p: CommandPayload<'set_duplicate_settled'>) =>
@@ -340,6 +342,76 @@ export class CommandRefused extends Error {
 }
 
 /**
+ * The server's own words for a refusal, where it gave any - shared by
+ * `uploadAttachment` and `sendCommand` below, which otherwise each wrote
+ * this out by hand. A body that is missing or not JSON (a gateway's error
+ * page, a redirect to sign in) must not turn a refusal into a parse
+ * failure, so this answers `undefined` rather than throwing.
+ */
+async function refusalFrom(res: Response): Promise<string | undefined> {
+  try {
+    const body: unknown = await res.json();
+    if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
+      return body.error;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Uploads a file and attaches it to an Item ("Attach a file to an item",
+ * issue 441). Its own function rather than a `sendCommand` sender: the
+ * command this creates, `add_attachment`, has no JSON route to post to
+ * (`ClientCommandName`, `@cockpit/shared`) - a file's bytes go over the wire
+ * as the request body itself, and the server builds the command from what
+ * actually landed. `attachmentId`/`commandId` are the caller's to generate
+ * and hold onto, the same as every other command's envelope, so a chip can
+ * be drawn optimistically before this resolves.
+ *
+ * **No `Content-Length` header is set here.** It is a forbidden header name
+ * under `fetch` - the browser computes it from `file`'s own size, which is
+ * what the upload route reads to refuse an oversized file before touching
+ * the body at all.
+ */
+export async function uploadAttachment({
+  itemId,
+  workspaceId,
+  attachmentId,
+  commandId,
+  file,
+}: {
+  itemId: string;
+  workspaceId: string;
+  attachmentId: string;
+  commandId: string;
+  file: File;
+}): Promise<CommandResult> {
+  const res = await fetch(`/v1/items/${encodeURIComponent(itemId)}/attachments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': file.type,
+      'X-Attachment-Id': attachmentId,
+      'X-Command-Id': commandId,
+      'X-Issued-At': new Date().toISOString(),
+      'X-Workspace-Id': workspaceId,
+      'X-Filename': encodeURIComponent(file.name),
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `attaching ${file.name} failed: ${res.status}`);
+  }
+  return (await res.json()) as CommandResult;
+}
+
+/** An Item's attachment, opened or downloaded from a click on its chip (issue 441). */
+export function attachmentUrl(attachmentId: string): string {
+  return `/v1/attachments/${encodeURIComponent(attachmentId)}`;
+}
+
+/**
  * `ClientCommandName` rather than `CommandName`: the registry in
  * `packages/shared` also holds the commands Cockpit sends itself, which have no
  * endpoint and so no sender above ("Clean up a captured note into a clear title
@@ -351,19 +423,7 @@ export async function sendCommand<N extends ClientCommandName>(
 ): Promise<CommandResult> {
   const res = await commandSenders[name](payload as never);
   if (!res.ok) {
-    // The server's own words where there are any. A body that is missing or
-    // not JSON (a gateway's error page, a redirect to sign in) must not turn
-    // a refusal into a parse failure, so it falls back to the status.
-    let said: string | undefined;
-    try {
-      const body: unknown = await res.json();
-      if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
-        said = body.error;
-      }
-    } catch {
-      said = undefined;
-    }
-    throw new CommandRefused(res.status, said ?? `${name} failed: ${res.status}`);
+    throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `${name} failed: ${res.status}`);
   }
   return (await res.json()) as CommandResult;
 }

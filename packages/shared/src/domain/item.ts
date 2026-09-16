@@ -171,15 +171,24 @@ export type Association = z.infer<typeof associationSchema>;
  * `dashboardNameSchema`, `panelNameSchema`, `itemTypeNameSchema` and
  * `screenSizeNameSchema` — only where uniqueness is scoped differs between them.
  */
+/**
+ * Whether `text` is a single line — refused rather than cleaned up
+ * (architecture.md §4.4). The one predicate `workspaceNameSchema` below and
+ * any sibling single-line text schema share, so a rule about what counts as
+ * "one line" cannot drift between them — `attachmentFilenameSchema`
+ * (`domain/attachment.ts`) is the one that isn't this schema itself, since
+ * it needs a different length cap.
+ */
+export function isSingleLine(text: string): boolean {
+  return !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(text);
+}
+
 export const workspaceNameSchema = z
   .string()
   .trim()
   .min(1)
   .max(60)
-  /** A name is a single line — refused rather than cleaned up (architecture.md §4.4). */
-  .refine((name) => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(name), {
-    message: 'a name is a single line, without tabs or line breaks',
-  });
+  .refine(isSingleLine, { message: 'a name is a single line, without tabs or line breaks' });
 
 export const workspaceSchema = z.object({
   id: z.string(),

@@ -12,6 +12,7 @@ import type {
 import { panelTakesItems } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
+import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
 import { accountChanges } from './changes.js';
 import {
@@ -61,6 +62,7 @@ import {
   decisionHistoryForWorkspace,
   everyMeaning,
   forgetMeaning,
+  getAttachmentForDownload,
   getItem,
   getRoutingSummary,
   getTextLearningRules,
@@ -69,6 +71,7 @@ import {
   itemsWithUnsettledTexts,
   judgeableItemsForAccount,
   listAssociationsForWorkspace,
+  listAttachmentsInWorkspace,
   listDuplicatesInWorkspace,
   listItemTypes,
   listScreenSizes,
@@ -148,6 +151,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         layouts: listLayoutsInWorkspace(db, accountName, workspaceId),
         filings: listFilingsInWorkspace(db, accountName, workspaceId),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
+        attachments: listAttachmentsInWorkspace(db, accountName, workspaceId),
         itemTypes: listItemTypes(db, accountName),
         screenSizes: listScreenSizes(db, accountName),
         routingSummary: getRoutingSummary(db, accountName, workspaceId),
@@ -307,6 +311,21 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    */
   item(accountName: string, itemId: string): Answer<Item | null> {
     return this.#answer(accountName, (db) => getItem(db, accountName, itemId));
+  }
+
+  /**
+   * One attachment by its id, with the R2 key its bytes are stored under -
+   * what the download route reads (`apps/api/src/http/app.ts`; "Attach a
+   * file to an item", issue 441). Null rather than `missing`, the same
+   * choice `item` above makes: the caller answers 404 either way, and there
+   * is nothing this account failed to have brought up to date over an id
+   * that never named a row here.
+   */
+  attachmentForDownload(
+    accountName: string,
+    attachmentId: string,
+  ): Answer<AttachmentForDownload | null> {
+    return this.#answer(accountName, (db) => getAttachmentForDownload(db, accountName, attachmentId));
   }
 
   /**
@@ -654,15 +673,30 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    * anything is dropped - the `foreignRows` lock a backup is read through - so
    * a real account's data cannot be wiped by being mistaken for the guest's.
    *
-   * **All of it or none of it**, for the reason `restoreFrom` gives: the drop
-   * and every change are one `transactionSync`, so a reset that fails partway
-   * leaves the account as it was. Two arriving at once - the nightly run and an
-   * operator - cannot interleave either: there is no `await` in here and the
-   * object serves one call at a time, so the second resets what the first put
-   * back. A failure is thrown rather than answered, because nothing a caller
-   * sent can cause one; the callers log it.
+   * **All of it or none of it, for the rows** - for the reason `restoreFrom`
+   * gives: the drop and every change are one `transactionSync`, so a reset
+   * that fails partway leaves the account as it was. Two arriving at once -
+   * the nightly run and an operator - cannot interleave *there* either:
+   * that whole transaction is synchronous and the object serves one call at
+   * a time, so the second resets what the first put back.
+   *
+   * **What is left over is R2, best-effort, after the transaction above has
+   * already committed** ("Attach a file to an item", issue 441). Deleting a
+   * guest's attached files is the one exception this build's own
+   * tombstone-not-delete stance for R2 objects carries - unlike an ordinary
+   * `remove_attachment`, the guest account is reset nightly, so leaving
+   * every day's uploads behind forever is a real, compounding leak rather
+   * than the rare orphan the product accepts elsewhere. The keys are read
+   * before the drop, since the rows naming them go with it; the delete
+   * itself is awaited after the transaction, not inside it - R2 cannot be
+   * part of a Durable Object's own transaction, and a reset whose rows
+   * already committed must not be reported as failed over a cleanup step
+   * that is not the reason anyone calls this. A failure here is logged and
+   * swallowed, the same as any other orphaned object; the DB-side failure a
+   * caller can act on is still thrown, because nothing a caller sent can
+   * cause one and the callers log it.
    */
-  resetGuest(): Answer<null> {
+  async resetGuest(): Promise<Answer<null>> {
     const sql = this.ctx.storage.sql;
     const wrong = foreignRows(readStoreAsItStands(sql), GUEST_ACCOUNT_NAME);
     if (wrong.length > 0) {
@@ -671,6 +705,13 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         what: `this is not the guest account, so nothing was reset: ${countForeignRows(wrong)}`,
       };
     }
+
+    const orphanedKeys = accountTables(sql).includes('attachments')
+      ? sql
+          .exec<{ r2_key: string }>('SELECT r2_key FROM attachments')
+          .toArray()
+          .map((row) => row.r2_key)
+      : [];
 
     this.ctx.storage.transactionSync(() => {
       dropAccountTables(sql, tablesParentsFirst(sql, accountTables(sql)));
@@ -685,6 +726,20 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     // Every change there is has just been applied, so there is nothing left
     // for the next call to bring up to date.
     this.#upToDate = true;
+
+    if (orphanedKeys.length > 0) {
+      try {
+        await this.env.ATTACHMENTS.delete(orphanedKeys);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            message: `resetting the guest account left ${orphanedKeys.length} R2 object(s) behind`,
+            cause: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
+    }
     return { status: 'ok', value: null };
   }
 

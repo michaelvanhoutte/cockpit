@@ -47,6 +47,7 @@ vi.mock('../../../src/api/queries', () => ({
         panels: [],
         layouts: [],
         associations: [],
+        attachments: [],
         itemTypes: [],
     screenSizes: [],
     duplicates: [],

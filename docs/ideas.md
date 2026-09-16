@@ -54,8 +54,8 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 
 ## 5. Item content
 
-- ~~**Rich text** in the description of an action/note.~~ **Done**, in two: "Edit an item's title and description on a form of its own" (issue 159) gave the description somewhere to live, and "Format a description, and edit its source" (issue 160) formatted it. The decision and the measurements are in [rich-text-options.md](rich-text-options.md); buttons for headings, tables, images, code blocks and strikethrough are still to come, and attachments are the bullet below.
-- **Attachments** in the description of an action/note. *(Still open, and now the blocker on one half of the above: "Format a description, and edit its source" (issue 160) keeps a pasted image and offers no way to add one, because there is nowhere to put the file.)*
+- ~~**Rich text** in the description of an action/note.~~ **Done**, in two: "Edit an item's title and description on a form of its own" (issue 159) gave the description somewhere to live, and "Format a description, and edit its source" (issue 160) formatted it. The decision and the measurements are in [rich-text-options.md](rich-text-options.md); buttons for headings, tables, code blocks and strikethrough are still to come, and embedding an image inline is the bullet below.
+- ~~**Attachments** in the description of an action/note.~~ **Done**, on the Item's own form rather than inside the description: "Attach a file to an item" (issue 441). What is still open is embedding an attached image *inline inside the description*, which is now the one thing blocking the rich-text bullet above from being complete.
 
 ## 6. Search, archive and organisation
 

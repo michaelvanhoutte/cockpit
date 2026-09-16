@@ -4,6 +4,7 @@ import type { AccountDb } from './client.js';
 import {
   accountTextRules,
   associations,
+  attachments,
   commands,
   dashboards,
   DEAD_STATUS_VALUE,
@@ -47,6 +48,7 @@ import {
   settleDuplicate,
   textCorrectionExistsFor,
 } from './repo.js';
+import { attachmentFromCommand } from '../domain/attachments.js';
 import { pairOf } from '../domain/duplicates.js';
 import {
   ACCOUNT_WIDE,
@@ -1843,6 +1845,56 @@ export function runCommand<N extends CommandName>(
         // `pinnedTextExamples` for why nothing here needs a `deletedAt`.
         tx.delete(pinnedTextExamples)
           .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, cmd.exampleId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'add_attachment': {
+      const cmd = payload as CommandPayload<'add_attachment'>;
+      // Written by the upload route once a file's bytes have already
+      // streamed to R2 (`addAttachmentSchema`'s own comment,
+      // `@cockpit/shared`), so a missing item here means it was deleted in
+      // the moment between the route's own pre-check and this write -
+      // narrow, and left as an orphaned R2 object rather than something
+      // this build tries to clean up (issue 441, "Out of scope").
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item) throw new ItemNotFoundError(cmd.itemId);
+      // Its attachments are read in every workspace the item is drawn in
+      // (`listAttachmentsInWorkspace`, repo.ts), so for one that belongs to
+      // none that is all of them - the same rule `associate` above carries.
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        tx.insert(attachments)
+          .values(attachmentFromCommand(cmd, tenantId))
+          // A retried upload sharing the same attachmentId (a client that
+          // never saw this call's response and tried the whole upload
+          // again) lands on a row already there rather than a conflict.
+          .onConflictDoNothing()
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'remove_attachment': {
+      const cmd = payload as CommandPayload<'remove_attachment'>;
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item) throw new ItemNotFoundError(cmd.itemId);
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        // One row, deleted if it is still there - not refused if it is
+        // not: a retried removal (a different commandId naming an
+        // attachment this account already removed) is exactly the
+        // "idempotent - no error, no second effect" issue 441 asks for,
+        // the same shape `remove_item_from_panel` above already takes.
+        tx.delete(attachments)
+          .where(
+            and(
+              eq(attachments.tenantId, tenantId),
+              eq(attachments.id, cmd.attachmentId),
+              eq(attachments.itemId, cmd.itemId),
+            ),
+          )
           .run();
         tx.insert(commands).values(commandRow).run();
       });

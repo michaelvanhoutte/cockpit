@@ -670,6 +670,18 @@ wrangler deploy --env=""
 wrangler deploy --env staging
 ```
 
+**Not yet executed: two R2 buckets, for "Attach a file to an item" (issue 441).**
+Unlike everything above, this step has not been run against the real account -
+`apps/api/wrangler.jsonc` names both buckets already, and a deploy naming a
+bucket that does not exist fails, the same as it would for a queue (see this
+file's own comment above `queues` there). Run before the next deploy that
+carries this change:
+
+```bash
+wrangler r2 bucket create cockpit-attachments
+wrangler r2 bucket create cockpit-attachments-staging
+```
+
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy
 workflow: `seed.sql` puts the accounts *and the people who own them* in the
 register — two accounts and the two people who own them, one an admin and one

@@ -1,16 +1,20 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useParams } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  MAX_ATTACHMENT_SIZE,
   TITLE_LENGTH,
+  attachmentContentTypeSchema,
   itemHasOpenReadings,
   itemLabel,
   prioritySchema,
   uuidv7,
+  type Attachment,
   type Item,
   type Priority,
 } from '@cockpit/shared';
+import { attachmentUrl, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
 import { possibleDuplicatesOf } from '../duplicates';
@@ -35,6 +39,25 @@ const PRIORITY_LABELS: Record<Priority, string> = {
   normal: 'Normal',
   high: 'High',
 };
+
+/** A byte count as a person reads it - the units this product's own cap is stated in (issue 441). */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
+
+/** A file chosen or dropped, still uploading - drawn as its own chip until it either lands or is refused. */
+interface PendingAttachment {
+  id: string;
+  filename: string;
+}
 
 /**
  * What Save has to send: the boxes that actually moved, and nothing else
@@ -119,10 +142,14 @@ function TheForm({
   onClose: () => void;
 }) {
   const { data, isLoading } = useQuery(snapshotQuery(workspaceId));
+  const queryClient = useQueryClient();
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const openItem = useOpenItem();
   const item = data?.items.find((candidate) => candidate.id === itemId);
+  /** This Item's own files, out of the workspace's whole list ("Attach a file to an item", issue 441). */
+  const attachments: Attachment[] =
+    data?.attachments.filter((attachment) => attachment.itemId === itemId) ?? [];
   /**
    * The notes this one may be saying again ("Flag a captured note that says
    * what another one already said", issue 407) - worked out from the same
@@ -159,6 +186,73 @@ function TheForm({
       });
     } catch (failure) {
       setRefusal(failure instanceof Error ? failure.message : 'That could not be settled');
+    }
+  };
+
+  /**
+   * Attaches files as they are chosen or dropped, one upload at a time and
+   * each sent the moment it arrives - unlike the title, description and
+   * priority above, an attachment is not batched into Save (issue 441's own
+   * UI test case: "a second Save doesn't resurrect it").
+   *
+   * Checked against the allowlist and the size cap here too, before the
+   * round trip - the server enforces both for real, this is only what
+   * saves a person a wait for a refusal the file's own name already
+   * predicts.
+   */
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [attachmentsDragOver, setAttachmentsDragOver] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const attachFiles = async (files: Iterable<File>) => {
+    // Checked whole, before anything uploads - a rejection two files back
+    // in the same drop must not be a message the next, valid file's own
+    // success quietly clears.
+    const rejections: string[] = [];
+    const accepted: File[] = [];
+    for (const file of files) {
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        rejections.push(`"${file.name}" is over the ${formatFileSize(MAX_ATTACHMENT_SIZE)} limit.`);
+      } else if (!attachmentContentTypeSchema.safeParse(file.type).success) {
+        rejections.push(`"${file.name}" is not a kind of file Cockpit accepts.`);
+      } else {
+        accepted.push(file);
+      }
+    }
+    setAttachmentError(rejections.length > 0 ? rejections.join(' ') : null);
+
+    for (const file of accepted) {
+      const attachmentId = uuidv7();
+      setPendingAttachments((was) => [...was, { id: attachmentId, filename: file.name }]);
+      try {
+        await uploadAttachment({ itemId, workspaceId, attachmentId, commandId: uuidv7(), file });
+      } catch (failure) {
+        setAttachmentError(
+          failure instanceof Error ? failure.message : `"${file.name}" could not be attached`,
+        );
+      } finally {
+        setPendingAttachments((was) => was.filter((pending) => pending.id !== attachmentId));
+      }
+    }
+    // Once for the whole batch, not once per file - a drop of several files
+    // has no reason to re-read the whole workspace that many times.
+    if (accepted.length > 0) await queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
+  };
+
+  const removeAttachment = async (attachment: Attachment) => {
+    try {
+      await send({
+        name: 'remove_attachment',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId,
+          attachmentId: attachment.id,
+        },
+      });
+    } catch (failure) {
+      setAttachmentError(failure instanceof Error ? failure.message : 'That could not be removed');
     }
   };
 
@@ -557,6 +651,125 @@ function TheForm({
                   onChange={(description) => setDraft({ ...draft, description })}
                   editable={!saving}
                 />
+
+                {/* A screenshot, a scan or a clip the note is really about
+                    ("Attach a file to an item", issue 441) - added by button
+                    or drag-and-drop, drawn as a chip, opened or downloaded by
+                    a click on it. Below Description, per the issue's own
+                    layout. */}
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                    Attachments
+                  </p>
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (!saving) setAttachmentsDragOver(true);
+                    }}
+                    // `dragleave` fires on every child boundary crossed, not
+                    // only on truly leaving the drop zone - checked against
+                    // where the pointer actually went, so passing over a
+                    // chip or the Add button mid-drag does not flicker the
+                    // highlight off.
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                        setAttachmentsDragOver(false);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setAttachmentsDragOver(false);
+                      if (!saving && e.dataTransfer.files.length > 0) {
+                        void attachFiles(e.dataTransfer.files);
+                      }
+                    }}
+                    className={`mt-1 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 ${
+                      attachmentsDragOver ? 'border-accent bg-accent-tint' : 'border-black/10'
+                    }`}
+                  >
+                    {attachments.map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
+                      >
+                        <a
+                          href={attachmentUrl(attachment.id)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex min-w-0 flex-1 items-center gap-2"
+                        >
+                          {attachment.contentType.startsWith('image/') ? (
+                            <img
+                              src={attachmentUrl(attachment.id)}
+                              alt={attachment.filename}
+                              className="h-8 w-8 shrink-0 rounded object-cover"
+                            />
+                          ) : (
+                            <span className="shrink-0 text-lg" aria-hidden="true">
+                              📄
+                            </span>
+                          )}
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium text-ink">
+                              {attachment.filename}
+                            </span>
+                            <span className="block text-xs text-ink-faint">
+                              {formatFileSize(attachment.size)}
+                            </span>
+                          </span>
+                        </a>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => void removeAttachment(attachment)}
+                          title="Remove"
+                          aria-label={`Remove ${attachment.filename}`}
+                          className="shrink-0 rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    {pendingAttachments.map((pending) => (
+                      <div
+                        key={`pending-${pending.id}`}
+                        className="flex items-center gap-2 rounded-md border border-black/10 px-3 py-2 text-sm text-ink-faint"
+                      >
+                        <span aria-hidden="true">⏳</span>
+                        <span className="min-w-0 flex-1 truncate">{pending.filename}</span>
+                        <span>Uploading…</span>
+                      </div>
+                    ))}
+                    {attachments.length === 0 && pendingAttachments.length === 0 && (
+                      <p className="text-sm text-ink-faint">Drag a file here, or</p>
+                    )}
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => attachmentInputRef.current?.click()}
+                      className="self-start rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          void attachFiles(e.target.files);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </div>
+                  {attachmentError && (
+                    <p role="alert" className="mt-1 text-sm text-over">
+                      {attachmentError}
+                    </p>
+                  )}
+                </div>
 
                 {/* The other ways this note could genuinely be read, offered
                     beside the one already sitting in the two boxes above

@@ -88,6 +88,7 @@ const snapshot: WorkspaceSnapshot = {
   panels: [],
   layouts: [],
   associations: [],
+  attachments: [],
   itemTypes: [],
     screenSizes: [],
     duplicates: [],

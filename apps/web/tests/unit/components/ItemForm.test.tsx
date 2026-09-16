@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Filing, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Attachment, Filing, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
+import { attachmentUrl } from '../../../src/api/client';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { UndoWhatJustHappened } from '../../../src/undo';
 
@@ -18,6 +19,7 @@ const held = vi.hoisted(() => ({
   items: [] as Item[],
   filings: [] as Filing[],
   duplicates: [] as PossibleDuplicate[],
+  attachments: [] as Attachment[],
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
   open: vi.fn(),
@@ -78,12 +80,13 @@ vi.mock('../../../src/description/RichDescription', () => ({
 vi.mock('../../../src/api/queries', () => ({
   useSendCommand: () => held.send,
   snapshotQuery: (workspaceId: string) => ({
-    queryKey: ['snapshot', workspaceId, held.items, held.filings, held.duplicates],
+    queryKey: ['snapshot', workspaceId, held.items, held.filings, held.duplicates, held.attachments],
     queryFn: (): Promise<WorkspaceSnapshot> =>
       Promise.resolve({
         items: held.items,
         filings: held.filings,
         duplicates: held.duplicates,
+        attachments: held.attachments,
       } as unknown as WorkspaceSnapshot),
   }),
 }));
@@ -117,6 +120,19 @@ function anItem(over: Partial<Item> = {}): Item {
     deletedAt: null,
     createdAt: '2026-08-12T10:00:00.000Z',
     updatedAt: '2026-08-12T10:00:00.000Z',
+    ...over,
+  };
+}
+
+function anAttachment(over: Partial<Attachment> = {}): Attachment {
+  return {
+    id: 'attachment-1',
+    tenantId: 'tenant',
+    itemId: 'item-1',
+    filename: 'receipt.png',
+    size: 2048,
+    contentType: 'image/png',
+    createdAt: '2026-09-16T10:00:00.000Z',
     ...over,
   };
 }
@@ -162,6 +178,7 @@ beforeEach(() => {
   held.open.mockClear();
   held.filings = [];
   held.duplicates = [];
+  held.attachments = [];
   held.openItemId = 'item-1';
 });
 
@@ -779,6 +796,50 @@ describe('Item editing', () => {
             otherItemId: ANOTHER_NOTE.id,
             settled: false,
           }),
+        }),
+      );
+    });
+  });
+
+  /**
+   * "Attach a file to an item" (issue 441). What actually lands in R2 and
+   * comes back on a real download is proved through the real interface in
+   * apps/api/tests/integration/http/attachments.test.ts; what is asked here
+   * is what the form draws from the snapshot it is handed, and what
+   * removing sends.
+   */
+  describe('the files attached to an item', () => {
+    it('shows only this item’s own, each opening its own address', async () => {
+      held.attachments = [
+        anAttachment(),
+        anAttachment({ id: 'attachment-2', itemId: 'item-2', filename: 'other.pdf' }),
+      ];
+      await theForm(anItem({ id: 'item-1' }), [anItem({ id: 'item-2' })]);
+
+      expect(screen.getByText('receipt.png')).toBeVisible();
+      expect(screen.queryByText('other.pdf')).toBeNull();
+      expect(screen.getByRole('link', { name: /receipt\.png/ })).toHaveAttribute(
+        'href',
+        attachmentUrl('attachment-1'),
+      );
+    });
+
+    it('says nothing is there where nothing is attached', async () => {
+      await theForm(anItem());
+
+      expect(screen.getByText('Drag a file here, or')).toBeVisible();
+    });
+
+    it('the remove control sends a remove for this attachment, this item', async () => {
+      held.attachments = [anAttachment()];
+      const user = await theForm(anItem({ id: 'item-1' }));
+
+      await user.click(screen.getByRole('button', { name: 'Remove receipt.png' }));
+
+      expect(sent()).toContainEqual(
+        expect.objectContaining({
+          name: 'remove_attachment',
+          payload: expect.objectContaining({ itemId: 'item-1', attachmentId: 'attachment-1' }),
         }),
       );
     });
