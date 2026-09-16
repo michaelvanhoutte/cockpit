@@ -62,6 +62,9 @@ export interface PanelCardProps {
   onStopRenaming: () => void;
   onDelete: (openedFrom: HTMLElement | null) => void;
   onMove: (places: number) => void;
+  /** Whether the workspace has anywhere else to move this panel to. */
+  canMoveToAnotherDashboard: boolean;
+  onMoveToAnotherDashboard: (openedFrom: HTMLElement | null) => void;
   /**
    * Lock a panel of text's prose, or hand it back. Never called for a panel of
    * items, which is not offered the choice.
@@ -115,6 +118,8 @@ export function PanelCard({
   onStopRenaming,
   onDelete,
   onMove,
+  canMoveToAnotherDashboard,
+  onMoveToAnotherDashboard,
   onReadOnlyChange,
   onFormatChange,
   lifted,
@@ -204,6 +209,13 @@ export function PanelCard({
                     ]
                   : []),
                 ...movesFor({ first, last, sideBySide }, onMove),
+                {
+                  label: 'Move to another dashboard',
+                  unavailable: canMoveToAnotherDashboard
+                    ? undefined
+                    : 'This workspace has no other dashboard',
+                  onSelect: onMoveToAnotherDashboard,
+                },
                 { label: 'Delete', destructive: true, onSelect: onDelete },
               ]
         }

@@ -41,6 +41,7 @@ export function DashboardPage() {
           key={dashboard.id}
           workspaceId={workspaceId}
           dashboard={dashboard}
+          dashboards={data.dashboards}
           // `?? []` because a snapshot can be older than these two fields.
           // The stored copy is rehydrated from IndexedDB without being parsed
           // again (main.tsx), so somebody who had Cockpit open before this

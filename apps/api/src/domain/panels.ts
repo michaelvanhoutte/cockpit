@@ -71,6 +71,33 @@ export function panelNamed(
   return namedTheSame(live, name, except);
 }
 
+/**
+ * The name a panel keeps when it lands on a dashboard that already has one
+ * going by its name - suffixed rather than refused, since a move is not a
+ * request the mover can retype ("Move a panel to another dashboard, from its
+ * menu or by dragging it onto a tab", issue 439).
+ *
+ * `Name`, then `Name (2)`, `Name (3)`… against the target's own live panels,
+ * climbing past every number already taken there rather than stopping at the
+ * first free one below a collision - so `Reading list (2)` moved onto a
+ * dashboard that already has both `Reading list` and `Reading list (2)` lands
+ * on `Reading list (3)` rather than colliding with the one already there.
+ *
+ * **A number the incoming name already carries is climbed past, not kept.**
+ * Without stripping it first, the panel above would have landed on
+ * `Reading list (2) (2)` - its own suffix from an earlier move, with a second
+ * one piled on rather than the same sequence continued. A panel bounced
+ * between two dashboards that keep colliding stays `Name (2)`, `Name (3)`…
+ * rather than growing a suffix per trip.
+ */
+export function panelNameForMove(target: readonly Panel[], name: string): string {
+  if (!panelNamed(target, name)) return name;
+  const base = name.replace(/ \(\d+\)$/, '');
+  let n = 2;
+  while (panelNamed(target, `${base} (${n})`)) n += 1;
+  return `${base} (${n})`;
+}
+
 export interface PanelRow extends Panel {
   foldedName: string;
   createdAt: string;

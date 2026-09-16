@@ -6,6 +6,7 @@ import {
   arrangementRows,
   firstPanelFor,
   panelFromCommand,
+  panelNameForMove,
   panelsNotOn,
 } from '../../../src/domain/panels.js';
 
@@ -56,6 +57,60 @@ describe('Panels', () => {
         createdAt: AT,
         deletedAt: null,
       });
+    });
+  });
+
+  describe('a panel moved to a dashboard that already has one going by its name keeps a name of its own', () => {
+    function named(id: string, name: string): Panel {
+      return { ...aPanel(id), name };
+    }
+
+    it('lands unchanged where nothing there is already called that', () => {
+      expect(panelNameForMove([named('other', 'To read')], 'Reading list')).toBe('Reading list');
+    });
+
+    it('takes the first free number where the plain name is taken', () => {
+      expect(panelNameForMove([named('other', 'Reading list')], 'Reading list')).toBe(
+        'Reading list (2)',
+      );
+    });
+
+    it('climbs past every number already there rather than colliding with one', () => {
+      expect(
+        panelNameForMove(
+          [named('a', 'Reading list'), named('b', 'Reading list (2)')],
+          'Reading list',
+        ),
+      ).toBe('Reading list (3)');
+    });
+
+    it('is not thrown off by a gap in the numbers already there', () => {
+      // The next free number past every one taken, not the first gap in them -
+      // renumbering into a hole a person left on purpose would be its own
+      // surprise.
+      expect(
+        panelNameForMove(
+          [named('a', 'Reading list'), named('b', 'Reading list (3)')],
+          'Reading list',
+        ),
+      ).toBe('Reading list (2)');
+    });
+
+    it('folds case the same way every other name comparison does', () => {
+      expect(panelNameForMove([named('other', 'READING LIST')], 'Reading list')).toBe(
+        'Reading list (2)',
+      );
+    });
+
+    it('climbs the same sequence rather than piling a second suffix onto one it already carries', () => {
+      // A panel already called `Reading list (2)` - its own suffix from an
+      // earlier move - colliding again must not become `Reading list (2) (2)`.
+      expect(
+        panelNameForMove(
+          [named('a', 'Reading list'), named('b', 'Reading list (2)')],
+          'Reading list (2)',
+        ),
+      ).toBe('Reading list (3)');
     });
   });
 
