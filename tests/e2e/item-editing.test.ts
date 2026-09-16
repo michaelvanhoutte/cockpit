@@ -197,6 +197,11 @@ test.describe('Item editing', () => {
       await priorityBox(page).selectOption('');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
+      // The dialog gone first, the same as the cancel walk above asserts -
+      // otherwise the list sits behind Radix's aria-hidden while the dialog
+      // is still up mid-save, and the row's mark would read as absent from
+      // that alone, whether or not the clear actually landed.
+      await expect(priorityBox(page)).toHaveCount(0);
       await expect(itemRow(page, thought).getByLabel('High priority')).toHaveCount(0);
     });
   });
