@@ -301,13 +301,17 @@ describe('Workspace management', () => {
     });
 
     it('puts the tabs back when the move is refused', async () => {
-      showTabs(['Work', 'Personal', 'Acme'], {
+      const { mutate } = showTabs(['Work', 'Personal', 'Acme'], {
         error: new CommandRefused(409, 'the list of workspaces has changed'),
       });
       await screen.findByRole('link', { name: 'Work' });
 
       dragTab('Work', 1);
 
+      // Otherwise this passes vacuously: the order it puts back is the order
+      // it started in, so a drag that silently did nothing would look the
+      // same as one that was sent and refused.
+      expect(mutate).toHaveBeenCalled();
       await waitFor(() =>
         expect(
           screen
