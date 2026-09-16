@@ -44,6 +44,7 @@ import {
   LastDashboardError,
   LayoutNotFoundError,
   LayoutSizeTakenError,
+  PanelAlreadyOnDashboardError,
   PanelHoldsSomethingElseError,
   PanelNameTakenError,
   PanelNotFoundError,
@@ -789,7 +790,10 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof UnknownThemeError ||
         // A 400 rather than a 404 or a 409: the panel exists and nothing is in
         // the way - it is simply not the kind of panel that takes this.
-        error instanceof PanelHoldsSomethingElseError
+        error instanceof PanelHoldsSomethingElseError ||
+        // Same reason: the panel and the dashboard are both exactly what the
+        // request says, and what is wrong is that moving there is not a move.
+        error instanceof PanelAlreadyOnDashboardError
       ) {
         return { status: 'refused', what: error.message };
       }

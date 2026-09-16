@@ -792,32 +792,24 @@ describe('Panels', () => {
 
       expect(held.mutate).not.toHaveBeenCalled();
     });
-  });
 
-  describe('moving a row a step sends the same order a drag would', () => {
-    it.each([
-      { situation: 'down from the first', row: 'Reply to Bart', entry: 'Move down' },
-      { situation: 'up from the last', row: 'Renew the domain', entry: 'Move up' },
-    ])('$situation', async ({ row, entry }) => {
+    it('reorders a row dropped elsewhere in its own panel as an add, not a move', async () => {
+      // jsdom carries no pointer position through a drop event (see
+      // `dropOnto`, above), so every drop resolves to the gap before the
+      // first row - which is nowhere to go for the first row itself, but a
+      // real move for any other one.
       const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
       held.items = [BART, other];
       held.filings = [
         { panelId: 'p-falcon', itemId: BART.id, position: 0 },
         { panelId: 'p-falcon', itemId: other.id, position: 1 },
       ];
-      const user = await showList({
-        items: [BART, other],
-        openDashboardId: TODAY.id,
-        panelId: 'p-falcon',
-      });
+      await showList({ items: [BART, other], openDashboardId: TODAY.id, panelId: 'p-falcon' });
 
-      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes(row))!;
-      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: entry }));
+      await dropOnTheList(other.id);
 
-      // Either way round, the two swap - and it is an *add*, not a move: a
-      // move takes the item off every other panel showing it, which reordering
-      // a row inside this one must not do.
+      // A move takes the item off every other panel showing it, which
+      // reordering a row inside this one must not do.
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'add_item_to_panel',
@@ -827,32 +819,11 @@ describe('Panels', () => {
       );
     });
 
-    it.each([
-      { situation: 'the first row cannot go up', row: 'Reply to Bart', entry: 'Move up' },
-      { situation: 'the last row cannot go down', row: 'Renew the domain', entry: 'Move down' },
-    ])('$situation', async ({ row, entry }) => {
-      const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
-      held.items = [BART, other];
-      const user = await showList({
-        items: [BART, other],
-        openDashboardId: TODAY.id,
-        panelId: 'p-falcon',
-      });
-
-      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes(row))!;
-      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
-      // Said out loud rather than gone, and choosing it does nothing.
-      const said = await screen.findByRole('menuitem', { name: new RegExp(`^${entry}: `) });
-      await user.click(said);
-
-      expect(held.mutate).not.toHaveBeenCalled();
-    });
-
     it('counts the rows the panel draws, not the ones it only holds', async () => {
       // A filing outlives its item being finished, so a panel can hold a row it
       // does not draw. Counting a move among the held order instead of the
-      // drawn one made Move down on the first visible row rewrite the stored
-      // order and change nothing on the screen.
+      // drawn one made a row dragged to the front rewrite the stored order and
+      // change nothing on the screen.
       const finished = anItem('11111111-1111-7111-8111-000000000007', 'Already handled');
       finished.completedAt = '2026-08-31T09:00:00.000Z';
       const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
@@ -862,35 +833,18 @@ describe('Panels', () => {
         { panelId: 'p-falcon', itemId: BART.id, position: 1 },
         { panelId: 'p-falcon', itemId: other.id, position: 2 },
       ];
-      const user = await showList({
-        items: [BART, other],
-        openDashboardId: TODAY.id,
-        panelId: 'p-falcon',
-      });
+      await showList({ items: [BART, other], openDashboardId: TODAY.id, panelId: 'p-falcon' });
 
-      const theRow = screen
-        .getAllByRole('listitem')
-        .find((li) => li.textContent?.includes('Reply to Bart'))!;
-      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Move down' }));
+      await dropOnTheList(other.id);
 
-      // Past the row below it on the screen, and the row nobody can see stays
-      // where it was.
+      // Ahead of the row it passed on the screen, and the row nobody can see
+      // stays where it was.
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({ order: [finished.id, other.id, BART.id] }),
         }),
         expect.anything(),
       );
-    });
-
-    it('does not offer the moves in the Inbox, which is by age', async () => {
-      const user = await showList({ openDashboardId: null, panelId: null });
-
-      await user.click(screen.getByRole('button', { name: 'Item actions' }));
-
-      expect(screen.queryByRole('menuitem', { name: /^Move up/ })).toBeNull();
-      expect(screen.queryByRole('menuitem', { name: /^Move down/ })).toBeNull();
     });
   });
 });
@@ -1212,16 +1166,33 @@ const RENEW = anItem('11111111-1111-7111-8111-000000000002', 'Renew the domain')
 const CHASE = anItem('11111111-1111-7111-8111-000000000003', 'Chase the purchase order');
 const THREE = [BART, RENEW, CHASE];
 
-/** Picks a row out by its tick, which is what carries the row's name. */
+/**
+ * Picks a row out by clicking anywhere on it with ctrl held, or reaches a span
+ * across rows with shift held instead ("Pick a row by ctrl/shift-click
+ * instead of aiming for a checkbox, and suspend single-row actions while a
+ * selection is held", issue 438). What a ctrl/cmd-click and a shift-click each
+ * mean is `afterClicking`'s, proved in `selection.test.ts` - what is asked
+ * here is the wiring, so one modifier stands in for both a ctrl- and a
+ * cmd-click.
+ */
 async function tick(user: ReturnType<typeof userEvent.setup>, item: Item, withShift = false) {
-  const box = screen.getByRole('checkbox', { name: `Select “${item.title}”` });
-  if (!withShift) {
-    await user.click(box);
-    return;
-  }
-  await user.keyboard('{Shift>}');
-  await user.click(box);
-  await user.keyboard('{/Shift}');
+  const key = withShift ? '{Shift>}' : '{Control>}';
+  const keyUp = withShift ? '{/Shift}' : '{/Control}';
+  await user.keyboard(key);
+  await user.click(screen.getByText(item.title));
+  await user.keyboard(keyUp);
+}
+
+/**
+ * Whether a row reads as picked - the only signal left on it once a click
+ * anywhere on the row replaced the checkbox that used to carry `checked`.
+ *
+ * `classList.contains` rather than a substring match: the row always wears
+ * `hover:bg-accent-tint/40`, which contains the picked class as text without
+ * being it.
+ */
+function isPicked(item: Item): boolean {
+  return screen.getByText(item.title).closest('li')?.classList.contains('bg-accent-tint') ?? false;
 }
 
 /** Move to… on the bar, which is a button where the row's own is a menu entry. */
@@ -1385,8 +1356,8 @@ describe('Selection', () => {
 
       // One bar, not two: the first list let go of what it was holding.
       expect(screen.getAllByText('1 selected')).toHaveLength(1);
-      expect(screen.getByRole('checkbox', { name: `Select “${BART.title}”` })).not.toBeChecked();
-      expect(screen.getByRole('checkbox', { name: `Select “${RENEW.title}”` })).toBeChecked();
+      expect(isPicked(BART)).toBe(false);
+      expect(isPicked(RENEW)).toBe(true);
     });
 
     it('does not pick a row up again when it comes back to the list', async () => {
@@ -1421,7 +1392,7 @@ describe('Selection', () => {
       rerender(list([BART, RENEW]));
 
       expect(screen.getByText('1 selected')).toBeVisible();
-      expect(screen.getByRole('checkbox', { name: `Select “${BART.title}”` })).not.toBeChecked();
+      expect(isPicked(BART)).toBe(false);
     });
 
     it('takes the question away when every row it was about has left the list', async () => {

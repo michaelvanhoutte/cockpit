@@ -42,6 +42,21 @@ const DASHBOARD: Dashboard = {
   name: 'Today',
 };
 
+/** A second dashboard of the same workspace, for the cases about moving a panel to one. */
+const RESEARCH: Dashboard = {
+  id: 'research',
+  tenantId: 'tenant',
+  workspaceId: 'ws-work',
+  name: 'Research',
+};
+
+const PERSONAL: Dashboard = {
+  id: 'personal',
+  tenantId: 'tenant',
+  workspaceId: 'ws-work',
+  name: 'Personal',
+};
+
 function aPanel(id: string, name: string): Panel {
   return {
     id,
@@ -149,6 +164,10 @@ function anItem(id: string, title: string): Item {
 
 function showBoard({
   panels = [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')],
+  // Just this one dashboard unless a case wants another to move to - most
+  // cases here are about drag-and-drop mechanics, not about moving a panel
+  // off the dashboard.
+  dashboards = [DASHBOARD] as Dashboard[],
   layouts = [] as Layout[],
   // Derived from the layouts unless a case wants its own - most cases here
   // are about drag-and-drop mechanics, not about which screen sizes an
@@ -169,6 +188,7 @@ function showBoard({
   pending = false,
 }: {
   panels?: Panel[];
+  dashboards?: Dashboard[];
   layouts?: Layout[];
   screenSizes?: ScreenSize[];
   items?: Item[];
@@ -198,6 +218,7 @@ function showBoard({
       <PanelBoard
         workspaceId="ws-work"
         dashboard={DASHBOARD}
+        dashboards={dashboards}
         panels={panels}
         layouts={layouts}
         screenSizes={screenSizes}
@@ -311,7 +332,22 @@ function dragTo(panelName: string, point: { x: number; y: number }, andDrop = tr
   fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
   layOut();
   fireEvent.pointerMove(handle, { pointerId: 1, clientX: point.x, clientY: point.y });
-  if (andDrop) fireEvent.pointerUp(handle, { pointerId: 1 });
+  // Where the drop lands, for a drop onto a dashboard tab to read - a real
+  // release happens wherever the last move left off.
+  if (andDrop) fireEvent.pointerUp(handle, { pointerId: 1, clientX: point.x, clientY: point.y });
+}
+
+/**
+ * A dashboard's tab, standing in for the one `DashboardBar` draws - which is
+ * not part of this board's own tree, so a drop onto it is read off a plain
+ * element carrying the same `data-dashboard-tab-id` (`panels/dashboardDrop.ts`).
+ */
+function aTabElement(dashboardId: string, rect: { left: number; right: number; top: number; bottom: number }) {
+  const tab = document.createElement('a');
+  tab.setAttribute('data-dashboard-tab-id', dashboardId);
+  tab.getBoundingClientRect = () => rect as DOMRect;
+  document.body.appendChild(tab);
+  return tab;
 }
 
 /** Where the pointer has to be to land in the slot before `panelName` on its row. */
@@ -416,6 +452,9 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  // `aTabElement` appends straight to `document.body`, outside anything RTL's
+  // own cleanup unmounts - so it is not there to leak into the next case.
+  document.querySelectorAll('[data-dashboard-tab-id]').forEach((tab) => tab.remove());
 });
 
 describe('Panels', () => {
@@ -633,91 +672,6 @@ describe('Panels', () => {
       expect(screen.getByRole('region', { name: 'To read' })).toBeVisible();
     });
 
-    it.each([
-      { situation: 'towards the front', entry: 'Move left', order: ['reading', 'falcon'] },
-      { situation: 'towards the back', entry: 'Move right', order: ['reading', 'falcon'] },
-    ])('moves it $situation', async ({ entry, order }) => {
-      // "Move right" on the first panel and "Move left" on the second both swap
-      // this pair, which is what makes one expected order right for both.
-      const { user, mutate } = showBoard();
-      const panel = entry === 'Move left' ? 'To read' : 'Project Falcon';
-
-      await choose(user, panel, entry);
-
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('save_layout');
-      expect(sentOrder(mutate)).toEqual(order);
-    });
-
-    it('offers a panel sharing a row the move that puts it on a line of its own', async () => {
-      // The only way a keyboard has of making a row, and it was unreachable:
-      // marking the first cell of the first row as having nowhere to go made
-      // both ends of a single-row dashboard unavailable, so a dashboard with
-      // one row could never be split without a pointer.
-      const { user, mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
-      });
-
-      await choose(user, 'Project Falcon', 'Move left');
-
-      expect(sentRows(mutate)).toEqual([['falcon'], ['reading']]);
-    });
-
-    it('says so when a panel alone on the only row has nowhere left to go', () => {
-      showBoard({
-        panels: [aPanel('falcon', 'Project Falcon')],
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
-      });
-
-      openMenu('Project Falcon');
-
-      expect(
-        screen.getByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
-      ).toHaveAttribute('aria-disabled', 'true');
-    });
-
-    it('leaves the focus on the panel’s own menu, which is where the next move is chosen', async () => {
-      // Moving opens nothing, so there is nowhere else for the focus to go -
-      // and these are the entries somebody presses three times in a row.
-      // Dropped to the top of the page between two presses is losing your
-      // place on the dashboard.
-      const { user } = showBoard();
-
-      await choose(user, 'To read', 'Move left');
-
-      expect(handleOf('To read')).toHaveFocus();
-    });
-
-    it('says so rather than doing nothing when a panel has nowhere left to go', async () => {
-      // Offered and chosen and nothing happens is indistinguishable from
-      // broken - and on a dashboard with no layout it is worse than nothing,
-      // because a change that moves no panel would still record a layout for
-      // this screen out of a gesture that arranged nothing.
-      const { user, mutate } = showBoard({
-        panels: [aPanel('falcon', 'Project Falcon')],
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
-      });
-
-      openMenu('Project Falcon');
-      await user.click(
-        await screen.findByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
-      );
-
-      expect(mutate).not.toHaveBeenCalled();
-    });
-
-    it('names the move after the direction the screen actually goes in', () => {
-      // On a screen only one panel wide the panels are stacked, so "Move left"
-      // would name a direction nothing goes in.
-      screenIs(480);
-      showBoard();
-
-      openMenu('To read');
-
-      expect(screen.getByRole('menuitem', { name: 'Move up' })).toBeVisible();
-      expect(screen.queryByRole('menuitem', { name: 'Move left' })).toBeNull();
-    });
-
     it.each(['Wider', 'Narrower', 'Taller', 'Shorter'])(
       'offers no %s, resizing being the corner grip’s alone',
       (gone) => {
@@ -729,10 +683,73 @@ describe('Panels', () => {
 
         expect(screen.queryByRole('menuitem', { name: new RegExp(`^${gone}`) })).toBeNull();
         // And the count, so they cannot come back under other words: rename,
-        // the two moves, delete.
-        expect(screen.getAllByRole('menuitem')).toHaveLength(4);
+        // move to another dashboard, delete.
+        expect(screen.getAllByRole('menuitem')).toHaveLength(3);
       },
     );
+  });
+
+  describe('a panel moves to another dashboard from its own menu', () => {
+    it('says why it cannot be chosen on a workspace with no other dashboard', async () => {
+      showBoard({ dashboards: [DASHBOARD] });
+
+      openMenu('Project Falcon');
+
+      expect(
+        screen.getByRole('menuitem', {
+          name: 'Move to another dashboard: This workspace has no other dashboard',
+        }),
+      ).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('does nothing when chosen while unavailable', async () => {
+      const { user, mutate } = showBoard({ dashboards: [DASHBOARD] });
+
+      openMenu('Project Falcon');
+      await user.click(
+        await screen.findByRole('menuitem', {
+          name: 'Move to another dashboard: This workspace has no other dashboard',
+        }),
+      );
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('opens a picker listing the workspace’s other dashboards, in tab order', async () => {
+      const { user } = showBoard({ dashboards: [DASHBOARD, RESEARCH, PERSONAL] });
+
+      await choose(user, 'Project Falcon', 'Move to another dashboard');
+
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('button', { name: 'Research' })).toBeVisible();
+      expect(within(dialog).getByRole('button', { name: 'Personal' })).toBeVisible();
+      // The dashboard the panel is already on is never offered as somewhere
+      // to move it to.
+      expect(within(dialog).queryByRole('button', { name: 'Today' })).toBeNull();
+    });
+
+    it('sends the move, naming the panel and the dashboard picked', async () => {
+      const { user, mutate } = showBoard({ dashboards: [DASHBOARD, RESEARCH] });
+
+      await choose(user, 'Project Falcon', 'Move to another dashboard');
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Research' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('move_panel_to_dashboard');
+      expect(asked.payload.panelId).toBe('falcon');
+      expect(asked.payload.dashboardId).toBe('research');
+    });
+
+    it('sends nothing when the picker is cancelled', async () => {
+      const { user, mutate } = showBoard({ dashboards: [DASHBOARD, RESEARCH] });
+
+      await choose(user, 'Project Falcon', 'Move to another dashboard');
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
   });
 
   describe('changing the arrangement changes the layout you are on, and asks nothing', () => {
@@ -749,9 +766,9 @@ describe('Panels', () => {
         layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
       },
     ])('changes the layout on screen when $situation', async ({ layouts }) => {
-      const { user, mutate } = showBoard({ layouts });
+      const { mutate } = showBoard({ layouts });
 
-      await choose(user, 'To read', 'Move left');
+      dragTo('To read', slotBefore('falcon'));
 
       expect(screen.queryByRole('alertdialog')).toBeNull();
       const [asked] = mutate.mock.calls[0]!;
@@ -765,9 +782,9 @@ describe('Panels', () => {
       // makes one called Default where it has none at all (`save_layout`,
       // `screenSizeId`). The board asks nothing about either.
       screenIs(1280);
-      const { user, mutate } = showBoard();
+      const { mutate } = showBoard();
 
-      await choose(user, 'To read', 'Move left');
+      dragTo('To read', slotBefore('falcon'));
 
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('save_layout');
@@ -782,10 +799,10 @@ describe('Panels', () => {
       // Left in flight, which is the state two quick gestures happen in: the
       // first is sent and not yet re-read, so the second still finds a
       // dashboard with no layout.
-      const { user, mutate } = showBoard({ settles: false });
+      const { mutate } = showBoard({ settles: false });
 
-      await choose(user, 'To read', 'Move left');
-      await choose(user, 'To read', 'Move right');
+      dragTo('To read', slotBefore('falcon'));
+      dragTo('Project Falcon', slotBefore('reading'));
 
       expect(mutate).toHaveBeenCalledTimes(2);
       const [first] = mutate.mock.calls[0]!;
@@ -798,13 +815,13 @@ describe('Panels', () => {
       // is the arrangement the first one made and the snapshot in hand does not
       // have yet. Measured against the snapshot it would look like no change at
       // all, and the move would be silently dropped.
-      const { user, mutate } = showBoard({
+      const { mutate } = showBoard({
         layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
         settles: false,
       });
 
-      await choose(user, 'To read', 'Move left');
-      await choose(user, 'To read', 'Move right');
+      dragTo('To read', slotBefore('falcon'));
+      dragTo('Project Falcon', slotBefore('reading'));
 
       expect(mutate).toHaveBeenCalledTimes(2);
       expect(sentOrder(mutate)).toEqual(['falcon', 'reading']);
@@ -1077,6 +1094,49 @@ describe('Panels', () => {
     });
   });
 
+  describe('dropping a dragged panel on another dashboard’s tab moves it there', () => {
+    /** Off the board entirely - where a dashboard's own tab strip actually sits. */
+    const onTheTab = { x: 40, y: -400 };
+
+    it('sends the same move the picker would, rather than an arrangement', async () => {
+      const { mutate } = showBoard({
+        dashboards: [DASHBOARD, RESEARCH],
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      aTabElement('research', { left: 0, right: 80, top: -420, bottom: -380 });
+
+      dragTo('Project Falcon', onTheTab);
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('move_panel_to_dashboard');
+      expect(asked.payload.panelId).toBe('falcon');
+      expect(asked.payload.dashboardId).toBe('research');
+    });
+
+    it('changes nothing when dropped on the tab of the dashboard already open', async () => {
+      // Mirrors "a drag that ends where it started" (above): the drop is read
+      // as no target at all, since it is the dashboard already open - so what
+      // is left is a drag ending exactly where it started, on the board it
+      // never left.
+      const { mutate } = showBoard({
+        dashboards: [DASHBOARD, RESEARCH],
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      const point = slotBefore('falcon');
+      aTabElement('today', {
+        left: point.x - 5,
+        right: point.x + 5,
+        top: point.y - 5,
+        bottom: point.y + 5,
+      });
+
+      dragTo('Project Falcon', point);
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+  });
+
   describe('the line under a row sets how tall it is, and the line between two panels how much each takes', () => {
     /** One panel, so the board has the one row these are about. */
     const oneRow = { panels: [aPanel('falcon', 'Project Falcon')] };
@@ -1281,12 +1341,12 @@ describe('Panels', () => {
       //
       // Reachable: two tabs on a dashboard with no layout, both on a screen of
       // the same size, both dragging - the second is refused for the name.
-      const { user } = showBoard({
+      showBoard({
         error: new CommandRefused(409, 'a layout called Wide already arranges this dashboard'),
         variables: { name: 'save_layout', payload: {} },
       });
 
-      await choose(user, 'To read', 'Move left');
+      dragTo('To read', slotBefore('falcon'));
 
       expect(screen.getByRole('alert')).toHaveTextContent('a layout called Wide already arranges');
       expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'To read']);
@@ -1294,14 +1354,14 @@ describe('Panels', () => {
 
     it('says a refused arrangement above the board, which is the only place it belongs', async () => {
       // Nothing asked for the arrangement in a box that could hold the answer -
-      // it came from a drag or a menu entry - so the board itself says it.
-      const { user } = showBoard({
+      // it came from a drag - so the board itself says it.
+      showBoard({
         layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
         error: new CommandRefused(404, 'panel reading is not on this dashboard'),
         variables: { name: 'save_layout', payload: {} },
       });
 
-      await choose(user, 'To read', 'Move left');
+      dragTo('To read', slotBefore('falcon'));
 
       expect(screen.getByRole('alert')).toHaveTextContent('panel reading is not on this dashboard');
     });

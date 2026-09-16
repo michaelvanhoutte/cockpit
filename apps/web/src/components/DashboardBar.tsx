@@ -346,6 +346,13 @@ export function DashboardBar({
           <Link
             to="/w/$workspaceId/d/$dashboardId"
             params={{ workspaceId, dashboardId: dashboard.id }}
+            // What a panel drag reads to tell which dashboard a drop landed on
+            // (`panels/dashboardDrop.ts`). A panel is moved with the pointer
+            // rather than the browser's own drag-and-drop (`PanelCard.tsx`),
+            // so there is no `drop` event here for it to arrive as - the board
+            // hit-tests this element's own rectangle against where the
+            // pointer let go instead.
+            data-dashboard-tab-id={dashboard.id}
             onDragOver={(event) => restOn(event, dashboard.id)}
             onDragLeave={leftIt}
             onDrop={droppedOnIt}

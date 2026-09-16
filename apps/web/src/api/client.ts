@@ -291,6 +291,8 @@ const commandSenders = {
     api.v1.commands.rename_panel.$post({ json: p }),
   delete_panel: (p: CommandPayload<'delete_panel'>) =>
     api.v1.commands.delete_panel.$post({ json: p }),
+  move_panel_to_dashboard: (p: CommandPayload<'move_panel_to_dashboard'>) =>
+    api.v1.commands.move_panel_to_dashboard.$post({ json: p }),
   set_panel_text: (p: CommandPayload<'set_panel_text'>) =>
     api.v1.commands.set_panel_text.$post({ json: p }),
   set_panel_read_only: (p: CommandPayload<'set_panel_read_only'>) =>
