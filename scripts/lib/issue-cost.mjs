@@ -187,6 +187,14 @@ function subagentMeta(jsonlPath) {
   }
 }
 
+/** Every level name `/code-review` accepts - `args` can also carry a target (PR number, branch, path) and flags like `--fix`/`--comment` alongside or instead of one. */
+const REVIEW_LEVELS = /\b(low|medium|high|xhigh|max|ultra)\b/;
+
+/** The level a `/code-review` call's `args` actually names, or `null` for a call that carries none (a target-only or flag-only invocation, which reuses whatever level was typed last). */
+function reviewLevel(args) {
+  return REVIEW_LEVELS.exec(String(args ?? ''))?.[1] ?? null;
+}
+
 /** The `/code-review` and `/security-review` runs one line holds - the Skill tool, self-invoked per CLAUDE.md rather than typed by a person. */
 function reviewSkillCallsOnLine(line) {
   const calls = [];
@@ -195,7 +203,7 @@ function reviewSkillCallsOnLine(line) {
     if (block?.type !== 'tool_use' || block.name !== 'Skill') continue;
     const skill = block.input?.skill;
     if (skill === 'code-review' || skill === 'security-review') {
-      calls.push({ skill, level: skill === 'code-review' ? block.input?.args ?? null : null });
+      calls.push({ skill, level: skill === 'code-review' ? reviewLevel(block.input?.args) : null });
     }
   }
   return calls;
