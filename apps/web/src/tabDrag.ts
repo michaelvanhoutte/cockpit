@@ -5,23 +5,19 @@ import { movedTo } from './reorder';
  * Dragging a tab along its strip to where you want it ("Change a workspace or a
  * dashboard on the tab it is", issue 267).
  *
- * **The same move as the menu's**, computed through `reorder.ts` like Move left
- * and Move right, so the two cannot disagree about what moving a tab one place
- * means - which is the rule the workspaces' list was already built on
- * ("Reorder workspaces", issue 31).
+ * **Computed through `reorder.ts`**, the rule the workspaces' list was already
+ * built on ("Reorder workspaces", issue 31).
  *
  * **The tabs move as the drag does.** The strip is painted in the order
  * dropping would keep, so there is nothing to read off an indicator; the same
  * choice the panels made ("Move the panels as the drag does", issue 213).
  *
  * **The pointer's alone.** An HTML5 drag is absent on a touchscreen and
- * unreachable from a keyboard, so this listens for a mouse and nothing else and
- * the menu's Move left / Move right is the path those two have - neither the
- * lesser, exactly as a panel offers both. Which also settles a collision the
- * dashboard strip already had: an *item* is dragged onto a tab to switch to it
- * ("Scroll while dragging, and switch dashboards by resting on one", issue
- * 143), and that is an HTML5 drag with its own events, so a tab moved by
- * pointer events cannot be mistaken for one.
+ * unreachable from a keyboard, so this listens for a mouse and nothing else.
+ * Which also settles a collision the dashboard strip already had: an *item* is
+ * dragged onto a tab to switch to it ("Scroll while dragging, and switch
+ * dashboards by resting on one", issue 143), and that is an HTML5 drag with
+ * its own events, so a tab moved by pointer events cannot be mistaken for one.
  */
 export function useTabDrag({
   order,

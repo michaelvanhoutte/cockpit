@@ -397,9 +397,8 @@ export async function switchTo(page: Page, name: string, isMobile: boolean): Pro
  *
  * Driven with the mouse, and only under the desktop project: Playwright's
  * touchscreen can tap and nothing else, so a finger drag cannot be expressed
- * here at all - and the app's drag is the pointer's anyway. The way to move a
- * tab with a finger, or a keyboard, is the tab's own Move left / Move right,
- * walked with `press`, which really does tap.
+ * here at all - and the app's drag is the pointer's anyway, with no other way
+ * in from a finger or a keyboard.
  */
 export async function dragTabOnto(page: Page, tab: string, onto: string): Promise<void> {
   // Scrolled to before they are measured, and that is not a nicety:
