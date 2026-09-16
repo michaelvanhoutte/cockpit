@@ -124,8 +124,12 @@ test.describe('Selection', () => {
       await expect(inbox(page).getByText('1 selected')).toBeVisible();
 
       // A range is a shift-click, which a phone cannot make; there, each row is
-      // one more tap.
+      // one more tap. Waited on between the two, not just at the end: a tap's
+      // own click can lag its touchend, and firing the next one before it
+      // lands raced the count in CI (found in review, on this walk's own
+      // failure there).
       await addToSelection(page, second, isMobile);
+      await expect(inbox(page).getByText('2 selected')).toBeVisible();
       await addToSelection(page, third, isMobile, true);
       await expect(inbox(page).getByText('3 selected')).toBeVisible();
 
@@ -227,7 +231,17 @@ test.describe('Selection', () => {
 
       const menu = itemRow(page, title).getByRole('button', { name: 'Item actions' });
       await expect(menu).toBeDisabled();
-      await expect(page.getByRole('menuitem', { name: 'Open' })).toHaveCount(0);
+      // Pressed, not merely found disabled: a disabled button can still be
+      // pressed in a browser, and what matters is that pressing it opens
+      // nothing, not that the attribute is there (found in review - this
+      // assertion passed even before the press was added, since nothing had
+      // opened a menu for it to find). `force` because it is `aria-disabled`
+      // rather than natively `disabled` - reachable on purpose, so Playwright's
+      // own actionability check refuses the press unless told the control is
+      // meant to be pressed anyway.
+      if (isMobile) await menu.tap({ force: true });
+      else await menu.click({ force: true });
+      await expect(page.getByRole('menuitem', { name: 'Mark done' })).toHaveCount(0);
     });
   });
 });

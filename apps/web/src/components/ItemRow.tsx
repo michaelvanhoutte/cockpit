@@ -460,11 +460,14 @@ export function ItemRow({
       // this gesture is - and the reason there is no drag on touch at all,
       // where the same movement is a swipe.
       draggable
-      // Picks the row out, from anywhere on it, or opens it - which a plain
-      // click means depends on whether a selection is already held and, on a
-      // plain click, on mouse versus touch ("Pick a row by ctrl/shift-click
-      // instead of aiming for a checkbox, and suspend single-row actions while
-      // a selection is held", issue 438).
+      // Picks the row out, from anywhere on it, with ctrl/cmd or shift held.
+      // A plain click always opens the row instead - ending whatever
+      // selection was held first, or simply opening it where none was -
+      // except a plain tap on touch, which extends a selection already held
+      // instead of opening, since touch has no ctrl key of its own to pick
+      // with ("Pick a row by ctrl/shift-click instead of aiming for a
+      // checkbox, and suspend single-row actions while a selection is held",
+      // issue 438).
       //
       // *Guarded exactly as the double-click below is*: a portal-rendered menu
       // entry reaches this through the React tree rather than the DOM one, and
@@ -496,8 +499,11 @@ export function ItemRow({
         if (selecting.revealed) selecting.onEndSelection();
         onOpen?.();
       }}
-      // A double-click opens the form. Not a single click: a row is dragged,
-      // swiped and dropped on, and every one of those begins with a press.
+      // A double-click also opens the form, for a row drawn with no selecting
+      // capability at all (`selecting` undefined, which the click above
+      // refuses outright) - a test harness, or a screen that offers no
+      // selection. Every row this app actually draws has one, so a plain
+      // click above already opens it and this is these rows' fallback alone.
       //
       // **Only when the row itself was double-clicked**, which is two different
       // questions because a React event bubbles through the component tree
