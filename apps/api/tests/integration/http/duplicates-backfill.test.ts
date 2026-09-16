@@ -64,9 +64,8 @@ function readingOf(text: string): number[] {
 function somethingCanReadMeaning(): void {
   (env as unknown as { AI: unknown }).AI = {
     run: async (_model: string, input: { text: string[] }) => {
-      const text = input.text[0]!;
-      read.push(text);
-      return { data: [readingOf(text)] };
+      read.push(...input.text);
+      return { data: input.text.map(readingOf) };
     },
   };
 }
@@ -129,7 +128,6 @@ interface Batch {
   account: string;
   read: string[];
   couldNotBeRead: string[];
-  wentAway: string[];
   lastLooked: string | null;
   more: boolean;
 }
@@ -453,9 +451,51 @@ describe('Triage', () => {
       expect(batch!.read).toEqual([itemId]);
       expect(await itemsWithAMeaning()).toEqual([itemId]);
     });
+
+    /**
+     * An Item can carry a reading from an earlier model - one `itemsToRead`
+     * does not count as read, since it cannot be compared against a reading
+     * taken under the model in use now. If its texts were emptied since, the
+     * batch declines to read it the same way a fresh empty note is declined -
+     * and has to lose the stale reading and pair the same way, not merely
+     * skip it.
+     */
+    it('forgets a stale reading and its pairs for a note that now has nothing written on it', async () => {
+      const stale = await aNoteNobodyRead(A_NOTE);
+      const other = await aNoteNobodyRead(THE_SAME_AGAIN);
+      somethingCanReadMeaning();
+      await backfill();
+      expect(await duplicatesIn()).toEqual([pair(stale, other)]);
+
+      // A reading from a model no longer in use - what makes `stale` a
+      // candidate again despite already holding a reading - and its text is
+      // emptied, the same as any other note nothing can be read from.
+      await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+        sql.exec(
+          'UPDATE item_meanings SET model = ? WHERE item_id = ?',
+          'an-earlier-model',
+          stale,
+        ),
+      );
+      await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T11:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId: stale,
+        title: '   ',
+      });
+
+      const [batch] = await backfill();
+
+      expect(batch!.couldNotBeRead).toEqual([stale]);
+      expect(await rowsIn('item_meanings')).toEqual(
+        expect.arrayContaining([expect.objectContaining({ item_id: stale, reading: '[]' })]),
+      );
+      expect(await duplicatesIn()).toEqual([]);
+    });
   });
 
-  describe('the backfill writes what notes mean and which of them repeat each other, and nothing else', () => {
+  describe('it writes what notes mean and which of them repeat each other, and nothing else', () => {
     it('leaves every note exactly as it was', async () => {
       await aNoteNobodyRead(A_NOTE);
       await aNoteNobodyRead(THE_SAME_AGAIN);
@@ -483,7 +523,7 @@ describe('Triage', () => {
     });
   });
 
-  describe('a pair the backfill finds obeys every rule a captured note’s pairs obey', () => {
+  describe('a pair it finds obeys every rule a captured note’s pairs obey', () => {
     it('is not offered when the two notes are in different workspaces', async () => {
       await alsoWorkspaces();
       await aNoteNobodyRead(A_NOTE);
@@ -556,7 +596,7 @@ describe('Triage', () => {
     });
   });
 
-  describe('an environment that cannot read meaning backfills nothing, and says so', () => {
+  describe('an environment that cannot read meaning reads nothing, and says so', () => {
     it('refuses, and writes no reading', async () => {
       await aNoteNobodyRead(A_NOTE);
 
@@ -570,8 +610,8 @@ describe('Triage', () => {
     });
   });
 
-  describe('the backfill is the operator’s and names the account it is for', () => {
-    it('refuses without the operator’s secret', async () => {
+  describe('it is the operator’s and names the account it is for', () => {
+    it('refuses where nobody proved they are the operator', async () => {
       const response = await SELF.fetch(
         `http://cockpit.test/v1/operator/duplicates/accounts/${ACCOUNT_NAME}`,
         { method: 'POST' },

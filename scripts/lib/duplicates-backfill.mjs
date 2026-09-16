@@ -35,6 +35,14 @@ import { readAnswer, readEnvironment, readFlags } from './operator.mjs';
 /** Where the list of accounts to walk comes from. */
 export const ACCOUNTS_PATH = '/v1/operator/duplicates/accounts';
 
+/**
+ * How many Items one request may read - the same bound the route enforces
+ * (`LARGEST_BATCH`, apps/api/src/http/app.ts), named here too so `--batch` and
+ * `--stop-after` are refused locally rather than spending the confirmation
+ * prompt and a round trip on a request the route was always going to reject.
+ */
+export const LARGEST_BATCH = 100;
+
 /** What the command was asked to do. */
 export function readArguments(argv) {
   const args = readFlags(argv, {
@@ -51,18 +59,28 @@ export function readArguments(argv) {
   readEnvironment(args.environment);
   return {
     ...args,
-    batch: wholeNumber(args.batch, '--batch'),
+    batch: wholeNumber(args.batch, '--batch', LARGEST_BATCH),
     stopAfter: wholeNumber(args.stopAfter, '--stop-after'),
   };
 }
 
-/** A count somebody typed, or undefined where they typed none. */
-function wholeNumber(given, flag) {
+/**
+ * A count somebody typed, or undefined where they typed none.
+ *
+ * `ceiling` catches the one flag whose value the route itself bounds
+ * (`--batch`); `--stop-after` takes any size; being told an item was never a
+ * legal batch, it is `smaller` below that keeps it out of a request.
+ */
+function wholeNumber(given, flag, ceiling) {
   if (given === undefined) return undefined;
   if (!/^\d+$/.test(given) || Number(given) < 1) {
     throw new Error(`${flag} takes a whole number of items, and ${given} is not one`);
   }
-  return Number(given);
+  const wanted = Number(given);
+  if (ceiling !== undefined && wanted > ceiling) {
+    throw new Error(`${flag} takes at most ${ceiling} items, and ${given} is more than that`);
+  }
+  return wanted;
 }
 
 /**
@@ -82,6 +100,10 @@ export async function backfill({ ask, only, batch, stopAfter, say = () => {} }) 
   const done = [];
   let read = 0;
   for (const account of accounts) {
+    // The cap already spent: the remaining accounts are left off `done`
+    // entirely rather than recorded as an untouched `{read: 0}` - nothing
+    // was asked about them, so nothing says otherwise.
+    if (stopAfter !== undefined && read >= stopAfter) break;
     const sofar = { account, read: 0, couldNotBeRead: [], finished: false };
     done.push(sofar);
     try {
@@ -89,10 +111,17 @@ export async function backfill({ ask, only, batch, stopAfter, say = () => {} }) 
       for (;;) {
         // The batch is narrowed as the cap comes into view, so a run stops on
         // the Item it was told to rather than on the end of whichever batch
-        // passed the cap.
+        // passed the cap. Also narrowed to what one request may ever carry,
+        // so `--stop-after` alone - with no `--batch` - never asks for more
+        // than the route would answer; left alone (neither flag given) the
+        // request still carries no `batch` at all, and the route's own
+        // default applies.
         const room = stopAfter === undefined ? undefined : stopAfter - read;
         if (room !== undefined && room <= 0) break;
-        const answer = await ask(oneBatch(account, after, smaller(batch, room)));
+        const askFor = smaller(batch, room);
+        const answer = await ask(
+          oneBatch(account, after, askFor === undefined ? undefined : Math.min(askFor, LARGEST_BATCH)),
+        );
         readBatch(answer, account);
         sofar.read += answer.read.length;
         sofar.couldNotBeRead.push(...answer.couldNotBeRead);
@@ -112,7 +141,7 @@ export async function backfill({ ask, only, batch, stopAfter, say = () => {} }) 
     }
     say(lineFor(sofar));
   }
-  return { accounts: done, read, stoppedEarly: stopAfter !== undefined && read >= stopAfter };
+  return { accounts: done, read };
 }
 
 /** The accounts this run covers, from the environment rather than from whoever typed the command. */
@@ -123,7 +152,7 @@ async function accountsToWalk(ask, only) {
       'reading the list of accounts got an answer that is not one - is something in front of this environment?',
     );
   }
-  if (!only) return answer.accounts;
+  if (only === undefined) return answer.accounts;
   if (!answer.accounts.includes(only)) {
     throw new Error(`no account ${only} in this environment - it holds ${listed(answer.accounts)}`);
   }
@@ -151,10 +180,19 @@ function readBatch(answer, account) {
     !answer ||
     !Array.isArray(answer.read) ||
     !Array.isArray(answer.couldNotBeRead) ||
-    typeof answer.more !== 'boolean'
+    typeof answer.more !== 'boolean' ||
+    (answer.lastLooked !== null && typeof answer.lastLooked !== 'string')
   ) {
     throw new Error(
       `reading ${account} got an answer that is not a batch - is something in front of this environment?`,
+    );
+  }
+  // `more: true` with nothing to resume from would ask the same batch for
+  // ever - the one shape of a malformed answer that would otherwise pass
+  // every check above and still never finish the walk.
+  if (answer.more && !answer.lastLooked) {
+    throw new Error(
+      `reading ${account} got an answer that says there is more with nothing to carry on from`,
     );
   }
 }

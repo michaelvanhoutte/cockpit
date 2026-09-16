@@ -1471,8 +1471,15 @@ const routes = app
   // the same shape as the backup pair above and for a second reason: one batch
   // per call is what bounds the work a single request does, so the command can
   // say how far it got and carry on from there.
+  //
+  // **The guest account is left off this list.** It is dropped and reseeded
+  // every night (`resetGuestAccount`), so nothing a run reads there survives
+  // to the next one - every unnamed run would read it again for good, against
+  // the very pacing this command exists to respect. Naming it with `--user`
+  // still reaches it; nothing about the route refuses that.
   .get('/v1/operator/duplicates/accounts', async (c) => {
-    return c.json({ accounts: await registeredAccountNames(c.env) }, 200);
+    const accounts = await registeredAccountNames(c.env);
+    return c.json({ accounts: accounts.filter((name) => name !== GUEST_ACCOUNT_NAME) }, 200);
   })
   .post('/v1/operator/duplicates/accounts/:name', async (c) => {
     const accountName = c.req.param('name');
@@ -1502,7 +1509,6 @@ const routes = app
       throw error;
     }
   });
-
 
 // Behind the gate like everything else not named in `PATHS_OUTSIDE_THE_GATE`.
 // Nothing reads it programmatically - it is here to be opened by hand - so

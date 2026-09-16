@@ -1,13 +1,12 @@
 //
-// What `pnpm backup:export` and `pnpm backup:restore` both need: reading the
-// flags they were given, and turning an answer that is not a 200 into a
-// sentence somebody can act on.
+// What every operator command needs: reading the flags it was given, and
+// turning an answer that is not a 200 into a sentence somebody can act on.
 //
-// Written once because the two commands are one pair. The refusals are
-// identical - an unknown flag, a flag with nothing after it, a flag given twice
+// Written once because the refusals are identical across every command that
+// uses it - an unknown flag, a flag with nothing after it, a flag given twice
 // - and so is the long 401, which names where the secret is set and what the
-// command reads it from; two copies of that is two places to find the day it
-// changes.
+// command reads it from; a copy per command is a copy per command to find the
+// day it changes.
 //
 
 /**

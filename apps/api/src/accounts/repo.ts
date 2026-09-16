@@ -1194,7 +1194,7 @@ export function getItemType(db: AccountDb, tenantId: string, typeId: string): It
  * The database, or one of its transactions - what `db.transaction` hands its
  * callback, which is not the database itself.
  *
- * Only the four below take it. Everything above this line is either read
+ * Only the functions below take it. Everything above this line is either read
  * outside a transaction or written by `command-service.ts`, which has its own
  * name for the same type; these are the reads and writes a single store
  * operation does together (`rememberWhatAnItemMeans`, store.ts).

@@ -29,14 +29,14 @@ function environmentWith({ accounts, batches = {}, breaks = {} }) {
       asksPer[account] = (asksPer[account] ?? 0) + 1;
       if (breaks[account] === asksPer[account]) throw new Error(`nothing answered for ${account}`);
       const next = left[account]?.shift();
-      return next ?? { read: [], couldNotBeRead: [], wentAway: [], lastLooked: null, more: false };
+      return next ?? { read: [], couldNotBeRead: [], lastLooked: null, more: false };
     },
   };
 }
 
 /** A batch answer, in the shape the route gives one. */
 function batch({ read = [], couldNotBeRead = [], more = false, lastLooked = null }) {
-  return { read, couldNotBeRead, wentAway: [], lastLooked, more };
+  return { read, couldNotBeRead, lastLooked, more };
 }
 
 describe('the backfill names its environment every time, and is told how much to read', () => {
@@ -57,6 +57,11 @@ describe('the backfill names its environment every time, and is told how much to
       situation: 'a batch of none',
       argv: ['--env', 'local', '--batch', '0'],
       complaint: /--batch takes a whole number/,
+    },
+    {
+      situation: 'a batch larger than the route would ever answer',
+      argv: ['--env', 'local', '--batch', '101'],
+      complaint: /--batch takes at most 100 items/,
     },
     {
       situation: 'a stopping point that is not a number',
@@ -189,6 +194,32 @@ describe('a run that stops says how far it got', () => {
       /reading tenant-a got an answer that is not a batch/,
     );
   });
+
+  it('refuses an answer that says there is more with nothing to carry on from, rather than asking for the same batch for ever', async () => {
+    const environment = environmentWith({
+      accounts: ['tenant-a'],
+      batches: { 'tenant-a': [batch({ read: ['one'], more: true, lastLooked: null })] },
+    });
+
+    await assert.rejects(
+      backfill({ ask: environment.ask }),
+      /reading tenant-a got an answer that says there is more with nothing to carry on from/,
+    );
+  });
+});
+
+describe('naming one account is refused rather than quietly reading every account', () => {
+  it('refuses an empty --user rather than reading every account in the environment', async () => {
+    const environment = environmentWith({ accounts: ['tenant-a', 'tenant-b'] });
+
+    await assert.rejects(
+      backfill({ ask: environment.ask, only: '' }),
+      /no account  in this environment/,
+    );
+    // Nothing beyond the account list was asked - an empty name never reads
+    // every account the way an absent one does.
+    assert.deepEqual(environment.asked, [ACCOUNTS_PATH]);
+  });
 });
 
 describe('a run stops where it was told to, and says what is left', () => {
@@ -206,7 +237,6 @@ describe('a run stops where it was told to, and says what is left', () => {
     const done = await backfill({ ask: environment.ask, batch: 2, stopAfter: 3 });
 
     assert.equal(done.read, 3);
-    assert.equal(done.stoppedEarly, true);
     assert.equal(done.accounts[0].finished, false);
     // The second batch is asked for one note, not two: the cap is what is left,
     // not the batch it happens to fall inside.
@@ -215,8 +245,20 @@ describe('a run stops where it was told to, and says what is left', () => {
       `${ACCOUNTS_PATH}/tenant-a?batch=2`,
       `${ACCOUNTS_PATH}/tenant-a?after=two&batch=1`,
     ]);
-    // And the account it never got to is left alone rather than half-read.
-    assert.equal(done.accounts[1].read, 0);
+    // And the account it never got to is never asked about at all, rather
+    // than recorded as though it had been reached and read nothing.
+    assert.equal(done.accounts.length, 1);
+  });
+
+  it('asks for at most the route\'s own largest batch, where `--stop-after` alone would ask for more', async () => {
+    const environment = environmentWith({
+      accounts: ['tenant-a'],
+      batches: { 'tenant-a': [batch({ read: Array.from({ length: 100 }, (_, at) => `item-${at}`) })] },
+    });
+
+    await backfill({ ask: environment.ask, stopAfter: 500 });
+
+    assert.deepEqual(environment.asked, [ACCOUNTS_PATH, `${ACCOUNTS_PATH}/tenant-a?batch=100`]);
   });
 });
 

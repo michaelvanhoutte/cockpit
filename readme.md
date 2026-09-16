@@ -123,7 +123,7 @@ pnpm duplicates:backfill --env local
 pnpm duplicates:backfill --env production --user tenant-anna --stop-after 500
 ```
 
-**It only adds** — what a note means, and which notes repeat each other — and never touches the notes themselves, so a run that stops has done part of the work and destroyed none of it. Running it again finishes the rest at no cost for what was already read, which is also how it is paced across days; the flags and what a day's model allocation costs are in [docs/deployment.md](docs/deployment.md), under "Migrations and rollback".
+**It never writes to a note itself** — only what a note means and which notes repeat each other — so a run that stops has done part of the work and destroyed none of it, and running it again finishes the rest at no cost for what was already read. What that costs you, the flags, and how it is paced across days is in [docs/deployment.md](docs/deployment.md), under "Migrations and rollback". Read it before pointing this at anything but `local`.
 
 ### Tidying up branches
 
