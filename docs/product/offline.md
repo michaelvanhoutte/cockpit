@@ -1,6 +1,4 @@
-# Offline
-
-## 10. Offline / local-first behavior
+# Offline / local-first behavior
 
 The local copy serves **instant rendering** first and **offline availability** second (problem 9). Because offline is the rare case it gets the simple version of everything: a cache plus a queue, no peer-to-peer sync, no elaborate conflict resolution.
 
@@ -21,7 +19,7 @@ Convergence is layered, cheapest first, and a source change should have the same
 
 - **Push where the source offers it** — Slack events and Gmail push notifications, near-real time at almost no cost.
 - **Periodic delta re-sync** for sources without reliable push (Notion is polling-based), on a modest interval while the app is open and on focus or launch.
-- **Opportunistic re-verification** — on returning from a click-through (a moment the app already watches for the round-trip prompt — "action cards", above), re-fetch that item.
+- **Opportunistic re-verification** — on returning from a click-through (a moment the app already watches for the round-trip prompt — see "action cards" in `docs/product/dashboards.md`), re-fetch that item.
 - **Tombstones instead of silent deletes** — an object that disappears or completes at the source marks the Item *resolved at source* rather than vanishing. Whether that surfaces for confirmation is open decision #18.
 
 Each Item carries a *last-verified* timestamp, and a Panel can show how fresh its data is ("synced 2 min ago") so a stale view is at least an honest one.

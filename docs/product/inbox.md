@@ -14,7 +14,7 @@ Capture is its first row ("Show one Inbox per workspace, with capture at the top
 
 Processing an Item means one or more of:
 
-- **Read and respond** — the content is readable in the app, and where the source supports it you can react or reply from here; otherwise the deep link ("action cards", below) takes you to the source.
+- **Read and respond** — the content is readable in the app, and where the source supports it you can react or reply from here; otherwise the deep link (see "action cards" in `docs/product/dashboards.md`) takes you to the source.
 - **Flag for follow-up** — it becomes a tracked follow-up on the dashboards, exactly as if flagged at the source.
 - **Associate it** — tag it to a Person, Project and/or Topic, which is what puts it in the right panels.
 - **Mark it done** — which takes it off every list, saying when.
@@ -27,11 +27,11 @@ Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stay
 
 **The row names the action it would take, in the strip it uncovers**, from the first pixel it moves rather than from the threshold — which direction means what is the part a thumb cannot see, and by the time the threshold is reached the direction has already been chosen. A mark says it as soon as there is room for one and the word joins it once the strip is wide enough to hold the whole of it, a word half off the edge being worse than none; the words are the menu's own, **Move to…** and **Dismiss**, so the two ways to an action are not two things to learn. Past the threshold the strip fills with colour to say that letting go now takes it. The row **cannot name an action the release would not take**: what it says and what it does are one answer, not two.
 
-**Open question:** does "delete" mean delete only here, or also archive/delete in Gmail/Slack? See "Open decisions", below — the single biggest behavioral decision.
+**Open question:** does "delete" mean delete only here, or also archive/delete in Gmail/Slack? See "Open decisions" in `docs/functional-definition.md` — the single biggest behavioral decision.
 
 ### 5.1 How an Item reaches a box — must it pass through the Inbox first? (undecided)
 
-The reframing that makes this tractable: **"in the Inbox" and "shown in a box" are two independent states, not two ends of one pipeline.** Associations are many-to-many and being finished with an Item is separate ("Item + Association model", above), so an Item can be in either, both or neither, and "passes through the inbox first" is a per-source default rather than an architecture.
+The reframing that makes this tractable: **"in the Inbox" and "shown in a box" are two independent states, not two ends of one pipeline.** Associations are many-to-many and being finished with an Item is separate (see "Item + Association model" in `docs/product/items.md`), so an Item can be in either, both or neither, and "passes through the inbox first" is a per-source default rather than an architecture.
 
 **Model A — Inbox-first (manual triage).** Everything lands in To Process; nothing appears in a box until deliberately filed there. *Pro:* one point of control. *Con:* obvious items still need manual routing.
 

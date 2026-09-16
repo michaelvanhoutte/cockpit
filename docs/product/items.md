@@ -48,10 +48,10 @@ Independently of Focus horizons, an Item can carry a hard **due date**, and card
 ## 8. AI layer: executive summaries and highlights
 
 - **Per-item / per-thread summary** so long or technical messages can be triaged without reading the whole thread.
-- **Action extraction (the next-action label).** Read the full thread, not the last message, and distil the concrete thing to do into one line ("action cards", above). Always editable.
+- **Action extraction (the next-action label).** Read the full thread, not the last message, and distil the concrete thing to do into one line (see "action cards" in `docs/product/dashboards.md`). Always editable.
 - **Suggested associations.** On arrival, propose the likely Project/Person/Topic tags to confirm or override. This is where most of the day-to-day value is.
 - **Dashboard highlights digest** — "here is what needs follow-up today" across all sources, optionally as a daily push.
-- **Plain-English panel rules** — turn a free-text description into the structured saved query behind a Panel and render the interpretation back for confirmation ("What a Panel shows", above).
+- **Plain-English panel rules** — turn a free-text description into the structured saved query behind a Panel and render the interpretation back for confirmation (see "What a Panel shows" in `docs/product/dashboards.md`).
 - **Reading-digest topic extraction** *(iteration 2)* — detect that an email is content rather than correspondence, split it into its individual stories, and rank those against topics of interest. Finer-grained than a per-item summary, since one newsletter can hold ten unrelated stories of which one matters.
 
 Where the AI runs (cloud versus on-device) interacts with the offline requirement — open decision #6.

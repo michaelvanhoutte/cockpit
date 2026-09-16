@@ -1,7 +1,5 @@
 # Glossary
 
-## 14. Glossary
-
 - **Account** — the person or organization Cockpit holds work for, and the outermost boundary: everything belongs to exactly one, and nothing is shared between two. Each User has one. Not the *source accounts* (a Gmail login, a Slack workspace) a Workspace connects to. The **register** is the list of which Accounts exist, who the Users are and who is signed in; it is what says an Account is real before any of its data is opened.
 - **Workspace** — top-level context inside an Account and the privacy boundary (Work, Personal, Customer 1…); defines which sources are connected.
 - **Dashboard** — a switchable named view inside a Workspace, holding a layout of Panels.
@@ -41,7 +39,7 @@
 
 Six things the app does in the same way wherever it does them, named here because a shared behaviour with no word is one nobody can say is tested (`tools/test-explorer/concepts.json`):
 
-- **Menu** — the control a row's actions open from, three dots wherever it appears — except a tab or a panel, which opens its own instead ("One menu, however it opens", above). An action that cannot be taken stays in the menu, unavailable, saying why, rather than disappearing.
+- **Menu** — the control a row's actions open from, three dots wherever it appears — except a tab or a panel, which opens its own instead (see "One menu, however it opens" in `docs/functional-definition.md`). An action that cannot be taken stays in the menu, unavailable, saying why, rather than disappearing.
 - **Deleting** — asking before anything goes, in a dialog naming what is going and what goes with it, offering Cancel and Delete in that fixed order. Escape and Cancel are the two ways to say no.
 - **Ordering** — putting rows in the order you choose, by dragging one or by moving it a step at a time from its own menu; the two are the same move.
 - **Live updates** — a change made in one place reaching everywhere else it is shown, without a reload.
