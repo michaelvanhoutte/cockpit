@@ -905,6 +905,34 @@ export async function holdRow(page: Page, title: string): Promise<void> {
 }
 
 /**
+ * A tap too brief to start a long press, on a row that already has one
+ * running - which is how a phone extends a selection past the row it held to
+ * start one ("Pick a row by ctrl/shift-click instead of aiming for a
+ * checkbox, and suspend single-row actions while a selection is held", issue
+ * 438).
+ *
+ * **Dispatched in the page rather than through CDP, unlike `holdRow` above.**
+ * A second and third raw touch through CDP on the same page, chained onto
+ * `holdRow`'s own, stopped reaching the row reliably - not occasionally,
+ * repeatable on every run once tried enough times, in CI and, once looked for,
+ * locally too. What has to be proved here is that the row's own handler reads
+ * a tap as a `touch` pointer and acts on it, which a `pointerdown` carrying
+ * `pointerType: 'touch'` says exactly as well as a finger would, without
+ * asking Chromium's own touch-emulation state machine to stay reliable across
+ * several gestures on one page.
+ */
+export async function tapRow(page: Page, title: string): Promise<void> {
+  const row = itemRow(page, title);
+  await row.scrollIntoViewIfNeeded();
+  await row.evaluate((el) => {
+    const at = { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 2 };
+    el.dispatchEvent(new PointerEvent('pointerdown', at));
+    el.dispatchEvent(new PointerEvent('pointerup', at));
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+}
+
+/**
  * Drags one item row and lets it go over another row, above or below its
  * middle — which is what decides the gap it lands in.
  *

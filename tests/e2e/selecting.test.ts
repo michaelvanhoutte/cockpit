@@ -12,6 +12,7 @@ import {
   openDashboard,
   press,
   signIn,
+  tapRow,
   test,
   uniqueTitle,
 } from './support/app';
@@ -101,7 +102,7 @@ async function addToSelection(
   withShift = false,
 ): Promise<void> {
   if (isMobile) {
-    await itemRow(page, title).tap();
+    await tapRow(page, title);
     return;
   }
   await itemRow(page, title).click({ modifiers: withShift ? ['Shift'] : ['ControlOrMeta'] });
@@ -124,10 +125,7 @@ test.describe('Selection', () => {
       await expect(inbox(page).getByText('1 selected')).toBeVisible();
 
       // A range is a shift-click, which a phone cannot make; there, each row is
-      // one more tap. Waited on between the two, not just at the end: a tap's
-      // own click can lag its touchend, and firing the next one before it
-      // lands raced the count in CI (found in review, on this walk's own
-      // failure there).
+      // one more tap.
       await addToSelection(page, second, isMobile);
       await expect(inbox(page).getByText('2 selected')).toBeVisible();
       await addToSelection(page, third, isMobile, true);
