@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { PANEL_TEXT_LIMIT } from '@cockpit/shared';
 import type { Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
-import { WORKSPACE_ID, alsoWorkspaces, asUser, seedRegister, startFromEmpty } from '../seed.js';
+import {
+  TASK_TYPE_ID,
+  WORKSPACE_ID,
+  alsoWorkspaces,
+  asUser,
+  inTheStore,
+  seedRegister,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, through the real Worker (`asUser`), because every rule
@@ -184,6 +192,47 @@ async function panelsOn(dashboardId: string): Promise<Panel[]> {
 
 async function layoutsOf(dashboardId: string): Promise<Layout[]> {
   return (await snapshot()).layouts.filter((layout) => layout.dashboardId === dashboardId);
+}
+
+function move(panelId: string, dashboardId: string, workspaceId: string = WORKSPACE_ID) {
+  return send('move_panel_to_dashboard', { workspaceId, panelId, dashboardId });
+}
+
+async function anItem(message: string): Promise<string> {
+  const itemId = nextId();
+  expect(
+    (await send('capture_item', { workspaceId: WORKSPACE_ID, itemId, message, typeId: TASK_TYPE_ID }))
+      .status,
+  ).toBe(200);
+  return itemId;
+}
+
+/**
+ * Files an item onto a panel by writing the row, rather than through
+ * `move_item_to_panel` - the same reasoning `panel-items.test.ts` gives its
+ * own `alsoFileOn`: a case about what a *move* carries with it should not
+ * depend on the command that put the filing there in the first place.
+ */
+async function fileOn(panelId: string, itemId: string, position: number): Promise<void> {
+  await inTheStore((sql) =>
+    sql.exec(
+      'INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at) VALUES (?, ?, ?, ?, ?)',
+      'tenant-default',
+      panelId,
+      itemId,
+      position,
+      AT,
+    ),
+  );
+}
+
+/** The items filed on one panel, in the order it holds them. */
+async function filingsOn(panelId: string): Promise<string[]> {
+  const held = await snapshot();
+  return held.filings
+    .filter((filing) => filing.panelId === panelId)
+    .sort((a, b) => a.position - b.position)
+    .map((filing) => filing.itemId);
 }
 
 /** What a case has already arranged before the change under test is made. */
@@ -616,6 +665,225 @@ describe('Panels', () => {
         [{ panelId: falcon, span: 12 }],
         [{ panelId: falcon, span: 3 }],
       ]);
+    });
+  });
+
+  describe('a panel moved to another dashboard belongs to it, and only it', () => {
+    it('is taken off the dashboard it left and put on the one it landed on', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Project Falcon', { panelId });
+
+      const moved = await move(panelId, to);
+
+      expect(moved.status).toBe(200);
+      expect((await panelNow(panelId)).dashboardId).toBe(to);
+      expect(await panelsOn(from)).toEqual([]);
+      expect((await panelsOn(to)).map((panel) => panel.name)).toEqual(['Project Falcon']);
+    });
+
+    it('does not go with the dashboard it left, and does go with the one it landed on', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Project Falcon', { panelId });
+      await move(panelId, to);
+
+      await send('delete_dashboard', { workspaceId: WORKSPACE_ID, dashboardId: from });
+      expect((await panelNow(panelId)).dashboardId).toBe(to);
+
+      await send('delete_dashboard', { workspaceId: WORKSPACE_ID, dashboardId: to });
+      expect(await panelsOn(to)).toEqual([]);
+    });
+  });
+
+  describe('a moved panel takes its placement with it', () => {
+    it('leaves every layout it came from and joins every layout it lands on, in a row of its own', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const moving = nextId();
+      const stayed = nextId();
+      const alreadyThere = nextId();
+      await addPanel(from, 'Moving', { panelId: moving });
+      await addPanel(from, 'Stayed behind', { panelId: stayed });
+      await addPanel(to, 'Already there', { panelId: alreadyThere });
+      const wide = await aScreenSize('Wide', 2560);
+      await saveLayout(
+        from,
+        nextId(),
+        2560,
+        [
+          { panelId: moving, span: 6 },
+          { panelId: stayed, span: 6 },
+        ],
+        wide,
+      );
+      await saveLayout(to, nextId(), 2560, [{ panelId: alreadyThere, span: 12 }], wide);
+
+      await move(moving, to);
+
+      expect(cellsOf((await layoutsOf(from))[0])).toEqual([{ panelId: stayed, span: 6 }]);
+      expect((await layoutsOf(to))[0]?.rows).toEqual([
+        { height: null, cells: [{ panelId: alreadyThere, span: 12 }] },
+        { height: null, cells: [{ panelId: moving, span: 12 }] },
+      ]);
+    });
+
+    it('drops a row it had to itself, in the layout it left', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const alone = nextId();
+      const other = nextId();
+      await addPanel(from, 'Alone on its line', { panelId: alone });
+      await addPanel(from, 'Elsewhere', { panelId: other });
+      await saveRows(from, nextId(), 1280, [
+        { height: null, cells: [{ panelId: other, span: 12 }] },
+        { height: null, cells: [{ panelId: alone, span: 12 }] },
+      ]);
+
+      await move(alone, to);
+
+      expect((await layoutsOf(from))[0]?.rows).toEqual([
+        { height: null, cells: [{ panelId: other, span: 12 }] },
+      ]);
+    });
+
+    it('joins a dashboard with no layout yet, arranging itself the way any panel added to one does', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Project Falcon', { panelId });
+
+      const moved = await move(panelId, to);
+
+      expect(moved.status).toBe(200);
+      expect(await layoutsOf(to)).toEqual([]);
+    });
+  });
+
+  describe('a name already on the target dashboard is not a name the move can keep', () => {
+    it('is renamed rather than refused where the target already has one going by it', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Reading list', { panelId });
+      await addPanel(to, 'Reading list', { panelId: nextId() });
+
+      const moved = await move(panelId, to);
+
+      expect(moved.status).toBe(200);
+      expect((await panelNow(panelId)).name).toBe('Reading list (2)');
+    });
+
+    it('keeps its own name where nothing on the target already holds it', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Reading list', { panelId });
+
+      await move(panelId, to);
+
+      expect((await panelNow(panelId)).name).toBe('Reading list');
+    });
+  });
+
+  describe('nothing else about a moved panel changes', () => {
+    it('carries its kind, format, body and read-only state across untouched', async () => {
+      const { panelId } = await aPanelOfText('What matters');
+      await setText(panelId, 'Standing agenda');
+      await setFormat(panelId, 'rich');
+      await setReadOnly(panelId, true);
+      const to = await aDashboard();
+
+      await move(panelId, to);
+
+      expect(await panelNow(panelId)).toMatchObject({
+        dashboardId: to,
+        kind: 'text',
+        format: 'rich',
+        body: 'Standing agenda',
+        readOnly: true,
+      });
+    });
+
+    it('carries what is filed on it, in the order it was filed', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Project Falcon', { panelId });
+      const first = await anItem('First');
+      const second = await anItem('Second');
+      await fileOn(panelId, first, 0);
+      await fileOn(panelId, second, 1);
+
+      await move(panelId, to);
+
+      expect(await filingsOn(panelId)).toEqual([first, second]);
+    });
+  });
+
+  describe('a move is refused rather than half-applied, wherever what it names is not there to move to', () => {
+    it('refuses naming the panel’s own current dashboard', async () => {
+      const dashboardId = await aDashboard();
+      const panelId = nextId();
+      await addPanel(dashboardId, 'Project Falcon', { panelId });
+
+      const refused = await move(panelId, dashboardId);
+
+      expect(refused.status).toBe(400);
+      expect((await panelNow(panelId)).dashboardId).toBe(dashboardId);
+    });
+
+    it('refuses a dashboard that does not exist, and moves nothing', async () => {
+      const from = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Project Falcon', { panelId });
+
+      const refused = await move(panelId, '018f0000-0000-7000-8000-999999999999');
+
+      expect(refused.status).toBe(404);
+      expect((await panelNow(panelId)).dashboardId).toBe(from);
+    });
+
+    it('refuses a dashboard that belongs to another workspace, and moves nothing', async () => {
+      await alsoWorkspaces();
+      const from = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Project Falcon', { panelId });
+
+      const refused = await move(panelId, 'ws-atlas-dashboard-1');
+
+      expect(refused.status).toBe(404);
+      expect((await panelNow(panelId)).dashboardId).toBe(from);
+    });
+
+    it('refuses moving a panel that has already been deleted', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Project Falcon', { panelId });
+      await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId });
+
+      const refused = await move(panelId, to);
+
+      expect(refused.status).toBe(404);
+    });
+
+    it('leaves the panel and its placement exactly where they were when the target was deleted a moment before', async () => {
+      const from = await aDashboard();
+      const to = await aDashboard();
+      const panelId = nextId();
+      await addPanel(from, 'Project Falcon', { panelId });
+      const wide = await aScreenSize('Wide', 2560);
+      await saveLayout(from, nextId(), 2560, [{ panelId, span: 12 }], wide);
+      await send('delete_dashboard', { workspaceId: WORKSPACE_ID, dashboardId: to });
+
+      const refused = await move(panelId, to);
+
+      expect(refused.status).toBe(404);
+      expect((await panelNow(panelId)).dashboardId).toBe(from);
+      expect(cellsOf((await layoutsOf(from))[0])).toEqual([{ panelId, span: 12 }]);
     });
   });
 

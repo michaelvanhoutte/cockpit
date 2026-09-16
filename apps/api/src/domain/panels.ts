@@ -1,4 +1,4 @@
-import { DEFAULT_CELL_SPAN, FIRST_PANEL_NAME } from '@cockpit/shared';
+import { DEFAULT_CELL_SPAN, FIRST_PANEL_NAME, NAME_MAX_LENGTH } from '@cockpit/shared';
 import type { AddPanelCommand, Panel, RowInput, SaveLayoutCommand } from '@cockpit/shared';
 import { foldName, namedTheSame } from './names.js';
 
@@ -69,6 +69,46 @@ export function panelNamed(
   except?: string,
 ): Panel | undefined {
   return namedTheSame(live, name, except);
+}
+
+/**
+ * The name a panel keeps when it lands on a dashboard that already has one
+ * going by its name - suffixed rather than refused, since a move is not a
+ * request the mover can retype ("Move a panel to another dashboard, from its
+ * menu or by dragging it onto a tab", issue 439).
+ *
+ * `Name`, then `Name (2)`, `Name (3)`… against the target's own live panels,
+ * climbing past every number already taken there rather than stopping at the
+ * first free one below a collision - so `Reading list (2)` moved onto a
+ * dashboard that already has both `Reading list` and `Reading list (2)` lands
+ * on `Reading list (3)` rather than colliding with the one already there.
+ *
+ * **A number the incoming name already carries is climbed past, not kept -
+ * but only where it is plausibly this function's own, earlier suffix.**
+ * `Reading list (2)` colliding again strips to `Reading list`, checks that
+ * *that* is itself on the target, and climbs to `Reading list (3)` rather
+ * than piling on `Reading list (2) (2)`. A title that merely ends in a
+ * parenthesised number for its own reasons - `Sprint (2026)` - keeps every
+ * character of it: stripping is only trusted where the number in front of it
+ * is a real title already sitting on the target, found in review.
+ *
+ * **Capped the same as any other panel name** (`NAME_MAX_LENGTH`), which
+ * nothing sends this one to be validated against: unlike `add_panel` and
+ * `rename_panel`, the mover never types this name, so nothing upstream of
+ * this function checks its length. Room is reserved for the suffix rather
+ * than appended past the cap, found in review.
+ */
+export function panelNameForMove(target: readonly Panel[], name: string): string {
+  if (!panelNamed(target, name)) return name;
+  const stripped = name.replace(/ \(\d+\)$/, '');
+  const base = panelNamed(target, stripped) ? stripped : name;
+  // Six characters is room for " (2)" through " (999)" - more collisions on
+  // one dashboard than a workspace could plausibly reach.
+  const room = NAME_MAX_LENGTH - 6;
+  const fitted = base.length > room ? base.slice(0, room) : base;
+  let n = 2;
+  while (panelNamed(target, `${fitted} (${n})`)) n += 1;
+  return `${fitted} (${n})`;
 }
 
 export interface PanelRow extends Panel {

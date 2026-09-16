@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { movedBy, movedTo } from '../../src/reorder';
+import { movedTo } from '../../src/reorder';
 
 /**
- * F1: putting a workspace in a different place is arithmetic over a list, and
- * it is the one thing the two ways of moving one have to agree about - a drag
- * that landed a workspace one place further along than Move down does would be
- * two different orders for one gesture.
+ * F1: putting a workspace in a different place is arithmetic over a list.
  *
  * It is here rather than in the page's own file because the drag cannot be
  * driven below a browser at all: where a pointer is over the list is measured
@@ -74,37 +71,6 @@ describe('Workspace management', () => {
       movedTo(WORKSPACES, 'ws-work', 2);
 
       expect(WORKSPACES).toEqual(before);
-    });
-  });
-
-  describe('a workspace moved one place changes places with its neighbour, and stops at the ends', () => {
-    it.each([
-      {
-        situation: 'the middle one moved up',
-        moving: 'ws-atlas',
-        places: -1,
-        becomes: ['ws-atlas', 'ws-work', 'ws-personal'],
-      },
-      {
-        situation: 'the middle one moved down',
-        moving: 'ws-atlas',
-        places: 1,
-        becomes: ['ws-work', 'ws-personal', 'ws-atlas'],
-      },
-      {
-        situation: 'the first one moved up',
-        moving: 'ws-work',
-        places: -1,
-        becomes: WORKSPACES,
-      },
-      {
-        situation: 'the last one moved down',
-        moving: 'ws-personal',
-        places: 1,
-        becomes: WORKSPACES,
-      },
-    ])('$situation', ({ moving, places, becomes }) => {
-      expect(movedBy(WORKSPACES, moving, places)).toEqual(becomes);
     });
   });
 });

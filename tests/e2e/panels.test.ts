@@ -6,6 +6,7 @@ import {
   capture,
   choosePanelAction,
   dashboardBar,
+  dashboardTab,
   expect,
   expectNoSidewaysScroll,
   itemRow,
@@ -55,6 +56,21 @@ async function ownDashboard(page: Page, isMobile: boolean): Promise<string> {
   await expect(dashboardBar(page).getByRole('link', { name })).toBeVisible();
   await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible();
   await deletePanel(page, 'Panel 1', isMobile);
+  return name;
+}
+
+/**
+ * A second dashboard of the same workspace, leaving `here` the one on screen
+ * afterwards - what every walk about moving a panel *to* somewhere needs
+ * beside the one `ownDashboard` already makes.
+ */
+async function anotherDashboard(page: Page, here: string, isMobile: boolean): Promise<string> {
+  const name = uniqueTitle('Elsewhere');
+  await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+  await page.getByLabel('Name of the new dashboard').fill(name);
+  await page.getByLabel('Name of the new dashboard').press('Enter');
+  await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible();
+  await press(dashboardBar(page).getByRole('link', { name: here }), isMobile);
   return name;
 }
 
@@ -208,8 +224,8 @@ async function expectLayouts(page: Page, made: number, isMobile: boolean): Promi
 }
 
 test.describe('Panels', () => {
-  test.describe('a panel you add is one you can rename, move and delete on the dashboard itself', () => {
-    test('puts it on the dashboard and keeps it there through all three', async ({
+  test.describe('a panel you add is one you can rename and delete on the dashboard itself', () => {
+    test('puts it on the dashboard and keeps it there through both', async ({
       page,
       isMobile,
     }) => {
@@ -231,23 +247,6 @@ test.describe('Panels', () => {
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('region', { name: renamed })).toBeVisible();
 
-      // Moving, by the entry the screen makes true: the panels are side by side
-      // on a laptop and stacked on a phone, so the direction is named for what
-      // the person is actually looking at.
-      // Waited on the server's answer as well as on the board, which is the
-      // difference between a walk that acts on what the app has drawn and one
-      // that acts on what it has kept: the move sends a layout, the board
-      // redraws when the answer lands, and a redraw that arrives between
-      // opening the next menu and pressing an entry in it takes the menu with
-      // it. That is what failed this walk under load in CI while the same
-      // commit passed beside it.
-      const moved = answerTo(page, 'save_layout');
-      await choosePanelAction(page, reading, isMobile ? 'Move up' : 'Move left', isMobile);
-      expect((await moved).status()).toBe(200);
-      await expect
-        .poll(() => panelsOnScreen(page))
-        .toEqual([reading, renamed]);
-
       await choosePanelAction(page, reading, 'Delete', isMobile);
       await expect(
         page.getByText(`Delete ${reading}? It goes from every layout of this dashboard.`),
@@ -264,6 +263,10 @@ test.describe('Panels', () => {
       page,
       isMobile,
     }) => {
+      // Desktop only: arranging a dashboard is a pointer gesture, and this
+      // walk needs a real change in the arrangement to prove a layout is
+      // per-screen rather than shared - there is no other way to make one.
+      test.skip(isMobile, 'arranging a dashboard is a pointer gesture');
       await ownDashboard(page, isMobile);
       const first = uniqueTitle('Project Falcon');
       const second = uniqueTitle('To read');
@@ -274,12 +277,15 @@ test.describe('Panels', () => {
 
       // Arranged on the screen it is on now, which stores the dashboard's
       // first layout and names it for that screen. Nothing is asked.
-      //
-      // The *second* panel, because what a move is called now depends on the
-      // panel's own row rather than on the screen: this one shares a row on a
-      // desktop, where the board fits two across, so it has somewhere to go
-      // left. On a phone every row holds one and every move is up or down.
-      await choosePanelAction(page, second, isMobile ? 'Move up' : 'Move left', isMobile);
+      const moved = answerTo(page, 'save_layout');
+      const firstBox = (await page.getByRole('region', { name: first }).boundingBox())!;
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: second }).locator('header'))),
+      );
+      await page.mouse.down();
+      await page.mouse.move(firstBox.x + 4, firstBox.y + firstBox.height / 2, { steps: 8 });
+      await page.mouse.up();
+      expect((await moved).status()).toBe(200);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
       // Waited for by name rather than by a pause: the layout is what the next
       // half of this walk changes *from*, and pressing again before it landed
@@ -316,15 +322,21 @@ test.describe('Panels', () => {
       await expect(layoutControl(page)).toHaveText(new RegExp(named));
 
       // Two layouts now, one per screen, and a change made here goes into the
-      // one on screen without asking.
-      //
-      // *Move up* on both projects, and not because of the screen: what a move
-      // is called follows the panel's own row now, and this panel has a row to
-      // itself in either arrangement - the desktop put two on the first line
-      // and this one on the second, the phone put every panel on a line of its
-      // own. A screen-width guess is what this used to make, and a wider screen
-      // does not turn a row of one into a row of two.
-      await choosePanelAction(page, third, 'Move up', isMobile);
+      // one on screen without asking - moving the third panel onto a line of
+      // its own ahead of the other two.
+      const movedAgain = answerTo(page, 'save_layout');
+      const topSeam = page.locator('main [data-testid="row-seam"]').first();
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: third }).locator('header'))),
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: second }).locator('header'))),
+        { steps: 4 },
+      );
+      await page.mouse.move(...(await centreOf(topSeam)), { steps: 4 });
+      await page.mouse.up();
+      expect((await movedAgain).status()).toBe(200);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
       await expectLayouts(page, 2, isMobile);
       await expectNoSidewaysScroll(page);
@@ -436,8 +448,13 @@ test.describe('Panels', () => {
 
       // Recorded as this screen's layout, so narrowing squeezes it rather than
       // arranging the panels afresh for the screen they are now on - which is
-      // how a panel ends up narrower than any screen would have made it.
-      await choosePanelAction(page, reading, 'Move left', isMobile);
+      // how a panel ends up narrower than any screen would have made it. Named
+      // by hand rather than arranged, since nothing here cares what the layout
+      // holds - only that one exists for this screen.
+      await press(layoutControl(page), isMobile);
+      await press(page.getByRole('menuitem', { name: 'New screen size…' }), isMobile);
+      await page.getByLabel('Name of the new screen size').fill(uniqueTitle('Wide'));
+      await page.getByLabel('Name of the new screen size').press('Enter');
       await expectLayouts(page, 1, isMobile);
 
       await page.setViewportSize({ width: 420, height: 800 });
@@ -666,6 +683,69 @@ test.describe('Panels', () => {
     });
   });
 
+  test.describe('a panel moves to another dashboard from its own menu', () => {
+    /**
+     * "Move a panel to another dashboard, from its menu or by dragging it onto
+     * a tab" (issue 439). What the picker offers, and that a name collision is
+     * renamed rather than refused, are settled below jsdom's own layout engine
+     * in apps/web/tests/unit/components/PanelBoard.test.tsx and against a real
+     * store in apps/api/tests/integration/http/panels.test.ts; what only a
+     * browser can say is that choosing a dashboard really does take the panel
+     * off the one you were looking at and onto the one you picked.
+     */
+    test('takes it off the dashboard it was on, onto the one picked', async ({ page, isMobile }) => {
+      const here = await ownDashboard(page, isMobile);
+      const elsewhere = await anotherDashboard(page, here, isMobile);
+
+      const falcon = uniqueTitle('Project Falcon');
+      await addPanel(page, falcon, isMobile);
+
+      const moved = answerTo(page, 'move_panel_to_dashboard');
+      await choosePanelAction(page, falcon, 'Move to another dashboard', isMobile);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      await press(dialog.getByRole('button', { name: elsewhere }), isMobile);
+      expect((await moved).status()).toBe(200);
+
+      await expect(page.getByRole('region', { name: falcon })).toHaveCount(0);
+      await press(dashboardBar(page).getByRole('link', { name: elsewhere }), isMobile);
+      await expect(page.getByRole('region', { name: falcon })).toBeVisible();
+    });
+  });
+
+  test.describe('dropping a dragged panel on another dashboard’s tab moves it there', () => {
+    // Desktop only, the reason every other drag in this file is: a panel is
+    // moved with a pointer held down, which a finger spends on scrolling the
+    // page - moving there is the entry in the panel's own menu, walked above
+    // on both projects.
+    test.skip(({ isMobile }) => !!isMobile, 'dragging a panel is a pointer gesture');
+
+    test('moves it there, the same way the menu’s picker does', async ({ page, isMobile }) => {
+      const here = await ownDashboard(page, isMobile);
+      const elsewhere = await anotherDashboard(page, here, isMobile);
+
+      const falcon = uniqueTitle('Project Falcon');
+      await addPanel(page, falcon, isMobile);
+
+      const moved = answerTo(page, 'move_panel_to_dashboard');
+      // The header is the handle, the same gesture the within-dashboard drags
+      // above use - what is new here is where it is let go: on the other
+      // dashboard's own tab, drawn by a different part of the page than the
+      // board that captured the pointer.
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: falcon }).locator('header'))),
+      );
+      await page.mouse.down();
+      await page.mouse.move(...(await centreOf(dashboardTab(page, elsewhere))), { steps: 8 });
+      await page.mouse.up();
+      expect((await moved).status()).toBe(200);
+
+      await expect(page.getByRole('region', { name: falcon })).toHaveCount(0);
+      await press(dashboardBar(page).getByRole('link', { name: elsewhere }), isMobile);
+      await expect(page.getByRole('region', { name: falcon })).toBeVisible();
+    });
+  });
+
   test.describe('a row is as tall, and a panel as wide, as the line you drag says', () => {
     // Desktop only for the reason the drag above is: both lines are taken hold
     // of with a pointer, which a finger spends on scrolling the page.
@@ -764,13 +844,12 @@ test.describe('Panels', () => {
       // item leaves its own Undo bar up at the foot of the screen
       // (`undo.tsx`), and eight of them in a row never leaves a moment for it
       // to clear before the next item's own row needs clicking - one filing
-      // of all eight leaves one bar, once, after everything has landed. The
-      // Inbox shows its ties on hover; the whole point of this feature is
-      // that this device can hover.
-      const tick = (title: string) => itemRow(page, title).getByRole('checkbox');
-      await itemRow(page, items[0]!).hover();
-      await tick(items[0]!).click();
-      await tick(items[items.length - 1]!).click({ modifiers: ['Shift'] });
+      // of all eight leaves one bar, once, after everything has landed. A
+      // ctrl-click starts it and a shift-click reaches the rest ("Pick a row
+      // by ctrl/shift-click instead of aiming for a checkbox, and suspend
+      // single-row actions while a selection is held", issue 438).
+      await itemRow(page, items[0]!).click({ modifiers: ['ControlOrMeta'] });
+      await itemRow(page, items[items.length - 1]!).click({ modifiers: ['Shift'] });
       await page.getByRole('button', { name: 'Move to…' }).click();
       const picker = page.getByRole('dialog');
       await expect(picker).toBeVisible();

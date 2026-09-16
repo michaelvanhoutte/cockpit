@@ -407,41 +407,6 @@ export function movedToOwnRow(
   return next;
 }
 
-/**
- * The arrangement with one panel moved one place along - the same move the
- * drag makes, reached from the panel's own menu.
- *
- * A drag is unreachable from a keyboard and absent on a touchscreen, so every
- * move a pointer can make has to be reachable another way. Along the row it is
- * in while there is somewhere to go, and onto a line of its own past either
- * end: that is what "left" and "right" mean when a row can hold one panel or
- * four.
- */
-export function movedBy(
-  rows: readonly LayoutRow[],
-  panelId: string,
-  places: number,
-): LayoutRow[] {
-  const from = findCell(rows, panelId);
-  if (!from || places === 0) return [...rows];
-  const row = rows[from.row]!;
-  const to = from.at + places;
-  if (to >= 0 && to < row.cells.length) {
-    const beside = row.cells[to]!.panelId;
-    return movedBeside(rows, panelId, beside, places < 0 ? 'before' : 'after');
-  }
-  // Past the end of its row, so onto a line of its own before or after it -
-  // unless it is already alone there, in which case it swaps with the row
-  // beyond.
-  // The gap before its row going one way, the gap after it going the other -
-  // and one further where it is already alone, since the gap either side of a
-  // row holding only this panel is the line it is already on.
-  const alone = row.cells.length === 1;
-  const before = alone ? from.row - 1 : from.row;
-  const after = alone ? from.row + 2 : from.row + 1;
-  return movedToOwnRow(rows, panelId, places < 0 ? before : after);
-}
-
 function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, Number.isFinite(value) ? value : low));
 }

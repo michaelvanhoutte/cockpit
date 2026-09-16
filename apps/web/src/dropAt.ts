@@ -58,8 +58,8 @@ export function placeAfterMoving(gap: number, movingFrom: number | null): number
  * wrong.** A filing outlives its item being finished (filing.ts), so a panel
  * holding [finished, a, b] draws [a, b] - and "second among the rows I can see"
  * is third in what the panel holds. Counting in one and applying in the other
- * made Move down on the first visible row change the stored order and nothing
- * on the screen.
+ * made dropping onto the first visible row change the stored order and
+ * nothing on the screen.
  *
  * It works by anchor rather than by arithmetic: the item goes immediately
  * before the drawn row it was dropped above, wherever that row happens to sit

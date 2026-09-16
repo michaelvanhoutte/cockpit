@@ -27,6 +27,7 @@ export function MenuTrigger({
   label,
   className,
   onChrome = false,
+  disabled = false,
   ref,
 }: {
   label: string;
@@ -42,6 +43,21 @@ export function MenuTrigger({
    * their order in the generated stylesheet rather than by the call site.
    */
   onChrome?: boolean;
+  /**
+   * Unavailable while a row's menu has to step aside for something else on the
+   * row ("Pick a row by ctrl/shift-click instead of aiming for a checkbox, and
+   * suspend single-row actions while a selection is held", issue 438) - a
+   * selection suspends every row's own menu, so acting on one row while
+   * several are picked cannot happen through it.
+   *
+   * `aria-disabled` rather than native `disabled`, the same reason `RowMenu`'s
+   * own entries carry below and `MoveAStep` restates: native `disabled` takes
+   * a control out of Tab order with no explanation, where this stays reachable
+   * and dimmed. Refusing to *open* while unavailable is the caller's, since
+   * that also has to close a menu already open when a selection starts
+   * elsewhere - `aria-disabled` alone tells nobody that.
+   */
+  disabled?: boolean | undefined;
   /** Held where something has to put the focus back on this control afterwards. */
   ref?: React.Ref<HTMLButtonElement>;
 }) {
@@ -49,7 +65,8 @@ export function MenuTrigger({
     <DropdownMenu.Trigger
       ref={ref}
       aria-label={label}
-      className={menuButtonClassName(onChrome, className)}
+      {...(disabled ? { 'aria-disabled': true } : {})}
+      className={`${menuButtonClassName(onChrome, className)}${disabled ? ' opacity-40' : ''}`}
     >
       <MenuDots />
     </DropdownMenu.Trigger>

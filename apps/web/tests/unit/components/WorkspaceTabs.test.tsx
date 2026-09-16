@@ -142,36 +142,46 @@ async function menuOf(name: string) {
   return screen.findByRole('menu');
 }
 
+/**
+ * Lays the strip out, because jsdom does not: `tabDrag.ts`'s `placeAt` reads
+ * each tab's right edge off `getBoundingClientRect`, which jsdom always
+ * answers with zeroes. Each tab is given a 100-pixel-wide slot instead, the
+ * same stand-in `PanelBoard.test.tsx`'s `layOut` uses for panels.
+ */
+function layOutTabs() {
+  const tabs = [...document.querySelectorAll('[data-tab-id]')];
+  tabs.forEach((tab, index) => {
+    tab.getBoundingClientRect = () => ({ right: (index + 1) * 100 }) as DOMRect;
+  });
+}
+
+/** Drags a tab far enough to land in the slot at `toIndex`, and drops it there. */
+function dragTab(name: string, toIndex: number) {
+  const tab = screen.getByRole('link', { name });
+  fireEvent.pointerDown(tab, { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 0, buttons: 1 });
+  layOutTabs();
+  fireEvent.pointerMove(tab, {
+    pointerId: 1,
+    pointerType: 'mouse',
+    clientX: toIndex * 100 + 50,
+    buttons: 1,
+  });
+  fireEvent.pointerUp(tab, { pointerId: 1, pointerType: 'mouse' });
+}
+
 describe('Workspace management', () => {
   describe('what can be done to a workspace is on the tab it is', () => {
     // The list this replaces was two presses away in the header's menu, and
     // then a row to find. What each entry does is the rules below.
-    it('offers editing, moving and deleting on the tab itself', async () => {
-      // A tab with a workspace either side of it, so every entry can be
-      // chosen; what an entry at the end of the strip says is the rule below.
+    it('offers editing and deleting on the tab itself', async () => {
       showTabs(['Work', 'Personal', 'Acme']);
 
       await menuOf('Personal');
 
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
-        'Move left',
-        'Move right',
         'Delete',
       ]);
-    });
-
-    it.each([
-      { situation: 'the first workspace', name: 'Work', cannot: 'Move left: It is already the first' },
-      { situation: 'the last workspace', name: 'Acme', cannot: 'Move right: It is already the last' },
-    ])('says why a tab at the end of the strip cannot move further, on $situation', async (row) => {
-      // Said rather than hidden: the menu is the only way a keyboard has to
-      // move a tab, and an entry that vanishes reads as broken.
-      showTabs(['Work', 'Personal', 'Acme']);
-
-      await menuOf(row.name);
-
-      expect(screen.getByRole('menuitem', { name: row.cannot })).toBeVisible();
     });
 
     it('opens the menu of the tab you are already on when it is pressed', async () => {
@@ -245,10 +255,10 @@ describe('Workspace management', () => {
     it('paints the new order at once', async () => {
       // Not politeness: the order a move is computed from is the order in
       // hand, so a second move made before the first came back would undo it.
-      const { mutate, user } = showTabs(['Work', 'Personal', 'Acme']);
-      await menuOf('Work');
+      const { mutate } = showTabs(['Work', 'Personal', 'Acme']);
+      await screen.findByRole('link', { name: 'Work' });
 
-      await user.click(screen.getByRole('menuitem', { name: 'Move right' }));
+      dragTab('Work', 1);
 
       await waitFor(() =>
         expect(
@@ -291,13 +301,17 @@ describe('Workspace management', () => {
     });
 
     it('puts the tabs back when the move is refused', async () => {
-      const { user } = showTabs(['Work', 'Personal', 'Acme'], {
+      const { mutate } = showTabs(['Work', 'Personal', 'Acme'], {
         error: new CommandRefused(409, 'the list of workspaces has changed'),
       });
-      await menuOf('Work');
+      await screen.findByRole('link', { name: 'Work' });
 
-      await user.click(screen.getByRole('menuitem', { name: 'Move right' }));
+      dragTab('Work', 1);
 
+      // Otherwise this passes vacuously: the order it puts back is the order
+      // it started in, so a drag that silently did nothing would look the
+      // same as one that was sent and refused.
+      expect(mutate).toHaveBeenCalled();
       await waitFor(() =>
         expect(
           screen
