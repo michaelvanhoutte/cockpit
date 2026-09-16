@@ -2,7 +2,7 @@ import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { PanelText } from '../panels/PanelText';
-import { SurfaceMenu, SurfaceMenuButton, opensOnKey, opensOnActivate } from './Menu';
+import { SurfaceMenu, opensOnKey, opensOnActivate } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
 
 /**
@@ -390,13 +390,8 @@ export function PanelCard({
                   </span>
                 )}
               </div>
-              {/* The button `SurfaceMenu`'s own doc comment explains: a
-                  panel's header is also its drag handle, so right-click and
-                  the menu key answer a target mostly asked to do something
-                  else, and this is what a pointer or a touchscreen actually
-                  reaches for. `-mr-2` so its own 36px pads back into the
-                  header's `px-4` instead of widening it. */}
-              <SurfaceMenuButton label={`Actions for ${panel.name}`} className="-mr-2" />
+              {/* DIAGNOSTIC BISECT: button removed to test whether it is
+                  the cause of the filing.test.ts E2E flakiness. */}
             </>
           )}
         </header>
