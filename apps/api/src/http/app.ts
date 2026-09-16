@@ -1242,7 +1242,12 @@ const routes = app
       // itself: always equal, never catching anything. A size R2 confirms
       // agrees with what was just declared is the one case safe to accept
       // as a replay; `command-service.ts` still checks filename/contentType
-      // on top of this, for the same reason.
+      // on top of this, for the same reason. A declared size can disagree
+      // for two reasons this route cannot tell apart - a genuinely
+      // different file, or the very first upload landing short of what it
+      // declared - and since this branch never reads a body to settle it
+      // either way, both are refused alike; a short original's id stays
+      // refused for good, and a real retry needs a fresh one.
       const existingObject = await c.env.ATTACHMENTS.head(
         attachmentR2Key(accountName, itemId, parsedCommand.data.attachmentId),
       );
