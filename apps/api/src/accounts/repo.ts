@@ -708,7 +708,8 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
  * reason), is excluded outright, however recent - which is what ties a
  * proposal's relevance to a project you are still working: delete its Panel,
  * or the Dashboard it sits on, and its influence on future proposals goes
- * with it (issue 450).
+ * with it ("Cap the routing prompt to the last 50 decisions on panels that
+ * still exist, and drop the correction override", issue 450).
  *
  * **A dismissed Item's entry is left out**, unlike a tombstoned Panel's -
  * `items.deletedAt` is the one dismissal a person actually asked for
@@ -761,11 +762,12 @@ export function decisionHistoryForWorkspace(
       ),
     )
     // `id` breaks a tie in `decidedAt` deterministically rather than leaving
-    // which side of the cap a tied row lands on to the query planner - and
-    // does it correctly, not just consistently: `id` is the writing
-    // command's own uuidv7 (`decisionHistoryEntryFor`, `domain/decision-
-    // history.ts`), which orders by the same instant at finer resolution
-    // than `decidedAt`'s millisecond ISO string ever carries.
+    // which side of the cap a tied row lands on to the query planner. Not a
+    // finer-grained clock - `id` is the writing command's own uuidv7
+    // (`decisionHistoryEntryFor`, `domain/decision-history.ts`, `ids.ts`),
+    // whose bytes past the millisecond timestamp are random - so a tie is
+    // resolved consistently for a given stored dataset, not by which of the
+    // two was truly written first.
     .orderBy(desc(decisionHistory.decidedAt), desc(decisionHistory.id))
     .limit(DECISION_HISTORY_LIMIT)
     .all()
@@ -826,7 +828,9 @@ export function recentlyCapturedUnfiled(
  * write from the titles you correct", issue 394), capped only in the render
  * (`CORRECTIONS_LIMIT`, `ai/prompts/clean-up-a-note.v7.ts`) rather than here -
  * unlike `decisionHistoryForWorkspace` above, which caps in the query itself
- * (issue 450). Per account rather than per Workspace, deliberately unlike
+ * ("Cap the routing prompt to the last 50 decisions on panels that still
+ * exist, and drop the correction override", issue 450). Per account rather
+ * than per Workspace, deliberately unlike
  * that function (`docs/text-learning.md`, "Scope: per account").
  *
  * **Carries `itemId`, unlike the columns a prompt actually renders.** It is

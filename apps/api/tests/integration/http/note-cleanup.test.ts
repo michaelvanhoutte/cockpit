@@ -869,12 +869,14 @@ describe('Capture', () => {
      * Two decisions can share a `decidedAt` to the millisecond - a client
      * clock's own resolution, or a replayed/near-simultaneous command - and
      * only matters once a cap makes inclusion, not merely display order,
-     * depend on breaking the tie. `id` is the writing command's own uuidv7
-     * (`decisionHistoryEntryFor`, `domain/decision-history.ts`), so ordering
-     * by it second is a real answer to "which was truly more recent", not an
-     * arbitrary one.
+     * depend on breaking the tie. Asserted here as deterministic, not as
+     * correctly recency-ordered: `id` is the writing command's own uuidv7
+     * (`decisionHistoryEntryFor`, `domain/decision-history.ts`), whose bytes
+     * past the millisecond timestamp are random, so which of two
+     * same-millisecond decisions this keeps is stable for a given stored
+     * dataset rather than a genuine answer to which was written first.
      */
-    it('breaks a tie in decidedAt by which decision was actually written more recently', async () => {
+    it('breaks a tie in decidedAt the same way every time, rather than arbitrarily', async () => {
       const panel = await aPanel('Compliance questions');
       await aSettledDecision(panel, decidedAt(1), 'tied-dropped');
       await aSettledDecision(panel, decidedAt(1), 'tied-kept');

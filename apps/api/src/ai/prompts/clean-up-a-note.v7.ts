@@ -374,10 +374,12 @@ function renderRecentlyCaptured(recentlyCaptured: readonly string[]): string {
  * evidence `docs/text-learning.md` describes ("What goes into the prompt").
  *
  * **Capped here, in the render, not at the query.** `textCorrectionsForAccount`
- * (`repo.ts`) reads the whole table with no retrieval step, the same
- * convention `decisionHistoryForWorkspace` follows - this is where volume is
- * bounded, the same way `docs/text-learning.md`'s own "Open decisions"
- * anticipates.
+ * (`repo.ts`) reads the whole table with no retrieval step - unlike
+ * `decisionHistoryForWorkspace` (`repo.ts`), which now caps in the query
+ * itself ("Cap the routing prompt to the last 50 decisions on panels that
+ * still exist, and drop the correction override", issue 450) - so this is
+ * where volume is bounded, the way `docs/text-learning.md`'s own "Open
+ * decisions" anticipates.
  */
 const CORRECTIONS_LIMIT = 50;
 

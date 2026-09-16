@@ -955,9 +955,11 @@ export const associations = sqliteTable(
 
 /**
  * One entry per Item, written the first time it ever lands on a real Panel -
- * the append-only decision history a routing proposal reads whole ("Learn
- * where notes belong from where you actually file them", issue 299;
- * `docs/routing-learning.md`, "What the model reads").
+ * the append-only decision history a routing proposal reads from, bounded
+ * rather than whole ("Learn where notes belong from where you actually file
+ * them", issue 299; `docs/routing-learning.md`, "What the model reads:
+ * bounded, no retrieval"). The table itself keeps every row regardless -
+ * only `decisionHistoryForWorkspace`'s (`repo.ts`) own read is capped.
  *
  * **Written by whichever of `move_item_to_panel` or `add_item_to_panel` gets
  * there first, and never again for that Item.** Both settle a routing
