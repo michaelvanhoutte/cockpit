@@ -1,11 +1,18 @@
 //
 // What building each issue actually cost: time, requests, tokens, model mix
 // and review passes, read from Claude Code's own session logs rather than
-// measured by hand. Issue 421's "Blocked by" is none and its "Test cases" is
-// "None, by decision" - the check that this counts correctly is the baseline
-// run against a month of real logs, compared with the hand-measured figures
-// that issue records, not a synthetic fixture. Nothing here is unit-tested
-// for that reason; scripts/issue-cost.mjs is the CLI that runs it for real.
+// measured by hand. Issue 421's "Test cases" is "None, by decision": nothing
+// here can be proven against a synthetic fixture standing in for a real log
+// file, whose exact shape only a real Claude Code run ever confirms, so the
+// check that the whole pipeline counts correctly is the baseline run against
+// a month of real logs, compared with the hand-measured figures the issue
+// records. That reasoning stops at the pipeline's edges, though: every
+// pure, deterministic function below it - the pricing table, the token and
+// active-time math, the path and branch-name parsing, the findings
+// re-report heuristic - takes plain data and returns plain data, exactly
+// what synthetic input can exercise, and issue-cost.test.mjs does. Only the
+// functions that read a real file or shell out stay outside that file, for
+// the reason issue 421 gives.
 //
 // **Attribution is per log line, not per session.** A session's `gitBranch`
 // can change mid-session - one operator session built four issues back to
@@ -191,12 +198,12 @@ function subagentMeta(jsonlPath) {
 const REVIEW_LEVELS = /\b(low|medium|high|xhigh|max|ultra)\b/;
 
 /** The level a `/code-review` call's `args` actually names, or `null` for a call that carries none (a target-only or flag-only invocation, which reuses whatever level was typed last). */
-function reviewLevel(args) {
+export function reviewLevel(args) {
   return REVIEW_LEVELS.exec(String(args ?? ''))?.[1] ?? null;
 }
 
 /** The `/code-review` and `/security-review` runs one line holds - the Skill tool, self-invoked per CLAUDE.md rather than typed by a person. */
-function reviewSkillCallsOnLine(line) {
+export function reviewSkillCallsOnLine(line) {
   const calls = [];
   if (line?.type !== 'assistant' || !Array.isArray(line.message?.content)) return calls;
   for (const block of line.message.content) {
@@ -263,7 +270,7 @@ function sameReview(a, b) {
  * than one issue (this file's own top comment) and an unrelated review for a
  * *different* issue must never supersede this one's.
  */
-function dedupedFindings(lines, keyFor) {
+export function dedupedFindings(lines, keyFor) {
   const byKey = new Map();
   for (const call of reportFindingsCalls(lines)) {
     const key = keyFor(call.lineIndex);
