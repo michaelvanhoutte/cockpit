@@ -218,6 +218,25 @@ describe('Item editing', () => {
       const key = `${ACCOUNT_NAME}/${itemId}/${attachmentId}`;
       expect(new Uint8Array(await (await env.ATTACHMENTS.get(key))!.arrayBuffer())).toEqual(bytes);
     });
+
+    it('is judged against what R2 currently holds for the id, not what the new request merely declares', async () => {
+      const itemId = await captureAnItem();
+      const attachmentId = nextId();
+      await upload(itemId, new Uint8Array([1, 2]), { attachmentId, filename: 'receipt.png' });
+
+      // The row still says 2 bytes; only the object changes - standing in
+      // for a mismatch the real interface cannot produce (a first upload R2
+      // measured differently than it was declared).
+      const key = `${ACCOUNT_NAME}/${itemId}/${attachmentId}`;
+      await env.ATTACHMENTS.put(key, new Uint8Array([1, 2, 3]));
+
+      // Declares the row's own size (2), not R2's now-current one (3) - if
+      // the comparison trusted this declared size instead of asking R2, it
+      // would wrongly accept the replay.
+      const replay = await upload(itemId, new Uint8Array([1, 2]), { attachmentId, filename: 'receipt.png' });
+
+      expect(replay.status).toBe(409);
+    });
   });
 
   describe('downloading an attachment', () => {

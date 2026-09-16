@@ -1227,9 +1227,25 @@ const routes = app
     // out to be a genuine replay or a refusal - `add_attachment`'s own
     // handler (`command-service.ts`) is where that distinction is made, and
     // it is only safe to make *after* nothing has been overwritten to reach
-    // it. A fresh id skips straight to the upload below.
+    // it. A fresh id skips straight to the upload below. Whether it exists
+    // is asked of the account's own row, not of R2 directly: an orphaned R2
+    // object with no row naming it (the accepted cost of a race the route's
+    // own item pre-check narrows but cannot close) must not be mistaken for
+    // one, or a fresh upload reusing that key would record a new row
+    // pointing at bytes nobody just uploaded.
     if (await account.attachmentExists(parsedCommand.data.attachmentId)) {
-      return c.json(await account.applyChange('add_attachment', parsedCommand.data), 201);
+      // R2's own account of the object already there, the same reason the
+      // fresh-upload path below never trusts the declared `Content-Length`
+      // for what it stores: a genuine replay's `size` has to be compared
+      // against what R2 actually holds, not what this new request merely
+      // claims - or a first upload R2 measured smaller than declared would
+      // refuse every real replay of it, permanently, for disagreeing with a
+      // number nothing ever verified twice.
+      const existingObject = await c.env.ATTACHMENTS.head(
+        attachmentR2Key(accountName, itemId, parsedCommand.data.attachmentId),
+      );
+      const cmd = { ...parsedCommand.data, size: existingObject?.size ?? parsedCommand.data.size };
+      return c.json(await account.applyChange('add_attachment', cmd), 201);
     }
 
     const body = c.req.raw.body;

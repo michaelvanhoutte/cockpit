@@ -673,9 +673,10 @@ export function listAttachmentsInWorkspace(
  * one attachment by its id, alongside `r2Key` (never sent to a client) and
  * server-internal enough that this has no wire schema of its own.
  *
- * **Excludes an attachment of a deleted item**, unlike the workspace read
- * above - the download route's own test case (issue 441): "an attachment id
- * that doesn't exist, or belongs to a deleted item - a 404, not a 500."
+ * Excludes an attachment of a deleted item - the same exclusion the
+ * workspace read above now carries too - the download route's own test case
+ * (issue 441): "an attachment id that doesn't exist, or belongs to a deleted
+ * item - a 404, not a 500."
  */
 export function getAttachmentForDownload(
   db: AccountDb,
