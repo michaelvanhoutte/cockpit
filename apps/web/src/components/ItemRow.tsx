@@ -19,15 +19,14 @@ import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
 
 /**
- * The flag's label and colour at each level ("Show and edit an item's
- * priority", issue 433) - graduated within the accent family rather than the
- * `due`/`over` colours, which are reserved for the separate overdue work
- * planned later ("Deadline colors", docs/ideas.md).
+ * The flag's label at each level ("Show and edit an item's priority", issue
+ * 433). The colour is `--color-priority-*` (styles.css), which explains the
+ * choice of it.
  */
 const PRIORITY_MARKS: Record<Priority, { label: string; className: string }> = {
-  low: { label: 'Low priority', className: 'text-accent-soft' },
-  normal: { label: 'Normal priority', className: 'text-accent' },
-  high: { label: 'High priority', className: 'text-accent-deep' },
+  low: { label: 'Low priority', className: 'bg-priority-low' },
+  normal: { label: 'Normal priority', className: 'bg-priority-normal' },
+  high: { label: 'High priority', className: 'bg-priority-high' },
 };
 
 export function ItemRow({
@@ -518,7 +517,7 @@ export function ItemRow({
             anywhere else on the row. */}
         {priorityMark && (
           <span
-            className={`mt-0.5 shrink-0 self-start text-xs ${priorityMark.className}`}
+            className={`mt-0.5 flex size-4 shrink-0 items-center justify-center self-start rounded-full text-[9px] leading-none text-white ${priorityMark.className}`}
             title={priorityMark.label}
             aria-label={priorityMark.label}
             role="img"
