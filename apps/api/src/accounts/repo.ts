@@ -821,6 +821,27 @@ export function textCorrectionsForAccount(db: AccountDb, tenantId: string): Text
     .all();
 }
 
+/**
+ * Whether a `text_corrections` row already exists for this Item - what tells
+ * `command-service.ts` apart "a later edit updates the row the true first
+ * edit created" from "the true first edit itself recorded nothing" (clearing
+ * a title, say), the one case its own `UPDATE ... WHERE` is a documented
+ * no-op for (`domain/text-corrections.ts`, `textCorrectionFor`'s own comment
+ * on "The proposal is frozen at your first edit"). Read only on that branch,
+ * so a correction command's answer reflects a row it actually touched rather
+ * than one `textCorrectionFor` merely found a difference to describe
+ * ("Re-read the rest of the inbox the moment you fix a title", issue 399).
+ */
+export function textCorrectionExistsFor(db: AccountDb, tenantId: string, itemId: string): boolean {
+  return (
+    db
+      .select({ itemId: textCorrections.itemId })
+      .from(textCorrections)
+      .where(and(eq(textCorrections.tenantId, tenantId), eq(textCorrections.itemId, itemId)))
+      .get() !== undefined
+  );
+}
+
 /** The columns a pinned example is read by, named for the reason `workspaceColumns` above is: shared between the list and the single-row reads so the two can never drift on which columns they carry. */
 const pinnedExampleColumns = {
   id: pinnedTextExamples.id,

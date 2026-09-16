@@ -45,6 +45,7 @@ import {
   listScreenSizes,
   listWorkspaces,
   settleDuplicate,
+  textCorrectionExistsFor,
 } from './repo.js';
 import { pairOf } from '../domain/duplicates.js';
 import {
@@ -1889,7 +1890,14 @@ export function runCommand<N extends CommandName>(
           (name === 'set_title' || name === 'set_description') && existing.textsProposedAt !== null
             ? textCorrectionFor(existing, updated, cmd.issuedAt)
             : null;
-        recordedCorrection = correction !== null;
+        // Not simply `correction !== null`: where this is *not* the true
+        // first edit, the write below is a documented no-op unless the true
+        // first edit already created a row (see the `else` branch's own
+        // comment) - and a correction nothing was recorded for is nothing
+        // the re-read below has anything new to learn from.
+        recordedCorrection =
+          correction !== null &&
+          (existing.textsSettledAt === null || textCorrectionExistsFor(db, tenantId, correction.itemId));
         db.transaction((tx) => {
           tx.update(items)
             .set(updated)

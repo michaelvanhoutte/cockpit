@@ -638,23 +638,42 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
         say(candidate.id, `nothing was re-read: ${read.discarded}`);
         continue;
       }
-      const written = await account.applyChange('propose_item_texts', {
-        commandId: crypto.randomUUID(),
-        issuedAt: new Date().toISOString(),
-        workspaceId: candidate.workspaceId,
-        itemId: candidate.id,
-        title: read.proposal.title,
-        description: read.proposal.message,
-        readings: read.proposal.readings.map((reading) => ({
-          title: reading.title,
-          description: reading.message,
-          meaning: reading.meaning,
-        })),
-      });
+      let written;
+      try {
+        written = await account.applyChange('propose_item_texts', {
+          commandId: crypto.randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: candidate.workspaceId,
+          itemId: candidate.id,
+          title: read.proposal.title,
+          description: read.proposal.message,
+          readings: read.proposal.readings.map((reading) => ({
+            title: reading.title,
+            description: reading.message,
+            meaning: reading.meaning,
+          })),
+        });
+      } catch (error) {
+        // The candidate went between the read above and this write - the
+        // same not-worth-retrying race `cleanUpACapturedNote` names for the
+        // same write, arriving by the same door.
+        if (error instanceof NotFoundInAccountError) {
+          say(candidate.id, 'nothing was written: the item went while it was being re-read');
+          continue;
+        }
+        throw error;
+      }
       say(
         candidate.id,
         written.applied ? `re-proposed in ${read.proposal.language}` : 'nothing was written: the texts are already edited',
       );
+      // The two texts have just been replaced, so whatever was worked out
+      // about what this Item means is about words nobody can see any more
+      // ("Flag a captured note that says what another one already said",
+      // issue 407) - the same re-read `cleanUpACapturedNote` fires from the
+      // other door that rewrites an Item's texts, and only where the write
+      // actually landed, for the same reason.
+      if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, candidate.id);
     } catch (error) {
       // Worth trying again another time, but not worth losing the rest of
       // this re-read over - the same reasoning `reproposePanels` gives.
@@ -773,17 +792,22 @@ export async function readWhatANoteMeans(env: Env, job: ReadWhatItMeansJob): Pro
   );
 }
 
+/** One line in the logs, saying what happened and to which item/workspace/account. */
+function sayAbout(label: string, id: string, what: string): void {
+  console.info(JSON.stringify({ level: 'info', message: `${what} (${label} ${id})` }));
+}
+
 /** One line in the logs, saying which item and what happened to it. */
 function say(itemId: string, what: string): void {
-  console.info(JSON.stringify({ level: 'info', message: `${what} (item ${itemId})` }));
+  sayAbout('item', itemId, what);
 }
 
 /** One line in the logs, saying which workspace's refresh and what happened to it. */
 function sayForWorkspace(workspaceId: string, what: string): void {
-  console.info(JSON.stringify({ level: 'info', message: `${what} (workspace ${workspaceId})` }));
+  sayAbout('workspace', workspaceId, what);
 }
 
 /** One line in the logs, saying which account's re-read and what happened to it. */
 function sayForAccount(accountName: string, what: string): void {
-  console.info(JSON.stringify({ level: 'info', message: `${what} (account ${accountName})` }));
+  sayAbout('account', accountName, what);
 }

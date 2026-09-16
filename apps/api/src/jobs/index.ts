@@ -111,45 +111,58 @@ export async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promi
 }
 
 /**
- * Keeps the first `re-propose-panels` message per account-and-Workspace, and
- * the first `re-propose-texts` message per account, in this batch -
- * acknowledging the rest unread rather than letting them queue a second,
- * redundant refresh. Every other kind passes through untouched. Reads
- * `message.body` loosely, ahead of `enrichmentJobSchema`'s own parse in
- * `workThrough`: a body this cannot make sense of is simply not deduplicated,
- * and reaches the real parse exactly as it would have otherwise.
+ * What makes two messages of a fan-out kind redundant, one entry per kind
+ * that fires "one of these per settle/correction" and is worth collapsing
+ * within a batch - `re-propose-panels` by account and Workspace,
+ * `re-propose-texts` by account alone. `undefined` for a body that doesn't
+ * carry the fields this kind needs, which `dedupeReproposals` reads as "not
+ * deduplicated" rather than a match. Every kind's key is prefixed with the
+ * kind itself, so two different kinds can never collide on one `Set`.
+ */
+// `Object.create(null)`, not `{}` - a message is a value from outside this
+// program (this file's own comment on `EnrichmentJob` above), and `kind` is
+// read off it loosely, ahead of the real parse. A plain object literal
+// answers a lookup for `"toString"`, `"constructor"` or any other
+// `Object.prototype` member with that member itself rather than `undefined`,
+// which the loop below would then try to call as this table's own function
+// shape - a prototype-less table is what makes an unrecognised `kind`,
+// pathological or not, answer `undefined` and nothing else.
+const DEDUPE_KEY_OF: Record<string, (body: Record<string, unknown>) => string | undefined> = Object.assign(
+  Object.create(null),
+  {
+    're-propose-panels': ({ accountName, workspaceId }: Record<string, unknown>) =>
+      typeof accountName === 'string' && typeof workspaceId === 'string'
+        ? `re-propose-panels:${accountName}:${workspaceId}`
+        : undefined,
+    're-propose-texts': ({ accountName }: Record<string, unknown>) =>
+      typeof accountName === 'string' ? `re-propose-texts:${accountName}` : undefined,
+  },
+);
+
+/**
+ * Keeps the first message per `DEDUPE_KEY_OF` key in this batch, acknowledging
+ * the rest unread rather than letting them queue a second, redundant refresh -
+ * every kind not listed in `DEDUPE_KEY_OF`, and a body `DEDUPE_KEY_OF` can't
+ * make a key from, passes through untouched. Reads `message.body` loosely,
+ * ahead of `enrichmentJobSchema`'s own parse in `workThrough`: a body this
+ * cannot make sense of is simply not deduplicated, and reaches the real parse
+ * exactly as it would have otherwise.
  */
 export function dedupeReproposals(messages: readonly Message<unknown>[]): Message<unknown>[] {
-  const seenPanels = new Set<string>();
-  const seenTexts = new Set<string>();
+  const seen = new Set<string>();
   return messages.filter((message) => {
     const body = message.body;
-    if (typeof body !== 'object' || body === null) return true;
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return true;
     const kind = (body as Record<string, unknown>).kind;
+    const keyOf = typeof kind === 'string' ? DEDUPE_KEY_OF[kind] : undefined;
+    const key = keyOf?.(body as Record<string, unknown>);
+    if (key === undefined) return true;
 
-    if (kind === 're-propose-panels') {
-      const { accountName, workspaceId } = body as Record<string, unknown>;
-      if (typeof accountName !== 'string' || typeof workspaceId !== 'string') return true;
-      const key = `${accountName}:${workspaceId}`;
-      if (seenPanels.has(key)) {
-        message.ack();
-        return false;
-      }
-      seenPanels.add(key);
-      return true;
+    if (seen.has(key)) {
+      message.ack();
+      return false;
     }
-
-    if (kind === 're-propose-texts') {
-      const { accountName } = body as Record<string, unknown>;
-      if (typeof accountName !== 'string') return true;
-      if (seenTexts.has(accountName)) {
-        message.ack();
-        return false;
-      }
-      seenTexts.add(accountName);
-      return true;
-    }
-
+    seen.add(key);
     return true;
   });
 }

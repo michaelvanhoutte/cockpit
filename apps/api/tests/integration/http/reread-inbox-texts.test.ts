@@ -249,6 +249,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   env.ANTHROPIC_API_KEY = '';
+  env.EMBEDDINGS_STAND_IN = '';
   vi.unstubAllGlobals();
 });
 
@@ -268,6 +269,35 @@ describe('Triage', () => {
       });
 
       await untilTitled(waiting, 'Validate the submission');
+    });
+
+    it('re-triggers meaning detection for a candidate it rewrites, the same as any other rewrite of its texts', async () => {
+      // Mirrors `cleanUpACapturedNote`'s own `enqueueReadingItsMeaning` after
+      // it writes a proposal: a candidate's title/description have just
+      // changed, so whatever was worked out about what it means is about
+      // words nobody can see any more ("Flag a captured note that says what
+      // another one already said", issue 407) - the re-read job rewrites
+      // texts exactly as capture-time cleanup does, and must not skip this.
+      const waiting = await captureANote('a note about validation');
+      const correcting = await anItemAlreadyProposedFor('call jan about the invoice', 'Call jan');
+      answerFor = (note) =>
+        note === 'a note about validation' ? { says: proposing('Validate the submission') } : { says: proposing('A title') };
+      env.ANTHROPIC_API_KEY = A_KEY;
+      env.EMBEDDINGS_STAND_IN = 'true';
+
+      const response = await correctTitle(correcting, 'Call Jan about the invoice');
+      expect(response.status).toBe(200);
+
+      await untilTitled(waiting, 'Validate the submission');
+      await vi.waitFor(
+        async () => {
+          const rows = await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+            sql.exec<{ item_id: string }>('SELECT item_id FROM item_meanings WHERE item_id = ?', waiting).toArray(),
+          );
+          expect(rows).toHaveLength(1);
+        },
+        { timeout: 15_000, interval: 50 },
+      );
     });
 
     it('a correction made through set_description re-reads the rest too', async () => {
@@ -448,6 +478,28 @@ describe('Triage', () => {
       env.ANTHROPIC_API_KEY = A_KEY;
 
       const response = await correctTitle(correcting, '   ');
+      expect(response.status).toBe(200);
+      expect((await response.json()) as { recordedCorrection?: boolean }).not.toMatchObject({
+        recordedCorrection: true,
+      });
+
+      await aWhileLongerThanAJobWouldTake();
+      expect(asked).toEqual([]);
+      expect(await titleOf(waiting)).toBe('a note about validation');
+    });
+
+    it('a real edit that follows a title cleared to nothing still records no correction, since none was ever recorded to update', async () => {
+      // The clearing edit settles the texts without recording a correction
+      // (`textCorrectionFor` refuses an empty title), so no `text_corrections`
+      // row exists yet - `command-service.ts`'s own `UPDATE ... WHERE` on a
+      // later edit is then a documented no-op, and `recordedCorrection` has
+      // to say so too, not just that this edit *looks* like a correction.
+      const waiting = await captureANote('a note about validation');
+      const correcting = await anItemAlreadyProposedFor('call jan about the invoice', 'Call jan');
+      env.ANTHROPIC_API_KEY = A_KEY;
+      expect((await correctTitle(correcting, '   ')).status).toBe(200);
+
+      const response = await correctTitle(correcting, 'Call Jan about the invoice, for real this time');
       expect(response.status).toBe(200);
       expect((await response.json()) as { recordedCorrection?: boolean }).not.toMatchObject({
         recordedCorrection: true,

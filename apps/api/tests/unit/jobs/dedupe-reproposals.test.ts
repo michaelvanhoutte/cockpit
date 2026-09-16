@@ -132,4 +132,32 @@ describe('Triage', () => {
       expect(kept).toEqual([malformed, another]);
     });
   });
+
+  describe('a kind nobody enqueues is never mistaken for one this recognises', () => {
+    // A message this Worker never actually sends, but the same untrusted-data
+    // rule its own comment states: `kind` is read off a body from outside
+    // this program before the real parse, and a plain object's own inherited
+    // members (`toString`, `constructor`, `valueOf`, ...) must not answer a
+    // lookup for one of them as though it named a job kind.
+    it.each(['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__'])(
+      'passes a %s-kind body through untouched, for whichever accountName it carries',
+      (kind) => {
+        const first = messageOf({ kind, accountName: 'tenant-a' });
+        const second = messageOf({ kind, accountName: 'tenant-b' });
+
+        const kept = dedupeReproposals([first, second]);
+
+        expect(kept).toEqual([first, second]);
+      },
+    );
+
+    it('leaves an array body alone rather than reading a kind off it', () => {
+      const arrayBody = messageOf(['re-propose-texts', 'tenant-default']);
+      const another = messageOf(['re-propose-texts', 'tenant-default']);
+
+      const kept = dedupeReproposals([arrayBody, another]);
+
+      expect(kept).toEqual([arrayBody, another]);
+    });
+  });
 });
