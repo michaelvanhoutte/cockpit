@@ -15,6 +15,7 @@ import {
   EMBEDDING_MODEL,
 } from '../embeddings/index.js';
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
+import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
 
 /**
  * Three jobs on the account's own classification: reading a captured note and
@@ -64,6 +65,14 @@ export interface CleanUpJob {
   kind: 'clean-up-a-note';
   accountName: string;
   itemId: string;
+  /**
+   * The rewrite-history row this attempt was queued as ("See the history of
+   * what Cockpit proposed for the Inbox's items", issue 444) - minted by
+   * `enqueueCleanUp` before this is ever sent, so a redelivery of this exact
+   * message carries the same id and updates that one row rather than adding
+   * another.
+   */
+  attemptId: string;
 }
 
 /**
@@ -136,6 +145,7 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     kind: z.literal('clean-up-a-note'),
     accountName: z.string().min(1),
     itemId: z.uuid(),
+    attemptId: z.uuid(),
   }),
   z.object({
     kind: z.literal('read-what-a-note-means'),
@@ -172,8 +182,41 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
  * - and the Item is already written and already carries the mechanical title by
  * the time this runs. So the failure is logged and swallowed.
  */
+/**
+ * Writes a rewrite-history row, never letting a failure to write it change
+ * what the caller itself reports - the record is a courtesy kept beside the
+ * real work, and a store that could not take it must not turn an enrichment
+ * that actually succeeded into one the queue redelivers for nothing new, nor
+ * one that was already declined into a throw the queue treats as worth
+ * retrying.
+ */
+async function recordHistory(write: () => Promise<unknown>): Promise<void> {
+  try {
+    await write();
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `a rewrite-history row was not written: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
+}
+
 export async function enqueueCleanUp(env: Env, accountName: string, itemId: string): Promise<void> {
   /**
+   * **Read before anything here awaits, not after.** An async function's own
+   * body runs synchronously up to its first `await`, so this is read at
+   * exactly the moment capture calls this - the same moment the original,
+   * single-line guard read it. Reading it any later - after opening the
+   * account below, say - would decide "queue nothing" or "queue for real"
+   * against whatever the environment happens to say by *then*, which in a
+   * deployed Worker never moves but in this very suite does: several cases
+   * flip this key a line after capturing, on the assumption that a capture's
+   * own enrichment has already decided its fate.
+   *
    * **An environment that cannot read a note queues nothing**, rather than
    * queueing work its consumer will discard a moment later. That is local
    * development without a key, and it is every test in the suite - and the
@@ -181,17 +224,67 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
    * and tipped two unrelated bulk cases past their timeouts before this line
    * existed. What says an environment is in that state is `/health`, not a log
    * line on every capture.
-   *
-   * The job asks the same question again, and that is not redundant: a key can
-   * go away between here and there, and the job is entered from a queue rather
-   * than only from here.
    */
-  if (!env.ANTHROPIC_API_KEY) return;
+  const hasKey = Boolean(env.ANTHROPIC_API_KEY);
 
-  const job: EnrichmentJob = { kind: 'clean-up-a-note', accountName, itemId };
+  // Opened regardless of whether a key is configured - unlike the rest of
+  // this function before this line existed. What a captured note's cleanup
+  // did is now a durable row from the very first capture ("See the history
+  // of what Cockpit proposed for the Inbox's items", issue 444), and an
+  // environment with no key still owes that row a reason, not silence.
+  let account;
+  try {
+    account = await openAccount(env, accountName);
+  } catch (error) {
+    if (error instanceof AccountNotInRegisterError) return;
+    throw error;
+  }
+  const item = await account.item(itemId);
+  // Dismissed and erased already, or captured by some other door that never
+  // reaches this queue - nothing to show a history of.
+  if (!item) return;
+
+  const attemptId = crypto.randomUUID();
+  const attempt: QueuedRewriteAttempt = {
+    id: attemptId,
+    tenantId: accountName,
+    workspaceId: item.workspaceId,
+    itemId,
+    titleBefore: item.title,
+    descriptionBefore: item.description,
+    attemptedAt: new Date().toISOString(),
+  };
+  await recordHistory(() => account.queueRewriteAttempt(attempt));
+
+  /**
+   * **Settled here, straight to left-as-is, rather than queued Pending.**
+   * Nothing downstream will ever pick this attempt up, so a row left at
+   * Pending would sit there for ever, unlike the true race `cleanUpACapturedNote`
+   * itself still checks for (a key removed between here and there).
+   */
+  if (!hasKey) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(attemptId, {
+        status: 'left-as-is',
+        message: 'nothing was enriched: this environment has no ANTHROPIC_API_KEY',
+      }),
+    );
+    return;
+  }
+
+  const job: EnrichmentJob = { kind: 'clean-up-a-note', accountName, itemId, attemptId };
   try {
     await env.ENRICHMENT.send(job);
   } catch (error) {
+    // Nothing will ever settle this attempt otherwise - the row just queued
+    // above would sit at Pending for ever, indistinguishable from one still
+    // genuinely in flight.
+    await recordHistory(() =>
+      account.recordRewriteOutcome(attemptId, {
+        status: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
     console.error(
       JSON.stringify({
         level: 'error',
@@ -214,9 +307,6 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
  * mechanical title capture wrote; only a call that failed is left to throw.
  */
 export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<void> {
-  const ai = aiFor(env);
-  if (!ai) return say(job.itemId, 'nothing was enriched: this environment has no ANTHROPIC_API_KEY');
-
   let account;
   try {
     account = await openAccount(env, job.accountName);
@@ -224,24 +314,59 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     // The account has left the register - somebody's access was taken away
     // while a note of theirs was queued. Nothing will make this job work, so it
     // declines rather than being redelivered until its retries run out.
+    //
+    // Nothing is recorded onto `job.attemptId` here: the row it names lives in
+    // the very account this could not open, so there is nowhere to write the
+    // outcome to. The row is left at Pending - an administrative rarity, and
+    // no rarer than the account being gone leaves every other read of it.
     if (error instanceof AccountNotInRegisterError) {
       return say(job.itemId, 'nothing was enriched: the account is no longer in the register');
     }
     throw error;
   }
 
+  const ai = aiFor(env);
+  if (!ai) {
+    // The race `enqueueCleanUp`'s own guard cannot close: a key can go away
+    // between there and here, and the job is entered from a queue rather than
+    // only from there.
+    await recordHistory(() =>
+      account.recordRewriteOutcome(job.attemptId, {
+        status: 'left-as-is',
+        message: 'nothing was enriched: this environment has no ANTHROPIC_API_KEY',
+      }),
+    );
+    return say(job.itemId, 'nothing was enriched: this environment has no ANTHROPIC_API_KEY');
+  }
+
   const item = await account.item(job.itemId);
   // Not an error and not worth retrying: an item can be dismissed and erased
   // between capture and here, and an id that belongs to another account matches
-  // no row because every query in the store filters on the account.
+  // no row because every query in the store filters on the account. Nothing is
+  // recorded either, for the same reason the register check above records
+  // nothing: there is no item left to describe a before/after against.
   if (!item) return say(job.itemId, 'nothing was enriched: no such item in this account');
   // Nothing to read. Only capture writes this column, and it writes what was
   // typed, so this is an Item that arrived by some other door.
-  if (!item.capturedMessage) return say(job.itemId, 'nothing was enriched: the item has no captured note');
+  if (!item.capturedMessage) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(job.attemptId, {
+        status: 'left-as-is',
+        message: 'nothing was enriched: the item has no captured note',
+      }),
+    );
+    return say(job.itemId, 'nothing was enriched: the item has no captured note');
+  }
   // Somebody edited the title or the description while this was queued, so the
   // two texts are theirs. The store refuses the write for the same reason - this
   // is what stops a model call being paid for to be refused.
   if (item.textsSettledAt !== null) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(job.attemptId, {
+        status: 'left-as-is',
+        message: 'nothing was proposed: the texts are already edited',
+      }),
+    );
     return say(job.itemId, 'nothing was proposed: the texts are already edited');
   }
 
@@ -273,18 +398,37 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // account").
   const { rules, corrections, stood, pinnedExamples } = await account.textLearningContext();
 
-  const read = await ai.cleanUpNote(
-    item.capturedMessage,
-    panels,
-    history,
-    recentlyCaptured,
-    correction,
-    corrections,
-    stood,
-    rules,
-    pinnedExamples,
-  );
-  if (!('proposal' in read)) return say(job.itemId, `nothing was proposed: ${read.discarded}`);
+  let read;
+  try {
+    read = await ai.cleanUpNote(
+      item.capturedMessage,
+      panels,
+      history,
+      recentlyCaptured,
+      correction,
+      corrections,
+      stood,
+      rules,
+      pinnedExamples,
+    );
+  } catch (error) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(job.attemptId, {
+        status: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    throw error;
+  }
+  if (!('proposal' in read)) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(job.attemptId, {
+        status: 'left-as-is',
+        message: `nothing was proposed: ${read.discarded}`,
+      }),
+    );
+    return say(job.itemId, `nothing was proposed: ${read.discarded}`);
+  }
 
   try {
     const written = await account.applyChange('propose_item_texts', {
@@ -306,6 +450,18 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
         meaning: candidate.meaning,
       })),
     });
+    await recordHistory(() =>
+      account.recordRewriteOutcome(job.attemptId, {
+        status: written.applied ? 'rewritten' : 'left-as-is',
+        titleAfter: written.applied ? read.proposal.title : null,
+        descriptionAfter: written.applied ? read.proposal.message : null,
+        proposedPanelId: written.applied ? (read.proposal.panel?.panelId ?? null) : null,
+        proposedPanelReason: written.applied ? (read.proposal.panel?.reason ?? null) : null,
+        message: written.applied
+          ? `proposed in ${read.proposal.language}`
+          : 'nothing was written: the texts are already edited',
+      }),
+    );
     // Which language it answered in, said out loud, because that is the rule
     // this prompt is most likely to break quietly and the only place a
     // deployment can be watched for it (issue 296, "The language rule needs a
@@ -322,8 +478,20 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     // The item went between the read above and this write. The same
     // not-worth-retrying case as above, arriving by the other door.
     if (error instanceof NotFoundInAccountError) {
+      await recordHistory(() =>
+        account.recordRewriteOutcome(job.attemptId, {
+          status: 'left-as-is',
+          message: 'nothing was written: the item went while the note was being read',
+        }),
+      );
       return say(job.itemId, 'nothing was written: the item went while the note was being read');
     }
+    await recordHistory(() =>
+      account.recordRewriteOutcome(job.attemptId, {
+        status: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
     throw error;
   }
 
@@ -617,7 +785,26 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
   const { rules, corrections, stood, pinnedExamples } = await account.textLearningContext();
 
   for (const candidate of candidates) {
+    // Queued the moment this loop reaches it, rather than at `enqueueReproposeTexts`
+    // above: which items this fans out to is not known until `itemsWithUnsettledTexts`
+    // has actually run. A fresh id every time, unlike `cleanUpACapturedNote`'s
+    // own `job.attemptId` - this whole job is never seen to throw past this
+    // point (every failure below is caught in this same loop and logged rather
+    // than rethrown), so there is no redelivery of it to reconcile against.
+    const attemptId = crypto.randomUUID();
     try {
+      await recordHistory(() =>
+        account.queueRewriteAttempt({
+          id: attemptId,
+          tenantId: job.accountName,
+          workspaceId: candidate.workspaceId,
+          itemId: candidate.id,
+          titleBefore: candidate.title,
+          descriptionBefore: candidate.description,
+          attemptedAt: new Date().toISOString(),
+        }),
+      );
+
       const panels = await panelsOrEmpty(account, candidate.workspaceId);
       const { history, recentlyCaptured, correction } = await account.routingContext(
         candidate.workspaceId,
@@ -635,6 +822,12 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
         pinnedExamples,
       );
       if (!('proposal' in read)) {
+        await recordHistory(() =>
+          account.recordRewriteOutcome(attemptId, {
+            status: 'left-as-is',
+            message: `nothing was re-read: ${read.discarded}`,
+          }),
+        );
         say(candidate.id, `nothing was re-read: ${read.discarded}`);
         continue;
       }
@@ -658,11 +851,29 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
         // same not-worth-retrying race `cleanUpACapturedNote` names for the
         // same write, arriving by the same door.
         if (error instanceof NotFoundInAccountError) {
+          await recordHistory(() =>
+            account.recordRewriteOutcome(attemptId, {
+              status: 'left-as-is',
+              message: 'nothing was written: the item went while it was being re-read',
+            }),
+          );
           say(candidate.id, 'nothing was written: the item went while it was being re-read');
           continue;
         }
         throw error;
       }
+      await recordHistory(() =>
+        account.recordRewriteOutcome(attemptId, {
+          status: written.applied ? 'rewritten' : 'left-as-is',
+          titleAfter: written.applied ? read.proposal.title : null,
+          descriptionAfter: written.applied ? read.proposal.message : null,
+          proposedPanelId: written.applied ? (read.proposal.panel?.panelId ?? null) : null,
+          proposedPanelReason: written.applied ? (read.proposal.panel?.reason ?? null) : null,
+          message: written.applied
+            ? `re-proposed in ${read.proposal.language}`
+            : 'nothing was written: the texts are already edited',
+        }),
+      );
       say(
         candidate.id,
         written.applied ? `re-proposed in ${read.proposal.language}` : 'nothing was written: the texts are already edited',
@@ -677,6 +888,12 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
     } catch (error) {
       // Worth trying again another time, but not worth losing the rest of
       // this re-read over - the same reasoning `reproposePanels` gives.
+      await recordHistory(() =>
+        account.recordRewriteOutcome(attemptId, {
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
       console.error(
         JSON.stringify({
           level: 'error',

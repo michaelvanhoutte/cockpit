@@ -8,7 +8,19 @@ import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
 import { UndoWhatJustHappened } from '../../../src/undo';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 
-vi.mock('../../../src/api/queries', () => ({ useCommand: vi.fn(), useSendCommand: vi.fn() }));
+vi.mock('../../../src/api/queries', () => ({
+  useCommand: vi.fn(),
+  useSendCommand: vi.fn(),
+  // Read by the row's own "Rewrite history…" entry, closed here so nothing opens it.
+  rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
+    queryKey: ['rewriteHistory', 'workspace', workspaceId],
+    queryFn: () => Promise.resolve({ entries: [] }),
+  }),
+  rewriteHistoryForItemQuery: (itemId: string) => ({
+    queryKey: ['rewriteHistory', 'item', itemId],
+    queryFn: () => Promise.resolve({ entries: [] }),
+  }),
+}));
 
 const mockUseCommand = vi.mocked(useCommand);
 const mockUseSendCommand = vi.mocked(useSendCommand);

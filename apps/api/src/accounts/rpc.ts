@@ -13,6 +13,7 @@ import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
+import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 /**
@@ -113,7 +114,42 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   itemsWithUnsettledTexts(
     accountName: string,
-  ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string }[]>>;
+  ): Awaitable<
+    Answer<
+      { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
+    >
+  >;
+  /**
+   * Queues one rewrite attempt, "Pending" until `recordRewriteOutcome` below
+   * settles it ("See the history of what Cockpit proposed for the Inbox's
+   * items", issue 444). Written by the enrichment job (and the route that
+   * fires it) and by nothing else.
+   */
+  queueRewriteAttempt(accountName: string, attempt: QueuedRewriteAttempt): Awaitable<Answer<null>>;
+  /**
+   * Settles one queued rewrite attempt by its own id - a queue retry of the
+   * same attempt calls this again with the same id, updating that one row
+   * rather than adding another (issue 444). Written by the enrichment job and
+   * by nothing else.
+   */
+  recordRewriteOutcome(
+    accountName: string,
+    attemptId: string,
+    outcome: RewriteOutcome,
+  ): Awaitable<Answer<null>>;
+  /**
+   * Every rewrite attempt for one Workspace's items, most recent first - the
+   * table opened from the Inbox's own menu (issue 444).
+   */
+  rewriteHistoryForWorkspace(
+    accountName: string,
+    workspaceId: string,
+  ): Awaitable<Answer<RewriteHistoryEntryRow[]>>;
+  /**
+   * Every rewrite attempt for one item, most recent first - the table opened
+   * from that item's own menu (issue 444).
+   */
+  rewriteHistoryForItem(accountName: string, itemId: string): Awaitable<Answer<RewriteHistoryEntryRow[]>>;
   /**
    * Writes what one Item means and pairs it against every other Item of the
    * account that says the same thing ("Flag a captured note that says what

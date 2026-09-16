@@ -55,6 +55,16 @@ vi.mock('../../../src/api/queries', () => ({
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
   }),
+  // Read by the Inbox heading's own "Rewrite history…" entry, closed here so
+  // nothing opens it.
+  rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
+    queryKey: ['rewriteHistory', 'workspace', workspaceId],
+    queryFn: () => Promise.resolve({ entries: [] }),
+  }),
+  rewriteHistoryForItemQuery: (itemId: string) => ({
+    queryKey: ['rewriteHistory', 'item', itemId],
+    queryFn: () => Promise.resolve({ entries: [] }),
+  }),
 }));
 
 let nextItem = 0;

@@ -22,6 +22,7 @@ import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
+import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 export type { AccountSnapshot } from './answer.js';
@@ -145,7 +146,33 @@ export interface Account {
    * enrichment job and by nothing else, the same as `unfiledItemsInWorkspace`
    * above.
    */
-  itemsWithUnsettledTexts(): Promise<{ id: string; workspaceId: string; capturedMessage: string }[]>;
+  itemsWithUnsettledTexts(): Promise<
+    { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
+  >;
+  /**
+   * Queues one rewrite attempt, "Pending" until `recordRewriteOutcome` below
+   * settles it ("See the history of what Cockpit proposed for the Inbox's
+   * items", issue 444). Written by the enrichment job (and the route that
+   * fires it) and by nothing else.
+   */
+  queueRewriteAttempt(attempt: QueuedRewriteAttempt): Promise<null>;
+  /**
+   * Settles one queued rewrite attempt by its own id - a queue retry of the
+   * same attempt calls this again with the same id, updating that one row
+   * rather than adding another (issue 444). Written by the enrichment job and
+   * by nothing else.
+   */
+  recordRewriteOutcome(attemptId: string, outcome: RewriteOutcome): Promise<null>;
+  /**
+   * Every rewrite attempt for one Workspace's items, most recent first - the
+   * table opened from the Inbox's own menu (issue 444).
+   */
+  rewriteHistoryForWorkspace(workspaceId: string): Promise<RewriteHistoryEntryRow[]>;
+  /**
+   * Every rewrite attempt for one item, most recent first - the table opened
+   * from that item's own menu (issue 444).
+   */
+  rewriteHistoryForItem(itemId: string): Promise<RewriteHistoryEntryRow[]>;
   /**
    * Writes what one Item means, and pairs it against every other Item of the
    * account that says the same thing ("Flag a captured note that says what
@@ -225,6 +252,12 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     itemsWithUnsettledTexts: async () => unwrap(await store.itemsWithUnsettledTexts(accountName)),
+    queueRewriteAttempt: async (attempt) => unwrap(await store.queueRewriteAttempt(accountName, attempt)),
+    recordRewriteOutcome: async (attemptId, outcome) =>
+      unwrap(await store.recordRewriteOutcome(accountName, attemptId, outcome)),
+    rewriteHistoryForWorkspace: async (workspaceId) =>
+      unwrap(await store.rewriteHistoryForWorkspace(accountName, workspaceId)),
+    rewriteHistoryForItem: async (itemId) => unwrap(await store.rewriteHistoryForItem(accountName, itemId)),
     rememberWhatAnItemMeans: async (itemId, model, reading) =>
       unwrap(await store.rememberWhatAnItemMeans(accountName, itemId, model, reading)),
     forgetWhatAnItemMeans: async (itemId) =>
