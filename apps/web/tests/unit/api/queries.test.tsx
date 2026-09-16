@@ -527,7 +527,7 @@ describe('Item editing', () => {
     // edit an item's priority", issue 433): the form fills its priority box
     // from the cache and never refills it, so `set_priority` needs the same
     // wait `set_title`/`set_description` already get.
-    it('waits for the re-read before set_priority is finished', async () => {
+    it('waits for the re-read before a priority change is finished', async () => {
       let letTheRereadFinish!: () => void;
       reads.mockReset();
       reads.mockResolvedValueOnce(snapshot).mockImplementation(

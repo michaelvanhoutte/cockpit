@@ -12,6 +12,7 @@ const form = (page: Page) => page.getByRole('dialog');
  *  the word "description" and a page-wide lookup matches both. */
 const titleBox = (page: Page) => form(page).getByRole('textbox', { name: 'Title' });
 const descriptionBox = (page: Page) => form(page).getByRole('textbox', { name: 'Description' });
+const priorityBox = (page: Page) => form(page).getByLabel('Priority');
 
 /**
  * The description's editor is fetched behind the form (architecture,
@@ -164,6 +165,39 @@ test.describe('Item editing', () => {
       // than a state only this tab knows about.
       await page.goto(openAt);
       await expect(titleBox(page)).toBeVisible();
+    });
+  });
+
+  /**
+   * F3, because this is the capability: a person sets or clears an item's
+   * priority and finds the row marked accordingly. What the form sends is
+   * proved without a browser in apps/web/tests/unit/components/ItemForm.test.tsx,
+   * and that a save waits for the re-read before the row can be trusted is
+   * proved in apps/web/tests/unit/api/queries.test.tsx. Neither can say the
+   * row's own mark actually changes on screen ("Show and edit an item's
+   * priority", issue 433).
+   */
+  test.describe('setting a priority marks the row, and clearing it removes the mark', () => {
+    test('shows the level chosen, and nothing once it is cleared', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Renew the passport');
+      await capture(page, thought, isMobile);
+
+      await openItem(page, thought, isMobile);
+      await priorityBox(page).selectOption('high');
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+
+      await expect(itemRow(page, thought).getByLabel('High priority')).toBeVisible();
+
+      // And it is still there on the way back in, holding the level rather
+      // than only having drawn it once.
+      await openItem(page, thought, isMobile);
+      await expect(priorityBox(page)).toHaveValue('high');
+
+      await priorityBox(page).selectOption('');
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+
+      await expect(itemRow(page, thought).getByLabel('High priority')).toHaveCount(0);
     });
   });
 

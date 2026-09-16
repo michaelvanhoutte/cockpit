@@ -310,7 +310,7 @@ describe('Item editing', () => {
       expect(priorityBox()).toHaveValue('');
     });
 
-    it('sends set_priority alone when only the priority changed', async () => {
+    it('sends only a priority change when only the priority changed', async () => {
       const user = await theForm(anItem({ priority: null }));
 
       await user.selectOptions(priorityBox(), 'high');
@@ -321,7 +321,7 @@ describe('Item editing', () => {
       expect(sent()[0]).toMatchObject({ payload: { priority: 'high' } });
     });
 
-    it('sends set_priority alongside whichever other fields changed', async () => {
+    it('sends a priority change alongside whichever other fields changed', async () => {
       const user = await theForm(anItem({ priority: null }));
 
       await user.clear(titleBox());
@@ -333,7 +333,7 @@ describe('Item editing', () => {
       expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_priority']);
     });
 
-    it('sends set_priority with null for “None” on an item that has a priority', async () => {
+    it('sends a priority change of null for “None” on an item that has one', async () => {
       const user = await theForm(anItem({ priority: 'normal' }));
 
       await user.selectOptions(priorityBox(), 'None');
