@@ -24,6 +24,7 @@ import {
 } from './schema.js';
 import {
   commandAlreadyApplied,
+  getAttachment,
   getDashboard,
   getItem,
   getItemType,
@@ -150,6 +151,25 @@ export class ItemNotFoundError extends Error {
   constructor(itemId: string) {
     super(`item ${itemId} not found`);
     this.name = 'ItemNotFoundError';
+  }
+}
+
+/**
+ * `add_attachment` naming an `attachmentId` this account already has, for an
+ * upload that is not the same one replayed ("Attach a file to an item",
+ * issue 441). `commandAlreadyApplied` already covers a genuine retry - the
+ * same `commandId` sent twice never reaches `runCommand`'s switch at all -
+ * so this is a *different* `commandId` reusing an old `attachmentId`, which
+ * `attachmentId`s being client-generated makes possible: naming a different
+ * item, or naming the same item with a different filename, size or type.
+ * Refused rather than silently accepted, so R2 (already written by the
+ * upload route by the time this runs) and the row describing it can never
+ * disagree about which upload actually happened.
+ */
+export class AttachmentIdTakenError extends Error {
+  constructor(attachmentId: string) {
+    super(`attachment ${attachmentId} already names a different upload`);
+    this.name = 'AttachmentIdTakenError';
   }
 }
 
@@ -1957,14 +1977,28 @@ export function runCommand<N extends CommandName>(
       // (`listAttachmentsInWorkspace`, repo.ts), so for one that belongs to
       // none that is all of them - the same rule `associate` above carries.
       if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
+
+      const row = attachmentFromCommand(cmd, tenantId);
+      const existing = getAttachment(db, tenantId, cmd.attachmentId);
+      // A retried upload sharing the same attachmentId (a client that never
+      // saw this call's response and tried the whole upload again) lands on
+      // a row already there rather than a conflict - but only where it is
+      // genuinely the same upload. `attachmentId` is client-generated, so a
+      // *different* commandId naming one an account already has is refused
+      // rather than silently accepted: R2 has already been written by the
+      // time this runs, and a mismatched row here would leave it describing
+      // an upload that never happened.
+      if (
+        existing &&
+        (existing.itemId !== row.itemId ||
+          existing.filename !== row.filename ||
+          existing.size !== row.size ||
+          existing.contentType !== row.contentType)
+      ) {
+        throw new AttachmentIdTakenError(cmd.attachmentId);
+      }
       db.transaction((tx) => {
-        tx.insert(attachments)
-          .values(attachmentFromCommand(cmd, tenantId))
-          // A retried upload sharing the same attachmentId (a client that
-          // never saw this call's response and tried the whole upload
-          // again) lands on a row already there rather than a conflict.
-          .onConflictDoNothing()
-          .run();
+        if (!existing) tx.insert(attachments).values(row).run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

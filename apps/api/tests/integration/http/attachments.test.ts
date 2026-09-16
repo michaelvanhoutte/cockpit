@@ -54,6 +54,7 @@ async function upload(
   {
     contentType = 'image/png',
     filename = 'photo.png',
+    rawFilenameHeader,
     attachmentId = nextId(),
     commandId = nextId(),
     workspaceId = WORKSPACE_ID,
@@ -62,6 +63,8 @@ async function upload(
   }: {
     contentType?: string;
     filename?: string;
+    /** Sent as-is, bypassing `encodeURIComponent(filename)` - what a malformed header looks like. */
+    rawFilenameHeader?: string;
     attachmentId?: string;
     commandId?: string;
     workspaceId?: string;
@@ -79,7 +82,7 @@ async function upload(
         'x-command-id': commandId,
         'x-issued-at': issuedAt,
         'x-workspace-id': workspaceId,
-        'x-filename': encodeURIComponent(filename),
+        'x-filename': rawFilenameHeader ?? encodeURIComponent(filename),
       },
       body: bytes,
     },
@@ -157,6 +160,37 @@ describe('Item editing', () => {
 
       const snapshot = await readSnapshot();
       expect(snapshot.attachments.filter((a) => a.itemId === itemId)).toHaveLength(0);
+    });
+  });
+
+  describe('a filename header that is not validly encoded is refused, not a broken upload', () => {
+    it('is a 400, not a 500', async () => {
+      const itemId = await captureAnItem();
+      const res = await upload(itemId, new Uint8Array([1]), { rawFilenameHeader: '%zz' });
+      expect(res.status).toBe(400);
+
+      const snapshot = await readSnapshot();
+      expect(snapshot.attachments.filter((a) => a.itemId === itemId)).toHaveLength(0);
+    });
+  });
+
+  describe('reusing the same attachment id for a different upload', () => {
+    it('is refused, rather than silently disagreeing with what actually landed in storage', async () => {
+      const itemId = await captureAnItem();
+      const attachmentId = nextId();
+      const first = await upload(itemId, new Uint8Array([1, 2]), { attachmentId, filename: 'first.png' });
+      expect(first.status).toBe(201);
+
+      const second = await upload(itemId, new Uint8Array([3, 4, 5]), {
+        attachmentId,
+        filename: 'second.png',
+      });
+      expect(second.status).toBe(409);
+
+      // The first upload's row is what stands, untouched by the refused second one.
+      const snapshot = await readSnapshot();
+      const attachment = snapshot.attachments.find((a) => a.id === attachmentId);
+      expect(attachment).toMatchObject({ filename: 'first.png', size: 2 });
     });
   });
 

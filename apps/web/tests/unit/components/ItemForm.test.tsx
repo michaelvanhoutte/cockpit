@@ -4,9 +4,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Attachment, Filing, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
-import { attachmentUrl } from '../../../src/api/client';
+import { attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { UndoWhatJustHappened } from '../../../src/undo';
+
+vi.mock('../../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  uploadAttachment: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
+}));
 
 /**
  * F1: the form's own behaviour and its wiring. What a saved text survives is a
@@ -180,6 +185,8 @@ beforeEach(() => {
   held.duplicates = [];
   held.attachments = [];
   held.openItemId = 'item-1';
+  vi.mocked(uploadAttachment).mockClear();
+  vi.mocked(uploadAttachment).mockResolvedValue({ ok: true as const, applied: true });
 });
 
 describe('Item editing', () => {
@@ -842,6 +849,28 @@ describe('Item editing', () => {
           payload: expect.objectContaining({ itemId: 'item-1', attachmentId: 'attachment-1' }),
         }),
       );
+    });
+
+    /**
+     * A bug caught in review: an earlier version cleared the refusal the
+     * moment the *next* file in the same drop succeeded, which a case
+     * rejecting only one file at a time could never catch.
+     */
+    it('keeps the refusal visible when another file in the same drop succeeds', async () => {
+      const user = await theForm(anItem({ id: 'item-1' }));
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      const rejected = new File(['just words'], 'notes.txt', { type: 'text/plain' });
+      const accepted = new File(['bytes'], 'receipt.png', { type: 'image/png' });
+
+      await user.upload(input, [rejected, accepted]);
+
+      await waitFor(() =>
+        expect(uploadAttachment).toHaveBeenCalledWith(expect.objectContaining({ file: accepted })),
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        '"notes.txt" is not a kind of file Cockpit accepts.',
+      );
+      expect(uploadAttachment).toHaveBeenCalledTimes(1);
     });
   });
 

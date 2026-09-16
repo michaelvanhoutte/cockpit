@@ -36,6 +36,7 @@ import {
 import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations, watermark } from './events.js';
 import {
+  AttachmentIdTakenError,
   DashboardNameTakenError,
   DashboardNotFoundError,
   ItemNotFoundError,
@@ -100,6 +101,9 @@ import {
   type WhatStood,
 } from '../domain/text-corrections.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
+
+/** R2's own limit on how many keys one `delete()` call accepts ("Attach a file to an item", issue 441). */
+const R2_DELETE_BATCH = 1000;
 
 /**
  * One account's data, in one Durable Object: its workspaces, items,
@@ -728,15 +732,21 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     // for the next call to bring up to date.
     this.#upToDate = true;
 
-    if (orphanedKeys.length > 0) {
+    // R2's own bulk `delete()` accepts at most 1000 keys in one call - chunked
+    // here, each batch in its own `try`, so a guest day busy enough to hit
+    // that cap loses cleanup for one batch of objects rather than for all of
+    // them, and so one batch's failure cannot swallow every other batch's.
+    for (let from = 0; from < orphanedKeys.length; from += R2_DELETE_BATCH) {
+      const batch = orphanedKeys.slice(from, from + R2_DELETE_BATCH);
       try {
-        await this.env.ATTACHMENTS.delete(orphanedKeys);
+        await this.env.ATTACHMENTS.delete(batch);
       } catch (error) {
         console.error(
           JSON.stringify({
             level: 'error',
-            message: `resetting the guest account left ${orphanedKeys.length} R2 object(s) behind`,
+            message: `resetting the guest account left ${batch.length} R2 object(s) behind`,
             cause: error instanceof Error ? error.message : String(error),
+            keys: batch,
           }),
         );
       }
@@ -777,6 +787,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof PanelNameTakenError ||
         error instanceof LayoutSizeTakenError ||
         error instanceof ScreenSizeNameTakenError ||
+        error instanceof AttachmentIdTakenError ||
         // A refusal to say out loud rather than a shape problem: the request is
         // well formed and names a dashboard that exists, and the answer is that
         // this one may not go.

@@ -17,7 +17,7 @@ import type {
   Workspace,
 } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import type { AttachmentForDownload } from '../domain/attachments.js';
+import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
@@ -693,6 +693,30 @@ export function getAttachmentForDownload(
           isNull(items.deletedAt),
         ),
       )
+      .get() ?? null
+  );
+}
+
+/**
+ * One attachment by its id, whole - what `add_attachment` reads to tell a
+ * genuine retry (the same file, replayed) from a different upload that
+ * happens to reuse the id ("Attach a file to an item", issue 441).
+ */
+export function getAttachment(db: AccountDb, tenantId: string, attachmentId: string): AttachmentRow | null {
+  return (
+    db
+      .select({
+        id: attachments.id,
+        tenantId: attachments.tenantId,
+        itemId: attachments.itemId,
+        r2Key: attachments.r2Key,
+        filename: attachments.filename,
+        size: attachments.size,
+        contentType: attachments.contentType,
+        createdAt: attachments.createdAt,
+      })
+      .from(attachments)
+      .where(and(eq(attachments.tenantId, tenantId), eq(attachments.id, attachmentId)))
       .get() ?? null
   );
 }
