@@ -2,7 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { TITLE_LENGTH, itemHasOpenReadings, itemLabel, uuidv7, type Item } from '@cockpit/shared';
+import {
+  TITLE_LENGTH,
+  itemHasOpenReadings,
+  itemLabel,
+  prioritySchema,
+  uuidv7,
+  type Item,
+  type Priority,
+} from '@cockpit/shared';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
 import { possibleDuplicatesOf } from '../duplicates';
@@ -11,13 +19,22 @@ import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 
-/** What the two boxes hold, before anything is sent. */
+/** What the two boxes and the priority control hold, before anything is sent. */
 interface Draft {
   title: string;
   description: string;
+  priority: Priority | null;
 }
 
 const DESCRIPTION_LIMIT = 60_000;
+
+/** Priority's option text, keyed so a level added to the schema fails to
+ *  compile here rather than drifting silently out of step with it. */
+const PRIORITY_LABELS: Record<Priority, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+};
 
 /**
  * What Save has to send: the boxes that actually moved, and nothing else
@@ -36,13 +53,18 @@ const DESCRIPTION_LIMIT = 60_000;
  * Compared on the trimmed text, because that is what would be stored: adding a
  * space to the end of a title and pressing Save is not a change to the title.
  */
-export function whatChanged(was: Draft, now: Draft): { title?: string; description?: string | null } {
-  const changed: { title?: string; description?: string | null } = {};
+export function whatChanged(
+  was: Draft,
+  now: Draft,
+): { title?: string; description?: string | null; priority?: Priority | null } {
+  const changed: { title?: string; description?: string | null; priority?: Priority | null } = {};
   const title = now.title.trim();
   const description = now.description.trim();
 
   if (title !== was.title.trim()) changed.title = title;
   if (description !== was.description.trim()) changed.description = description || null;
+  // An enum, not text - nothing to trim, and no third state to collapse into.
+  if (now.priority !== was.priority) changed.priority = now.priority;
   return changed;
 }
 
@@ -314,7 +336,7 @@ function TheForm({
    */
   useEffect(() => {
     if (item && editing === null) {
-      const from = { title: item.title, description: item.description ?? '' };
+      const from = { title: item.title, description: item.description ?? '', priority: item.priority };
       setEditing({ was: from, now: { ...from } });
     }
   }, [item, editing]);
@@ -366,7 +388,7 @@ function TheForm({
      * would close on it and take what was typed with it.
      */
     const landed = async (
-      what: 'title' | 'description',
+      what: 'title' | 'description' | 'priority',
       change: CommandArgs,
     ): Promise<boolean> => {
       const answer = await send(change);
@@ -393,6 +415,16 @@ function TheForm({
         !(await landed('description', {
           name: 'set_description',
           payload: { ...envelope(), description: changed.description },
+        }))
+      ) {
+        setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
+        return;
+      }
+      if (
+        changed.priority !== undefined &&
+        !(await landed('priority', {
+          name: 'set_priority',
+          payload: { ...envelope(), priority: changed.priority },
         }))
       ) {
         setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
@@ -492,6 +524,28 @@ function TheForm({
                   />
                 </label>
 
+                <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                  Priority
+                  <select
+                    disabled={saving}
+                    value={draft.priority ?? ''}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        priority: (e.target.value || null) as Priority | null,
+                      })
+                    }
+                    className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                  >
+                    <option value="">None</option>
+                    {prioritySchema.options.map((value) => (
+                      <option key={value} value={value}>
+                        {PRIORITY_LABELS[value]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 {/* Formatted, with the Markdown behind it one button away
                     ("Format a description, and edit its source", issue 160).
                     The editor is fetched behind this form rather than on the
@@ -525,7 +579,11 @@ function TheForm({
                           type="button"
                           disabled={saving}
                           onClick={() => {
-                            setDraft({ title: reading.title, description: reading.description });
+                            setDraft({
+                              ...draft,
+                              title: reading.title,
+                              description: reading.description,
+                            });
                             setReadingPicked((was) => was + 1);
                           }}
                           className="rounded-md border border-black/10 px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"

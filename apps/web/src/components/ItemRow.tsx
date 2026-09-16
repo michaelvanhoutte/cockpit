@@ -7,6 +7,7 @@ import {
   workspaceIsDecided,
   type Item,
   type ItemType,
+  type Priority,
 } from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
 import { isCutOff } from '../cutOff';
@@ -16,6 +17,18 @@ import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
+
+/**
+ * The flag's label and colour at each level ("Show and edit an item's
+ * priority", issue 433) - graduated within the accent family rather than the
+ * `due`/`over` colours, which are reserved for the separate overdue work
+ * planned later ("Deadline colors", docs/ideas.md).
+ */
+const PRIORITY_MARKS: Record<Priority, { label: string; className: string }> = {
+  low: { label: 'Low priority', className: 'text-accent-soft' },
+  normal: { label: 'Normal priority', className: 'text-accent' },
+  high: { label: 'High priority', className: 'text-accent-deep' },
+};
 
 export function ItemRow({
   item,
@@ -263,6 +276,17 @@ export function ItemRow({
   const label = itemLabel(item);
 
   /**
+   * The priority mark's label and colour, or nothing for an unset priority -
+   * and, the same as an item type nobody deleted-and-recreated the row's
+   * lookup for (`itemTypes.ts`, `recentlyUsedTypes`), nothing rather than a
+   * crash for a value this build does not recognise. Reachable from a tab
+   * left open across a deploy that adds a level (functional definition,
+   * "Deploy breaks open tabs' lazy chunks"), since a priority read out of the
+   * cache is never re-validated against the schema the way a fresh fetch is.
+   */
+  const priorityMark = item.priority ? PRIORITY_MARKS[item.priority] : undefined;
+
+  /**
    * The finger resting on this row, waiting to become a selection ("Start a
    * selection with a long press, so a phone can do it too", issue 170).
    *
@@ -487,6 +511,20 @@ export function ItemRow({
             className="mt-0.5 size-2 shrink-0 self-start rounded-full"
             style={{ backgroundColor: itemType.color }}
           />
+        )}
+        {/* Priority, when it is set - nothing drawn for an item with none, the
+            same convention the type dot above follows. Named rather than
+            decorative: unlike the type dot, the level is not echoed in words
+            anywhere else on the row. */}
+        {priorityMark && (
+          <span
+            className={`mt-0.5 shrink-0 self-start text-xs ${priorityMark.className}`}
+            title={priorityMark.label}
+            aria-label={priorityMark.label}
+            role="img"
+          >
+            ⚑
+          </span>
         )}
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1 text-sm">
