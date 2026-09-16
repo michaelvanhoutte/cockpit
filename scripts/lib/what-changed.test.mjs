@@ -296,6 +296,23 @@ describe('isSecurityPath and isStoredDataPath', () => {
     assert.equal(isSecurityPath('apps/api/src/http/app.ts'), true, 'the gate composition, the OIDC callback and the ingress dispatcher all live here');
     assert.equal(isStoredDataPath('apps/api/src/accounts/store.ts'), true, "the Durable Object every account's rows are actually read and written through");
   });
+
+  it('calls its own gate security, so a change that weakens the gate cannot classify itself out of review', () => {
+    // Found by CI's own code review on this issue's pull request: the
+    // `changes` job classifies with the *base* commit's copy of this module,
+    // so a change to the gate itself has to be on this list or it would get
+    // `security_changed=false` from that unweakened base copy and skip the
+    // one review that would have caught it.
+    for (const path of [
+      'scripts/lib/what-changed.mjs',
+      'scripts/what-changed.mjs',
+      'scripts/lib/review-gate.mjs',
+      'scripts/assert-security-review.mjs',
+      '.github/actions/setup/action.yml',
+    ]) {
+      assert.equal(isSecurityPath(path), true, `${path} decides or asserts the verdict and should be a security path`);
+    }
+  });
 });
 
 describe('localChangeAnswer', () => {

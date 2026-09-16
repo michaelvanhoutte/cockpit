@@ -266,10 +266,25 @@ const BACKUP_RESTORE_GUEST_RESET = [
  * (`auth/`), the web session, a connector, the gate composition and the
  * Google OIDC and ingress-webhook routes it mounts (`http/app.ts` - "there
  * is no perimeter to fall back on" for this app's auth model,
- * .github/security-review-instructions.md), the CI workflows and the branch
- * protection payload they feed, the security review's own instructions, and
- * Wrangler's configuration - each a way a change could grant, keep or check
- * access wrongly without touching a migration or a schema.
+ * .github/security-review-instructions.md), the CI workflows, the composite
+ * action they share, and the branch protection payload they feed, the
+ * security review's own instructions, Wrangler's configuration, and the gate
+ * itself - each a way a change could grant, keep or check access wrongly
+ * without touching a migration or a schema.
+ *
+ * The gate is on its own list for the reason CI's own code review found on
+ * this issue's pull request: `claude-security-review.yml`'s `changes` job
+ * classifies with the *base* commit's copy of this module, so a change that
+ * weakens the gate - deletes an entry here, or makes
+ * `decideSecurityOutcome` always pass - would otherwise get
+ * `security_changed=false` from that same base copy and skip the one review
+ * that would have caught it, reported skipped rather than failed. Every file
+ * that decides or asserts the verdict is named, not only this one:
+ * `scripts/what-changed.mjs` (the CI wrapper), `scripts/lib/review-gate.mjs`
+ * (`decideSecurityOutcome`), `scripts/assert-security-review.mjs`, and
+ * `.github/actions/setup/action.yml` (a sibling of `.github/workflows/`, not
+ * a path under it, so the directory-prefix entry above does not already
+ * cover it).
  */
 const SECURITY_PATHS = [
   'apps/api/src/auth/',
@@ -278,9 +293,14 @@ const SECURITY_PATHS = [
   'apps/api/src/accounts/register.ts',
   'apps/api/src/http/app.ts',
   '.github/workflows/',
+  '.github/actions/setup/action.yml',
   '.github/branch-protection.json',
   '.github/security-review-instructions.md',
   'apps/api/wrangler.jsonc',
+  'scripts/lib/what-changed.mjs',
+  'scripts/what-changed.mjs',
+  'scripts/lib/review-gate.mjs',
+  'scripts/assert-security-review.mjs',
   ...BACKUP_RESTORE_GUEST_RESET,
 ];
 
