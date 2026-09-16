@@ -201,6 +201,30 @@ describe('Item editing', () => {
       expect(new Uint8Array(await stored!.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
     });
 
+    it('is refused even where the filename and type both match, if the size does not', async () => {
+      const itemId = await captureAnItem();
+      const attachmentId = nextId();
+      const first = await upload(itemId, new Uint8Array([1, 2]), {
+        attachmentId,
+        filename: 'report.pdf',
+        contentType: 'application/pdf',
+      });
+      expect(first.status).toBe(201);
+
+      // A genuinely different file that happens to share a name and a type -
+      // only the size gives it away, so this is refused by that alone.
+      const second = await upload(itemId, new Uint8Array([1, 2, 3, 4, 5]), {
+        attachmentId,
+        filename: 'report.pdf',
+        contentType: 'application/pdf',
+      });
+      expect(second.status).toBe(409);
+
+      const snapshot = await readSnapshot();
+      const attachment = snapshot.attachments.find((a) => a.id === attachmentId);
+      expect(attachment).toMatchObject({ size: 2 });
+    });
+
     it('reused with the very same file is a harmless replay, and still never re-touches R2', async () => {
       const itemId = await captureAnItem();
       const attachmentId = nextId();

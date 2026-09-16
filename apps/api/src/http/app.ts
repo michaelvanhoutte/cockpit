@@ -1234,16 +1234,24 @@ const routes = app
     // one, or a fresh upload reusing that key would record a new row
     // pointing at bytes nobody just uploaded.
     if (await account.attachmentExists(parsedCommand.data.attachmentId)) {
-      // R2's own account of the object already there, the same reason the
-      // fresh-upload path below never trusts the declared `Content-Length`
-      // for what it stores: a genuine replay's `size` has to be compared
-      // against what R2 actually holds, not what this new request merely
-      // claims - or a first upload R2 measured smaller than declared would
-      // refuse every real replay of it, permanently, for disagreeing with a
-      // number nothing ever verified twice.
+      // Checked against R2's own measured size, not the stored row's - a
+      // reused id naming a genuinely different upload has to be caught
+      // *here*, from what this new request itself declares, or forcing
+      // `cmd.size` to whatever is already stored would make `command-
+      // service.ts`'s own size comparison compare that stored value with
+      // itself: always equal, never catching anything. A size R2 confirms
+      // agrees with what was just declared is the one case safe to accept
+      // as a replay; `command-service.ts` still checks filename/contentType
+      // on top of this, for the same reason.
       const existingObject = await c.env.ATTACHMENTS.head(
         attachmentR2Key(accountName, itemId, parsedCommand.data.attachmentId),
       );
+      if (existingObject && existingObject.size !== parsedCommand.data.size) {
+        return c.json(
+          { error: `attachment ${parsedCommand.data.attachmentId} already names a different upload` },
+          409,
+        );
+      }
       const cmd = { ...parsedCommand.data, size: existingObject?.size ?? parsedCommand.data.size };
       return c.json(await account.applyChange('add_attachment', cmd), 201);
     }
