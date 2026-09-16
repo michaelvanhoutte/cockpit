@@ -234,9 +234,9 @@ const ITEM_PROPOSED_PANEL: Change = {
 };
 
 /**
- * The append-only decision history a routing proposal reads whole ("Learn
- * where notes belong from where you actually file them", issue 299) - see
- * `schema.ts` for what each column carries and why.
+ * The append-only decision history a routing proposal reads from, bounded
+ * rather than whole ("Learn where notes belong from where you actually file
+ * them", issue 299) - see `schema.ts` for what each column carries and why.
  *
  * **A brand new table, so it is created whole with its CHECK rather than
  * added to and altered later** - the same shape `SCREEN_SIZES` and

@@ -105,17 +105,17 @@ export interface Account {
   /**
    * What a routing proposal reads beside the note itself, in one round trip
    * ("Learn where notes belong from where you actually file them", issue
-   * 299): the account's whole decision history for one workspace, oldest
-   * first, what else it has captured lately and not yet filed, most recent
-   * first, `excludeItemId` left out, and the Workspace's own live correction
-   * of what the system otherwise learned, or null ("Show what the system
-   * learned, in a sentence you can correct", issue 301). Read by the
+   * 299): the most recent 50 settled decisions for one workspace whose
+   * chosen panel still exists, oldest first, and what else it has captured
+   * lately and not yet filed, most recent first, `excludeItemId` left out
+   * ("Cap the routing prompt to the last 50 decisions on panels that still
+   * exist, and drop the correction override", issue 450). Read by the
    * enrichment job and by nothing else.
    */
   routingContext(
     workspaceId: string,
     excludeItemId: string,
-  ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }>;
+  ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>;
   /**
    * What a title or description proposal reads about how this account
    * writes, and what the window that shows how it is doing reads back

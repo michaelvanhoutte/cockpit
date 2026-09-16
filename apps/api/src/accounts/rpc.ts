@@ -57,14 +57,14 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   panelsThatTakeItems(accountName: string, workspaceId: string): Awaitable<Answer<Panel[]>>;
   /**
-   * What a routing proposal reads beside the note itself: the account's
-   * whole decision history for one workspace, oldest first, what else it has
-   * captured lately and not yet filed, most recent first, `excludeItemId`
-   * left out ("Learn where notes belong from where you actually file them",
-   * issue 299), and the Workspace's own live correction of what the system
-   * otherwise learned, or null ("Show what the system learned, in a sentence
-   * you can correct", issue 301). One round trip for all three, since nothing
-   * ever reads one without the others - the same reasoning `snapshot` above
+   * What a routing proposal reads beside the note itself: the most recent 50
+   * settled decisions for one workspace whose chosen panel still exists,
+   * oldest first, and what else it has captured lately and not yet filed,
+   * most recent first, `excludeItemId` left out ("Learn where notes belong
+   * from where you actually file them", issue 299; "Cap the routing prompt
+   * to the last 50 decisions on panels that still exist, and drop the
+   * correction override", issue 450). One round trip for both, since nothing
+   * ever reads one without the other - the same reasoning `snapshot` above
    * already carries several reads in one answer. Read by the enrichment job
    * and by nothing else, the same as `panelsThatTakeItems` beside it.
    */
@@ -72,9 +72,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
     workspaceId: string,
     excludeItemId: string,
-  ): Awaitable<
-    Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }>
-  >;
+  ): Awaitable<Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>>;
   /**
    * What a title or description proposal reads about how this account
    * writes: the rules it has written for itself, every correction it has

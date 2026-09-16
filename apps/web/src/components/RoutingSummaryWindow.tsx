@@ -14,9 +14,15 @@ import { LoadFailure } from './LoadFailure';
  * above this box, rewritten nightly and read back by nothing, and it is gone
  * ("Drop the nightly filing summary, keep the sentence you wrote", issue
  * 392). What is left is the half that was always doing the work: a plain
- * textarea, because it is the one thing on this screen a person actually
- * writes, and what they write outranks every pattern read out of the
- * decision history (`domain/routing-summary.ts` in `packages/shared`).
+ * textarea (`domain/routing-summary.ts` in `packages/shared`).
+ *
+ * **No longer read by a routing proposal.** It outranked every pattern read
+ * out of the decision history until "Cap the routing prompt to the last 50
+ * decisions on panels that still exist, and drop the correction override"
+ * (issue 450) stopped that read - the sentence is retired here, in what the
+ * placeholder now promises, ahead of the column and this form themselves
+ * going once nothing writes it either (`docs/text-learning.md`, "Build
+ * order").
  *
  * **Per Workspace, not per account** - unlike `ManageTypes` beside it. The
  * decision history this steers is itself scoped to one Workspace
@@ -123,9 +129,10 @@ export function RoutingSummaryWindow({
               disabled={saving}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Say in a sentence where your notes should go, and Cockpit will follow it."
+              placeholder="Say in a sentence where your notes should go."
               className="mt-1 w-full resize-y rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
             />
+            <p className="mt-1 text-xs text-ink-faint">No longer used to propose where a note belongs.</p>
             {overCap && (
               <p role="alert" className="mt-1 text-xs text-over">
                 {trimmed.length - ROUTING_SUMMARY_CORRECTION_LIMIT} characters too many.
