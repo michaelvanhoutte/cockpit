@@ -48,3 +48,16 @@ export function attachmentFromCommand(cmd: AddAttachmentCommand, tenantId: strin
     createdAt: cmd.issuedAt,
   };
 }
+
+/**
+ * Splits `items` into groups of at most `size`, order kept - what
+ * `resetGuest` chunks a guest's orphaned R2 keys to (`store.ts`), since R2's
+ * own bulk `delete()` accepts at most 1000 keys in one call.
+ */
+export function inGroupsOf<T>(items: readonly T[], size: number): T[][] {
+  const groups: T[][] = [];
+  for (let from = 0; from < items.length; from += size) {
+    groups.push(items.slice(from, from + size));
+  }
+  return groups;
+}

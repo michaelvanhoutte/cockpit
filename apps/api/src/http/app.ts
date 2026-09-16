@@ -1221,6 +1221,17 @@ const routes = app
     const item = await account.item(itemId);
     if (!item || item.deletedAt) return c.json({ error: `item ${itemId} not found` }, 404);
 
+    // Checked before R2 is ever touched, not only before it: an id reusing
+    // an existing attachment's must never let a second upload's bytes reach
+    // the object the existing row already names, whether that reuse turns
+    // out to be a genuine replay or a refusal - `add_attachment`'s own
+    // handler (`command-service.ts`) is where that distinction is made, and
+    // it is only safe to make *after* nothing has been overwritten to reach
+    // it. A fresh id skips straight to the upload below.
+    if (await account.attachmentExists(parsedCommand.data.attachmentId)) {
+      return c.json(await account.applyChange('add_attachment', parsedCommand.data), 201);
+    }
+
     const body = c.req.raw.body;
     if (!body) return c.json({ error: 'nothing was uploaded' }, 400);
     // Streamed straight into R2, never buffered here (issue 441) - `body` is

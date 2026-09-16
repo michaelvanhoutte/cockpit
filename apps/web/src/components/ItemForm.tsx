@@ -737,7 +737,7 @@ function TheForm({
                       >
                         <span aria-hidden="true">⏳</span>
                         <span className="min-w-0 flex-1 truncate">{pending.filename}</span>
-                        <span>Uploading…</span>
+                        <span>Attaching…</span>
                       </div>
                     ))}
                     {attachments.length === 0 && pendingAttachments.length === 0 && (

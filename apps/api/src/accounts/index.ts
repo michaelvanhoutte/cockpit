@@ -104,6 +104,12 @@ export interface Account {
    */
   attachmentForDownload(attachmentId: string): Promise<AttachmentForDownload | null>;
   /**
+   * Whether this account already has an attachment by this id - what the
+   * upload route checks before it ever writes to R2 ("Attach a file to an
+   * item", issue 441).
+   */
+  attachmentExists(attachmentId: string): Promise<boolean>;
+  /**
    * Every live Panel of one Workspace that takes items - what a routing
    * proposal may choose from ("Propose where a captured note belongs, without
    * filing it there", issue 298). Read by the enrichment job and by nothing
@@ -227,6 +233,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),
     attachmentForDownload: async (attachmentId) =>
       unwrap(await store.attachmentForDownload(accountName, attachmentId)),
+    attachmentExists: async (attachmentId) =>
+      unwrap(await store.attachmentExists(accountName, attachmentId)),
     panelsThatTakeItems: async (workspaceId) =>
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
     routingContext: async (workspaceId, excludeItemId) =>

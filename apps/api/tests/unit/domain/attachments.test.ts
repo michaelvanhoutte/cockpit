@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attachmentFromCommand, attachmentR2Key } from '../../../src/domain/attachments.js';
+import { attachmentFromCommand, attachmentR2Key, inGroupsOf } from '../../../src/domain/attachments.js';
 
 describe('Item editing', () => {
   describe("a file attached to an item is stored under an account- and item-scoped key", () => {
@@ -11,7 +11,7 @@ describe('Item editing', () => {
   });
 
   describe('the row an attached file writes', () => {
-    it('carries what was uploaded, addressed at the key its bytes are stored under', () => {
+    it('carries what was attached, addressed at the key its bytes are stored under', () => {
       const row = attachmentFromCommand(
         {
           commandId: 'command-1',
@@ -36,6 +36,23 @@ describe('Item editing', () => {
         contentType: 'image/png',
         createdAt: '2026-09-16T10:00:00.000Z',
       });
+    });
+  });
+
+  describe("resetting the guest account cleans up R2 in groups small enough for one call", () => {
+    it.each([
+      { situation: 'nothing to clean up', count: 0, sizes: [] },
+      { situation: 'fewer than one group', count: 3, sizes: [3] },
+      { situation: 'exactly one group', count: 4, sizes: [4] },
+      { situation: 'one more than a group holds', count: 5, sizes: [4, 1] },
+      { situation: 'exactly two groups', count: 8, sizes: [4, 4] },
+    ])('$situation ($count keys) makes groups sized $sizes', ({ count, sizes }) => {
+      const keys = Array.from({ length: count }, (_, i) => `key-${i}`);
+
+      const groups = inGroupsOf(keys, 4);
+
+      expect(groups.map((group) => group.length)).toEqual(sizes);
+      expect(groups.flat()).toEqual(keys);
     });
   });
 });

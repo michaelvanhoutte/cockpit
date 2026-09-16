@@ -61,6 +61,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     attachmentId: string,
   ): Awaitable<Answer<AttachmentForDownload | null>>;
   /**
+   * Whether this account already has an attachment by this id, checked by
+   * the upload route before it ever writes to R2 ("Attach a file to an
+   * item", issue 441) - see `store.ts`'s own comment on why.
+   */
+  attachmentExists(accountName: string, attachmentId: string): Awaitable<Answer<boolean>>;
+  /**
    * Every live Panel that takes items, in one Workspace - what a routing
    * proposal may choose from ("Propose where a captured note belongs, without
    * filing it there", issue 298). Read by the enrichment job and by nothing

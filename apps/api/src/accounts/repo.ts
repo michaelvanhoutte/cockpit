@@ -634,6 +634,12 @@ export function listAssociationsForWorkspace(
  * The same join and the same `or` `listAssociationsForWorkspace` above
  * carries, for the same reason: an Item belonging to no workspace yet is
  * drawn in every workspace's Inbox, so its attachments ride along with it.
+ *
+ * **Unlike that one, this excludes a dismissed Item's own** - deliberately,
+ * where the other reads it as an existing gap rather than a convention to
+ * copy: `listOpenItems` (the `items` this same snapshot carries) already
+ * excludes a dismissed Item, and an attachment naming one absent from
+ * `items` is a dangling reference nothing downstream expects.
  */
 export function listAttachmentsInWorkspace(
   db: AccountDb,
@@ -656,6 +662,7 @@ export function listAttachmentsInWorkspace(
       and(
         eq(attachments.tenantId, tenantId),
         or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.deletedAt),
       ),
     )
     .all();

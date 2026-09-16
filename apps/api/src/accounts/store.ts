@@ -12,6 +12,7 @@ import type {
 import { panelTakesItems } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
+import { inGroupsOf } from '../domain/attachments.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
 import { accountChanges } from './changes.js';
@@ -64,6 +65,7 @@ import {
   decisionHistoryForWorkspace,
   everyMeaning,
   forgetMeaning,
+  getAttachment,
   getAttachmentForDownload,
   getItem,
   getRoutingSummary,
@@ -331,6 +333,20 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     attachmentId: string,
   ): Answer<AttachmentForDownload | null> {
     return this.#answer(accountName, (db) => getAttachmentForDownload(db, accountName, attachmentId));
+  }
+
+  /**
+   * Whether this account already has an attachment by this id - what the
+   * upload route checks *before* ever writing to R2 ("Attach a file to an
+   * item", issue 441). An id reusing an existing attachment's must never
+   * reach `ATTACHMENTS.put`: `add_attachment`'s own handler
+   * (`command-service.ts`) decides whether reusing it is a genuine replay
+   * or a refusal, and both of those are only safe to decide *before* a
+   * second upload's bytes could have overwritten the object the existing
+   * row names.
+   */
+  attachmentExists(accountName: string, attachmentId: string): Answer<boolean> {
+    return this.#answer(accountName, (db) => getAttachment(db, accountName, attachmentId) !== null);
   }
 
   /**
@@ -736,8 +752,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     // here, each batch in its own `try`, so a guest day busy enough to hit
     // that cap loses cleanup for one batch of objects rather than for all of
     // them, and so one batch's failure cannot swallow every other batch's.
-    for (let from = 0; from < orphanedKeys.length; from += R2_DELETE_BATCH) {
-      const batch = orphanedKeys.slice(from, from + R2_DELETE_BATCH);
+    for (const batch of inGroupsOf(orphanedKeys, R2_DELETE_BATCH)) {
       try {
         await this.env.ATTACHMENTS.delete(batch);
       } catch (error) {

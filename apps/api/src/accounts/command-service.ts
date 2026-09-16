@@ -1967,12 +1967,17 @@ export function runCommand<N extends CommandName>(
       const cmd = payload as CommandPayload<'add_attachment'>;
       // Written by the upload route once a file's bytes have already
       // streamed to R2 (`addAttachmentSchema`'s own comment,
-      // `@cockpit/shared`), so a missing item here means it was deleted in
+      // `@cockpit/shared`), so a missing item here means it was dismissed in
       // the moment between the route's own pre-check and this write -
       // narrow, and left as an orphaned R2 object rather than something
-      // this build tries to clean up (issue 441, "Out of scope").
+      // this build tries to clean up (issue 441, "Out of scope"). Checked
+      // the same way the route's own pre-check does (`item.deletedAt`
+      // included, `app.ts`) - an Item is tombstoned, not hard-deleted, so
+      // `getItem` alone would otherwise let this race land a file on an
+      // Item nothing can reach it through again (`getAttachmentForDownload`
+      // excludes a deleted Item's attachments outright).
       const item = getItem(db, tenantId, cmd.itemId);
-      if (!item) throw new ItemNotFoundError(cmd.itemId);
+      if (!item || item.deletedAt) throw new ItemNotFoundError(cmd.itemId);
       // Its attachments are read in every workspace the item is drawn in
       // (`listAttachmentsInWorkspace`, repo.ts), so for one that belongs to
       // none that is all of them - the same rule `associate` above carries.

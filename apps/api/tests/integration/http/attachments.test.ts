@@ -141,7 +141,7 @@ describe('Item editing', () => {
   });
 
   describe('a file over the size cap is refused, and nothing is written', () => {
-    it('is refused before the upload reads the body', async () => {
+    it('is refused before anything is read from it', async () => {
       const itemId = await captureAnItem();
       const oversized = new Uint8Array(MAX_ATTACHMENT_SIZE + 1);
       const res = await upload(itemId, oversized);
@@ -163,7 +163,7 @@ describe('Item editing', () => {
     });
   });
 
-  describe('a filename header that is not validly encoded is refused, not a broken upload', () => {
+  describe('a filename header that is not validly encoded is refused, not a broken attempt', () => {
     it('is a 400, not a 500', async () => {
       const itemId = await captureAnItem();
       const res = await upload(itemId, new Uint8Array([1]), { rawFilenameHeader: '%zz' });
@@ -174,7 +174,7 @@ describe('Item editing', () => {
     });
   });
 
-  describe('reusing the same attachment id for a different upload', () => {
+  describe('reusing the same attachment id for a different file', () => {
     it('is refused, rather than silently disagreeing with what actually landed in storage', async () => {
       const itemId = await captureAnItem();
       const attachmentId = nextId();
@@ -191,6 +191,32 @@ describe('Item editing', () => {
       const snapshot = await readSnapshot();
       const attachment = snapshot.attachments.find((a) => a.id === attachmentId);
       expect(attachment).toMatchObject({ filename: 'first.png', size: 2 });
+
+      // And the object itself was never overwritten - checked directly
+      // against R2, since a 409 answering *after* the second upload's bytes
+      // had already replaced the first's would still look refused from the
+      // response alone.
+      const key = `${ACCOUNT_NAME}/${itemId}/${attachmentId}`;
+      const stored = await env.ATTACHMENTS.get(key);
+      expect(new Uint8Array(await stored!.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
+    });
+
+    it('reused with the very same file is a harmless replay, and still never re-touches R2', async () => {
+      const itemId = await captureAnItem();
+      const attachmentId = nextId();
+      const bytes = new Uint8Array([1, 2]);
+      const first = await upload(itemId, bytes, { attachmentId, filename: 'receipt.png' });
+      expect(first.status).toBe(201);
+
+      // The same file, the same metadata, a different commandId - a client
+      // retrying the whole upload after never seeing the first response.
+      const replay = await upload(itemId, bytes, { attachmentId, filename: 'receipt.png' });
+      expect(replay.status).toBe(201);
+
+      const snapshot = await readSnapshot();
+      expect(snapshot.attachments.filter((a) => a.id === attachmentId)).toHaveLength(1);
+      const key = `${ACCOUNT_NAME}/${itemId}/${attachmentId}`;
+      expect(new Uint8Array(await (await env.ATTACHMENTS.get(key))!.arrayBuffer())).toEqual(bytes);
     });
   });
 
@@ -242,6 +268,34 @@ describe('Item editing', () => {
 
       const res = await asUser(`http://cockpit.test/v1/attachments/${attachmentId}`);
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('an item dismissed between the route’s own pre-check and the write landing', () => {
+    it('refuses to attach a file to it, the same as the route’s own pre-check does', async () => {
+      const itemId = await captureAnItem();
+      await inTheStore((sql) =>
+        sql.exec('UPDATE items SET deleted_at = ? WHERE id = ?', '2026-09-16T11:00:00.000Z', itemId),
+      );
+
+      const res = await upload(itemId, new Uint8Array([1]));
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('a dismissed item’s own attachments', () => {
+    it('are left out of the workspace snapshot along with the item itself', async () => {
+      const itemId = await captureAnItem();
+      await upload(itemId, new Uint8Array([1]));
+      await inTheStore((sql) =>
+        sql.exec('UPDATE items SET deleted_at = ? WHERE id = ?', '2026-09-16T11:00:00.000Z', itemId),
+      );
+
+      const snapshot = await readSnapshot();
+
+      expect(snapshot.items.find((i) => i.id === itemId)).toBeUndefined();
+      expect(snapshot.attachments.filter((a) => a.itemId === itemId)).toHaveLength(0);
     });
   });
 
