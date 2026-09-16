@@ -69,7 +69,12 @@ function aRow({
   onOpen?: () => void;
   onMoveHere?: () => void;
   item?: Item;
-  selecting?: { picked: boolean; revealed: boolean; onPick: (withShift: boolean) => void };
+  selecting?: {
+    picked: boolean;
+    revealed: boolean;
+    onPick: (withShift: boolean) => void;
+    onEndSelection: () => void;
+  };
   routingProposal?: { panelName: string; reason: string };
   onAcceptRouting?: () => void;
   mayBeADuplicate?: boolean;
@@ -81,7 +86,7 @@ function aRow({
   const send = vi.fn(() => Promise.resolve({ ok: true as const, applied: true }));
   mockUseCommand.mockReturnValue({ mutate, isPending: false } as never);
   mockUseSendCommand.mockReturnValue(send);
-  render(
+  const rendered = (selectingNow?: typeof selecting) => (
     <UndoWhatJustHappened>
       <ItemRow
         item={item}
@@ -89,15 +94,21 @@ function aRow({
         {...(onMoveTo ? { onMoveTo } : {})}
         {...(onOpen ? { onOpen } : {})}
         {...(onMoveHere ? { onMoveHere } : {})}
-        {...(selecting ? { selecting } : {})}
+        {...(selectingNow ? { selecting: selectingNow } : {})}
         {...(routingProposal ? { routingProposal } : {})}
         {...(onAcceptRouting ? { onAcceptRouting } : {})}
         {...(mayBeADuplicate === undefined ? {} : { mayBeADuplicate })}
         {...(onSettleNotADuplicate ? { onSettleNotADuplicate } : {})}
       />
-    </UndoWhatJustHappened>,
+    </UndoWhatJustHappened>
   );
-  return { mutate, send };
+  const { rerender } = render(rendered(selecting));
+  return {
+    mutate,
+    send,
+    /** Re-renders the same row with a different `selecting`, in place. */
+    rerenderSelecting: (next: typeof selecting) => rerender(rendered(next)),
+  };
 }
 
 /**
@@ -941,7 +952,7 @@ describe('Selection', () => {
 
     it('picks the row out once the finger has rested long enough', () => {
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick } });
+      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
 
       hold();
 
@@ -954,7 +965,7 @@ describe('Selection', () => {
       // afterwards, because a spent gesture stops drawing. It would have stayed
       // there, mid-swipe, until the finger came off.
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick } });
+      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
 
       hold({ dx: HOLD_DRIFT_PX });
 
@@ -977,7 +988,7 @@ describe('Selection', () => {
       { situation: 'it started on the row’s own menu', onto: 'menu' as const },
     ])('picks nothing out when $situation', (how) => {
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick } });
+      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
 
       hold(how);
 
@@ -990,7 +1001,7 @@ describe('Selection', () => {
       // knows it is spent, resting on a row and then sliding away picked the
       // row out *and* dismissed it.
       const onPick = vi.fn();
-      const { mutate } = aRow({ selecting: { picked: false, revealed: false, onPick } });
+      const { mutate } = aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
 
       const row = screen.getByRole('listitem');
       fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
@@ -1020,7 +1031,7 @@ describe('Selection', () => {
       // resting a moment on one row and letting go picked it out half a second
       // later, while the finger was somewhere else entirely.
       const onPick = vi.fn();
-      aRow({ selecting: { picked: false, revealed: false, onPick } });
+      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
 
       const row = screen.getByRole('listitem');
       fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
@@ -1034,11 +1045,286 @@ describe('Selection', () => {
 
     it('leaves a row that cannot be picked out alone', () => {
       // A list drawn without a selection - a test harness, or a screen that
-      // does not offer one - has no tick, so a hold has nothing to do.
+      // does not offer one - has nothing for a hold to pick out.
       aRow();
 
       expect(() => hold()).not.toThrow();
-      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * A click anywhere on the row, not only a checkbox ("Pick a row by
+   * ctrl/shift-click instead of aiming for a checkbox, and suspend single-row
+   * actions while a selection is held", issue 438), and never opening it
+   * itself ("Require a double-click to open a row again, now that a plain
+   * click opens it", issue 456) - opening is a double-click's or the menu's
+   * own Open.
+   *
+   * Which rows a shift-click's span covers is still `afterClicking`'s, proved
+   * in `selection.test.ts` - what is asked here is which call the row's click
+   * handler makes, and when it ends a selection instead.
+   */
+  describe('a click anywhere on the row picks it, or ends a selection, but never opens it', () => {
+    it('picks an unpicked row alone on a ctrl-click, nothing yet selected', () => {
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+
+      fireEvent.click(screen.getByRole('listitem'), { ctrlKey: true });
+
+      expect(onPick).toHaveBeenCalledWith(false);
+    });
+
+    it('picks the same way on a cmd-click', () => {
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+
+      fireEvent.click(screen.getByRole('listitem'), { metaKey: true });
+
+      expect(onPick).toHaveBeenCalledWith(false);
+    });
+
+    it('adds to a selection already held on a ctrl/cmd-click', () => {
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: true, onPick, onEndSelection: vi.fn() } });
+
+      fireEvent.click(screen.getByRole('listitem'), { ctrlKey: true });
+
+      expect(onPick).toHaveBeenCalledWith(false);
+    });
+
+    it('reaches a span across rows on a shift-click', () => {
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: true, onPick, onEndSelection: vi.fn() } });
+
+      fireEvent.click(screen.getByRole('listitem'), { shiftKey: true });
+
+      expect(onPick).toHaveBeenCalledWith(true);
+    });
+
+    it('opens nothing on a plain mouse click, nothing yet selected', () => {
+      // A plain click only ends a selection; opening is a double-click's or
+      // the menu's own Open ("Require a double-click to open a row again, now
+      // that a plain click opens it", issue 456).
+      const onOpen = vi.fn();
+      const onPick = vi.fn();
+      const onEndSelection = vi.fn();
+      aRow({ onOpen, selecting: { picked: false, revealed: false, onPick, onEndSelection } });
+
+      fireEvent.click(screen.getByRole('listitem'));
+
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(onPick).not.toHaveBeenCalled();
+      expect(onEndSelection).not.toHaveBeenCalled();
+    });
+
+    it('clears the whole selection on a plain mouse click, while one is held, without opening the row', () => {
+      const onOpen = vi.fn();
+      const onEndSelection = vi.fn();
+      aRow({
+        onOpen,
+        selecting: { picked: false, revealed: true, onPick: vi.fn(), onEndSelection },
+      });
+
+      fireEvent.click(screen.getByRole('listitem'));
+
+      expect(onEndSelection).toHaveBeenCalledTimes(1);
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    it('opens nothing on a plain touch tap, nothing yet selected', () => {
+      const onOpen = vi.fn();
+      const onPick = vi.fn();
+      aRow({ onOpen, selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      const row = screen.getByRole('listitem');
+
+      fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.click(row);
+
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(onPick).not.toHaveBeenCalled();
+    });
+
+    it('toggles the row on a plain touch tap instead of opening it, while a selection is held', () => {
+      // Touch has no ctrl key, so a tap is what it has instead, once a
+      // selection is already held - the way past the first row, which still
+      // needs a long press.
+      const onOpen = vi.fn();
+      const onPick = vi.fn();
+      const onEndSelection = vi.fn();
+      aRow({ onOpen, selecting: { picked: false, revealed: true, onPick, onEndSelection } });
+      const row = screen.getByRole('listitem');
+
+      fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.click(row);
+
+      expect(onPick).toHaveBeenCalledWith(false);
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(onEndSelection).not.toHaveBeenCalled();
+    });
+
+    it('does not toggle a row a second time from the click that follows the hold which just picked it', () => {
+      // The finger that just picked the row out with a long press is still the
+      // one the browser turns into a click - without `held`, the row it had
+      // just picked out was toggled straight back off.
+      vi.useFakeTimers();
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      const row = screen.getByRole('listitem');
+
+      fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      act(() => {
+        vi.advanceTimersByTime(HOLD_MS);
+      });
+      fireEvent.pointerUp(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.click(row);
+
+      expect(onPick).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it('does not un-stick that suppression when a second finger lands on the row mid-hold', () => {
+      // A second finger touching down is ignored as a swipe (`from.current`
+      // already belongs to the first), but resetting `held` regardless would
+      // un-stick the very suppression the first finger's hold just earned
+      // (found in review, alongside the case above).
+      vi.useFakeTimers();
+      const onPick = vi.fn();
+      aRow({ selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+      const row = screen.getByRole('listitem');
+
+      fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      act(() => {
+        vi.advanceTimersByTime(HOLD_MS);
+      });
+      fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 2, clientX: 5, clientY: 5 });
+      fireEvent.pointerUp(row, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.click(row);
+
+      expect(onPick).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it('leaves the row alone when the click landed on its own menu trigger', () => {
+      // The trigger is a button inside the row, so its click bubbles here the
+      // same way a double press on it does (above): without the guard, opening
+      // the menu also opened the form.
+      const onOpen = vi.fn();
+      const onPick = vi.fn();
+      aRow({ onOpen, selecting: { picked: false, revealed: false, onPick, onEndSelection: vi.fn() } });
+
+      fireEvent.click(screen.getByLabelText('Item actions'));
+
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(onPick).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * A selection suspends what a row's own menu and swipe would otherwise do,
+   * so acting on one row while several are picked cannot happen through them -
+   * except the routing chip, which is a carve-out.
+   */
+  describe('a selection suspends the row’s own menu and swipe, but not the routing chip', () => {
+    it('marks the row’s own menu trigger unavailable while a selection is held, but keeps it reachable', async () => {
+      // `aria-disabled` rather than native `disabled`, the same reason a
+      // menu's own unavailable entries do (`RowMenu`, `MoveAStep`): it stays
+      // in Tab order rather than silently dropping out of it.
+      const user = userEvent.setup();
+      aRow({ selecting: { picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() } });
+      const trigger = screen.getByLabelText('Item actions');
+
+      expect(trigger).toHaveAttribute('aria-disabled', 'true');
+      expect(trigger).not.toBeDisabled();
+      await user.click(trigger);
+      expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull();
+    });
+
+    it('leaves the menu trigger available and opening where nothing is selected', async () => {
+      const user = userEvent.setup();
+      aRow({ selecting: { picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() } });
+      const trigger = screen.getByLabelText('Item actions');
+
+      expect(trigger).not.toHaveAttribute('aria-disabled');
+      await user.click(trigger);
+      expect(await screen.findByRole('menuitem', { name: 'Mark done' })).toBeVisible();
+    });
+
+    it('closes a menu already open when a selection starts elsewhere', async () => {
+      // Disabling the trigger only refuses a *new* open - without this, a menu
+      // opened before any row was picked stayed fully actionable once a
+      // selection started (found in review).
+      const user = userEvent.setup();
+      const { rerenderSelecting } = aRow({
+        selecting: { picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() },
+      });
+      await user.click(screen.getByLabelText('Item actions'));
+      expect(await screen.findByRole('menuitem', { name: 'Mark done' })).toBeVisible();
+
+      rerenderSelecting({ picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() });
+
+      expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull();
+    });
+
+    it('stays closed once the selection that closed it ends, rather than reopening on its own', async () => {
+      // Forcing the menu shut while a selection is held has to forget that it
+      // was ever asked to open - otherwise the moment the selection ends, the
+      // stale "open" from before comes back and the menu reopens itself,
+      // having asked nobody the second time (found in review).
+      const user = userEvent.setup();
+      const { rerenderSelecting } = aRow({
+        selecting: { picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() },
+      });
+      await user.click(screen.getByLabelText('Item actions'));
+      expect(await screen.findByRole('menuitem', { name: 'Mark done' })).toBeVisible();
+      rerenderSelecting({ picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() });
+      expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull();
+
+      rerenderSelecting({ picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() });
+
+      expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull();
+    });
+
+    it('does not dismiss or file on a swipe while a selection is held', () => {
+      const onMoveTo = vi.fn();
+      const { mutate } = aRow({
+        onMoveTo,
+        selecting: { picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() },
+      });
+
+      swipe({ dx: -past });
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(onMoveTo).not.toHaveBeenCalled();
+    });
+
+    it('names no action while a selection is held, so the row promises nothing it will not do', () => {
+      aRow({
+        onMoveTo: vi.fn(),
+        selecting: { picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() },
+      });
+
+      swipeAndHold({ dx: 160 });
+
+      expect(namedByTheRow()).toBeNull();
+    });
+
+    it('keeps the routing chip clickable while a selection is held', async () => {
+      const user = userEvent.setup();
+      const onAcceptRouting = vi.fn();
+      const onPick = vi.fn();
+      const onOpen = vi.fn();
+      aRow({
+        routingProposal: { panelName: 'Compliance questions', reason: 'a compliance question' },
+        onAcceptRouting,
+        onOpen,
+        selecting: { picked: false, revealed: true, onPick, onEndSelection: vi.fn() },
+      });
+
+      await user.click(screen.getByText('→ Compliance questions'));
+
+      expect(onAcceptRouting).toHaveBeenCalledOnce();
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(onPick).not.toHaveBeenCalled();
     });
   });
 });

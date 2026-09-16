@@ -57,8 +57,8 @@ export interface CaptureAnswers {
    * on the way out and put back by `refused` if it has to be.
    */
   asking?: () => void;
-  /** It landed, with the type it ended up carrying. */
-  captured?: (typeId: string) => void;
+  /** It landed, with the type it ended up carrying and the id it was given. */
+  captured?: (typeId: string, itemId: string) => void;
   /** It did not, and this is what to say. */
   refused: (why: string) => void;
 }
@@ -96,6 +96,7 @@ export function useCapture(): {
 
   const ask = (what: WhatToCapture, answers: CaptureAnswers) => {
     answers.asking?.();
+    const itemId = uuidv7();
     command.mutate(
       {
         name: 'capture_item',
@@ -103,7 +104,7 @@ export function useCapture(): {
           commandId: uuidv7(),
           issuedAt: new Date().toISOString(),
           workspaceId: what.workspaceId,
-          itemId: uuidv7(),
+          itemId,
           message: what.message,
           typeId: what.typeId,
           // Sent only when it is false, so every front door that captures
@@ -113,7 +114,7 @@ export function useCapture(): {
         },
       },
       {
-        onSuccess: () => answers.captured?.(what.typeId),
+        onSuccess: () => answers.captured?.(what.typeId, itemId),
         /**
          * **The note goes back in the box**, which is the other half of
          * emptying it before the answer comes. A workspace deleted in another

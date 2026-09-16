@@ -1168,16 +1168,33 @@ const RENEW = anItem('11111111-1111-7111-8111-000000000002', 'Renew the domain')
 const CHASE = anItem('11111111-1111-7111-8111-000000000003', 'Chase the purchase order');
 const THREE = [BART, RENEW, CHASE];
 
-/** Picks a row out by its tick, which is what carries the row's name. */
+/**
+ * Picks a row out by clicking anywhere on it with ctrl held, or reaches a span
+ * across rows with shift held instead ("Pick a row by ctrl/shift-click
+ * instead of aiming for a checkbox, and suspend single-row actions while a
+ * selection is held", issue 438). What a ctrl/cmd-click and a shift-click each
+ * mean is `afterClicking`'s, proved in `selection.test.ts` - what is asked
+ * here is the wiring, so one modifier stands in for both a ctrl- and a
+ * cmd-click.
+ */
 async function tick(user: ReturnType<typeof userEvent.setup>, item: Item, withShift = false) {
-  const box = screen.getByRole('checkbox', { name: `Select “${item.title}”` });
-  if (!withShift) {
-    await user.click(box);
-    return;
-  }
-  await user.keyboard('{Shift>}');
-  await user.click(box);
-  await user.keyboard('{/Shift}');
+  const key = withShift ? '{Shift>}' : '{Control>}';
+  const keyUp = withShift ? '{/Shift}' : '{/Control}';
+  await user.keyboard(key);
+  await user.click(screen.getByText(item.title));
+  await user.keyboard(keyUp);
+}
+
+/**
+ * Whether a row reads as picked - the only signal left on it once a click
+ * anywhere on the row replaced the checkbox that used to carry `checked`.
+ *
+ * `classList.contains` rather than a substring match: the row always wears
+ * `hover:bg-accent-tint/40`, which contains the picked class as text without
+ * being it.
+ */
+function isPicked(item: Item): boolean {
+  return screen.getByText(item.title).closest('li')?.classList.contains('bg-accent-tint') ?? false;
 }
 
 /** Move to… on the bar, which is a button where the row's own is a menu entry. */
@@ -1341,8 +1358,8 @@ describe('Selection', () => {
 
       // One bar, not two: the first list let go of what it was holding.
       expect(screen.getAllByText('1 selected')).toHaveLength(1);
-      expect(screen.getByRole('checkbox', { name: `Select “${BART.title}”` })).not.toBeChecked();
-      expect(screen.getByRole('checkbox', { name: `Select “${RENEW.title}”` })).toBeChecked();
+      expect(isPicked(BART)).toBe(false);
+      expect(isPicked(RENEW)).toBe(true);
     });
 
     it('does not pick a row up again when it comes back to the list', async () => {
@@ -1377,7 +1394,7 @@ describe('Selection', () => {
       rerender(list([BART, RENEW]));
 
       expect(screen.getByText('1 selected')).toBeVisible();
-      expect(screen.getByRole('checkbox', { name: `Select “${BART.title}”` })).not.toBeChecked();
+      expect(isPicked(BART)).toBe(false);
     });
 
     it('takes the question away when every row it was about has left the list', async () => {
