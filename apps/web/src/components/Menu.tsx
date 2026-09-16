@@ -45,24 +45,107 @@ export function MenuTrigger({
   /** Held where something has to put the focus back on this control afterwards. */
   ref?: React.Ref<HTMLButtonElement>;
 }) {
-  const colors = onChrome
-    ? 'text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/10 data-[state=open]:text-chrome-ink'
-    : 'text-ink-faint hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-accent data-[state=open]:bg-accent-tint data-[state=open]:text-accent-deep';
   return (
     <DropdownMenu.Trigger
       ref={ref}
       aria-label={label}
-      // 36px, comfortably past the 24px minimum target size and reachable with
-      // a thumb, in a bar whose other controls are smaller than that: the
-      // control is what has to be hittable, not the text beside it.
-      className={`inline-flex size-9 shrink-0 items-center justify-center rounded-md focus-visible:outline-2 ${colors}${className ? ` ${className}` : ''}`}
+      className={menuButtonClassName(onChrome, className)}
     >
-      <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden="true">
-        <circle cx="8" cy="3.2" r="1.5" />
-        <circle cx="8" cy="8" r="1.5" />
-        <circle cx="8" cy="12.8" r="1.5" />
-      </svg>
+      <MenuDots />
     </DropdownMenu.Trigger>
+  );
+}
+
+/**
+ * The look alone, shared by `MenuTrigger` (a `DropdownMenu.Trigger`) and
+ * `SurfaceMenuButton` (a plain button that fires a `SurfaceMenu` instead) -
+ * one component could not wrap both, Radix requiring its own trigger
+ * primitive for each, but the class string is the whole of what makes the two
+ * read as one control.
+ *
+ * **The open highlight reads two different elements' state.** `MenuTrigger`
+ * is itself the thing Radix marks `data-state="open"` on. `SurfaceMenuButton`
+ * is not - its `SurfaceMenu` is open on the header beside it (found in
+ * review: without this, the button never highlighted while its own menu was
+ * open) - so it reads its ancestor's state instead, through Tailwind's
+ * `group-*` variant, which needs that ancestor to carry the literal class
+ * `group` (`PanelCard.tsx`'s header does).
+ */
+function menuButtonClassName(
+  onChrome: boolean,
+  className?: string,
+  ownState: 'self' | 'ancestor' = 'self',
+) {
+  const open = ownState === 'self' ? 'data-[state=open]' : 'group-data-[state=open]';
+  const colors = onChrome
+    ? `text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink focus-visible:outline-chrome-ink-soft ${open}:bg-white/10 ${open}:text-chrome-ink`
+    : `text-ink-faint hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-accent ${open}:bg-accent-tint ${open}:text-accent-deep`;
+  // 36px, comfortably past the 24px minimum target size and reachable with a
+  // thumb, in a bar whose other controls are smaller than that: the control
+  // is what has to be hittable, not the text beside it.
+  return `inline-flex size-9 shrink-0 items-center justify-center rounded-md focus-visible:outline-2 ${colors}${className ? ` ${className}` : ''}`;
+}
+
+/** The vertical triplet itself - see `MenuTrigger`'s doc comment for why this glyph. */
+function MenuDots() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden="true">
+      <circle cx="8" cy="3.2" r="1.5" />
+      <circle cx="8" cy="8" r="1.5" />
+      <circle cx="8" cy="12.8" r="1.5" />
+    </svg>
+  );
+}
+
+/**
+ * The same "···" control, wired to open a `SurfaceMenu` instead of a
+ * `DropdownMenu.Root` - for a Panel, whose header is already `SurfaceMenu`'s
+ * trigger but is also the drag handle, right-click and the menu key being
+ * easy to miss under a gesture with a more obvious job. Fires the same faked
+ * `contextmenu` event `opensOnKey`/`opensOnActivate` already do
+ * (`opensCentredOn`), centred on the button itself rather than the header, so
+ * the menu opens under the hand that asked for it.
+ *
+ * A plain button rather than `ContextMenu.Trigger`: `SurfaceMenu` already has
+ * one trigger, the header, and Radix's context menu supports exactly one -
+ * this only has to make the same event the header's other ways in already
+ * make.
+ */
+export function SurfaceMenuButton({
+  label,
+  onChrome = false,
+  className,
+}: {
+  label: string;
+  onChrome?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-haspopup="menu"
+      onKeyDown={(event) => {
+        // Otherwise Enter or Space bubbles to the header's own `opensOnKey`
+        // first, which reads `event.currentTarget` as the header rather than
+        // this button - opening the menu off-centre - and its own
+        // `preventDefault` swallows the key before the browser turns it into
+        // this button's own click, so `onClick` below never runs at all
+        // (found in review).
+        if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+      }}
+      onClick={(event) => {
+        // Otherwise this also reads, wrongly, as a click on the header
+        // beneath it - `opensOnActivate`'s own `detail` check already leaves
+        // a real click alone, but stopping here says so rather than relying
+        // on it.
+        event.stopPropagation();
+        opensCentredOn(event.currentTarget);
+      }}
+      className={menuButtonClassName(onChrome, className, 'ancestor')}
+    >
+      <MenuDots />
+    </button>
   );
 }
 
@@ -218,31 +301,37 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
  * workspace, dashboard or panel it names ("Change a workspace or a dashboard
  * on the tab it is", issue 267).
  *
- * **The tab or the panel is the trigger, so there is no control to add.** A
- * strip of tabs is the thing you use all day, and a three-dot button on every
- * one would be permanent chrome for something done a few times a month - and
- * it would have to fit beside the name in a strip that already scrolls. A
- * panel's header is under the pointer for a different reason: it is already
- * the handle you drag to move the panel, so right-click is a second word for
- * a target the header already is, rather than a second control competing
- * with the one that used to sit beside it. Either way, the surface opens its
- * own menu, the same ways in:
+ * **The tab is its own trigger, and carries no button.** A strip of tabs is
+ * the thing you use all day, and a three-dot button on every one would be
+ * permanent chrome for something done a few times a month - and it would
+ * have to fit beside the name in a strip that already scrolls. A dashboard
+ * or workspace tab opens its menu:
  *
- * - **a right-click**, anywhere on the tab or the header, which is what a
- *   pointer has;
+ * - **a right-click**, anywhere on the tab, which is what a pointer has;
  * - **a press on the tab you are already on**, which is what a finger has:
  *   that press has no other job, since you are looking at what it would
  *   switch to, and it is the only way in that needs no gesture at all
- *   (`opensOnPress`) - a panel has no "already open" state to repurpose this
- *   way, so it never passes one;
- * - **the keyboard's own menu key**, on whichever of the two is focused, which
- *   the browser turns into the same event a right-click makes, so the
- *   keyboard costs nothing to support.
+ *   (`opensOnPress`);
+ * - **the keyboard's own menu key**, on the focused tab, which the browser
+ *   turns into the same event a right-click makes, so the keyboard costs
+ *   nothing to support.
  *
- * (A long press may open it as well, which is Radix's own doing on a
+ * **A panel's header opens the same three ways, and also carries a visible
+ * button (`SurfaceMenuButton`).** The header is under the pointer for a
+ * different reason than a tab is: it is already the handle you drag to move
+ * the panel, so right-click and the menu key answer a target that is mostly
+ * asked to do something else - which is why this one surface earns the
+ * button the rest of the app already keeps off permanent chrome for
+ * ("Open a Panel's menu the way a tab opens its, not from a button", pull
+ * request 305, tried removing it; restored because it went unfound often
+ * enough to be worth the pixel back). A panel has no "already open" state to
+ * repurpose `opensOnPress`'s way, so it never passes one.
+ *
+ * (A long press may open either as well, which is Radix's own doing on a
  * touchscreen. A tab relies on it for nothing, since a press already opens
- * it; a panel has no such fallback, so on a touchscreen this is its only way
- * in, driven by `choosePanelAction`'s `holdPanelHeader`.)
+ * it; a panel's long press is what a touchscreen has left once its plain tap
+ * is spent on the drag, driven by `choosePanelAction`'s `holdPanelHeader` -
+ * the button is what a touchscreen actually reaches for.)
  *
  * **The menu is the row menu's, in a context menu's clothes.** Same entries,
  * same look, same rules about an entry that cannot be chosen: only the way it
@@ -361,9 +450,9 @@ export function opensOnPress(here: boolean) {
 
 /**
  * Fakes a context menu centred on `target`, the same trick `opensOnPress`
- * plays from a pointer's own coordinates - shared because `opensOnKey` and
- * `opensOnActivate` below both need it and neither has a pointer to read
- * coordinates off.
+ * plays from a pointer's own coordinates - shared because `opensOnKey`,
+ * `opensOnActivate` and `SurfaceMenuButton` above all need it and none of
+ * them has a pointer to read coordinates off.
  */
 function opensCentredOn(target: HTMLElement) {
   const box = target.getBoundingClientRect();
