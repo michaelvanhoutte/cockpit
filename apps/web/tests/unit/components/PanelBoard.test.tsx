@@ -42,6 +42,21 @@ const DASHBOARD: Dashboard = {
   name: 'Today',
 };
 
+/** A second dashboard of the same workspace, for the cases about moving a panel to one. */
+const RESEARCH: Dashboard = {
+  id: 'research',
+  tenantId: 'tenant',
+  workspaceId: 'ws-work',
+  name: 'Research',
+};
+
+const PERSONAL: Dashboard = {
+  id: 'personal',
+  tenantId: 'tenant',
+  workspaceId: 'ws-work',
+  name: 'Personal',
+};
+
 function aPanel(id: string, name: string): Panel {
   return {
     id,
@@ -149,6 +164,10 @@ function anItem(id: string, title: string): Item {
 
 function showBoard({
   panels = [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')],
+  // Just this one dashboard unless a case wants another to move to - most
+  // cases here are about drag-and-drop mechanics, not about moving a panel
+  // off the dashboard.
+  dashboards = [DASHBOARD] as Dashboard[],
   layouts = [] as Layout[],
   // Derived from the layouts unless a case wants its own - most cases here
   // are about drag-and-drop mechanics, not about which screen sizes an
@@ -169,6 +188,7 @@ function showBoard({
   pending = false,
 }: {
   panels?: Panel[];
+  dashboards?: Dashboard[];
   layouts?: Layout[];
   screenSizes?: ScreenSize[];
   items?: Item[];
@@ -198,6 +218,7 @@ function showBoard({
       <PanelBoard
         workspaceId="ws-work"
         dashboard={DASHBOARD}
+        dashboards={dashboards}
         panels={panels}
         layouts={layouts}
         screenSizes={screenSizes}
@@ -311,7 +332,22 @@ function dragTo(panelName: string, point: { x: number; y: number }, andDrop = tr
   fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
   layOut();
   fireEvent.pointerMove(handle, { pointerId: 1, clientX: point.x, clientY: point.y });
-  if (andDrop) fireEvent.pointerUp(handle, { pointerId: 1 });
+  // Where the drop lands, for a drop onto a dashboard tab to read - a real
+  // release happens wherever the last move left off.
+  if (andDrop) fireEvent.pointerUp(handle, { pointerId: 1, clientX: point.x, clientY: point.y });
+}
+
+/**
+ * A dashboard's tab, standing in for the one `DashboardBar` draws - which is
+ * not part of this board's own tree, so a drop onto it is read off a plain
+ * element carrying the same `data-dashboard-tab-id` (`panels/dashboardDrop.ts`).
+ */
+function aTabElement(dashboardId: string, rect: { left: number; right: number; top: number; bottom: number }) {
+  const tab = document.createElement('a');
+  tab.setAttribute('data-dashboard-tab-id', dashboardId);
+  tab.getBoundingClientRect = () => rect as DOMRect;
+  document.body.appendChild(tab);
+  return tab;
 }
 
 /** Where the pointer has to be to land in the slot before `panelName` on its row. */
@@ -416,6 +452,9 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  // `aTabElement` appends straight to `document.body`, outside anything RTL's
+  // own cleanup unmounts - so it is not there to leak into the next case.
+  document.querySelectorAll('[data-dashboard-tab-id]').forEach((tab) => tab.remove());
 });
 
 describe('Panels', () => {
@@ -643,10 +682,74 @@ describe('Panels', () => {
         openMenu('Project Falcon');
 
         expect(screen.queryByRole('menuitem', { name: new RegExp(`^${gone}`) })).toBeNull();
-        // And the count, so they cannot come back under other words: rename, delete.
-        expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+        // And the count, so they cannot come back under other words: rename,
+        // move to another dashboard, delete.
+        expect(screen.getAllByRole('menuitem')).toHaveLength(3);
       },
     );
+  });
+
+  describe('a panel moves to another dashboard from its own menu', () => {
+    it('says why it cannot be chosen on a workspace with no other dashboard', async () => {
+      showBoard({ dashboards: [DASHBOARD] });
+
+      openMenu('Project Falcon');
+
+      expect(
+        screen.getByRole('menuitem', {
+          name: 'Move to another dashboard: This workspace has no other dashboard',
+        }),
+      ).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('does nothing when chosen while unavailable', async () => {
+      const { user, mutate } = showBoard({ dashboards: [DASHBOARD] });
+
+      openMenu('Project Falcon');
+      await user.click(
+        await screen.findByRole('menuitem', {
+          name: 'Move to another dashboard: This workspace has no other dashboard',
+        }),
+      );
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('opens a picker listing the workspace’s other dashboards, in tab order', async () => {
+      const { user } = showBoard({ dashboards: [DASHBOARD, RESEARCH, PERSONAL] });
+
+      await choose(user, 'Project Falcon', 'Move to another dashboard');
+
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('button', { name: 'Research' })).toBeVisible();
+      expect(within(dialog).getByRole('button', { name: 'Personal' })).toBeVisible();
+      // The dashboard the panel is already on is never offered as somewhere
+      // to move it to.
+      expect(within(dialog).queryByRole('button', { name: 'Today' })).toBeNull();
+    });
+
+    it('sends the move, naming the panel and the dashboard picked', async () => {
+      const { user, mutate } = showBoard({ dashboards: [DASHBOARD, RESEARCH] });
+
+      await choose(user, 'Project Falcon', 'Move to another dashboard');
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Research' }));
+
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('move_panel_to_dashboard');
+      expect(asked.payload.panelId).toBe('falcon');
+      expect(asked.payload.dashboardId).toBe('research');
+    });
+
+    it('sends nothing when the picker is cancelled', async () => {
+      const { user, mutate } = showBoard({ dashboards: [DASHBOARD, RESEARCH] });
+
+      await choose(user, 'Project Falcon', 'Move to another dashboard');
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
   });
 
   describe('changing the arrangement changes the layout you are on, and asks nothing', () => {
@@ -986,6 +1089,49 @@ describe('Panels', () => {
       });
 
       dragTo('To read', slotBefore('reading'));
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('dropping a dragged panel on another dashboard’s tab moves it there', () => {
+    /** Off the board entirely - where a dashboard's own tab strip actually sits. */
+    const onTheTab = { x: 40, y: -400 };
+
+    it('sends the same move the picker would, rather than an arrangement', async () => {
+      const { mutate } = showBoard({
+        dashboards: [DASHBOARD, RESEARCH],
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      aTabElement('research', { left: 0, right: 80, top: -420, bottom: -380 });
+
+      dragTo('Project Falcon', onTheTab);
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('move_panel_to_dashboard');
+      expect(asked.payload.panelId).toBe('falcon');
+      expect(asked.payload.dashboardId).toBe('research');
+    });
+
+    it('changes nothing when dropped on the tab of the dashboard already open', async () => {
+      // Mirrors "a drag that ends where it started" (above): the drop is read
+      // as no target at all, since it is the dashboard already open - so what
+      // is left is a drag ending exactly where it started, on the board it
+      // never left.
+      const { mutate } = showBoard({
+        dashboards: [DASHBOARD, RESEARCH],
+        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+      });
+      const point = slotBefore('falcon');
+      aTabElement('today', {
+        left: point.x - 5,
+        right: point.x + 5,
+        top: point.y - 5,
+        bottom: point.y + 5,
+      });
+
+      dragTo('Project Falcon', point);
 
       expect(mutate).not.toHaveBeenCalled();
     });

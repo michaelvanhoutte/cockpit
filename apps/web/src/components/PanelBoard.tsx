@@ -19,9 +19,12 @@ import {
   withRowHeight,
   SAME_SCREEN_TOLERANCE,
 } from '../panels/arrangement';
+import { dashboardTabAt } from '../panels/dashboardDrop';
+import type { TabRect } from '../panels/dashboardDrop';
 import { DeleteQuestion } from './DeleteQuestion';
 import { arrangedWith, placementFor } from '../panels/dragging';
 import type { DrawnRow } from '../panels/dragging';
+import { MovePanelToDashboardPicker } from './MovePanelToDashboardPicker';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 
 /**
@@ -59,6 +62,7 @@ import { PANEL_GAP, PanelCard } from './PanelCard';
 export function PanelBoard({
   workspaceId,
   dashboard,
+  dashboards,
   panels,
   layouts,
   screenSizes,
@@ -67,6 +71,8 @@ export function PanelBoard({
 }: {
   workspaceId: string;
   dashboard: Dashboard;
+  /** Every dashboard of the workspace, in tab order - what "Move to another dashboard" offers. */
+  dashboards: readonly Dashboard[];
   panels: readonly Panel[];
   layouts: readonly Layout[];
   /** Every screen size the account has, whether or not this dashboard has defined one at it. */
@@ -114,6 +120,14 @@ export function PanelBoard({
   const sent = useRef<LayoutRow[] | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  /** The panel a "Move to another dashboard" picker is open for. */
+  const [movingPanel, setMovingPanel] = useState<string | null>(null);
+  /**
+   * Every dashboard the panel could move to: the workspace's, minus the one
+   * it is already on - in tab order, which is the order `dashboards` already
+   * arrives in ("a dashboard shows the panels put on it", repo.ts).
+   */
+  const otherDashboards = dashboards.filter((one) => one.id !== dashboard.id);
   /**
    * The drag: which panel is in the air, the arrangement it was picked up
    * from, and the arrangement dropping it here would produce.
@@ -199,6 +213,7 @@ export function PanelBoard({
    * closes itself instead of asking about a name nothing holds.
    */
   const beingDeleted = panels.find((panel) => panel.id === deleting);
+  const beingMoved = panels.find((panel) => panel.id === movingPanel);
 
   const refusal =
     command.error instanceof CommandRefused
@@ -214,7 +229,8 @@ export function PanelBoard({
       | 'delete_panel'
       | 'save_layout'
       | 'set_panel_read_only'
-      | 'set_panel_format',
+      | 'set_panel_format'
+      | 'move_panel_to_dashboard',
     id?: string,
   ) => {
     if (!refusal || command.variables?.name !== what) return null;
@@ -406,6 +422,7 @@ export function PanelBoard({
     command.reset();
     setRenaming(null);
     setDeleting(null);
+    setMovingPanel(null);
     const box = row.getBoundingClientRect();
     sizingFrom.current = {
       rowIndex,
@@ -491,6 +508,7 @@ export function PanelBoard({
     command.reset();
     setRenaming(null);
     setDeleting(null);
+    setMovingPanel(null);
     draggingNow.current = panelId;
     setDragging({ id: panelId, from: shown, preview: shown });
     // **After the drag has begun, and allowed to fail.** Capture is what keeps
@@ -530,12 +548,35 @@ export function PanelBoard({
     });
   };
 
-  /** Dropped. A drag that ends where it started asks for nothing. */
-  const letGo = () => {
-    const held = dragging;
+  /**
+   * Dropped. A drag that ends where it started asks for nothing - unless it
+   * ends on another dashboard's tab, which asks for a move instead of an
+   * arrangement ("Move a panel to another dashboard, from its menu or by
+   * dragging it onto a tab", issue 439). Checked before the arrangement below,
+   * so the panel is not also asked to rearrange the board it is leaving on
+   * its way out.
+   *
+   * **Guarded by the ref, checked and cleared first.** The pointer is
+   * captured on the board itself (`pickUp`), which is also listening for
+   * `pointerup` on `window` for a release outside it (below) - so a release
+   * *inside* the board reaches both listeners for the one event, and without
+   * this a single drop would ask for the move twice. The arrangement path
+   * below already happened to swallow a second call through `propose`'s own
+   * dedup against `sent.current`; the move does not have an equivalent, so a
+   * duplicate here would send two commands rather than silently repeat one.
+   */
+  const letGo = (point: { x: number; y: number }) => {
+    if (!draggingNow.current) return;
     draggingNow.current = null;
+    const held = dragging;
     setDragging(null);
-    if (!held || sameArrangement(held.preview, held.from)) return;
+    if (!held) return;
+    const droppedOnDashboard = dashboardTabAt(point, tabsOnScreen(), dashboard.id);
+    if (droppedOnDashboard) {
+      movePanelToDashboard(held.id, droppedOnDashboard);
+      return;
+    }
+    if (sameArrangement(held.preview, held.from)) return;
     propose(held.preview);
   };
 
@@ -562,11 +603,12 @@ export function PanelBoard({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') abandon();
     };
-    window.addEventListener('pointerup', letGo);
+    const onUp = (event: PointerEvent) => letGo({ x: event.clientX, y: event.clientY });
+    window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', abandon);
     window.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('pointerup', letGo);
+      window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', abandon);
       window.removeEventListener('keydown', onKey);
     };
@@ -677,6 +719,48 @@ export function PanelBoard({
     );
   };
 
+  /**
+   * Sends a panel to another dashboard - from the picker, or from a drag
+   * dropped on that dashboard's tab. The server puts it into every layout of
+   * the target itself and renames it if the target already has one going by
+   * its name (command-service.ts), so this asks nothing but where it is
+   * going.
+   */
+  const movePanelToDashboard = (panelId: string, targetDashboardId: string) => {
+    command.mutate(
+      {
+        name: 'move_panel_to_dashboard',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          panelId,
+          dashboardId: targetDashboardId,
+        },
+      },
+      { onSuccess: () => setMovingPanel(null) },
+    );
+  };
+
+  /**
+   * The dashboard tabs on the page right now, so a drop can ask which one the
+   * pointer let go over. Global rather than scoped to this board's own
+   * subtree, because the tabs are the shell's (`DashboardBar.tsx`) and this
+   * board's DOM does not contain them - the same reason `rowsOnScreen`
+   * measures the board's own rows off `data-panel-row` rather than off state.
+   */
+  const tabsOnScreen = (): TabRect[] =>
+    [...document.querySelectorAll<HTMLElement>('[data-dashboard-tab-id]')].map((tab) => {
+      const box = tab.getBoundingClientRect();
+      return {
+        dashboardId: tab.getAttribute('data-dashboard-tab-id') ?? '',
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+      };
+    });
+
   return (
     <div ref={measure} className="flex min-w-0 flex-col">
       {/* The name, for whoever is not looking at the screen. It used to be a
@@ -714,7 +798,7 @@ export function PanelBoard({
           onPointerMove={(event) => {
             dragTo({ x: event.clientX, y: event.clientY });
           }}
-          onPointerUp={letGo}
+          onPointerUp={(event) => letGo({ x: event.clientX, y: event.clientY })}
           // The browser taking it back - a touch that became a scroll, the
           // window losing focus. The panels go back where they were.
           onPointerCancel={abandon}
@@ -802,6 +886,7 @@ export function PanelBoard({
                           onStartRenaming={() => {
                             command.reset();
                             setDeleting(null);
+                            setMovingPanel(null);
                             setRenaming({ id: panel.id, name: panel.name });
                           }}
                           onRename={renamePanel}
@@ -812,8 +897,17 @@ export function PanelBoard({
                           onDelete={(openedFrom) => {
                             command.reset();
                             setRenaming(null);
+                            setMovingPanel(null);
                             askedFrom.current = openedFrom;
                             setDeleting(panel.id);
+                          }}
+                          canMoveToAnotherDashboard={otherDashboards.length > 0}
+                          onMoveToAnotherDashboard={(openedFrom) => {
+                            command.reset();
+                            setRenaming(null);
+                            setDeleting(null);
+                            askedFrom.current = openedFrom;
+                            setMovingPanel(panel.id);
                           }}
                           onReadOnlyChange={(readOnly) => setReadOnly(panel.id, readOnly)}
                           onFormatChange={(format) => setFormat(panel.id, format)}
@@ -823,7 +917,8 @@ export function PanelBoard({
                             refusalFor('rename_panel', panel.id) ??
                             refusalFor('delete_panel', panel.id) ??
                             refusalFor('set_panel_read_only', panel.id) ??
-                            refusalFor('set_panel_format', panel.id)
+                            refusalFor('set_panel_format', panel.id) ??
+                            refusalFor('move_panel_to_dashboard', panel.id)
                           }
                           busy={command.isPending}
                         />
@@ -869,6 +964,22 @@ export function PanelBoard({
             command.reset();
           }}
           onConfirm={() => deletePanel(beingDeleted.id)}
+        />
+      )}
+
+      {beingMoved && (
+        <MovePanelToDashboardPicker
+          open
+          panelName={beingMoved.name}
+          dashboards={otherDashboards}
+          refusal={refusalFor('move_panel_to_dashboard', beingMoved.id)}
+          busy={command.isPending}
+          returnFocusTo={askedFrom.current}
+          onCancel={() => {
+            setMovingPanel(null);
+            command.reset();
+          }}
+          onPick={(dashboardId) => movePanelToDashboard(beingMoved.id, dashboardId)}
         />
       )}
 

@@ -6,6 +6,7 @@ import {
   capture,
   choosePanelAction,
   dashboardBar,
+  dashboardTab,
   expect,
   expectNoSidewaysScroll,
   itemRow,
@@ -55,6 +56,21 @@ async function ownDashboard(page: Page, isMobile: boolean): Promise<string> {
   await expect(dashboardBar(page).getByRole('link', { name })).toBeVisible();
   await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible();
   await deletePanel(page, 'Panel 1', isMobile);
+  return name;
+}
+
+/**
+ * A second dashboard of the same workspace, leaving `here` the one on screen
+ * afterwards - what every walk about moving a panel *to* somewhere needs
+ * beside the one `ownDashboard` already makes.
+ */
+async function anotherDashboard(page: Page, here: string, isMobile: boolean): Promise<string> {
+  const name = uniqueTitle('Elsewhere');
+  await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+  await page.getByLabel('Name of the new dashboard').fill(name);
+  await page.getByLabel('Name of the new dashboard').press('Enter');
+  await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible();
+  await press(dashboardBar(page).getByRole('link', { name: here }), isMobile);
   return name;
 }
 
@@ -664,6 +680,69 @@ test.describe('Panels', () => {
       await expect.poll(() => rowsOnScreen(page)).toEqual([[first], [second]]);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+    });
+  });
+
+  test.describe('a panel moves to another dashboard from its own menu', () => {
+    /**
+     * "Move a panel to another dashboard, from its menu or by dragging it onto
+     * a tab" (issue 439). What the picker offers, and that a name collision is
+     * renamed rather than refused, are settled below jsdom's own layout engine
+     * in apps/web/tests/unit/components/PanelBoard.test.tsx and against a real
+     * store in apps/api/tests/integration/http/panels.test.ts; what only a
+     * browser can say is that choosing a dashboard really does take the panel
+     * off the one you were looking at and onto the one you picked.
+     */
+    test('takes it off the dashboard it was on, onto the one picked', async ({ page, isMobile }) => {
+      const here = await ownDashboard(page, isMobile);
+      const elsewhere = await anotherDashboard(page, here, isMobile);
+
+      const falcon = uniqueTitle('Project Falcon');
+      await addPanel(page, falcon, isMobile);
+
+      const moved = answerTo(page, 'move_panel_to_dashboard');
+      await choosePanelAction(page, falcon, 'Move to another dashboard', isMobile);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      await press(dialog.getByRole('button', { name: elsewhere }), isMobile);
+      expect((await moved).status()).toBe(200);
+
+      await expect(page.getByRole('region', { name: falcon })).toHaveCount(0);
+      await press(dashboardBar(page).getByRole('link', { name: elsewhere }), isMobile);
+      await expect(page.getByRole('region', { name: falcon })).toBeVisible();
+    });
+  });
+
+  test.describe('dropping a dragged panel on another dashboard’s tab moves it there', () => {
+    // Desktop only, the reason every other drag in this file is: a panel is
+    // moved with a pointer held down, which a finger spends on scrolling the
+    // page - moving there is the entry in the panel's own menu, walked above
+    // on both projects.
+    test.skip(({ isMobile }) => !!isMobile, 'dragging a panel is a pointer gesture');
+
+    test('moves it there, the same way the menu’s picker does', async ({ page, isMobile }) => {
+      const here = await ownDashboard(page, isMobile);
+      const elsewhere = await anotherDashboard(page, here, isMobile);
+
+      const falcon = uniqueTitle('Project Falcon');
+      await addPanel(page, falcon, isMobile);
+
+      const moved = answerTo(page, 'move_panel_to_dashboard');
+      // The header is the handle, the same gesture the within-dashboard drags
+      // above use - what is new here is where it is let go: on the other
+      // dashboard's own tab, drawn by a different part of the page than the
+      // board that captured the pointer.
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: falcon }).locator('header'))),
+      );
+      await page.mouse.down();
+      await page.mouse.move(...(await centreOf(dashboardTab(page, elsewhere))), { steps: 8 });
+      await page.mouse.up();
+      expect((await moved).status()).toBe(200);
+
+      await expect(page.getByRole('region', { name: falcon })).toHaveCount(0);
+      await press(dashboardBar(page).getByRole('link', { name: elsewhere }), isMobile);
+      await expect(page.getByRole('region', { name: falcon })).toBeVisible();
     });
   });
 
