@@ -347,8 +347,9 @@ export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[
  *   turns into the same event a right-click makes, so the keyboard costs
  *   nothing to support.
  *
- * **A panel's header opens the same three ways, and also carries a visible
- * button (`SurfaceMenuButton`).** The header is under the pointer for a
+ * **A panel's header opens two of those same three ways - right-click and
+ * the menu key, not a press on itself - and also carries a visible button
+ * (`SurfaceMenuButton`).** The header is under the pointer for a
  * different reason than a tab is: it is already the handle you drag to move
  * the panel, so right-click and the menu key answer a target that is mostly
  * asked to do something else - which is why this one surface earns the
