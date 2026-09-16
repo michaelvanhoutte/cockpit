@@ -66,6 +66,7 @@ import {
   getTextLearningRules,
   getWorkspace,
   itemsToRead,
+  itemsWithUnsettledTexts,
   judgeableItemsForAccount,
   listAssociationsForWorkspace,
   listDuplicatesInWorkspace,
@@ -409,6 +410,17 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     workspaceId: string,
   ): Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]> {
     return this.#answer(accountName, (db) => unfiledItemsInWorkspace(db, accountName, workspaceId));
+  }
+
+  /**
+   * Every item in the whole account with a captured note whose texts nobody
+   * has settled - what a correction re-proposes texts for ("Re-read the rest
+   * of the inbox the moment you fix a title", issue 399).
+   */
+  itemsWithUnsettledTexts(
+    accountName: string,
+  ): Answer<{ id: string; workspaceId: string; capturedMessage: string }[]> {
+    return this.#answer(accountName, (db) => itemsWithUnsettledTexts(db, accountName));
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

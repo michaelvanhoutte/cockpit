@@ -6,6 +6,7 @@ import {
   enrichmentJobSchema,
   readWhatANoteMeans,
   reproposePanels,
+  reproposeTexts,
   type EnrichmentJob,
 } from './enrichment.js';
 
@@ -14,15 +15,18 @@ export {
   enqueueCleanUp,
   enqueueReadingItsMeaning,
   enqueueRepropose,
+  enqueueReproposeTexts,
   enrichmentJobSchema,
   readWhatANoteMeans,
   reproposePanels,
+  reproposeTexts,
 } from './enrichment.js';
 export type {
   EnrichmentJob,
   CleanUpJob,
   ReadWhatItMeansJob,
   ReproposePanelsJob,
+  ReproposeTextsJob,
 } from './enrichment.js';
 export { CannotReadMeaningError, readWhatTheseNotesMean } from './backfill-meanings.js';
 export type { BatchRead } from './backfill-meanings.js';
@@ -89,16 +93,19 @@ async function resetTheGuestAccount(env: Env): Promise<void> {
  * message still decides its own outcome inside its own callback, which is what
  * keeps the acknowledgement per message rather than per batch.
  *
- * **A `re-propose-panels` message is deduplicated against its own batch
- * first.** Filing several items in quick succession queues one of these per
- * settle, but a refresh reads whatever is unsettled *when it runs* - so two
- * for the same account and Workspace landing in the same batch would redo
- * the identical read and write it twice for nothing new ("Re-propose the
- * rest of the inbox the moment you file one", issue 300, "several at once
- * should fire one refresh, not one per item"). `max_batch_timeout` is one
- * second (wrangler.jsonc) precisely so a burst of filings has a real chance
- * of landing in one batch; a second burst outside that window still gets its
- * own refresh, which is the honest limit rather than a bug.
+ * **A `re-propose-panels` or `re-propose-texts` message is deduplicated
+ * against its own batch first.** Filing several items, or correcting several
+ * titles, in quick succession queues one of these per settle or correction,
+ * but a refresh reads whatever is unsettled *when it runs* - so two for the
+ * same account (and, for panels, the same Workspace) landing in the same
+ * batch would redo the identical read and write it twice for nothing new
+ * ("Re-propose the rest of the inbox the moment you file one", issue 300,
+ * "several at once should fire one refresh, not one per item"; "Re-read the
+ * rest of the inbox the moment you fix a title", issue 399, which accepts
+ * the same property rather than debouncing it). `max_batch_timeout` is one
+ * second (wrangler.jsonc) precisely so a burst has a real chance of landing
+ * in one batch; a second burst outside that window still gets its own
+ * refresh, which is the honest limit rather than a bug.
  */
 export async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
   const messages = dedupeReproposals(batch.messages);
@@ -106,28 +113,53 @@ export async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promi
 }
 
 /**
- * Keeps the first `re-propose-panels` message per account-and-Workspace in
- * this batch, acknowledging the rest unread rather than letting them queue a
- * second, redundant refresh - every other kind passes through untouched.
- * Reads `message.body` loosely, ahead of `enrichmentJobSchema`'s own parse in
- * `workThrough`: a body this cannot make sense of is simply not deduplicated,
- * and reaches the real parse exactly as it would have otherwise.
+ * What makes two messages of a fan-out kind redundant, one entry per kind
+ * that fires "one of these per settle/correction" and is worth collapsing
+ * within a batch - `re-propose-panels` by account and Workspace,
+ * `re-propose-texts` by account alone. `undefined` for a body that doesn't
+ * carry the fields this kind needs, which `dedupeReproposals` reads as "not
+ * deduplicated" rather than a match. Every kind's key is prefixed with the
+ * kind itself, so two different kinds can never collide on one `Set`.
+ */
+// `Object.create(null)`, not `{}` - a message is a value from outside this
+// program (this file's own comment on `EnrichmentJob` above), and `kind` is
+// read off it loosely, ahead of the real parse. A plain object literal
+// answers a lookup for `"toString"`, `"constructor"` or any other
+// `Object.prototype` member with that member itself rather than `undefined`,
+// which the loop below would then try to call as this table's own function
+// shape - a prototype-less table is what makes an unrecognised `kind`,
+// pathological or not, answer `undefined` and nothing else.
+const DEDUPE_KEY_OF: Record<string, (body: Record<string, unknown>) => string | undefined> = Object.assign(
+  Object.create(null),
+  {
+    're-propose-panels': ({ accountName, workspaceId }: Record<string, unknown>) =>
+      typeof accountName === 'string' && typeof workspaceId === 'string'
+        ? `re-propose-panels:${accountName}:${workspaceId}`
+        : undefined,
+    're-propose-texts': ({ accountName }: Record<string, unknown>) =>
+      typeof accountName === 'string' ? `re-propose-texts:${accountName}` : undefined,
+  },
+);
+
+/**
+ * Keeps the first message per `DEDUPE_KEY_OF` key in this batch, acknowledging
+ * the rest unread rather than letting them queue a second, redundant refresh -
+ * every kind not listed in `DEDUPE_KEY_OF`, and a body `DEDUPE_KEY_OF` can't
+ * make a key from, passes through untouched. Reads `message.body` loosely,
+ * ahead of `enrichmentJobSchema`'s own parse in `workThrough`: a body this
+ * cannot make sense of is simply not deduplicated, and reaches the real parse
+ * exactly as it would have otherwise.
  */
 export function dedupeReproposals(messages: readonly Message<unknown>[]): Message<unknown>[] {
   const seen = new Set<string>();
   return messages.filter((message) => {
     const body = message.body;
-    if (
-      typeof body !== 'object' ||
-      body === null ||
-      (body as Record<string, unknown>).kind !== 're-propose-panels'
-    ) {
-      return true;
-    }
-    const { accountName, workspaceId } = body as Record<string, unknown>;
-    if (typeof accountName !== 'string' || typeof workspaceId !== 'string') return true;
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return true;
+    const kind = (body as Record<string, unknown>).kind;
+    const keyOf = typeof kind === 'string' ? DEDUPE_KEY_OF[kind] : undefined;
+    const key = keyOf?.(body as Record<string, unknown>);
+    if (key === undefined) return true;
 
-    const key = `${accountName}:${workspaceId}`;
     if (seen.has(key)) {
       message.ack();
       return false;
@@ -193,6 +225,8 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return reproposePanels(env, job);
     case 'read-what-a-note-means':
       return readWhatANoteMeans(env, job);
+    case 're-propose-texts':
+      return reproposeTexts(env, job);
   }
 }
 
@@ -204,5 +238,7 @@ function describe(job: EnrichmentJob): string {
       return `item ${job.itemId}`;
     case 're-propose-panels':
       return `workspace ${job.workspaceId}`;
+    case 're-propose-texts':
+      return `account ${job.accountName}`;
   }
 }

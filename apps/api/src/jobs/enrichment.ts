@@ -58,7 +58,7 @@ import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
  * is what a message from before a deploy is refused by rather than
  * misinterpreted.
  */
-export type EnrichmentJob = CleanUpJob | ReproposePanelsJob | ReadWhatItMeansJob;
+export type EnrichmentJob = CleanUpJob | ReproposePanelsJob | ReadWhatItMeansJob | ReproposeTextsJob;
 
 export interface CleanUpJob {
   kind: 'clean-up-a-note';
@@ -110,6 +110,27 @@ export interface ReadWhatItMeansJob {
   itemId: string;
 }
 
+/**
+ * Asks for every Item in the account still unsettled to have its title and
+ * description re-proposed, the way `CleanUpJob` first proposes them - fired
+ * once a correction is recorded, against corrections that now include it
+ * ("Re-read the rest of the inbox the moment you fix a title", issue 399).
+ *
+ * **The whole account, not one Workspace**, unlike `ReproposePanelsJob`
+ * beside it: how this person writes is a property of the account
+ * (`docs/text-learning.md`, "Scope: per account"), not of the Workspace the
+ * correcting Item happened to be in.
+ *
+ * **The account, not the Item that was corrected.** The one Item that just
+ * settled is what caused this, but it is not what this job is about - it is
+ * already settled, so it answers `itemsWithUnsettledTexts` itself and needs
+ * nothing further.
+ */
+export interface ReproposeTextsJob {
+  kind: 're-propose-texts';
+  accountName: string;
+}
+
 export const enrichmentJobSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('clean-up-a-note'),
@@ -128,6 +149,10 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     // client that created it generated (`commandEnvelopeSchema.workspaceId`,
     // packages/shared), and this is carried straight from there.
     workspaceId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('re-propose-texts'),
+    accountName: z.string().min(1),
   }),
 ]);
 
@@ -522,6 +547,149 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
 }
 
 /**
+ * Asks for a correction to have every still-unsettled Item in the account
+ * re-proposed, without making the edit that caused it wait for it ("Re-read
+ * the rest of the inbox the moment you fix a title", issue 399) - the same
+ * shape as `enqueueRepropose` above, and the same guard: an environment with
+ * no key queues nothing its consumer would only discard.
+ */
+export async function enqueueReproposeTexts(env: Env, accountName: string): Promise<void> {
+  if (!env.ANTHROPIC_API_KEY) return;
+
+  const job: EnrichmentJob = { kind: 're-propose-texts', accountName };
+  try {
+    await env.ENRICHMENT.send(job);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `a correction was recorded but account ${accountName} was not queued for a re-read: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
+}
+
+/**
+ * Runs one re-read: every Item in the account with a captured note whose
+ * texts nobody has settled gets its title and description proposed again,
+ * against the corrections and rules as they stand right now - which is what
+ * makes this worth firing on every correction rather than only when the
+ * Inbox is opened.
+ *
+ * **Only the two texts are written.** The model's own answer still names a
+ * Panel, `cleanUpNote` asking for nothing narrower, but only `title` and
+ * `description` are ever sent on here - a second opinion on routing nobody
+ * asked for would be `reproposePanels`'s own job, fired from a settled filing
+ * rather than from a correction.
+ *
+ * **Goes through `propose_item_texts`, never around it.** The same guard
+ * `cleanUpACapturedNote` writes through - `applyProposedTexts` refuses any
+ * Item whose `texts_settled_at` is set - is what stops this from overwriting
+ * an edit that landed after `itemsWithUnsettledTexts` was read: the query and
+ * this write are not atomic with each other, and a candidate settled in
+ * between is simply refused rather than clobbered.
+ *
+ * **One Item's failure does not cost the rest**, and this runs sequentially
+ * rather than in parallel, for the same two reasons `reproposePanels` beside
+ * it gives.
+ */
+export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<void> {
+  const ai = aiFor(env);
+  if (!ai) return sayForAccount(job.accountName, 'nothing was re-read: this environment has no ANTHROPIC_API_KEY');
+
+  let account;
+  try {
+    account = await openAccount(env, job.accountName);
+  } catch (error) {
+    if (error instanceof AccountNotInRegisterError) {
+      return sayForAccount(job.accountName, 'nothing was re-read: the account is no longer in the register');
+    }
+    throw error;
+  }
+
+  const candidates = await account.itemsWithUnsettledTexts();
+  if (candidates.length === 0) return sayForAccount(job.accountName, 'nothing was waiting to be re-read');
+
+  // Read once for the whole re-read, the same as `reproposePanels`: per
+  // account rather than per candidate, since it does not vary across them.
+  const { rules, corrections, stood, pinnedExamples } = await account.textLearningContext();
+
+  for (const candidate of candidates) {
+    try {
+      const panels = await panelsOrEmpty(account, candidate.workspaceId);
+      const { history, recentlyCaptured, correction } = await account.routingContext(
+        candidate.workspaceId,
+        candidate.id,
+      );
+      const read = await ai.cleanUpNote(
+        candidate.capturedMessage,
+        panels,
+        history,
+        recentlyCaptured,
+        correction,
+        corrections,
+        stood,
+        rules,
+        pinnedExamples,
+      );
+      if (!('proposal' in read)) {
+        say(candidate.id, `nothing was re-read: ${read.discarded}`);
+        continue;
+      }
+      let written;
+      try {
+        written = await account.applyChange('propose_item_texts', {
+          commandId: crypto.randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: candidate.workspaceId,
+          itemId: candidate.id,
+          title: read.proposal.title,
+          description: read.proposal.message,
+          readings: read.proposal.readings.map((reading) => ({
+            title: reading.title,
+            description: reading.message,
+            meaning: reading.meaning,
+          })),
+        });
+      } catch (error) {
+        // The candidate went between the read above and this write - the
+        // same not-worth-retrying race `cleanUpACapturedNote` names for the
+        // same write, arriving by the same door.
+        if (error instanceof NotFoundInAccountError) {
+          say(candidate.id, 'nothing was written: the item went while it was being re-read');
+          continue;
+        }
+        throw error;
+      }
+      say(
+        candidate.id,
+        written.applied ? `re-proposed in ${read.proposal.language}` : 'nothing was written: the texts are already edited',
+      );
+      // The two texts have just been replaced, so whatever was worked out
+      // about what this Item means is about words nobody can see any more
+      // ("Flag a captured note that says what another one already said",
+      // issue 407) - the same re-read `cleanUpACapturedNote` fires from the
+      // other door that rewrites an Item's texts, and only where the write
+      // actually landed, for the same reason.
+      if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, candidate.id);
+    } catch (error) {
+      // Worth trying again another time, but not worth losing the rest of
+      // this re-read over - the same reasoning `reproposePanels` gives.
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `item ${candidate.id} was not re-read: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        }),
+      );
+    }
+  }
+}
+
+/**
  * Asks for an Item's two texts to be read for what they mean, without making
  * whoever wrote them wait for it ("Flag a captured note that says what another
  * one already said", issue 407).
@@ -624,12 +792,22 @@ export async function readWhatANoteMeans(env: Env, job: ReadWhatItMeansJob): Pro
   );
 }
 
+/** One line in the logs, saying what happened and to which item/workspace/account. */
+function sayAbout(label: string, id: string, what: string): void {
+  console.info(JSON.stringify({ level: 'info', message: `${what} (${label} ${id})` }));
+}
+
 /** One line in the logs, saying which item and what happened to it. */
 function say(itemId: string, what: string): void {
-  console.info(JSON.stringify({ level: 'info', message: `${what} (item ${itemId})` }));
+  sayAbout('item', itemId, what);
 }
 
 /** One line in the logs, saying which workspace's refresh and what happened to it. */
 function sayForWorkspace(workspaceId: string, what: string): void {
-  console.info(JSON.stringify({ level: 'info', message: `${what} (workspace ${workspaceId})` }));
+  sayAbout('workspace', workspaceId, what);
+}
+
+/** One line in the logs, saying which account's re-read and what happened to it. */
+function sayForAccount(accountName: string, what: string): void {
+  sayAbout('account', accountName, what);
 }

@@ -1,5 +1,5 @@
 import { alias } from 'drizzle-orm/sqlite-core';
-import { and, asc, desc, eq, gt, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gt, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import type {
   Association,
@@ -821,6 +821,27 @@ export function textCorrectionsForAccount(db: AccountDb, tenantId: string): Text
     .all();
 }
 
+/**
+ * Whether a `text_corrections` row already exists for this Item - what tells
+ * `command-service.ts` apart "a later edit updates the row the true first
+ * edit created" from "the true first edit itself recorded nothing" (clearing
+ * a title, say), the one case its own `UPDATE ... WHERE` is a documented
+ * no-op for (`domain/text-corrections.ts`, `textCorrectionFor`'s own comment
+ * on "The proposal is frozen at your first edit"). Read only on that branch,
+ * so a correction command's answer reflects a row it actually touched rather
+ * than one `textCorrectionFor` merely found a difference to describe
+ * ("Re-read the rest of the inbox the moment you fix a title", issue 399).
+ */
+export function textCorrectionExistsFor(db: AccountDb, tenantId: string, itemId: string): boolean {
+  return (
+    db
+      .select({ itemId: textCorrections.itemId })
+      .from(textCorrections)
+      .where(and(eq(textCorrections.tenantId, tenantId), eq(textCorrections.itemId, itemId)))
+      .get() !== undefined
+  );
+}
+
 /** The columns a pinned example is read by, named for the reason `workspaceColumns` above is: shared between the list and the single-row reads so the two can never drift on which columns they carry. */
 const pinnedExampleColumns = {
   id: pinnedTextExamples.id,
@@ -1059,6 +1080,91 @@ export function unfiledItemsInWorkspace(
       capturedMessage: row.capturedMessage!,
       proposedPanelId: row.proposedPanelId,
     }));
+}
+
+/**
+ * Every item in the whole account with a captured note whose texts nobody has
+ * settled - the rest of the inbox a correction re-proposes texts for
+ * ("Re-read the rest of the inbox the moment you fix a title", issue 399).
+ *
+ * **The whole account, not one Workspace.** How this person writes is a
+ * property of the account, not of the Workspace a note happens to sit in
+ * (`docs/text-learning.md`, "Scope: per account") - unlike
+ * `unfiledItemsInWorkspace` beside it, which is scoped because *where* a note
+ * belongs is a Workspace question.
+ *
+ * **`texts_settled_at IS NULL` is the one filter `unfiledItemsInWorkspace`
+ * does not need.** A settled Item is exactly the one this correction just
+ * came from, or one a person already took over by hand - either way not a
+ * candidate for a fresh proposal, and this filter is what keeps both out
+ * without naming the correcting Item specially.
+ *
+ * **`inALiveWorkspace` is the other.** `unfiledItemsInWorkspace` is only ever
+ * asked about the Workspace a filing just settled in, live by construction at
+ * that moment - this query has no such caller-supplied liveness to lean on,
+ * being account-wide, so it states the check itself. Without it, an Item
+ * whose Workspace was later deleted would pass every other clause here and
+ * become a permanent candidate: nothing can ever settle its texts (no UI
+ * reaches it), so it would be re-read, and a model call spent on it, on every
+ * correction anywhere in the account for as long as the account exists.
+ */
+export function itemsWithUnsettledTexts(
+  db: AccountDb,
+  tenantId: string,
+): { id: string; workspaceId: string; capturedMessage: string }[] {
+  return db
+    .select({
+      id: items.id,
+      workspaceId: items.workspaceId,
+      capturedMessage: items.capturedMessage,
+    })
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
+        isNotNull(items.capturedMessage),
+        isNull(items.textsSettledAt),
+        notFiledOnALivePanel(db, tenantId),
+        inALiveWorkspace(db, tenantId),
+      ),
+    )
+    .orderBy(desc(items.createdAt))
+    .all()
+    .map((row) => ({
+      id: row.id,
+      workspaceId: row.workspaceId,
+      capturedMessage: row.capturedMessage!,
+    }));
+}
+
+/**
+ * Whether an Item's own Workspace still exists - `delete_workspace` tombstones
+ * only the Workspace row and leaves every Item pointing at it exactly where it
+ * was, the same fact `command-service.ts`'s own `liveDestinationPanel` states
+ * for a Panel's Workspace, so nothing else in `itemsWithUnsettledTexts` above
+ * excludes one on its own.
+ *
+ * **An undecided Item passes regardless.** `workspace_decided = false` is
+ * what shows an Item in every Workspace's Inbox at once ("Capture something
+ * before you know which workspace it belongs to", issue 165), so its own
+ * `workspace_id` is where it happened to be captured rather than where it is
+ * reachable from - the same reading `unfiledItemsInWorkspace`'s own `or(...)`
+ * clause already gives it.
+ */
+function inALiveWorkspace(db: AccountDb, tenantId: string) {
+  return or(
+    eq(items.workspaceDecided, false),
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(workspaces)
+        .where(
+          and(eq(workspaces.tenantId, tenantId), isNull(workspaces.deletedAt), eq(workspaces.id, items.workspaceId)),
+        ),
+    ),
+  );
 }
 
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {

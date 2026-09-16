@@ -45,6 +45,7 @@ import {
   listScreenSizes,
   listWorkspaces,
   settleDuplicate,
+  textCorrectionExistsFor,
 } from './repo.js';
 import { pairOf } from '../domain/duplicates.js';
 import {
@@ -524,6 +525,13 @@ export function runCommand<N extends CommandName>(
   // the same Item in between ("Re-propose the rest of the inbox the moment
   // you file one", issue 300).
   let settledRouting = false;
+  // Set only by `set_title`/`set_description`, and only where a
+  // `text_corrections` row was actually inserted or updated below - the same
+  // signal the HTTP layer needs to know a correction was genuinely recorded
+  // just now, read off this atomic call rather than by asking separately
+  // whether `textsProposedAt` was set before this write landed ("Re-read the
+  // rest of the inbox the moment you fix a title", issue 399).
+  let recordedCorrection = false;
 
   switch (name) {
     case 'create_workspace': {
@@ -1882,6 +1890,14 @@ export function runCommand<N extends CommandName>(
           (name === 'set_title' || name === 'set_description') && existing.textsProposedAt !== null
             ? textCorrectionFor(existing, updated, cmd.issuedAt)
             : null;
+        // Not simply `correction !== null`: where this is *not* the true
+        // first edit, the write below is a documented no-op unless the true
+        // first edit already created a row (see the `else` branch's own
+        // comment) - and a correction nothing was recorded for is nothing
+        // the re-read below has anything new to learn from.
+        recordedCorrection =
+          correction !== null &&
+          (existing.textsSettledAt === null || textCorrectionExistsFor(db, tenantId, correction.itemId));
         db.transaction((tx) => {
           tx.update(items)
             .set(updated)
@@ -1929,5 +1945,10 @@ export function runCommand<N extends CommandName>(
 
   // No explicit broadcast: SSE connections derive invalidations from the
   // command log itself (see events.ts for why in-memory fan-out can't work).
-  return settledRouting ? { ok: true, applied, settledRouting } : { ok: true, applied };
+  return {
+    ok: true,
+    applied,
+    ...(settledRouting ? { settledRouting } : {}),
+    ...(recordedCorrection ? { recordedCorrection } : {}),
+  };
 }
