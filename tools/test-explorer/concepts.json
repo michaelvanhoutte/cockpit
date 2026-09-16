@@ -165,6 +165,7 @@
         "apps/web/src/panels/dashboardDrop.ts",
         "apps/web/src/components/PanelBoard.tsx",
         "apps/web/src/components/PanelCard.tsx",
+        "apps/web/src/components/PanelAddItemForm.tsx",
         "apps/web/src/components/MovePanelToDashboardPicker.tsx",
         "apps/web/src/components/NameQuestion.tsx",
         "apps/web/src/components/DashboardBar.tsx",

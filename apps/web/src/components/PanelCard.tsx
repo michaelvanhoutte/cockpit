@@ -1,6 +1,7 @@
 import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
+import { PanelAddItemForm } from './PanelAddItemForm';
 import { PanelText } from '../panels/PanelText';
 import { SurfaceMenu, opensOnKey, opensOnActivate } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
@@ -413,13 +414,16 @@ export function PanelCard({
         {text ? (
           <PanelText panel={panel} workspaceId={workspaceId} />
         ) : (
-          <ItemList
-            workspaceId={workspaceId}
-            items={items}
-            openDashboardId={panel.dashboardId}
-            panelId={panel.id}
-            emptyMessage={nothingFiledYet ? NOTHING_FILED_HERE_YET_AND_HOW : NOTHING_FILED_HERE}
-          />
+          <>
+            <PanelAddItemForm workspaceId={workspaceId} panelId={panel.id} />
+            <ItemList
+              workspaceId={workspaceId}
+              items={items}
+              openDashboardId={panel.dashboardId}
+              panelId={panel.id}
+              emptyMessage={nothingFiledYet ? NOTHING_FILED_HERE_YET_AND_HOW : NOTHING_FILED_HERE}
+            />
+          </>
         )}
       </div>
 
