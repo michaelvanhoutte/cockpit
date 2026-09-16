@@ -105,11 +105,13 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 ## 11. Sources to connect
 
 - **Incoming invoices.** Show the invoices coming in to me.
+- **Read, respond and flag from the Inbox.** *(Design decided, not built, and meaningless until a connector exists.)* Once an Item comes from a real source, its content should be readable in the app, and where the source supports it, reactable or repliable to from here — otherwise a deep link takes you to it. Flagging an Item for follow-up would make it a tracked follow-up on the dashboards, exactly as if it had been flagged at the source.
 - **Connections, configured per Workspace.** *(Design decided, not built: the connector registry is empty, for every source including Gmail, Slack and Notion.)* Each Workspace declares which accounts it pulls from (*Work* uses work Gmail + company Slack + work Notion; *Personal* uses personal Gmail), which is both the privacy boundary and the source filter. **v1:** Gmail, Slack, Notion — only explicitly marked items at first, widening to the full stream later. **Later:** Linear and Google Calendar, then Chrome bookmarks/downloads and YouTube saved videos. Each connector authenticates via OAuth, pulls new items on a schedule or push, normalizes them into the Item model, and — where two-way sync is enabled — pushes status changes back. Feasibility reference: [integration-options.html](integration-options.html) (as of Aug 2026) rates 15 candidate sources: nine integrate cleanly through official APIs or open protocols (Gmail, Telenet IMAP, the three Slack flavors, Microsoft Teams, Google Tasks, Google Calendar, Billit), three are partial (Signal via signal-cli, Notion mentions via polling, with Notion action items the clean exception), and three have no official read path (personal WhatsApp, LinkedIn InMail and connection requests, where the only workarounds violate the platforms' terms). Reverify the restricted platforms before committing to a build.
 
 ## 12. Associations
 
 - **People, Project and Topic/Area associations.** *(Design decided, not built: the schema exists — `associationSchema` in `packages/shared/src/domain/item.ts` — but there is no view yet that adds, shows or filters by one.)* An Item carries any number of Associations, many-to-many, so one message can appear in a *Project Falcon* view and an *Anna* view without being duplicated or moved. A Panel able to query by association is the missing half.
+- **Associate it, from the Inbox.** *(Design decided, not built, and depends on the view above existing.)* Every Item's own menu would carry a way to tag it to a Person, Project and/or Topic, which is what puts it in the right panels.
 
 ## 13. Focus horizons and deadline colors
 
