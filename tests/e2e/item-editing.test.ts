@@ -275,7 +275,9 @@ test.describe('Item editing', () => {
         buffer: Buffer.from('just words'),
       });
       await expect(form(page).getByRole('alert')).toHaveText(/not a kind of file Cockpit accepts/);
-      await expect(form(page).getByText('notes.txt')).toHaveCount(0);
+      // A chip, not any text on the form: the refusal itself names the file,
+      // which `getByText` would otherwise also match.
+      await expect(form(page).getByRole('link', { name: 'notes.txt' })).toHaveCount(0);
 
       await attachmentInput(page).setInputFiles({
         name: 'huge.png',
@@ -283,7 +285,7 @@ test.describe('Item editing', () => {
         buffer: Buffer.alloc(MAX_ATTACHMENT_SIZE + 1),
       });
       await expect(form(page).getByRole('alert')).toHaveText(/over the/);
-      await expect(form(page).getByText('huge.png')).toHaveCount(0);
+      await expect(form(page).getByRole('link', { name: 'huge.png' })).toHaveCount(0);
     });
 
     test('removing one takes it off the item for good, and a second Save does not bring it back', async ({

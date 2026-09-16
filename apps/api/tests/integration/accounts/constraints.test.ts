@@ -367,8 +367,8 @@ describe('Associations', () => {
   });
 });
 
-describe('Attachments', () => {
-  describe('always points at an item that exists', () => {
+describe('Item editing', () => {
+  describe('an attachment always points at an item that exists', () => {
     it('is stored when the item was captured', async () => {
       const itemId = nextId();
       await fileItem({ id: itemId });
