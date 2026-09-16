@@ -23,6 +23,15 @@ export interface EmbeddingService {
    * the queue retries (`jobs/enrichment.ts`).
    */
   readMeaning(text: string): Promise<number[]>;
+
+  /**
+   * What several texts mean, in the order given - one call rather than one per
+   * text, for a caller reading many at once ("Give every item already there a
+   * vector", issue 409). `readMeaning` stays the one every other caller uses;
+   * this exists because a backfill's batch is exactly the shape Workers AI
+   * itself takes many texts in one request.
+   */
+  readMeanings(texts: readonly string[]): Promise<number[][]>;
 }
 
 /**
@@ -83,12 +92,16 @@ export class WorkersAiEmbeddingService implements EmbeddingService {
   }
 
   async readMeaning(text: string): Promise<number[]> {
-    const answer = await this.#ai.run(EMBEDDING_MODEL, { text: [text] });
+    return (await this.readMeanings([text]))[0]!;
+  }
+
+  async readMeanings(texts: readonly string[]): Promise<number[][]> {
+    const answer = await this.#ai.run(EMBEDDING_MODEL, { text: [...texts] });
     const read = embeddingAnswerSchema.safeParse(answer);
-    if (!read.success) {
+    if (!read.success || read.data.data.length !== texts.length) {
       throw new Error(`${EMBEDDING_MODEL} answered with something that is not a reading`);
     }
-    return read.data.data[0]!;
+    return read.data.data;
   }
 }
 
@@ -130,6 +143,10 @@ export function asFarAsItReads(text: string): string {
 export class StandInEmbeddingService implements EmbeddingService {
   async readMeaning(text: string): Promise<number[]> {
     return standInReading(text);
+  }
+
+  async readMeanings(texts: readonly string[]): Promise<number[][]> {
+    return texts.map(standInReading);
   }
 }
 

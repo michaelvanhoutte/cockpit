@@ -1,5 +1,5 @@
 import { alias } from 'drizzle-orm/sqlite-core';
-import { and, asc, desc, eq, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import type {
   Association,
@@ -1194,7 +1194,7 @@ export function getItemType(db: AccountDb, tenantId: string, typeId: string): It
  * The database, or one of its transactions - what `db.transaction` hands its
  * callback, which is not the database itself.
  *
- * Only the four below take it. Everything above this line is either read
+ * Only the functions below take it. Everything above this line is either read
  * outside a transaction or written by `command-service.ts`, which has its own
  * name for the same type; these are the reads and writes a single store
  * operation does together (`rememberWhatAnItemMeans`, store.ts).
@@ -1364,16 +1364,87 @@ export function meaningsToCompareWith(
   itemId: string,
   model: string,
 ): { itemId: string; reading: number[] }[] {
+  return everyMeaning(db, tenantId, model).filter((other) => other.itemId !== itemId);
+}
+
+/**
+ * Every reading this account holds from one model - what a whole batch of new
+ * readings is compared against, read once rather than once per Item ("Give every
+ * item already there a vector", issue 409).
+ *
+ * **One read per batch is the whole reason this exists.** The pairing is every
+ * reading against every other, so asking the store for the set again per Item
+ * makes a backfill over an account quadratic in its rows - which on an account
+ * of a few thousand notes is megabytes of JSON parsed thousands of times, inside
+ * one call.
+ */
+export function everyMeaning(
+  db: InTheStore,
+  tenantId: string,
+  model: string,
+): { itemId: string; reading: number[] }[] {
   return db
     .select({ itemId: itemMeanings.itemId, reading: itemMeanings.reading })
     .from(itemMeanings)
+    .where(and(eq(itemMeanings.tenantId, tenantId), eq(itemMeanings.model, model)))
+    .all();
+}
+
+/**
+ * The open Items of this account that nothing has read yet, oldest id first,
+ * from `after` onwards - what `pnpm duplicates:backfill` walks ("Give every item
+ * already there a vector", issue 409).
+ *
+ * **"Nothing has read yet" is three states, not one**: no row at all, a row from
+ * another model - which the pairing cannot compare against anything and so is no
+ * reading at all (`everyMeaning` above filters on the model) - and a row emptied
+ * because the Item's two texts were (`forgetMeaning` above), which is a reading
+ * pointing nowhere. A note whose texts came back after being emptied is repaired
+ * by the third.
+ *
+ * **Finished with and dismissed are left out here, unlike `everyMeaning`.** This
+ * is choosing what to spend a model call on rather than what to compare, and a
+ * note nothing can draw a mark on is the one case the job that reads a captured
+ * note declines too (`readWhatANoteMeans`, jobs/enrichment.ts).
+ *
+ * **By id rather than by an offset**, because the run walks this in batches
+ * across several calls while writing the rows it just read: an offset would
+ * skip whatever the previous batch removed from the answer, and an Item with
+ * nothing written on it stays in the answer for ever - so a walk that restarted
+ * at the beginning each time would never get past the first batch of them.
+ */
+export function itemsToRead(
+  db: AccountDb,
+  tenantId: string,
+  model: string,
+  after: string | null,
+  limit: number,
+): { id: string; title: string; description: string | null }[] {
+  const nothingHasReadIt = notExists(
+    db
+      .select({ one: sql`1` })
+      .from(itemMeanings)
+      .where(
+        and(
+          eq(itemMeanings.tenantId, tenantId),
+          eq(itemMeanings.itemId, items.id),
+          eq(itemMeanings.model, model),
+          ne(itemMeanings.reading, []),
+        ),
+      ),
+  );
+  return db
+    .select({ id: items.id, title: items.title, description: items.description })
+    .from(items)
     .where(
       and(
-        eq(itemMeanings.tenantId, tenantId),
-        eq(itemMeanings.model, model),
-        ne(itemMeanings.itemId, itemId),
+        couldStillBeActedOn(items, tenantId),
+        after === null ? undefined : gt(items.id, after),
+        nothingHasReadIt,
       ),
     )
+    .orderBy(asc(items.id))
+    .limit(limit)
     .all();
 }
 

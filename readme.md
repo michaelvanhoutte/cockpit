@@ -116,6 +116,15 @@ The shared guest account goes back to its demonstration every night; this does i
 pnpm guest:reset --env production
 ```
 
+Duplicate flagging only ever sees notes captured since it shipped; this reads the ones that were already in the Inbox, so a duplicate can be caught among those too:
+
+```bash
+pnpm duplicates:backfill --env local
+pnpm duplicates:backfill --env production --user tenant-anna --stop-after 500
+```
+
+**It never writes to a note itself** — only what a note means and which notes repeat each other — so a run that stops has done part of the work and destroyed none of it, and running it again finishes the rest at no cost for what was already read. What that costs you, the flags, and how it is paced across days is in [docs/deployment.md](docs/deployment.md), under "Migrations and rollback". Read it before pointing this at anything but `local`.
+
 ### Tidying up branches
 
 ```bash

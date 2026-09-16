@@ -126,6 +126,31 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * two texts have been emptied and which now says nothing to compare.
    */
   forgetWhatAnItemMeans(accountName: string, itemId: string): Awaitable<Answer<null>>;
+  /**
+   * One batch of the open Items nothing has read yet, from `after` onwards -
+   * what `pnpm duplicates:backfill` walks ("Give every item already there a
+   * vector", issue 409). Read by the operator's route and by nothing else.
+   */
+  itemsToRead(
+    accountName: string,
+    model: string,
+    after: string | null,
+    limit: number,
+  ): Awaitable<Answer<{ id: string; title: string; description: string | null }[]>>;
+  /**
+   * Writes what a batch of Items mean and works out which of this account's
+   * Items say the same thing ("Give every item already there a vector", issue
+   * 409). Written by the operator's route and by nothing else.
+   *
+   * Answers which of them were written: one gone, finished with or dismissed
+   * since its reading was asked for is left out rather than refused, for the
+   * reason `rememberWhatAnItemMeans` above answers plainly.
+   */
+  rememberWhatTheseItemsMean(
+    accountName: string,
+    model: string,
+    readings: readonly { itemId: string; reading: number[] }[],
+  ): Awaitable<Answer<{ remembered: string[] }>>;
   changesSince(
     accountName: string,
     since: string,

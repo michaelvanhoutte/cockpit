@@ -48,7 +48,13 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
-import { enqueueCleanUp, enqueueReadingItsMeaning, enqueueRepropose } from '../jobs/index.js';
+import {
+  CannotReadMeaningError,
+  enqueueCleanUp,
+  enqueueReadingItsMeaning,
+  enqueueRepropose,
+  readWhatTheseNotesMean,
+} from '../jobs/index.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -856,6 +862,28 @@ async function readJsonBody(c: Context): Promise<unknown> {
   }
 }
 
+/**
+ * How many Items one call of the backfill may read ("Give every item already
+ * there a vector", issue 409).
+ *
+ * **Bounded, and low.** Every reading in a batch is a call to the model, made
+ * before any of them is written, so the batch is both what a single request can
+ * spend and what an interrupted one can lose. The command asks again from where
+ * the last answer stopped, so a small batch costs an extra query rather than an
+ * extra reading.
+ */
+const LARGEST_BATCH = 100;
+const BATCH_BY_DEFAULT = 25;
+
+/** The batch a call asked for, or that what it asked for is not one. */
+function batchSize(asked: string | undefined): number | 'not a batch size' {
+  if (asked === undefined || asked === '') return BATCH_BY_DEFAULT;
+  if (!/^\d+$/.test(asked)) return 'not a batch size';
+  const wanted = Number(asked);
+  if (wanted < 1 || wanted > LARGEST_BATCH) return 'not a batch size';
+  return wanted;
+}
+
 // --- route registration ------------------------------------------------------
 // Chained so the exported AppType gives the web client end-to-end inference.
 
@@ -1436,6 +1464,49 @@ const routes = app
       const why = error instanceof Error ? error.message : String(error);
       console.error(JSON.stringify({ level: 'error', message: `the guest account was not reset: ${why}` }));
       return c.json({ error: `the guest account was not reset, and holds what it held: ${why}` }, 500);
+    }
+  })
+  // Reading the notes that were already in the Inbox when duplicate flagging
+  // shipped ("Give every item already there a vector", issue 409). Two routes,
+  // the same shape as the backup pair above and for a second reason: one batch
+  // per call is what bounds the work a single request does, so the command can
+  // say how far it got and carry on from there.
+  //
+  // **The guest account is left off this list.** It is dropped and reseeded
+  // every night (`resetGuestAccount`), so nothing a run reads there survives
+  // to the next one - every unnamed run would read it again for good, against
+  // the very pacing this command exists to respect. Naming it with `--user`
+  // still reaches it; nothing about the route refuses that.
+  .get('/v1/operator/duplicates/accounts', async (c) => {
+    const accounts = await registeredAccountNames(c.env);
+    return c.json({ accounts: accounts.filter((name) => name !== GUEST_ACCOUNT_NAME) }, 200);
+  })
+  .post('/v1/operator/duplicates/accounts/:name', async (c) => {
+    const accountName = c.req.param('name');
+    const limit = batchSize(c.req.query('batch'));
+    if (limit === 'not a batch size') {
+      return c.json({ error: `a batch is a whole number of items, 1 to ${LARGEST_BATCH}` }, 400);
+    }
+    // Empty and absent are the same thing - the start of the walk - because a
+    // command that builds a query string from a cursor it has not got yet sends
+    // the one rather than omitting the other.
+    const after = c.req.query('after') || null;
+    try {
+      return c.json({ account: accountName, ...(await readWhatTheseNotesMean(c.env, accountName, { after, limit })) }, 200);
+    } catch (error) {
+      // The caller typed the name, so saying which one was wrong is the useful
+      // answer - the same reason the backup route above answers 404 rather than
+      // letting `onError` call it a 500.
+      if (error instanceof AccountNotInRegisterError) {
+        return c.json({ error: `no account ${accountName}` }, 404);
+      }
+      // Nothing was written. The request is well formed and it is the
+      // environment that cannot answer it, which is the operator's to fix - by
+      // pointing this at one with the AI binding, or by giving this one it.
+      if (error instanceof CannotReadMeaningError) {
+        return c.json({ error: error.message }, 409);
+      }
+      throw error;
     }
   });
 

@@ -12,13 +12,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import {
-  needsSayingOutLoud,
-  putBack,
-  readArguments,
-  readBackup,
-  readRefusal,
-} from './restore.mjs';
+import { putBack, readArguments, readBackup, readRefusal } from './restore.mjs';
+import { needsSayingOutLoud } from './operator.mjs';
 
 const AT = '2026-09-06T09:00:00.000Z';
 

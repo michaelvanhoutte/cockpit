@@ -24,6 +24,8 @@ export type {
   ReadWhatItMeansJob,
   ReproposePanelsJob,
 } from './enrichment.js';
+export { CannotReadMeaningError, readWhatTheseNotesMean } from './backfill-meanings.js';
+export type { BatchRead } from './backfill-meanings.js';
 
 /**
  * Background jobs (architecture, "Background jobs"): plain functions calling

@@ -59,11 +59,13 @@ import {
 } from './command-service.js';
 import {
   decisionHistoryForWorkspace,
+  everyMeaning,
   forgetMeaning,
   getItem,
   getRoutingSummary,
   getTextLearningRules,
   getWorkspace,
+  itemsToRead,
   judgeableItemsForAccount,
   listAssociationsForWorkspace,
   listDuplicatesInWorkspace,
@@ -83,7 +85,7 @@ import {
   textCorrectionsForAccount,
   unfiledItemsInWorkspace,
 } from './repo.js';
-import { pairOf, saidAgainBy } from '../domain/duplicates.js';
+import { couldStillBeActedOn, pairOf, saidAgainBy } from '../domain/duplicates.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import {
@@ -195,6 +197,84 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         );
       });
       return 'remembered' as const;
+    });
+  }
+
+  /**
+   * The open Items nothing has read yet, from `after` onwards - one batch of
+   * what `pnpm duplicates:backfill` walks ("Give every item already there a
+   * vector", issue 409).
+   *
+   * Their two texts come back with them, so deciding whether there is anything
+   * to read is the caller's and stays where the rule lives (`whatAnItemSays`,
+   * domain/duplicates.ts) rather than being a second spelling of it in SQL.
+   */
+  itemsToRead(
+    accountName: string,
+    model: string,
+    after: string | null,
+    limit: number,
+  ): Answer<{ id: string; title: string; description: string | null }[]> {
+    return this.#answer(accountName, (db) => itemsToRead(db, accountName, model, after, limit));
+  }
+
+  /**
+   * Writes what a batch of Items mean, and works out which of this account's
+   * Items say the same thing ("Give every item already there a vector", issue
+   * 409).
+   *
+   * **The batch's readings go in before any of them is paired**, so two notes
+   * read in the same batch find each other - and every reading this account
+   * holds is read once for the whole batch rather than once per Item, which is
+   * what keeps a backfill over a few thousand notes from being quadratic
+   * (`everyMeaning`, repo.ts).
+   *
+   * **Pairs are worked out from the readings rather than carried in**, which is
+   * what makes a reading whose pairs were never written repair itself: the next
+   * reading that matches it writes the pair from both readings, without either
+   * note being read again.
+   *
+   * **One transaction for the batch**, so a run that stops leaves whole batches
+   * behind it and never an Item carrying a meaning nothing was compared against.
+   *
+   * Answers which Items were written. One that has gone, or been finished with
+   * or dismissed, since the reading was asked for is left out rather than
+   * refused - the ordinary case for a batch read a moment ago, exactly as
+   * `rememberWhatAnItemMeans` above answers for one.
+   */
+  rememberWhatTheseItemsMean(
+    accountName: string,
+    model: string,
+    readings: readonly { itemId: string; reading: number[] }[],
+  ): Answer<{ remembered: string[] }> {
+    return this.#answer(accountName, (db) => {
+      const stillThere = readings.filter((one) => {
+        const item = getItem(db, accountName, one.itemId);
+        return item !== null && couldStillBeActedOn(item);
+      });
+      if (stillThere.length === 0) return { remembered: [] };
+
+      const at = new Date().toISOString();
+      db.transaction((tx) => {
+        for (const one of stillThere) {
+          rememberMeaning(tx, accountName, one.itemId, model, one.reading, at);
+        }
+        const held = everyMeaning(tx, accountName, model);
+        for (const one of stillThere) {
+          const same = saidAgainBy(
+            one.reading,
+            held.filter((other) => other.itemId !== one.itemId),
+          );
+          replaceDuplicatesOf(
+            tx,
+            accountName,
+            one.itemId,
+            same.map((other) => ({ ...pairOf(one.itemId, other.itemId), howAlike: other.howAlike })),
+            at,
+          );
+        }
+      });
+      return { remembered: stillThere.map((one) => one.itemId) };
     });
   }
 

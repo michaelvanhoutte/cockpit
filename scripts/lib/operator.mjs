@@ -1,13 +1,12 @@
 //
-// What `pnpm backup:export` and `pnpm backup:restore` both need: reading the
-// flags they were given, and turning an answer that is not a 200 into a
-// sentence somebody can act on.
+// What every operator command needs: reading the flags it was given, and
+// turning an answer that is not a 200 into a sentence somebody can act on.
 //
-// Written once because the two commands are one pair. The refusals are
-// identical - an unknown flag, a flag with nothing after it, a flag given twice
+// Written once because the refusals are identical across every command that
+// uses it - an unknown flag, a flag with nothing after it, a flag given twice
 // - and so is the long 401, which names where the secret is set and what the
-// command reads it from; two copies of that is two places to find the day it
-// changes.
+// command reads it from; a copy per command is a copy per command to find the
+// day it changes.
 //
 
 /**
@@ -27,6 +26,19 @@ export function readEnvironment(name) {
     throw new Error(`no environment ${name} - it is one of ${ENVIRONMENTS.join(', ')}`);
   }
   return name;
+}
+
+/**
+ * Whether a target may be written to without being named out loud first.
+ *
+ * **Only the one running here.** Both deployed environments hold real data
+ * nothing re-seeds or wipes (docs/deployment.md, "The environments"), so typing
+ * the name is a small price against the run that was meant for a local
+ * checkout. Shared by every command that writes, so a command added later
+ * cannot quietly disagree about which environments are real.
+ */
+export function needsSayingOutLoud(environment) {
+  return environment !== 'local';
 }
 
 /**

@@ -25,6 +25,7 @@
     "backup:export": "node scripts/backup-export.mjs",
     "backup:restore": "node scripts/backup-restore.mjs",
     "guest:reset": "node scripts/guest-reset.mjs",
+    "duplicates:backfill": "node scripts/duplicates-backfill.mjs",
     "bundle:budget": "node scripts/bundle-budget.mjs",
     "branches:tidy": "node scripts/tidy-branches.mjs",
     "cost:issue": "node scripts/issue-cost.mjs"
