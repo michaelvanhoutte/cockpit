@@ -14,9 +14,12 @@ import { needsSayingOutLoud } from './operator.mjs';
  * An environment holding the accounts named, each with the batches it would
  * answer in turn - so a case says what the walk meets rather than how it asks.
  *
- * `breaks` names the account whose Nth batch stops answering, counting from 1.
+ * `breaks` names the account whose Nth batch stops answering, counting from
+ * 1. `registered` is every account the route itself would accept - `accounts`
+ * by default, but named separately for the one case they differ: the listing
+ * leaves the guest account out while the route still answers for it.
  */
-function environmentWith({ accounts, batches = {}, breaks = {} }) {
+function environmentWith({ accounts, registered = accounts, batches = {}, breaks = {} }) {
   const asked = [];
   const asksPer = {};
   const left = Object.fromEntries(Object.entries(batches).map(([name, all]) => [name, [...all]]));
@@ -26,6 +29,9 @@ function environmentWith({ accounts, batches = {}, breaks = {} }) {
       asked.push(path);
       if (path === ACCOUNTS_PATH) return { accounts };
       const account = decodeURIComponent(path.slice(`${ACCOUNTS_PATH}/`.length).split('?')[0]);
+      // The route itself, resolving the name through the register - what a
+      // named `--user` meets when it is not one the environment holds.
+      if (!registered.includes(account)) throw new Error(`refused: no account ${account}`);
       asksPer[account] = (asksPer[account] ?? 0) + 1;
       if (breaks[account] === asksPer[account]) throw new Error(`nothing answered for ${account}`);
       const next = left[account]?.shift();
@@ -130,18 +136,35 @@ describe('a run walks every account to the end, from the environment’s own lis
     ]);
   });
 
-  it('reads one account where it was given one, and refuses a name the environment has not got', async () => {
+  it('reads one account where it was given one, asking the route directly rather than checking the listing first', async () => {
     const environment = environmentWith({ accounts: ['tenant-a', 'tenant-b'] });
 
     const done = await backfill({ ask: environment.ask, only: 'tenant-b' });
+
     assert.deepEqual(
       done.accounts.map((one) => one.account),
       ['tenant-b'],
     );
+    // The listing was never asked for - naming one is enough on its own.
+    assert.deepEqual(environment.asked, [`${ACCOUNTS_PATH}/tenant-b`]);
+  });
 
-    await assert.rejects(
-      backfill({ ask: environment.ask, only: 'tenant-c' }),
-      /no account tenant-c in this environment - it holds tenant-a, tenant-b/,
+  it('refuses a name the environment has not got, from the route rather than a listing checked beforehand', async () => {
+    const environment = environmentWith({ accounts: ['tenant-a', 'tenant-b'] });
+
+    await assert.rejects(backfill({ ask: environment.ask, only: 'tenant-c' }), /no account tenant-c/);
+  });
+
+  it('reaches an account the listing leaves out, when it is named directly', async () => {
+    // The listing excludes the guest account (`app.ts`); naming it is still
+    // the one way to spend a reading there.
+    const environment = environmentWith({ accounts: ['tenant-a'], registered: ['tenant-a', 'tenant-guest'] });
+
+    const done = await backfill({ ask: environment.ask, only: 'tenant-guest' });
+
+    assert.deepEqual(
+      done.accounts.map((one) => one.account),
+      ['tenant-guest'],
     );
   });
 
@@ -212,13 +235,10 @@ describe('naming one account is refused rather than quietly reading every accoun
   it('refuses an empty --user rather than reading every account in the environment', async () => {
     const environment = environmentWith({ accounts: ['tenant-a', 'tenant-b'] });
 
-    await assert.rejects(
-      backfill({ ask: environment.ask, only: '' }),
-      /no account  in this environment/,
-    );
-    // Nothing beyond the account list was asked - an empty name never reads
-    // every account the way an absent one does.
-    assert.deepEqual(environment.asked, [ACCOUNTS_PATH]);
+    await assert.rejects(backfill({ ask: environment.ask, only: '' }), /no account/);
+    // The listing was never asked for, and neither tenant-a nor tenant-b was
+    // - an empty name is taken as a name in its own right, never as "none".
+    assert.deepEqual(environment.asked, [`${ACCOUNTS_PATH}/`]);
   });
 });
 

@@ -144,19 +144,27 @@ export async function backfill({ ask, only, batch, stopAfter, say = () => {} }) 
   return { accounts: done, read };
 }
 
-/** The accounts this run covers, from the environment rather than from whoever typed the command. */
+/**
+ * The accounts this run covers.
+ *
+ * **One named with `--user` is taken on trust, not checked against the
+ * listing.** The listing leaves the guest account out (below), which is a
+ * fact about what an unnamed run should walk, not about which accounts this
+ * environment actually holds - checking a named account against it would
+ * refuse the one escape hatch naming the guest account by hand is supposed to
+ * be. An account that does not exist is refused where it already has to be
+ * refused anyway: by the route itself, the same 404 a mistyped name meets for
+ * every other account.
+ */
 async function accountsToWalk(ask, only) {
+  if (only !== undefined) return [only];
   const answer = await ask(ACCOUNTS_PATH);
   if (!answer || !Array.isArray(answer.accounts)) {
     throw new Error(
       'reading the list of accounts got an answer that is not one - is something in front of this environment?',
     );
   }
-  if (only === undefined) return answer.accounts;
-  if (!answer.accounts.includes(only)) {
-    throw new Error(`no account ${only} in this environment - it holds ${listed(answer.accounts)}`);
-  }
-  return [only];
+  return answer.accounts;
 }
 
 /** Where one batch of one account's unread notes is asked for. */
@@ -217,10 +225,6 @@ export function describeProgress(done) {
   const went = done.filter((one) => one.read > 0 || one.finished);
   if (went.length === 0) return 'Nothing was read.';
   return `Read so far: ${went.map((one) => `${one.account} (${one.read})`).join(', ')}.`;
-}
-
-function listed(names) {
-  return names.length ? names.join(', ') : 'no accounts at all';
 }
 
 /**
