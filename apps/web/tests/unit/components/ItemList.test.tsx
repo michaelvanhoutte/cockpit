@@ -792,32 +792,24 @@ describe('Panels', () => {
 
       expect(held.mutate).not.toHaveBeenCalled();
     });
-  });
 
-  describe('moving a row a step sends the same order a drag would', () => {
-    it.each([
-      { situation: 'down from the first', row: 'Reply to Bart', entry: 'Move down' },
-      { situation: 'up from the last', row: 'Renew the domain', entry: 'Move up' },
-    ])('$situation', async ({ row, entry }) => {
+    it('reorders a row dropped elsewhere in its own panel as an add, not a move', async () => {
+      // jsdom carries no pointer position through a drop event (see
+      // `dropOnto`, above), so every drop resolves to the gap before the
+      // first row - which is nowhere to go for the first row itself, but a
+      // real move for any other one.
       const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
       held.items = [BART, other];
       held.filings = [
         { panelId: 'p-falcon', itemId: BART.id, position: 0 },
         { panelId: 'p-falcon', itemId: other.id, position: 1 },
       ];
-      const user = await showList({
-        items: [BART, other],
-        openDashboardId: TODAY.id,
-        panelId: 'p-falcon',
-      });
+      await showList({ items: [BART, other], openDashboardId: TODAY.id, panelId: 'p-falcon' });
 
-      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes(row))!;
-      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: entry }));
+      await dropOnTheList(other.id);
 
-      // Either way round, the two swap - and it is an *add*, not a move: a
-      // move takes the item off every other panel showing it, which reordering
-      // a row inside this one must not do.
+      // A move takes the item off every other panel showing it, which
+      // reordering a row inside this one must not do.
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'add_item_to_panel',
@@ -827,32 +819,11 @@ describe('Panels', () => {
       );
     });
 
-    it.each([
-      { situation: 'the first row cannot go up', row: 'Reply to Bart', entry: 'Move up' },
-      { situation: 'the last row cannot go down', row: 'Renew the domain', entry: 'Move down' },
-    ])('$situation', async ({ row, entry }) => {
-      const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
-      held.items = [BART, other];
-      const user = await showList({
-        items: [BART, other],
-        openDashboardId: TODAY.id,
-        panelId: 'p-falcon',
-      });
-
-      const theRow = screen.getAllByRole('listitem').find((li) => li.textContent?.includes(row))!;
-      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
-      // Said out loud rather than gone, and choosing it does nothing.
-      const said = await screen.findByRole('menuitem', { name: new RegExp(`^${entry}: `) });
-      await user.click(said);
-
-      expect(held.mutate).not.toHaveBeenCalled();
-    });
-
     it('counts the rows the panel draws, not the ones it only holds', async () => {
       // A filing outlives its item being finished, so a panel can hold a row it
       // does not draw. Counting a move among the held order instead of the
-      // drawn one made Move down on the first visible row rewrite the stored
-      // order and change nothing on the screen.
+      // drawn one made a row dragged to the front rewrite the stored order and
+      // change nothing on the screen.
       const finished = anItem('11111111-1111-7111-8111-000000000007', 'Already handled');
       finished.completedAt = '2026-08-31T09:00:00.000Z';
       const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
@@ -862,35 +833,18 @@ describe('Panels', () => {
         { panelId: 'p-falcon', itemId: BART.id, position: 1 },
         { panelId: 'p-falcon', itemId: other.id, position: 2 },
       ];
-      const user = await showList({
-        items: [BART, other],
-        openDashboardId: TODAY.id,
-        panelId: 'p-falcon',
-      });
+      await showList({ items: [BART, other], openDashboardId: TODAY.id, panelId: 'p-falcon' });
 
-      const theRow = screen
-        .getAllByRole('listitem')
-        .find((li) => li.textContent?.includes('Reply to Bart'))!;
-      await user.click(within(theRow).getByRole('button', { name: 'Item actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Move down' }));
+      await dropOnTheList(other.id);
 
-      // Past the row below it on the screen, and the row nobody can see stays
-      // where it was.
+      // Ahead of the row it passed on the screen, and the row nobody can see
+      // stays where it was.
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({ order: [finished.id, other.id, BART.id] }),
         }),
         expect.anything(),
       );
-    });
-
-    it('does not offer the moves in the Inbox, which is by age', async () => {
-      const user = await showList({ openDashboardId: null, panelId: null });
-
-      await user.click(screen.getByRole('button', { name: 'Item actions' }));
-
-      expect(screen.queryByRole('menuitem', { name: /^Move up/ })).toBeNull();
-      expect(screen.queryByRole('menuitem', { name: /^Move down/ })).toBeNull();
     });
   });
 });

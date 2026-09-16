@@ -12,7 +12,6 @@ import {
   workspacesQuery,
 } from '../api/queries';
 import { litForChrome } from '../chrome';
-import { movedBy } from '../reorder';
 import { useTabDrag } from '../tabDrag';
 import { DeleteQuestion } from './DeleteQuestion';
 import { SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
@@ -313,30 +312,12 @@ export function WorkspaceTabs({
     setSaveRefusal(null);
   };
 
-  /**
-   * What can be done to this workspace. Move up and Move down were the window's
-   * words for a list; these are a strip, so they are left and right - and at
-   * either end the entry stays, unavailable, saying why, rather than
-   * disappearing: it is the only way a keyboard has to move a tab, and the
-   * comfortable one on a phone.
-   */
-  const entriesFor = (ws: Workspace, at: number): MenuEntry[] => [
+  /** What can be done to this workspace. */
+  const entriesFor = (ws: Workspace): MenuEntry[] => [
     // One entry for changing a workspace rather than a Rename beside it: the
     // form is what renames, and two ways to reach the same box is one more
     // thing to choose between.
     { label: 'Edit…', onSelect: (from) => startEditing(ws, from) },
-    {
-      label: 'Move left',
-      keepsFocus: true,
-      unavailable: at === 0 ? 'It is already the first' : undefined,
-      onSelect: () => move(ws.id, movedBy(order, ws.id, -1)),
-    },
-    {
-      label: 'Move right',
-      keepsFocus: true,
-      unavailable: at === order.length - 1 ? 'It is already the last' : undefined,
-      onSelect: () => move(ws.id, movedBy(order, ws.id, 1)),
-    },
     { label: 'Delete', destructive: true, onSelect: (from) => startDeleting(ws, from) },
   ];
 
@@ -356,10 +337,10 @@ export function WorkspaceTabs({
         aria-label="Workspaces"
         className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {shown.map((ws, at) => {
+        {shown.map((ws) => {
           const here = ws.id === params.workspaceId;
           return (
-            <SurfaceMenu key={ws.id} label={`Actions for ${ws.name}`} entries={entriesFor(ws, at)}>
+            <SurfaceMenu key={ws.id} label={`Actions for ${ws.name}`} entries={entriesFor(ws)}>
               <Link
                 ref={here ? bringIntoView : undefined}
                 to="/w/$workspaceId"

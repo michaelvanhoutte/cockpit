@@ -211,13 +211,11 @@ test.describe('Workspace management', () => {
 
   test.describe('a workspace you move is where you put it in the tabs', () => {
     /**
-     * F3 for both halves, for different reasons. The menu's half has to be
-     * proved in the *header*: what the entry sends is settled in
-     * apps/web/tests/unit/components/WorkspaceTabs.test.tsx, and that the
-     * server keeps the order in apps/api/tests/integration/http. The drag
-     * exists nowhere below a browser at all - where the pointer is over the
-     * strip is measured from the tabs' rectangles, and jsdom has no layout
-     * engine to give it any.
+     * F3, and the drag exists nowhere below a browser at all - where the
+     * pointer is over the strip is measured from the tabs' rectangles, and
+     * jsdom has no layout engine to give it any. What the drag's answer does
+     * is settled in apps/web/tests/unit/components/WorkspaceTabs.test.tsx, and
+     * that the server keeps the order in apps/api/tests/integration/http.
      *
      * Two workspaces of this walk's own, for the reason every spec here makes
      * its own: the run shares one database, so a walk that moved a seeded
@@ -240,27 +238,10 @@ test.describe('Workspace management', () => {
       return [first, second];
     }
 
-    test('moves it in the tabs, from the tab’s own menu', async ({ page, isMobile }) => {
-      const [first, second] = await twoOfMyOwn(page, isMobile);
-
-      await chooseTabAction(page, workspaceTab(page, second), 'Move left', isMobile);
-
-      await expect
-        .poll(async () => {
-          const tabs = await workspaceTabs(page);
-          return tabs.indexOf(second) - tabs.indexOf(first);
-        })
-        .toBe(-1);
-      await expectNoSidewaysScroll(page);
-
-      for (const name of [first, second]) await deleteWorkspace(page, name, isMobile);
-    });
-
     /**
-     * The pointer's half, and the phone project deliberately skips it: an
-     * HTML5-less pointer drag is a mouse gesture, and the way a finger moves a
-     * tab is the menu above. Playwright's touchscreen can tap and nothing
-     * else, so a finger drag cannot be expressed here at all.
+     * Desktop only: dragging a tab is a mouse gesture with no keyboard or
+     * touch alternative any more. Playwright's touchscreen can tap and
+     * nothing else, so a finger drag cannot be expressed here at all.
      */
     test('moves it in the tabs when the tab is dragged over another', async ({
       page,

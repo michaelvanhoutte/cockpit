@@ -14,7 +14,6 @@ import {
   drawnRows,
   layoutToDraw,
   movedBeside,
-  movedBy,
   sameArrangement,
   sharesOf,
   withRowHeight,
@@ -882,19 +881,6 @@ export function PanelBoard({
                           workspaceId={workspaceId}
                           items={itemsOnPanel(items, filings, panel.id)}
                           nothingFiledYet={filings.length === 0}
-                          sideBySide={row.cells.length > 1}
-                          // Nowhere left to go, which is not the same as being
-                          // at the end of a row: a panel at the end of a row it
-                          // *shares* can still move onto a line of its own
-                          // beyond it, and that is the only way a keyboard has
-                          // of making a row. Only a panel alone on the first or
-                          // last line has run out of places.
-                          first={rowIndex === 0 && at === 0 && row.cells.length === 1}
-                          last={
-                            rowIndex === shown.length - 1 &&
-                            at === row.cells.length - 1 &&
-                            row.cells.length === 1
-                          }
                           renaming={renaming?.id === panel.id ? renaming.name : null}
                           onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
                           onStartRenaming={() => {
@@ -915,7 +901,6 @@ export function PanelBoard({
                             askedFrom.current = openedFrom;
                             setDeleting(panel.id);
                           }}
-                          onMove={(places) => propose(movedBy(shown, panel.id, places))}
                           canMoveToAnotherDashboard={otherDashboards.length > 0}
                           onMoveToAnotherDashboard={(openedFrom) => {
                             command.reset();

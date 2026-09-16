@@ -672,91 +672,6 @@ describe('Panels', () => {
       expect(screen.getByRole('region', { name: 'To read' })).toBeVisible();
     });
 
-    it.each([
-      { situation: 'towards the front', entry: 'Move left', order: ['reading', 'falcon'] },
-      { situation: 'towards the back', entry: 'Move right', order: ['reading', 'falcon'] },
-    ])('moves it $situation', async ({ entry, order }) => {
-      // "Move right" on the first panel and "Move left" on the second both swap
-      // this pair, which is what makes one expected order right for both.
-      const { user, mutate } = showBoard();
-      const panel = entry === 'Move left' ? 'To read' : 'Project Falcon';
-
-      await choose(user, panel, entry);
-
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('save_layout');
-      expect(sentOrder(mutate)).toEqual(order);
-    });
-
-    it('offers a panel sharing a row the move that puts it on a line of its own', async () => {
-      // The only way a keyboard has of making a row, and it was unreachable:
-      // marking the first cell of the first row as having nowhere to go made
-      // both ends of a single-row dashboard unavailable, so a dashboard with
-      // one row could never be split without a pointer.
-      const { user, mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
-      });
-
-      await choose(user, 'Project Falcon', 'Move left');
-
-      expect(sentRows(mutate)).toEqual([['falcon'], ['reading']]);
-    });
-
-    it('says so when a panel alone on the only row has nowhere left to go', () => {
-      showBoard({
-        panels: [aPanel('falcon', 'Project Falcon')],
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
-      });
-
-      openMenu('Project Falcon');
-
-      expect(
-        screen.getByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
-      ).toHaveAttribute('aria-disabled', 'true');
-    });
-
-    it('leaves the focus on the panel’s own menu, which is where the next move is chosen', async () => {
-      // Moving opens nothing, so there is nowhere else for the focus to go -
-      // and these are the entries somebody presses three times in a row.
-      // Dropped to the top of the page between two presses is losing your
-      // place on the dashboard.
-      const { user } = showBoard();
-
-      await choose(user, 'To read', 'Move left');
-
-      expect(handleOf('To read')).toHaveFocus();
-    });
-
-    it('says so rather than doing nothing when a panel has nowhere left to go', async () => {
-      // Offered and chosen and nothing happens is indistinguishable from
-      // broken - and on a dashboard with no layout it is worse than nothing,
-      // because a change that moves no panel would still record a layout for
-      // this screen out of a gesture that arranged nothing.
-      const { user, mutate } = showBoard({
-        panels: [aPanel('falcon', 'Project Falcon')],
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
-      });
-
-      openMenu('Project Falcon');
-      await user.click(
-        await screen.findByRole('menuitem', { name: /Move up: This panel is already at the top/ }),
-      );
-
-      expect(mutate).not.toHaveBeenCalled();
-    });
-
-    it('names the move after the direction the screen actually goes in', () => {
-      // On a screen only one panel wide the panels are stacked, so "Move left"
-      // would name a direction nothing goes in.
-      screenIs(480);
-      showBoard();
-
-      openMenu('To read');
-
-      expect(screen.getByRole('menuitem', { name: 'Move up' })).toBeVisible();
-      expect(screen.queryByRole('menuitem', { name: 'Move left' })).toBeNull();
-    });
-
     it.each(['Wider', 'Narrower', 'Taller', 'Shorter'])(
       'offers no %s, resizing being the corner grip’s alone',
       (gone) => {
@@ -768,8 +683,8 @@ describe('Panels', () => {
 
         expect(screen.queryByRole('menuitem', { name: new RegExp(`^${gone}`) })).toBeNull();
         // And the count, so they cannot come back under other words: rename,
-        // the two moves, move to another dashboard, delete.
-        expect(screen.getAllByRole('menuitem')).toHaveLength(5);
+        // move to another dashboard, delete.
+        expect(screen.getAllByRole('menuitem')).toHaveLength(3);
       },
     );
   });
@@ -851,9 +766,9 @@ describe('Panels', () => {
         layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
       },
     ])('changes the layout on screen when $situation', async ({ layouts }) => {
-      const { user, mutate } = showBoard({ layouts });
+      const { mutate } = showBoard({ layouts });
 
-      await choose(user, 'To read', 'Move left');
+      dragTo('To read', slotBefore('falcon'));
 
       expect(screen.queryByRole('alertdialog')).toBeNull();
       const [asked] = mutate.mock.calls[0]!;
@@ -867,9 +782,9 @@ describe('Panels', () => {
       // makes one called Default where it has none at all (`save_layout`,
       // `screenSizeId`). The board asks nothing about either.
       screenIs(1280);
-      const { user, mutate } = showBoard();
+      const { mutate } = showBoard();
 
-      await choose(user, 'To read', 'Move left');
+      dragTo('To read', slotBefore('falcon'));
 
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('save_layout');
@@ -884,10 +799,10 @@ describe('Panels', () => {
       // Left in flight, which is the state two quick gestures happen in: the
       // first is sent and not yet re-read, so the second still finds a
       // dashboard with no layout.
-      const { user, mutate } = showBoard({ settles: false });
+      const { mutate } = showBoard({ settles: false });
 
-      await choose(user, 'To read', 'Move left');
-      await choose(user, 'To read', 'Move right');
+      dragTo('To read', slotBefore('falcon'));
+      dragTo('Project Falcon', slotBefore('reading'));
 
       expect(mutate).toHaveBeenCalledTimes(2);
       const [first] = mutate.mock.calls[0]!;
@@ -900,13 +815,13 @@ describe('Panels', () => {
       // is the arrangement the first one made and the snapshot in hand does not
       // have yet. Measured against the snapshot it would look like no change at
       // all, and the move would be silently dropped.
-      const { user, mutate } = showBoard({
+      const { mutate } = showBoard({
         layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
         settles: false,
       });
 
-      await choose(user, 'To read', 'Move left');
-      await choose(user, 'To read', 'Move right');
+      dragTo('To read', slotBefore('falcon'));
+      dragTo('Project Falcon', slotBefore('reading'));
 
       expect(mutate).toHaveBeenCalledTimes(2);
       expect(sentOrder(mutate)).toEqual(['falcon', 'reading']);
@@ -1426,12 +1341,12 @@ describe('Panels', () => {
       //
       // Reachable: two tabs on a dashboard with no layout, both on a screen of
       // the same size, both dragging - the second is refused for the name.
-      const { user } = showBoard({
+      showBoard({
         error: new CommandRefused(409, 'a layout called Wide already arranges this dashboard'),
         variables: { name: 'save_layout', payload: {} },
       });
 
-      await choose(user, 'To read', 'Move left');
+      dragTo('To read', slotBefore('falcon'));
 
       expect(screen.getByRole('alert')).toHaveTextContent('a layout called Wide already arranges');
       expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'To read']);
@@ -1439,14 +1354,14 @@ describe('Panels', () => {
 
     it('says a refused arrangement above the board, which is the only place it belongs', async () => {
       // Nothing asked for the arrangement in a box that could hold the answer -
-      // it came from a drag or a menu entry - so the board itself says it.
-      const { user } = showBoard({
+      // it came from a drag - so the board itself says it.
+      showBoard({
         layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
         error: new CommandRefused(404, 'panel reading is not on this dashboard'),
         variables: { name: 'save_layout', payload: {} },
       });
 
-      await choose(user, 'To read', 'Move left');
+      dragTo('To read', slotBefore('falcon'));
 
       expect(screen.getByRole('alert')).toHaveTextContent('panel reading is not on this dashboard');
     });
